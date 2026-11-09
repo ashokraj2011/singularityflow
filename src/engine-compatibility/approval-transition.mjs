@@ -38,7 +38,7 @@ import { requireApprovalAuthority, remainingRequiredAuthorities, sameApprover, e
 import { evaluateApprovalChecklist, resolvedSpecificationQualityPolicy, approvalChecklistPrompt } from '../specification-gate.mjs';
 import { loadActiveSpecRecords } from '../specifications.mjs';
 import { evaluateWitnessMappingReview } from '../wel-review.mjs';
-import { reviewBindings } from '../implementation-bindings.mjs';
+import { reviewBindings } from '../kernel/code-delivery-evidence.mjs';
 import { phaseUpstream } from '../phase-upstream.mjs';
 import { decisionOutcome, describeOutcome } from '../workflow-decisions.mjs';
 import { recordPhaseApprovalState } from '../kernel/lifecycle-transitions.mjs';

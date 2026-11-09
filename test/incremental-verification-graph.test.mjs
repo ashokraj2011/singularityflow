@@ -49,6 +49,7 @@ test('changing an extracted source-analysis owner invalidates persisted verifica
     assert.equal(child.status,0,child.error?.message??child.stderr);return JSON.parse(child.stdout);};
   const baseline=capture('');assert.equal(baseline.matched,0);
   for(const target of ['src/kernel/javascript-declarations.mjs','src/kernel/source-comments.mjs','src/kernel/verification-policy.mjs',
+    'src/kernel/code-documentation.mjs','src/kernel/polyglot-lexical.mjs',
     'src/foundation/traceability-ids.mjs','src/engine-compatibility/node-source-analysis.mjs']){
     const changed=capture(target);assert.ok(changed.matched>0,target+' must be read by the real fingerprint owner');
     assert.notEqual(changed.fingerprint,baseline.fingerprint,target+' must invalidate the persisted cache');

@@ -31,6 +31,43 @@ export declare function acceptanceTagsInComment(text:unknown):string[];
 export declare function adjacentWhitespace(text:unknown):boolean;
 export declare function acceptanceTagsAboveLine(lines:readonly unknown[],lineIndex:number):{clauseIds:string[];firstCommentLine:number|null};
 export declare function acceptanceTagLines(source:unknown):{clauseId:string;line:number}[];
+/** Exact-region/explanation values do not authenticate their inputs or record approval. */
+export interface ImplementationChange {readonly oldPath:string|null;readonly newPath:string|null;readonly status:string;readonly untracked?:boolean;readonly [key:string]:unknown}
+export interface ImplementationChangeSet {readonly entries:readonly ImplementationChange[];readonly [key:string]:unknown}
+export interface ImplementationObligation {readonly clauseId:string;readonly expectedPaths:readonly string[]}
+export interface ImplementationTag {readonly clauseId:string;readonly sourcePath:string;readonly line:number|null;readonly tag:string}
+export interface ImplementationHunk {readonly beforeStart:number|null;readonly beforeLines:number|null;readonly afterStart:number|null;readonly afterLines:number|null}
+export interface PublicDeclaration {readonly line:number;readonly kind:string;readonly name:string;readonly documented:boolean}
+export interface ImplementationRegion {readonly path:string;readonly change:'deleted'|'added'|'renamed'|'modified';readonly hunks:readonly ImplementationHunk[];
+  readonly symbols:readonly Pick<PublicDeclaration,'name'|'kind'|'line'>[];readonly symbolAssurance:'heuristic'|'unsupported-language'}
+export interface ImplementationBinding {readonly clauseId:string;readonly explanation:null|{readonly text:string;readonly path:string;readonly line:number};readonly regions:readonly ImplementationRegion[]}
+export interface ImplementationBindingResult {readonly bindings:readonly ImplementationBinding[];readonly bindingsSha256:string;readonly problems:readonly string[];
+  readonly problemFindings:readonly {readonly code:string;readonly path:string|null;readonly value:string}[];
+  readonly explanationsMissing:readonly {readonly clauseId:string;readonly path:string|null;readonly line:number|null}[]}
+export interface ImplementationDiffPreview {readonly files?:readonly {readonly pathAfter?:string|null;readonly pathBefore?:string|null;readonly hunks?:readonly ImplementationHunk[]}[]}
+export type ImplementationBindingRequest=Readonly<{kind:'implementation-diff-preview';changeSet:ImplementationChangeSet;contextLines:0;paths:readonly string[]}>
+  |Readonly<{kind:'implementation-source';path:string;maximumBytes:2097152}>;
+export interface ImplementationBindingValues {
+  implementationBindingsReplay(input:{readonly changeSet:ImplementationChangeSet|null;readonly required?:readonly ImplementationObligation[];readonly tags?:readonly ImplementationTag[]}):Generator<ImplementationBindingRequest,ImplementationBindingResult,ImplementationDiffPreview|string|null>;
+  bindingsDigest(bindings?:readonly ImplementationBinding[]):string;
+}
+export declare function implementationBindingPolicies(paths:VerificationPathSyntax,digests:SpecificationDigests):Readonly<ImplementationBindingValues>;
+export declare const EXPLANATION_LIMITS:Readonly<{minimum:10;maximum:300}>;
+export declare function clauseTagExplanation(line:unknown,clauseId:unknown):string|null;
+export declare const BINDING_DECISIONS:readonly ('accepted'|'accepted-with-exception')[];
+export interface ImplementationBindingDecision {readonly clauseId:string;readonly decision:'accept'|'exception';readonly reason?:string}
+export declare function reviewBindings(submitted:{readonly bindings:readonly ImplementationBinding[];readonly bindingsSha256:string}|null,
+  requested?:readonly ImplementationBindingDecision[]):null|{bindingsSha256:string;decisions:{clauseId:string;decision:'accepted'|'accepted-with-exception';reason?:string}[]};
+export interface CodeDocumentationValues {documentationLanguage(filePath:unknown):string|null;unsupportedSourceLanguage(filePath:unknown):boolean}
+export declare function codeDocumentationPolicies(paths:VerificationPathSyntax):Readonly<CodeDocumentationValues>;
+export declare function publicDeclarations(source:string,language:string|null):PublicDeclaration[];
+export declare function changedDeclarations(declarations:readonly PublicDeclaration[],changedLines:Iterable<number>,sourceLines:readonly string[]|number):PublicDeclaration[];
+export declare const POLYGLOT_STRUCTURAL_LANGUAGES:readonly string[];
+export declare function maskPolyglotNonCode(source:string,language:string):string;
+export declare function extractPolyglotSymbols(source:string,language:string):{kind:string;name:string;line:number}[];
+export declare function extractPolyglotImports(source:string,language:string):{target:string;line:number}[];
+export interface PolyglotPathValues {resolvePolyglotLocal(from:string,target:string,language:string,knownPaths:Iterable<string>):string|null}
+export declare function polyglotPathPolicies(paths:VerificationPathSyntax&{readonly profile:typeof CONFIGURATION_PATH_SYNTAX_V2}):Readonly<PolyglotPathValues>;
 export interface ClauseVerification { readonly methods:readonly VerificationMethod[]; readonly criterionId:string|null }
 export interface SpecificationClause { readonly id:string; readonly namespace:string; readonly type:string; readonly number:number;
   readonly anchor:string; readonly source:{readonly path:string|null;readonly line:number}; readonly body:string;

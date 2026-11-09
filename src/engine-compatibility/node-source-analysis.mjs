@@ -1,7 +1,22 @@
 /** Optional Node digest binding for shared source analysis. No file/cache/process or provider I/O. */
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import {javascriptDeclarationPolicies} from '../kernel/javascript-declarations.mjs';
+import {NODE_CONFIGURATION_PATH_SYNTAX} from './node-configuration-path.mjs';
+import {codeDocumentationPolicies} from '../kernel/code-documentation.mjs';
+import {polyglotPathPolicies} from '../kernel/polyglot-lexical.mjs';
+import {implementationBindingPolicies} from '../kernel/code-delivery-evidence.mjs';
 const declarations=/* @__PURE__ */ javascriptDeclarationPolicies(NODE_TEXT_DIGESTS);
 export const scanJavaScriptDeclarations=/* @__PURE__ */ (()=>declarations.scanJavaScriptDeclarations)();
 export {JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScript,eachTitlePattern,analyzeTestDeclarationAssertions} from '../kernel/javascript-declarations.mjs';
 export {javascriptSourceComments,scanSourceClauseTags} from '../kernel/source-comments.mjs';
+const documentation=/* @__PURE__ */ codeDocumentationPolicies(NODE_CONFIGURATION_PATH_SYNTAX);
+export const documentationLanguage=/* @__PURE__ */ (()=>documentation.documentationLanguage)();
+export const unsupportedSourceLanguage=/* @__PURE__ */ (()=>documentation.unsupportedSourceLanguage)();
+const lexical=/* @__PURE__ */ polyglotPathPolicies(NODE_CONFIGURATION_PATH_SYNTAX);
+export const resolvePolyglotLocal=/* @__PURE__ */ (()=>lexical.resolvePolyglotLocal)();
+const bindings=/* @__PURE__ */ implementationBindingPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS);
+export const implementationBindingsReplay=/* @__PURE__ */ (()=>bindings.implementationBindingsReplay)();
+export const bindingsDigest=/* @__PURE__ */ (()=>bindings.bindingsDigest)();
+export {publicDeclarations,changedDeclarations} from '../kernel/code-documentation.mjs';
+export {POLYGLOT_STRUCTURAL_LANGUAGES,maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports} from '../kernel/polyglot-lexical.mjs';
+export {reviewBindings,BINDING_DECISIONS} from '../kernel/code-delivery-evidence.mjs';

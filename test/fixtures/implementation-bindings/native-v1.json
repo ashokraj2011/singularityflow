@@ -1,0 +1,4058 @@
+{
+  "nativeCommit": "ce0f19d2ea341f0b5e411a045ee94a25e1f920f6",
+  "sourceSha256": {
+    "src/implementation-bindings.mjs": "b6605c458ba6e91d413c4a70b6d43c1e543e6904fa1f4c49f89cf3ccc1f14f76",
+    "src/code-documentation.mjs": "92c4c7e6a611c4a80a0b185928390b81229f5aaea816b5937ec3cebbcdcb77ab",
+    "src/polyglot-lexical.mjs": "fcb25a1f46fd9db98e7e1390ed5430c460a1d5560f9b190c8570e042ca81962e"
+  },
+  "cases": [
+    {
+      "id": "modified",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:6cab5f40f569b23a397d5027ea23c856ecc63362ba6cf774bac6e23821e6c62e",
+                "bytes": 96
+              },
+              "changeId": "sha256:18488f8d4448e5c21fce14c9c49e98566876c8c110043a2874dea0049dbc9217"
+            }
+          ],
+          "digest": "sha256:40e9d627d36583ea3c0556655020eb123c8fb88e4cdca2fd815d524782c7538d"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:40e9d627d36583ea3c0556655020eb123c8fb88e4cdca2fd815d524782c7538d",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..941e8be 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1,2 @@\n-export function result(){return 1;}\n+// @clause:BIND:REQ-001 Returns the exact approved result.\n+export function result(){return 42;}\n",
+        "patchSha256": "sha256:62641a5a13cd35739a047349fd7a2510ebdcd5809dbfce49be26378335fb5a4c",
+        "bytes": 250,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:18488f8d4448e5c21fce14c9c49e98566876c8c110043a2874dea0049dbc9217",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 250,
+            "bytes": 250,
+            "patchSha256": "sha256:62641a5a13cd35739a047349fd7a2510ebdcd5809dbfce49be26378335fb5a4c",
+            "hunks": [
+              {
+                "header": "@@ -1 +1,2 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 2
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 Returns the exact approved result.\nexport function result(){return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/app.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:d546abdc492b22514ded5570e68ccbfdd81c64cb4d79ecebcd08ac57f4011123",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "added",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/app.js",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:6cab5f40f569b23a397d5027ea23c856ecc63362ba6cf774bac6e23821e6c62e",
+                "bytes": 96
+              },
+              "changeId": "sha256:32a219be9e9a08f6bb07830875f9e873704ebd82d62997792592170220be8967"
+            }
+          ],
+          "digest": "sha256:6876743ac25b9bc5ff0b7dddda8d758d8fed48d6150e55559318280cc9bc7fe7"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 Returns the exact approved result.\nexport function result(){return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/app.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:dc5a123c0cc0763555923b3b65f12bab6880e2c3161f0c3b49f1fc5b96e55154",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "staged-added",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/app.js",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": "941e8be20e8d07e8fd6d44ad9a5df82004099555",
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:6cab5f40f569b23a397d5027ea23c856ecc63362ba6cf774bac6e23821e6c62e",
+                "bytes": 96
+              },
+              "changeId": "sha256:990adf78c6a0adf4a97c9c964ef336c594ecce073b6f451b7d64f4c32d7058fa"
+            }
+          ],
+          "digest": "sha256:313461fd0affe12302b56e4cf8a0a03aa9792337971e260e4fd86d965505c3a3"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 Returns the exact approved result.\nexport function result(){return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/app.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:dc5a123c0cc0763555923b3b65f12bab6880e2c3161f0c3b49f1fc5b96e55154",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "deleted",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "deleted",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": null,
+              "oldMode": "100644",
+              "newMode": "000000",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": null,
+              "changeId": "sha256:cb3bccfdd1242e4c98088f8b1af4df75f6a64fb0055c8a11a9e34a92f0eff6a1"
+            }
+          ],
+          "digest": "sha256:2ce393f785a3b8a691f6e9a688ef63cd05b894f07e27ecb5a97bea1b131ca3a8"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": []
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:2ce393f785a3b8a691f6e9a688ef63cd05b894f07e27ecb5a97bea1b131ca3a8",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\ndeleted file mode 100644\nindex 464c6a5..0000000\n--- a/src/app.js\n+++ /dev/null\n@@ -1 +0,0 @@\n-export function result(){return 1;}\n",
+        "patchSha256": "sha256:02e35f1403f8a168e62a53c984aa1d3c5ef661f8d0788c3421d075365036ac31",
+        "bytes": 167,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:cb3bccfdd1242e4c98088f8b1af4df75f6a64fb0055c8a11a9e34a92f0eff6a1",
+            "operation": "deleted",
+            "pathBefore": "src/app.js",
+            "pathAfter": null,
+            "patchStart": 0,
+            "patchEnd": 167,
+            "bytes": 167,
+            "patchSha256": "sha256:02e35f1403f8a168e62a53c984aa1d3c5ef661f8d0788c3421d075365036ac31",
+            "hunks": [
+              {
+                "header": "@@ -1 +0,0 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 0,
+                "afterLines": 0
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": null
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": null,
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "deleted",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": null,
+                    "afterStart": 0,
+                    "afterLines": 0
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:a56eda1e2c92d90c97bb0f41cb7b3fd1aaada1f5b2a7fc9f2d1a78508cbab5db",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "renamed",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/renamed.js",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": "941e8be20e8d07e8fd6d44ad9a5df82004099555",
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:6cab5f40f569b23a397d5027ea23c856ecc63362ba6cf774bac6e23821e6c62e",
+                "bytes": 96
+              },
+              "changeId": "sha256:fab5f37cd998bde6ed161f306d2e59d4337abbbd1126d96d72c46ffab885c560"
+            },
+            {
+              "status": "deleted",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": null,
+              "oldMode": "100644",
+              "newMode": "000000",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": null,
+              "changeId": "sha256:cb3bccfdd1242e4c98088f8b1af4df75f6a64fb0055c8a11a9e34a92f0eff6a1"
+            }
+          ],
+          "digest": "sha256:f70f13846d71e9209d56e877f8b1c2febcd7f59f58059e1fd58e709dff505682"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/renamed.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/renamed.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/renamed.js": "// @clause:BIND:REQ-001 Returns the exact approved result.\nexport function result(){return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/renamed.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/renamed.js",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:155c0dc2c76f167d44453fbe8fce02fcc7b9d2c37704af343dc5b7f61c047016",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "empty",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/app.js",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "bytes": 0
+              },
+              "changeId": "sha256:ed810350bc2f2e25593460c965cbf44335860be93cf2e1522e3900087ae6099f"
+            }
+          ],
+          "digest": "sha256:cc64c63e8a6a5617633085d9bac481cafcb203ec7a14eebe9906f35c212101c9"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": []
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/app.js": ""
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": null,
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 0
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:27fe4b8e921c18b6438424df7010019c06bcb6cfedaaf4bd3e13277738b607d0",
+        "problems": [
+          "BIND:REQ-001 needs an explanation of how the change meets it, after its @clause tag (10 to 300 characters)"
+        ],
+        "problemFindings": [
+          {
+            "code": "code.delivery.clause-explanation-missing",
+            "path": null,
+            "value": "BIND:REQ-001"
+          }
+        ],
+        "explanationsMissing": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "path": null,
+            "line": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "no-explanation",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:a9126d1f333818f4122aafea1edb6be8ae02801fc0ed522bb7b31da0d9d66df5",
+                "bytes": 48
+              },
+              "changeId": "sha256:7169ac3c8a8e3422c6cb65a5976059a02379edacf5525e7e0cbf0a0aa3349d9c"
+            }
+          ],
+          "digest": "sha256:7f54662e12a918fd1be6f91ad3e92b7cdf9f41d92548ba5076795225146e3d41"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:7f54662e12a918fd1be6f91ad3e92b7cdf9f41d92548ba5076795225146e3d41",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..78ca20e 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1,2 @@\n-export function result(){return 1;}\n+// @clause:BIND:REQ-001\n+export const result=42;\n",
+        "patchSha256": "sha256:6f0782293d1ae6f8587101f1efac9914a0d5db887622ed0810a283434d30144f",
+        "bytes": 202,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:7169ac3c8a8e3422c6cb65a5976059a02379edacf5525e7e0cbf0a0aa3349d9c",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 202,
+            "bytes": 202,
+            "patchSha256": "sha256:6f0782293d1ae6f8587101f1efac9914a0d5db887622ed0810a283434d30144f",
+            "hunks": [
+              {
+                "header": "@@ -1 +1,2 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 2
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001\nexport const result=42;\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": null,
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:602c39ec3841a8b659336a28f9c27f37aca43275bce638918bbc95285f5e7702",
+        "problems": [
+          "BIND:REQ-001 needs an explanation of how the change meets it, after its @clause tag in src/app.js:1 (10 to 300 characters)"
+        ],
+        "problemFindings": [
+          {
+            "code": "code.delivery.clause-explanation-missing",
+            "path": "src/app.js",
+            "value": "BIND:REQ-001"
+          }
+        ],
+        "explanationsMissing": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "path": "src/app.js",
+            "line": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "short-explanation",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:02da6b1be478eb3049589fda90fcb3cebacf244e3a444627c092db9200e94823",
+                "bytes": 58
+              },
+              "changeId": "sha256:b96c7a27b1b984b8108506220ea3d46a4fb1a3d07c340099ee0f52afcea89fec"
+            }
+          ],
+          "digest": "sha256:a9ebcafb55ded4b09daf2f9b0cabd6edb5c75dd6cf4617a24d6a6d47cad937f3"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:a9ebcafb55ded4b09daf2f9b0cabd6edb5c75dd6cf4617a24d6a6d47cad937f3",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..2a98e84 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1,2 @@\n-export function result(){return 1;}\n+// @clause:BIND:REQ-001 too short\n+export const result=42;\n",
+        "patchSha256": "sha256:4ac9cc8f15ed528f12f41356b82dca28a4070c3f18041e78a530d54a40d3b297",
+        "bytes": 212,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:b96c7a27b1b984b8108506220ea3d46a4fb1a3d07c340099ee0f52afcea89fec",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 212,
+            "bytes": 212,
+            "patchSha256": "sha256:4ac9cc8f15ed528f12f41356b82dca28a4070c3f18041e78a530d54a40d3b297",
+            "hunks": [
+              {
+                "header": "@@ -1 +1,2 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 2
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 too short\nexport const result=42;\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": null,
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:602c39ec3841a8b659336a28f9c27f37aca43275bce638918bbc95285f5e7702",
+        "problems": [
+          "BIND:REQ-001 needs an explanation of how the change meets it, after its @clause tag in src/app.js:1 (10 to 300 characters)"
+        ],
+        "problemFindings": [
+          {
+            "code": "code.delivery.clause-explanation-missing",
+            "path": "src/app.js",
+            "value": "BIND:REQ-001"
+          }
+        ],
+        "explanationsMissing": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "path": "src/app.js",
+            "line": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-explanation",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:ed65aa362f8672d82502a46960ac674bdbed0833097a1b2b605edb718cd7fa65",
+                "bytes": 679
+              },
+              "changeId": "sha256:0cefd0c710776d821fac94b124f47da2a6d20f626d3dd0a2f559387babfae316"
+            }
+          ],
+          "digest": "sha256:ed965c58d3cfa4b3564615fce30c07cbb5362f3eaaa6bd605289d31f818a8c99"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:ed965c58d3cfa4b3564615fce30c07cbb5362f3eaaa6bd605289d31f818a8c99",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..a20fed8 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1,2 @@\n-export function result(){return 1;}\n+// @clause:BIND:REQ-001 A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. \n+export const result=42;\n",
+        "patchSha256": "sha256:29e2d0989c379bccba870ca42dc3305f65a66e4953cf702785c6e6f10cea0875",
+        "bytes": 833,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:0cefd0c710776d821fac94b124f47da2a6d20f626d3dd0a2f559387babfae316",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 833,
+            "bytes": 833,
+            "patchSha256": "sha256:29e2d0989c379bccba870ca42dc3305f65a66e4953cf702785c6e6f10cea0875",
+            "hunks": [
+              {
+                "header": "@@ -1 +1,2 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 2
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. \nexport const result=42;\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A meaningful result. A mean",
+              "path": "src/app.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:595dffff47df2eaa1a79aed39ae145e3082e9fe6c3cce5147d37b43ab3583d5b",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "crlf",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:1b6e4761a6343cd9ffe0d3706b80a28c1581df0e468aec73f11161d1620f7db3",
+                "bytes": 98
+              },
+              "changeId": "sha256:28dad63ab935e58de0ac7abb1d786218d1e118ba609921d56a8b499bca66b90f"
+            }
+          ],
+          "digest": "sha256:a900dc15cd1fe6705271931b4e225b592f54bf51cd083f877d51130a2daaf555"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:a900dc15cd1fe6705271931b4e225b592f54bf51cd083f877d51130a2daaf555",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..351567a 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1,2 @@\n-export function result(){return 1;}\n+// @clause:BIND:REQ-001 Returns the exact approved result.\r\n+export function result(){return 42;}\r\n",
+        "patchSha256": "sha256:c8d72d9f95bc07ad6b46efe91b63c4520481b8da6abc5f8a91f1576930b77b88",
+        "bytes": 252,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:28dad63ab935e58de0ac7abb1d786218d1e118ba609921d56a8b499bca66b90f",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 252,
+            "bytes": 252,
+            "patchSha256": "sha256:c8d72d9f95bc07ad6b46efe91b63c4520481b8da6abc5f8a91f1576930b77b88",
+            "hunks": [
+              {
+                "header": "@@ -1 +1,2 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 2
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 Returns the exact approved result.\r\nexport function result(){return 42;}\r\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/app.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:d546abdc492b22514ded5570e68ccbfdd81c64cb4d79ecebcd08ac57f4011123",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "jsx",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/App.jsx",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:b23b050e8371679cf2a225495b5c7aca06d2dfad62c5d7cd1cada004c5107178",
+                "bytes": 102
+              },
+              "changeId": "sha256:539eb491c553cdd907acb0ea3b115108a69634fc22429881e033e01eb410f9a8"
+            }
+          ],
+          "digest": "sha256:ac68705a2bcb820fb2baffafe03739e149ab9bc232154f0c53a96c7eabc8ca7f"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/App.jsx"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/App.jsx",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/App.jsx": "export const View=()=> <div>{/* @clause:BIND:REQ-001 Displays the approved result */}<p>42</p></div>;\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Displays the approved result",
+              "path": "src/App.jsx",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/App.jsx",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 1
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "View",
+                    "kind": "function",
+                    "line": 1
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:620cdedbd7c554c821e4b31e795817ef224e9d101180ed659914d3188f4c1a9b",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "declaration-file",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/app.d.ts",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:295f60252d0a96aadea9fdbb57ecaf7315d152074322968034c56866ba74c00c",
+                "bytes": 96
+              },
+              "changeId": "sha256:feed907f0b829ee8d3c42adb1d0a7b86554f490ffa1c229fe00fc91f2a211fcc"
+            }
+          ],
+          "digest": "sha256:1b61d4a1ebf567d1e87ec3ffbb721e0b33ef9d25725425e7307b284107978f92"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.d.ts"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.d.ts",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/app.d.ts": "// @clause:BIND:REQ-001 Describes the approved result.\nexport declare function result():number;\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Describes the approved result.",
+              "path": "src/app.d.ts",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.d.ts",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "unsupported-language"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:119e4a26093006b3b35297daae8dea7cc92e65cf461310023ad3c76a5ae9dca8",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "missing-file",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [],
+          "digest": "sha256:2dc941af4e4fe9abc1da0917314ce16decfafa0ec75b2ca25f2af41927c3ff32"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/missing.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/missing.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/missing.js": null
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": null,
+            "regions": []
+          }
+        ],
+        "bindingsSha256": "sha256:2bb5f6c688a72ae7dc565ccf278f9e69796e4c86c9bc5bcb2c9bc9bc33e0b569",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "tag-in-another-file",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/explanation.js",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:6cab5f40f569b23a397d5027ea23c856ecc63362ba6cf774bac6e23821e6c62e",
+                "bytes": 96
+              },
+              "changeId": "sha256:979d394106f03a0277eebe1e20070f917c977d19961e081f060247874be3e746"
+            },
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:e5b8e624665b2efd39efd2070c2e899aa1a862704ab140d97711b9329c7cede5",
+                "bytes": 24
+              },
+              "changeId": "sha256:f12d70416d4fa7a1fe8b414128ef5b55fef0cc6f3039838e4d6b93705eeae1a1"
+            }
+          ],
+          "digest": "sha256:8e0322d96c90ed0ff093fc755d0836564338db7d4d44bca8b2cb614827a79f5a"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/explanation.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:8e0322d96c90ed0ff093fc755d0836564338db7d4d44bca8b2cb614827a79f5a",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..886734e 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1 @@\n-export function result(){return 1;}\n+export const result=42;\n",
+        "patchSha256": "sha256:981a172cb259edbe8890f7c7e082bfaaabba0f158b15535f6ac23dd3d95bc894",
+        "bytes": 175,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 1,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:f12d70416d4fa7a1fe8b414128ef5b55fef0cc6f3039838e4d6b93705eeae1a1",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 175,
+            "bytes": 175,
+            "patchSha256": "sha256:981a172cb259edbe8890f7c7e082bfaaabba0f158b15535f6ac23dd3d95bc894",
+            "hunks": [
+              {
+                "header": "@@ -1 +1 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 1
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "export const result=42;\n",
+        "src/explanation.js": "// @clause:BIND:REQ-001 Returns the exact approved result.\nexport function result(){return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/explanation.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 1
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:28801797649b11730afc43c017a480cb6ee242f2cab62d08fb807de43a96869b",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "first-adequate-explanation",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:5e30d3c1ff93f316198d4212d94a733e62d58b8f068fee6900d0f3b60e0a66b0",
+                "bytes": 122
+              },
+              "changeId": "sha256:55fe44d0b6a69cffde8480ef07f688fa5ed93e5eccb3b98712b1c52076834510"
+            }
+          ],
+          "digest": "sha256:cb66fcf5f68b900f9c38874d1e679c32182c89598d5a3ec4ba5fa6c468fefe6f"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          },
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 2,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:cb66fcf5f68b900f9c38874d1e679c32182c89598d5a3ec4ba5fa6c468fefe6f",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..0548752 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1,3 @@\n-export function result(){return 1;}\n+// @clause:BIND:REQ-001 x\n+// @clause:BIND:REQ-001 Returns the exact approved result.\n+export function result(){return 42;}\n",
+        "patchSha256": "sha256:98029eedd6b1fb2f0176b9e59a48fce0beea527c65ac894d4a6aa6885773bfd6",
+        "bytes": 277,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:55fe44d0b6a69cffde8480ef07f688fa5ed93e5eccb3b98712b1c52076834510",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 277,
+            "bytes": 277,
+            "patchSha256": "sha256:98029eedd6b1fb2f0176b9e59a48fce0beea527c65ac894d4a6aa6885773bfd6",
+            "hunks": [
+              {
+                "header": "@@ -1 +1,3 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 3
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 x\n// @clause:BIND:REQ-001 Returns the exact approved result.\nexport function result(){return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/app.js",
+              "line": 2
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 3
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 3
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:dbb3e833d9fec1b296322fe478382bced30d55434fbe12c3c97e3db7f93399f6",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "duplicate-paths",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:6cab5f40f569b23a397d5027ea23c856ecc63362ba6cf774bac6e23821e6c62e",
+                "bytes": 96
+              },
+              "changeId": "sha256:18488f8d4448e5c21fce14c9c49e98566876c8c110043a2874dea0049dbc9217"
+            }
+          ],
+          "digest": "sha256:40e9d627d36583ea3c0556655020eb123c8fb88e4cdca2fd815d524782c7538d"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js",
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:40e9d627d36583ea3c0556655020eb123c8fb88e4cdca2fd815d524782c7538d",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..941e8be 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1,2 @@\n-export function result(){return 1;}\n+// @clause:BIND:REQ-001 Returns the exact approved result.\n+export function result(){return 42;}\n",
+        "patchSha256": "sha256:62641a5a13cd35739a047349fd7a2510ebdcd5809dbfce49be26378335fb5a4c",
+        "bytes": 250,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:18488f8d4448e5c21fce14c9c49e98566876c8c110043a2874dea0049dbc9217",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 250,
+            "bytes": 250,
+            "patchSha256": "sha256:62641a5a13cd35739a047349fd7a2510ebdcd5809dbfce49be26378335fb5a4c",
+            "hunks": [
+              {
+                "header": "@@ -1 +1,2 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 2
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 Returns the exact approved result.\nexport function result(){return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/app.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              },
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:2cf4f8f18c430fdb4ace1bec84034ae98fc63e8bd43d221d15e9287bddb2317a",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "sorted-obligations",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:6cab5f40f569b23a397d5027ea23c856ecc63362ba6cf774bac6e23821e6c62e",
+                "bytes": 96
+              },
+              "changeId": "sha256:18488f8d4448e5c21fce14c9c49e98566876c8c110043a2874dea0049dbc9217"
+            }
+          ],
+          "digest": "sha256:40e9d627d36583ea3c0556655020eb123c8fb88e4cdca2fd815d524782c7538d"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-002",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          },
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:40e9d627d36583ea3c0556655020eb123c8fb88e4cdca2fd815d524782c7538d",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..941e8be 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1,2 @@\n-export function result(){return 1;}\n+// @clause:BIND:REQ-001 Returns the exact approved result.\n+export function result(){return 42;}\n",
+        "patchSha256": "sha256:62641a5a13cd35739a047349fd7a2510ebdcd5809dbfce49be26378335fb5a4c",
+        "bytes": 250,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:18488f8d4448e5c21fce14c9c49e98566876c8c110043a2874dea0049dbc9217",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 250,
+            "bytes": 250,
+            "patchSha256": "sha256:62641a5a13cd35739a047349fd7a2510ebdcd5809dbfce49be26378335fb5a4c",
+            "hunks": [
+              {
+                "header": "@@ -1 +1,2 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 2
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "// @clause:BIND:REQ-001 Returns the exact approved result.\nexport function result(){return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the exact approved result.",
+              "path": "src/app.js",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          },
+          {
+            "clauseId": "BIND:REQ-002",
+            "explanation": null,
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:652f0abb942b89c46603b8a70640fa68d49c2da208a41878b820487102bfe7d9",
+        "problems": [
+          "BIND:REQ-002 needs an explanation of how the change meets it, after its @clause tag (10 to 300 characters)"
+        ],
+        "problemFindings": [
+          {
+            "code": "code.delivery.clause-explanation-missing",
+            "path": null,
+            "value": "BIND:REQ-002"
+          }
+        ],
+        "explanationsMissing": [
+          {
+            "clauseId": "BIND:REQ-002",
+            "path": null,
+            "line": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "two-hunks",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "701949e9e437a6a11c3d9bd5bfd62ce944e87f6b",
+            "tree": "248be5ca5f0815593389c6506263c1076e32f724"
+          },
+          "target": {
+            "head": "701949e9e437a6a11c3d9bd5bfd62ce944e87f6b",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "146c445a1446b07c52a11ad4d86095fcc8a1145e",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:5a9f5c80dad64a6bc21a3373c1ebed2bed01d3ea8dc8d527f9e9de3787b0ea92",
+                "bytes": 656
+              },
+              "changeId": "sha256:fea540e764e509117e68d55ee61e5836e96ef5ad6ce0ae557ca9a4aa3b57f0e0"
+            }
+          ],
+          "digest": "sha256:9b92f0e430be3593f081ff6b4dd7f9168601ee1430c6c3650476c5f3f6491a44"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 2,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:9b92f0e430be3593f081ff6b4dd7f9168601ee1430c6c3650476c5f3f6491a44",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 146c445..501131f 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -2 +2 @@ export const value0 = 0;\n-export const value1 = 1;\n+// @clause:BIND:REQ-001 Returns the approved result.\n@@ -21 +21 @@ export const value19 = 19;\n-export const value20 = 20;\n+export const value20 = 42;\n",
+        "patchSha256": "sha256:65c8bed3862a126a27ecf23b6c9ecb2598990116e720c250bf0e41d2db7fceee",
+        "bytes": 315,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:fea540e764e509117e68d55ee61e5836e96ef5ad6ce0ae557ca9a4aa3b57f0e0",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 315,
+            "bytes": 315,
+            "patchSha256": "sha256:65c8bed3862a126a27ecf23b6c9ecb2598990116e720c250bf0e41d2db7fceee",
+            "hunks": [
+              {
+                "header": "@@ -2 +2 @@ export const value0 = 0;",
+                "beforeStart": 2,
+                "beforeLines": 1,
+                "afterStart": 2,
+                "afterLines": 1
+              },
+              {
+                "header": "@@ -21 +21 @@ export const value19 = 19;",
+                "beforeStart": 21,
+                "beforeLines": 1,
+                "afterStart": 21,
+                "afterLines": 1
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "export const value0 = 0;\n// @clause:BIND:REQ-001 Returns the approved result.\nexport const value2 = 2;\nexport const value3 = 3;\nexport const value4 = 4;\nexport const value5 = 5;\nexport const value6 = 6;\nexport const value7 = 7;\nexport const value8 = 8;\nexport const value9 = 9;\nexport const value10 = 10;\nexport const value11 = 11;\nexport const value12 = 12;\nexport const value13 = 13;\nexport const value14 = 14;\nexport const value15 = 15;\nexport const value16 = 16;\nexport const value17 = 17;\nexport const value18 = 18;\nexport const value19 = 19;\nexport const value20 = 42;\nexport const value21 = 21;\nexport const value22 = 22;\nexport const value23 = 23;\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the approved result.",
+              "path": "src/app.js",
+              "line": 2
+            },
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 2,
+                    "beforeLines": 1,
+                    "afterStart": 2,
+                    "afterLines": 1
+                  },
+                  {
+                    "beforeStart": 21,
+                    "beforeLines": 1,
+                    "afterStart": 21,
+                    "afterLines": 1
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:25d4bac44feae175f314dd3e7583ad5bb6e4a54b6461e1c675d01ccb28f372d6",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "binary",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:47ffa3ea45a70b8a41c2c0825df323c00a8b7a01c1ea06083cc41dddcc001123",
+                "bytes": 3
+              },
+              "changeId": "sha256:449fb92ef99e0202d57edac5781040dd22a75c37f179a127ad32c423c374f0e7"
+            }
+          ],
+          "digest": "sha256:3f0344aa02f6ec35d8fb2b0a3416247a6afebabcca324241fee534976db8c60c"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:3f0344aa02f6ec35d8fb2b0a3416247a6afebabcca324241fee534976db8c60c",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..046f393 100644\nBinary files a/src/app.js and b/src/app.js differ\n",
+        "patchSha256": "sha256:b0823c9441e70906dddf2e3f2f60a285e9cce44bfb6a0d8577a7b595ca8dfa18",
+        "bytes": 117,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:449fb92ef99e0202d57edac5781040dd22a75c37f179a127ad32c423c374f0e7",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 117,
+            "bytes": 117,
+            "patchSha256": "sha256:b0823c9441e70906dddf2e3f2f60a285e9cce44bfb6a0d8577a7b595ca8dfa18",
+            "hunks": []
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": null
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": null,
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:d2093b033ffb3e6b1fce27cf09b0cfcb1b44c93f1c444119267a09367ce29f7e",
+        "problems": [
+          "BIND:REQ-001 needs an explanation of how the change meets it, after its @clause tag in src/app.js:1 (10 to 300 characters)"
+        ],
+        "problemFindings": [
+          {
+            "code": "code.delivery.clause-explanation-missing",
+            "path": "src/app.js",
+            "value": "BIND:REQ-001"
+          }
+        ],
+        "explanationsMissing": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "path": "src/app.js",
+            "line": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-utf8",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:12edc5ce7035d7353dd50c7ce02012f0162fc917e71192640e82defff4420520",
+                "bytes": 4
+              },
+              "changeId": "sha256:25f9046dc37d8bc34f5e082aa005d75eed526bce04aaf3edb4e4e33233ce55a8"
+            }
+          ],
+          "digest": "sha256:190790d30f792bf4e3dedca284af63582e8d0905d70f52b774eb3c0e781f2993"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:190790d30f792bf4e3dedca284af63582e8d0905d70f52b774eb3c0e781f2993",
+        "status": "available",
+        "reason": null,
+        "patch": "diff --git a/src/app.js b/src/app.js\nindex 464c6a5..6d43988 100644\n--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1 @@\n-export function result(){return 1;}\n+��A\n",
+        "patchSha256": "sha256:ef2ba87b9805c2f79bed330d380ec490fe352f62cfeb38ba7f61b666ca8113e7",
+        "bytes": 159,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "available",
+        "fileProjectionReason": null,
+        "files": [
+          {
+            "sourceChangeId": "sha256:25f9046dc37d8bc34f5e082aa005d75eed526bce04aaf3edb4e4e33233ce55a8",
+            "operation": "modified",
+            "pathBefore": "src/app.js",
+            "pathAfter": "src/app.js",
+            "patchStart": 0,
+            "patchEnd": 155,
+            "bytes": 159,
+            "patchSha256": "sha256:ef2ba87b9805c2f79bed330d380ec490fe352f62cfeb38ba7f61b666ca8113e7",
+            "hunks": [
+              {
+                "header": "@@ -1 +1 @@",
+                "beforeStart": 1,
+                "beforeLines": 1,
+                "afterStart": 1,
+                "afterLines": 1
+              }
+            ]
+          }
+        ]
+      },
+      "sources": {
+        "src/app.js": "��A\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": null,
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [
+                  {
+                    "beforeStart": 1,
+                    "beforeLines": 1,
+                    "afterStart": 1,
+                    "afterLines": 1
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:a65be2a403166b59b7b20673ef157a5ead489f0fb13d2de931a5ceb50f662e50",
+        "problems": [
+          "BIND:REQ-001 needs an explanation of how the change meets it, after its @clause tag in src/app.js:1 (10 to 300 characters)"
+        ],
+        "problemFindings": [
+          {
+            "code": "code.delivery.clause-explanation-missing",
+            "path": "src/app.js",
+            "value": "BIND:REQ-001"
+          }
+        ],
+        "explanationsMissing": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "path": "src/app.js",
+            "line": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "oversized",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:16a429a1e5162fcf59e3079724763e9afafcef1e2c7f862571e9267b3d959113",
+                "bytes": 2097153
+              },
+              "changeId": "sha256:0f2ad069543e3022fb03a1a46090040e2d6facde71ba2f06a4744caad069341e"
+            }
+          ],
+          "digest": "sha256:434b5141c7b0f904c1f495cb9d42ff4795d1d8789dd1e71a4b18463865e179a6"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/app.js"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/app.js",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "schemaVersion": 1,
+        "kind": "comprehension-diff-preview",
+        "authoritative": false,
+        "lifecycleGate": false,
+        "changeSetSha256": "sha256:434b5141c7b0f904c1f495cb9d42ff4795d1d8789dd1e71a4b18463865e179a6",
+        "status": "unavailable",
+        "reason": "preview-output-limit",
+        "patch": null,
+        "patchSha256": null,
+        "bytes": 0,
+        "trackedRegions": 1,
+        "omittedUntrackedRegions": 0,
+        "fileProjectionStatus": "unavailable",
+        "fileProjectionReason": "patch-unavailable",
+        "files": []
+      },
+      "sources": {
+        "src/app.js": null
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": null,
+            "regions": [
+              {
+                "path": "src/app.js",
+                "change": "modified",
+                "hunks": [],
+                "symbols": [],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:d2093b033ffb3e6b1fce27cf09b0cfcb1b44c93f1c444119267a09367ce29f7e",
+        "problems": [
+          "BIND:REQ-001 needs an explanation of how the change meets it, after its @clause tag in src/app.js:1 (10 to 300 characters)"
+        ],
+        "problemFindings": [
+          {
+            "code": "code.delivery.clause-explanation-missing",
+            "path": "src/app.js",
+            "value": "BIND:REQ-001"
+          }
+        ],
+        "explanationsMissing": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "path": "src/app.js",
+            "line": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "no-obligations",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "tree": "babfd56190a387c7fa921fed5354b03a5c34c1a7"
+          },
+          "target": {
+            "head": "e4d21d5af52098b27e53e2333b0321de20704fbc",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "modified",
+              "similarity": null,
+              "oldPath": "src/app.js",
+              "newPath": "src/app.js",
+              "oldMode": "100644",
+              "newMode": "100644",
+              "oldObject": "464c6a5e9e8456c9200d914f6fe0654e06195a3f",
+              "newObject": null,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:6cab5f40f569b23a397d5027ea23c856ecc63362ba6cf774bac6e23821e6c62e",
+                "bytes": 96
+              },
+              "changeId": "sha256:18488f8d4448e5c21fce14c9c49e98566876c8c110043a2874dea0049dbc9217"
+            }
+          ],
+          "digest": "sha256:40e9d627d36583ea3c0556655020eb123c8fb88e4cdca2fd815d524782c7538d"
+        },
+        "required": [],
+        "tags": []
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {},
+      "expected": {
+        "bindings": [],
+        "bindingsSha256": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "python",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/value.py",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:45b85f139f490ab56b8a60dbe0306e1556301ad6237f75c033dd2cc9a008030e",
+                "bytes": 80
+              },
+              "changeId": "sha256:cbec7ef8b36808caa0afd21cde37f033ad19eb86faa41b02056b3ce2b92fa900"
+            }
+          ],
+          "digest": "sha256:7c61ee3561d47635405c2d34ca652bb446207c8ce8020d5e6a1e584432478781"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/value.py"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/value.py",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/value.py": "# @clause:BIND:REQ-001 Returns the approved result.\ndef result():\n    return 42\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the approved result.",
+              "path": "src/value.py",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/value.py",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 3
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:1043e3b2551bc78d94b4d30410a8171280ff650b65aa207fb07a91bbe741854a",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "java",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/value.java",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:326237db35ec00353ca78096076434d9a2811608023d7a85fa6aa324aab94486",
+                "bytes": 110
+              },
+              "changeId": "sha256:d9a1374a1994536f01f18da165642d40218af863b40fb0ff9b8467d9732e339e"
+            }
+          ],
+          "digest": "sha256:31e320da3d156334134443450cf6fc63088f7025388f7da9a3678f5e11c3bff5"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/value.java"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/value.java",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/value.java": "// @clause:BIND:REQ-001 Returns the approved result.\npublic class Value {\n  public int result(){return 42;}\n}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the approved result.",
+              "path": "src/value.java",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/value.java",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 4
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "Value",
+                    "kind": "class",
+                    "line": 2
+                  },
+                  {
+                    "name": "result",
+                    "kind": "method",
+                    "line": 3
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:f70ae132fe66059ce02cd3ee7c5ae377c906a678ee6776220cd42de0a4fb58e4",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "rust",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/value.rs",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:7b1b0c36fdf3c3a9afe161c9e2e34bdb781adddb2bb44817a42e0a1c5194774f",
+                "bytes": 81
+              },
+              "changeId": "sha256:9e4c09f5611d58ae5629842ffbf01e6b00ac8d837515a226e23bddfd2f0e1285"
+            }
+          ],
+          "digest": "sha256:05f23ae8102eab09d69973cf5f00f04fcbe1243b397f4291830eaff5ba8f4e02"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/value.rs"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/value.rs",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/value.rs": "// @clause:BIND:REQ-001 Returns the approved result.\npub fn result() -> i32 {42}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the approved result.",
+              "path": "src/value.rs",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/value.rs",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:2e6d97d6374b26ae7985ea1abf1b59d5c5f6c794a0f877e94c0f81008dbb51e4",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "go",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/value.go",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:a874d675ea9593519a28beeff17f0e5db4b99d6cf7e7b2fe81d009b12758306b",
+                "bytes": 83
+              },
+              "changeId": "sha256:00c5d32c048e3a0bc35a50d7003e96806cb3db13aa8d247ee3a376cc26709e8f"
+            }
+          ],
+          "digest": "sha256:5512431153c3b72e583efc65ec223f03d859813acaeab4cad74ecef1de70f5f2"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/value.go"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/value.go",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/value.go": "// @clause:BIND:REQ-001 Returns the approved result.\nfunc Result() int {return 42}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the approved result.",
+              "path": "src/value.go",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/value.go",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [
+                  {
+                    "name": "Result",
+                    "kind": "function",
+                    "line": 2
+                  }
+                ],
+                "symbolAssurance": "heuristic"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:63c977d0cf1dec122a9cc6de53c01a01866a37aba3196a70299d77eb56b32ea2",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    },
+    {
+      "id": "unsupported",
+      "input": {
+        "changeSet": {
+          "schemaVersion": 1,
+          "kind": "repository-change-set",
+          "subject": null,
+          "base": {
+            "commit": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "tree": "e9c6036e07a10488bc07f58b3d6d016809a6535d"
+          },
+          "target": {
+            "head": "3b04b5c65e2fbba7b57c51b3fe517c1ccbd0b319",
+            "includesIndex": true,
+            "includesWorktree": true,
+            "includesUntracked": true,
+            "caseInsensitivePaths": true
+          },
+          "entries": [
+            {
+              "status": "added",
+              "similarity": null,
+              "oldPath": null,
+              "newPath": "src/value.c",
+              "oldMode": "000000",
+              "newMode": "100644",
+              "oldObject": null,
+              "newObject": null,
+              "untracked": true,
+              "newContent": {
+                "kind": "regular-file",
+                "sha256": "sha256:a296eaec087f14bb23dbbe47e094d00a1830af3ee21fa1ae07bb02b3d7c1fe74",
+                "bytes": 83
+              },
+              "changeId": "sha256:8c6ef93057cba7668b0f16e1e049b4905098186ac13ad7d42da730b5fff191f4"
+            }
+          ],
+          "digest": "sha256:50461e6645e4c96d5b135e3e73361414621fa95f46c26f35f8f32407502f31a8"
+        },
+        "required": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "expectedPaths": [
+              "src/value.c"
+            ]
+          }
+        ],
+        "tags": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "sourcePath": "src/value.c",
+            "line": 1,
+            "tag": "clause"
+          }
+        ]
+      },
+      "preview": {
+        "files": []
+      },
+      "sources": {
+        "src/value.c": "// @clause:BIND:REQ-001 Returns the approved result.\nint result(void) {return 42;}\n"
+      },
+      "expected": {
+        "bindings": [
+          {
+            "clauseId": "BIND:REQ-001",
+            "explanation": {
+              "text": "Returns the approved result.",
+              "path": "src/value.c",
+              "line": 1
+            },
+            "regions": [
+              {
+                "path": "src/value.c",
+                "change": "added",
+                "hunks": [
+                  {
+                    "beforeStart": 0,
+                    "beforeLines": 0,
+                    "afterStart": 1,
+                    "afterLines": 2
+                  }
+                ],
+                "symbols": [],
+                "symbolAssurance": "unsupported-language"
+              }
+            ]
+          }
+        ],
+        "bindingsSha256": "sha256:e6707877db96ca85c8ba7ef5bf014c129f6fa4118600399eaf775eec418c438d",
+        "problems": [],
+        "problemFindings": [],
+        "explanationsMissing": []
+      }
+    }
+  ],
+  "values": [
+    {
+      "language": "javascript",
+      "source": "/** Actual result. */\nexport function result(value){return value;}\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ]
+    },
+    {
+      "language": "typescript",
+      "source": "/** Actual result. */\nexport class Result {\n  public value():number {return 42;}\n}\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "class",
+          "name": "Result",
+          "documented": true
+        },
+        {
+          "line": 3,
+          "kind": "method",
+          "name": "value",
+          "documented": false
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "class",
+          "name": "Result",
+          "documented": true
+        },
+        {
+          "line": 3,
+          "kind": "method",
+          "name": "value",
+          "documented": false
+        }
+      ]
+    },
+    {
+      "language": "python",
+      "source": "def result(value):\n    \"\"\"Return the result.\"\"\"\n    return value\n",
+      "expected": [
+        {
+          "line": 1,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ],
+      "changed": [
+        {
+          "line": 1,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ]
+    },
+    {
+      "language": "java",
+      "source": "/** Actual result. */\npublic class Result {\n  public int value(){return 42;}\n}\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "class",
+          "name": "Result",
+          "documented": true
+        },
+        {
+          "line": 3,
+          "kind": "method",
+          "name": "value",
+          "documented": false
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "class",
+          "name": "Result",
+          "documented": true
+        },
+        {
+          "line": 3,
+          "kind": "method",
+          "name": "value",
+          "documented": false
+        }
+      ]
+    },
+    {
+      "language": "kotlin",
+      "source": "/** Actual result. */\nfun result(value: Int): Int { return value }\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ]
+    },
+    {
+      "language": "csharp",
+      "source": "/// Actual result.\npublic class Result {\n  public int Value() {return 42;}\n}\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "class",
+          "name": "Result",
+          "documented": true
+        },
+        {
+          "line": 3,
+          "kind": "method",
+          "name": "Value",
+          "documented": false
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "class",
+          "name": "Result",
+          "documented": true
+        },
+        {
+          "line": 3,
+          "kind": "method",
+          "name": "Value",
+          "documented": false
+        }
+      ]
+    },
+    {
+      "language": "go",
+      "source": "// Result computes the value.\nfunc Result() int { return 42 }\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "Result",
+          "documented": true
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "Result",
+          "documented": true
+        }
+      ]
+    },
+    {
+      "language": "rust",
+      "source": "/// Actual result.\npub fn result() -> i32 {42}\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ]
+    },
+    {
+      "language": "swift",
+      "source": "/// Actual result.\npublic func result() -> Int {42}\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ]
+    },
+    {
+      "language": "php",
+      "source": "/** Actual result. */\nfunction result($value) { return $value; }\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "function",
+          "name": "result",
+          "documented": true
+        }
+      ]
+    },
+    {
+      "language": "ruby",
+      "source": "# Actual result.\ndef result(value)\n  value\nend\n",
+      "expected": [
+        {
+          "line": 2,
+          "kind": "method",
+          "name": "result",
+          "documented": true
+        }
+      ],
+      "changed": [
+        {
+          "line": 2,
+          "kind": "method",
+          "name": "result",
+          "documented": true
+        }
+      ]
+    },
+    {
+      "language": null,
+      "source": "int result(void) {return 42;}\n",
+      "expected": [],
+      "changed": []
+    },
+    {
+      "language": "javascript",
+      "source": "const fake=\"export function Fake() {}\";\n// export function Other() {}\nexport const actual = value => value;\n",
+      "expected": [
+        {
+          "line": 3,
+          "kind": "function",
+          "name": "actual",
+          "documented": false
+        }
+      ],
+      "changed": [
+        {
+          "line": 3,
+          "kind": "function",
+          "name": "actual",
+          "documented": false
+        }
+      ]
+    },
+    {
+      "language": "javascript",
+      "source": "// @clause:BIND:REQ-001\n// @ac:BIND:AC-001\nexport function result(){return 42;}\n",
+      "expected": [
+        {
+          "line": 3,
+          "kind": "function",
+          "name": "result",
+          "documented": false
+        }
+      ],
+      "changed": [
+        {
+          "line": 3,
+          "kind": "function",
+          "name": "result",
+          "documented": false
+        }
+      ]
+    },
+    {
+      "language": "javascript",
+      "source": "// 😀 comment\nexport function result(){return \"😀\";}\n",
+      "expected": [
+        {
+          "line": 1,
+          "kind": "function",
+          "name": "result",
+          "documented": false
+        }
+      ],
+      "changed": [
+        {
+          "line": 1,
+          "kind": "function",
+          "name": "result",
+          "documented": false
+        }
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "file": "src/app.js",
+      "language": "javascript",
+      "unsupported": false
+    },
+    {
+      "file": "src/value.py",
+      "language": "python",
+      "unsupported": false
+    },
+    {
+      "file": "src/value.java",
+      "language": "java",
+      "unsupported": false
+    },
+    {
+      "file": "src/value.rb",
+      "language": "ruby",
+      "unsupported": false
+    },
+    {
+      "file": "src/value.cpp",
+      "language": null,
+      "unsupported": true
+    },
+    {
+      "file": "src/value.d.ts",
+      "language": null,
+      "unsupported": false
+    },
+    {
+      "file": "src/value.d.mts",
+      "language": null,
+      "unsupported": false
+    },
+    {
+      "file": "src/value",
+      "language": null,
+      "unsupported": false
+    },
+    {
+      "file": "C:\\work\\value.ts",
+      "language": "typescript",
+      "unsupported": false
+    },
+    {
+      "file": "src/.hidden",
+      "language": null,
+      "unsupported": false
+    },
+    {
+      "file": "src/value.JSX",
+      "language": "javascript",
+      "unsupported": false
+    }
+  ],
+  "lexicalCases": [
+    {
+      "language": "python",
+      "source": "def result(value):\n    \"\"\"Return the result.\"\"\"\n    return value\n",
+      "mask": "def result(value):\n                            \n    return value\n",
+      "symbols": [
+        {
+          "kind": "def",
+          "name": "result",
+          "line": 1
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "java",
+      "source": "/** Actual result. */\npublic class Result {\n  public int value(){return 42;}\n}\n",
+      "mask": "                     \npublic class Result {\n  public int value(){return 42;}\n}\n",
+      "symbols": [
+        {
+          "kind": "class",
+          "name": "Result",
+          "line": 2
+        },
+        {
+          "kind": "function",
+          "name": "value",
+          "line": 3
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "kotlin",
+      "source": "/** Actual result. */\nfun result(value: Int): Int { return value }\n",
+      "mask": "                     \nfun result(value: Int): Int { return value }\n",
+      "symbols": [
+        {
+          "kind": "fun",
+          "name": "result",
+          "line": 2
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "csharp",
+      "source": "/// Actual result.\npublic class Result {\n  public int Value() {return 42;}\n}\n",
+      "mask": "                  \npublic class Result {\n  public int Value() {return 42;}\n}\n",
+      "symbols": [
+        {
+          "kind": "class",
+          "name": "Result",
+          "line": 2
+        },
+        {
+          "kind": "function",
+          "name": "Value",
+          "line": 3
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "go",
+      "source": "// Result computes the value.\nfunc Result() int { return 42 }\n",
+      "mask": "                             \nfunc Result() int { return 42 }\n",
+      "symbols": [
+        {
+          "kind": "func",
+          "name": "Result",
+          "line": 1
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "rust",
+      "source": "/// Actual result.\npub fn result() -> i32 {42}\n",
+      "mask": "                  \npub fn result() -> i32 {42}\n",
+      "symbols": [
+        {
+          "kind": "fn",
+          "name": "result",
+          "line": 2
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "swift",
+      "source": "/// Actual result.\npublic func result() -> Int {42}\n",
+      "mask": "                  \npublic func result() -> Int {42}\n",
+      "symbols": [
+        {
+          "kind": "func",
+          "name": "result",
+          "line": 2
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "php",
+      "source": "/** Actual result. */\nfunction result($value) { return $value; }\n",
+      "mask": "                     \nfunction result($value) { return $value; }\n",
+      "symbols": [
+        {
+          "kind": "function",
+          "name": "result",
+          "line": 2
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "ruby",
+      "source": "# Actual result.\ndef result(value)\n  value\nend\n",
+      "mask": "                \ndef result(value)\n  value\nend\n",
+      "symbols": [
+        {
+          "kind": "def",
+          "name": "result",
+          "line": 1
+        }
+      ],
+      "imports": []
+    },
+    {
+      "language": "python",
+      "source": "from .client import Result\n",
+      "mask": "from .client import Result\n",
+      "symbols": [],
+      "imports": [
+        {
+          "target": ".client",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "language": "java",
+      "source": "import app.Result;\n",
+      "mask": "import app.Result;\n",
+      "symbols": [],
+      "imports": [
+        {
+          "target": "app.Result",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "language": "go",
+      "source": "import \"app/result\"\n",
+      "mask": "import             \n",
+      "symbols": [],
+      "imports": [
+        {
+          "target": "app/result",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "language": "rust",
+      "source": "use app::result;\n",
+      "mask": "use app::result;\n",
+      "symbols": [],
+      "imports": [
+        {
+          "target": "app::result",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "language": "ruby",
+      "source": "require_relative \"result\"\n",
+      "mask": "require_relative         \n",
+      "symbols": [],
+      "imports": [
+        {
+          "target": "result",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "language": "php",
+      "source": "use App\\Result;\n",
+      "mask": "use App\\Result;\n",
+      "symbols": [],
+      "imports": [
+        {
+          "target": "App\\Result",
+          "line": 1
+        }
+      ]
+    },
+    {
+      "language": "c",
+      "source": "#include \"result.h\"\n",
+      "mask": "#include           \n",
+      "symbols": [],
+      "imports": [
+        {
+          "target": "result.h",
+          "line": 1
+        }
+      ]
+    }
+  ],
+  "resolutions": [
+    {
+      "args": [
+        "src/app.py",
+        ".result",
+        "python",
+        [
+          "src/result",
+          "result.py"
+        ]
+      ],
+      "expected": "result.py"
+    },
+    {
+      "args": [
+        "src/app.java",
+        "app.Result",
+        "java",
+        [
+          "app/Result.java"
+        ]
+      ],
+      "expected": "app/Result.java"
+    },
+    {
+      "args": [
+        "src/app.rb",
+        "./result",
+        "ruby",
+        [
+          "src/result.rb"
+        ]
+      ],
+      "expected": "src/result.rb"
+    },
+    {
+      "args": [
+        "src/app.go",
+        "missing",
+        "go",
+        []
+      ],
+      "expected": null
+    }
+  ],
+  "decisions": [
+    {
+      "id": "empty",
+      "args": [
+        null
+      ],
+      "outcome": {
+        "value": null
+      }
+    },
+    {
+      "id": "empty-request",
+      "args": [
+        null,
+        [
+          {
+            "clauseId": "BIND:REQ-001",
+            "decision": "accept"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "This step submitted no implementation bindings to decide; leave out --binding.",
+          "code": "IMPLEMENTATION_BINDING_UNKNOWN",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "accept",
+      "args": [
+        {
+          "bindings": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "explanation": {
+                "text": "An exact explanation.",
+                "path": "src/app.js",
+                "line": 1
+              },
+              "regions": []
+            }
+          ],
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13",
+          "decisions": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "decision": "accepted"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "lowercase",
+      "args": [
+        {
+          "bindings": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "explanation": {
+                "text": "An exact explanation.",
+                "path": "src/app.js",
+                "line": 1
+              },
+              "regions": []
+            }
+          ],
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13"
+        },
+        [
+          {
+            "clauseId": "bind:req-001",
+            "decision": "accept"
+          }
+        ]
+      ],
+      "outcome": {
+        "value": {
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13",
+          "decisions": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "decision": "accepted"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "unknown",
+      "args": [
+        {
+          "bindings": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "explanation": {
+                "text": "An exact explanation.",
+                "path": "src/app.js",
+                "line": 1
+              },
+              "regions": []
+            }
+          ],
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13"
+        },
+        [
+          {
+            "clauseId": "BIND:REQ-002",
+            "decision": "accept"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "This step submitted no binding for BIND:REQ-002; bound: BIND:REQ-001.",
+          "code": "IMPLEMENTATION_BINDING_UNKNOWN",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "reject",
+      "args": [
+        {
+          "bindings": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "explanation": {
+                "text": "An exact explanation.",
+                "path": "src/app.js",
+                "line": 1
+              },
+              "regions": []
+            }
+          ],
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13"
+        },
+        [
+          {
+            "clauseId": "BIND:REQ-001",
+            "decision": "reject"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "To return BIND:REQ-001 for correction, reject the step instead of approving it.",
+          "code": "IMPLEMENTATION_BINDING_DECISION_INVALID",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "invalid",
+      "args": [
+        {
+          "bindings": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "explanation": {
+                "text": "An exact explanation.",
+                "path": "src/app.js",
+                "line": 1
+              },
+              "regions": []
+            }
+          ],
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13"
+        },
+        [
+          {
+            "clauseId": "BIND:REQ-001",
+            "decision": "other"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "--binding must be <clause>=accept|exception; got other for BIND:REQ-001.",
+          "code": "IMPLEMENTATION_BINDING_DECISION_INVALID",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "exception-short",
+      "args": [
+        {
+          "bindings": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "explanation": {
+                "text": "An exact explanation.",
+                "path": "src/app.js",
+                "line": 1
+              },
+              "regions": []
+            }
+          ],
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13"
+        },
+        [
+          {
+            "clauseId": "BIND:REQ-001",
+            "decision": "exception",
+            "reason": "later"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "An exception for BIND:REQ-001 needs a reason of 20 to 1000 characters with --binding-reason.",
+          "code": "IMPLEMENTATION_BINDING_REASON_REQUIRED",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "exception",
+      "args": [
+        {
+          "bindings": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "explanation": {
+                "text": "An exact explanation.",
+                "path": "src/app.js",
+                "line": 1
+              },
+              "regions": []
+            }
+          ],
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13"
+        },
+        [
+          {
+            "clauseId": "BIND:REQ-001",
+            "decision": "exception",
+            "reason": "The related behavior is reviewed independently by the platform team."
+          }
+        ]
+      ],
+      "outcome": {
+        "value": {
+          "bindingsSha256": "sha256:a29190a1f854229c396a231c5d50933153578b742152f149b1628609f2e33f13",
+          "decisions": [
+            {
+              "clauseId": "BIND:REQ-001",
+              "decision": "accepted-with-exception",
+              "reason": "The related behavior is reviewed independently by the platform team."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

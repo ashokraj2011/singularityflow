@@ -15,10 +15,11 @@ import path from 'node:path';
 
 import { declarations as tsDeclarations, resolveTypeScript } from '../ast-packs/typescript-core.mjs';
 import { isAllowedTestAutomationPath, isTestSourceName } from '../code-delivery-tests.mjs';
-import { documentationLanguage, publicDeclarations } from '../code-documentation.mjs';
+import { documentationLanguage } from '../engine-compatibility/node-source-analysis.mjs';
+import { publicDeclarations } from '../kernel/code-documentation.mjs';
 import { buildComprehensionDiffPreview } from '../comprehension/diff-preview.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
-import { maskPolyglotNonCode } from '../polyglot-lexical.mjs';
+import { maskPolyglotNonCode } from '../kernel/polyglot-lexical.mjs';
 import { runBoundedTaskPool } from '../quality-command-runner.mjs';
 import {cornerCaseMatrixDigest} from '../engine-compatibility/node-source-policy.mjs';
 export {cornerCaseMatrixDigest} from '../engine-compatibility/node-source-policy.mjs';

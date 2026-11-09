@@ -776,7 +776,8 @@ test('native analysis caches delegate to shared rules and the Node binding canno
   const entries=['src/kernel/javascript-declarations.mjs','src/kernel/source-comments.mjs'];
   const graph=await inspectPureModuleGraph({root:packageRoot,entries,allowed:[...await sourceFiles('src/foundation'),...await sourceFiles('src/kernel')]});
   assert.deepEqual(graph.problems,[]);
-  const owner='src/engine-compatibility/node-source-analysis.mjs',allowed=new Set(['../records.mjs','../kernel/javascript-declarations.mjs','../kernel/source-comments.mjs']);
+  const owner='src/engine-compatibility/node-source-analysis.mjs',allowed=new Set(['../records.mjs','./node-configuration-path.mjs',
+    '../kernel/javascript-declarations.mjs','../kernel/source-comments.mjs','../kernel/code-documentation.mjs','../kernel/polyglot-lexical.mjs','../kernel/code-delivery-evidence.mjs']);
   const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
   const visit=node=>{
     if((ts.isImportDeclaration(node)||ts.isExportDeclaration(node))&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
@@ -795,6 +796,38 @@ test('native analysis caches delegate to shared rules and the Node binding canno
   for(const file of ['kernel/javascript-declarations.mjs','kernel/source-comments.mjs','engine-compatibility/node-source-analysis.mjs']){
     assert.ok(identity.includes("'"+file+"'"),file+' must affect the native build identity');
     assert.ok(manifest.includes("'src/"+file+"'"),file+' must be required in the staged CLI payload');
+  }
+});
+
+test('implementation regions and reviewer choices have pure owners while the native adapter only reads requested facts',async()=>{
+  const rules=['src/kernel/code-documentation.mjs','src/kernel/polyglot-lexical.mjs','src/kernel/code-delivery-evidence.mjs'],
+    graph=await inspectPureModuleGraph({root:packageRoot,entries:rules,allowed:[...await sourceFiles('src/foundation'),...await sourceFiles('src/kernel')]});
+  assert.deepEqual(graph.problems,[]);
+  const owner='src/implementation-bindings.mjs',allowed=new Set(['node:fs/promises','node:path','./comprehension/diff-preview.mjs','./foundation/failures.mjs',
+    './engine-compatibility/node-source-analysis.mjs','./kernel/code-delivery-evidence.mjs','./engine-compatibility/node-source-policy.mjs']);
+  const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if((ts.isImportDeclaration(node)||ts.isExportDeclaration(node))&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    if(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword)assert.fail('A binding read cannot discover another owner.');
+    if(ts.isCallExpression(node)&&['publicDeclarations','changedDeclarations','clauseTagExplanation','reviewBindings'].includes(node.expression.getText(ast)))assert.fail('The native adapter cannot implement binding or review rules.');
+    if(ts.isPropertyAccessExpression(node)&&['spawn','transact','put','commit','writeFile'].includes(node.name.text))assert.fail('Binding observations cannot mutate or execute.');
+    ts.forEachChild(node,visit);
+  };visit(ast);
+  const approval=await readFile(path.join(packageRoot,'src/engine-compatibility/approval-transition.mjs'),'utf8');
+  assert.match(approval,/import \{ reviewBindings \} from '\.\.\/kernel\/code-delivery-evidence\.mjs'/u);
+  const identity=await readFile(path.join(packageRoot,'src/build-identity.mjs'),'utf8'),manifest=await readFile(path.join(packageRoot,'src/vsix-source-manifest.mjs'),'utf8');
+  for(const file of ['kernel/code-documentation.mjs','kernel/polyglot-lexical.mjs']){
+    assert.ok(identity.includes("'"+file+"'"));assert.ok(manifest.includes("'src/"+file+"'"));
+  }
+  for(const file of await sourceFiles('src')){
+    if(['src/code-documentation.mjs','src/polyglot-lexical.mjs'].includes(file))continue;
+    const text=await readFile(path.join(packageRoot,file),'utf8');
+    if(!/code-documentation\.mjs|polyglot-lexical\.mjs/u.test(text))continue;
+    const imports=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true).statements.filter(ts.isImportDeclaration);
+    for(const node of imports)if(node.moduleSpecifier.text.startsWith('.')){
+      const target=path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text));
+      assert.equal(['src/code-documentation.mjs','src/polyglot-lexical.mjs'].includes(target),false,file+' must use the intended lexical owner');
+    }
   }
 });
 

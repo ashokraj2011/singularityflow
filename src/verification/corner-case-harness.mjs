@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { resolveTypeScript } from '../ast-packs/typescript-core.mjs';
-import { documentationLanguage } from '../code-documentation.mjs';
-import { maskPolyglotNonCode } from '../polyglot-lexical.mjs';
+import { documentationLanguage } from '../engine-compatibility/node-source-analysis.mjs';
+import { maskPolyglotNonCode } from '../kernel/polyglot-lexical.mjs';
 import { getCachedVerificationFact } from './incremental-verification-graph.mjs';
 
 const HARNESS_CACHE_VERSION = 1;

@@ -67,6 +67,20 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [shared implementation-binding and reviewer-choice](ENGINE-SDK-IMPLEMENTATION-BINDINGS.md)
+extraction moves exact-region/explanation assembly, public declaration observations and batch
+review selection into pure owners. Native adapters retain the same Git diff and legacy file-read
+behavior; source, plan and human authority are still admitted by their original operations.
+The optional SDK can replay explicit source/region facts without a checkout or implicit I/O.
+Complete application-publication proofs, remaining policy extraction, migration and final
+qualification keep Phases 5, 7, 8 and 9 open.
+
+The binding integration passed 355 distinct affected Mac cases without failures, cancellations or
+skips, including genuine native CLI/SDK approval parity and installed offline source/region replay.
+VS Code types and all 13 existing runtime ceilings passed without increases; gateway remains
+852/852. The SDK retains 60 operations across 211 owned modules and 2,180,240 JavaScript bytes.
+Source validation passed 3,995 checks across 191 skills with the unchanged Git ownership audit.
+
 The [shared source/test analysis](ENGINE-SDK-SOURCE-ANALYSIS.md) extraction gives native and SDK
 consumers one bounded comment, qualified-tag and JavaScript declaration owner. Namespace delivery
 inspection uses original verified retained bytes and a separately versioned v2 manifest, with

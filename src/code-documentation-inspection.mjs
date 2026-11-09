@@ -9,9 +9,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildComprehensionDiffPreview } from './comprehension/diff-preview.mjs';
-import {
-  changedDeclarations, documentationLanguage, publicDeclarations, unsupportedSourceLanguage
-} from './code-documentation.mjs';
+import {changedDeclarations,publicDeclarations} from './kernel/code-documentation.mjs';
+import {documentationLanguage,unsupportedSourceLanguage} from './engine-compatibility/node-source-analysis.mjs';
 import { phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { isTestSourceName } from './code-delivery-tests.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';

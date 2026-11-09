@@ -1,6 +1,13 @@
 import type {SpecificationValues,SpecificationClaimValues,VerificationContracts,SpecificationAnalysisValues,SpecificationChecklist,JavaScriptDeclarationValues} from '../specifications.mjs';
 export declare const scanJavaScriptDeclarations:JavaScriptDeclarationValues['scanJavaScriptDeclarations'];
 export {JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScript,eachTitlePattern,analyzeTestDeclarationAssertions,javascriptSourceComments,scanSourceClauseTags} from '../specifications.mjs';
+export {reviewBindings,BINDING_DECISIONS,publicDeclarations,changedDeclarations,POLYGLOT_STRUCTURAL_LANGUAGES,
+  maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports} from '../specifications.mjs';
+export declare const implementationBindingsReplay:import('../specifications.mjs').ImplementationBindingValues['implementationBindingsReplay'];
+export declare const bindingsDigest:import('../specifications.mjs').ImplementationBindingValues['bindingsDigest'];
+export declare const documentationLanguage:import('../specifications.mjs').CodeDocumentationValues['documentationLanguage'];
+export declare const unsupportedSourceLanguage:import('../specifications.mjs').CodeDocumentationValues['unsupportedSourceLanguage'];
+export declare const resolvePolyglotLocal:import('../specifications.mjs').PolyglotPathValues['resolvePolyglotLocal'];
 export declare const extractClauses:SpecificationValues['extractClauses'];
 export declare const specificationIndexRecord:SpecificationValues['specificationIndexRecord'];
 export declare const proseVerificationDeclarations:VerificationContracts['proseVerificationDeclarations'];

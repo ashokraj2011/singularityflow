@@ -43,6 +43,8 @@ const SCANNER_SOURCE_FILES = [
   './javascript-declarations.mjs',
   '../kernel/javascript-declarations.mjs',
   '../kernel/source-comments.mjs',
+  '../kernel/code-documentation.mjs',
+  '../kernel/polyglot-lexical.mjs',
   '../kernel/verification-policy.mjs',
   '../foundation/traceability-ids.mjs',
   '../engine-compatibility/node-source-analysis.mjs',

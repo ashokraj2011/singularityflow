@@ -1158,6 +1158,33 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         .scanJavaScriptDeclarations("test('actual',()=>{});",{sourcePath:'test.js',framework:'jest'}),{code:'ENGINE_TEXT_DIGEST_RESULT_INVALID'});
     `);
   });
+  await t.test('installed implementation bindings replay actual native regions without a checkout or implicit I/O',async()=>{
+    const captured=JSON.parse(await readFile(path.join(root,'test/fixtures/implementation-bindings/native-v1.json'),'utf8'));
+    await run('implementation-binding-values.mjs',`
+      import assert from 'node:assert/strict';import path from 'node:path';import {createHash} from 'node:crypto';import {registerHooks} from 'node:module';
+      const blocked=[],hook=registerHooks({resolve(specifier,context,next){if(specifier.startsWith('node:')){blocked.push(specifier);throw Error('Unexpected binding infrastructure: '+specifier);}return next(specifier,context);}});
+      const pure=await import('${packageName}/specifications'),oracle=JSON.parse(${JSON.stringify(JSON.stringify(captured))}),
+        paths=Object.freeze({profile:pure.CONFIGURATION_PATH_SYNTAX_V2,grammar:path.sep==='\\\\'?'win32':'posix',isAbsolute:path.isAbsolute,normalize:path.normalize,parse:path.parse,
+          posixIsAbsolute:path.posix.isAbsolute,posixNormalize:path.posix.normalize,posixBasename:path.posix.basename,posixDirname:path.posix.dirname,posixRelative:path.posix.relative,
+          win32IsAbsolute:path.win32.isAbsolute,toPosix:value=>value.split(path.sep).join('/')}),
+        values=pure.implementationBindingPolicies(paths,Object.freeze({profile:pure.TEXT_DIGEST_PROFILE,sha256Utf8:value=>createHash('sha256').update(value).digest('hex')}));
+      const replay=(method,row)=>{const run=method(row.input);let step=run.next();while(!step.done){const request=step.value;
+        if(request.kind==='implementation-diff-preview')step=run.next(row.preview);else{assert.equal(request.kind,'implementation-source');assert.ok(Object.hasOwn(row.sources,request.path));step=run.next(row.sources[request.path]);}}
+        assert.deepEqual(step.value,row.expected,row.id);};
+      for(const row of oracle.cases)replay(values.implementationBindingsReplay,row);
+      const docs=pure.codeDocumentationPolicies(paths),polyglot=pure.polyglotPathPolicies(paths);
+      for(const row of oracle.values)assert.deepEqual(pure.publicDeclarations(row.source,row.language),row.expected);
+      for(const row of oracle.paths){assert.equal(docs.documentationLanguage(row.file),row.language);assert.equal(docs.unsupportedSourceLanguage(row.file),row.unsupported);}
+      for(const row of oracle.lexicalCases){assert.equal(pure.maskPolyglotNonCode(row.source,row.language),row.mask);assert.deepEqual(pure.extractPolyglotSymbols(row.source,row.language),row.symbols);assert.deepEqual(pure.extractPolyglotImports(row.source,row.language),row.imports);}
+      for(const row of oracle.resolutions)assert.equal(polyglot.resolvePolyglotLocal(...row.args),row.expected);
+      for(const row of oracle.decisions){let actual;try{actual={value:pure.reviewBindings(...row.args)};}catch(error){actual={error:{name:error.name,message:error.message,code:error.code,details:error.details,exitCode:error.exitCode}};}assert.deepEqual(JSON.parse(JSON.stringify(actual)),row.outcome);}
+      assert.deepEqual(blocked,[]);hook.deregister();
+      const native=await import('${packageName}/specifications/node');for(const row of oracle.cases)replay(native.implementationBindingsReplay,row);
+      assert.equal(native.reviewBindings,pure.reviewBindings);assert.equal(native.publicDeclarations,pure.publicDeclarations);
+      const run=values.implementationBindingsReplay(oracle.cases[0].input);assert.equal(run.next().done,false);
+      const failure=Object.assign(Error('Original evidence storage denied.'),{code:'EACCES'});assert.throws(()=>run.throw(failure),error=>error===failure);
+    `);
+  });
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -1166,10 +1193,28 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import type {RepositoryChangeSetCodec} from '${packageName}/changes';
       import {specificationValuePolicies,TEXT_DIGEST_PROFILE,parseVerificationIntent} from '${packageName}/specifications';
       import {javascriptDeclarationPolicies,scanSourceClauseTags} from '${packageName}/specifications';
+      import {implementationBindingPolicies,reviewBindings,codeDocumentationPolicies,publicDeclarations} from '${packageName}/specifications';
+      import type {ImplementationBindingResult,ImplementationBindingRequest,ImplementationBindingDecision,PublicDeclaration,VerificationPathSyntax} from '${packageName}/specifications';
       import type {JavaScriptDeclarationResult,JavaScriptTestDeclaration} from '${packageName}/specifications';
       import {scanJavaScriptDeclarations} from '${packageName}/specifications/node';
       const declarationValues=javascriptDeclarationPolicies(Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64)}));
       const declarationResult:JavaScriptDeclarationResult=declarationValues.scanJavaScriptDeclarations("test('works',()=>{});",{sourcePath:'test/example.test.js',framework:'jest'});
+      const bindingDecision:ImplementationBindingDecision={clauseId:'VALUE:REQ-001',decision:'exception',reason:'A concrete human-reviewed limitation.'};
+      const implementationChoice=reviewBindings({bindings:[],bindingsSha256:'sha256:'+'a'.repeat(64)},[bindingDecision]);
+      const publicSymbols:PublicDeclaration[]=publicDeclarations('export function actual(){}','javascript');
+      declare const bindingPaths:VerificationPathSyntax;
+      const bindingValues=implementationBindingPolicies(bindingPaths,Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64)}));
+      const bindingReplay:Generator<ImplementationBindingRequest,ImplementationBindingResult,import('${packageName}/specifications').ImplementationDiffPreview|string|null>
+        =bindingValues.implementationBindingsReplay({changeSet:{entries:[]},required:[],tags:[]});
+      const bindingStep=bindingReplay.next();if(!bindingStep.done&&bindingStep.value.kind==='implementation-source'){
+        const maximumBytes:2097152=bindingStep.value.maximumBytes;bindingReplay.next('An actual observed source body.');}
+      codeDocumentationPolicies(bindingPaths).documentationLanguage('src/app.js');
+      // @ts-expect-error A value replay cannot acquire a checkout or accept a readiness callback.
+      bindingValues.implementationBindingsReplay({changeSet:{entries:[]},root:'/checkout',ready:()=>true});
+      // @ts-expect-error Evidence requests consume actual source/region data, never a pass flag.
+      bindingReplay.next({ready:true});
+      // @ts-expect-error Binding selection is not permission to reject or approve a lifecycle operation.
+      reviewBindings({bindings:[],bindingsSha256:'sha256:'+'a'.repeat(64)},[{clauseId:'VALUE:REQ-001',decision:'approve'}]);
       const declaration:JavaScriptTestDeclaration|undefined=scanJavaScriptDeclarations('',{}).declarations[0];
       const tagIds:string[]=scanSourceClauseTags('// @clause:VALUE:REQ-001',{sourcePath:'app.js'}).map(tag=>tag.clauseId);
       // @ts-expect-error Source values cannot receive a checkout or infer retained publication readiness.

@@ -7,3 +7,5 @@ export {normalizeClaimMapReplay,inspectPlannedClaimMapReplay,derivePlannedClaimM
 export {STARTER_CHECKLIST,policyHash,witnessedClauseReviewFields,analyzeSpecification,evaluateSpecificationQuality,validateChecklistDecisions,evaluateApprovalChecklist,specificationGateValue} from '../../../../src/engine-compatibility/node-specification-policy.mjs';
 export {scanJavaScriptDeclarations,JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScript,eachTitlePattern,analyzeTestDeclarationAssertions,
   javascriptSourceComments,scanSourceClauseTags} from '../../../../src/engine-compatibility/node-source-analysis.mjs';
+export {implementationBindingsReplay,bindingsDigest,reviewBindings,BINDING_DECISIONS,documentationLanguage,unsupportedSourceLanguage,
+  publicDeclarations,changedDeclarations,POLYGLOT_STRUCTURAL_LANGUAGES,maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports,resolvePolyglotLocal} from '../../../../src/engine-compatibility/node-source-analysis.mjs';

@@ -101,6 +101,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   never claim semantic completeness, passing tests or human approval. Shared source-comment,
   clause-tag and JavaScript test-declaration values preserve native logical IDs, declaration
   hashes, limits and association gaps; they require no checkout or execution provider.
+  Implementation-binding replays request exact source/region observations and preserve native
+  explanation/digest rules. Documentation/polyglot observations remain heuristic; reviewer-choice
+  values do not authenticate a person or record approval. See `docs/ENGINE-SDK-IMPLEMENTATION-BINDINGS.md`.
 - `storage/sqlite-content`: bind an application-owned SQLite content connection; the host closes it.
 - `hosts/namespace-reader`: bind stored phase/document read projections to the existing registry.
 - `hosts/namespace-engine`: one explicit composition of the implemented namespace operations,

@@ -140,7 +140,8 @@ export async function owedDecisions(root, config, workflow, phaseIds, { limit = 
       ...(scopeHoldsApproval ? { scopeHoldsApproval: finalScopeStep(workflow).id } : {}),
       ...(inspectionHolds ? { inspectionHoldsApproval: inspectionHolds } : {}),
       instruction: 'Relay each item with its exact command to the user. Only a person who approves the owning step decides these: a sign-off after inspecting its file, a scope item by linking or dispositioning the statement; an agent never records or answers them. The Story cannot end without them. '
-        + (scopeHoldsApproval ? `Approving ${finalScopeStep(workflow).id} waits for each scope item.` : 'This does not block the current step.') };
+        + (scopeHoldsApproval ? `Approving ${finalScopeStep(workflow).id} waits for each scope item.`
+          : inspectionHolds ? `Approving ${inspectionHolds} waits for its inspections.` : 'This does not block the current step.') };
   } catch (error) {
     return { advisory: true, status: 'unavailable', reason: error?.code ?? 'evaluation-failed' };
   }

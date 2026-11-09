@@ -2069,7 +2069,8 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
       ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
       ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
     ];
-    if (ownerCheck && boundary === 'approved' && lines.length) {
+    // The approval itself and the quality gate's view of it ('approve'), so a pilot risk can be prepared for what it refuses.
+    if (ownerCheck && ['approved', 'approve'].includes(boundary) && lines.length) {
       const routes = owed.unimplemented.length ? upstreamRoutes(owed.unimplemented) : { text: '', details: {} };
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved because the Story's ending would refuse its specification coverage:\n- ${lines.join('\n- ')}\n`

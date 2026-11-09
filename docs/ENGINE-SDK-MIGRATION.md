@@ -67,6 +67,21 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [source-tag origin extraction](ENGINE-SDK-SOURCE-TAG-ORIGINS.md) gives native execution and
+the SDK one pure rule for carried identifiers and exact Story-added lines. Native Git reads,
+work-interval selection and raw patch decoding remain explicit adapters. The independent
+34-case oracle preserves moved/duplicate tags, earlier work intervals, path roles and real read
+failures. The value owner accepts opaque source references without discovering a repository.
+Accepted namespace line-origin evidence still requires its separately versioned observation and
+receipt path; metadata-only source-control v1 cannot fulfill it. Complete application delivery,
+migration/cutover and final qualification keep Phases 5, 7, 8 and 9 open.
+
+This origin extraction passed 337 distinct affected Mac cases, including installed offline
+replay and NodeNext contracts. Source validation passed 4,003 checks across 191 skills. VS Code
+types, the unchanged Git ownership audit and all 13 unchanged bundle ceilings passed; gateway
+remains 852/852. The SDK retains 60 operations across 212 owned modules and 2,279,114 JavaScript
+bytes. Accepted portable line-origin records and complete application execution remain required.
+
 The [shared source-clause delivery](ENGINE-SDK-SOURCE-CLAUSES.md) moves reviewed-plan allocation,
 clause ownership and binding/missing rules into the kernel while preserving native path, plan-pin
 and work-interval observations. Namespace delivery inspection has an explicit v3 profile that

@@ -54,6 +54,25 @@ export interface ImplementationBindingValues {
 export declare function implementationBindingPolicies(paths:VerificationPathSyntax,digests:SpecificationDigests):Readonly<ImplementationBindingValues>;
 export declare const EXPLANATION_LIMITS:Readonly<{minimum:10;maximum:300}>;
 export declare function clauseTagExplanation(line:unknown,clauseId:unknown):string|null;
+/** Candidate origin values consume explicit facts. They authenticate no source, phase or person. */
+export declare const SOURCE_TAG_ORIGIN_VALUES_PROFILE:'sflow-source-tag-origin-values/v1';
+export type SourceTagKind='clause'|'ac';
+export interface SourceTagOccurrence {readonly path:string;readonly clauseId:string;readonly line:number;readonly tag?:string}
+export interface SourceOriginChange {readonly oldPath:string|null;readonly newPath:string|null;readonly previousRegular:boolean}
+export interface SourceOriginPathContext {readonly caseInsensitivePaths:boolean;readonly governedRoots:readonly string[];readonly governedPaths:readonly string[]}
+export type SourceOriginLineDelta=Readonly<{side:'removed';path:string|null;line:null;text:string}>|Readonly<{side:'added';path:string;line:number;text:string}>;
+export type CarriedTagRequest=Readonly<{kind:'origin-baseline-texts';baseline:string;paths:readonly string[];maximumObjectBytes:16777216;maximumBytes:67108864}>
+  |Readonly<{kind:'origin-comment-tags';source:string;path:string}>;
+export type StoryTagRequest=Readonly<{kind:'origin-line-deltas';baseline:string;tag:SourceTagKind}>
+  |Readonly<{kind:'origin-tracked-paths';paths:readonly string[]}>|Readonly<{kind:'origin-untracked-text';path:string}>;
+export interface SourceTagOriginValues {
+  readonly profile:typeof SOURCE_TAG_ORIGIN_VALUES_PROFILE;
+  carriedTagIdsReplay(input:{readonly baseline:string|null;readonly changes:readonly SourceOriginChange[];readonly occurrences:readonly SourceTagOccurrence[];readonly tag:SourceTagKind}):
+    Generator<CarriedTagRequest,Set<string>,ReadonlyMap<string,string>|readonly SourceClauseTag[]>;
+  storyTagLinesReplay(input:{readonly baseline:string|null;readonly occurrences:readonly SourceTagOccurrence[];readonly tag:SourceTagKind;readonly pathContext:SourceOriginPathContext}):
+    Generator<StoryTagRequest,Set<string>|null,readonly SourceOriginLineDelta[]|ReadonlySet<string>|string>;
+}
+export declare function sourceTagOriginPolicies(paths:VerificationPathSyntax,roots:readonly string[]):Readonly<SourceTagOriginValues>;
 export declare const BINDING_DECISIONS:readonly ('accepted'|'accepted-with-exception')[];
 export interface ImplementationBindingDecision {readonly clauseId:string;readonly decision:'accept'|'exception';readonly reason?:string}
 export declare function reviewBindings(submitted:{readonly bindings:readonly ImplementationBinding[];readonly bindingsSha256:string}|null,

@@ -11,7 +11,50 @@ import {applicationPathPolicies,changeScopePolicies,configurationFilePolicies,co
 import {createTestReportCodec} from './test-report-codec.mjs';
 
 export const EXPLANATION_LIMITS = Object.freeze({ minimum: 10, maximum: 300 });
+export const SOURCE_TAG_ORIGIN_VALUES_PROFILE='sflow-source-tag-origin-values/v1';
 const TRAILING_COMMENT = /\s*(?:\*\/(?:\s*\})?|-->|#\}|%\})\s*$/u;
+
+/** Source-control references and line changes are explicit facts, never discovered repositories. */
+export function sourceTagOriginPolicies(paths,roots) {
+  const {isApplicationPath}=applicationPathPolicies(roots),{isTestAutomationPath}=sourceBoundaryPolicies(paths),
+    {isDocumentationPath}=deliveryClassificationPolicies(paths,roots),{isConfigurationPath}=configurationFilePolicies(paths),
+    request=(kind,fields)=>Object.freeze({kind,...fields});
+  const selected=(path,tag)=>tag==='clause'?!isTestAutomationPath(path)&&!isDocumentationPath(path)&&!isConfigurationPath(path):isTestAutomationPath(path);
+  function* carriedTagIdsReplay({baseline,changes,occurrences,tag}) {
+    if(!baseline)return new Set();
+    const changed=new Set(changes.flatMap(change=>[change.oldPath,change.newPath]).filter(Boolean)),
+      carried=new Set(occurrences.filter(value=>!changed.has(value.path)).map(value=>value.clauseId)),
+      paths=changes.filter(change=>change.oldPath&&change.previousRegular&&selected(change.oldPath,tag)).map(change=>change.oldPath),
+      previous=yield request('origin-baseline-texts',{baseline,paths,maximumObjectBytes:16*1024*1024,maximumBytes:64*1024*1024});
+    for(const [path,source]of previous) {
+      const tags=yield request('origin-comment-tags',{source,path});
+      for(const value of tags)if(value.tag===tag)carried.add(value.clauseId);
+    }
+    return carried;
+  }
+  function* storyTagLinesReplay({baseline,occurrences,tag,pathContext}) {
+    if(!baseline)return null;
+    const normalize=text=>text.trim().replace(/\s+/gu,' '),added=new Map(),net=new Map();
+    const count=(path,text,delta)=>{let allowed=false;
+      try{allowed=Boolean(path)&&isApplicationPath(path,pathContext)&&selected(path,tag);}catch{ /* an ungovernable path contributes no line */ }
+      if(allowed)net.set(text,(net.get(text)??0)+delta);
+    };
+    const add=(path,line,text)=>{if(!added.has(path))added.set(path,new Map());added.get(path).set(line,text);count(path,text,1);};
+    for(const delta of yield request('origin-line-deltas',{baseline,tag})) {
+      if(delta.side==='removed')count(delta.path,normalize(delta.text),-1);
+      else if(delta.path)add(delta.path,delta.line,normalize(delta.text));
+    }
+    const unseen=[...new Set(occurrences.map(value=>value.path))].filter(path=>!added.has(path));
+    if(unseen.length) {
+      const tracked=yield request('origin-tracked-paths',{paths:unseen});
+      for(const path of unseen.filter(value=>!tracked.has(value))) {
+        const text=yield request('origin-untracked-text',{path});text.split(/\r?\n/u).forEach((line,index)=>add(path,index+1,normalize(line)));
+      }
+    }
+    return new Set(occurrences.filter(value=>(net.get(added.get(value.path)?.get(value.line))??0)>0).map(value=>tagKey(value.path,value.line)));
+  }
+  return Object.freeze({profile:SOURCE_TAG_ORIGIN_VALUES_PROFILE,carriedTagIdsReplay,storyTagLinesReplay});
+}
 
 /**
  * The explanation after a `@clause` tag on its comment line: the text that follows the clause ID,

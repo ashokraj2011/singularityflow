@@ -11,6 +11,7 @@ import { buildEngineSdk } from '../scripts/build-engine-sdk.mjs';
 import { ENGINE_OPERATIONS, ENGINE_HELPERS } from '../src/engine-sdk/index.mjs';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
 import { isolatedTestEnvironment } from '../scripts/test-machine-state.mjs';
+import {gitTagLineDeltas} from '../src/git-status-detail.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageName = '@singularity-flow/engine-sdk';
@@ -1185,6 +1186,16 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const failure=Object.assign(Error('Original evidence storage denied.'),{code:'EACCES'});assert.throws(()=>run.throw(failure),error=>error===failure);
     `);
   });
+  await t.test('installed source-tag origin values replay original native line ownership without a checkout or implicit infrastructure',async()=>{
+    const oracle=JSON.parse(await readFile(new URL('./fixtures/source-tag-origin/native-v1.json',import.meta.url),'utf8'));
+    for(const row of oracle.cases)for(const trace of Object.values(row.traces))for(const saved of trace)if(saved.value!==undefined) {
+      if(saved.name==='baseline-texts')saved.value=saved.value.map(([path,bytes])=>[path,Buffer.from(bytes,'base64').toString('utf8')]);
+      if(saved.name==='line-patch')saved.value=gitTagLineDeltas(saved.value);
+    }
+    const source=(await readFile(new URL('./helpers/installed-source-tag-origin.mjs',import.meta.url),'utf8')).replaceAll('@sdk-name@',packageName)
+      .replace("'__ORIGIN_ORACLE__'",JSON.stringify(JSON.stringify(oracle)));
+    await run('source-tag-origin-values.mjs',source);
+  });
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -1194,6 +1205,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {specificationValuePolicies,TEXT_DIGEST_PROFILE,parseVerificationIntent} from '${packageName}/specifications';
       import {javascriptDeclarationPolicies,scanSourceClauseTags} from '${packageName}/specifications';
       import {implementationBindingPolicies,reviewBindings,codeDocumentationPolicies,publicDeclarations} from '${packageName}/specifications';
+      import {sourceTagOriginPolicies,SOURCE_TAG_ORIGIN_VALUES_PROFILE} from '${packageName}/specifications';
+      import type {SourceTagOriginValues,CarriedTagRequest,StoryTagRequest,SourceOriginLineDelta} from '${packageName}/specifications';
       import type {ImplementationBindingResult,ImplementationBindingRequest,ImplementationBindingDecision,PublicDeclaration,VerificationPathSyntax} from '${packageName}/specifications';
       import type {JavaScriptDeclarationResult,JavaScriptTestDeclaration} from '${packageName}/specifications';
       import {scanJavaScriptDeclarations} from '${packageName}/specifications/node';
@@ -1203,6 +1216,19 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const implementationChoice=reviewBindings({bindings:[],bindingsSha256:'sha256:'+'a'.repeat(64)},[bindingDecision]);
       const publicSymbols:PublicDeclaration[]=publicDeclarations('export function actual(){}','javascript');
       declare const bindingPaths:VerificationPathSyntax;
+      const origin:SourceTagOriginValues=sourceTagOriginPolicies(bindingPaths,[]),originProfile:typeof SOURCE_TAG_ORIGIN_VALUES_PROFILE=origin.profile;
+      const originInput={baseline:'namespace:original-source',occurrences:[],tag:'clause' as const,pathContext:{caseInsensitivePaths:false,governedRoots:[],governedPaths:[]}};
+      const originReplay=origin.storyTagLinesReplay(originInput),originStep=originReplay.next();
+      const delta:SourceOriginLineDelta={path:'src/app.js',side:'added',line:2,text:'// @clause:VALUE:REQ-001'};
+      if(!originStep.done){const requested:StoryTagRequest=originStep.value;originReplay.next([delta]);}
+      const carriedReplay=origin.carriedTagIdsReplay({baseline:'namespace:current-baseline',changes:[],occurrences:[],tag:'ac'}),carriedStep=carriedReplay.next();
+      if(!carriedStep.done){const requested:CarriedTagRequest=carriedStep.value;carriedReplay.next(new Map<string,string>());}
+      // @ts-expect-error Provenance values consume explicit facts, not a checkout or an approval shortcut.
+      origin.storyTagLinesReplay({...originInput,root:'/checkout',approved:true});
+      // @ts-expect-error A boolean cannot substitute for line/source observations.
+      originReplay.next(true);
+      // @ts-expect-error Added-line facts require exact current line locations.
+      const badDelta:SourceOriginLineDelta={path:'src/app.js',side:'added',line:null,text:'// tag'};
       const bindingValues=implementationBindingPolicies(bindingPaths,Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64)}));
       const bindingReplay:Generator<ImplementationBindingRequest,ImplementationBindingResult,import('${packageName}/specifications').ImplementationDiffPreview|string|null>
         =bindingValues.implementationBindingsReplay({changeSet:{entries:[]},required:[],tags:[]});

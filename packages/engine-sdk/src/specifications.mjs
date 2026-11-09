@@ -10,6 +10,6 @@ export {inspectSpecificationScenarios} from '../../../src/kernel/specification-s
 export {javascriptDeclarationPolicies,JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScript,eachTitlePattern,analyzeTestDeclarationAssertions} from '../../../src/kernel/javascript-declarations.mjs';
 export {javascriptSourceComments,scanSourceClauseTags} from '../../../src/kernel/source-comments.mjs';
 export {isQualifiedAcceptanceId,acceptanceTagsInComment,adjacentWhitespace,acceptanceTagsAboveLine,acceptanceTagLines} from '../../../src/kernel/verification-policy.mjs';
-export {implementationBindingPolicies,reviewBindings,BINDING_DECISIONS,EXPLANATION_LIMITS,clauseTagExplanation} from '../../../src/kernel/code-delivery-evidence.mjs';
+export {implementationBindingPolicies,sourceTagOriginPolicies,SOURCE_TAG_ORIGIN_VALUES_PROFILE,reviewBindings,BINDING_DECISIONS,EXPLANATION_LIMITS,clauseTagExplanation} from '../../../src/kernel/code-delivery-evidence.mjs';
 export {codeDocumentationPolicies,publicDeclarations,changedDeclarations} from '../../../src/kernel/code-documentation.mjs';
 export {polyglotPathPolicies,POLYGLOT_STRUCTURAL_LANGUAGES,maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports} from '../../../src/kernel/polyglot-lexical.mjs';

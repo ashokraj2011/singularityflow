@@ -1,12 +1,32 @@
 /**
- * Lossless parsers for Git's NUL-framed porcelain-v2 status and staged index formats.
- * These functions deliberately accept bytes only: a UTF-8 subprocess decode would already have
+ * Parsers for Git's NUL-framed listings and explicitly decoded zero-context text patches.
+ * Listing functions deliberately accept bytes only: a UTF-8 subprocess decode would already have
  * destroyed a non-UTF-8 repository path before this boundary could inspect it.
  */
 
 // `ignoreBOM: true` is counterintuitive but means “do not strip a leading UTF-8 BOM”. A filename
 // beginning with EF BB BF must round-trip as U+FEFF followed by its remaining characters.
 import {SingularityFlowError} from './foundation/failures.mjs';
+
+/** Native text-patch decoding only. Which paths and lines establish ownership belongs to the kernel. */
+export function gitTagLineDeltas(patch) {
+  const headerPath=(value,prefix)=>{let text=value.replace(/\t$/u,'');
+    if(text.startsWith('"'))text=text.slice(1,-1).replace(/\\([0-7]{3}|.)/gu,(_,escape)=>escape.length===3
+      ?String.fromCharCode(Number.parseInt(escape,8)):({n:'\n',t:'\t'})[escape]??escape);
+    return text.startsWith(prefix)?text.slice(prefix.length):null;
+  };
+  const deltas=[];let oldPath=null,newPath=null,hunk=null;
+  for(const line of patch.split('\n')) {
+    if(hunk?.removed>0&&line.startsWith('-')) {hunk.removed--;deltas.push({path:oldPath,side:'removed',line:null,text:line.slice(1)});}
+    else if(hunk?.added>0&&line.startsWith('+')) {hunk.added--;if(newPath)deltas.push({path:newPath,side:'added',line:hunk.line,text:line.slice(1)});hunk.line++;}
+    else if(line.startsWith('diff --git '))[oldPath,newPath,hunk]=[null,null,null];
+    else if(!hunk&&line.startsWith('--- '))oldPath=headerPath(line.slice(4),'a/');
+    else if(!hunk&&line.startsWith('+++ '))newPath=headerPath(line.slice(4),'b/');
+    else {const header=/^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u.exec(line);
+      if(header)hunk={removed:Number(header[1]??1),added:Number(header[3]??1),line:Number(header[2])};}
+  }
+  return deltas;
+}
 const utf8 = /* @__PURE__ */ new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_RECORDS = 500_000;

@@ -157,6 +157,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   retained generation through `phase.source-control.retain`. Supply explicit `sourceControlReaders`
   for new collection. Conditional receipts and source/generation proofs support checkout-free
   acknowledgement; publication readiness and human acceptance remain separate requirements.
+  The `specifications` value entry exposes `sourceTagOriginPolicies`, and `specifications/node`
+  binds its exact carried-identifier and Story-added-line generators. Supply real source/line
+  observations through their explicit requests; these values do not authenticate source proofs,
+  retain evidence or grant publication. Namespace shared-tag origins still need the separately
+  versioned acceptance owner. See `docs/ENGINE-SDK-SOURCE-TAG-ORIGINS.md` in the source repository.
 - `hosts/namespace-delivery-inspection`: inspect accepted original/current source archives and
   real phase-check receipts through `phase.delivery.inspect`, with bounded affected-path previews.
   Its v3 manifest adds independently approved plan references and source-clause bindings from

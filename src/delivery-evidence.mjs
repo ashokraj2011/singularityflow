@@ -1,4 +1,5 @@
-import {codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,plannedSourceClauseBindingsReplay,changesProductSource,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
+import {codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,plannedSourceClauseBindingsReplay,carriedTagIdsReplay,storyTagLinesReplay,changesProductSource,codeDeliveryEvidencePath as safeEvidencePath,prepareCodeDeliveryReportReader} from './engine-compatibility/node-source-policy.mjs';
+import {gitTagLineDeltas} from './git-status-detail.mjs';
 import {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 export {affectedDeliveryPaths,testCoverageExemptPath,testCoverageDeliveryPaths,uncoveredTestDeliveryPaths} from './engine-compatibility/node-source-policy.mjs';
 import {pathInside,isDocumentationPath,classifyDeliveryChanges} from './engine-compatibility/node-source-policy.mjs';
@@ -371,97 +372,36 @@ export async function taggedAcceptanceIds(root, testPaths) {
  * The tags of one kind (`clause` or `ac`) that the generation's files already carried at its
  * baseline [E2G-011, E2G-015]: every tag in a file it left unchanged, and every tag in the baseline
  * version of each file it changed, renamed, copied or deleted, so a tag that moves with its code is
- * carried too. `occurrences` are the tags read now, each with its `path`; `reads` picks the changed
- * paths worth reading. Without a change set, no tag is known to be carried.
+ * carried too. `occurrences` are the tags read now, each with its `path`; the shared rule selects
+ * the changed paths worth reading. Without a change set, no tag is known to be carried.
  */
-function carriedTags(root, changeSet, occurrences, kind, reads) {
-  if (!changeSet?.base?.commit) return new Set();
-  const entries = changeSet.entries ?? [];
-  const changed = new Set(entries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean));
-  const carried = new Set(occurrences.filter((tag) => !changed.has(tag.path)).map((tag) => tag.clauseId));
-  const earlier = committedFilesAtRevisions(root, entries
-    .filter((entry) => entry.oldPath && /^100/u.test(entry.oldMode ?? '') && reads(entry.oldPath))
-    .map((entry) => ({ key: entry.oldPath, ref: changeSet.base.commit, path: entry.oldPath })), {
-    maximumObjectBytes: MAX_BOUND_SOURCE_BYTES, maximumBytes: 4 * MAX_BOUND_SOURCE_BYTES
-  });
-  for (const [relative, bytes] of earlier) {
-    for (const tag of scanSourceClauseTags(bytes.toString('utf8'), { sourcePath: relative })) {
-      if (tag.tag === kind) carried.add(tag.clauseId);
+function carriedTags(root,changeSet,occurrences,tag) {
+  const replay=carriedTagIdsReplay({baseline:changeSet?.base?.commit??null,changes:(changeSet?.entries??[]).map(entry=>({
+    oldPath:entry.oldPath??null,newPath:entry.newPath??null,previousRegular:/^100/u.test(entry.oldMode??'')})),occurrences,tag});let value;
+  for(;;) {
+    const step=replay.next(value);if(step.done)return step.value;const request=step.value;
+    switch(request.kind) {
+      case 'origin-baseline-texts':value=new Map([...committedFilesAtRevisions(root,request.paths.map(path=>({key:path,ref:request.baseline,path})),{
+        maximumObjectBytes:request.maximumObjectBytes,maximumBytes:request.maximumBytes})].map(([path,bytes])=>[path,bytes.toString('utf8')]));break;
+      case 'origin-comment-tags':value=scanSourceClauseTags(request.source,{sourcePath:request.path});break;
+      default:throw new SingularityFlowError('Unknown carried-tag observation.',{code:'ENGINE_PORT_UNAVAILABLE'});
     }
   }
-  return carried;
 }
 
-/** A path named by a `---` or `+++` patch header, without its side prefix; null for /dev/null. */
-function patchHeaderPath(value, prefix) {
-  let text = value.replace(/\t$/u, '');
-  if (text.startsWith('"')) {
-    text = text.slice(1, -1).replace(/\\([0-7]{3}|.)/gu, (_, escape) => (escape.length === 3
-      ? String.fromCharCode(Number.parseInt(escape, 8)) : ({ n: '\n', t: '\t' })[escape] ?? escape));
-  }
-  return text.startsWith(prefix) ? text.slice(prefix.length) : null;
-}
-
-/**
- * The tag lines of one kind (`clause` or `ac`) this Story added, as tagKey(path, line), or null for a
- * Story with no work interval [E2G-011, E2G-015]. They are measured from the source base of the
- * Story's first work interval, which a rework or a later code step still shares; a generation's own
- * baseline is its previous commit. A line counts where the Story's change since that base adds it
- * (every line of an untracked file), unless the change removes at least as many copies of it as it
- * adds: a tag that moved with its code stays where it came from. A line that a merge brought into
- * the Story branch counts as added. `occurrences` are the tags in question, each with its `path` and
- * `line`; `reads` picks the changed paths whose lines count.
- */
-async function storyAddedTagLines(root, workflow, occurrences, kind, reads) {
-  const base = workflow.workIntervals?.history?.[0]?.sourceBaseCommit ?? workflow.workIntervals?.current?.sourceBaseCommit;
-  if (!base) return null;
-  const normalize = (line) => line.trim().replace(/\s+/gu, ' ');
-  const added = new Map();
-  const net = new Map();
-  const count = (relative, text, delta) => {
-    let counted = false;
-    try { counted = Boolean(relative) && reads(relative); } catch { /* a path no rule can govern counts for nothing */ }
-    if (counted) net.set(text, (net.get(text) ?? 0) + delta);
-  };
-  const add = (relative, line, text) => {
-    if (!added.has(relative)) added.set(relative, new Map());
-    added.get(relative).set(line, text);
-    count(relative, text, 1);
-  };
-  // Only files whose change adds or removes such a line; every other tag is where the base had it.
-  const patch = worktreePatchMatching(root, base, kind === 'clause' ? '@[Cc][Ll][Aa][Uu][Ss][Ee]' : '@[Aa][Cc]');
-  let oldPath = null;
-  let newPath = null;
-  let hunk = null;
-  for (const line of patch.split('\n')) {
-    if (hunk?.removed > 0 && line.startsWith('-')) {
-      hunk.removed -= 1;
-      count(oldPath, normalize(line.slice(1)), -1);
-    } else if (hunk?.added > 0 && line.startsWith('+')) {
-      hunk.added -= 1;
-      if (newPath) add(newPath, hunk.line, normalize(line.slice(1)));
-      hunk.line += 1;
-    } else if (line.startsWith('diff --git ')) {
-      [oldPath, newPath, hunk] = [null, null, null];
-    } else if (!hunk && line.startsWith('--- ')) {
-      oldPath = patchHeaderPath(line.slice(4), 'a/');
-    } else if (!hunk && line.startsWith('+++ ')) {
-      newPath = patchHeaderPath(line.slice(4), 'b/');
-    } else {
-      const header = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u.exec(line);
-      if (header) hunk = { removed: Number(header[1] ?? 1), added: Number(header[3] ?? 1), line: Number(header[2]) };
+/** Native work-interval binding and Git/file facts; line ownership is a shared value rule. */
+async function storyAddedTagLines(root,workflow,occurrences,tag,pathContext) {
+  const baseline=workflow.workIntervals?.history?.[0]?.sourceBaseCommit??workflow.workIntervals?.current?.sourceBaseCommit,
+    replay=storyTagLinesReplay({baseline,occurrences,tag,pathContext});let value;
+  for(;;) {
+    const step=replay.next(value);if(step.done)return step.value;const request=step.value;
+    switch(request.kind) {
+      case 'origin-line-deltas':value=gitTagLineDeltas(worktreePatchMatching(root,request.baseline,request.tag==='clause'?'@[Cc][Ll][Aa][Uu][Ss][Ee]':'@[Aa][Cc]'));break;
+      case 'origin-tracked-paths':value=new Set(trackedPaths(root,request.paths));break;
+      case 'origin-untracked-text':value=await readFile(path.join(root,...request.path.split('/')),'utf8');break;
+      default:throw new SingularityFlowError('Unknown Story tag observation.',{code:'ENGINE_PORT_UNAVAILABLE'});
     }
   }
-  const unseen = [...new Set(occurrences.map((tag) => tag.path))].filter((relative) => !added.has(relative));
-  if (unseen.length) {
-    const tracked = new Set(trackedPaths(root, unseen));
-    for (const relative of unseen.filter((candidate) => !tracked.has(candidate))) {
-      const text = await readFile(path.join(root, ...relative.split('/')), 'utf8');
-      text.split(/\r?\n/u).forEach((line, index) => add(relative, index + 1, normalize(line)));
-    }
-  }
-  return new Set(occurrences.filter((tag) => (net.get(added.get(tag.path)?.get(tag.line)) ?? 0) > 0)
-    .map((tag) => tagKey(tag.path, tag.line)));
 }
 
 function witnessIdentity(declaration) {
@@ -617,10 +557,8 @@ export async function plannedSourceClauseBindings(root,config,workflow,phase,sou
       }
       case 'source-binding-bytes':value=await readFile(secured.get(request.path).absolute);break;
       case 'source-binding-tags':value=scanSourceClauseTags(request.source,{sourcePath:request.path});break;
-      case 'carried-source-tags':value=carriedTags(root,request.changeSet,request.occurrences,'clause',candidate=>
-        !isAllowedTestAutomationPath(candidate)&&!isDocumentationPath(candidate)&&!isConfigurationPath(candidate));break;
-      case 'story-added-source-tags':value=await storyAddedTagLines(root,workflow,request.occurrences,'clause',candidate=>
-        isApplicationPath(candidate,request.pathContext)&&!isAllowedTestAutomationPath(candidate)&&!isDocumentationPath(candidate)&&!isConfigurationPath(candidate));break;
+      case 'carried-source-tags':value=carriedTags(root,request.changeSet,request.occurrences,'clause');break;
+      case 'story-added-source-tags':value=await storyAddedTagLines(root,workflow,request.occurrences,'clause',request.pathContext);break;
       case 'source-binding-unchanged-tags':value=await unchangedClauseTags(root,request.entry,new Set(request.available));break;
       default:throw new SingularityFlowError('Unknown source-clause evidence request.',{code:'ENGINE_PORT_UNAVAILABLE'});
     }
@@ -922,9 +860,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       case 'required-acceptance':return acceptanceIds(root,config,workflow,phase);
       case 'specification-records':return loadActiveSpecRecords(itemDirectory(),workflow);
       case 'acceptance-tags':return taggedAcceptanceIds(root,request.testPaths);
-      case 'story-added-acceptance-tags':return storyAddedTagLines(root,workflow,request.locations.map(location=>({path:location.testSource,line:location.line})),'ac',candidate=>isApplicationPath(candidate,request.pathContext)&&isAllowedTestAutomationPath(candidate));
+      case 'story-added-acceptance-tags':return storyAddedTagLines(root,workflow,request.locations.map(location=>({path:location.testSource,line:location.line})),'ac',request.pathContext);
       case 'acceptance-witnesses':{const {kind,...input}=request;return discoverAcceptanceWitnesses(root,phase,input);}
-      case 'carried-criterion-tags':return carriedTags(root,request.changeSet,request.occurrences,'ac',isAllowedTestAutomationPath);
+      case 'carried-criterion-tags':return carriedTags(root,request.changeSet,request.occurrences,'ac');
       case 'source-clause-bindings':return plannedSourceClauseBindings(root,config,workflow,phase,request.sourcePaths,{deletedSourcePaths:request.deletedSourcePaths,changeSet:request.changeSet});
       case 'implementation-bindings':return implementationBindings(root,{changeSet:request.changeSet,required:request.required,tags:request.tags});
       case 'corner-case-analysis':{const {kind,...input}=request;return (await import(CORNER_CASE_MODULE)).evaluateDeliveryCornerCaseGate(root,input);}

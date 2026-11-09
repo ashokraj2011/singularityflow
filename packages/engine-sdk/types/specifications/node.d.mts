@@ -4,6 +4,9 @@ export {JAVASCRIPT_DECLARATION_SCHEMA,tokenizeJavaScript,eachTitlePattern,analyz
 export {reviewBindings,BINDING_DECISIONS,publicDeclarations,changedDeclarations,POLYGLOT_STRUCTURAL_LANGUAGES,
   maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports} from '../specifications.mjs';
 export declare const implementationBindingsReplay:import('../specifications.mjs').ImplementationBindingValues['implementationBindingsReplay'];
+export {SOURCE_TAG_ORIGIN_VALUES_PROFILE} from '../specifications.mjs';
+export declare const carriedTagIdsReplay:import('../specifications.mjs').SourceTagOriginValues['carriedTagIdsReplay'];
+export declare const storyTagLinesReplay:import('../specifications.mjs').SourceTagOriginValues['storyTagLinesReplay'];
 export declare const bindingsDigest:import('../specifications.mjs').ImplementationBindingValues['bindingsDigest'];
 export declare const documentationLanguage:import('../specifications.mjs').CodeDocumentationValues['documentationLanguage'];
 export declare const unsupportedSourceLanguage:import('../specifications.mjs').CodeDocumentationValues['unsupportedSourceLanguage'];

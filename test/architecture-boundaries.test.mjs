@@ -408,6 +408,20 @@ test('source-clause rules have one pure owner and the native function only suppl
   assert.equal(specification.statements.some(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='predecessorSpecClauses'),false);
 });
 
+test('source-tag ownership stays in the kernel while Git patch decoding remains an adapter fact',async()=>{
+  const owner='src/delivery-evidence.mjs',text=await readFile(path.join(packageRoot,owner),'utf8'),ast=ts.createSourceFile(owner,text,ts.ScriptTarget.Latest,true);
+  for(const [name,replay]of [['carriedTags','carriedTagIdsReplay'],['storyAddedTagLines','storyTagLinesReplay']]) {
+    const entry=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text===name);assert.ok(entry);
+    const body=entry.body.getText(ast);assert.equal((body.match(new RegExp(replay+'\\(','gu'))??[]).length,1);
+    for(const policy of ['isApplicationPath','isDocumentationPath','isConfigurationPath','isAllowedTestAutomationPath','tagKey'])assert.equal(body.includes(policy+'('),false,name+': '+policy);
+    assert.doesNotMatch(body,/\.trim\(|net\.set|added\.set/u,'a native fact server cannot decide which lines count');
+  }
+  assert.equal(ast.statements.some(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='patchHeaderPath'),false);
+  const parser=await readFile(path.join(packageRoot,'src/git-status-detail.mjs'),'utf8'),wire=ts.createSourceFile('wire',parser,ts.ScriptTarget.Latest,true),
+    decode=wire.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='gitTagLineDeltas');assert.ok(decode);
+  assert.doesNotMatch(decode.body.getText(wire),/isApplicationPath|isTestAutomationPath|plannedClaims|workIntervals|loadDefinition|readFile/u);
+});
+
 test('specification and verification compatibility facades share kernel values and retain native observation ordering',async()=>{
   for(const file of ['src/verification/contracts.mjs','src/verification/intent.mjs','src/draft-diagnostics.mjs','src/specification-quality.mjs','src/clarification-markers.mjs','src/specification-scenarios.mjs']) {
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);

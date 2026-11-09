@@ -5282,6 +5282,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       + 'in a Story checkout, otherwise in this clone\'s own log (Singularity Flow: Show Kept Copilot Prompts). A prompt that holds what looks like a secret is refused, '
       + 'and a plain chat\'s changes follow the capability\'s "Changes in plain chats" setting. /sf-pause turns this off on this machine.');
   }));
+  // Hooks turned off are visible [PCR:REQ-034]: a repository without SFlow's hook file, or with disableAllHooks in its
+  // Copilot settings, is said once per repository and reason. doctor names the rest (a changed file, an untrusted folder).
+  const hooksToldKey = 'singularityFlow.repositoryHooksWarned';
+  context.subscriptions.push(store.onDidChange((state) => {
+    if (!state.snapshot || state.stale || state.error) return;
+    const target = repository;
+    void (async () => {
+      const exists = (relative: string) => access(path.join(target, relative)).then(() => true, () => false);
+      const disabled: string[] = [];
+      for (const relative of ['.github/copilot/settings.json', '.github/copilot/settings.local.json']) {
+        const text = await readFile(path.join(target, relative), 'utf8').catch(() => '');
+        if (/"disableAllHooks"\s*:\s*true/u.test(text)) disabled.push(relative);
+      }
+      const reasons = [
+        ...(await exists('.github/hooks/sflow.json') ? [] : ['This repository has no .github/hooks/sflow.json, so a Copilot chat on a machine without Singularity Flow\'s plugin is not guarded. Run singularity-flow doctor --repair-hooks, then review and commit the files.']),
+        ...disabled.map((file) => `disableAllHooks in ${file} turns every Copilot hook off for this repository, Singularity Flow's too: prompts are not kept and nothing is refused.`)
+      ];
+      const told = context.globalState.get<string[]>(hooksToldKey) ?? [];
+      const fresh = reasons.filter((reason) => !told.includes(createHash('sha256').update(`${target}\0${reason}`).digest('hex').slice(0, 32)));
+      if (!fresh.length || repository !== target) return;
+      void context.globalState.update(hooksToldKey, [...told, ...fresh.map((reason) => createHash('sha256').update(`${target}\0${reason}`).digest('hex').slice(0, 32))].slice(-200));
+      for (const reason of fresh) void vscode.window.showWarningMessage(reason);
+    })().catch(() => {});
+  }));
   // The engine identifies code delivery, including custom phases. Open its human handoff once per
   // generation; no new snapshot, application process, test or acceptance is triggered by this offer.
   const outcomeOffered = new Set(context.workspaceState.get<string[]>('singularityFlow.outcomeOffered') ?? []);

@@ -96,7 +96,12 @@ async function paused(repo, fn) {
 
 test('PCR REQ-002: a prompt in a repository that uses SFlow is kept, redacted and bounded, in the clone\'s own log', async (t) => {
   const repo = await clone(t);
-  assert.deepEqual(await repo.prompt('person', 'make the timeout 10s'), {});
+  // Copilot CLI gets one line naming the route [PCR:REQ-040]; it never tells the agent to run anything.
+  const answer = await repo.prompt('person', 'make the timeout 10s');
+  assert.deepEqual(Object.keys(answer), ['additionalContext']);
+  assert.equal(answer.additionalContext, 'SFlow: No Story is in progress in this checkout. To change it, the person starts one with /sf-start <NEW-ID> …; answer questions freely.'
+    + ' A change made in a plain chat is recorded, and its step\'s approval waits for it.');
+  assert.doesNotMatch(answer.additionalContext, /\b(?:run|execute|invoke)\b/iu);
   await repo.prompt('person', '/sf-next and push with the usual key');
   const log = await readPromptLog(path.join(repo.root, '.git'));
   assert.deepEqual(log.map((entry) => [entry.kind, entry.skill, entry.text]), [['skill', 'sf-next', '/sf-next and push with the usual key'], ['plain', null, 'make the timeout 10s']]);
@@ -221,7 +226,8 @@ test('PCR REQ-003: a prompt holding a secret is blocked for Copilot CLI, kept on
 
 test('PCR REQ-010, REQ-011: under refuse, a code step\'s edit and writing command are refused with the /sf-code line; reads stay free', async (t) => {
   const repo = await clone(t, { story: 'QF-1', policy: 'refuse' });
-  await repo.prompt('person', 'make the timeout 10s');
+  assert.equal((await repo.prompt('person', 'make the timeout 10s')).additionalContext,
+    'SFlow: QF-1 is at Implement. To change it, the person types /sf-code QF-1 …; answer questions freely. A plain chat\'s edits and writing commands are refused here.');
   for (const [toolName, toolArgs] of [['view', { path: 'src/retry.js' }], ['grep', { pattern: 'timeout', path: 'src' }],
     ['bash', { command: 'git diff' }], ['bash', { command: 'git status --short && git log --oneline -5' }], ['bash', { command: `cd ${repo.root} && git diff --stat` }],
     ['bash', { command: 'ls src' }], ['bash', { command: 'singularity-flow status --json' }], ['bash', { command: 'singularity-flow phase enter --json' }],
@@ -245,7 +251,7 @@ test('PCR REQ-010, REQ-011: under refuse, a code step\'s edit and writing comman
 
 test('PCR REQ-011: another step names /sf-phase, no Story names /sf-start, and the words are the session\'s own last prompt', async (t) => {
   const step = await clone(t, { story: 'QF-2', phase: 'intake', policy: 'refuse' });
-  await step.prompt('person', 'add the retry limit to the scope');
+  assert.match((await step.prompt('person', 'add the retry limit to the scope')).additionalContext, /^SFlow: QF-2 is at Intake\. To change it, the person types \/sf-phase QF-2 …;/u);
   assert.match(reason(await step.call('person', ...edit())), /the person types: \/sf-phase QF-2 add the retry limit to the scope\. Do not retry it$/u);
   const none = await clone(t, { policy: 'refuse' });
   await none.prompt('person', 'make the timeout 10s');
@@ -256,7 +262,7 @@ test('PCR REQ-011: another step names /sf-phase, no Story names /sf-start, and t
 
 test('PCR REQ-012, REQ-013: allow lets a change through untracked; a /sf- turn and a paused machine are governed as before', async (t) => {
   const repo = await clone(t, { story: 'QF-1', policy: 'allow' });
-  await repo.prompt('person', 'make the timeout 10s');
+  assert.equal((await repo.prompt('person', 'make the timeout 10s')).additionalContext, 'SFlow: QF-1 is at Implement. To change it, the person types /sf-code QF-1 …; answer questions freely.');
   assert.deepEqual(await repo.call('person', ...edit()), {});
   const local = await localAskedFor(path.join(repo.root, '.git'), { workId: 'QF-1', phase: 'implement', generation: 1 });
   assert.equal(local.turns[0].changed, undefined, 'allow keeps the prompt and marks nothing');
@@ -481,7 +487,7 @@ test('PCR REQ-003: a value one of the repository\'s declared environment files h
   assert.ok(!answer.reason.includes(value));
   const [logged] = await readPromptLog(path.join(repo.root, '.git'));
   assert.equal(logged.text, 'connect with [REDACTED] and check the pool');
-  assert.deepEqual(await repo.prompt('person', 'set DEBUG to true while we look'), {}, 'a plain word the file holds is no secret');
+  assert.equal((await repo.prompt('person', 'set DEBUG to true while we look')).decision, undefined, 'a plain word the file holds is no secret');
 });
 
 test('PCR REQ-003: a subagent\'s task keeps the person\'s copy and its secret; a skill turn is judged by what was typed after it', async (t) => {

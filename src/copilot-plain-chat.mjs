@@ -167,7 +167,21 @@ export async function notePrompt(payload, { skill = null, now = Date.now() } = {
     await (await import('./asked-for.mjs')).noteAskedFor(story.gitDir, { workId: story.workId, phase: story.phase, generation: story.generation,
       text: words.text, truncated: words.truncated === true, skill: null, turnId, at, plainChat: true }).catch(() => {});
   }
-  return secret ? { decision: 'block', reason: blockReason(secret) } : null;
+  if (secret) return { decision: 'block', reason: blockReason(secret) };
+  return skill ? null : { additionalContext: await routeLine(story, repository) };
+}
+
+/**
+ * The one line of context a plain prompt gets where a host reads it, Copilot CLI [PCR:REQ-040]: where the work stands
+ * and the line the person types to change it. It names the route; it never asks the agent to run a skill or a command.
+ */
+async function routeLine(story, repository) {
+  const policy = await plainChatEditsPolicy(repository.root, '').catch(() => DEFAULT_EDITS);
+  const route = story ? `${story.workId} is at ${story.label}. To change it, the person types /sf-${story.code ? 'code' : 'phase'} ${story.workId} …`
+    : 'No Story is in progress in this checkout. To change it, the person starts one with /sf-start <NEW-ID> …';
+  const tail = { refuse: ' A plain chat\'s edits and writing commands are refused here.',
+    record: ' A change made in a plain chat is recorded, and its step\'s approval waits for it.', allow: '' }[policy] ?? '';
+  return `SFlow: ${route}; answer questions freely.${tail}`;
 }
 
 /**

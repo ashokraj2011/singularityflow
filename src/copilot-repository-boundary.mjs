@@ -185,17 +185,18 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   await attribute(payload, (recorder, directory) => recorder.sfGuardNotePrompt(payload, { directory, paused: mode.paused,
     explicitSkill: explicitSflowSkill(payload.prompt), now }), { always: true });
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
-  const blocked = await notePlainChatPrompt(payload, { skill, paused: mode.paused, now });
-  if (blocked) {
+  const noted = await notePlainChatPrompt(payload, { skill, paused: mode.paused, now });
+  if (noted?.decision === 'block') {
     // The prompt never reaches the model (Copilot CLI): no turn of it, and none left from before.
     await removeRecord(file);
     await removeMutationRecord(file);
-    return blocked;
+    return noted;
   }
   if (!skill || ['sf-pause', 'sflow-pause'].includes(skill)) {
     await removeRecord(file);
     await removeMutationRecord(file);
-    return {};
+    // A plain prompt where SFlow is used gets its one line naming the route [PCR:REQ-040].
+    return !skill && noted?.additionalContext ? { additionalContext: noted.additionalContext } : {};
   }
   const directory = path.dirname(file);
   await mkdir(directory, { recursive: true, mode: 0o700 });

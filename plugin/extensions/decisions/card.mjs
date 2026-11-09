@@ -36,10 +36,14 @@ const decidable = (packet) => cardRows(packet).filter((item) => item.decidedBy?.
 
 function howWords(item) {
   if (!item.decidedBy?.allowed) return `${item.decidedBy?.words ?? ''}${item.decidedBy?.share ? ` Share: ${item.decidedBy.share}` : ''}`;
-  if (item.options.some(choosable)) return 'Your decision, on the forms below';
-  if (reviews(item).length) return 'Your sign-off, on the forms below';
+  // Every step that stays in the person's terminal, as the VS Code card shows them: a row with a form hid
+  // "Fix the code", and an amendment's row showed only its first command.
   const own = ownSteps(item);
-  return own.length ? `Stays in your terminal: \`${own[0].action.command}\`` : (item.options[0]?.words ?? '');
+  const terminal = own.length === 1 ? `\`${own[0].action.command}\``
+    : own.map((option) => `${option.label.replace(/[.!?]+$/u, '')}: \`${option.action.command}\``).join('; ');
+  if (item.options.some(choosable)) return `Your decision, on the forms below${own.length ? `; or in your terminal: ${terminal}` : ''}`;
+  if (reviews(item).length) return `Your sign-off, on the forms below${own.length ? `; or in your terminal: ${terminal}` : ''}`;
+  return own.length ? `Stays in your terminal: ${terminal}` : (item.options[0]?.words ?? '');
 }
 
 const line = (value) => String(value ?? '').replace(/[\r\n]+/gu, ' ').trim();
@@ -55,8 +59,7 @@ export function evidenceLines(packet) {
   if (!evidence) return [];
   const { coverage, proof, findings, hold, requiredChecks, askedFor } = evidence;
   // A held package whose command a row above already offers is not offered twice.
-  const offered = new Set(cardRows(packet).filter((item) => item.decidedBy?.allowed && !item.options.some(choosable) && !reviews(item).length)
-    .map((item) => ownSteps(item)[0]?.action.command).filter(Boolean));
+  const offered = new Set(cardRows(packet).filter((item) => item.decidedBy?.allowed).flatMap((item) => ownSteps(item).map((option) => option.action.command)));
   const holdStep = (entry) => (!entry.allowed ? `    Share this with them: /sf-decide ${packet.workId}`
     : offered.has(entry.command) ? '    Its command is on the hold\'s row above.' : `    Stays in your terminal: \`${line(entry.command)}\``);
   return ['', `**Evidence for this approval.** ${line(evidence.words)}`, '',

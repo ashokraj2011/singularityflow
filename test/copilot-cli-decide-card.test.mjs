@@ -46,6 +46,18 @@ test('the table shows every open decision and who answers it; the approval is no
   assert.equal(cardRows(packet()).length, 5);
 });
 
+test('a row with a form still names each step that stays in the terminal, and a row of terminal steps names every one (2026-11-09)', () => {
+  const own = (id, label, command) => ({ id, label, recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command } });
+  const gap = { id: 'd1', kind: 'conformance-gap', title: 'AC-001 deviated', why: 'The report marks it deviated.', decidedBy: allowed,
+    options: [own('fix-code', 'Fix the code: return to Code', 'singularity-flow reject conformance --work-id PAY-1 --to implementation --reason <reason>'), choice('accept-risk', 'Accept for now')] };
+  const amendment = { id: 'd2', kind: 'intent-amendment', title: 'Decide intent amendment AMD-001', why: 'It proposes a change.', decidedBy: allowed,
+    options: [own('approve', 'Approve it.', 'singularity-flow story intent-amendment decide AMD-001 --decision approve'), own('reject', 'Reject it', 'singularity-flow story intent-amendment decide AMD-001 --decision reject')] };
+  const table = decisionsTable(packet({ items: [gap, amendment] }));
+  // VS Code shows these beside the choices; a /decide that showed only the forms hid "Fix the code".
+  assert.ok(table.includes('Your decision, on the forms below; or in your terminal: `singularity-flow reject conformance --work-id PAY-1 --to implementation --reason <reason>`'), table);
+  assert.ok(table.includes('Stays in your terminal: Approve it: `singularity-flow story intent-amendment decide AMD-001 --decision approve`; Reject it: `singularity-flow story intent-amendment decide AMD-001 --decision reject`'), table);
+});
+
 test('nothing is preselected: no default on any field, and a person must choose', () => {
   const [{ form, items }] = rowForms(cardRows(packet()).slice(0, 3));
   for (const property of Object.values(form.requestedSchema.properties)) assert.equal(property.default, undefined);

@@ -57,7 +57,7 @@ import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/rende
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { WORKFLOW_ARCHIVE_PATH, parseWorkflowArchive, workflowArchived } from './workflow-archive.mjs';
 import { STEP_OUTPUTS, newStepContract, newStepTemplate } from './step-outputs.mjs';
-import { normalizeExternalCommand } from './external-command-policy.mjs';
+import { normalizeExternalCommand, selectedRepositoryTests, testCommandLevel } from './external-command-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, nearestNames, posix, secureRepositoryPath } from './util.mjs';
 import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
@@ -413,8 +413,26 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const asksForRepositoryTests = [...Object.values(phases), ...Object.values(workTypes).flatMap((type) => Object.values(type.phaseOverrides ?? {}))]
     .some((phase) => phase?.repositoryTests === 'run');
   const { isTestQualityCommand } = asksForRepositoryTests ? await import('./delivery-evidence.mjs') : {};
-  const runsRepositoryTests = (phase) => phase.repositoryTests === 'run' && outputOf(phase) !== 'code' && !phase.testEvidenceFrom
-    && !(phase.qualityCommands ?? []).some(isTestQualityCommand);
+  // A step's checks as written: resolution adds the repository's tests to a step that runs tests, and
+  // those are the repository's, not the step's [RTC:REQ-002].
+  const writtenStep = (type, phaseId) => {
+    const override = type.phaseOverrides?.[phaseId] ?? {};
+    const step = phases[phaseId] ?? {};
+    return { qualityCommands: Object.hasOwn(override, 'qualityCommands') ? override.qualityCommands ?? [] : step.qualityCommands ?? [],
+      testLevels: override.testLevels ?? step.testLevels, testIds: override.testIds ?? step.testIds };
+  };
+  const runsRepositoryTests = (phase, written) => phase.repositoryTests === 'run' && outputOf(phase) !== 'code' && !phase.testEvidenceFrom
+    && !(written.qualityCommands ?? []).some(isTestQualityCommand);
+  // The repository's own test commands, which every step that runs tests uses unless it has its own [RTC:REQ-009].
+  const repositoryTests = Array.isArray(raw.tests) ? raw.tests.filter((command) => command && typeof command === 'object') : [];
+  const testsFrom = (phase, written) => {
+    if (outputOf(phase) !== 'code' && (phase.repositoryTests !== 'run' || phase.testEvidenceFrom)) return null;
+    const own = (written.qualityCommands ?? []).filter((command) => command && typeof command === 'object' && command.kind === 'test');
+    if (own.length) return { source: 'step', ids: own.map((command) => String(command.id)) };
+    if (!repositoryTests.length) return { source: 'inferred' };
+    return { source: 'repository', ...(written.testLevels ? { levels: [...written.testLevels] } : {}), ...(written.testIds ? { ids: [...written.testIds] } : {}),
+      runs: selectedRepositoryTests(written, repositoryTests).map((command) => String(command.id)) };
+  };
 
   const workflows = Object.entries(workTypes).map(([id, type]) => {
     let resolved = null;
@@ -440,6 +458,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       plannedClaims: plannedClaimsView(type, resolved, failure),
       steps: (resolved?.phases ?? (type.phases ?? []).map((phaseId) => ({ id: phaseId, ...phases[phaseId] }))).map((phase) => {
         const route = authoringRoute(phase);
+        const written = writtenStep(type, phase.id);
+        const tests = testsFrom(phase, written);
         return {
           id: phase.id, label: phase.label ?? phase.id, output: outputOf(phase),
           // Resolution leaves the description out of Story pins, so it is read from the step itself.
@@ -465,8 +485,10 @@ export async function buildStudioModel(root, { authority = null } = {}) {
             .map(({ id: skillId, use }) => ({ id: skillId, use, origin: 'attachments', scope: 'workflow' }))],
           afterStepSetByWorkflow: Boolean(type.phaseOverrides?.[phase.id] && Object.hasOwn(type.phaseOverrides[phase.id], 'afterStep')),
           // The checks sflow runs when the step is submitted, as written (a change adds to them).
-          qualityCommands: structuredClone(phase.qualityCommands ?? []),
-          ...(asksForRepositoryTests && runsRepositoryTests(phase) ? { runsRepositoryTests: true } : {}),
+          qualityCommands: structuredClone(written.qualityCommands),
+          ...(asksForRepositoryTests && runsRepositoryTests(phase, written) ? { runsRepositoryTests: true } : {}),
+          // Where its tests come from: this step's own, the repository's (all, or the levels or IDs it names), or found.
+          ...(tests ? { testsFrom: tests } : {}),
           // Steps the engine generates, and compiled skill steps, cannot choose a drafting skill.
           generatedByEngine: isConvergencePhase(phase) || deterministicOnlyGeneration(phase),
           convergence: isConvergencePhase(phase),
@@ -496,6 +518,13 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     problems,
     protection,
     workflows,
+    // The repository's test commands, listed with their level and folders [RTC:REQ-009].
+    tests: repositoryTests.map((command) => ({
+      id: String(command.id), level: testCommandLevel(command), workingDirectory: command.workingDirectory ?? '.',
+      affectedRoots: Array.isArray(command.affectedRoots) ? [...command.affectedRoots] : [],
+      ...(command.environment ? { environment: command.environment } : {}),
+      ...(command.env && typeof command.env === 'object' ? { env: Object.keys(command.env).sort() } : {})
+    })),
     constitutions: constitutionStudioView(constitutions, definition ?? raw, protection.workflows),
     epics: epicModel(portfolioText == null ? null : parseYamlText(portfolioText) ?? {}, posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'), archive),
     integrations: {

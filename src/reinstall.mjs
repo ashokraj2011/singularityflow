@@ -17,7 +17,7 @@ import { copilotSkillForCommand } from './copilot-guidance.mjs';
 import {
   renderCommandPromptCommand, renderPlatformCommand
 } from './safe-command-guidance.mjs';
-import { PLUGIN_REPLACEMENT_NOTE, removeRetiredPluginCopies, verifyPluginInstallation } from './plugin.mjs';
+import { notePluginCopy, PLUGIN_REPLACEMENT_NOTE, removeRetiredPluginCopies, verifyPluginInstallation } from './plugin.mjs';
 import { inspectDistributionBundle } from './distribution-bundle.mjs';
 import { readSecurePublicKey } from './secure-private-key.mjs';
 import {
@@ -2671,6 +2671,7 @@ export async function applyLocalReinstall(plan, {
         execute: boundedExecute, exists, expectedDirectSkills, targetRoot: plan.installed.skillsRoot,
         directSourceRoot: path.join(candidatePluginRoot, 'skills'), env
       });
+      notePluginCopy({ env, homeDirectory });
       removeRetiredPluginCopies({ env, homeDirectory });
       if (distributionTransaction) {
         await updateDistributionTransaction(distributionTransaction, 'telemetry', 'pending');

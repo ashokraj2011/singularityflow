@@ -85,8 +85,9 @@ treats unknown keys before adding it, and follow the existing compatibility rule
 
 ### Sources and precedence
 
-1. Configured (`workflow.yml` / capability), 2. Story decision (`decision test-command`),
-3. Story pin (first gate use of an inferred command), 4. inference.
+1. Configured (`workflow.yml` / capability): a step's own test commands, else the repository's
+   `tests:` it runs (RTC, docs/SPEC-RTC-REPOSITORY-TEST-COMMANDS-v1.md), 2. Story decision
+   (`decision test-command`), 3. Story pin (first gate use of an inferred command), 4. inference.
 Inference and instruction extraction only ever **propose** outside a gate. At a gate, inference may
 still fill an uncovered module, and that command is pinned on first use.
 

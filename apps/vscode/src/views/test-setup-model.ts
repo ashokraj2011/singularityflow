@@ -1,10 +1,17 @@
 /** Guided test-command edits; the existing configuration transaction owns validation and saving. */
+import { isDeepStrictEqual } from 'node:util';
 import YAML from 'yaml';
 import { renderPreservingFormatting } from '../../../../src/yaml-formatting.mjs';
 import { normalizeExternalCommand } from '../../../../src/external-command-policy.mjs';
 
+/**
+ * The repository's own test commands (`tests:`), which every step that runs tests uses [RTC:REQ-005].
+ * Test setup chooses it by default; a step is the other choice, an override for that step only.
+ */
+export const REPOSITORY_TEST_TARGET = 'repository';
+
 export interface TestSetupTarget {
-  id: string; label: string; phaseId: string; workType: string | null;
+  id: string; label: string; phaseId: string | null; workType: string | null;
   commands: Record<string, unknown>[]; legacyCommands: string[];
 }
 export interface TestSetupInspection {
@@ -67,7 +74,12 @@ export function testSetupTargets(definition: Row): TestSetupTarget[] {
     commands: (value.qualityCommands ?? []).filter((command: unknown) => command && typeof command === 'object' && (command as Row).kind === 'test'),
     legacyCommands: (value.qualityCommands ?? []).filter((command: unknown) => typeof command === 'string')
   });
+  // No steps means no configuration to edit: the Center's diagnostics say why.
+  if (!phases || typeof phases !== 'object' || !Object.keys(phases).length) return [];
+  const tests = Array.isArray(definition.tests) ? definition.tests : [];
   return [
+    { id: REPOSITORY_TEST_TARGET, label: 'The repository: every step that runs tests, in every workflow', phaseId: null, workType: null,
+      commands: tests.filter((command: unknown) => command && typeof command === 'object' && (command as Row).kind === 'test'), legacyCommands: [] },
     ...Object.entries(phases).map(([id, phase]) => target(id, null, phase as Row)),
     ...Object.entries(definition.workTypes ?? {}).flatMap(([id, value]) => {
       const workType = value as Row;
@@ -97,10 +109,25 @@ export function updateTestSetupYaml(text: string, targetId: string, commands: un
     if (ids.has(normalized.id)) throw new Error(`Duplicate test command ID: ${normalized.id}`);
     ids.add(normalized.id);
   }
-  const prefix = target.workType ? ['workTypes', target.workType, 'phaseOverrides', target.phaseId] : ['phases', target.phaseId];
+  if (target.id === REPOSITORY_TEST_TARGET) {
+    if (definition.tests != null && !Array.isArray(definition.tests)) throw new Error('tests in the workflow file must be a list. Repair it before editing test setup.');
+    // An entry saved unchanged keeps its node, so a command the team wrote down keeps where it was read from.
+    const existing = document.getIn(['tests'], true);
+    const kept = YAML.isSeq(existing) ? [...existing.items] : [];
+    const list = YAML.isSeq(existing) ? existing : document.createNode([]) as YAML.YAMLSeq;
+    const items = commands.map((command) => kept.find((node) => YAML.isMap(node) && isDeepStrictEqual(node.toJSON(), command)) ?? document.createNode(command));
+    // The comment above the list's first entry belongs to that entry: it goes when that entry does.
+    if (items[0] !== kept[0]) list.commentBefore = undefined;
+    list.items = items;
+    list.flow = false;
+    if (list !== existing) document.setIn(['tests'], list);
+    return renderPreservingFormatting(text, document);
+  }
+  const prefix = target.workType ? ['workTypes', target.workType, 'phaseOverrides', target.phaseId] : ['phases', target.phaseId as string];
+  const phaseId = target.phaseId as string;
   const current = target.workType
-    ? { ...definition.phases[target.phaseId], ...definition.workTypes[target.workType].phaseOverrides?.[target.phaseId] }
-    : definition.phases[target.phaseId];
+    ? { ...definition.phases[phaseId], ...definition.workTypes[target.workType].phaseOverrides?.[phaseId] }
+    : definition.phases[phaseId];
   const retained = (current.qualityCommands ?? []).filter((command: unknown) => !command || typeof command !== 'object' || (command as Row).kind !== 'test');
   if (retained.some((command: Row) => command && typeof command === 'object' && ids.has(String(command.id)))) throw new Error('A test ID conflicts with another quality command.');
   document.setIn([...prefix, 'qualityCommands'], [...retained, ...commands]);

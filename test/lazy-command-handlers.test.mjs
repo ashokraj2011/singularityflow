@@ -482,7 +482,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-publication-readiness.mjs +210, submission-readiness.mjs +58) [PHR:REQ-003]. No new eager file.
     // 9,648,050 (measured 9,648,023, commands/phase-lifecycle.mjs): only an accepted risk settles a later obligation; why a
     // dismissal does not is said where the settlement is read (upstream-routes.mjs +151) [PHR:REQ-003]. No new eager file.
-    assert.ok(closure.bytes <= 9_648_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,629,500 (measured 9,629,451, commands/phase-lifecycle.mjs): the repository's test commands are checked and given to the
+    // steps that run tests at resolution, which is synchronous (external-command-policy.mjs repository tests, level and URL
+    // credential check +5,927, config.mjs +1,339) [RTC:REQ-001, REQ-002, REQ-011], and workflow activate joins the
+    // own-terminal steps (person-step-catalog.mjs, copilot-mutation-guard.mjs) [RTC decision 6]; no new eager file.
+    // 9,655,600 (measured 9,655,563, commands/phase-lifecycle.mjs): phase-responsibility batch 1 merged with repository test
+    // commands (the two sets above together); no new eager file.
+    assert.ok(closure.bytes <= 9_655_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -708,7 +714,11 @@ test('the common session projection does not import attach, state stores or publ
   // 4,185,150 (measured 4,185,145): a plan's unmet intent and its own row errors say whose they are (verification/intent.mjs
   // +411, specifications.mjs +267) [PHR:REQ-001].
   // 4,185,700 (measured 4,185,679): whether a submission ends the Story, for a missing receipt (step-actions.mjs +534) [PHR:REQ-003].
-  assert.ok(current.bytes <= 4_185_700, `session current loads ${current.bytes} source bytes`);
+  // 4,192,050 (measured 4,192,007): the same repository test commands as start (external-command-policy.mjs, config.mjs)
+  // [RTC:REQ-001, REQ-002, REQ-011].
+  // 4,193,250 (measured 4,193,219): phase-responsibility batch 1 merged with repository test commands (the two sets above
+  // together).
+  assert.ok(current.bytes <= 4_193_250, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

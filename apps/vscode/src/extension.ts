@@ -7955,6 +7955,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const text = await client.runText(args, { input: message.content });
         const disposition = configurationSaveDisposition(text, message.proposal);
+        // Save and activate: the person who chose the change activates the exact proposal it made, the
+        // same activation as Build with Copilot's Finish; a protected sflow/config says to merge [RTC:REQ-006].
+        if (message.activate && disposition.kind === 'proposal') {
+          const activation = await activateWorkflowProposalNow(disposition.branch);
+          if (!activation.activated) await refreshAfterKnownMutation();
+          return { error: null, disposition, activation };
+        }
         await refreshAfterKnownMutation();
         if (store.current.error) {
           output.appendLine(`  configuration refresh warning: ${store.current.error.message}`);
@@ -8340,7 +8347,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const message = activation?.failure?.message ?? `activation is ${activation?.status ?? 'waiting for repository review'}`;
         output.appendLine([message, lazyPanels().configurationGitFailureText(activation?.failure), `Preserved proposal: ${inspected.branch}@${inspected.proposalCommit}`,
           activation?.recoveryCommand, activation?.nextAction].filter(Boolean).join('\n\n'));
-        return { activated: false, message: `${message}. It waits under Changes for someone who may approve configuration.` };
+        return { activated: false, message: `${message.replace(/\.$/u, '')}. It waits under Workflow Studio → Changes for someone who may approve configuration.` };
       }
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  installPlugin, removeRetiredPluginCopies, uninstallPlugin, verifyPluginInstallation
+  installPlugin, notePluginCopy, removeRetiredPluginCopies, uninstallPlugin, verifyPluginInstallation
 } from '../src/plugin.mjs';
 import { renderDirectSkill } from '../src/direct-skills.mjs';
 
@@ -1678,6 +1678,41 @@ test('a retired plugin copy stays for the chats still using it, and goes when no
   assert.equal(existsSync(recent), false);
   assert.equal(existsSync(someoneElse), true);
   assert.deepEqual(removeRetiredPluginCopies({ env: { COPILOT_HOME: path.join(fixture, 'missing') } }), []);
+});
+
+test('plugin install records its installed copy for hosts that name no plugin folder', async (t) => {
+  // VS Code before 1.141 passes no PLUGIN_ROOT, so the hooks read this marker (src/copilot-hook-commands.mjs).
+  const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-plugin-copy-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const copilotHome = path.join(fixture, 'copilot');
+  const folder = async (name, launcher = true) => {
+    const directory = path.join(copilotHome, 'installed-plugins', '_direct', name);
+    await mkdir(directory, { recursive: true });
+    if (launcher) await writeFile(path.join(directory, 'hook-launcher.sh'), '#!/bin/bash\n');
+    return directory;
+  };
+  const older = await folder('plugin-aaaaaaaa');
+  const current = await folder('plugin-bbbbbbbb');
+  const broken = await folder('plugin-cccccccc', false);
+  const other = await folder('plugin-dddddddd');
+  const record = (entries) => writeFile(path.join(copilotHome, 'config.json'),
+    `// User settings belong in settings.json.\n// This file is managed automatically.\n${JSON.stringify({ installedPlugins: entries }, null, 2)}\n`);
+  const env = { COPILOT_HOME: copilotHome, SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(fixture, 'state', 'copilot-mode.json') };
+  const marker = path.join(fixture, 'state', 'copilot-plugin');
+
+  await record([{ name: 'singularity-flow', enabled: true, cache_path: older }, { name: 'another-plugin', enabled: true, cache_path: other },
+    { name: 'singularity-flow', enabled: true, cache_path: current }, { name: 'singularity-flow', enabled: false, cache_path: older }]);
+  assert.equal(notePluginCopy({ env, homeDirectory: fixture }), current);
+  assert.equal(await readFile(marker, 'utf8'), `${current}\n`);
+
+  // A copy without its launcher is never recorded; with no usable copy the marker stays as it was.
+  await record([{ name: 'singularity-flow', enabled: true, cache_path: broken }, { name: 'singularity-flow', enabled: true, cache_path: 'relative/plugin' }]);
+  assert.equal(notePluginCopy({ env, homeDirectory: fixture }), null);
+  assert.equal(await readFile(marker, 'utf8'), `${current}\n`);
+  // An unreadable record never stands in the way of an install.
+  await writeFile(path.join(copilotHome, 'config.json'), '{ not json');
+  assert.equal(notePluginCopy({ env, homeDirectory: fixture }), null);
+  assert.equal(notePluginCopy({ env: { ...env, COPILOT_HOME: path.join(fixture, 'missing') }, homeDirectory: fixture }), null);
 });
 
 test('plugin install uses an explicitly configured organization marketplace', () => {

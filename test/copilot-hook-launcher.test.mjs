@@ -257,6 +257,33 @@ test('every bash hook diagnoses missing, empty or stale plugin roots before laun
   }
 });
 
+test('with no usable host root, every bash hook runs the plugin folder SFlow recorded, and only an absolute one with a launcher', {
+  skip: process.platform === 'win32'
+}, async t => {
+  // VS Code before 1.141 passes no PLUGIN_ROOT (microsoft/vscode#338967); a chat started before an update may name a removed copy.
+  const item = await fixture(t);
+  const recorded = path.join(item.directory, "recorded plugin ' & with spaces");
+  await mkdir(recorded);
+  await writeFile(path.join(recorded, 'hook-launcher.sh'), 'printf \'{"action":"%s","input":"%s"}\\n\' "$1" "$(cat)"\n');
+  const marker = path.join(item.directory, 'copilot-plugin');
+  const run = (command, roots) => spawnSync('/bin/bash', ['-c', command], {
+    cwd: item.cwd, env: rootEnvironment(item.env, roots), input: 'exact', encoding: 'utf8', timeout: childTimeout(10_000)
+  });
+  await writeFile(marker, `${recorded}\n`);
+  for (const roots of [{}, { PLUGIN_ROOT: '', COPILOT_PLUGIN_ROOT: '' }, { PLUGIN_ROOT: path.join(item.directory, 'removed copy') }]) {
+    for (const [action, command] of await manifestCommands('bash')) {
+      const result = run(command, roots);
+      assert.equal(result.status, 0, `${action}: ${result.stderr}`);
+      assert.equal(result.stderr, '', action);
+      assert.deepEqual(JSON.parse(result.stdout), { action, input: 'exact' }, action);
+    }
+  }
+  for (const recordedRoot of [path.join(item.directory, 'missing plugin'), 'recorded plugin', '']) {
+    await writeFile(marker, `${recordedRoot}\n`);
+    for (const [action, command] of await manifestCommands('bash')) assertRootUnavailable(run(command, {}), action);
+  }
+});
+
 test('every PowerShell hook invokes the literal host root and forwards the action and stdin', {
   skip: !powershell && 'PowerShell host unavailable'
 }, async t => {
@@ -294,6 +321,31 @@ test('every PowerShell hook returns structured diagnostics for missing, empty or
       cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{}', encoding: 'utf8', timeout: childTimeout(10_000)
     }), action);
   }
+});
+
+test('with no usable host root, every PowerShell hook runs the plugin folder SFlow recorded', {
+  skip: !powershell && 'PowerShell host unavailable'
+}, async t => {
+  const item = await fixture(t);
+  const recorded = path.join(item.directory, "recorded plugin ' & with spaces");
+  await mkdir(recorded);
+  await writeFile(path.join(recorded, 'hook-launcher.ps1'),
+    'param([string]$Action)\n@{ action = $Action; input = [Console]::In.ReadToEnd() } | ConvertTo-Json -Compress\n');
+  const marker = path.join(item.directory, 'copilot-plugin');
+  const run = (command, roots) => spawnSync(powershell, [...powershellArgs, command], {
+    cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{"sessionId":"exact"}', encoding: 'utf8', timeout: childTimeout(10_000)
+  });
+  await writeFile(marker, `${recorded}\n`);
+  for (const roots of [{}, { PLUGIN_ROOT: path.join(item.directory, 'removed copy') }]) {
+    for (const [action, command] of await manifestCommands('powershell')) {
+      const result = run(command, roots);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stderr, '');
+      assert.deepEqual(JSON.parse(result.stdout), { action, input: '{"sessionId":"exact"}' });
+    }
+  }
+  await writeFile(marker, `${path.join(item.directory, 'missing plugin')}\n`);
+  for (const [action, command] of await manifestCommands('powershell')) assertRootUnavailable(run(command, {}), action);
 });
 
 test('packaged PowerShell launcher finds the Windows-style APPDATA runtime and forwards stdin', {
@@ -359,7 +411,13 @@ test('all shipped hook commands use the closed host-neutral command composer', a
     assert.match(command, /PLUGIN_ROOT/);
     assert.match(command, /COPILOT_PLUGIN_ROOT/);
     assert.match(command, /SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE/);
-    assert.doesNotMatch(command, /Invoke-Expression|eval |\$HOME|Get-ChildItem/);
+    // The one home path a hook command may name is SFlow's own fixed state file, beside which `plugin install` and
+    // the launcher record the plugin folder for hosts that name none (VS Code before 1.141). No other home path, no
+    // listing and no evaluation (owner, 2026-11-09).
+    const marker = shell === 'bash' ? '${HOME:-}/.singularity-flow/copilot-mode.json'
+      : "Join-Path (Join-Path $HOME '.singularity-flow') 'copilot-mode.json'";
+    assert.equal(command.split(marker).length, 2, `${shell} ${action} names SFlow's state file exactly once`);
+    assert.doesNotMatch(command.replace(marker, ''), /Invoke-Expression|eval |\$HOME|Get-ChildItem/);
   }
   assert.throws(() => copilotHookCommand('approve', 'bash'), /Unsupported Copilot hook action/);
   assert.throws(() => copilotHookCommand('boundary-guard', 'cmd'), /Unsupported Copilot hook shell/);

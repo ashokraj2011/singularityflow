@@ -93,6 +93,7 @@ const COMMANDS = Object.freeze({
   'apm-organisation': ['singularity-flow apm publish reviewer --marketplace ../acme-catalog', 'singularity-flow apm marketplace init --name acme-catalog --owner "Platform Team" --json', 'singularity-flow apm policy init --marketplace acme/acme-catalog'],
   'lock-release': ['singularity-flow lock release publication PMC-1 --confirm 0123456789abcdef', 'singularity-flow lock release-file /tmp/workspaces.json.lock --confirm 0123456789abcdef --json'],
   'configuration-approve': ['singularity-flow configuration approve sflow/config-change/workflow/studio-x --yes', 'singularity-flow configuration approve --json'],
+  'workflow-activate': ['singularity-flow workflow activate sflow/config-change/workflow/studio-x --confirm 0123456789abcdef0123456789abcdef01234567 --acknowledge-unprotected --json'],
   'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
   'adjudication-answers': ['singularity-flow story adjudicate --answers /tmp/a.json --expect sha256:abc --work-id PMC-1'],
   'adjudication-table': ['singularity-flow story adjudicate --work-id PMC-1', 'singularity-flow story adjudicate'],

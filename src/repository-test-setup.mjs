@@ -1,5 +1,5 @@
 /** Read-only, bounded runner suggestions. Inspection never executes repository commands. */
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
 import { inferModuleTestCommand, resolveAffectedModule, sourceEcosystem, testCommandEcosystem } from './code-delivery-tests.mjs';
@@ -8,6 +8,41 @@ import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'vendor', 'target', 'build', 'dist', 'out', 'coverage', 'venv', '__pycache__', 'bin', 'obj']);
 const MAX_SCANNED_ENTRIES = 2_000;
+
+/**
+ * The level of a command inferred for a Node package, as its runner says [TCE:REQ-071]: Playwright and
+ * Cypress run end-to-end, their component runners component, the others unit. Null for any other
+ * module: SFlow finds no level there, and the person may give one.
+ */
+export function inferredTestLevel(command) {
+  const id = command?.id ?? '';
+  if (/(?:^|-)(?:playwright-ct|cypress-component)-tests$/u.test(id)) return 'component';
+  if (/(?:^|-)(?:playwright|cypress)-tests$/u.test(id) || command?.result?.adapter === 'playwright-json') return 'e2e';
+  return ['node-tap', 'jest-json', 'vitest-json', 'mocha-json', 'karma-text'].includes(command?.result?.adapter) ? 'unit' : null;
+}
+
+const PLAYWRIGHT_CONFIGS = ['playwright.config.ts', 'playwright.config.js', 'playwright.config.mjs', 'playwright.config.cjs', 'playwright.config.mts', 'playwright.config.cts'];
+// `baseURL: process.env.BASE_URL ?? …`, `wsEndpoint: process.env['PW_WS']`: where a suite reads its target.
+const TARGET_VARIABLE = /\b(?:baseURL|wsEndpoint|connectOptions|cdpEndpoint)\b\s*:[^,\n}]*?process\.env(?:\.([A-Z_][A-Z0-9_]*)|\[\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*\])/gu;
+
+/**
+ * The variables a Playwright suite's config reads its base URL or remote-browser endpoint from, so the
+ * person can set them per setup (a local server, a relay URL) [RTC:REQ-011]. Only the config's text is
+ * read, bounded; it is never run.
+ */
+async function playwrightTargetVariables(root, command) {
+  if (command.result?.adapter !== 'playwright-json') return [];
+  const found = new Set();
+  // An Nx target runs from the workspace root; its config sits in the project the command covers.
+  for (const directory of new Set([command.workingDirectory, ...(command.affectedRoots ?? [])])) {
+    for (const name of PLAYWRIGHT_CONFIGS) {
+      let text;
+      try { text = await readFile(path.join(root, directory === '.' ? '' : directory, name), 'utf8'); } catch { continue; }
+      for (const match of text.slice(0, 65_536).matchAll(TARGET_VARIABLE)) found.add(match[1] ?? match[2]);
+    }
+  }
+  return [...found].sort();
+}
 
 /** The source languages in a directory, bounded: the files a command suggested for it would have to cover. */
 async function directoryEcosystems(root, directory) {
@@ -108,10 +143,13 @@ export async function inspectRepositoryTestSetup(root, { sourceRoots = ['.'], pl
   const proposable = suggestions.length || instructionCandidates.some(entry => entry.status === 'complete');
   // Each suggestion keeps the language its runner tests, so accepting it as offered never makes it
   // evidence for another language's files below the same roots (a root `mvn test` for `.js`).
-  const scoped = suggestions.map((command) => {
+  // It keeps the level SFlow found for it too, and names the variables its suite's target is read from.
+  const scoped = await Promise.all(suggestions.map(async (command) => {
     const ecosystem = command.ecosystem ?? testCommandEcosystem(command);
-    return ecosystem ? { ...command, ecosystem } : command;
-  });
+    const level = command.level ?? inferredTestLevel(command);
+    const targetVariables = await playwrightTargetVariables(root, command);
+    return { ...command, ...(level ? { level } : {}), ...(ecosystem ? { ecosystem } : {}), ...(targetVariables.length ? { targetVariables } : {}) };
+  }));
   return { repositoryPath: path.resolve(root), sourceRoots: roots, suggestions: scoped, instructionCandidates,
     instructionSources: written.sources, ...(written.truncated ? { instructionSourcesTruncated: true } : {}), diagnostics,
     testsExecuted: false, baseline: 'not-observed', status: proposable ? 'suggestions-available' : 'pending-configuration' };

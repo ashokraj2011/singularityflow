@@ -16,10 +16,10 @@ import { existsSync } from 'node:fs';
 import { chmod, lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { copilotModeFile } from './copilot-mode.mjs';
+// The package root through the host-safe boundary: the VS Code build has no import.meta.
+import { PACKAGE_ROOT } from './package-root.mjs';
 
-const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 export const REPOSITORY_HOOK_DIRECTORY = '.github/hooks';
 export const REPOSITORY_HOOK_FILE = '.github/hooks/sflow.json';
 export const REPOSITORY_HOOK_LAUNCHERS = Object.freeze(['.github/hooks/sflow-hook.sh', '.github/hooks/sflow-hook.ps1']);

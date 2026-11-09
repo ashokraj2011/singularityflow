@@ -424,6 +424,9 @@ Usage:
   singularity-flow workflow proposals [--all] [--json]     pending configuration review branches
   singularity-flow workflow proposal <BRANCH> [--json]     exact commits, files and diff to review
   singularity-flow workflow activate <BRANCH> --confirm <COMMIT> [--acknowledge-unprotected]
+    (the line workflow proposal prints for a waiting proposal; --acknowledge-unprotected accepts that SFlow
+     updates sflow/config itself: a protected branch refuses, nothing changes, and it is merged through review.
+     VS Code: Workflow Studio → Changes → Review and activate)
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT] [--propose]
   singularity-flow workflow export --workflow ID [--workflow ID...] --out FILE [--json]
                                                         export selected workflows and their complete dependency closure
@@ -1275,11 +1278,17 @@ Usage:
     (review and activate an exact repository setup proposal; the source plan and target ref are
      rechecked, and direct push requires explicit acknowledgement. Protected refs use external review.)
   singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--search-known]
-  singularity-flow capability test-setup [--source-root <MODULE>]... [--json]
-                                                           read-only test runner suggestions; Copilot /sf-test-setup
     [--include-proposals] [--refresh] [--state-branch NAME] [--json]
     (read-only portable state-link/self-hosted lookup by default; registered-map search and proposal
      enumeration are explicit because they can add remote Git requests)
+  singularity-flow capability test-setup [--source-root <MODULE>]... [--json]
+                                                           read-only test runner suggestions; Copilot /sf-test-setup
+  singularity-flow capability test-setup [--step <STEP> [--workflow <WORKFLOW>]] (--use <SUGGESTION-ID>... [--source-root <MODULE>]...
+    | --id <ID> --argv '<JSON ARRAY>' --working-directory <DIR> --affected-root <DIR>... --adapter <ADAPTER> --report <PATH>
+      [--level unit|component|integration|e2e|other] [--env NAME=VALUE]... [--environment <ID>]) [--confirm sha256:PLAN] [--json]
+    (test commands are the repository's: tests: in workflow.yml, used by every step that runs tests; a step names
+     testLevels or testIds to run fewer, and --step saves a command for one step only. The person who chose them
+     activates the proposal: the line the result prints, or Workflow Studio → Changes → Review and activate)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
     [--mode add|set|remove]
     [--reparent-children-to ID]

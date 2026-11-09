@@ -44,6 +44,28 @@ export function findingCommand(command) {
 export const TEST_COMMAND_ECOSYSTEMS = Object.freeze(['node', 'python', 'jvm', 'dotnet', 'go', 'rust', 'swift', 'ruby', 'php', 'dart']);
 
 /**
+ * The level a test command runs at [RTC:REQ-001]. A step chooses repository tests by level
+ * (`testLevels`), so a level is part of the command; one without a level is `other`. An older engine
+ * ignores it, like any key unknown here.
+ */
+export const TEST_COMMAND_LEVELS = Object.freeze(['unit', 'component', 'integration', 'e2e', 'other']);
+
+/**
+ * Why a literal value holds a credential, or null [RTC:REQ-011]: a URL with userinfo (`user:pass@`), or
+ * one whose query names a secret-looking parameter. workflow.yml never holds a secret, so such a URL
+ * belongs in environments.yml and is bound on each machine.
+ */
+export function literalUrlCredential(value) {
+  const text = String(value ?? '').trim();
+  if (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(text)) return null;
+  let url;
+  try { url = new URL(text); } catch { return /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s]*@/iu.test(text) ? 'a user name or password in the URL' : null; }
+  if (url.username || url.password) return 'a user name or password in the URL';
+  const named = [...url.searchParams.keys()].find((name) => looksSecretName(name));
+  return named ? `the query parameter '${named}'` : null;
+}
+
+/**
  * A command's literal `env` [TCE]: unreserved UPPER_CASE names, none secret-like (environments.yml holds
  * those), short values, in name order. An older engine ignores it, like any key unknown here.
  */
@@ -62,6 +84,12 @@ function normalizeCommandEnv(value, index) {
       throw new SingularityFlowError(secret ? `${at}.${name} names a secret: declare it in ${ENVIRONMENT_DECLARATION_PATH}, never in workflow.yml.`
         : `${at}.${name} must be an unreserved UPPER_CASE name (not PATH, HOME, NODE_*, GIT_*) with short literal text.`,
       { code: secret ? 'QUALITY_COMMAND_ENV_SECRET' : 'QUALITY_COMMAND_ENV_INVALID' });
+    }
+    const credential = literalUrlCredential(raw);
+    if (credential) {
+      throw new SingularityFlowError(`${at}.${name} holds a credential (${credential}). Declare ${name} in ${ENVIRONMENT_DECLARATION_PATH} `
+        + '(an endpoint or secret), bind it on each machine, and name that environment on the command instead.',
+      { code: 'QUALITY_COMMAND_ENV_SECRET' });
     }
     return [name, String(raw)];
   });
@@ -152,6 +180,10 @@ export function normalizeExternalCommand(value, index = 0) {
     );
   }
   const env = value.env == null ? null : normalizeCommandEnv(value.env, index);
+  if (value.level != null && !TEST_COMMAND_LEVELS.includes(value.level)) {
+    throw new SingularityFlowError(`qualityCommands[${index}].level must be ${TEST_COMMAND_LEVELS.join(', ')}.`,
+      { code: 'QUALITY_COMMAND_LEVEL_INVALID' });
+  }
   if (value.ecosystem != null && !TEST_COMMAND_ECOSYSTEMS.includes(value.ecosystem)) {
     throw new SingularityFlowError(`qualityCommands[${index}].ecosystem must be ${TEST_COMMAND_ECOSYSTEMS.join(', ')}.`,
       { code: 'QUALITY_COMMAND_ECOSYSTEM_INVALID' });
@@ -212,6 +244,7 @@ export function normalizeExternalCommand(value, index = 0) {
     ...(environment != null ? { environment } : {}),
     ...(env ? { env } : {}),
     ...(value.ecosystem != null ? { ecosystem: value.ecosystem } : {}),
+    ...(value.level != null ? { level: value.level } : {}),
     ...(value.workingDirectory != null ? { workingDirectory } : {}),
     ...(value.affectedRoots != null ? { affectedRoots: normalizedRoots } : {}),
     ...(value.result != null ? { result } : {}),
@@ -301,4 +334,78 @@ export function evaluateExternalCommandForModelMode(value, {
   // Skipping is a model-mode decision, not a broken runner: name the two ways it runs again.
   return { ...normalized, action, reason: `Quality command '${normalized.id}' has unknown external-model behavior (it declares no modelPolicy) and was not run while model mode is disabled. `
     + 'Rerun with the model enabled, or have configuration declare modelPolicy: never for it.' };
+}
+
+/*
+ * The repository's test commands [RTC]: one `tests:` list at the top of singularity/workflow.yml, owned
+ * by no workflow and no step. A repository has as many as it needs (per module, runner or level), and
+ * every step that runs tests gets them when it is resolved, unless it has test commands of its own. A
+ * step that wants fewer names levels (`testLevels`) or IDs (`testIds`); with both, a command runs when
+ * its level or its ID is listed.
+ *
+ * The commands enter a Story's resolution as configured commands, so a Story keeps the ones it started
+ * with [SPK:CON-039]. A configuration without `tests:` resolves exactly as before.
+ */
+const repositoryTestsInvalid = (message, code = 'REPOSITORY_TESTS_INVALID') => new SingularityFlowError(message, { code });
+
+/** A test command's level; one without a level is `other`. */
+export const testCommandLevel = (command) => command?.level ?? 'other';
+
+/**
+ * The `tests:` list as written, after checking each has a step's test-command contract and a unique
+ * ID. Empty when the repository has none. The written entries are what resolution copies, so a
+ * repository test reaches a step exactly as a step's own command would.
+ */
+export function repositoryTestCommands(value) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw repositoryTestsInvalid('tests must be a list of test commands.');
+  const ids = new Set();
+  value.forEach((entry, index) => {
+    let command;
+    try { command = normalizeExternalCommand(entry, index); }
+    catch (error) { throw repositoryTestsInvalid(error.message.replace(/^qualityCommands\[/u, 'tests['), error.code ?? 'REPOSITORY_TESTS_INVALID'); }
+    if (command.kind !== 'test' || !command.argv?.length || !command.workingDirectory || !command.affectedRoots?.length || !command.result) {
+      throw repositoryTestsInvalid(`tests[${index}] must declare kind: test, argv, workingDirectory, affectedRoots, and a result adapter.`);
+    }
+    if (ids.has(command.id)) throw repositoryTestsInvalid(`tests has two commands called '${command.id}'; each repository test needs its own ID.`);
+    ids.add(command.id);
+  });
+  return value;
+}
+
+/**
+ * A step's choice among the repository's tests, checked against them: `testLevels` and `testIds` are
+ * lists of unique names, an ID must be one `tests:` holds and a level one some repository test has.
+ */
+export function assertRepositoryTestSelection(step, tests, label) {
+  for (const field of ['testLevels', 'testIds']) {
+    const values = step?.[field];
+    if (values == null) continue;
+    if (!Array.isArray(values) || !values.length || values.some((value) => typeof value !== 'string' || !value.trim())
+        || new Set(values).size !== values.length) {
+      throw repositoryTestsInvalid(`${label} ${field} must be a non-empty list of unique names.`);
+    }
+  }
+  for (const level of step?.testLevels ?? []) {
+    if (!TEST_COMMAND_LEVELS.includes(level)) throw repositoryTestsInvalid(`${label} testLevels names '${level}'; a level is ${TEST_COMMAND_LEVELS.join(', ')}.`);
+    if (!tests.some((command) => testCommandLevel(command) === level)) {
+      throw repositoryTestsInvalid(`${label} testLevels names '${level}', but no repository test in tests has that level.`);
+    }
+  }
+  for (const id of step?.testIds ?? []) {
+    if (!tests.some((command) => command.id === id)) throw repositoryTestsInvalid(`${label} testIds names '${id}', which tests does not hold.`);
+  }
+}
+
+/** The repository tests a step runs: every one, or those whose level or ID it names. */
+export function selectedRepositoryTests(step, tests) {
+  const levels = step?.testLevels ?? null;
+  const ids = step?.testIds ?? null;
+  if (!levels && !ids) return tests;
+  return tests.filter((command) => (levels ?? []).includes(testCommandLevel(command)) || (ids ?? []).includes(command.id));
+}
+
+/** Whether a step's own checks (its own, or its workflow's override) include a test command. */
+export function hasOwnTestCommand(step) {
+  return (step?.qualityCommands ?? []).some((command) => command && typeof command === 'object' && command.kind === 'test');
 }

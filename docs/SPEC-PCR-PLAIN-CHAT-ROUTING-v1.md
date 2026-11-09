@@ -1,6 +1,6 @@
 # Plain-chat routing (PCR) — v1: every prompt tracked, every change through an `/sf-` skill
 
-Status: owner decisions recorded 2026-11-09. Nothing is built. Three new questions, raised by those answers, are
+Status: owner decisions recorded 2026-11-09; Copilot CLI probed in real runs the same day. P1 and P2 are being built. Three new questions, raised by those answers, are
 at the end of the decisions.
 
 In every repository that uses SFlow, each prompt is tracked, a secret in a prompt is refused as far as the host
@@ -22,43 +22,63 @@ Copilot, not only to people who installed SFlow. Questions, reading and explaini
 3. **Shell commands.** A plain chat may run the read-only set that read-only `/sf-` turns already use; any other
    command is a change.
 4. **A line of context naming the route.** Yes, where a host lets a hook add one (see "What the hosts allow":
-   Copilot CLI only, through `userPromptTransformed`).
+   Copilot CLI, through the prompt hook's `additionalContext`).
 5. **Folding.** The same as `policy.plainChatSecrets`: a child capability may tighten its parent, never loosen it.
 6. **The guard ships in the repository** (`.github/hooks/`), not in organisation policy.
 7. **The design rule reverses.** scripts/check.mjs says: "No blanket lifecycle guard: discovery and file edits are
    restricted only during an explicit SFlow invocation." In a repository that uses SFlow, that no longer holds.
 
-**Still to decide.** My recommendation is in brackets.
+**Taken as recommended** (the owner asked for the build on 2026-11-09; any of them can still change):
 
-8. **The default for a repository that has not chosen.** *[`record`: everything is tracked and nothing is
-   blocked until the repository chooses `refuse`. It keeps "nothing should get blocked" by default.]*
+8. **The default for a repository that has not chosen.** *Decided: `record`.* Everything is tracked and nothing
+   is blocked until the repository chooses `refuse`. It keeps "nothing should get blocked" by default.
 9. **Where tracked prompts live outside a Story.** Inside a Story they go into the Story's record, which is shared
    when the Story is pushed. Outside one: kept locally in the clone, or pushed to a shared `sflow/prompts`
-   branch? *[Locally, for v1. A shared branch puts every person's chats in the team's history, a larger privacy
-   step to take on its own.]*
+   branch? *Decided: locally, for v1.* A shared branch puts every person's chats in the team's history, a larger
+   privacy step to take on its own.
 10. **A machine without SFlow.** The committed hook can't track prompts there, because it has no SFlow to call.
-    Refuse changes with a line to install SFlow, unless the repository says `allow`? *[Yes. Otherwise work
-    there is the one kind that goes untracked.]*
+    Refuse changes with a line to install SFlow, unless the repository says `allow`? *Decided: yes.* Otherwise
+    work there is the one kind that goes untracked.
 
 ## What the hosts allow
 
-From GitHub's Copilot CLI hooks pages and VS Code's hooks page (Preview, dated 2026-11-04), read 2026-11-09.
+From real Copilot CLI runs, and from GitHub's Copilot CLI hooks pages and VS Code's hooks page (Preview, dated
+2026-11-04), all on 2026-11-09. Where a real run and the docs disagree, the real run is what this spec relies on.
 
-- **No host lets a hook stop or rewrite a prompt from the prompt hook.**
-  - Copilot CLI: `userPromptSubmitted` output from a config-file or plugin hook "is dropped, including
-    `modifiedPrompt`", which "is only honored by SDK programmatic hooks".
-  - VS Code: "command-hook output is ignored for `userPromptSubmitted`."
-  - No block field and no `additionalContext` are documented for it. So the prompt hook can record, and nothing
-    more.
-- **`userPromptTransformed`** (Copilot CLI and cloud agent).
-  - It "can rewrite the model-facing content" through `modifiedTransformedPrompt`, but cannot block. No SDK-only
-    restriction is stated.
-  - VS Code's page does not mention it.
-  - It is the one documented place where a hook can change what the model reads: redact a secret, or add a
-    line. Not checked in a real run yet.
+**Copilot CLI 1.0.107, real runs.** This used a repository hook file, a made-up token and an isolated home: 14 model
+calls, 3.49 credits.
+- **The prompt hook can reject a prompt.** `userPromptSubmitted` returning `{"decision":"block","reason":…}`
+  stopped the turn with no model call and 0 credits.
+  - The person saw the reason on stderr (`! <reason>`, exit 1). As JSON output it arrives as a `policy_blocked`
+    warning.
+  - The docs say a config-file hook's output is dropped; on 1.0.107 it is not.
+- **The prompt hook can steer.**
+  - Its `additionalContext` reached the model as a system-reminder block.
+  - Its `modifiedPrompt` replaced what the model read, while the person's own message kept the original text.
+- **`userPromptTransformed` can redact.** Its `modifiedTransformedPrompt` replaced the token with `[redacted]` in what
+  the model received. `transformedPrompt` is a string with the CLI's own date and system-reminder wrappers, and a
+  rewrite must keep them. A blocked prompt never reaches this hook.
+- **The raw prompt stays in the CLI's own files.** Even when blocked or redacted, the token stays in the session's
+  `events.jsonl`, in the hook inputs, and as the session's name. Those are the host's files, outside SFlow's reach.
+- **Repository hooks need a trusted folder.**
+  - In an untrusted folder the CLI skips `.github/hooks` with a warning and runs the model anyway, with no guard
+    from that file.
+  - The trust dialog does not mention hooks.
+- **Plugin hooks do not need trust.** A plugin's hooks fired in an untrusted folder, where the repository's were
+  skipped.
+  - In a trusted folder both run, the repository's first.
+  - A repository `preToolUse` deny was the last hook to run on that call: the plugin's `preToolUse` did not fire
+    after it. That is an inference from one run.
+
+**VS Code**, docs only. A real run needs the owner's sign-in in an isolated window.
+- The page says "command-hook output is ignored for `userPromptSubmitted`." Until a real run says otherwise, VS Code
+  can neither block a prompt nor steer from that hook.
+- `userPromptTransformed` is not mentioned.
 - **`preToolUse` is the guarantee on both hosts.**
   - `permissionDecision` is `allow`, `deny` or `ask`, with `permissionDecisionReason`.
-  - "If any hook returns `"deny"`, the tool is blocked", whichever file it came from.
+  - "If any hook returns `"deny"`, the tool is blocked", whichever file it came from. In the real run, a
+    repository hook's deny blocked both a shell write and `apply_patch`, the file never appeared, and the model
+    passed on the reason without retrying.
   - A crash or a non-zero exit denies. A timeout always lets the call through.
   - VS Code reads the decision under `hookSpecificOutput` (SFlow answers both ways since e4dbdf690).
 - **Where hooks come from.** Both hosts' Copilot harness reads:
@@ -77,7 +97,8 @@ From GitHub's Copilot CLI hooks pages and VS Code's hooks page (Preview, dated 2
     dirty start, the conformance report.
 - **`sessionStart`** could add context, but SFlow forbids it: no prompt injected at every session start. That stays.
 - **SFlow's own hint.** On `/sf-` turns SFlow returns a top-level `additionalContext` line from the prompt hook
-  (the off-PATH CLI hint). By both pages, neither host reads it. To check (`[PCR:REQ-041]`).
+  (the off-PATH CLI hint). Copilot CLI reads that field from a repository hook, and from a plugin hook it very likely
+  does too. VS Code's page says it is ignored there (`[PCR:REQ-041]`).
 
 ## What happens today (main f6aadf36e)
 
@@ -136,13 +157,13 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
 - `[PCR:REQ-003]` **A secret in a prompt.**
   - **What counts.** Found with the same rules as the redaction (token shapes, private keys, values of declared
     environment files).
-  - **Copilot CLI.** `userPromptTransformed` replaces it with `[redacted]` in what the model reads.
-  - **VS Code.** No hook can stop it, so the prompt reaches the model. The record keeps only the redacted form.
-  - **On both hosts:**
-    - every tool call in that turn is refused with
-      `SECRET_IN_PROMPT: the prompt held what looks like a <kind>. … Nothing in this turn runs. Do not retry it`;
-    - in VS Code, the refusal also says that it reached the model and should be rotated;
-    - the turn ends at the next prompt.
+  - **Copilot CLI.** The prompt is rejected before the model is called: `decision: "block"`, with the reason
+    "SECRET_IN_PROMPT: this prompt held what looks like a <kind> and was not sent. Remove it and send it again."
+    The CLI's own session log still holds the text; SFlow says so in the reason and in the topic page.
+  - **VS Code**, unless a real run shows it can block. The prompt reaches the model, and the record keeps only the
+    redacted form. Every tool call in that turn is refused with
+    `SECRET_IN_PROMPT: the prompt held what looks like a <kind>; it reached the model, so rotate it. Nothing in this
+    turn runs. Do not retry it`. The turn ends at the next prompt.
   - **Never blocking.** A false positive costs one turn: the person sends the prompt again without the value,
     or with `/sf-pause` if it was no secret.
 - `[PCR:REQ-004]` **People are told.** Prompts in a repository that uses SFlow are recorded, and people know it.
@@ -196,10 +217,11 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
   - two launchers, `.github/hooks/sflow-hook.sh` and `.ps1`.
 
   Onboarding writes them, and `doctor` repairs them, as a reviewed change like any other.
-- `[PCR:REQ-031]` **Nothing runs twice.**
-  - With SFlow on the machine, the repository launchers call it, and the plugin's own hooks step aside in that
-    repository.
-  - With SFlow but without the plugin, the repository's hooks alone are enough.
+- `[PCR:REQ-031]` **Nothing runs twice, and the plugin is the guard that needs no trust.**
+  - Plugin hooks run in untrusted folders, and repository hooks do not. So where the SFlow plugin is installed, it
+    does the work, and the repository launchers answer `{}`. SFlow's installation leaves a marker they read without
+    Node.
+  - Where it is not installed, the repository's hooks are the guard.
   - Each event is handled once.
 - `[PCR:REQ-032]` **Without SFlow on the machine** (decision 10).
   - The repository launchers, in shell or PowerShell only, refuse an edit or a writing command with an install
@@ -213,21 +235,22 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
   reviewed change.
 - `[PCR:REQ-034]` **Hooks turned off are visible.** `doctor` and the VS Code status say when this repository's
   hooks would not run:
+  - a folder Copilot CLI does not trust, where its repository hooks are skipped;
   - `disableAllHooks` in its settings files;
   - a missing or changed hook file;
   - the plugin present but the repository hook absent.
 
 ### P4 Steering and records `[PCR:REQ-040]`
 
-- `[PCR:REQ-040]` **A line of context (Copilot CLI).** Through `userPromptTransformed`, a plain prompt in a repository
-  that uses SFlow gets one line, for example: "QF-1 is at Code. To change it, the person types /sf-code QF-1 …;
-  answer questions freely."
-  - It is a new event in the closed hook map (decision 7).
+- `[PCR:REQ-040]` **A line of context (Copilot CLI).** Through the prompt hook's `additionalContext`, a plain prompt in
+  a repository that uses SFlow gets one line, for example: "QF-1 is at Code. To change it, the person types
+  /sf-code QF-1 …; answer questions freely."
+  - It uses the existing prompt hook, so no event is added to the closed hook map.
   - The line names the route, and never tells the agent to run a skill or an SFlow command for the person.
   - VS Code gets no line: no hook there can add one.
-- `[PCR:REQ-041]` **SFlow's existing hint.** Check in a real run whether either host reads the prompt hook's
-  top-level `additionalContext` on `/sf-` turns. Neither page says it does. If not, carry the hint through
-  `userPromptTransformed` in Copilot CLI, and through the skill's own text elsewhere.
+- `[PCR:REQ-041]` **SFlow's existing hint.** Confirm with a plugin hook what the repository-hook run showed: Copilot CLI
+  reads the prompt hook's `additionalContext`. Check VS Code in its real run. Where a host does not read it, the
+  skill's own text carries the hint.
 - `[PCR:REQ-042]` **SF Guard agrees with the guard.** A plain prompt after an unclosed `/sf-` turn is labelled a
   plain-chat turn.
 - `[PCR:REQ-043]` **The docs say what the plugin does.**
@@ -240,8 +263,8 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
 
 ## Constraints
 
-- **The closed hook map in scripts/check.mjs** grows by one event, `userPromptTransformed`, and gets the repository
-  hook file's own check. `sessionStart` stays forbidden.
+- **The closed hook map in scripts/check.mjs** keeps its seven events: blocking, steering and recording all use the
+  existing prompt hook. It gains a check of the repository hook file. `sessionStart` stays forbidden.
 - **No workflow gains a step.** Story records gain only "plain chat" marks on "Asked for" entries.
 - **Recorded prompts are redacted before they are written.** The local log never leaves the clone (decision 9).
   Never print or copy a found secret: neither the refusal nor the record carries the value.
@@ -249,7 +272,8 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
 
 ## Not in scope
 
-- Rewriting a person's prompt beyond redaction and the context line, or choosing a skill for them.
+- Rewriting a person's prompt, or choosing a skill for them.
+- `userPromptTransformed` and any other new hook event. Blocking makes redaction unnecessary in Copilot CLI.
 - Organisation policy hooks (`policy.d`).
 - Hosts other than VS Code Copilot Chat and Copilot CLI. IntelliJ is parked.
 
@@ -259,11 +283,11 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
 2. **P3.** The repository hook file and its launchers, the step-aside, the fallback.
 3. **P4.** The context line and the hint check, then docs.
 
-Everything up to a real chat is checked with each host's payloads and no model. A real prompt is a model call, so
-these need the owner's yes for a paid run:
-- whether `userPromptTransformed` redacts a secret and adds the line in Copilot CLI;
-- `[PCR:REQ-041]`;
-- that VS Code loads and trusts `.github/hooks/sflow.json`.
+Everything up to a real chat is checked with each host's payloads and no model. The owner approved paid runs
+(2026-11-09), and the Copilot CLI probes above are done. Still to run:
+- the same checks with SFlow's plugin hook rather than a repository file;
+- VS Code, which needs the owner's sign-in in an isolated window: does it load `.github/hooks/sflow.json`, and can
+  its prompt hook block or steer?
 
 ## Acceptance
 
@@ -276,7 +300,7 @@ these need the owner's yes for a paid run:
 - **No Story.** In a repository that uses SFlow, a plain prompt is in the local prompt log. Under `refuse`, its edit
   is refused with the start line.
 - **A secret.** A prompt holding a made-up token is recorded as `[redacted]`.
-  - Its turn's tool calls are refused with `SECRET_IN_PROMPT`.
-  - In Copilot CLI, the model never reads the value.
+  - In Copilot CLI, it is rejected before any model call, with the reason shown.
+  - In VS Code, its turn's tool calls are refused with `SECRET_IN_PROMPT` and the advice to rotate.
 - **No SFlow on the machine.** The repository's hook file refuses an edit with the install line, and reading works.
 - **Elsewhere.** A repository that does not use SFlow behaves as today, and starts no Node.

@@ -14,7 +14,10 @@ export async function promptsCommand(options = {}, { cwd = process.cwd() } = {})
   const [{ repositoryOf }, { readPromptLog, PROMPT_LOG_DAYS }] = await Promise.all([
     import('../copilot-environment-files-guard.mjs'), import('../plain-chat-prompts.mjs')]);
   const repository = repositoryOf(cwd);
-  if (!repository) throw new SingularityFlowError('Run singularity-flow prompts inside a Git checkout: it reads that clone\'s own log.', { code: 'PROMPTS_NOT_IN_REPOSITORY' });
+  if (!repository) {
+    throw new SingularityFlowError('Run singularity-flow prompts inside a Git checkout: it reads that clone\'s own log.', { code: 'PROMPTS_NOT_IN_REPOSITORY',
+      details: { nextAction: { command: 'singularity-flow prompts', label: 'Open a terminal in the clone whose prompts you want, then run this there.' } } });
+  }
   const story = optionString(options, 'story');
   const limit = Number(optionString(options, 'limit') ?? 50);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAXIMUM) {

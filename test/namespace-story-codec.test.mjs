@@ -10,6 +10,8 @@ const workflow=()=>structuredClone(original.body.workflow);
 test('actual pre-extraction Story intents, transactions, records and receipts retain their v1 identities',()=>{
   assert.equal(original.baseline,'9d486f4d3');
   const codec=createNamespaceStoryCodec(original),plan=original.intent.value;
+  const inputs=Object.fromEntries(['operationId','workId','title','workTypeId','configurationId','source'].map(key=>[key,plan[key]]));
+  assert.equal(codec.parameters(inputs,{recordId:original.recordsId,contentId:original.contentId}),plan.parametersSha256);
   assert.equal(namespaceStoryReadKey(original.workId),original.readHead.key);
   assert.equal(namespaceStoryGenesisKey(original.workId),original.genesis.key);
   assert.deepEqual(codec.firstHead(plan),original.head.value);

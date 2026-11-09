@@ -1,5 +1,4 @@
 /** Read original creation proof and enforce its policy; never create or repair a Story. */
-import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {assertStoryPolicy} from '../kernel/story-policy.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
@@ -9,8 +8,7 @@ import {createNamespaceConfigurationObserver} from './namespace-configuration-re
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
 import {createNamespaceLifecycleReceiptReader} from './namespace-lifecycle-receipt-reader.mjs';
 import {namespaceStoryValue} from './namespace-story-contract.mjs';
-import {LIFECYCLE_AUTHORITY_KEY} from './namespace-lifecycle-contract.mjs';
-const hash=value=>createHash('sha256').update(value).digest('hex');
+import {LIFECYCLE_AUTHORITY_KEY,lifecycleAuthority} from './namespace-lifecycle-contract.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story policy inspection was cancelled.','ENGINE_OPERATION_CANCELLED');}
@@ -22,7 +20,6 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
   const codec=createNamespaceStoryCodec({scope,workId,authority,limits:namespaceLimits(records.descriptor.limits)});
   const receipts=createNamespaceLifecycleReceiptReader({records,content,scope,workId,authority});
   const inspectOperation=records.inspectOperation.bind(records),recordId=records.descriptor.id,contentId=content.descriptor.id,proofs=new WeakMap(),workflowProofs=new WeakMap();
-  const binding={projectId:scope.projectId,workId,authority};
   function stored(kind,value,operationId=null) {
     try {return namespaceStoryValue(kind,value,scope,workId,operationId);}
     catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
@@ -43,7 +40,16 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
     if(!same(genesis,codec.projected('genesis',plan))||plan.requestDigest!==codec.txDigest(codec.transaction(plan)))throw error(
       'The original Story genesis differs from its prepared transaction.','ENGINE_STORAGE_CORRUPT',{workId});
     const inputs=Object.fromEntries(['operationId','workId','title','workTypeId','configurationId','source'].map(key=>[key,plan[key]]));
-    const parameters=hash(namespaceIdentityJson({operation:'story.create',inputs,binding,recordId,contentId}));
+    let parameters=codec.parameters(inputs,{recordId,contentId});
+    if(plan.parametersSha256!==parameters){
+      // Frozen v1 creation digests bind the enrolling stores. A passive qualified client may
+      // have another local adapter ID; verify the same digest using the recorded origin IDs.
+      // This does not alter capture/write admission or waive an actual authority mismatch.
+      const origin=lifecycleAuthority((await base.record('state',LIFECYCLE_AUTHORITY_KEY,false,signal)).value,scope);
+      if(origin.authorityId===authority.id&&origin.epoch===authority.epoch){
+        parameters=codec.parameters(inputs,{recordId:origin.recordsId,contentId:origin.contentId});
+      }
+    }
     if(plan.parametersSha256!==parameters)throw error('The original creation inputs have another binding.','ENGINE_STORAGE_CORRUPT',{workId});
     const prepared=codec.receipt(await inspectOperation(scope,keys.prepareOperation,{signal}),codec.transaction(plan,true));
     receiptVersion(prepared,'runtime',keys.prepared,intentRecord);

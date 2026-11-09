@@ -154,3 +154,49 @@ test('same-epoch fencing still permits historical proof inspection and refuses n
     {phaseId:'intake',confirmation:approved.confirmation}),approved.result);
   await assert.rejects(f.engine.run('phase.prepare',{phaseId:'intake'}),{code:'ENGINE_AUTHORITY_FENCED'});
 });
+
+test('passive clients verify frozen v1 creation inputs with the same enrolled origin and preserve writer fencing',async t=>{
+  const f=await namespaceEngineFixture(t,{backend:'sqlite'});await f.bootstrap();const snapshot=await f.capture();
+  const records={...f.records,descriptor:{...f.records.descriptor,id:'read-only-record-client'}},
+    content={...f.content,descriptor:{...f.content.descriptor,id:'read-only-content-client'}};
+  const observer=createNamespaceStoryObserver({...f.options,records,content});
+  assert.equal((await observer.approved(snapshot)).operationId,'approve-composed');
+  await assert.rejects(observer.inspect(),{code:'ENGINE_AUTHORITY_FENCED'});
+  const before=(await f.capture()).revision;
+  await assert.rejects(f.make({records,content}).run('phase.prepare',{phaseId:'intake'}),{code:'ENGINE_AUTHORITY_FENCED'});
+  assert.equal((await f.capture()).revision,before);
+  const authority=await f.readAuthority();await f.records.transact(f.scope,{operationId:'fence-passive-origin',
+    preconditions:[{namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,version:authority.record.version}],
+    changes:[{op:'put',namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,immutable:false,value:{...authority.record.value,status:'fenced'}}],events:[]});
+  assert.equal((await createNamespaceStoryObserver({...f.options,records,content}).approved(snapshot)).operationId,'approve-composed');
+});
+
+test('a passive client cannot substitute another origin, epoch or creation digest',async t=>{
+  const f=await namespaceEngineFixture(t,{backend:'sqlite',working:false});await f.bootstrap();const snapshot=await f.capture();
+  for(const change of [
+    value=>({...value,recordsId:'unverified-store'}),
+    value=>({...value,contentId:'unverified-content'}),
+    value=>({...value,authorityId:'another-authority'}),
+    value=>({...value,epoch:value.epoch+1})
+  ]) {
+    const records={...f.records,descriptor:{...f.records.descriptor,id:'passive-client'},async read(scope,namespace,key,options){
+      const result=await f.records.read(scope,namespace,key,options);
+      return key===LIFECYCLE_AUTHORITY_KEY?{...result,record:{...result.record,value:change(result.record.value)}}:result;
+    }};
+    await assert.rejects(createNamespaceStoryObserver({...f.options,records}).approved(snapshot),{code:'ENGINE_STORAGE_CORRUPT'});
+  }
+  const records={...f.records,descriptor:{...f.records.descriptor,id:'passive-client'},async read(scope,namespace,key,options){
+    const result=await f.records.read(scope,namespace,key,options);
+    return key.startsWith('stories/prepared/')?{...result,record:{...result.record,value:{...result.record.value,parametersSha256:'0'.repeat(64)}}}:result;
+  }};
+  await assert.rejects(createNamespaceStoryObserver({...f.options,records}).approved(snapshot),{code:'ENGINE_STORAGE_CORRUPT'});
+});
+
+test('origin lookup preserves an actual timeout and is unnecessary for the original v1 client',async t=>{
+  const f=await namespaceEngineFixture(t,{backend:'sqlite',working:false});await f.bootstrap();const snapshot=await f.capture();
+  const failure=Object.assign(new Error('Origin authority could not be read.'),{code:'ETIMEDOUT',timedOut:true,details:{deadlineMs:4321}});
+  const unavailable={...f.records,read(scope,namespace,key,options){if(key===LIFECYCLE_AUTHORITY_KEY)throw failure;return f.records.read(scope,namespace,key,options);}};
+  await assert.doesNotReject(createNamespaceStoryObserver({...f.options,records:unavailable}).approved(snapshot));
+  const passive={...unavailable,descriptor:{...unavailable.descriptor,id:'passive-client'}};
+  await assert.rejects(createNamespaceStoryObserver({...f.options,records:passive}).approved(snapshot),error=>error===failure);
+});

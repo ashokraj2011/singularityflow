@@ -14,3 +14,16 @@ export declare function sourceRelativePath(value: unknown): string;
 export declare function sourceUnitDescriptor(value: unknown): SourceDescriptor;
 export declare function validateSourceUnit(unit: unknown): SourceDescriptor;
 export declare function sourceSnapshot(value: unknown, descriptor: SourceDescriptor): SourceSnapshot;
+export interface SourceMember {readonly path:string;readonly sha256:string;readonly bytes:number;readonly executable:boolean}
+export interface SourceContentReaderDescriptor {readonly contract:'sflow-source-content-reader/v1';readonly id:string;
+  readonly source:SourceDescriptor;readonly maximumChunkBytes:number}
+export interface SourceContentReadRequest {readonly entry:SourceMember;readonly offset:number;readonly maximumBytes:number}
+export interface SourceContentReadResult {readonly entry:SourceMember;readonly offset:number;readonly data:Uint8Array}
+export interface SourceContentReader {readonly descriptor:SourceContentReaderDescriptor;
+  read(request:SourceContentReadRequest,options?:{readonly signal?:AbortSignal|null}):Promise<SourceContentReadResult>}
+export declare const SOURCE_CONTENT_READER_CONTRACT:'sflow-source-content-reader/v1';
+export declare const SOURCE_CONTENT_MAXIMUM_CHUNK_BYTES:8388608;
+export declare function sourceContentReaderDescriptor(value:unknown):SourceContentReaderDescriptor;
+export declare function validateSourceContentReader(value:unknown):SourceContentReaderDescriptor;
+export declare function sourceContentReadRequest(value:unknown,reader:SourceContentReaderDescriptor):SourceContentReadRequest;
+export declare function sourceContentReadResult(value:unknown,request:SourceContentReadRequest,reader:SourceContentReaderDescriptor):SourceContentReadResult;

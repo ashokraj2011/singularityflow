@@ -18,6 +18,31 @@ export function phaseSourceInspectionInput(input) {
   }
   return {...input,maximumEntries:input.maximumEntries??200};
 }
+export function phaseSourceRetentionInput(input) {
+  if(!exact(input,['operationId','workId','phaseId'])||Object.values(input).some(value=>!id(value)))fail('Source retention needs an exact operation ID, Story and phase.');
+  return {...input};
+}
+export function phaseSourceRetentionResult(input,facts) {
+  const bad=()=>fail('The source-retention owner returned another or incomplete evidence binding.','ENGINE_PORT_RESULT_INVALID');
+  if(!exact(facts,['workId','phase','operationId','generation','record','recordedAt','principalId','replayed','repositories','totals'])
+    ||facts.workId!==input.workId||facts.phase!==input.phaseId||facts.operationId!==input.operationId||!count(facts.generation)||facts.generation<1
+    ||typeof facts.replayed!=='boolean'||typeof facts.principalId!=='string'||!facts.principalId||typeof facts.recordedAt!=='string'||!Number.isFinite(Date.parse(facts.recordedAt))
+    ||!exact(facts.record,['key','version','content'])||!/^source-retention\/results\/[a-f0-9]{64}$/u.test(facts.record.key??'')||!revision(facts.record.version)
+    ||!exact(facts.record.content,['namespace','sha256','bytes'])||facts.record.content.namespace!=='evidence'||!sha(facts.record.content.sha256)||!count(facts.record.content.bytes)
+    ||!Array.isArray(facts.repositories)||!facts.repositories.length||facts.repositories.length>32
+    ||!exact(facts.totals,['added','modified','removed','files','bytes','chunks','protectedChanges','boundaryViolations'])||Object.values(facts.totals).some(value=>!count(value))
+    ||facts.totals.files!==facts.totals.added+facts.totals.modified||facts.totals.protectedChanges>facts.totals.files+facts.totals.removed
+    ||facts.totals.boundaryViolations>facts.totals.files+facts.totals.removed)bad();
+  const seen=new Set();
+  for(const repository of facts.repositories){
+    if(!exact(repository,['id','manifest'])||!id(repository.id)||seen.has(repository.id)||!exact(repository.manifest,['namespace','sha256','bytes'])
+      ||repository.manifest.namespace!=='evidence'||!sha(repository.manifest.sha256)||!count(repository.manifest.bytes))bad();seen.add(repository.id);
+  }
+  return {status:facts.replayed?'retained':'recorded',subject:{kind:'story',id:input.workId},phase:input.phaseId,...facts,
+    scope:'changed-application-paths',sourceContentsRetained:true,baselineContentsRetained:false,publicationReadinessInspected:false,
+    effects:{committed:!facts.replayed,pushed:false,evidenceRecorded:!facts.replayed,sourceFilesChanged:false,canonicalStateChanged:false,
+      phasePublished:false,testsRun:false,approvalRecorded:false,storyAdvanced:false}};
+}
 
 /** Exact path additions/removals, content and executable-mode changes; never inferred Git renames. */
 export function sourceSnapshotChanges(before,after,descriptor) {

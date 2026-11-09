@@ -1,1 +1,1 @@
-export { createFilesystemSourceUnit } from '../../../../src/sgos/filesystem-source-unit.mjs';
+export { createFilesystemSourceUnit,createFilesystemSourceContentReader } from '../../../../src/sgos/filesystem-source-unit.mjs';

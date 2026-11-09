@@ -451,12 +451,13 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
 
   await t.test('an installed code-generation reader compares actual files and reopens from another empty-PATH process',async()=>{
     const source=`
-      import assert from 'node:assert/strict';import path from 'node:path';import {mkdir,writeFile} from 'node:fs/promises';import {DatabaseSync} from 'node:sqlite';
+      import assert from 'node:assert/strict';import path from 'node:path';import {mkdir,writeFile,readFile,rm} from 'node:fs/promises';import {DatabaseSync} from 'node:sqlite';
       import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
       import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
       import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
       import {createNamespaceSourceInspectionEngine} from '${packageName}/hosts/namespace-source-inspection';
-      import {createFilesystemSourceUnit} from '${packageName}/sources/filesystem';
+      import {createNamespaceSourceRetentionEngine} from '${packageName}/hosts/namespace-source-retention';
+      import {createFilesystemSourceUnit,createFilesystemSourceContentReader} from '${packageName}/sources/filesystem';
       const fresh=process.argv[2]==='fresh',scope={projectId:'inspection-project'},workId='code-story',authority={id:'inspection-authority',epoch:1};
       const binding={kind:'shared'},privateBinding={kind:'machine-local',deviceId:'inspection-device'};
       const records=await createFilesystemNamespaceStore({root:path.resolve('inspection-records'),binding,create:fresh});
@@ -466,7 +467,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const clock={now(){if(!fresh)throw Error('Source inspection cannot restamp a generation.');return '2026-11-09T01:00:00.000Z';}};
       const access={current:()=>({projectId:scope.projectId,principalId:'reader',actorKind:'human',agentId:'analyst',
         identity:{name:'Example reviewer',email:'reviewer@example.test',login:null},
-        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','phase.prepare','phase.source.inspect']:['phase.source.inspect']})};
+        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','phase.prepare','phase.source.inspect','phase.source.retain']:['phase.source.inspect']})};
       try{
         const root=path.resolve('inspection-checkout');if(fresh){await mkdir(root);await writeFile(path.join(root,'app.js'),'export const answer = 42;');}
         const unit=await createFilesystemSourceUnit({root,id:'application-checkout',projectId:scope.projectId,repositoryId:'app'});
@@ -494,6 +495,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         assert.equal(result.manifest.status,'inspected');assert.equal(result.manifest.totals.changes,2);
         assert.equal(result.manifest.repositories[0].roles['build-configuration'],1);assert.equal(result.manifest.repositories[0].roles['product-source'],1);
         assert.equal(result.manifest.publicationReadinessInspected,false);assert.equal(result.effects.committed,false);assert.equal(result.effects.testsRun,false);
+        const sourceReaders=fresh?[await createFilesystemSourceContentReader({root,id:'installed-source-reader',source:unit.descriptor,maximumChunkBytes:4})]:[];
+        if(!fresh)await rm(root,{recursive:true});
+        const retained=await createNamespaceSourceRetentionEngine({...common,sources:fresh?[unit]:[],sourceReaders,
+          localRecords:fresh?localRecords:undefined,localContent:fresh?localContent:undefined})
+          .run('phase.source.retain',{operationId:'retain-delivery-bytes',workId,phaseId:'delivery'});
+        assert.equal(retained.effects.phasePublished,false);assert.equal(retained.totals.files,2);assert.equal(retained.totals.added,1);
+        if(fresh)await writeFile('retained-code-record.json',JSON.stringify(retained.record));
+        else{assert.equal(retained.replayed,true);assert.deepEqual(retained.record,JSON.parse(await readFile('retained-code-record.json','utf8')));}
         process.stdout.write(JSON.stringify(result));
       }finally{database.close();privateDatabase.close();}
     `;
@@ -994,6 +1003,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import type {NamespaceEngineOptions} from '${packageName}/hosts/namespace-engine';
       import {createNamespacePhaseChecksEngine} from '${packageName}/hosts/namespace-checks';
       import {createNamespaceSourceInspectionEngine} from '${packageName}/hosts/namespace-source-inspection';
+      import {createNamespaceSourceRetentionEngine} from '${packageName}/hosts/namespace-source-retention';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
@@ -1014,6 +1024,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});
       declare const phaseCheckOptions:NamespaceEngineOptions;
       createNamespaceEngine(phaseCheckOptions).run('phase.source.inspect',{phaseId:'review',maximumEntries:25});
+      createNamespaceEngine(phaseCheckOptions).run('phase.source.retain',{operationId:'retain-code',workId:'example',phaseId:'review'});
+      const retentionFactory:typeof createNamespaceSourceRetentionEngine=createNamespaceSourceRetentionEngine;
+      // @ts-expect-error Retention selection comes from the actual generation, never caller-supplied file paths.
+      createNamespaceEngine(phaseCheckOptions).run('phase.source.retain',{operationId:'retain-code',workId:'example',phaseId:'review',paths:['private.txt']});
       // @ts-expect-error A source query cannot accept caller-supplied readiness or a replacement source path.
       createNamespaceEngine(phaseCheckOptions).run('phase.source.inspect',{ready:true,path:'/other'});
       const inspectFactory:typeof createNamespaceSourceInspectionEngine=createNamespaceSourceInspectionEngine;

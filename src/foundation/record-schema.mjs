@@ -190,6 +190,15 @@ export const NAMESPACE_PHASE_CHECK_SCHEMAS = /* @__PURE__ */ Object.freeze({
   index: /* @__PURE__ */ frozenFamily('namespace-phase-check-index'),
   binding: /* @__PURE__ */ frozenFamily('namespace-phase-check-binding')
 });
+export const NAMESPACE_SOURCE_RETENTION_SCHEMAS = /* @__PURE__ */ Object.freeze({
+  plan: /* @__PURE__ */ frozenFamily('namespace-source-retention-plan'),
+  intent: /* @__PURE__ */ frozenFamily('namespace-source-retention-intent'),
+  result: /* @__PURE__ */ frozenFamily('namespace-source-retention-result'),
+  repository: /* @__PURE__ */ frozenFamily('namespace-source-retention-repository'),
+  manifest: /* @__PURE__ */ frozenFamily('namespace-source-retention-manifest'),
+  index: /* @__PURE__ */ frozenFamily('namespace-source-retention-index'),
+  binding: /* @__PURE__ */ frozenFamily('namespace-source-retention-binding')
+});
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'),
   manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,

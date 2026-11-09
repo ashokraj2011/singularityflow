@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { canonicalJson,SOURCE_SNAPSHOT_SCHEMA } from '../foundation/record-schema.mjs';
-import { SOURCE_UNIT_CONTRACT,SOURCE_SNAPSHOT_FORMAT,SOURCE_LIMITS,sourceRelativePath,sourceUnitDescriptor,sourceSnapshot } from '../foundation/source-snapshot.mjs';
+import { SOURCE_UNIT_CONTRACT,SOURCE_SNAPSHOT_FORMAT,SOURCE_LIMITS,sourceRelativePath,sourceUnitDescriptor,sourceSnapshot,
+  SOURCE_CONTENT_READER_CONTRACT,sourceContentReaderDescriptor,sourceContentReadRequest,sourceContentReadResult } from '../foundation/source-snapshot.mjs';
 
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 const fingerprint=stat=>[stat.dev,stat.ino,stat.mode,stat.size,stat.mtimeNs,stat.ctimeNs].map(String).join(':');
@@ -24,7 +25,7 @@ async function withinDeadline(work,signal,duration,progress) {
 }
 
 /** The application supplies a physical checkout; no default root or source location is inferred. */
-export async function createFilesystemSourceUnit({root,id,projectId,repositoryId,excludePaths=[],limits={}}={}) {
+async function filesystemSourceBinding({root,id,projectId,repositoryId,excludePaths=[],limits={}}={}) {
   if(typeof root!=='string'||!path.isAbsolute(root))throw error('Source capture needs an explicit absolute root.','SGOS_SOURCE_INPUT_INVALID');
   if(!Array.isArray(excludePaths)||!limits||typeof limits!=='object'||Array.isArray(limits))throw error('Source selection and limits must be explicit bounded data.','SGOS_SOURCE_INPUT_INVALID');
   const exclusions=[...new Set(['.git','.singularity-flow',...excludePaths.map(sourceRelativePath)])].sort(compare);
@@ -61,7 +62,7 @@ export async function createFilesystemSourceUnit({root,id,projectId,repositoryId
     }
     await visit('');return {observations,files};
   }
-  return Object.freeze({descriptor:Object.freeze(descriptor),async capture({signal:requestedSignal}={}) {
+  const unit=Object.freeze({descriptor:Object.freeze(descriptor),async capture({signal:requestedSignal}={}) {
     const progress={unitId:id,repositoryId,stage:'scan',relativePath:''};
     return withinDeadline(async signal=>{
     const before=await scan(signal,progress),entries=[],chunk=Buffer.alloc(65536);let total=0;
@@ -92,5 +93,50 @@ export async function createFilesystemSourceUnit({root,id,projectId,repositoryId
     if(data.byteLength>descriptor.limits.maximumManifestBytes)throw error('The source manifest exceeds its byte bound.','SGOS_SOURCE_LIMIT');
     cancelled(signal);return {snapshot,revision:'sha256:'+createHash('sha256').update(data).digest('hex')};
     },requestedSignal,descriptor.limits.maximumDurationMs,progress);
+  }});
+  return {unit,descriptor,physical,rootStat,selected};
+}
+
+/** Existing observation ABI: the optional content capability is never added implicitly. */
+export async function createFilesystemSourceUnit(options={}) {
+  return (await filesystemSourceBinding(options)).unit;
+}
+
+/** Explicit content access to one selected source; chunk reads never persist or execute anything. */
+export async function createFilesystemSourceContentReader({root,id,source,maximumChunkBytes=1_048_576}={}) {
+  const descriptor=sourceContentReaderDescriptor({contract:SOURCE_CONTENT_READER_CONTRACT,id,source,maximumChunkBytes});
+  source=descriptor.source;
+  if(descriptor.source.provider!=='filesystem')throw error('A filesystem content reader needs a filesystem source descriptor.','SGOS_SOURCE_INPUT_INVALID');
+  const bound=await filesystemSourceBinding({root,id:source.id,projectId:source.projectId,repositoryId:source.repositoryId,
+    excludePaths:source.selection.excludePaths,limits:source.limits});
+  if(canonicalJson(bound.descriptor)!==canonicalJson(descriptor.source))throw error('The content root has another source selection.','SGOS_SOURCE_INPUT_INVALID');
+  const frozen=Object.freeze({...descriptor,source:bound.descriptor});
+  return Object.freeze({descriptor:frozen,async read(supplied,{signal:requestedSignal}={}) {
+    const request=sourceContentReadRequest(supplied,frozen),{entry,offset,maximumBytes}=request;
+    const progress={unitId:source.id,repositoryId:source.repositoryId,stage:'read-content',relativePath:entry.path,offset};
+    return withinDeadline(async signal=>{
+      cancelled(signal);const rootStat=await lstat(bound.physical,{bigint:true});
+      if(!rootStat.isDirectory()||rootStat.dev!==bound.rootStat.dev||rootStat.ino!==bound.rootStat.ino)throw error('The bound source directory was replaced.','SGOS_SOURCE_CHANGED');
+      const parts=entry.path.split('/');let absolute=bound.physical;
+      for(const [index,part]of parts.entries()) {
+        absolute=path.join(absolute,part);cancelled(signal);const stat=await lstat(absolute,{bigint:true});
+        if(stat.isSymbolicLink()||await realpath(absolute)!==absolute)throw error('Source content cannot follow symbolic links.','SGOS_SOURCE_LINK_DENIED',{path:entry.path});
+        if(index<parts.length-1&&!stat.isDirectory())throw error('The selected source parent is not a directory.','SGOS_SOURCE_TYPE_UNSUPPORTED',{path:entry.path});
+      }
+      const initial=await lstat(absolute,{bigint:true});
+      if(!initial.isFile()||initial.size!==BigInt(entry.bytes)||Boolean(initial.mode&0o111n)!==entry.executable) {
+        throw error('The source member no longer matches its captured size or mode.','SGOS_SOURCE_CHANGED',{path:entry.path});
+      }
+      const handle=await open(absolute,constants.O_RDONLY|(constants.O_NOFOLLOW??0)|(constants.O_NONBLOCK??0));
+      try {
+        if(fingerprint(await handle.stat({bigint:true}))!==fingerprint(initial))throw error('A source member changed before content reading.','SGOS_SOURCE_CHANGED',{path:entry.path});
+        const data=Buffer.alloc(Math.min(maximumBytes,entry.bytes-offset));let copied=0;
+        while(copied<data.byteLength){cancelled(signal);const found=await handle.read(data,copied,data.byteLength-copied,offset+copied);
+          if(!found.bytesRead)throw error('A source member ended before its captured range.','SGOS_SOURCE_CHANGED',{path:entry.path,offset:offset+copied});copied+=found.bytesRead;}
+        if(fingerprint(await handle.stat({bigint:true}))!==fingerprint(initial)||fingerprint(await lstat(absolute,{bigint:true}))!==fingerprint(initial)
+          ||await realpath(absolute)!==absolute)throw error('A source member changed during content reading.','SGOS_SOURCE_CHANGED',{path:entry.path});
+        cancelled(signal);return sourceContentReadResult({entry,offset,data},request,frozen);
+      }finally{await handle.close();}
+    },requestedSignal,source.limits.maximumDurationMs,progress);
   }});
 }

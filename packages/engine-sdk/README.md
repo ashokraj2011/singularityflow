@@ -92,6 +92,8 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   read its canonical lifecycle state and exact source through the same registry.
 - `source`: pure source-unit and snapshot contracts, with logical identities and bounded metadata.
 - `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
+  The separate `createFilesystemSourceContentReader` capability reads bounded byte ranges;
+  the original observation unit does not gain file-content access implicitly.
 - `execution`: provider-neutral execution-unit method binding and operational TypeScript contracts.
 - `execution/node`: explicitly selected deterministic or fixed-command Node execution units.
 - `execution/runtime`: decorate an explicit unit with durable attempts, live ownership, exact
@@ -114,6 +116,10 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   before truncating the preview. Configuration, protected paths and test-only boundaries retain
   their shared classification rules. The query saves no data and establishes no test, publication
   or approval readiness; the main namespace Engine exposes the same registered operation.
+- `hosts/namespace-source-retention`: retain exact current changed-file bytes through
+  `phase.source.retain`. Supply explicit `sourceReaders` for a new collection. Chunked immutable
+  evidence and verified receipts remain readable without the original checkout; baseline file
+  contents, publication readiness and human approval remain separate requirements.
 - `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase
   drafts using separately device-bound local ports, without changing canonical phase state.
 - `hosts/namespace-publication`: publish primary authored documents using the conditional namespace

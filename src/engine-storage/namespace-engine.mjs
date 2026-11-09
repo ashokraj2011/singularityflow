@@ -1,7 +1,7 @@
 /** One explicit headless composition. Operations still enter the SDK registry exactly once. */
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {validateSourceUnit} from '../foundation/source-snapshot.mjs';
+import {validateSourceUnit,validateSourceContentReader} from '../foundation/source-snapshot.mjs';
 import {validateNamespaceStore,NAMESPACE_STORE_METHODS} from '../sda/namespace/contract.mjs';
 import {namespaceScope,namespaceIdentifier,exactObject} from '../sda/namespace/values.mjs';
 import {validateContentStore,CONTENT_STORE_METHODS} from '../sda/content/contract.mjs';
@@ -17,6 +17,7 @@ import {createNamespaceApprovalPorts} from './namespace-approval.mjs';
 import {createNamespaceRoutingChoicePorts} from './namespace-routing-choice.mjs';
 import {createNamespacePhaseChecksPort} from './namespace-phase-checks.mjs';
 import {createNamespaceSourceInspectionPort} from './namespace-source-inspection.mjs';
+import {createNamespaceSourceRetentionPort} from './namespace-source-retention.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
 function captured(port,validate,methods) {
   validate(port);
@@ -24,7 +25,7 @@ function captured(port,validate,methods) {
 }
 
 export function createNamespaceEngine(options={}) {
-  const fields=['records','content','scope','workId','authority','access','clock','working','localContent','sources','modelEnabled','notice','checks'];
+  const fields=['records','content','scope','workId','authority','access','clock','working','localContent','sources','modelEnabled','notice','checks','sourceReaders'];
   if(!options||typeof options!=='object'||Array.isArray(options)||Object.keys(options).some(key=>!fields.includes(key)))invalid('Use explicit namespace Engine bindings and capabilities.');
   options=Object.fromEntries(fields.map(key=>[key,options[key]]));
   const scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID');
@@ -47,14 +48,17 @@ export function createNamespaceEngine(options={}) {
     const descriptor=structuredClone(validateSourceUnit(unit));
     return Object.freeze({descriptor,capture:unit.capture.bind(unit)});
   }));
+  if(!Array.isArray(options.sourceReaders??[])||(options.sourceReaders??[]).length>32)invalid('Source content readers must be an explicit bounded list.');
+  const sourceReaders=Object.freeze((options.sourceReaders??[]).map(reader=>Object.freeze({descriptor:validateSourceContentReader(reader),read:reader.read.bind(reader)})));
   const common={records,content,scope,workId,authority,access,clock,localContent,sources,
-    modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks};
+    modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,sourceReaders};
   const runtime=working?createNamespacePreparationRuntime({...common,localRecords:working.records,localContent:working.content}):null;
   const ports={...createNamespaceReadPorts(common,{authority}),
     ...(authority.epoch===1?createNamespaceProjectPorts(common):{}),
     ...createNamespaceConfigurationPorts(common),...createNamespaceStoryPorts(common),
     sourceBinding:createNamespaceSourceBindingPort(common),...(runtime?.ports??{}),
     phaseSourceInspection:createNamespaceSourceInspectionPort(common,runtime),
+    phaseSourceRetention:createNamespaceSourceRetentionPort(common,runtime),
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...createNamespaceRoutingChoicePorts(common),
     ...(options.checks?{phaseChecks:createNamespacePhaseChecksPort(common,runtime)}:{})};

@@ -28,7 +28,7 @@ import {storyCreationInput,storyCreationBinding,storyCreationResult} from '../ke
 import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kernel/source-binding.mjs';
 import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phaseDraftMutationResult} from '../kernel/phase-preparation.mjs';
 import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
-import {phaseSourceInspectionInput,phaseSourceInspectionManifest} from '../kernel/source-changes.mjs';
+import {phaseSourceInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult} from '../kernel/source-changes.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -173,6 +173,9 @@ const definitions = [
   {id:'phase.source.inspect',version:1,effect:'read',humanDecision:false,authority:'phase.source.inspect',
     inputFields:Object.freeze(['workId','phaseId','maximumEntries']),port:'phaseSourceInspection',
     stages:Object.freeze(['load','inspect']),validate:'sourceInspectionInput',execute:'inspectPhaseSources'},
+  {id:'phase.source.retain',version:1,effect:'source-retention',humanDecision:false,authority:'phase.source.retain',
+    inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),port:'phaseSourceRetention',
+    stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'sourceRetentionInput',execute:'retainPhaseSources'},
   {id:'phase.draft.write',version:1,effect:'local-draft',humanDecision:false,authority:'phase.draft.write',
     inputFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','content','reason']),
     requiredFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','content','reason']),port:'phaseDraftWrite',
@@ -195,6 +198,15 @@ function draftReadInput(value){return phaseDraftReadInput(data(value));}
 function draftMutationInput(value,operation){return phaseDraftMutationInput(data(value),operation);}
 function phaseChecksInput(value){return checkedPhaseChecksInput(data(value));}
 function sourceInspectionInput(value){return phaseSourceInspectionInput(data(value));}
+function sourceRetentionInput(value){return phaseSourceRetentionInput(data(value));}
+async function retainPhaseSources(port,input,signal) {
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  let accepted=await port.retained(context,input,{signal});notCancelled(signal);
+  if(accepted===null){const prepared=await port.prepare(context,input,{signal});notCancelled(signal);
+    const collected=await port.collect(context,prepared,{signal});notCancelled(signal);accepted=await port.commit(context,collected,{signal});}
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.source.retain',
+    ...phaseSourceRetentionResult(input,data(await port.finish(context,accepted,{signal:null})))});
+}
 async function inspectPhaseSources(port,input,signal) {
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   if(context?.subject?.kind!=='story'||typeof context.subject.id!=='string'||typeof context.phase!=='string'
@@ -1481,7 +1493,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
-    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,inspectPhaseSources,
+    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,inspectPhaseSources,sourceRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

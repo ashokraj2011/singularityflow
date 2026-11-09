@@ -151,6 +151,16 @@ export function phaseAgentMutationFacts(config, workflow, phase, session, operat
   agent, author: phase?.defaultAgent ?? null };
 }
 
+/** Catalog and configured author are independent of the human who originally opened a draft. */
+export function phaseCatalogAuthorAdmission(definition,workflow,phase,agentId) {
+  const catalog=definition.agentCatalog??[],config={agents:Object.fromEntries(catalog.map(item=>[item.id,item]))};
+  const role=phaseAgentMutationFacts(config,workflow,phase,{agent:agentId},'prepare');
+  if(!role.allowed)return {allowed:false,reason:'read-only',code:role.code,facts:role};
+  if(agentId!==null&&!catalog.some(item=>item.id===agentId))return {allowed:false,reason:'unknown',code:'ENGINE_AGENT_UNAVAILABLE',facts:null};
+  if(phase.defaultAgent&&agentId!==phase.defaultAgent)return {allowed:false,reason:'default',code:'AGENT_SESSION_REQUIRED',facts:{agentId:phase.defaultAgent}};
+  return {allowed:true};
+}
+
 /** Skill instructions do not themselves establish an installed containment/delivery capability. */
 export function skillPhaseHostRequirement(workflow,phase) {
   const pinned=workflow.resolution?.phases?.find(entry=>entry.id===phase?.id);

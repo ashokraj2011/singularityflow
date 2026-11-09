@@ -16,7 +16,6 @@ import { createNamespaceReadPorts } from './namespace-reader.mjs';
 export {namespaceStoryGenesisKey} from './namespace-story-codec.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
-const identity=value=>hash(namespaceIdentityJson(value));
 const same=(a,b)=>namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story creation was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
@@ -32,7 +31,7 @@ export function createNamespaceStoryPorts({records,content,scope,workId,authorit
   const limits=namespaceLimits(records.descriptor.limits),transact=records.transact.bind(records),inspect=records.inspectOperation.bind(records),put=content.put.bind(content);
   const current=access.current.bind(access),now=clock.now.bind(clock),recordId=records.descriptor.id,contentId=content.descriptor.id;
   const binding=Object.freeze({projectId:scope.projectId,workId,authority}),contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap();
-  const {headKey,genesisKey,readKey,keys,txDigest,projected,firstHead,transaction,receipt}=createNamespaceStoryCodec({scope,workId,authority,limits});
+  const {headKey,genesisKey,readKey,keys,parameters,txDigest,projected,firstHead,transaction,receipt}=createNamespaceStoryCodec({scope,workId,authority,limits});
   function select(context){const selected=contexts.get(context);if(!selected)throw error('Story creation needs its issued context.','ENGINE_INPUT_INVALID');return selected;}
   function retainedValue(kind,value,operationId) {
     try {return namespaceStoryValue(kind,value,scope,workId,operationId);}
@@ -103,7 +102,7 @@ export function createNamespaceStoryPorts({records,content,scope,workId,authorit
   }
   const storyCreation={
     async load(inputs,{signal}={}) {cancelled(signal);storyCreationBinding(binding,inputs);const context=Object.freeze({binding});
-      contexts.set(context,{inputs,parameters:identity({operation:'story.create',inputs,binding,recordId,contentId})});return context;},
+      contexts.set(context,{inputs,parameters:parameters(inputs,{recordId,contentId})});return context;},
     retained,
     async prepare(context,_inputs,{signal}={}) {
       const selected=select(context);let plan=await checkpoint(selected,signal);

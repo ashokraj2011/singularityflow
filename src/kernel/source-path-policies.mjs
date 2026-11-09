@@ -512,3 +512,29 @@ function classifyDeliveryChanges(changeSet, {
 }
   return Object.freeze({pathInside,isDocumentationPath,classifyDeliveryChanges});
 }
+
+/** Source observations remain facts: this projection neither authorizes edits nor publishes. */
+export function sourceChangeInspectionPolicies(port, roots) {
+  const {applicationPathContext,isApplicationChangeEntry}=applicationPathPolicies(roots);
+  const {classifyDeliveryChanges}=deliveryClassificationPolicies(port,roots);
+  const {evaluateProtectedPaths,evaluateSourceBoundary}=changeScopePolicies(port);
+  const {isTestAutomationPath}=sourceBoundaryPolicies(port);
+  function inspectSourceChanges(changes,{definition,workflow,phase,applicationOnly=false}) {
+    const context=applicationPathContext(definition,workflow.resolution);
+    const selected=applicationOnly?{...changes,entries:changes.entries.filter(entry=>isApplicationChangeEntry(entry,context))}:changes;
+    const guards=[...new Set([...(definition.governance?.protectedPaths??[]),...(workflow.resolution.governance?.protectedPaths??[]),
+      ...(workflow.resolution.capability?.policy?.protectedPaths??[])])];
+    const boundary=normalizeSourceBoundary(phase.sourceBoundary,phase.id);
+    const roles=new Map(classifyDeliveryChanges(selected,{pathContext:context}).entries.map(entry=>[entry.changeId,entry.role]));
+    const protectedSet=new Set(evaluateProtectedPaths(selected,guards,{caseInsensitive:true}).violations.map(entry=>entry.changeId));
+    const outside=new Set(evaluateSourceBoundary(selected,boundary,{allowedPath:isTestAutomationPath,phaseId:phase.id}).violations.map(entry=>entry.changeId));
+    const counts={},totals={added:0,modified:0,removed:0,changes:selected.entries.length};
+    const entries=selected.entries.map(entry=>{const role=roles.get(entry.changeId)??'engine-owned';counts[role]=(counts[role]??0)+1;
+      totals[entry.status==='A'?'added':entry.status==='D'?'removed':'modified']++;
+      return {...entry,role,protected:protectedSet.has(entry.changeId),sourceBoundaryAllowed:!outside.has(entry.changeId)};});
+    return {policy:{sourceBoundary:boundary,classificationComparison:context.caseInsensitivePaths?'pinned-case-insensitive':'case-sensitive-portable',
+      protectedComparison:'portable-case-insensitive',tracking:'not-observed',renameDetection:'not-observed'},
+      totals,roles:counts,protectedChanges:protectedSet.size,boundaryViolations:outside.size,entries};
+  }
+  return Object.freeze({inspectSourceChanges});
+}

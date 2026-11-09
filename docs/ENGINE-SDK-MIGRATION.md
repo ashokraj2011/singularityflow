@@ -67,6 +67,18 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [changed-source retention owner](ENGINE-SDK-SOURCE-RETENTION.md) connects actual bounded file
+reads, chunked SDA content and conditional evidence acceptance through the registry. Its proof
+reader reconstructs the retained current file bytes without the old checkout. Baseline content,
+complete code-delivery policy and the remaining Phase 5, 7, 8 and 9 gates remain open.
+
+That source-retention slice passed 59 focused Mac source/proof cases, 87 additional source,
+path-policy, preparation and checked-publication cases, 67 architecture cases and 25 installed-
+package checks. Source validation passed 3,916 checks across 191 skills; typechecking, the
+unchanged 2,011-site Git audit and all 13 unchanged bundle budgets passed. The optional SDK now
+exposes 54 operations across 164 owned modules. Its qualification details and limits are recorded
+with the source-retention owner; this does not complete full application Story execution.
+
 The [portable generation source inspection](ENGINE-SDK-SOURCE-INSPECTION.md) is the current
 application-delivery prerequisite. It extracts native path rules and reads actual source changes
 through the registry, without changing installed Git authority or claiming publication readiness.

@@ -5,7 +5,7 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
 import { renderArtifactTemplateText,utf8Bytes } from '../kernel/artifact-content.mjs';
 import { phaseDraftAccess,phasePreparationSelection } from '../kernel/phase-preparation.mjs';
-import { phaseAgentMutationFacts,skillPhaseHostRequirement } from '../kernel/phase-admission.mjs';
+import { phaseCatalogAuthorAdmission,skillPhaseHostRequirement } from '../kernel/phase-admission.mjs';
 import { phaseBeginSelection,phaseExplicitlyReopened,pendingIntentAmendmentAcknowledgement,phaseRequiresCodeDelivery,phaseGovernancePlan } from '../kernel/phase-policy.mjs';
 import { approvedInputPhases,resolvedPhaseInputs,workflowInputsMode } from '../kernel/phase-inputs.mjs';
 import { sequenceAdmission } from '../kernel/lifecycle-transitions.mjs';
@@ -126,7 +126,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       }
     }catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
       throw error('The retained private input context or generation intent has another binding.','ENGINE_STORAGE_CORRUPT',{workId,phase:captured.phase.id},cause);}
-    return {...found,payload:p,currentBytes,initialBytes};
+    return {...found,payload:p,currentBytes,initialBytes,generationBytes:intentBytes};
   }
   async function contract(captured,agent,signal) {
     const w=captured.snapshot.workflow,phase=captured.phase,sequence=sequenceAdmission(w,{requestedPhase:phase.id});
@@ -137,12 +137,9 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     if(phase.generationIntent?.status==='consumed'&&!phaseExplicitlyReopened(w,phase))throw error('The published code generation needs an explicitly reviewed successor.','GENERATION_INTENT_ALREADY_CONSUMED');
     const approval=await observer.approved(captured.snapshot,{signal});
     if(!same(approval.configuration,captured.snapshot.configuration))throw error('Preparation has another immutable configuration pin.','ENGINE_STORAGE_CORRUPT');
-    const catalog=approval.compiled.definition.agentCatalog??[];
-    const config={agents:Object.fromEntries(catalog.map(item=>[item.id,item]))};
-    const role=phaseAgentMutationFacts(config,w,phase,{agent:agent.agentId},'prepare');
-    if(!role.allowed)throw error('The selected agent is read-only for this phase.',role.code,role);
-    if(agent.agentId!==null&&!catalog.some(item=>item.id===agent.agentId))throw error('The selected agent is not in the pinned catalog.','ENGINE_AGENT_UNAVAILABLE');
-    if(phase.defaultAgent&&agent.agentId!==phase.defaultAgent)throw error('Select the pinned phase author before preparing its draft.','AGENT_SESSION_REQUIRED',{agentId:phase.defaultAgent});
+    const author=phaseCatalogAuthorAdmission(approval.compiled.definition,w,phase,agent.agentId);
+    if(!author.allowed)throw error(author.reason==='read-only'?'The selected agent is read-only for this phase.'
+      :author.reason==='unknown'?'The selected agent is not in the pinned catalog.':'Select the pinned phase author before preparing its draft.',author.code,author.facts);
     const skillHost=skillPhaseHostRequirement(w,phase);
     if(skillHost)throw error('The qualified skill containment and delivery host is not installed for this phase.','SKP_HOST_ENFORCEMENT_UNAVAILABLE',skillHost);
     if(phaseRequiresCodeDelivery(phase)&&w.resolution.testRecovery?.enabled)throw error('The code phase needs its retained test-recovery agreement and verified readiness on this backend.',
@@ -383,6 +380,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       operation,binding,resources:inputs.records,definition:approved.approval.compiled.definition});}
   function artifactBytes(token) {return Buffer.from(admission(token).found.currentBytes);}
   function initialArtifactBytes(token) {return Buffer.from(admission(token).found.initialBytes);}
+  function generationIntentBytes(token) {const value=admission(token).found.generationBytes;return value===null?null:Buffer.from(value);}
   async function revalidateDraft(token,{signal}={}) {
     const a=admission(token);await authorize(a.operation,signal,a.agent);await unchanged(a.captured,signal);
     const fresh=await inspectPrivate(a.captured,signal);
@@ -415,7 +413,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       throw error('The private source draft changed during its read-only inspection.','ENGINE_CONTEXT_CHANGED',{workId,phase:captured.phase.id});
     }
   }
-  return Object.freeze({ports,captureDraft,draftIdentity,admitDraft,draftFacts,artifactBytes,initialArtifactBytes,revalidateDraft,
+  return Object.freeze({ports,captureDraft,draftIdentity,admitDraft,draftFacts,artifactBytes,initialArtifactBytes,generationIntentBytes,revalidateDraft,
     captureSourceDraft,sourceDraftFacts,revalidateSourceDraft});
 }
 

@@ -4,6 +4,9 @@ import { SOURCE_SNAPSHOT_SCHEMA,admitRecordSchemaVersion } from './record-schema
 
 export const SOURCE_UNIT_CONTRACT='sflow-source-unit/v1';
 export const SOURCE_SNAPSHOT_FORMAT='sflow-source-snapshot/v1';
+// A separate optional capability. Existing source units and snapshots keep their v1 shape.
+export const SOURCE_CONTENT_READER_CONTRACT='sflow-source-content-reader/v1';
+export const SOURCE_CONTENT_MAXIMUM_CHUNK_BYTES=8_388_608;
 export const SOURCE_LIMITS=Object.freeze({maximumFiles:50_000,maximumVisitedEntries:100_000,maximumFileBytes:536_870_912,
   maximumTotalBytes:2_147_483_648,maximumManifestBytes:16_777_216,maximumDurationMs:300_000});
 const plain=value=>value&&typeof value==='object'&&!Array.isArray(value)
@@ -54,6 +57,39 @@ export function sourceSnapshot(value,descriptor) {
     if(descriptor.selection.excludePaths.some(path=>entry.path===path||entry.path.startsWith(path+'/')))fail('A source snapshot contradicts its retained selection.');
     previous=entry.path;total+=entry.bytes;
     if(total>descriptor.limits.maximumTotalBytes)fail('Source bytes exceed their retained limit.');
+  }
+  return value;
+}
+
+export function sourceContentReaderDescriptor(value) {
+  exact(value,['contract','id','source','maximumChunkBytes']);
+  if(value.contract!==SOURCE_CONTENT_READER_CONTRACT||!logical(value.id)||!bounded(value.maximumChunkBytes)
+    ||value.maximumChunkBytes<1||value.maximumChunkBytes>SOURCE_CONTENT_MAXIMUM_CHUNK_BYTES)fail('Source content needs an explicit bounded reader capability.');
+  return {contract:value.contract,id:value.id,source:sourceUnitDescriptor(value.source),maximumChunkBytes:value.maximumChunkBytes};
+}
+export function validateSourceContentReader(reader) {
+  if(!reader||typeof reader.read!=='function')fail('An explicit source content reader must implement read.');
+  return sourceContentReaderDescriptor(reader.descriptor);
+}
+export function sourceContentReadRequest(value,reader) {
+  reader=sourceContentReaderDescriptor(reader);exact(value,['entry','offset','maximumBytes']);
+  const e=value.entry;exact(e,['path','sha256','bytes','executable']);sourceRelativePath(e.path);
+  if(typeof e.sha256!=='string'||!/^([a-f0-9]{64})$/u.test(e.sha256)||!bounded(e.bytes)
+    ||e.bytes>reader.source.limits.maximumFileBytes||typeof e.executable!=='boolean'
+    ||!bounded(value.offset)||value.offset>e.bytes||!bounded(value.maximumBytes)||value.maximumBytes<1
+    ||value.maximumBytes>reader.maximumChunkBytes)fail('A source content read needs an exact member and bounded byte range.');
+  const path=e.path.toLocaleLowerCase('en-US');
+  if(reader.source.selection.excludePaths.some(value=>{const excluded=value.toLocaleLowerCase('en-US');return path===excluded||path.startsWith(excluded+'/');})) {
+    fail('A source content read cannot escape its selected source boundary.');
+  }
+  return {entry:{...e},offset:value.offset,maximumBytes:value.maximumBytes};
+}
+export function sourceContentReadResult(value,request,reader) {
+  const selected=sourceContentReadRequest(request,reader);exact(value,['entry','offset','data']);
+  exact(value.entry,['path','sha256','bytes','executable']);
+  if(Object.keys(selected.entry).some(key=>value.entry[key]!==selected.entry[key])||value.offset!==selected.offset
+    ||!(value.data instanceof Uint8Array)||value.data.byteLength!==Math.min(selected.maximumBytes,selected.entry.bytes-selected.offset)) {
+    fail('The source content reader returned another member or an incomplete range.');
   }
   return value;
 }

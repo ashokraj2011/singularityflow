@@ -26,6 +26,7 @@ export function createNamespaceStoryCodec({scope,workId,authority,limits}) {
   const keys=operationId=>{const id=identity({binding,operationId});return {prepared:`stories/prepared/${id}`,manifest:`stories/creations/${id}`,
     prepareOperation:`story-prepare-${id}`,operation:`story-create-${id}`,event:`story-create-${id}`};};
   const txDigest=tx=>hash(namespaceTransactionIdentity(scope,tx,limits));
+  const parameters=(inputs,{recordId,contentId})=>identity({operation:'story.create',inputs,binding,recordId,contentId});
   const projected=(kind,plan)=>namespaceStoryRecord(kind,Object.fromEntries(Object.entries(plan).filter(([key])=>!['schemaVersion','format','requestDigest'].includes(key))));
   const firstHead=plan=>lifecycleRecord('head',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,sequence:0,
     configuration:plan.configuration,state:plan.state,previous:null,operationId:plan.operationId});
@@ -56,5 +57,5 @@ export function createNamespaceStoryCodec({scope,workId,authority,limits}) {
     }catch(cause){throw error('Inspect the original Story creation operation: its receipt is invalid.','ENGINE_PORT_RESULT_INVALID',cause);}
     return r;
   }
-  return Object.freeze({keys,txDigest,projected,firstHead,transaction,receipt,headKey,genesisKey,readKey});
+  return Object.freeze({keys,parameters,txDigest,projected,firstHead,transaction,receipt,headKey,genesisKey,readKey});
 }

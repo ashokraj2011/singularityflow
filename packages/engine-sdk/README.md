@@ -83,8 +83,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   sharing captured storage, access, clock, source and read ports. Individual hosts remain available.
 - `hosts/namespace-checks`: run pinned phase checks through `phase.checks.run`, retaining real raw
   reports and source/task bindings. The main composition accepts the same explicit `checks` ports.
-  Retry acknowledges accepted evidence without the old private draft or executor. Publication and
-  submission integration with those results remains a separate required owner.
+  Retry acknowledges accepted evidence without the old private draft or executor. The supported
+  primary-document profile binds those results into checked publication and submission records;
+  human approval and other phase policy owners remain separate requirements.
 - `hosts/namespace-project`: explicitly enroll a new namespace project through `project.enroll`.
 - `hosts/namespace-configuration`: approve an exact workflow package under an enrolled authority.
 - `hosts/namespace-story`: create work from an approved configuration through `story.create` and

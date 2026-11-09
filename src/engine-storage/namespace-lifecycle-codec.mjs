@@ -1,10 +1,10 @@
-/** Frozen v1 conditional lifecycle identities. Pure encoding, never storage or policy admission. */
+/** Version-preserving conditional lifecycle identities. Pure encoding, never storage or policy admission. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {namespaceLifecycleRecordProfile,textDigestCapability} from '../foundation/record-schema.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {namespaceJson,namespaceIdentityJson,namespaceIdentifier,namespaceScope,namespaceRevision,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceTransaction,namespaceTransactionIdentity} from '../sda/namespace/transaction.mjs';
-import {LIFECYCLE_AUTHORITY_KEY} from './namespace-lifecycle-contract.mjs';
+import {LIFECYCLE_AUTHORITY_KEY,lifecycleReadBindings} from './namespace-lifecycle-contract.mjs';
 const same=(a,b)=>namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 const v1=(kind,value)=>({schemaVersion:1,format:namespaceLifecycleRecordProfile(kind,{schemaVersion:1}).format,...value});
@@ -26,15 +26,21 @@ export function createNamespaceLifecycleCodec({scope,workId,authority,limits,tex
     return {operation:`lifecycle-${id}`,prepareOperation:`prepare-${id}`,prepared:`lifecycle/prepared/${id}`,manifest:`lifecycle/operations/${id}`,event:`lifecycle-${id}`};};
   function head(plan){const previous=plan.basis.head;return v1('head',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,
     sequence:previous.sequence+1,configuration:previous.configuration,state:plan.state,previous:previous.state,operationId:plan.operationId});}
-  function manifest(plan){const previous=plan.basis.head;return v1('manifest',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,
+  function reads(plan){const profile=namespaceLifecycleRecordProfile('prepared',plan);
+    if(!profile.readBindings&&Object.hasOwn(plan,'readBindings'))throw error('A v1 operation cannot add conditional read bindings.','ENGINE_STORAGE_CORRUPT');
+    return profile.readBindings?lifecycleReadBindings(plan.readBindings):[];}
+  function manifest(plan){const previous=plan.basis.head,readBindings=reads(plan),schemaVersion=plan.schemaVersion,
+    profile=namespaceLifecycleRecordProfile('prepared',plan);
+    return {schemaVersion,format:namespaceLifecycleRecordProfile('manifest',{schemaVersion}).format,projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,
     sequence:previous.sequence+1,operationId:plan.operationId,operation:plan.operation,inputsSha256:plan.inputsSha256,
-    configuration:previous.configuration,previous:previous.state,state:plan.state,evidence:plan.evidence});}
+    configuration:previous.configuration,previous:previous.state,state:plan.state,evidence:plan.evidence,
+    ...(profile.readBindings?{readBindings}:{})};}
   function transaction(plan){const k=keys(plan.operationId),previous=plan.basis.head;
     return namespaceTransaction({operationId:k.operation,preconditions:[
       {namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,version:plan.basis.authorityVersion},
       {namespace:'state',key:headKey,version:plan.basis.headVersion},
       {namespace:'config',key:previous.configuration.key,version:plan.basis.configurationVersion},
-      {namespace:'evidence',key:k.manifest,version:null}],changes:[
+      {namespace:'evidence',key:k.manifest,version:null},...reads(plan)],changes:[
       {op:'put',namespace:'state',key:headKey,immutable:false,value:head(plan)},
       {op:'put',namespace:'evidence',key:k.manifest,immutable:true,value:manifest(plan)}],
     events:[{eventId:k.event,eventType:'engine.operation-committed',namespace:'state',
@@ -45,7 +51,7 @@ export function createNamespaceLifecycleCodec({scope,workId,authority,limits,tex
       {namespace:'runtime',key:k.prepared,version:null},
       {namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,version:basis.authorityVersion},
       {namespace:'state',key:headKey,version:basis.headVersion},
-      {namespace:'config',key:basis.head.configuration.key,version:basis.configurationVersion}],
+      {namespace:'config',key:basis.head.configuration.key,version:basis.configurationVersion},...reads(plan)],
     changes:[{op:'put',namespace:'runtime',key:k.prepared,immutable:true,value:plan}],events:[]},limits);
   }
   const requestDigest=tx=>hash(namespaceTransactionIdentity(scope,tx,limits));

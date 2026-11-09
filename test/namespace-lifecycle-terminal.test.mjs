@@ -18,11 +18,11 @@ function body(version=2,status='in_progress',currentPhase='draft'){
 const oldBytes=(f,workflow)=>Buffer.from(JSON.stringify({...JSON.parse(f.encode(workflow)),schemaVersion:1,format:'sflow-namespace-lifecycle-state/v1'})+'\n');
 function close(workflow){const phase=workflow.phases['team-document'];workflow.status='in_progress';workflow.phaseOrder=[phase.id];phase.status='approved';phase.generation=1;advanceCompletedPhase(workflow,phase,'fixture-time');}
 
-test('v2 state is a version-preserving profile while the other lifecycle formats stay v1',()=>{
+test('v2 state and conditional operations preserve versions while the other lifecycle formats stay v1',()=>{
   const entry=NAMESPACE_LIFECYCLE_SCHEMAS.state;
   assert.deepEqual([entry.currentVersion,entry.minimumReadableVersion,entry.maximumReadableVersion],[2,1,2]);
   assert.equal(entry.migrationPolicy,'preserve-versions');assert.equal(Object.isFrozen(entry),true);
-  for(const [kind,profile]of Object.entries(NAMESPACE_LIFECYCLE_SCHEMAS))if(kind!=='state'){
+  for(const [kind,profile]of Object.entries(NAMESPACE_LIFECYCLE_SCHEMAS))if(!['state','prepared','manifest'].includes(kind)){
     assert.deepEqual([profile.currentVersion,profile.minimumReadableVersion,profile.maximumReadableVersion],[1,1,1]);
     assert.equal(profile.migrationPolicy,'frozen-identity');
   }

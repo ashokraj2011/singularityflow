@@ -2,7 +2,7 @@
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { NAMESPACE_LIFECYCLE_SCHEMAS, namespaceLifecycleRecordProfile } from '../foundation/record-schema.mjs';
 import { contentReference } from '../sda/content/contract.mjs';
-import { exactObject, namespaceIdentifier, namespaceKey, namespaceRevision, namespaceScope } from '../sda/namespace/values.mjs';
+import { exactObject, namespaceAddress, namespaceIdentifier, namespaceKey, namespaceRevision, namespaceScope } from '../sda/namespace/values.mjs';
 
 export const LIFECYCLE_AUTHORITY_KEY = 'authority/lifecycle';
 export const LIFECYCLE_STATE_MAXIMUM_BYTES = 16_777_216;
@@ -11,11 +11,25 @@ const count = value => Number.isSafeInteger(value) && value >= 0;
 const text = value => typeof value === 'string' && value.length > 0 && value.length <= 2048 && !/[\u0000-\u001f\u007f]/u.test(value);
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
 const bad = message => { throw new SingularityFlowError(message, { code: 'ENGINE_STORAGE_CORRUPT' }); };
-export function lifecycleRecord(kind, value) {
+export function lifecycleRecord(kind, value, {schemaVersion:version}={}) {
   if (!Object.hasOwn(NAMESPACE_LIFECYCLE_SCHEMAS, kind) || !plain(value)
     || Object.hasOwn(value, 'schemaVersion') || Object.hasOwn(value, 'format')) bad('Lifecycle record metadata must use its registered profile.');
-  const schemaVersion = NAMESPACE_LIFECYCLE_SCHEMAS[kind].currentVersion;
+  // Existing callers keep their frozen v1 operation bytes. A conditional read set selects v2 explicitly.
+  const schemaVersion = version??(['prepared','manifest'].includes(kind)?1:NAMESPACE_LIFECYCLE_SCHEMAS[kind].currentVersion);
   return { schemaVersion, format: namespaceLifecycleRecordProfile(kind, { schemaVersion }).format, ...value };
+}
+/** Extra shared records are observed, never changed, by the conditional lifecycle writer. */
+export function lifecycleReadBindings(value) {
+  if(!Array.isArray(value)||value.length<1||value.length>128)bad('A v2 operation needs bounded, nonempty read bindings.');
+  const seen=new Set();
+  for(const binding of value){
+    exactObject(binding,['namespace','key','version']);namespaceAddress({namespace:binding.namespace,key:binding.key});
+    if(!['state','config','evidence','runtime'].includes(binding.namespace)||namespaceRevision(binding.version)===null)
+      bad('Lifecycle read bindings need existing shared record revisions.');
+    const key=JSON.stringify([binding.namespace,binding.key]);
+    if(seen.has(key))bad('Lifecycle read bindings must be distinct.');seen.add(key);
+  }
+  return value;
 }
 function admit(kind, value, scope) {
   namespaceScope(scope);
@@ -76,9 +90,10 @@ export function lifecycleState(value, scope, head) {
   return value;
 }
 export function lifecyclePrepared(value, scope, workId, operationId) {
-  admit('prepared', value, scope);
+  const profile=admit('prepared', value, scope);
   exactObject(value, ['schemaVersion','format','projectId','workId','authorityId','epoch','operationId','operation','inputsSha256',
-    'basis','state','evidence','requestDigest']);
+    'basis','state','evidence','requestDigest',...(profile.readBindings?['readBindings']:[])]);
+  if(profile.readBindings)lifecycleReadBindings(value.readBindings);
   namespaceIdentifier(operationId, 'Operation ID');
   if (value.workId !== workId || value.operationId !== operationId || !text(value.operation) || !digest(value.inputsSha256)
     || !digest(value.requestDigest) || !Array.isArray(value.evidence) || value.evidence.length > 128) bad('Invalid prepared lifecycle operation.');
@@ -98,9 +113,10 @@ export function lifecyclePrepared(value, scope, workId, operationId) {
   return value;
 }
 export function lifecycleManifest(value, scope, workId, operationId) {
-  admit('manifest', value, scope);
+  const profile=admit('manifest', value, scope);
   exactObject(value, ['schemaVersion','format','projectId','workId','authorityId','epoch','sequence','operationId','operation',
-    'inputsSha256','configuration','previous','state','evidence']);
+    'inputsSha256','configuration','previous','state','evidence',...(profile.readBindings?['readBindings']:[])]);
+  if(profile.readBindings)lifecycleReadBindings(value.readBindings);
   namespaceIdentifier(value.authorityId, 'Authority ID'); namespaceIdentifier(operationId, 'Operation ID');
   if(value.workId!==workId||value.operationId!==operationId||!count(value.epoch)||value.epoch<1||!count(value.sequence)
     ||value.sequence<1||!text(value.operation)||!digest(value.inputsSha256)||!Array.isArray(value.evidence)||value.evidence.length>128)bad('Invalid lifecycle operation manifest.');

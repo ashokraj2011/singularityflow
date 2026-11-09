@@ -1,13 +1,22 @@
 /** Publication byte/identity records. No admission, authority selection or I/O. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {PHASE_PUBLICATION_SCHEMAS,admitRecordSchemaVersion,canonicalJson} from '../foundation/record-schema.mjs';
+import {namespacePublicationRecordProfile,canonicalJson} from '../foundation/record-schema.mjs';
 import {exactObject,namespaceIdentifier,namespaceKey,namespaceRevision} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
 import {storyActorValue} from '../kernel/story-creation.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {buildGenerationAuthorship,normalizeAuthorshipOptions} from '../kernel/phase-policy.mjs';
+import {phaseCheckEvidenceBinding} from './namespace-phase-check-contract.mjs';
 export const NAMESPACE_PUBLICATION_PROFILE='sflow-primary-document-publication/v1';
+export const NAMESPACE_CHECKED_PUBLICATION_PROFILE='sflow-primary-document-publication/v2';
+
+export function namespacePublicationRecord(value,{checks=null}={}) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','checks'].some(key=>Object.hasOwn(value,key)))
+    throw new SingularityFlowError('Publication metadata must come from its registered profile.',{code:'ENGINE_INPUT_INVALID'});
+  const profile=namespacePublicationRecordProfile({schemaVersion:checks===null?1:2});
+  return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,...(profile.checks?{checks:phaseCheckEvidenceBinding(checks)}:{})};
+}
 
 function publicationInput(value) {
   const reference=contentReference(value.reference);
@@ -30,10 +39,10 @@ function publicationInput(value) {
 
 export function namespacePublicationValue(value,{projectId,workId,phaseId}={}) {
   try {
-    admitRecordSchemaVersion(PHASE_PUBLICATION_SCHEMAS.manifest,value);
+    const profile=namespacePublicationRecordProfile(value);
     exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256',
-      'baseRevision','configuration','draft','actor','agentId','publishedAt','authorship','artifact','inputs']);
-    if(value.format!=='sflow-namespace-phase-publication/v1'||value.profile!==NAMESPACE_PUBLICATION_PROFILE||value.projectId!==projectId||value.workId!==workId||value.phase!==phaseId
+      'baseRevision','configuration','draft','actor','agentId','publishedAt','authorship','artifact','inputs',...(profile.checks?['checks']:[])]);
+    if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId||value.workId!==workId||value.phase!==phaseId
       ||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another publication binding.');
     namespaceIdentifier(value.projectId,'Project ID');namespaceIdentifier(value.workId,'Story ID');namespaceIdentifier(value.phase,'Phase ID');
     namespaceIdentifier(value.operationId,'Publication operation');
@@ -52,6 +61,7 @@ export function namespacePublicationValue(value,{projectId,workId,phaseId}={}) {
     if(contentReference(value.artifact.content).namespace!=='evidence'||!['utf8','binary'].includes(value.artifact.encoding)
       ||(value.artifact.encoding==='binary'?value.artifact.fingerprint!==null:!/^sha256:[a-f0-9]{64}$/u.test(value.artifact.fingerprint)))throw Error('Invalid retained artifact.');
     const identities=new Set();
+    if(profile.checks)phaseCheckEvidenceBinding(value.checks);
     for(const input of value.inputs) {
       publicationInput(input);const identity=canonicalJson([input.kind,input.id??input.phase]);
       if(identities.has(identity))throw Error('Duplicate retained publication input.');identities.add(identity);

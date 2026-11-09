@@ -1,6 +1,7 @@
 /** Execution port binding only. No process, provider, repository or storage selection. */
 import {SingularityFlowError} from './failures.mjs';
 export const EXECUTION_UNIT_CONTRACT='sflow-execution-unit/v1';
+export const NODE_CHECK_EXECUTION_PROFILE='sflow-local-check-execution/v1';
 export const EXECUTION_UNIT_METHODS=Object.freeze(['descriptor','doctor','planCapability','start','observe','requestStop','quiesce','collect']);
 /** Trusted host construction; a captured method is not an authorization or verification receipt. */
 export function captureExecutionUnit(unit) {

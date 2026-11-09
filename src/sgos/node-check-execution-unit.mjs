@@ -13,7 +13,8 @@ import {createFilesystemSourceUnit} from './filesystem-source-unit.mjs';
 import {createExecutionUnitManifest,createExecutionUnitAdapter,executionUnitSha256,
   assertPinnedExecutionExecutable,executePinnedProcess,untilExecutionStopped} from './node-execution-unit.mjs';
 
-export const NODE_CHECK_EXECUTION_PROFILE='sflow-local-check-execution/v1';
+import {NODE_CHECK_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
+export {NODE_CHECK_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
 const MAXIMUM_BYTES=EXECUTION_UNIT_LIMITS.maximumOutputBytes;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fingerprint=info=>[info.dev,info.ino,info.mode,info.size,info.mtimeNs,info.ctimeNs].map(String).join(':');

@@ -15,6 +15,7 @@ const fields=Object.freeze({
   plan:['profile','binding','input','parametersSha256','generation','draft','artifact','actor','basis','sources','steps'],
   result:['profile','plan','recordedAt','results','checks','verdict'],
   index:['projectId','workId','authorityId','epoch','manifestKey'],
+  binding:['operationId','result','index'],
   intent:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content'],
   manifest:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content','previousIndexVersion']
 });
@@ -24,6 +25,15 @@ export function phaseCheckRecordValue(kind,value) {
     if(value.format!==formats[kind])throw Error('Another format.');exactObject(value,['schemaVersion','format',...fields[kind]]);
   }catch(cause){throw error('The phase-check record has another version or format.',
     ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}
+  return value;
+}
+export function phaseCheckEvidenceBinding(value) {
+  phaseCheckRecordValue('binding',value);namespaceIdentifier(value.operationId,'Check operation ID');
+  exactObject(value.result,['key','version','content']);exactObject(value.index,['key','version']);
+  if(!/^phase-checks\/results\/[a-f0-9]{64}$/u.test(value.result.key??'')
+    ||!/^phase-checks\/drafts\/[a-f0-9]{64}$/u.test(value.index.key??'')
+    ||namespaceRevision(value.result.version)===null||namespaceRevision(value.index.version)===null
+    ||contentReference(value.result.content,33_554_432).namespace!=='evidence')throw error('Invalid accepted check evidence binding.');
   return value;
 }
 export function createNamespacePhaseCheckCodec({scope,workId,authority,limits,textDigests}={}) {

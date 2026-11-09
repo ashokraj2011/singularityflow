@@ -17,7 +17,7 @@ const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namesp
 function allowedSource(relative) {
   return relative.startsWith('packages/engine-sdk/src/') || /^src\/(foundation|kernel|engine-sdk|engine-storage|sda\/(namespace|content))\//u.test(relative)
     || ['src/records.mjs', 'src/document-identity.mjs', 'src/authoring-skills.mjs', 'src/sgos/filesystem-source-unit.mjs',
-      'src/sgos/node-execution-unit.mjs','src/platform-process-values.mjs',
+      'src/sgos/node-execution-unit.mjs','src/sgos/node-execution-values.mjs','src/platform-process-values.mjs',
       'src/sgos/operational-contract.mjs','src/sgos/namespace-operational-store.mjs',
       'src/sgos/durable-execution-unit.mjs','src/sgos/node-execution-owner.mjs',
       'src/sgos/node-check-execution-unit.mjs',

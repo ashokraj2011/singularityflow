@@ -19,6 +19,7 @@ const sameRef = (a,b) => a.namespace === b.namespace && a.sha256 === b.sha256 &&
 const writes = new Set(ENGINE_OPERATIONS.filter(op => (!op.subject || op.subject === 'story') && op.effect !== 'read'
   && op.effect !== 'story-creation'
   && op.effect !== 'local-draft'
+  && op.effect !== 'phase-check-execution'
   && (op.stages.includes('commit') || op.stages.includes('apply'))).map(op => op.id));
 function cancelled(signal) { if (signal?.aborted) throw error('The lifecycle operation was cancelled before its next effect.', 'ENGINE_OPERATION_CANCELLED'); }
 
@@ -54,7 +55,7 @@ export function createNamespaceLifecycleCommitter({ records, content, scope, wor
   async function prepare(snapshot, proposal, { signal } = {}) {
     cancelled(signal); const basis = captures.get(snapshot);
     if (!basis) throw error('Prepare requires a snapshot captured by this lifecycle host.', 'ENGINE_INPUT_INVALID');
-    exactObject(proposal, ['operationId','operation','inputsSha256','state','evidence']);
+    exactObject(proposal, ['operationId','operation','inputsSha256','state','evidence'],['readBindings']);
     namespaceIdentifier(proposal.operationId, 'Operation ID');
     if (!writes.has(proposal.operation) || typeof proposal.inputsSha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(proposal.inputsSha256)
       || !(proposal.state instanceof Uint8Array)) throw error('Prepare requires a registered mutation, input digest and complete state bytes.', 'ENGINE_INPUT_INVALID');
@@ -63,7 +64,9 @@ export function createNamespaceLifecycleCommitter({ records, content, scope, wor
     const evidence = namespaceJson(proposal.evidence, { maxBytes: limits.maxValueBytes });
     const plan = lifecycleRecord('prepared', { projectId: scope.projectId, workId, authorityId: authority.id, epoch: authority.epoch,
       operationId: proposal.operationId, operation: proposal.operation, inputsSha256: proposal.inputsSha256, basis,
-      state: { namespace: 'state', sha256: hash(data), bytes: data.byteLength }, evidence, requestDigest: '0'.repeat(64) });
+      state: { namespace: 'state', sha256: hash(data), bytes: data.byteLength }, evidence, requestDigest: '0'.repeat(64),
+      ...(Object.hasOwn(proposal,'readBindings')?{readBindings:namespaceJson(proposal.readBindings,{maxBytes:limits.maxValueBytes})}:{}) },
+      {schemaVersion:Object.hasOwn(proposal,'readBindings')?2:1});
     plan.requestDigest = requestDigest(transaction(plan)); admitPlan(plan, plan.operationId);
     const value = namespaceJson(plan, { maxBytes: limits.maxValueBytes });
     const existing = await checkpoint(value.operationId, signal);

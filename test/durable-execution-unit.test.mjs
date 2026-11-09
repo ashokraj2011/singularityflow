@@ -138,6 +138,29 @@ test('changed candidate bindings are refused rather than converted to an executo
   const handle=await runtime.start(f.contract);await assert.rejects(runtime.collect(handle),{code:'SGOS_EXECUTION_RECORD_INVALID'});
   assert.equal((await f.store.read()).entries[key(f.contract)].status,'running');
 });
+test('a final event suffix is reconciled after genuine quiescence without launching again',async t=>{
+  const f=await fixture(t);let observations=0;
+  const unit={...f.unit,async *observe(handle,cursor=0){observations++;
+    for await(const event of f.raw.observe(handle,cursor)){yield event;if(cursor===0)break;}}};
+  const runtime=f.make({unit}),handle=await runtime.start(f.contract),candidate=await runtime.collect(handle);
+  assert.equal(f.control.starts,1);assert.equal(candidate.kind,'candidate-result');assert.ok(observations>=2);
+  const retained=(await f.store.read()).entries[key(f.contract)];assert.equal(retained.status,'complete');assert.equal(retained.events.length,2);
+  assert.equal(retained.quiescence.eventHeadSha256,candidate.eventHeadSha256);
+});
+test('a concurrent stop retains its final events before the actual executor failure is acknowledged',async t=>{
+  const f=await fixture(t,{script:'setInterval(()=>{},1000);'});let announce;
+  const firstEvent=new Promise(resolve=>{announce=resolve;});
+  const unit={...f.unit,async *observe(handle,cursor=0){for await(const event of f.raw.observe(handle,cursor)){
+    yield event;if(cursor===0){announce();break;}}}};
+  const runtime=f.make({unit}),handle=await runtime.start(f.contract),collected=runtime.collect(handle);collected.catch(()=>{});
+  await firstEvent;await runtime.requestStop(handle,{reason:'Stop this exact owned check.'});
+  let original;try{await f.raw.collect(handle);}catch(cause){original=cause;}
+  assert.ok(original,'the actual stopped executor must retain a failure');
+  await assert.rejects(collected,cause=>cause===original,'preserve the executor failure before or after physical launch');
+  const receipt=await runtime.quiesce(handle),events=[];for await(const event of runtime.observe(handle))events.push(event);
+  assert.deepEqual(events.map(event=>event.type),['started','stop-requested','failed']);
+  assert.equal(receipt.eventHeadSha256,events.at(-1).eventSha256);assert.equal(f.control.starts,1);
+});
 test('a collection transport failure after a completed stream is not a proven terminal executor failure',async t=>{
   const f=await fixture(t),original=Object.assign(new Error('Transport unavailable.'),{code:'EACCES'}),runtime=f.make({unit:{...f.unit,collect(){throw original;}}});
   const handle=await runtime.start(f.contract);await assert.rejects(runtime.collect(handle),error=>error.code==='SGOS_EXECUTION_RECOVERY_REQUIRED'&&error.cause===original);

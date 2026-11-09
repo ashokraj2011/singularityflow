@@ -7,8 +7,8 @@ import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs
 import {createNamespaceApprovalReader,namespaceRoutingQuestionKey} from './namespace-approval-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=message=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT'});
-export function createNamespaceRoutingChoiceReader({observer,scope,workId,packets=null}) {
-  packets??=createNamespaceSubmissionReader({observer,scope,workId});
+export function createNamespaceRoutingChoiceReader({observer,scope,workId,packets=null,checks=null}) {
+  packets??=createNamespaceSubmissionReader({observer,scope,workId,checks});
   const votes=createNamespaceApprovalReader({observer,scope,workId});
   async function read(snapshot,{signal}={}) {
     let selected;

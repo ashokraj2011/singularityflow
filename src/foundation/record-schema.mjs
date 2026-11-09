@@ -156,7 +156,10 @@ export const NAMESPACE_LIFECYCLE_SCHEMAS = Object.freeze({
   // Immutable bodies keep their stored version and identity; readers dispatch without migration.
   state: Object.freeze({ id: 'namespace-lifecycle-state', currentVersion: 2, minimumReadableVersion: 1,
     maximumReadableVersion: 2, unversionedAs: null, immutable: true, migrationPolicy: 'preserve-versions' }),
-  prepared: frozenFamily('namespace-lifecycle-prepared'), manifest: frozenFamily('namespace-lifecycle-manifest')
+  prepared: Object.freeze({id:'namespace-lifecycle-prepared',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  manifest: Object.freeze({id:'namespace-lifecycle-manifest',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})
 });
 export const NAMESPACE_ENROLLMENT_SCHEMAS = Object.freeze({
   intent: frozenFamily('namespace-enrollment-intent'), manifest: frozenFamily('namespace-enrollment-manifest')
@@ -184,24 +187,32 @@ export const NAMESPACE_PHASE_CHECK_SCHEMAS = /* @__PURE__ */ Object.freeze({
   intent: /* @__PURE__ */ frozenFamily('namespace-phase-check-intent'),
   result: /* @__PURE__ */ frozenFamily('namespace-phase-check-result'),
   manifest: /* @__PURE__ */ frozenFamily('namespace-phase-check-manifest'),
-  index: /* @__PURE__ */ frozenFamily('namespace-phase-check-index')
+  index: /* @__PURE__ */ frozenFamily('namespace-phase-check-index'),
+  binding: /* @__PURE__ */ frozenFamily('namespace-phase-check-binding')
 });
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
-  binding: frozenFamily('phase-publication-binding'), manifest: frozenFamily('namespace-phase-publication')
+  binding: frozenFamily('phase-publication-binding'),
+  manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})
 });
+export function namespacePublicationRecordProfile(input) {
+  const {storedVersion}=admitRecordSchemaVersion(PHASE_PUBLICATION_SCHEMAS.manifest,input);
+  return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-publication/v${storedVersion}`,
+    profile:`sflow-primary-document-publication/v${storedVersion}`,checks:storedVersion>1});
+}
 export const NAMESPACE_SUBMISSION_SCHEMAS = Object.freeze({
   binding: frozenFamily('namespace-phase-submission-binding'),
-  packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+  packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   routing:frozenFamily('namespace-submission-routing'),input:frozenFamily('phase-decision-input-record')
 });
 export function namespaceSubmissionRecordProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_SUBMISSION_SCHEMAS.packet,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-review-packet/v${storedVersion}`,
-    profile:`sflow-primary-document-submission/v${storedVersion}`,routing:storedVersion>1});
+    profile:`sflow-primary-document-submission/v${storedVersion}`,routing:storedVersion>1,...(storedVersion>2?{checks:true}:{})});
 }
-export function namespaceSubmissionWriterProfile({routing=false}={}) {
-  return namespaceSubmissionRecordProfile({schemaVersion:routing?NAMESPACE_SUBMISSION_SCHEMAS.packet.currentVersion:1});
+export function namespaceSubmissionWriterProfile({routing=false,checks=false}={}) {
+  return namespaceSubmissionRecordProfile({schemaVersion:checks?3:routing?2:1});
 }
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
   vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
@@ -251,6 +262,7 @@ export function namespaceLifecycleRecordProfile(kind, input) {
   }
   const { storedVersion } = admitRecordSchemaVersion(NAMESPACE_LIFECYCLE_SCHEMAS[kind], input);
   return Object.freeze({ format: `sflow-namespace-lifecycle-${kind}/v${storedVersion}`,
+    ...((kind==='prepared'||kind==='manifest')&&storedVersion>1?{readBindings:true}:{}),
     state: kind === 'state' ? LIFECYCLE_STATE_PROFILES[storedVersion] : null });
 }
 // Historical view records retain their original schema and compatibility export indefinitely.

@@ -26,7 +26,7 @@ test('captured v1 submission packets retain exact bytes, schema and their origin
     assert.throws(()=>namespaceSubmissionValue({...value,routing:null},binding),{code:'ENGINE_STORAGE_CORRUPT'});
     assert.throws(()=>namespaceSubmissionValue({...value,schemaVersion:2,format:'sflow-namespace-phase-review-packet/v2',profile:NAMESPACE_SUBMISSION_DECISION_PROFILE},binding),
       {code:'ENGINE_STORAGE_CORRUPT'});
-    assert.throws(()=>namespaceSubmissionValue({...value,schemaVersion:3},binding),error=>error.code==='ENGINE_STORAGE_UNSUPPORTED'&&error.cause.code==='SCHEMA_VERSION_FUTURE');
+    assert.throws(()=>namespaceSubmissionValue({...value,schemaVersion:4},binding),error=>error.code==='ENGINE_STORAGE_UNSUPPORTED'&&error.cause.code==='SCHEMA_VERSION_FUTURE');
   }
   assert.equal(namespaceSubmissionRecordProfile({schemaVersion:1}).routing,false);
   assert.equal(namespaceSubmissionRecordProfile({schemaVersion:2}).routing,true);

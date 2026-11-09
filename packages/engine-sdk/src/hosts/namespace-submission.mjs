@@ -1,1 +1,1 @@
-export {createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE} from '../../../../src/engine-storage/namespace-submission.mjs';
+export {createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE,NAMESPACE_CHECKED_SUBMISSION_PROFILE} from '../../../../src/engine-storage/namespace-submission.mjs';

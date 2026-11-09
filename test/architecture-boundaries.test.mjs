@@ -57,7 +57,7 @@ test('public SDK core, errors, namespace and journal entries remain pure and do 
 
 test('standalone execution units have no installed provider, repository configuration, Git or lifecycle owner',async()=>{
   const owner='src/sgos/node-execution-unit.mjs',allowed=new Set(['node:fs/promises','node:child_process','node:crypto','node:path',
-    '../foundation/record-schema.mjs','../foundation/failures.mjs','../platform-process-values.mjs']);
+    '../foundation/record-schema.mjs','../foundation/failures.mjs','../platform-process-values.mjs','./node-execution-values.mjs']);
   const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
   const visit=node=>{
     if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
@@ -75,12 +75,35 @@ test('standalone execution units have no installed provider, repository configur
   }
 });
 
+test('execution value validation and retained check-proof reading cannot import process or file owners',async()=>{
+  const entries=new Map([
+    ['src/sgos/node-execution-values.mjs',new Set(['node:crypto','node:path','../foundation/record-schema.mjs','../foundation/failures.mjs'])],
+    ['src/engine-storage/namespace-phase-check-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs',
+      '../foundation/execution-unit-port.mjs','../foundation/source-snapshot.mjs','../records.mjs','../kernel/phase-checks.mjs',
+      '../kernel/project-enrollment.mjs','../engine-compatibility/node-configuration-path.mjs','../verification/test-report-reader.mjs',
+      '../sgos/node-execution-values.mjs','../sda/namespace/values.mjs','../sda/namespace/contract.mjs','../sda/content/contract.mjs',
+      './namespace-story-reader.mjs','./namespace-lifecycle-codec.mjs','./namespace-phase-check-contract.mjs'])]
+  ]);
+  for(const [file,allowed]of entries){
+    const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{
+      if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),file+': '+node.moduleSpecifier.text);
+      const dataName=node.parent&&(ts.isPropertyAccessExpression(node.parent)&&node.parent.name===node
+        ||ts.isPropertyAssignment(node.parent)&&node.parent.name===node);
+      if(ts.isIdentifier(node)&&!dataName&&['process','eval','Function','require'].includes(node.text))assert.fail(file+' must use explicit read capabilities');
+      if(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword)assert.fail(file+' cannot load an execution owner');
+      if(ts.isPropertyAccessExpression(node)&&['put','transact','start','requestStop','writeFile','unlink'].includes(node.name.text))assert.fail(file+' cannot execute or mutate');
+      ts.forEachChild(node,visit);
+    };visit(ast);
+  }
+});
+
 test('local check execution binds only explicit SGOS, report and content owners',async()=>{
   const file='src/sgos/node-check-execution-unit.mjs',text=await readFile(path.join(packageRoot,file),'utf8');
   const ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true),allowed=new Set(['node:fs','node:fs/promises','node:crypto','node:path',
     '../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs',
     '../sda/namespace/values.mjs','../sda/content/contract.mjs','../verification/test-report-reader.mjs',
-    './filesystem-source-unit.mjs','./node-execution-unit.mjs']);
+    './filesystem-source-unit.mjs','./node-execution-unit.mjs','../foundation/execution-unit-port.mjs']);
   for(const statement of ast.statements)if(ts.isImportDeclaration(statement))assert.ok(allowed.has(statement.moduleSpecifier.text),statement.moduleSpecifier.text);
   assert.doesNotMatch(text,/\bspawn\b|\bspawnSync\b|loadDefinition|invokeModel|repoRoot|transactStory|process\.env/u);
   assert.match(text,/sandbox:\{kind:'host-local',enforcement:'none'\}/u);assert.match(text,/network:\{mode:'host-unrestricted'\}/u);
@@ -92,7 +115,7 @@ test('only explicit storage adapters consume namespace contracts outside their p
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-contract.mjs',
+  const namespaceAdapters = new Set(['src/engine-storage/namespace-phase-check-reader.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-contract.mjs',
     'src/sgos/node-check-execution-unit.mjs','src/sgos/durable-execution-unit.mjs','src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
     'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
     'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs',
@@ -297,7 +320,7 @@ test('configuration path rules depend on a string-syntax contract and native bin
 test('the namespace read host only composes explicit ports and has no repository, filesystem, provider or command owner', async () => {
   const allowed = new Set(['node:path', 'node:crypto', '../engine-sdk/index.mjs', '../foundation/failures.mjs',
     '../records.mjs', '../document-identity.mjs', '../kernel/phase-policy.mjs', '../sda/namespace/contract.mjs',
-    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-submission-reader.mjs',
+    '../sda/namespace/values.mjs', '../sda/content/contract.mjs', './namespace-read-contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-submission-reader.mjs','./namespace-phase-check-reader.mjs',
     './namespace-routing-choice-reader.mjs','./namespace-story-codec.mjs','./namespace-story-reader.mjs']);
   const file = 'src/engine-storage/namespace-reader.mjs', text = await readFile(path.join(packageRoot, file), 'utf8');
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
@@ -472,7 +495,7 @@ test('namespace policy proof is read-only, versioned, and independent of Story c
   const rule='src/kernel/story-policy.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[rule],allowed:[rule,...await sourceFiles('src/foundation')]});
   assert.deepEqual(pure.problems,[]);
   const owners=new Set([reader,'src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs',
-    'src/engine-storage/namespace-preparation.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-phase-checks.mjs',
+    'src/engine-storage/namespace-preparation.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-reader.mjs',
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-routing-choice.mjs']);
   for(const file of await sourceFiles('src')) {
     if(owners.has(file))continue;
@@ -528,7 +551,7 @@ test('private preparation composes explicit storage and source ports without an 
       '../foundation/source-snapshot.mjs','../kernel/artifact-content.mjs','../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs',
       '../kernel/phase-policy.mjs','../kernel/phase-inputs.mjs','../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs',
       '../kernel/story-creation.mjs','../sda/namespace/values.mjs','../sda/namespace/contract.mjs','../sda/content/contract.mjs',
-      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-submission-reader.mjs','./namespace-reader.mjs'])],
+      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-submission-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs'])],
     [draft,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../sda/namespace/contract.mjs',
       '../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/namespace/journal-contract.mjs',
       '../sda/content/contract.mjs','./namespace-draft-contract.mjs'])]
@@ -560,9 +583,9 @@ test('private preparation composes explicit storage and source ports without an 
 test('namespace publication composes verified private drafts and the conditional writer through explicit ports only',async()=>{
   const owner='src/engine-storage/namespace-publication.mjs',contract='src/engine-storage/namespace-publication-contract.mjs';
   const allowed=new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
-    '../kernel/artifact-content.mjs','../kernel/publication-intent.mjs','../kernel/phase-policy.mjs','../kernel/lifecycle-transitions.mjs',
+    '../foundation/source-snapshot.mjs','../kernel/artifact-content.mjs','../kernel/publication-intent.mjs','../kernel/phase-policy.mjs','../kernel/lifecycle-transitions.mjs',
     '../kernel/project-enrollment.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-preparation.mjs',
-    './namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-lifecycle-reader.mjs','./namespace-story-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-publication-contract.mjs','./namespace-publication-reader.mjs','./namespace-reader.mjs']);
+    './namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-lifecycle-reader.mjs','./namespace-story-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-publication-contract.mjs','./namespace-publication-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs']);
   const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
   const visit=node=>{
     if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
@@ -570,7 +593,7 @@ test('namespace publication composes verified private drafts and the conditional
     assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
     ts.forEachChild(node,visit);
   };visit(ast);
-  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,...await sourceFiles('src/foundation'),
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-phase-check-contract.mjs','src/engine-storage/namespace-lifecycle-codec.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
     ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
   assert.deepEqual(pure.problems,[]);
   for(const file of await sourceFiles('src')) {
@@ -595,7 +618,7 @@ test('shared submission never selects a private working store, Git host or insta
       '../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs','../kernel/phase-policy.mjs','../kernel/publication-intent.mjs',
       '../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs','../kernel/submission-routing.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs',
       './namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-publication-reader.mjs',
-      './namespace-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-submission-contract.mjs','./namespace-submission-reader.mjs'])],
+      './namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-submission-contract.mjs','./namespace-submission-reader.mjs'])],
     [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/artifact-content.mjs','./namespace-publication-contract.mjs','./namespace-lifecycle-receipt-reader.mjs'])],
     [submissionReader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/submission-routing.mjs','./namespace-submission-contract.mjs',
       './namespace-publication-reader.mjs','./namespace-approval-reader.mjs','./namespace-lifecycle-receipt-reader.mjs'])]
@@ -610,7 +633,7 @@ test('shared submission never selects a private working store, Git host or insta
       ts.forEachChild(node,visit);
     };visit(ast);
   }
-  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,...await sourceFiles('src/foundation'),
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-phase-check-contract.mjs','src/engine-storage/namespace-lifecycle-codec.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
     ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
   assert.deepEqual(pure.problems,[]);
   for(const file of await sourceFiles('src')) {
@@ -633,7 +656,7 @@ test('namespace human approval has explicit ports, a pure vote contract and no i
       '../kernel/phase-preparation.mjs','../kernel/approval-policy.mjs','../kernel/phase-admission.mjs','../kernel/phase-policy.mjs',
       '../kernel/publication-intent.mjs','../kernel/lifecycle-transitions.mjs','../kernel/workflow-decisions.mjs','../kernel/routed-approval.mjs','../kernel/project-enrollment.mjs',
       '../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs',
-      './namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-submission-reader.mjs','./namespace-approval-reader.mjs','./namespace-reader.mjs',
+      './namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-submission-reader.mjs','./namespace-approval-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs',
       './namespace-lifecycle-contract.mjs','./namespace-approval-contract.mjs'])],
     [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs',
       '../kernel/workflow-decisions.mjs','../kernel/routed-approval.mjs','./namespace-approval-contract.mjs','./namespace-lifecycle-receipt-reader.mjs'])]
@@ -670,7 +693,7 @@ test('namespace route choices use explicit human ports and shared read-only ques
       '../kernel/phase-preparation.mjs','../kernel/approval-policy.mjs','../kernel/routed-approval.mjs',
       '../kernel/project-enrollment.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs',
       './namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs',
-      './namespace-routing-choice-reader.mjs','./namespace-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-routing-choice-contract.mjs'])],
+      './namespace-routing-choice-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-routing-choice-contract.mjs'])],
     [reader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/decision-plan.mjs',
       '../kernel/routed-approval.mjs','./namespace-submission-reader.mjs','./namespace-approval-reader.mjs'])]
   ]);

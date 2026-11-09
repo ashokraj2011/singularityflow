@@ -14,6 +14,7 @@ import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCommitter} from './namespace-lifecycle-commit.mjs';
 import {commitNamespaceOperation,prepareNamespaceOperation} from './namespace-commit-coordination.mjs';
 import {createNamespaceRoutingChoiceReader} from './namespace-routing-choice-reader.mjs';
+import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceRoutingChoiceValue,namespaceRoutingChoiceRecord,namespaceRoutingChoiceReceipt,namespaceRoutingChoiceReceipts,
@@ -28,7 +29,8 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
-  const questions=createNamespaceRoutingChoiceReader({observer,scope,workId});
+  const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
+  const questions=createNamespaceRoutingChoiceReader({observer,scope,workId,checks});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function')throw error('A human choice needs explicit access and clock ports.','ENGINE_INPUT_INVALID');
   const current=access.current.bind(access),now=clock.now.bind(clock),put=content.put.bind(content),contexts=new WeakMap();
   function selected(context){const state=contexts.get(context);if(!state)throw error('Use the issued routing context.','ENGINE_INPUT_INVALID');return state;}

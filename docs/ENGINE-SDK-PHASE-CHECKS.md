@@ -102,9 +102,9 @@ Help 135, support 111 and prewarm 23. No ceiling was raised.
 Source validation passed 3,895 checks across 191 skills. VS Code typechecking and the unchanged
 2,011-site process/Git ownership audit passed.
 
-Publication and submission still require explicit versioned bindings to these accepted results.
-The primary-document host continues refusing `check-execution` until that integration is present.
-No caller flag disables the requirement. Complete application Story execution, remaining policy
+The subsequent [checked delivery](ENGINE-SDK-CHECKED-DELIVERY.md) connects these accepted results
+to versioned publication and submission records, protected by a conditional read set. No caller
+flag disables the requirement. Complete application Story execution, remaining policy
 owners, existing-project migration/writer cutover and final distribution/performance qualification
 retain their Phase 5, 7, 8 and 9 gates.
 

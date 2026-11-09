@@ -5,8 +5,10 @@ import {exactObject,namespaceIdentifier,namespaceRevision,namespaceKey,namespace
 import {contentReference} from '../sda/content/contract.mjs';
 import {storyActorValue} from '../kernel/story-creation.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
+import {phaseCheckEvidenceBinding} from './namespace-phase-check-contract.mjs';
 export const NAMESPACE_SUBMISSION_PROFILE='sflow-primary-document-submission/v1';
 export const NAMESPACE_SUBMISSION_DECISION_PROFILE='sflow-primary-document-submission/v2';
+export const NAMESPACE_CHECKED_SUBMISSION_PROFILE='sflow-primary-document-submission/v3';
 const digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
 function checked(validate) {
   try{return validate();}catch(cause){throw new SingularityFlowError('The namespace submission record is invalid.',{cause,
@@ -22,7 +24,7 @@ export function namespaceSubmissionBindingValue(value) {return checked(()=>{
 export function namespaceSubmissionValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
   const profile=namespaceSubmissionRecordProfile(value);
   exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256','baseRevision',
-    'configuration','publication','actor','agentId','submittedAt',...(profile.routing?['routing']:[])]);
+    'configuration','publication','actor','agentId','submittedAt',...(profile.routing?['routing']:[]),...(profile.checks?['checks']:[])]);
   if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId
     ||value.workId!==workId||value.phase!==phaseId||!digest(value.requestSha256)||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another submission binding.');
   for(const key of ['projectId','workId','phase','operationId'])namespaceIdentifier(value[key]);
@@ -35,7 +37,8 @@ export function namespaceSubmissionValue(value,{projectId,workId,phaseId}={}) {r
   if(canonicalJson(storyActorValue(value.actor))!==canonicalJson(value.actor))throw Error('Another actor representation.');
   if(value.agentId!==null)namespaceIdentifier(value.agentId);
   projectEnrollmentTimestamp(value.submittedAt);
-  if(profile.routing)namespaceSubmissionRoutingValue(value.routing);
+  if(profile.routing&&(!profile.checks||value.routing!==null))namespaceSubmissionRoutingValue(value.routing);
+  if(profile.checks)phaseCheckEvidenceBinding(value.checks);
   return value;
 });}
 
@@ -67,10 +70,11 @@ export function namespaceSubmissionRoutingValue(value) {return checked(()=>{
 });}
 
 /** Explicit writer profiles keep decision-free v1 bytes unchanged. They do not migrate old packets. */
-export function namespaceSubmissionRecord(value,{routing=null}={}) {
-  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','routing'].some(key=>Object.hasOwn(value,key))) {
+export function namespaceSubmissionRecord(value,{routing=null,checks=null}={}) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','routing','checks'].some(key=>Object.hasOwn(value,key))) {
     throw new SingularityFlowError('Submission wire metadata must come from its registered profile.',{code:'ENGINE_INPUT_INVALID'});
   }
-  const profile=namespaceSubmissionWriterProfile({routing:routing!==null});
-  return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,...(profile.routing?{routing}:{})};
+  const profile=namespaceSubmissionWriterProfile({routing:routing!==null,checks:checks!==null});
+  return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,...(profile.routing?{routing}:{}),
+    ...(profile.checks?{checks:phaseCheckEvidenceBinding(checks)}:{})};
 }

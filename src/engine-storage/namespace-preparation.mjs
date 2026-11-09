@@ -18,6 +18,7 @@ import { NAMESPACE_STORE_METHODS } from '../sda/namespace/contract.mjs';
 import { createNamespaceDraftStore } from './namespace-draft-store.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
+import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -36,7 +37,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   sources=[],modelEnabled=true}={}) {
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
-  const packets=createNamespaceSubmissionReader({observer,scope,workId});
+  const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
+  const packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function'||typeof modelEnabled!=='boolean'||!Array.isArray(sources)||sources.length>32) {
     throw error('Preparation needs explicit access, clock, source and model-mode ports.','ENGINE_INPUT_INVALID');
   }

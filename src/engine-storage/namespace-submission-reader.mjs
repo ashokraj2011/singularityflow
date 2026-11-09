@@ -9,8 +9,8 @@ import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mj
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
 
-export function createNamespaceSubmissionReader({observer,scope,workId}) {
-  const bytes=observer.bytes.bind(observer),publications=createNamespacePublicationReader({observer,scope,workId}),
+export function createNamespaceSubmissionReader({observer,scope,workId,checks=null}) {
+  const bytes=observer.bytes.bind(observer),publications=createNamespacePublicationReader({observer,scope,workId,checks}),
     votes=createNamespaceApprovalReader({observer,scope,workId});
   async function decode(binding,phaseId,{signal}={}) {
     namespaceSubmissionBindingValue(binding);let value;
@@ -21,6 +21,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
   async function publication(value,options={}) {
     const published=await publications.accepted(value.publication,value.phase,options);
     if(!same(published.configuration,value.configuration))throw error('The review packet has another configuration pin.','ENGINE_STORAGE_CORRUPT');
+    if(!same(published.checks??null,value.checks??null))throw error('The review packet differs from its published check evidence.','ENGINE_STORAGE_CORRUPT');
     return published;
   }
   async function inspectOne(snapshot,phaseId,signal,cache) {
@@ -43,6 +44,9 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
     if(submitted?.generation!==value.generation||submitted.status!=='awaiting_approval'||!same(submitted.namespaceSubmission,binding)
       ||submitted.submittedAt!==value.submittedAt)throw error('The accepted submission lost its exact review binding.','ENGINE_STORAGE_CORRUPT');
     const published=await publication(value,{signal,snapshot,cache:cache.receipts});
+    if(value.checks&&(!checks.readBindings(value.checks).every(row=>accepted.plan.readBindings?.some(item=>same(item,row)))
+      ||!accepted.plan.evidence.some(ref=>same(ref,value.checks.result.content))))throw error(
+      'The submission did not conditionally retain its checked publication.','ENGINE_STORAGE_CORRUPT');
     if(!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
       throw error('The submitted artifact metadata differs from its publication.','ENGINE_STORAGE_CORRUPT');
     }
@@ -51,7 +55,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId}) {
       sourceRevision:value.baseRevision,observedRevision:snapshot.revision}};
   }
   async function routingProof(snapshot,phaseId,value,signal,cache) {
-    if(Object.hasOwn(value,'routing')) {
+    if(value.routing!==undefined&&value.routing!==null) {
       try{assertSubmittedRoutingSelection(snapshot.workflow,snapshot.workflow.phases[phaseId],value.routing);}
       catch(cause){throw error('The retained routing values differ from their pinned decision inputs.','ENGINE_STORAGE_CORRUPT',cause);}
       for(const source of value.routing.reused) {

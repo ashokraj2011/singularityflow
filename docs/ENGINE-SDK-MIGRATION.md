@@ -216,14 +216,30 @@ draft, configuration, source and lifecycle receipts. The result reader replays r
 reports and verifies conditional acceptance. Interrupted acknowledgement or temporary permission/
 storage failure can resume the original run; another host can acknowledge accepted evidence
 without private drafts or an executor. These operations preserve canonical Story state and record
-no human approval. Publication/submission bindings and complete application execution remain
-required, alongside the remaining Phase 5, 7, 8 and 9 gates.
+no human approval. Its subsequent publication/submission integration is described below; complete
+application execution and the remaining Phase 5, 7, 8 and 9 gates remain required.
 
 The slice passed 145 focused Mac checks across nine files, 65 native integration checks across
 six files and all 24 installed-archive checks, with no failures, cancellations or skips. The SDK
 now has 52 operations and builds from 149 source modules. All 13 existing bundle ceilings remain
 unchanged. Source validation passed 3,895 checks across 191 skills; typechecking and the unchanged
 2,011-site process/Git audit passed. Installed Git authority was not changed.
+
+The [checked delivery integration](ENGINE-SDK-CHECKED-DELIVERY.md) now binds real retained phase
+checks to publication and submission. Versioned conditional lifecycle intents/manifests protect
+the selected result and draft index; checked publication and review records preserve the exact
+evidence through independent human approval and shared-only takeover. Old v1 operation/publication
+and v1/v2 submission bytes remain unchanged. Data-only SGOS value validation and the narrow proof
+reader keep process/file implementations out of shared review. Final event reconciliation after
+positive quiescence preserves concurrent stop outcomes without certifying unknown effects.
+Full application policy/execution, remaining Phase 5 extraction, migration/cutover and final
+distribution/performance qualification still retain their Phase 5, 7, 8 and 9 gates.
+
+This integration passed a final 195-case core Mac run and all 24 installed-archive checks with no
+failures, cancellations or skips. Source validation passed 3,900 checks across 191 skills;
+typechecking, the unchanged 2,011-site process/Git audit and all 13 existing bundle budgets passed.
+The SDK retains 52 operations and builds from 151 modules. Installed Git behavior and authority
+are unchanged; no real Story, Windows/CI/provider run, product install, push or merge was involved.
 
 The [artifact-template extraction](ENGINE-SDK-ARTIFACT-TEMPLATES.md) gives native configuration
 and the explicit SDK one content-rule owner, with captured native rendering for all shipped

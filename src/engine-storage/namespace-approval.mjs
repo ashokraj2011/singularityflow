@@ -19,6 +19,7 @@ import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCommitter} from './namespace-lifecycle-commit.mjs';
 import {commitNamespaceOperation,prepareNamespaceOperation} from './namespace-commit-coordination.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
+import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceApprovalReader,namespaceRoutingQuestionKey} from './namespace-approval-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
@@ -34,7 +35,8 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
-  const packets=createNamespaceSubmissionReader({observer,scope,workId}),votes=createNamespaceApprovalReader({observer,scope,workId});
+  const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
+  const packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),votes=createNamespaceApprovalReader({observer,scope,workId});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function')throw error('Approval needs explicit authenticated access and clock ports.','ENGINE_INPUT_INVALID');
   const current=access.current.bind(access),now=clock.now.bind(clock),put=content.put.bind(content),contexts=new WeakMap(),preparations=new WeakMap();
   function selected(context){const value=contexts.get(context);if(!value)throw error('Use the issued approval context.','ENGINE_INPUT_INVALID');return value;}
@@ -200,6 +202,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
           workflow,phase,{agent:s.reviewer.agentId},'approve');
         if(!mutation.allowed)throw error('The selected agent cannot approve this phase.',mutation.code,mutation);
         const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition:approved.compiled.definition}));
+        if(s.proof.published.checks)required.delete('check-execution'); // The submission reader verified actual immutable execution proof.
         if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
         if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
         if(workflow.resolution.presence)required.add('person-presence');

@@ -243,6 +243,13 @@ export function createDurableExecutionUnit({unit,store,content,scope,owner,clock
       for await(const event of execution.observe(handle,0)){await owned(session);await retainEvent(key,handle,event);}
       await owned(session);
       const quiescence=await execution.quiesce(handle);
+      // An observer can finish its current batch before a concurrent stop has settled. Positive
+      // quiescence is the boundary after which the final event suffix must also be retained.
+      // A negative receipt remains a real protocol failure, never a reason to certify termination.
+      if(quiescence?.quiescent===true){
+        const cursor=(await read(key)).value.events.length;
+        for await(const event of execution.observe(handle,cursor)){await owned(session);await retainEvent(key,handle,event);}
+      }
       const observed=(await read(key)).value,retained=await events(observed,handle),eventHead=retained.at(-1)?.eventSha256??null;
       const quiet=quietValue(quiescence,handle,eventHead);
       let candidate=null,executionFailure=null,result=null,failure=null;
@@ -259,7 +266,8 @@ export function createDurableExecutionUnit({unit,store,content,scope,owner,clock
       });
       session.complete=true;await ownership.release(session.owner);return finished;
     })();
-    try{return await session.completion;}catch(cause){session.completion=null;throw cause;}
+    const pending=session.completion;
+    try{return await pending;}catch(cause){if(session.completion===pending)session.completion=null;throw cause;}
   }
   return Object.freeze({
     descriptor:execution.descriptor,doctor:execution.doctor,planCapability:execution.planCapability,

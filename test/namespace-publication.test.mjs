@@ -12,6 +12,7 @@ import {createSqliteContentStore} from '../src/sda/sqlite-content-adapter.mjs';
 import {openNativeSqliteDatabase} from '../src/sda/sqlite-native.mjs';
 import {createNamespaceLifecycleCommitter} from '../src/engine-storage/namespace-lifecycle-commit.mjs';
 import {namespacePublicationValue} from '../src/engine-storage/namespace-publication-contract.mjs';
+import {PHASE_PUBLICATION_SCHEMAS} from '../src/foundation/record-schema.mjs';
 
 const input={phaseId:'intake',authored:'governed-agent',channel:'copilot-host'};
 function publisher(f,extra={}) {return createNamespacePublicationEngine({records:f.records,content:f.content,localRecords:f.localRecords,localContent:f.localContent,
@@ -184,7 +185,7 @@ test('retained manifest validation rejects invented authorship, revisions, input
     value=>{value.inputs[0].reference.namespace='local';},value=>{value.artifact.fingerprint='sha256:invalid';}
   ];
   for(const mutate of mutations){const changed=structuredClone(record);mutate(changed);assert.throws(()=>namespacePublicationValue(changed,context),{code:'ENGINE_STORAGE_CORRUPT'});}
-  assert.throws(()=>namespacePublicationValue({...record,schemaVersion:2},context),{code:'ENGINE_STORAGE_UNSUPPORTED'});
+  assert.throws(()=>namespacePublicationValue({...record,schemaVersion:PHASE_PUBLICATION_SCHEMAS.manifest.maximumReadableVersion+1},context),{code:'ENGINE_STORAGE_UNSUPPORTED'});
 });
 
 test('real private-file permission and shared-read timeout failures retain their original identity',async t=>{

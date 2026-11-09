@@ -14,6 +14,7 @@ import { namespaceReadHead, namespaceReadLifecycleHead, namespaceReadState, name
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import { createNamespaceSubmissionReader } from './namespace-submission-reader.mjs';
+import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceRoutingChoiceReader} from './namespace-routing-choice-reader.mjs';
 import {namespaceStoryReadKey} from './namespace-story-codec.mjs';
 export {namespaceStoryReadKey} from './namespace-story-codec.mjs';
@@ -112,7 +113,8 @@ export function createNamespaceReadPorts({ records, content, localContent = null
         projected=projectNamespaceLifecycleReadState(workflow);
       }catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
         throw unavailable('The canonical namespace read metadata is invalid.','ENGINE_STORAGE_CORRUPT',{workId},cause);}
-      const submissionReader=createNamespaceSubmissionReader({observer,scope,workId});
+      const checks=createNamespacePhaseCheckReader({records:lifecycleRecords,content:lifecycleContent,scope,workId,authority:selected.value.authority,observer});
+      const submissionReader=createNamespaceSubmissionReader({observer,scope,workId,checks});
       return {subject:{kind:'story',id:workId},workflow:projected,policy,documents,
         revision:snapshot.revision,lifecycleSnapshot:snapshot,submissionReader,
         routingChoiceReader:createNamespaceRoutingChoiceReader({observer,scope,workId,packets:submissionReader}),

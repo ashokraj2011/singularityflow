@@ -836,7 +836,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     `);
   });
 
-  await t.test('installed registered phase checks retain real evidence and reopen without private drafts or executors',async()=>{
+  await t.test('installed registered checks publish, submit and receive independent human approval with shared-only takeover',async()=>{
     const source=`
       import assert from 'node:assert/strict';import path from 'node:path';import {mkdir,writeFile,readFile} from 'node:fs/promises';
       import {createHash} from 'node:crypto';import {DatabaseSync} from 'node:sqlite';
@@ -853,8 +853,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const content=createSqliteContentStore({database,binding:shared,create:fresh});let localDatabase;
       const clock={now(){if(!fresh)throw Error('An acknowledgement cannot restamp the check.');return '2026-11-09T00:00:00.000Z';}};
       const identity={name:'Example reviewer',email:'reviewer@example.test',login:null};
-      const access={current(){return {projectId:scope.projectId,principalId:'check-author',actorKind:'human',identity,agentId:fresh?'analyst':null,
-        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','phase.prepare','phase.draft.read','phase.draft.write','phase.checks.run']:[]};}};
+      let principalId='check-author',person=identity,agentId=fresh?'analyst':null;
+      const access={current(){return {projectId:scope.projectId,principalId,actorKind:'human',identity:person,agentId,
+        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','phase.prepare','phase.draft.read','phase.draft.write','phase.checks.run','phase.publish','phase.submit','phase.approve']:[]};}};
       const common={records,content,scope,workId,authority,access,clock},input={operationId:'run-pinned-checks',workId,phaseId:'intake'};
       try{
         let engine;
@@ -876,9 +877,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           const text=async value=>(await content.put(scope,'config',Buffer.from(value))).reference,body=await text('# Review template');
           const packet={schemaVersion:1,format:'sflow-namespace-configuration-source/v1',definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',
             phases:{intake:{label:'Intake',artifact:{path:'artifacts/intake/plan.md'},defaultTemplate:'intake.md',
-              approval:{authorities:['reviewers'],minimum:1,rejectTo:['intake']},qualityCommands:[{id:'node-tests',kind:'test',modelPolicy:'never',
+              approval:{authorities:['reviewers'],minimum:1,rejectTo:['intake'],allowSelfApproval:false},qualityCommands:[{id:'node-tests',kind:'test',modelPolicy:'never',
                 argv:['node','--test','--test-reporter=tap','case.test.mjs'],result:{adapter:'node-tap',path:'results/tests.tap'}}]}},
-            approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'}]}},workTypes:{simple:{label:'Reviewed checks',phases:['intake'],
+            approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'},{email:'independent@example.test'}]}},workTypes:{simple:{label:'Reviewed checks',phases:['intake'],
               omits:['scope','plan','implement','verify'].map(responsibility=>({responsibility,reason:'This workflow reviews a document and existing tests without delivering new application behavior.',authority:'reviewers'}))}}},
             agents:[{id:'analyst',label:'Analyst',phases:['intake'],defaultFor:['intake'],mode:'read-write',body,skills:[],instructions:[]}],
             skills:[],instructions:[],templates:[{path:'singularity/templates/intake.md',body}],files:[]};
@@ -892,6 +893,18 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         }else engine=createNamespacePhaseChecksEngine({...common,checks:{}});
         const result=await engine.run('phase.checks.run',input);assert.equal(result.verdict,'passed');assert.equal(result.checks[0].tests.passed,1);
         assert.equal(result.status,fresh?'recorded':'retained');assert.equal(result.effects.committed,fresh);assert.equal(result.effects.approvalRecorded,false);
+        if(fresh){
+          assert.equal((await engine.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'})).status,'published');
+          assert.equal((await engine.run('phase.submit',{phaseId:'intake'})).status,'awaiting-approval');
+          const review=await engine.run('phase.review',{phaseId:'intake'}),binding=review.manifest.reviewBinding;
+          principalId='independent-human';person={name:'Independent reviewer',email:'independent@example.test',login:null};agentId=null;
+          const approved=await engine.run('phase.approve',{phaseId:'intake',confirmation:{workId,phase:'intake',generation:1,reviewPacketSha256:binding.packetSha256}});
+          assert.equal(approved.approval.thresholdReached,true);assert.equal(approved.approval.selfApproval,false);assert.equal(approved.currentPhase,null);
+        }else{
+          const takeover=createNamespaceEngine(common);
+          assert.equal((await takeover.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'})).status,'retained');
+          assert.equal((await takeover.run('phase.review',{phaseId:'intake'})).manifest.integrity,'matched');
+        }
         process.stdout.write(JSON.stringify(result));
       }finally{localDatabase?.close();database.close();}
     `;
@@ -917,8 +930,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceStoryEngine } from '${packageName}/hosts/namespace-story';
       import { createNamespaceSourceEngine } from '${packageName}/hosts/namespace-source';
       import { createNamespacePreparationEngine } from '${packageName}/hosts/namespace-preparation';
-      import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
-      import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE } from '${packageName}/hosts/namespace-submission';
+      import { createNamespacePublicationEngine,NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE } from '${packageName}/hosts/namespace-publication';
+      import { createNamespaceSubmissionEngine,NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE,NAMESPACE_CHECKED_SUBMISSION_PROFILE } from '${packageName}/hosts/namespace-submission';
       import { createNamespaceApprovalEngine,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE } from '${packageName}/hosts/namespace-approval';
       import { createNamespaceRoutingChoiceEngine,NAMESPACE_ROUTING_CHOICE_PROFILE } from '${packageName}/hosts/namespace-routing-choice';
       import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
@@ -1141,12 +1154,13 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
             permissions:['phase.publish'],identity:{name:'Example reviewer',email:'reviewer@example.test'}})},
           clock:{now:()=> '2026-11-08T00:00:00.000Z'}};
         const profile:'sflow-primary-document-publication/v1'=NAMESPACE_PUBLICATION_PROFILE;
+        const checkedProfile:'sflow-primary-document-publication/v2'=NAMESPACE_CHECKED_PUBLICATION_PROFILE;
         const published:Promise<EngineResult<'phase.publish'>>=createNamespacePublicationEngine(options).publishPhase({phaseId:'review'});
         // @ts-expect-error Shared publication still needs its explicit private authored-byte ports.
         createNamespacePublicationEngine({records,content,scope:options.scope,workId:options.workId,authority:options.authority,access:options.access,clock:options.clock});
         // @ts-expect-error Operation inputs cannot claim their own permission or supply an authenticated actor.
         createNamespacePublicationEngine(options).publishPhase({phaseId:'review',actor:{principalId:'administrator'}});
-        return [profile,published];
+        return [profile,checkedProfile,published];
       }
       function submissionHost(records:NamespaceStore,content:ContentStore) {
         const options={records,content,scope:{projectId:'example'},workId:'example',authority:{id:'application-authority',epoch:1},

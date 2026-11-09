@@ -952,7 +952,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const identity={name:'Example reviewer',email:'reviewer@example.test',login:null};
       let principalId='check-author',person=identity,agentId=fresh?'analyst':null;
       const access={current(){return {projectId:scope.projectId,principalId,actorKind:'human',identity:person,agentId,
-        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','phase.prepare','phase.draft.read','phase.draft.write','phase.checks.run','phase.publish','phase.submit','phase.approve']:[]};}};
+        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','clarification.record','phase.prepare','phase.draft.read','phase.draft.write','phase.checks.run','phase.publish','phase.submit','phase.approve']:[]};}};
       const common={records,content,scope,workId,authority,access,clock},input={operationId:'run-pinned-checks',workId,phaseId:'intake'};
       try{
         let engine;
@@ -973,7 +973,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           await engine.run('project.enroll',{operationId:'enroll-check-project'});
           const text=async value=>(await content.put(scope,'config',Buffer.from(value))).reference,body=await text('# Review template');
           const packet={schemaVersion:1,format:'sflow-namespace-configuration-source/v1',definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',
-            phases:{intake:{label:'Intake',artifact:{path:'artifacts/intake/plan.md'},defaultTemplate:'intake.md',
+            phases:{intake:{label:'Intake',clarification:{mode:'required',maxQuestions:2,markers:{mode:'off'}},artifact:{path:'artifacts/intake/plan.md'},defaultTemplate:'intake.md',
               approval:{authorities:['reviewers'],minimum:1,rejectTo:['intake'],allowSelfApproval:false},qualityCommands:[{id:'node-tests',kind:'test',modelPolicy:'never',
                 argv:['node','--test','--test-reporter=tap','case.test.mjs'],result:{adapter:'node-tap',path:'results/tests.tap'}}]}},
             approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'},{email:'independent@example.test'}]}},workTypes:{simple:{label:'Reviewed checks',phases:['intake'],
@@ -984,6 +984,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           const storySource=(await content.put(scope,'state',Buffer.from('Retain actual existing test execution.'))).reference;
           const story=await engine.run('story.create',{operationId:'create-check-story',workId,title:'Check existing behavior',workTypeId:'simple',configurationId:'approve-check-config',source:storySource});
           await engine.run('source.bind',{operationId:'bind-check-source',workId,expectedRevision:story.revision,repositories:['app'],reason:'Select the real application bytes.'});
+          const checkpoint=await engine.run('clarification.status',{phaseId:'intake'});assert.equal(checkpoint.ready,false);
+          const replyInput={operationId:'human-check-context',workId,phaseId:'intake',contextSha256:checkpoint.context.sha256,
+            responses:[{question:'Which behavior is in scope?',answer:'Review the existing application tests and retain their actual passing execution.'}]};
+          const reply=await engine.run('clarification.record',replyInput);
+          await writeFile('registered-check-clarification.json',JSON.stringify({input:replyInput,result:reply}));
           await engine.run('phase.prepare',{phaseId:'intake'});const draft=await engine.run('phase.draft.read',{phaseId:'intake'});
           const authored=(await localContent.put(scope,'local',Buffer.from('# Authored review artifact'))).reference;
           await engine.run('phase.draft.write',{operationId:'author-check-draft',workId,phaseId:'intake',expectedRevision:draft.manifest.draft.revision,content:authored,reason:'Complete the check context.'});
@@ -999,6 +1004,12 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
           assert.equal(approved.approval.thresholdReached,true);assert.equal(approved.approval.selfApproval,false);assert.equal(approved.currentPhase,null);
         }else{
           const takeover=createNamespaceEngine(common);
+          const original=JSON.parse(await readFile('registered-check-clarification.json','utf8'));
+          const reply=await takeover.run('clarification.record',original.input);assert.equal(reply.replayed,true);
+          assert.deepEqual(reply.reference,original.result.reference);assert.equal(reply.recordedAt,original.result.recordedAt);
+          const checkpoint=await takeover.run('clarification.status',{phaseId:'intake'});
+          assert.equal(checkpoint.status,'published');assert.equal(checkpoint.checkpoint.questioningAllowed,false);
+
           assert.equal((await takeover.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'})).status,'retained');
           assert.equal((await takeover.run('phase.review',{phaseId:'intake'})).manifest.integrity,'matched');
         }
@@ -1211,6 +1222,14 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         command:{executable:'/explicit/node',executableSha256:'sha256:abc',arguments:['--test'],environment:{}},
         report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});
       declare const phaseCheckOptions:NamespaceEngineOptions;
+      createNamespaceEngine(phaseCheckOptions).run('clarification.status',{phaseId:'review'});
+      createNamespaceEngine(phaseCheckOptions).run('clarification.record',{operationId:'answer-checkpoint',workId:'example',phaseId:'review',
+        contextSha256:'exact-reviewed-context',responses:[{question:'Scope?',answer:'The human scope.'}],replace:true,reason:'Reviewed replacement.'});
+      // @ts-expect-error A checkpoint needs an exact reviewed context digest.
+      createNamespaceEngine(phaseCheckOptions).run('clarification.record',{operationId:'answer',workId:'example',phaseId:'review',responses:[]});
+      // @ts-expect-error Stored readiness is not a substitute for human answers.
+      createNamespaceEngine(phaseCheckOptions).run('clarification.record',{operationId:'answer',workId:'example',phaseId:'review',contextSha256:'exact',responses:[],ready:true});
+
       createNamespaceEngine(phaseCheckOptions).run('phase.source.inspect',{phaseId:'review',maximumEntries:25});
       createNamespaceEngine(phaseCheckOptions).run('phase.source.retain',{operationId:'retain-code',workId:'example',phaseId:'review'});
       const retentionFactory:typeof createNamespaceSourceRetentionEngine=createNamespaceSourceRetentionEngine;

@@ -43,7 +43,8 @@ evaluated separately, so one unresolved question does not become two different q
 | Human vote envelopes | Original ordinary v1 and routed v2 formats remain unchanged; their artifact-set digest binds the new evidence |
 
 Publication manifest 4 requires a bounded, nonempty list of distinct policy kinds. The current
-reader implements `specification-analysis/v1`; an unknown kind or future record/report version
+reader implements `specification-analysis/v1` and the separately qualified
+`clarification-checkpoint/v1`; an unknown kind or future record/report version
 requires its matching reader. Invalid identities or altered report bytes are corruption.
 Missing blobs, genuine permission failures and timeouts retain their specific errors.
 
@@ -55,9 +56,9 @@ copying it, mutating it or changing it during an awaited read cannot acquire pro
 
 Only this verified proof satisfies the `specification-analysis` owner. It does not satisfy a
 clarification response, code delivery, test execution, constitution, source review or any other
-unbound policy owner. Required clarification remains an explicit integration gate. Until its
-retained-answer owner is implemented, namespace analysis cannot manufacture marker answers.
-Removing a previously published unanswered marker retains the discrepancy.
+unbound policy owner. The [retained clarification owner](ENGINE-SDK-CLARIFICATIONS.md) now supplies
+actual accepted marker answers through its own proof. A marker still present in the authored text
+remains open. Removing a previously published unanswered marker retains the discrepancy.
 
 ## Author repair and human approval
 

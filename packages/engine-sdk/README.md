@@ -161,6 +161,13 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   exact analysis report references are issued by `phase.review.resources`. See
   `docs/ENGINE-SDK-SPECIFICATION-ANALYSIS.md` in the source repository. Additional policy/execution
   owners and the complete portable lifecycle remain unfinished.
+  The main namespace Engine also binds `clarification.status` and `clarification.record` to real
+  authenticated human replies. Their read manifests contain exact resource references; uploaded
+  bodies stay local. Publication conditionally binds accepted answers or legitimate optional
+  absence, and review resources expose the original checkpoint document. Identical retries retain
+  the original receipt; changed bindings and blocking deferrals offer reviewed repair routes.
+  These checkpoints do not record phase approval or replace the remaining code-delivery owners.
+  See `docs/ENGINE-SDK-CLARIFICATIONS.md` in the source repository.
 - `hosts/namespace-submission`: submit a published primary document using shared records only,
   retain its exact review packet and acknowledge its receipt on another host without private drafts.
   This requests required human approval; it does not record it.

@@ -1,5 +1,6 @@
 /** Internal persistence port for already-admitted engine transitions. No policy bypass or discovery. */
 import { createHash } from 'node:crypto';
+import {namespaceLifecycleWriteVersion} from '../foundation/record-schema.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import { createNamespaceLifecycleObserver,validWorkId } from './namespace-lifecycle-reader.mjs';
 import { createNamespaceLifecycleCodec } from './namespace-lifecycle-codec.mjs';
@@ -20,6 +21,7 @@ const writes = new Set(ENGINE_OPERATIONS.filter(op => (!op.subject || op.subject
   && op.effect !== 'story-creation'
   && op.effect !== 'local-draft'
   && op.effect !== 'phase-check-execution'
+  && op.effect !== 'clarification-record'
   && (op.stages.includes('commit') || op.stages.includes('apply'))).map(op => op.id));
 function cancelled(signal) { if (signal?.aborted) throw error('The lifecycle operation was cancelled before its next effect.', 'ENGINE_OPERATION_CANCELLED'); }
 
@@ -66,7 +68,7 @@ export function createNamespaceLifecycleCommitter({ records, content, scope, wor
       operationId: proposal.operationId, operation: proposal.operation, inputsSha256: proposal.inputsSha256, basis,
       state: { namespace: 'state', sha256: hash(data), bytes: data.byteLength }, evidence, requestDigest: '0'.repeat(64),
       ...(Object.hasOwn(proposal,'readBindings')?{readBindings:namespaceJson(proposal.readBindings,{maxBytes:limits.maxValueBytes})}:{}) },
-      {schemaVersion:Object.hasOwn(proposal,'readBindings')?2:1});
+      {schemaVersion:namespaceLifecycleWriteVersion(proposal)});
     plan.requestDigest = requestDigest(transaction(plan)); admitPlan(plan, plan.operationId);
     const value = namespaceJson(plan, { maxBytes: limits.maxValueBytes });
     const existing = await checkpoint(value.operationId, signal);

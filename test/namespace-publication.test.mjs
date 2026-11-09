@@ -64,7 +64,7 @@ test('code and required clarification contracts never become document-only publi
   assert.deepEqual(await f.head(),before);
   const clarifications=await namespacePreparationFixture(t,{configure:source=>{source.definition.phases.intake.clarification={mode:'required'};}});
   await authored(clarifications);const original=await clarifications.head();
-  await assert.rejects(publisher(clarifications).run('phase.publish',input),e=>e.code==='ENGINE_PORT_UNAVAILABLE'&&e.details.required.includes('clarification-record'));
+  await assert.rejects(publisher(clarifications).run('phase.publish',input),e=>e.code==='CLARIFICATION_REQUIRED'&&e.details.operation==='clarification.record');
   assert.deepEqual(await clarifications.head(),original);
 });
 

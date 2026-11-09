@@ -20,16 +20,59 @@ async function fixture(t,backend){
 test('conditional operation profiles extend only prepared/manifest and select v2 explicitly',()=>{
   for(const kind of ['prepared','manifest']){
     const family=NAMESPACE_LIFECYCLE_SCHEMAS[kind];
-    assert.deepEqual([family.currentVersion,family.minimumReadableVersion,family.maximumReadableVersion],[2,1,2]);
+    assert.deepEqual([family.currentVersion,family.minimumReadableVersion,family.maximumReadableVersion],[3,1,3]);
     assert.equal(family.migrationPolicy,'preserve-versions');
     assert.equal(lifecycleRecord(kind,{projectId:'fixture'}).schemaVersion,1);
     assert.equal(lifecycleRecord(kind,{projectId:'fixture'},{schemaVersion:2}).schemaVersion,2);
     assert.deepEqual(namespaceLifecycleRecordProfile(kind,{schemaVersion:1}),{format:`sflow-namespace-lifecycle-${kind}/v1`,state:null});
     assert.equal(namespaceLifecycleRecordProfile(kind,{schemaVersion:2}).readBindings,true);
+    assert.equal(namespaceLifecycleRecordProfile(kind,{schemaVersion:2}).absentReadBindings,undefined);
+    assert.equal(namespaceLifecycleRecordProfile(kind,{schemaVersion:3}).absentReadBindings,true);
   }
 });
 
 for(const backend of ['filesystem','sqlite','application']){
+  test(backend+': v3 retains actual absence and replays after an optional checkpoint is later recorded',async t=>{
+    const f=await namespaceLifecycleFixture(t,{backend}),snapshot=await f.committer.capture();
+    const binding={namespace:'evidence',key:'clarifications/optional-checkpoint',version:null};
+    const absent=await f.records.read(f.scope,binding.namespace,binding.key);assert.equal(absent.status,'missing');
+    await f.committer.prepare(snapshot,f.proposal(snapshot.workflow,'optional-checkpoint',{readBindings:[binding]}));
+    const plan=await f.committer.intent('optional-checkpoint');assert.equal(plan.schemaVersion,3);
+    assert.deepEqual(codec(f).transaction(plan).preconditions.find(item=>item.key===binding.key),binding);
+    const result=await f.make().commit('optional-checkpoint'),proof=await reader(f).accepted('optional-checkpoint');
+    assert.equal(proof.manifest.schemaVersion,3);assert.deepEqual(proof.manifest.readBindings,[binding]);
+    assert.equal((await f.records.read(f.scope,binding.namespace,binding.key)).status,'missing');
+    await f.update(binding.namespace,binding.key,{answer:'later generation'});
+    assert.deepEqual(await reader(f).accepted('optional-checkpoint'),proof);
+    assert.deepEqual((await f.make().commit('optional-checkpoint')).receipt,result.receipt);
+  });
+
+  test(backend+': an optional checkpoint created before preparation or final acceptance cannot be missed',async t=>{
+    const f=await namespaceLifecycleFixture(t,{backend}),snapshot=await f.committer.capture();
+    const binding={namespace:'evidence',key:'clarifications/raced-checkpoint',version:null};
+    await f.committer.prepare(snapshot,f.proposal(snapshot.workflow,'absence-at-commit',{readBindings:[binding]}));
+    const plan=await f.committer.intent('absence-at-commit');
+    await f.update(binding.namespace,binding.key,{responses:[{status:'deferred',blocking:true}]});
+    await assert.rejects(f.make().commit('absence-at-commit'),{code:'SDA_NAMESPACE_REVISION_CONFLICT'});
+    assert.deepEqual(await f.make().intent('absence-at-commit'),plan);
+    const fresh=f.make();
+    await assert.rejects(fresh.prepare(await fresh.capture(),f.proposal(snapshot.workflow,'absence-at-prepare',{readBindings:[binding]})),
+      {code:'SDA_NAMESPACE_REVISION_CONFLICT'});
+    assert.equal((await f.make().inspect('absence-at-prepare')).status,'missing');
+    assert.equal((await f.committer.capture()).workflow.phases['team-document'].generation,0);
+  });
+
+  test(backend+': absent-record meaning cannot be downgraded to a v2 immutable plan or manifest',async t=>{
+    const f=await namespaceLifecycleFixture(t,{backend}),snapshot=await f.committer.capture();
+    await f.committer.prepare(snapshot,f.proposal(snapshot.workflow,'wire-absence',{readBindings:[{namespace:'evidence',key:'clarifications/wire',version:null}]}));
+    const plan=await f.committer.intent('wire-absence');
+    for(const [value,validate]of [[plan,lifecyclePrepared],[codec(f).manifest(plan),lifecycleManifest]]){
+      assert.equal(validate(value,f.scope,f.workId,'wire-absence'),value);
+      const older={...value,schemaVersion:2,format:value.format.replace('/v3','/v2')};
+      assert.throws(()=>validate(older,f.scope,f.workId,'wire-absence'),{code:'ENGINE_STORAGE_CORRUPT'});
+    }
+  });
+
   test(backend+': a v2 publication atomically binds additional evidence revisions without changing them',async t=>{
     const f=await fixture(t,backend),writer=f.make(),snapshot=await writer.capture(),binding=await readBinding(f);
     const original=await f.records.read(f.scope,'evidence',indexKey);

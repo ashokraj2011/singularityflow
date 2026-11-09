@@ -156,9 +156,9 @@ export const NAMESPACE_LIFECYCLE_SCHEMAS = Object.freeze({
   // Immutable bodies keep their stored version and identity; readers dispatch without migration.
   state: Object.freeze({ id: 'namespace-lifecycle-state', currentVersion: 2, minimumReadableVersion: 1,
     maximumReadableVersion: 2, unversionedAs: null, immutable: true, migrationPolicy: 'preserve-versions' }),
-  prepared: Object.freeze({id:'namespace-lifecycle-prepared',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+  prepared: Object.freeze({id:'namespace-lifecycle-prepared',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
-  manifest: Object.freeze({id:'namespace-lifecycle-manifest',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+  manifest: Object.freeze({id:'namespace-lifecycle-manifest',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})
 });
 export const NAMESPACE_ENROLLMENT_SCHEMAS = Object.freeze({
@@ -241,6 +241,9 @@ export function namespacePublicationRecordProfile(input) {
 export const SPECIFICATION_ANALYSIS_REPORT_SCHEMA=frozenFamily('specification-quality-analysis');
 export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily('namespace-phase-policy-evidence-binding'),
   analysis:frozenFamily('namespace-specification-analysis')});
+export const NAMESPACE_CLARIFICATION_SCHEMAS=Object.freeze({response:frozenFamily('namespace-clarification-response'),
+  manifest:frozenFamily('namespace-clarification-manifest'),index:frozenFamily('namespace-clarification-index'),
+  publication:frozenFamily('namespace-clarification-publication')});
 export const NAMESPACE_SPECIFICATION_SCHEMAS=Object.freeze({
   binding:frozenFamily('namespace-specification-evidence-binding'),manifest:frozenFamily('namespace-specification-evidence')
 });
@@ -305,13 +308,19 @@ const LIFECYCLE_STATE_PROFILES = Object.freeze({
   2: Object.freeze({ requireOwnedCurrentPhase: true, terminalStatuses: Object.freeze(['closed', 'cancelled']) })
 });
 
+/** Preserve existing writer bytes; conditional absence has a distinct v3 meaning. */
+export function namespaceLifecycleWriteVersion(proposal) {
+  if(!Object.hasOwn(proposal,'readBindings'))return 1;
+  return Array.isArray(proposal.readBindings)&&proposal.readBindings.some(binding=>binding?.version===null)?3:2;
+}
+
 export function namespaceLifecycleRecordProfile(kind, input) {
   if (!Object.hasOwn(NAMESPACE_LIFECYCLE_SCHEMAS, kind)) {
     throw new SingularityFlowError('Unknown namespace lifecycle record family.', { code: 'SCHEMA_FAMILY_UNKNOWN' });
   }
   const { storedVersion } = admitRecordSchemaVersion(NAMESPACE_LIFECYCLE_SCHEMAS[kind], input);
   return Object.freeze({ format: `sflow-namespace-lifecycle-${kind}/v${storedVersion}`,
-    ...((kind==='prepared'||kind==='manifest')&&storedVersion>1?{readBindings:true}:{}),
+    ...((kind==='prepared'||kind==='manifest')&&storedVersion>1?{readBindings:true,...(storedVersion>=3?{absentReadBindings:true}:{})}:{}),
     state: kind === 'state' ? LIFECYCLE_STATE_PROFILES[storedVersion] : null });
 }
 // Historical view records retain their original schema and compatibility export indefinitely.

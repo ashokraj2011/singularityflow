@@ -1,0 +1,1352 @@
+{
+  "capturedAtCommit": "a90762eda",
+  "sourceSha256": "758054e81b043dc5dfc220d650cb47652ba0e04775958c9142eb442c3ff0cd1b",
+  "cases": [
+    {
+      "id": "response-basic",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255."
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": "Q-003",
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "answered",
+          "blocking": false
+        }
+      }
+    },
+    {
+      "id": "response-trim",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "  Which limit? ",
+          "answer": " 255 ",
+          "why": " Bound the inputs ",
+          "owner": " Reviewer ",
+          "impact": " Scope "
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": "Q-003",
+          "question": "Which limit?",
+          "why": "Bound the inputs",
+          "answer": "255",
+          "status": "answered",
+          "blocking": false,
+          "owner": "Reviewer",
+          "impact": "Scope"
+        }
+      }
+    },
+    {
+      "id": "response-numeric",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": 255,
+          "answer": 16,
+          "id": 7
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": 7,
+          "question": "255",
+          "answer": "16",
+          "status": "answered",
+          "blocking": false
+        }
+      }
+    },
+    {
+      "id": "response-deferred",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "deferred",
+          "blocking": true
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": "Q-003",
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "deferred",
+          "blocking": true
+        }
+      }
+    },
+    {
+      "id": "response-nonblocking-deferred",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "deferred"
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": "Q-003",
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "deferred",
+          "blocking": false
+        }
+      }
+    },
+    {
+      "id": "response-answered-blocking",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "blocking": true
+        },
+        2
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 3 cannot be both answered and blocking.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "response-missing-question",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "answer": "255"
+        },
+        2
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 3 requires a question.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "response-missing-answer",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Limit?"
+        },
+        2
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 3 requires the human answer or deferral rationale.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "response-unknown-status",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "pending"
+        },
+        2
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 3 status must be answered or deferred.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "response-null",
+      "method": "normalizeResponse",
+      "args": [
+        null,
+        2
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 3 must be an object.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "response-array",
+      "method": "normalizeResponse",
+      "args": [
+        [],
+        2
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 3 must be an object.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "response-marker",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "marker": "  Which   limit?  "
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": "Q-003",
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "answered",
+          "blocking": false,
+          "marker": {
+            "question": "Which limit?",
+            "questionHash": "Which limit?"
+          }
+        }
+      }
+    },
+    {
+      "id": "response-marker-object",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "marker": {
+            "question": "Limit?",
+            "questionHash": " Limit? "
+          }
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": "Q-003",
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "answered",
+          "blocking": false,
+          "marker": {
+            "question": "Limit?",
+            "questionHash": "Limit?"
+          }
+        }
+      }
+    },
+    {
+      "id": "response-empty-marker",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "marker": {
+            "question": ""
+          }
+        },
+        2
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 3 names a marker with no question text.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "response-deferred-marker",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "deferred",
+          "marker": "Limit?"
+        },
+        2
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 3 resolves a clarification marker, so it must be answered rather than deferred.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "response-empty-id",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "id": ""
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": "",
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "answered",
+          "blocking": false
+        }
+      }
+    },
+    {
+      "id": "response-zero-id",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "id": 0
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": 0,
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "answered",
+          "blocking": false
+        }
+      }
+    },
+    {
+      "id": "response-unknown-field",
+      "method": "normalizeResponse",
+      "args": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "extra": "ignored"
+        },
+        2
+      ],
+      "outcome": {
+        "value": {
+          "id": "Q-003",
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "answered",
+          "blocking": false
+        }
+      }
+    },
+    {
+      "id": "marker-none",
+      "method": "normalizeMarkerBinding",
+      "args": [
+        null,
+        0
+      ],
+      "outcome": {
+        "value": null
+      }
+    },
+    {
+      "id": "marker-empty",
+      "method": "normalizeMarkerBinding",
+      "args": [
+        "",
+        0
+      ],
+      "outcome": {
+        "value": null
+      }
+    },
+    {
+      "id": "marker-whitespace",
+      "method": "normalizeMarkerBinding",
+      "args": [
+        "  ",
+        0
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 1 names a marker with no question text.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "marker-object",
+      "method": "normalizeMarkerBinding",
+      "args": [
+        {},
+        0
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 1 names a marker with no question text.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "marker-question",
+      "method": "normalizeMarkerBinding",
+      "args": [
+        " How   many? ",
+        0
+      ],
+      "outcome": {
+        "value": {
+          "question": "How many?",
+          "questionHash": "How many?"
+        }
+      }
+    },
+    {
+      "id": "marker-hash",
+      "method": "normalizeMarkerBinding",
+      "args": [
+        {
+          "question": "Current wording?",
+          "questionHash": " Original   wording? "
+        },
+        0
+      ],
+      "outcome": {
+        "value": {
+          "question": "Current wording?",
+          "questionHash": "Original wording?"
+        }
+      }
+    },
+    {
+      "id": "marker-numeric",
+      "method": "normalizeMarkerBinding",
+      "args": [
+        12,
+        0
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Clarification response 1 names a marker with no question text.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "merge-new",
+      "method": "mergeResponses",
+      "args": [
+        [],
+        [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          }
+        ]
+      ],
+      "outcome": {
+        "value": [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "merge-exact",
+      "method": "mergeResponses",
+      "args": [
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ],
+        [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          }
+        ]
+      ],
+      "outcome": {
+        "value": [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "merge-exact-id",
+      "method": "mergeResponses",
+      "args": [
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ],
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      ],
+      "outcome": {
+        "value": [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "merge-different-id",
+      "method": "mergeResponses",
+      "args": [
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ],
+        [
+          {
+            "id": "different",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "An existing clarification reply differs. Preserve the accepted answers; review the change before using --replace.",
+          "code": "CLARIFICATION_RESPONSE_CONFLICT",
+          "details": {
+            "questionId": "Q-001"
+          },
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "merge-changed-answer",
+      "method": "mergeResponses",
+      "args": [
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ],
+        [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 127."
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "An existing clarification reply differs. Preserve the accepted answers; review the change before using --replace.",
+          "code": "CLARIFICATION_RESPONSE_CONFLICT",
+          "details": {
+            "questionId": "Q-001"
+          },
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "merge-changed-question",
+      "method": "mergeResponses",
+      "args": [
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ],
+        [
+          {
+            "id": "Q-001",
+            "question": "A changed question?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "An existing clarification reply differs. Preserve the accepted answers; review the change before using --replace.",
+          "code": "CLARIFICATION_RESPONSE_CONFLICT",
+          "details": {
+            "questionId": "Q-001"
+          },
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "merge-append",
+      "method": "mergeResponses",
+      "args": [
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ],
+        [
+          {
+            "question": "Which output?",
+            "answer": "Uppercase."
+          }
+        ]
+      ],
+      "outcome": {
+        "value": [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          },
+          {
+            "id": "Q-002",
+            "question": "Which output?",
+            "answer": "Uppercase.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "merge-repeated-input",
+      "method": "mergeResponses",
+      "args": [
+        [],
+        [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          },
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          }
+        ]
+      ],
+      "outcome": {
+        "value": [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "merge-duplicate-id",
+      "method": "mergeResponses",
+      "args": [
+        [],
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          },
+          {
+            "id": "Q-001",
+            "question": "Another question?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "An existing clarification reply differs. Preserve the accepted answers; review the change before using --replace.",
+          "code": "CLARIFICATION_RESPONSE_CONFLICT",
+          "details": {
+            "questionId": "Q-001"
+          },
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "merge-reason-change",
+      "method": "mergeResponses",
+      "args": [
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false
+          }
+        ],
+        [
+          {
+            "id": "Q-001",
+            "question": "Which limit applies?",
+            "answer": "Use 255.",
+            "status": "answered",
+            "blocking": false,
+            "why": "A new explanation."
+          }
+        ]
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "An existing clarification reply differs. Preserve the accepted answers; review the change before using --replace.",
+          "code": "CLARIFICATION_RESPONSE_CONFLICT",
+          "details": {
+            "questionId": "Q-001"
+          },
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "payload-array",
+      "method": "responseArrayFromPayload",
+      "args": [
+        [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          }
+        ]
+      ],
+      "outcome": {
+        "value": [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          }
+        ]
+      }
+    },
+    {
+      "id": "payload-responses",
+      "method": "responseArrayFromPayload",
+      "args": [
+        {
+          "responses": [
+            {
+              "question": "Which limit applies?",
+              "answer": "Use 255."
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          }
+        ]
+      }
+    },
+    {
+      "id": "payload-questions",
+      "method": "responseArrayFromPayload",
+      "args": [
+        {
+          "questions": [
+            {
+              "question": "Which limit applies?",
+              "answer": "Use 255."
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          }
+        ]
+      }
+    },
+    {
+      "id": "payload-empty-responses",
+      "method": "responseArrayFromPayload",
+      "args": [
+        {
+          "responses": [],
+          "questions": [
+            {
+              "question": "Which limit applies?",
+              "answer": "Use 255."
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": []
+      }
+    },
+    {
+      "id": "payload-null-responses",
+      "method": "responseArrayFromPayload",
+      "args": [
+        {
+          "responses": null,
+          "questions": [
+            {
+              "question": "Which limit applies?",
+              "answer": "Use 255."
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": [
+          {
+            "question": "Which limit applies?",
+            "answer": "Use 255."
+          }
+        ]
+      }
+    },
+    {
+      "id": "payload-missing",
+      "method": "responseArrayFromPayload",
+      "args": [
+        {}
+      ],
+      "outcome": {}
+    },
+    {
+      "id": "payload-null",
+      "method": "responseArrayFromPayload",
+      "args": [
+        null
+      ],
+      "outcome": {}
+    },
+    {
+      "id": "answered-missing",
+      "method": "answeredMarkerHashes",
+      "args": [
+        null
+      ],
+      "outcome": {
+        "value": []
+      }
+    },
+    {
+      "id": "answered-empty",
+      "method": "answeredMarkerHashes",
+      "args": [
+        {
+          "responses": []
+        }
+      ],
+      "outcome": {
+        "value": []
+      }
+    },
+    {
+      "id": "answered-markers",
+      "method": "answeredMarkerHashes",
+      "args": [
+        {
+          "responses": [
+            {
+              "marker": {
+                "questionHash": "Limit?"
+              }
+            },
+            {
+              "marker": {
+                "questionHash": "Limit?"
+              }
+            },
+            {
+              "answer": "Other"
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "value": [
+          "Limit?"
+        ]
+      }
+    },
+    {
+      "id": "routes-off",
+      "method": "clarificationRoutes",
+      "args": [
+        {
+          "mode": "off",
+          "errors": [
+            "ignored"
+          ],
+          "record": null
+        }
+      ],
+      "outcome": {
+        "value": {
+          "governed-agent": "not-applicable",
+          "other": "not-applicable"
+        }
+      }
+    },
+    {
+      "id": "routes-required-missing",
+      "method": "clarificationRoutes",
+      "args": [
+        {
+          "mode": "required",
+          "errors": [
+            "missing"
+          ],
+          "record": null
+        }
+      ],
+      "outcome": {
+        "value": {
+          "governed-agent": "blocked",
+          "other": "not-required"
+        }
+      }
+    },
+    {
+      "id": "routes-when-needed",
+      "method": "clarificationRoutes",
+      "args": [
+        {
+          "mode": "when-needed",
+          "errors": [],
+          "record": null
+        }
+      ],
+      "outcome": {
+        "value": {
+          "governed-agent": "ready",
+          "other": "not-required"
+        }
+      }
+    },
+    {
+      "id": "routes-ready",
+      "method": "clarificationRoutes",
+      "args": [
+        {
+          "mode": "required",
+          "errors": [],
+          "record": {
+            "responses": [
+              {
+                "question": "Which limit applies?",
+                "answer": "Use 255."
+              }
+            ]
+          }
+        }
+      ],
+      "outcome": {
+        "value": {
+          "governed-agent": "ready",
+          "other": "bound-if-published"
+        }
+      }
+    }
+  ],
+  "folds": [
+    {
+      "id": "first",
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255."
+        }
+      ],
+      "outcome": {
+        "value": {
+          "responses": [
+            {
+              "id": "Q-001",
+              "question": "Which limit applies?",
+              "answer": "Use 255.",
+              "status": "answered",
+              "blocking": false
+            }
+          ],
+          "completed": true,
+          "reused": false
+        }
+      }
+    },
+    {
+      "id": "exact-retry",
+      "previous": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255."
+        }
+      ],
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255."
+        }
+      ],
+      "outcome": {
+        "value": {
+          "responses": [
+            {
+              "id": "Q-001",
+              "question": "Which limit applies?",
+              "answer": "Use 255.",
+              "status": "answered",
+              "blocking": false
+            }
+          ],
+          "completed": true,
+          "reused": true
+        }
+      }
+    },
+    {
+      "id": "append",
+      "previous": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255."
+        }
+      ],
+      "responses": [
+        {
+          "question": "Which output?",
+          "answer": "Uppercase."
+        }
+      ],
+      "outcome": {
+        "value": {
+          "responses": [
+            {
+              "id": "Q-001",
+              "question": "Which limit applies?",
+              "answer": "Use 255.",
+              "status": "answered",
+              "blocking": false
+            },
+            {
+              "id": "Q-002",
+              "question": "Which output?",
+              "answer": "Uppercase.",
+              "status": "answered",
+              "blocking": false
+            }
+          ],
+          "completed": true,
+          "reused": false
+        }
+      }
+    },
+    {
+      "id": "conflicting",
+      "previous": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255."
+        }
+      ],
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 127."
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "An existing clarification reply differs. Preserve the accepted answers; review the change before using --replace.",
+          "code": "CLARIFICATION_RESPONSE_CONFLICT",
+          "details": {
+            "questionId": "Q-001"
+          },
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "replace",
+      "previous": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255."
+        }
+      ],
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 127."
+        }
+      ],
+      "replace": true,
+      "outcome": {
+        "value": {
+          "responses": [
+            {
+              "id": "Q-001",
+              "question": "Which limit applies?",
+              "answer": "Use 127.",
+              "status": "answered",
+              "blocking": false
+            }
+          ],
+          "completed": true,
+          "reused": false
+        }
+      }
+    },
+    {
+      "id": "deferred",
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "deferred",
+          "blocking": true
+        }
+      ],
+      "outcome": {
+        "value": {
+          "responses": [
+            {
+              "id": "Q-001",
+              "question": "Which limit applies?",
+              "answer": "Use 255.",
+              "status": "deferred",
+              "blocking": true
+            }
+          ],
+          "completed": false,
+          "reused": false
+        }
+      }
+    },
+    {
+      "id": "nonblocking-deferred",
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "status": "deferred"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "responses": [
+            {
+              "id": "Q-001",
+              "question": "Which limit applies?",
+              "answer": "Use 255.",
+              "status": "deferred",
+              "blocking": false
+            }
+          ],
+          "completed": true,
+          "reused": false
+        }
+      }
+    },
+    {
+      "id": "maximum",
+      "maxQuestions": 1,
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255."
+        },
+        {
+          "question": "Which output?",
+          "answer": "Uppercase."
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Phase 'custom-scope' permits no more than 1 clarification questions.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "duplicate-id",
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "id": "same"
+        },
+        {
+          "question": "Which output?",
+          "answer": "Uppercase.",
+          "id": "same"
+        }
+      ],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "An existing clarification reply differs. Preserve the accepted answers; review the change before using --replace.",
+          "code": "CLARIFICATION_RESPONSE_CONFLICT",
+          "details": {
+            "questionId": "same"
+          },
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "marker",
+      "responses": [
+        {
+          "question": "Which limit applies?",
+          "answer": "Use 255.",
+          "marker": "Which limit applies?"
+        }
+      ],
+      "outcome": {
+        "value": {
+          "responses": [
+            {
+              "id": "Q-001",
+              "question": "Which limit applies?",
+              "answer": "Use 255.",
+              "status": "answered",
+              "blocking": false,
+              "marker": {
+                "question": "Which limit applies?",
+                "questionHash": "Which limit applies?"
+              }
+            }
+          ],
+          "completed": true,
+          "reused": false
+        }
+      }
+    },
+    {
+      "id": "empty",
+      "responses": [],
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Record at least one clarification response.",
+          "exitCode": 1
+        }
+      }
+    },
+    {
+      "id": "not-array",
+      "responses": null,
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Record at least one clarification response.",
+          "exitCode": 1
+        }
+      }
+    }
+  ]
+}

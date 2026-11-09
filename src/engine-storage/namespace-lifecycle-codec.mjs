@@ -28,7 +28,7 @@ export function createNamespaceLifecycleCodec({scope,workId,authority,limits,tex
     sequence:previous.sequence+1,configuration:previous.configuration,state:plan.state,previous:previous.state,operationId:plan.operationId});}
   function reads(plan){const profile=namespaceLifecycleRecordProfile('prepared',plan);
     if(!profile.readBindings&&Object.hasOwn(plan,'readBindings'))throw error('A v1 operation cannot add conditional read bindings.','ENGINE_STORAGE_CORRUPT');
-    return profile.readBindings?lifecycleReadBindings(plan.readBindings):[];}
+    return profile.readBindings?lifecycleReadBindings(plan.readBindings,profile):[];}
   function manifest(plan){const previous=plan.basis.head,readBindings=reads(plan),schemaVersion=plan.schemaVersion,
     profile=namespaceLifecycleRecordProfile('prepared',plan);
     return {schemaVersion,format:namespaceLifecycleRecordProfile('manifest',{schemaVersion}).format,projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,

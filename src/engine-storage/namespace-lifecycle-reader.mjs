@@ -20,7 +20,7 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
     throw error('Lifecycle persistence needs explicit shared ports and an authority epoch.','ENGINE_INPUT_INVALID');
   }
   const recordId=records.descriptor.id,contentId=content.descriptor.id,limits=namespaceLimits(records.descriptor.limits);
-  const read=records.read.bind(records),readContent=content.read.bind(content),headKey=namespaceLifecycleStoryKey(workId);
+  const read=records.read.bind(records),inspect=records.inspectOperation.bind(records),readContent=content.read.bind(content),headKey=namespaceLifecycleStoryKey(workId);
   function stored(validate, value, ...args) {
     try { return validate(value, scope, ...args); }
     catch (cause) { if (cause.code === 'ENGINE_STORAGE_UNSUPPORTED') throw cause;
@@ -92,6 +92,7 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
     return { snapshot, basis: { authorityVersion: a.version, headVersion: h.version, configurationVersion: c.version, head: h.value } };
   }
   // Inspection can acknowledge retained facts while fenced; only capture is a writer basis.
-  const capture=options=>observe(options,true),inspect=options=>observe(options,false);
-  return Object.freeze({stored,record,assertAuthority,bytes,state,capture,inspect});
+  const capture=options=>observe(options,true),inspectState=options=>observe(options,false);
+  return Object.freeze({stored,record,assertAuthority,bytes,state,capture,inspect:inspectState,
+    inspectOperation:(operationId,options)=>inspect(scope,operationId,options)});
 }

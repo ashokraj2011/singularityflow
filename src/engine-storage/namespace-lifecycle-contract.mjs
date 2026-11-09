@@ -14,17 +14,17 @@ const bad = message => { throw new SingularityFlowError(message, { code: 'ENGINE
 export function lifecycleRecord(kind, value, {schemaVersion:version}={}) {
   if (!Object.hasOwn(NAMESPACE_LIFECYCLE_SCHEMAS, kind) || !plain(value)
     || Object.hasOwn(value, 'schemaVersion') || Object.hasOwn(value, 'format')) bad('Lifecycle record metadata must use its registered profile.');
-  // Existing callers keep their frozen v1 operation bytes. A conditional read set selects v2 explicitly.
+  // Existing callers keep their frozen v1 operation bytes. Existing-record reads select v2; conditional absence selects v3 explicitly.
   const schemaVersion = version??(['prepared','manifest'].includes(kind)?1:NAMESPACE_LIFECYCLE_SCHEMAS[kind].currentVersion);
   return { schemaVersion, format: namespaceLifecycleRecordProfile(kind, { schemaVersion }).format, ...value };
 }
 /** Extra shared records are observed, never changed, by the conditional lifecycle writer. */
-export function lifecycleReadBindings(value) {
+export function lifecycleReadBindings(value,{absentReadBindings=false}={}) {
   if(!Array.isArray(value)||value.length<1||value.length>128)bad('A v2 operation needs bounded, nonempty read bindings.');
   const seen=new Set();
   for(const binding of value){
     exactObject(binding,['namespace','key','version']);namespaceAddress({namespace:binding.namespace,key:binding.key});
-    if(!['state','config','evidence','runtime'].includes(binding.namespace)||namespaceRevision(binding.version)===null)
+    if(!['state','config','evidence','runtime'].includes(binding.namespace)||namespaceRevision(binding.version)===null&&!absentReadBindings)
       bad('Lifecycle read bindings need existing shared record revisions.');
     const key=JSON.stringify([binding.namespace,binding.key]);
     if(seen.has(key))bad('Lifecycle read bindings must be distinct.');seen.add(key);
@@ -93,7 +93,7 @@ export function lifecyclePrepared(value, scope, workId, operationId) {
   const profile=admit('prepared', value, scope);
   exactObject(value, ['schemaVersion','format','projectId','workId','authorityId','epoch','operationId','operation','inputsSha256',
     'basis','state','evidence','requestDigest',...(profile.readBindings?['readBindings']:[])]);
-  if(profile.readBindings)lifecycleReadBindings(value.readBindings);
+  if(profile.readBindings)lifecycleReadBindings(value.readBindings,profile);
   namespaceIdentifier(operationId, 'Operation ID');
   if (value.workId !== workId || value.operationId !== operationId || !text(value.operation) || !digest(value.inputsSha256)
     || !digest(value.requestDigest) || !Array.isArray(value.evidence) || value.evidence.length > 128) bad('Invalid prepared lifecycle operation.');
@@ -116,7 +116,7 @@ export function lifecycleManifest(value, scope, workId, operationId) {
   const profile=admit('manifest', value, scope);
   exactObject(value, ['schemaVersion','format','projectId','workId','authorityId','epoch','sequence','operationId','operation',
     'inputsSha256','configuration','previous','state','evidence',...(profile.readBindings?['readBindings']:[])]);
-  if(profile.readBindings)lifecycleReadBindings(value.readBindings);
+  if(profile.readBindings)lifecycleReadBindings(value.readBindings,profile);
   namespaceIdentifier(value.authorityId, 'Authority ID'); namespaceIdentifier(operationId, 'Operation ID');
   if(value.workId!==workId||value.operationId!==operationId||!count(value.epoch)||value.epoch<1||!count(value.sequence)
     ||value.sequence<1||!text(value.operation)||!digest(value.inputsSha256)||!Array.isArray(value.evidence)||value.evidence.length>128)bad('Invalid lifecycle operation manifest.');

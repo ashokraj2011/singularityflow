@@ -1,0 +1,69 @@
+/** Read-only declared input inventory. Local attachment bytes never enter shared records. */
+import {canonicalJson} from '../foundation/record-schema.mjs';
+import {SingularityFlowError} from '../foundation/failures.mjs';
+import {approvedInputPhases,resolvedPhaseInputs,workflowInputsMode} from '../kernel/phase-inputs.mjs';
+const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
+const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
+function utf8(data,label) {try {const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(data);if(text.includes('\0'))throw Error('NUL');return text;}
+  catch(cause){throw error(`${label} must be UTF-8 text without NUL bytes.`,'ENGINE_ARTIFACT_ENCODING_INVALID',null,cause);}}
+/** Constructing this reader performs no reads. The caller provides exact approved proofs. */
+export function createNamespacePhaseResources({observer,packets,workId,localRead}) {
+  async function resources(captured,approved,agent,signal) {
+    const w=captured.snapshot.workflow,phase=captured.phase,result=[];
+    const source=w.workItem.source?.content;
+    if(!source)throw error('The Story has no retained source.','ENGINE_STORAGE_CONTENT_MISSING');
+    utf8(await observer.bytes(source,source.bytes,signal),'Story source');result.push({kind:'story-source',id:'story-source',reference:source});
+    for(const document of w.namespaceDocuments??[]) {
+      if(document.role!=='file'||document.id==='story-source'||document.status==='detached'
+        ||document.phase!==null&&document.phase!==undefined&&document.phase!==phase.id)continue;
+      if(document.locality==='machine-local') {
+        try {await localRead(document.content,{signal});}
+        catch(cause){if(cause.code!=='ENGINE_STORAGE_CONTENT_MISSING')throw cause;
+          throw error('This phase needs the matching original document on this device.','DOCUMENT_REUPLOAD_REQUIRED',{
+            workId,phase:phase.id,documentId:document.id,name:document.name,expected:document.content},cause);}
+      }else await observer.bytes(document.content,document.content.bytes,signal);
+      result.push({kind:'supporting-document',id:document.id,locality:document.locality,reference:document.content});
+    }
+    const inputPhases=approvedInputPhases(w,phase),available=inputPhases.filter(id=>w.phases[id]?.status==='approved');
+    const proofs=await packets.inspectApprovedMany(captured.snapshot,available,{signal});
+    const acceptedInputs=new Map(available.map((id,index)=>[id,proofs[index]]));
+    for(const id of inputPhases) {
+      const producer=w.phases[id],declarations=resolvedPhaseInputs(w,phase),optional=!declarations.some(item=>(typeof item==='string'?item:item.phase)===id&&(typeof item==='string'||item.required!==false));
+      if(!producer||producer.status!=='approved') {
+        if(optional||workflowInputsMode(w)!=='enforce')continue;
+        throw error('An upstream input has no accepted generation.','PHASE_INPUTS_NOT_READY',{upstreamPhase:id});
+      }
+      const document=(w.namespaceDocuments??[]).find(item=>item.phase===id&&item.generation===producer.generation&&item.role==='artifact');
+      const retained=(producer.artifacts??[]).find(item=>item.path===document?.sourceKey);
+      if(!document?.content||!retained||retained.sha256!==document.content.sha256)throw error('The approved input has no matching retained content binding.','PHASE_INPUTS_NOT_READY',{upstreamPhase:id});
+      const proof=acceptedInputs.get(id);
+      if(!proof||proof.value.generation!==producer.generation||proof.published.artifact.sourceKey!==document.sourceKey
+        ||!same(proof.published.artifact.content,document.content))throw error('The approved input differs from its accepted publication and human review.',
+        'PHASE_INPUTS_NOT_READY',{upstreamPhase:id});
+      await observer.bytes(document.content,document.content.bytes,signal);
+      result.push({kind:'approved-input',phase:id,generation:producer.generation,reference:document.content,
+        contract:declarations.filter(item=>(typeof item==='string'?item:item.phase)===id)});
+    }
+    const seen=new Set();
+    const add=async(kind,id,reference)=>{const key=kind+':'+id;if(seen.has(key))return;seen.add(key);
+      await observer.bytes(reference,reference.bytes,signal);result.push({kind,id,reference});};
+    const instruction=async id=>{const found=approved.instructions.find(item=>item.id===id);if(!found)throw error('A pinned instruction dependency is missing.','WFA_DEPENDENCY_UNAVAILABLE',{id});await add('instruction',id,found.body);};
+    const skill=async id=>{const key='skill:'+id;if(seen.has(key))return;const found=approved.skills.find(item=>item.id===id);
+      if(!found)throw error('A pinned skill dependency is missing.','WFA_DEPENDENCY_UNAVAILABLE',{id});await add('skill',id,found.body);
+      for(const child of found.skills)await skill(child);for(const child of found.instructions)await instruction(child);};
+    if(agent.agentId!==null) {
+      const found=approved.agents.find(item=>item.id===agent.agentId);if(!found)throw error('The pinned author resource is missing.','WFA_DEPENDENCY_UNAVAILABLE');
+      await add('agent',found.id,found.body);
+      const activeSkills=found.skillBindings?found.skillBindings.filter(item=>!item.phases.length||item.phases.includes(phase.id)).map(item=>item.id):found.skills;
+      for(const id of activeSkills)await skill(id);for(const id of found.instructions)await instruction(id);
+    }
+    const constitution=w.resolution.constitution;
+    if(constitution?.mode!=='off'&&constitution?.path) {
+      const found=approved.files.find(item=>item.path===constitution.path);
+      if(!found&&constitution.mode==='enforce')throw error('The pinned constitution is unavailable.','WFA_DEPENDENCY_UNAVAILABLE',{path:constitution.path});
+      if(found)await add('constitution',constitution.path,found.body);
+    }
+    return result;
+  }
+  return Object.freeze({read:resources});
+}

@@ -30,6 +30,7 @@ import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phase
 import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
 import {phaseSourceInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult,phaseDeliveryInspectionManifest} from '../kernel/source-changes.mjs';
 import {sourceBaselineRetentionInput,sourceBaselineRetentionResult,phaseSourceControlRetentionResult} from '../kernel/source-changes.mjs';
+import {clarificationOperationInput} from '../kernel/clarification-responses.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -197,12 +198,40 @@ const definitions = [
   {id:'phase.checks.run',version:1,effect:'phase-check-execution',humanDecision:false,authority:'phase.checks.run',
     inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),
     port:'phaseChecks',stages:Object.freeze(['load','retained','prepare','execute','commit','finish']),
-    validate:'phaseChecksInput',execute:'runPhaseChecks'}
+    validate:'phaseChecksInput',execute:'runPhaseChecks'},
+  {id:'clarification.status',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','agentId']),
+    requiredFields:Object.freeze([]),port:'clarificationStatus',stages:Object.freeze(['load','inspect']),validate:'clarificationInput',execute:'inspectClarification'},
+  {id:'clarification.record',version:1,effect:'clarification-record',humanDecision:true,authority:'clarification.record',
+    confirmation:'exact-reviewed-clarification-context',
+    inputFields:Object.freeze(['operationId','workId','phaseId','agentId','contextSha256','responses','replace','reason']),
+    requiredFields:Object.freeze(['operationId','workId','phaseId','contextSha256','responses']),port:'clarificationRecord',
+    stages:WRITE_STAGES,validate:'clarificationInput',execute:'recordClarification'}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function enrollmentInput(value) { return projectEnrollmentInput(data(value)); }
+function clarificationInput(value,operation){return clarificationOperationInput(data(value),operation);}
+function clarificationResult(input,result) {
+  const facts=data(result);
+  if(facts?.subject?.kind!=='story'||typeof facts.subject.id!=='string'||typeof facts.phase!=='string'
+    ||input.workId!==undefined&&input.workId!==facts.subject.id||input.phaseId!==undefined&&input.phaseId!==facts.phase
+    ||!Number.isSafeInteger(facts.generation)||facts.generation<1)throw new SingularityFlowError(
+    'The clarification port returned another Story, phase or generation.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return facts;
+}
+async function inspectClarification(port,input,signal) {
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const facts=clarificationResult(input,await port.inspect(context,input,{signal}));notCancelled(signal);
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'clarification.status',...facts});
+}
+async function recordClarification(port,input,signal) {
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  let accepted=await port.retained(context,input,{signal});notCancelled(signal);
+  if(accepted===null){const prepared=await port.prepare(context,input,{signal});notCancelled(signal);accepted=await port.commit(context,prepared,{signal});}
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'clarification.record',
+    ...clarificationResult(input,await port.finish(context,accepted,{signal:null}))});
+}
 function configurationApprovalInput(value) { return projectConfigurationInput(data(value)); }
 function draftReadInput(value){return phaseDraftReadInput(data(value));}
 function draftMutationInput(value,operation){return phaseDraftMutationInput(data(value),operation);}
@@ -1506,6 +1535,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
+    clarificationInput,inspectClarification,recordClarification,
     sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,

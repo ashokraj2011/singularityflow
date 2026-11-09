@@ -128,7 +128,7 @@ test('a declared runner with insufficient assurance refuses the plan before code
 
 test('specification evidence does not waive a required clarification record',async t=>{
   const f=await namespaceSpecificationFixture(t,{configure:source=>{source.definition.phases.intake.clarification.mode='required';}});
-  await assert.rejects(f.author('intake',specificationText),error=>error.code==='ENGINE_PORT_UNAVAILABLE'&&error.details.required.includes('clarification-record'));
+  await assert.rejects(f.author('intake',specificationText),error=>error.code==='CLARIFICATION_REQUIRED'&&error.details.operation==='clarification.record');
   assert.equal((await f.capture()).workflow.phases.intake.generation,0);
 });
 

@@ -5,6 +5,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
 import {namespaceAnalysisManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE} from './namespace-policy-contract.mjs';
+import {clarificationRecord,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 export function createNamespacePublicationPolicyWriter({observer,content,scope,workId,reader}) {
   const put=content.put.bind(content);
@@ -26,5 +27,12 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
       format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:SPECIFICATION_ANALYSIS_EVIDENCE,record:await save(manifest,signal)});
     return {binding,report};
   }
-  return Object.freeze({retain});
+  async function retainClarification(publication,{snapshot,head,signal}={}) {
+    const value=await reader.clarificationCandidate(publication,snapshot,{signal}),found=value.checkpoint.accepted;
+    const manifest=clarificationRecord('publication',{...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+      basis:{revision:snapshot.revision,head},context:value.context.value,contextSha256:value.context.sha256,observed:value.checkpoint.observed,
+      response:found?{operationId:found.value.operationId,record:found.reference}:null});
+    return namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CLARIFICATION_EVIDENCE,record:await save(manifest,signal)});
+  }
+  return Object.freeze({retain,retainClarification});
 }

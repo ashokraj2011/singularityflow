@@ -1,4 +1,5 @@
 /** Recompute concrete policy evidence from original bytes, policy and accepted history. Read only. */
+import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,admitRecordSchemaVersion,SPECIFICATION_ANALYSIS_REPORT_SCHEMA} from '../foundation/record-schema.mjs';
 import {specificationAnalysisPublicationPolicy} from '../kernel/specification-analysis.mjs';
@@ -6,11 +7,15 @@ import {specificationGateValue,evaluateApprovalChecklist} from '../engine-compat
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
 import {namespaceAnalysisManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE} from './namespace-policy-contract.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
+import {createNamespaceClarificationReader,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
+import {answeredMarkerHashes,resolvedClarificationPolicy} from '../kernel/clarification-responses.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
+const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 
 export function createNamespacePublicationPolicyReader({observer,scope,workId,checks=null}) {
   const verified=new WeakMap();
+  const clarifications=createNamespaceClarificationReader({observer,scope,workId,checks});
   async function json(reference,signal) {
     const bytes=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
@@ -35,9 +40,44 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     const prior=await previous(snapshot,publication.phase,publication.generation,signal),data=await observer.bytes(publication.artifact.content,publication.artifact.content.bytes,signal);
     let text;try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(data);}
     catch(cause){throw error('Specification analysis requires actual UTF-8 artifact bytes.','ARTIFACT_AUTHORING_INCOMPLETE',null,cause);}
+    const clarification=publication.policyEvidence?.find(item=>item.kind===CLARIFICATION_EVIDENCE);
+    const replies=clarification?await verifyClarification(publication,clarification,signal):null;
+    if(resolvedClarificationPolicy(approved.compiled.definition,snapshot.workflow,phase).mode!=='off'&&!clarification)throw error(
+      'Specification analysis needs its actual clarification checkpoint proof.','ENGINE_PORT_UNAVAILABLE',{required:['clarification-record']});
     const gate=specificationGateValue(text,{artifactPath:publication.artifact.sourceKey,phase:publication.phase,generation:publication.generation,
-      policy:selected.quality,markerMode:selected.markerMode,namespace:snapshot.workflow.resolution.spec?.namespace??null,previousMarkers:prior.markers,answers:[]});
+      policy:selected.quality,markerMode:selected.markerMode,namespace:snapshot.workflow.resolution.spec?.namespace??null,previousMarkers:prior.markers,
+      answers:answeredMarkerHashes(replies?.response?.value).map(questionHash=>({questionHash}))});
     return {gate,previous:prior.binding,selected,definition:approved.compiled.definition,workflow:snapshot.workflow};
+  }
+  async function clarificationCandidate(publication,snapshot,{signal}={}) {
+    const context=await clarifications.context({snapshot},publication.phase,{signal,agentId:publication.agentId,validateLocal:false});
+    if(!same(context.value.resources,publication.inputs))throw error('Publication differs from its exact clarification read manifest.','ENGINE_CONTEXT_CHANGED');
+    const checkpoint=await clarifications.checkpoint(context.value,{signal}),state=clarifications.readiness(context.value,checkpoint.accepted?.value??null,publication.authorship.producer);
+    if(!state.ready)throw error('Record the human clarification checkpoint before publishing this generation.','CLARIFICATION_REQUIRED',{
+      phase:publication.phase,generation:publication.generation,contextSha256:context.sha256,errors:state.errors,maxQuestions:context.value.policy.maxQuestions,
+      operation:'clarification.record'});
+    return {context,checkpoint,state};
+  }
+  async function verifyClarification(publication,binding,signal) {
+    namespacePolicyEvidenceBinding(binding);const manifest=clarifications.schema('publication',await json(binding.record,signal));
+    const identity=namespaceSpecificationIdentity(publication),fields=['schemaVersion','format',...Object.keys(identity),'recordedAt','basis','context','contextSha256','observed','response'];
+    if(Object.keys(manifest).length!==fields.length||Object.keys(manifest).some(key=>!fields.includes(key))
+      ||!same(identity,Object.fromEntries(Object.keys(identity).map(key=>[key,manifest[key]])))
+      ||manifest.recordedAt!==publication.publishedAt||manifest.contextSha256!==hashContext(manifest.context)
+      ||manifest.basis.revision!==publication.baseRevision||!same(manifest.basis.head.configuration,publication.configuration)
+      ||manifest.observed.namespace!=='evidence'||manifest.observed.key!==clarifications.key(publication.phase,publication.generation))throw error('The clarification publication has another binding.','ENGINE_STORAGE_CORRUPT');
+    const state=await observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
+      snapshot={revision:manifest.basis.revision,configuration:manifest.configuration,workflow:state.workflow},
+      context=await clarifications.context({snapshot},publication.phase,{signal,agentId:publication.agentId,validateLocal:false});
+    if(context.sha256!==manifest.contextSha256||!same(context.value,manifest.context)||!same(publication.inputs,context.value.resources))throw error(
+      'The clarification context does not replay from its original inputs.','ENGINE_STORAGE_CORRUPT');
+    const response=manifest.response?await clarifications.accepted(manifest.response.operationId,{signal}):null;
+    if(manifest.response?(!response||!same(response.reference,manifest.response.record)
+      ||response.receipt.records.find(item=>item.namespace==='evidence'&&item.key===manifest.observed.key)?.version!==manifest.observed.version)
+      :manifest.observed.version!==null)throw error('The clarification record was not the observed accepted checkpoint.','ENGINE_STORAGE_CORRUPT');
+    const readiness=clarifications.readiness(context.value,response?.value??null,publication.authorship.producer);
+    if(!readiness.ready)throw error('The retained publication has an incomplete clarification checkpoint.','ENGINE_STORAGE_CORRUPT');
+    return {binding,manifest,response};
   }
   async function verify(publication,{signal}={}) {
     if(!publication.policyEvidence)return;
@@ -45,6 +85,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     const values=[];
     for(const binding of publication.policyEvidence) {
       namespacePolicyEvidenceBinding(binding);
+      if(binding.kind===CLARIFICATION_EVIDENCE){values.push(await verifyClarification(publication,binding,signal));continue;}
       if(binding.kind!==SPECIFICATION_ANALYSIS_EVIDENCE)throw error('This policy-evidence contract needs its matching reader.','ENGINE_STORAGE_UNSUPPORTED',{kind:binding.kind});
       const manifest=namespaceAnalysisManifest(await json(binding.record,signal),{scope,workId,phaseId:publication.phase});
       if(!same(namespaceSpecificationIdentity(publication),Object.fromEntries(Object.keys(namespaceSpecificationIdentity(publication)).map(key=>[key,manifest[key]])))
@@ -65,14 +106,18 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     verified.set(publication,{identity,values});
   }
   function proofs(publication) {const found=verified.get(publication);return found&&found.identity===canonicalJson(publication)?found.values:[];}
-  function owners(publication) {return proofs(publication).length?['specification-analysis']:[];}
-  function evidence(publication) {return proofs(publication).flatMap(value=>[value.binding.record,value.manifest.report,...(value.manifest.previous?[value.manifest.previous.record]:[])]).map(value=>({...value}));}
-  function resources(publication) {return proofs(publication).map(value=>({kind:'specification-analysis',reference:{...value.manifest.report}}));}
+  function owners(publication) {return proofs(publication).map(value=>value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis');}
+  function evidence(publication) {return proofs(publication).flatMap(value=>value.binding.kind===CLARIFICATION_EVIDENCE
+    ?[value.binding.record,...(value.response?[value.response.reference]:[])]:[value.binding.record,value.manifest.report,...(value.manifest.previous?[value.manifest.previous.record]:[])]).map(value=>({...value}));}
+  function resources(publication) {return proofs(publication).map(value=>({kind:value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
+    reference:{...(value.binding.kind===CLARIFICATION_EVIDENCE?value.response?.reference??value.binding.record:value.manifest.report)}}));}
+  function readBindings(publication) {return proofs(publication).filter(value=>value.binding.kind===CLARIFICATION_EVIDENCE).map(value=>({...value.manifest.observed}));}
   function verifyPlan(publication,plan) {
     if(!publication.policyEvidence)return;
     const values=proofs(publication);
     if(values.length!==publication.policyEvidence.length||values.some(value=>value.manifest.basis.revision!==plan.basis.headVersion
-      ||!same(value.manifest.basis.head,plan.basis.head))||!evidence(publication).every(ref=>plan.evidence.some(item=>same(item,ref))))throw error(
+      ||!same(value.manifest.basis.head,plan.basis.head))||!evidence(publication).every(ref=>plan.evidence.some(item=>same(item,ref)))
+      ||!readBindings(publication).every(row=>plan.readBindings?.some(item=>same(item,row))))throw error(
       'Policy evidence was not conditionally accepted against its original lifecycle basis.','ENGINE_STORAGE_CORRUPT');
   }
   function checklist(publication,actor,decisions=[]) {
@@ -80,5 +125,5 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     return {evidence:structuredClone(value.binding),result:evaluateApprovalChecklist({policy:value.selected.quality,decisions,
       authorities:value.definition.approvalAuthorities,actor:actor.identity})};
   }
-  return Object.freeze({candidate,verify,owners,evidence,resources,verifyPlan,checklist});
+  return Object.freeze({candidate,clarificationCandidate,verify,owners,evidence,resources,readBindings,verifyPlan,checklist});
 }

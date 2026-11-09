@@ -69,7 +69,7 @@ async function repository({ withEnvironmentDeclaration = false } = {}) {
       ''
     ].join('\n'));
   }
-  run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
+  run('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root); run('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
   run('git', ['init', '--bare', '-b', 'main', remote], root);
   run('git', ['remote', 'add', 'origin', remote], root);

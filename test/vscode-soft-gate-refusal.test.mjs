@@ -34,7 +34,7 @@ async function storyPastIntake() {
   // storage, so this fixture approves the older policy that also allows Git.
   config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
+  run('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root); run('git', ['commit', '-m', 'initialize'], root);
   run('git', ['init', '--bare', '-b', 'main', `${root}.git`], root); run('git', ['remote', 'add', 'origin', `${root}.git`], root); run('git', ['push', '-u', 'origin', 'main'], root);
   run(process.execPath, [bin, 'start', 'GATE-1', '--from-branch', 'main', '--title', 'Late uploads'], root);
   const itemDirectory = path.join(root, 'singularity/work-items/GATE-1');

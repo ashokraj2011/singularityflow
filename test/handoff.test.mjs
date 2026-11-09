@@ -59,7 +59,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
   for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'singularity', '.github/agents'], first);
+  run('git', ['add', 'singularity', '.github/agents', '.github/hooks'], first);
   run('git', ['commit', '-m', 'configure workflow'], first);
   run('git', ['push', '-u', 'origin', 'main'], first);
   run('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);

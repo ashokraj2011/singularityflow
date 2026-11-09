@@ -38,7 +38,7 @@ async function repository() {
   // These fixtures exercise supporting documents, not the pre-Story test-readiness gate.
   config.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'README.md', 'singularity', '.github/agents'], root); run('git', ['commit', '-m', 'initialize'], root);
+  run('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root); run('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
   run('git', ['init', '--bare', '-b', 'main', remote], root);
   run('git', ['remote', 'add', 'origin', remote], root);

@@ -163,6 +163,11 @@ table by that step's approvers. "Still holds" binds the step's input record to t
 carries its evidence across the revision; "return" is the ordinary return (the report's own is a return for a new
 report). Any other intent amendment reopens the later steps, as before.
 
+Built 2026-11-09 (owner answer: show the name). A revalidation record keeps the person's name beside its actor key
+(record family `amendment-revalidation` v2), and every place carried evidence is shown names that person: the
+decide card, the approval page, the Copilot CLI table, the terminal approval preview, the stored approval's carried
+section and the evidence matrix. A record written before (v1) has no name and is shown by its actor key.
+
 ## M3 One decisions list `[SCS:REQ-030]`
 
 - `[SCS:REQ-030]` Convergence items appear in the decisions list as kind `convergence-item`, with

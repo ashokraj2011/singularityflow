@@ -37,7 +37,7 @@ async function repository() {
   config.git.publish = 'off';
   config.worldModel.grounding = 'off';
   await writeFile(configPath, YAML.stringify(config));
-  git(root, 'add', 'README.md', 'singularity', '.github/agents');
+  git(root, 'add', 'README.md', 'singularity', '.github/agents', '.github/hooks');
   git(root, 'commit', '-m', 'initialize');
   const remote = `${root}.git`;
   git(root, 'init', '--bare', '-b', 'main', remote);

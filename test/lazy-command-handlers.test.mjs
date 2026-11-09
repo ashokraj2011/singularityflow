@@ -513,7 +513,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,667,100 (measured 9,667,077, commands/phase-lifecycle.mjs): the quality gate reads the last code step's approval as
     // the approval does (state.mjs +146), and readiness says an inspection holds it (owed-decisions.mjs +88) [PHR:REQ-002].
     // No new eager file.
-    assert.ok(closure.bytes <= 9_667_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,667,450 (measured 9,667,430, commands/phase-lifecycle.mjs): a convergence step after the last code step keeps the
+    // coverage gaps it adjudicates (state.mjs +353) [PHR:REQ-002]. No new eager file.
+    assert.ok(closure.bytes <= 9_667_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -2058,8 +2058,11 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
   if (coverage.complete) return coverage;
   // Recorded coverage is told what a qualified ending refuses: all of this but unclaimed paths. For a
   // Story that pinned the owner-step checks, the last code step's approval refuses it instead, while
-  // its author can still deliver it [PHR:REQ-002], finding 13; submission is told so.
-  const ownerCheck = enforcement === 'qualified-ending' && ownerStepChecks(workflow);
+  // its author can still deliver it [PHR:REQ-002], finding 13; submission is told so. A convergence
+  // step after it is where people adjudicate exactly these gaps, so a route with one keeps them there.
+  const convergesLater = (workflow.phaseOrder ?? []).slice((workflow.phaseOrder ?? []).indexOf(phase.id) + 1)
+    .some((id) => isConvergencePhase(workflow.phases?.[id]) && workflow.phases[id].status !== 'skipped');
+  const ownerCheck = enforcement === 'qualified-ending' && ownerStepChecks(workflow) && !convergesLater;
   if (enforcement !== 'enforce') {
     // A person's accepted implementation risk carries its clause, as the ending reads it.
     const accepted = ownerCheck ? (await import('./evidence/risk-decisions.mjs')).acceptedImplementationClauses(workflow) : new Set();

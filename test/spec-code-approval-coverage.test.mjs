@@ -578,9 +578,16 @@ test('[PHR:REQ-002] finding 13: under recorded coverage the last code step\'s ap
   // A person's accepted implementation risk carries the clause, as the ending reads it.
   workflow.riskDecisions = [{ id: 'RISK-001', obligationId: 'OBL:COVER-1:implement:REQ-002', category: 'scope', expiresAt: '2999-01-01T00:00:00.000Z', transitions: ['terminal'] }];
   assert.equal((await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision)).complete, false, 'excepted, never satisfied');
+  // A convergence step after it is where people adjudicate these gaps: the code step is told, never held.
+  workflow.riskDecisions = [];
+  workflow.phaseOrder = [...workflow.phaseOrder, 'convergence'];
+  workflow.phases.convergence = { id: 'convergence', status: 'not_started', generation: 0, requiredArtifact: { kind: 'convergence-report' } };
+  assert.deepEqual((await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision)).advisory,
+    ["clause COVER-1:REQ-002 is not fully implemented; this Story's ending refuses it unless a later step corrects it"]);
+  workflow.phaseOrder = workflow.phaseOrder.filter((id) => id !== 'convergence');
+  delete workflow.phases.convergence;
   // A Story started before the check keeps its policy: told, never refused, and its ending judges it.
   delete workflow.resolution.phaseResponsibility;
-  workflow.riskDecisions = [];
   assert.deepEqual((await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision)).advisory,
     ["clause COVER-1:REQ-002 is not fully implemented; this Story's ending refuses it unless a later step corrects it"]);
 });

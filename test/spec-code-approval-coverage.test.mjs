@@ -318,10 +318,13 @@ test('a clause an open upstream issue names waits on that decision, never on mor
   assert.equal(partial.details.upstreamDecision.complete, false);
   assert.equal(partial.details.nextAction, undefined, 'the coder still delivers the other clause first');
   assert.match(partial.message, /those clauses wait only on that decision[^;]*; deliver the others/u);
-  // A decided issue settles the clause it names: it is never thrown back at the coder [PHR:REQ-003].
+  // A dismissed issue no longer holds the clause: the plan stands, so it is the coder's again.
   workflow.upstreamIssueDecisions = [{ issue: 'UPI-001', outcome: 'dismiss' }];
+  assert.equal((await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate(['src/first.mjs'])).catch((error) => error)).details.upstreamDecision, undefined);
+  // An accepted risk settles the clause it names: it is never thrown back at the coder [PHR:REQ-003].
+  workflow.upstreamIssueDecisions = [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }];
   const settled = await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate(['src/first.mjs']));
-  assert.deepEqual(settled.settledByUpstreamIssue.map((entry) => [entry.clauseId, entry.issue, entry.outcome]), [['COVER-1:REQ-002', 'UPI-001', 'dismiss']]);
+  assert.deepEqual(settled.settledByUpstreamIssue.map((entry) => [entry.clauseId, entry.issue, entry.outcome]), [['COVER-1:REQ-002', 'UPI-001', 'accept-risk']]);
   assert.equal(settled.complete, true);
   // A clause it does not name is still the coder's, with the plan's own corrections beside it.
   const own = await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate([])).catch((error) => error);
@@ -349,7 +352,7 @@ test('[PHR:REQ-003] code approval applies the publication check\'s upstream rout
   assert.equal(waiting.details.nextAction.command, 'singularity-flow decisions COVER-1 --json');
   assert.equal(waiting.details.planCorrections, undefined, 'the decision list is the way through');
   assert.match(waiting.message, /every clause listed here waits on that decision by planning's approvers, not on this step's code/u);
-  // Decided: accept-risk or dismiss settles it, so the step can be approved as delivered.
+  // Decided with an accepted risk: it is settled, so the step can be approved as delivered. A dismissal would leave it owed.
   workflow.upstreamIssueDecisions = [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }];
   const settled = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision);
   assert.equal(settled.complete, true);

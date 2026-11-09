@@ -315,7 +315,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     return adequacy.get(witnessMappingSha256(witnessMappingCore(entry.witness, { clauseBodySha256: clauseBodies.get(id), contract }))) ?? null;
   };
 
-  // A clause an upstream issue's decision settled (accept-risk, unexpired, or dismiss): its approvers
+  // A clause an upstream issue's decision settled (an unexpired accepted risk; a dismissal leaves it owed): its approvers
   // decided the row, so it no longer blocks, as a decided conformance gap does not [PHR:REQ-003].
   const settledByIssue = new Map(settledUpstreamClauses(workflow, null, clauses.map((clause) => clause.id), { now: at })
     .map((entry) => [String(entry.clauseId).toUpperCase(), entry]));

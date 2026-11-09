@@ -480,7 +480,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,647,900 (measured 9,647,872, commands/phase-lifecycle.mjs): a required after-step delivery holds only the Story's
     // ending; later steps are told (step-action-receipts.mjs +1424, step-actions.mjs +534, state.mjs +428,
     // phase-publication-readiness.mjs +210, submission-readiness.mjs +58) [PHR:REQ-003]. No new eager file.
-    assert.ok(closure.bytes <= 9_647_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,648,050 (measured 9,648,023, commands/phase-lifecycle.mjs): only an accepted risk settles a later obligation; why a
+    // dismissal does not is said where the settlement is read (upstream-routes.mjs +151) [PHR:REQ-003]. No new eager file.
+    assert.ok(closure.bytes <= 9_648_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -27,8 +27,11 @@ owners.
     step's correction: `decision plan`, an intent amendment, `reject --to <owner> --repair`, or a revalidation.
   - **While an issue is open.** While an open upstream issue names every row behind a refusal, the hold is
     "someone decides", and the decision list leads. This is the `SPEC_COVERAGE_INCOMPLETE` pattern from 1f68d7b6c.
-  - **Once it is decided.** An upstream issue decided `accept-risk` or `dismiss` settles the later obligation it names.
-    It is never re-raised against the current author.
+  - **Once it is decided.** An upstream issue decided `accept-risk` settles the later obligation it names, until
+    its date. It is never re-raised against the current author.
+    - A `dismiss` settles nothing: it says the earlier step's output is right, so what the later step owes stands, and
+      its refusal no longer waits on the issue (decided 2026-11-10, from batch 1's review).
+    - A conformance gap keeps its own dismissal, "the gap is not real".
 - `[PHR:REQ-004]` **Holds point the right way.** An approval hold's route uses the refusal's own `repairCommand`,
   `upstreamPhase` or `gate.actions` before it falls back to rejecting the current step to itself.
 - `[PHR:REQ-005]` **A ratchet keeps it true.**
@@ -47,7 +50,7 @@ Ranked by how likely a real Story meets them.
    that code publish does (spec-coverage-preview.mjs ~28-36), and a decided issue does not settle it.
    - Name `decision plan --replace-location / --remove-location / --replace-test` and the upstream issue.
    - Apply 1f68d7b6c on every path.
-   - Treat a decided `accept-risk` or `dismiss` issue like a decided conformance gap.
+   - Treat a decided `accept-risk` issue like a decided conformance gap; a dismissal leaves the clause owed.
 2. `SPEC_VERIFICATION_INTENT_INVALID` at planning (intent.mjs ~113-143; phase-prepublish.mjs ~229-236). Plan-row syntax
    and "the plan does not meet the approved intent" share one code, and both are filed as the planner's.
    - Split out the plan's own row errors.

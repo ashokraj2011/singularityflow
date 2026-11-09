@@ -121,21 +121,21 @@ function codeStory(issues = [], decisions = []) {
 test('[PHR:REQ-003] a coverage gap at code submission and approval: a decided issue settles its clause, an open one waits, and the plan\'s corrections are named', () => {
   const issue = { id: 'UPI-001', phase: 'planning', about: 'US-1:REQ-002', problem: 'The plan puts it in the wrong module.' };
   const later = '2999-01-01T00:00:00.000Z';
-  // Decided: accept-risk (unexpired) or dismiss settles the clause it names; nothing else.
-  for (const outcome of ['accept-risk', 'dismiss']) {
-    const workflow = codeStory([issue], [{ issue: 'UPI-001', outcome, ...(outcome === 'accept-risk' ? { expiresAt: later } : {}) }]);
-    assert.deepEqual(settledUpstreamClauses(workflow, 'implementation', ['US-1:REQ-001', 'US-1:REQ-002']).map((entry) => [entry.clauseId, entry.issue, entry.outcome]),
-      [['US-1:REQ-002', 'UPI-001', outcome]]);
-  }
+  // Decided: an unexpired accepted risk settles the clause it names; nothing else.
+  const accepted = codeStory([issue], [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: later }]);
+  assert.deepEqual(settledUpstreamClauses(accepted, 'implementation', ['US-1:REQ-001', 'US-1:REQ-002']).map((entry) => [entry.clauseId, entry.issue, entry.outcome]),
+    [['US-1:REQ-002', 'UPI-001', 'accept-risk']]);
+  // A dismissal says the plan is right, so the clause is still the coder's to deliver as planned.
+  assert.deepEqual(settledUpstreamClauses(codeStory([issue], [{ issue: 'UPI-001', outcome: 'dismiss' }]), 'implementation', ['US-1:REQ-002']), []);
   // An expired risk, a return or an open issue settles nothing; nor does an issue against a later step.
   assert.deepEqual(settledUpstreamClauses(codeStory([issue], [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2000-01-01T00:00:00.000Z' }]), 'implementation', ['US-1:REQ-002']), []);
   assert.deepEqual(settledUpstreamClauses(codeStory([issue], [{ issue: 'UPI-001', outcome: 'return' }]), 'implementation', ['US-1:REQ-002']), []);
   assert.deepEqual(settledUpstreamClauses(codeStory([issue]), 'implementation', ['US-1:REQ-002']), []);
-  assert.deepEqual(settledUpstreamClauses(codeStory([{ ...issue, phase: 'verification' }], [{ issue: 'UPI-001', outcome: 'dismiss' }]), 'implementation', ['US-1:REQ-002']), []);
+  assert.deepEqual(settledUpstreamClauses(codeStory([{ ...issue, phase: 'verification' }], [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: later }]), 'implementation', ['US-1:REQ-002']), []);
 
   // The settled clause leaves the coverage the refusal reads; with nothing else open it is complete.
   const coverage = { unimplemented: ['US-1:REQ-002'], unclaimedChangedPaths: [], withdrawnButClaimed: [], invalidEvidence: [], complete: false, severity: 'error' };
-  const settled = withoutSettledClauses(coverage, [{ clauseId: 'US-1:REQ-002', issue: 'UPI-001', outcome: 'dismiss' }]);
+  const settled = withoutSettledClauses(coverage, [{ clauseId: 'US-1:REQ-002', issue: 'UPI-001', outcome: 'accept-risk' }]);
   assert.deepEqual([settled.complete, settled.severity, settled.unimplemented], [true, 'pass', []]);
   assert.equal(withoutSettledClauses({ ...coverage, unimplemented: ['US-1:REQ-001', 'US-1:REQ-002'] }, [{ clauseId: 'US-1:REQ-002' }]).complete, false);
 
@@ -203,18 +203,19 @@ test('[PHR:REQ-003] at the end of the Story a decided upstream issue settles its
   const plain = ending();
   assert.equal(plain.evaluation.decision.gate, 'block');
   assert.equal(plain.row(plain.AC2).obligations.find((entry) => entry.responsibility === 'implement').status, 'missing');
-  // Decided (dismiss, or an unexpired accepted risk): the row is settled, shown as that decision, never as met.
-  for (const decision of [{ issue: 'UPI-001', outcome: 'dismiss' }, { issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }]) {
+  // Decided with an unexpired accepted risk: the row is settled, shown as that decision, never as met.
+  for (const decision of [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }]) {
     const decided = ending({ issues: [issue], decisions: [decision] });
     const implement = decided.row(decided.AC2).obligations.find((entry) => entry.responsibility === 'implement');
     assert.deepEqual([implement.status, implement.facets.exception, implement.upstreamDecision.issue, implement.upstreamDecision.outcome],
       ['excepted', 'upstream-decision', 'UPI-001', decision.outcome]);
     assert.notEqual(decided.evaluation.decision.gate, 'block');
   }
-  // An expired risk, a return, or an issue that names another clause settles nothing.
+  // A dismissal (the earlier output is right), an expired risk, a return, or an issue that names another clause settles nothing.
+  assert.equal(ending({ issues: [issue], decisions: [{ issue: 'UPI-001', outcome: 'dismiss' }] }).evaluation.decision.gate, 'block');
   assert.equal(ending({ issues: [issue], decisions: [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2000-01-01T00:00:00.000Z' }] }).evaluation.decision.gate, 'block');
   assert.equal(ending({ issues: [issue], decisions: [{ issue: 'UPI-001', outcome: 'return' }] }).evaluation.decision.gate, 'block');
-  assert.equal(ending({ issues: [{ ...issue, about: 'END-1:AC-001', problem: 'The first criterion is worded loosely.' }], decisions: [{ issue: 'UPI-001', outcome: 'dismiss' }] }).evaluation.decision.gate, 'block');
+  assert.equal(ending({ issues: [{ ...issue, about: 'END-1:AC-001', problem: 'The first criterion is worded loosely.' }], decisions: [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }] }).evaluation.decision.gate, 'block');
 
   // Open, naming every blocking row: those blockers wait on its decision, so the last step's submission defers them.
   const open = ending({ issues: [issue] });

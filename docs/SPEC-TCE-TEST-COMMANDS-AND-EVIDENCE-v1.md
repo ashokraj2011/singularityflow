@@ -129,7 +129,10 @@ still fill an uncovered module, and that command is pinned on first use.
   (the file, the version asked for, the outcome and the version found).
 - `[TCE:REQ-034]` Test process groups are registered with a reaper that ends them when the CLI exits
   or is interrupted, as Git child groups already are; a descendant holding output open no longer
-  stalls a run for its whole timeout.
+  stalls a run for its whole timeout. A run that stops its command (a deadline, a cancel, a failed
+  output file) reports only once nothing of the command's group is left: a descendant that holds no
+  output and trapped SIGTERM, or was forked as it went out, is ended with SIGKILL once the command
+  closed. Every other runner that stops a child group does the same.
 
 ### M3 Pinning `[TCE:REQ-010]`
 

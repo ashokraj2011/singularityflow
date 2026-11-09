@@ -123,7 +123,9 @@ async function runLocalGitBytesImpl(executable, args, {
     };
     const onClose = (code, terminationSignal) => {
       if (boundary) {
-        Promise.allSettled([...cleanupAttempts]).then(() => finish(code, terminationSignal));
+        // One SIGKILL misses a process forked while it went out: the group is swept until it is gone.
+        const ended = import('./git-child-groups.mjs').then((groups) => groups.endStoppedProcessGroup(child));
+        Promise.allSettled([...cleanupAttempts, ended]).then(() => finish(code, terminationSignal));
       } else finish(code, terminationSignal);
     };
     const onAbort = () => terminate('abort');

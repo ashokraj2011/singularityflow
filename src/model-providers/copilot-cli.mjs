@@ -1113,10 +1113,13 @@ async function openCopilotAcp(request, runtimeOverrides = {}) {
     expectedExit = true;
     child.stdin?.end();
     await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
+    // A process still running once its input ended is stopped, and what is left of its group with it.
+    const stopped = child.exitCode == null && child.signalCode == null;
     const softSignalled = terminateAcpProcess(child, false, runtime);
     await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
     const forceSignalled = terminateAcpProcess(child, true, runtime);
     const ended = await Promise.race([exit, new Promise((resolve) => setTimeout(() => resolve({ status: null, signal: 'SIGKILL' }), 1000))]);
+    if (stopped) await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child, { platform: runtime.platform });
     // Flush a trailing split UTF-8 diagnostic in the ordinary successful-exit path too. The
     // unexpected-exit handler already does this; StringDecoder.end() is safe to call again.
     stderr += stderrDecoder.end();
@@ -1426,6 +1429,8 @@ async function invokeCopilotAttachment(request, runtimeOverrides = {}) {
       if (finished) return;
       finished = true;
       cleanup();
+      // A stopped invocation is reported once nothing of its group is left, not when its pipes close.
+      if (failure) await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child, { platform: runtime.platform });
       if (terminationTimer) clearTimeout(terminationTimer);
       stdout += stdoutDecoder.end();
       stderr += stderrDecoder.end();

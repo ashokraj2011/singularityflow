@@ -206,7 +206,7 @@ async function stopChild(child, force, {
     const [treeTerminated, childClosed] = await Promise.all([
       signalTree('SIGKILL', boundedTimeoutMs), closed
     ]);
-    return treeTerminated && childClosed;
+    return treeTerminated && childClosed && await (await import('./git-child-groups.mjs')).endStoppedProcessGroup(child);
   }
 
   try { child.stdin?.end?.(); } catch { /* The child may already have exited. */ }
@@ -218,7 +218,8 @@ async function stopChild(child, force, {
   if (natural) return true;
   const graceful = signalTree('SIGTERM', Math.max(1, boundedTimeoutMs - 1_000));
   const [treeTerminated, childClosed] = await Promise.all([graceful, closed]);
-  if (treeTerminated && childClosed) return true;
+  // Git's own close is not the end of its group: a stopped worker's group is ended before cleanup counts.
+  if (treeTerminated && childClosed) return (await import('./git-child-groups.mjs')).endStoppedProcessGroup(child);
   // A failed or late graceful cleanup is never called verified. Make one bounded force attempt so
   // disposal is still best-effort, then retain the false result for the caller's recovery gate.
   await signalTree('SIGKILL', Math.max(1, Math.min(1_000, boundedTimeoutMs)));

@@ -1232,8 +1232,10 @@ async function runBoundedCommand(command, cwd, { timeoutMs, signal }) {
     let overflow = false;
     let timedOut = false;
     let forceTimer = null;
+    let stopped = false;
     const terminate = () => {
       if (child.exitCode !== null || child.signalCode !== null) return;
+      stopped = true;
       if (process.platform === 'win32' && child.pid) {
         if (!tryWindowsTaskkill(child.pid, {
           environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
@@ -1269,10 +1271,12 @@ async function runBoundedCommand(command, cwd, { timeoutMs, signal }) {
     const abort = () => terminate();
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) terminate();
-    child.on('close', (code, terminationSignal) => {
+    child.on('close', async (code, terminationSignal) => {
       clearTimeout(timer);
-      if (forceTimer) clearTimeout(forceTimer);
       signal?.removeEventListener('abort', abort);
+      // A stopped command is reported once nothing of its group is left, not when its pipes close.
+      if (stopped) await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child);
+      if (forceTimer) clearTimeout(forceTimer);
       const output = Buffer.concat(chunks);
       resolve({
         status: code ?? 1, signal: terminationSignal ?? null, timedOut,

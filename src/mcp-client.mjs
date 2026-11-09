@@ -179,10 +179,13 @@ async function openStdioSession(transport, { timeoutMs, maxBytes, spawnImpl = sp
         closedWaiters.add(done);
       }));
       if (await waitClosed(300)) return;
+      // A server still running once its input ended is stopped, and what is left of its group with it.
       await signalProcessTree(child, 'SIGTERM').catch(() => false);
-      if (await waitClosed(1000)) return;
-      await signalProcessTree(child, 'SIGKILL').catch(() => false);
-      await waitClosed(1000);
+      if (!await waitClosed(1000)) {
+        await signalProcessTree(child, 'SIGKILL').catch(() => false);
+        await waitClosed(1000);
+      }
+      await (await import('./git-child-groups.mjs')).endStoppedProcessGroup(child);
     }
   };
 }

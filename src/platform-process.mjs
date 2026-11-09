@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { ChildProcess, spawnSync } from 'node:child_process';
 import { lstatSync, realpathSync, closeSync, mkdirSync, mkdtempSync, openSync, rmdirSync, unlinkSync } from 'node:fs';
 import os from 'node:os';
 import { gitHostSearchDirectories, isAppleDeveloperGit } from './git-host-selection.mjs';
@@ -294,6 +294,9 @@ export function tryWindowsTaskkill(pid, {
     return false;
   }
 }
+
+/** A process this CLI started, not a test double: only a real child's pid names a process group. */
+export const isSpawnedChild = (child) => child instanceof ChildProcess;
 
 function resolveWindowsLocalExecutable(command, cwd, lstatSyncCommand, realpathSyncCommand) {
   if (typeof cwd !== 'string' || !isFullyQualifiedWindowsPath(cwd)) {

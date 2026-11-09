@@ -164,6 +164,7 @@ export async function runQualityCommand(command, args = [], {
     let aborted = signal?.aborted === true;
     let error = null;
     let settled = false;
+    let stopped = false;
     let exited = false;
     let lingerTimer = null;
     let groupTracking = null;
@@ -186,6 +187,13 @@ export async function runQualityCommand(command, args = [], {
       }
       child.kill(terminationSignal);
     };
+    // A deadline, a cancel or a failed output file stops the command: SIGTERM to its group, and
+    // SIGKILL to what is left 2 s later.
+    const stop = () => {
+      stopped = true;
+      terminate('SIGTERM');
+      hardKillTimer ??= setTimeout(() => terminate('SIGKILL'), 2_000);
+    };
     if (aborted) {
       resolve({ status: 1, signal: null, error: null, timedOut: false, aborted: true, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false });
       return;
@@ -195,7 +203,7 @@ export async function runQualityCommand(command, args = [], {
       stdoutStream?.on('error', (caught) => {
         streamError = caught;
         error ??= caught;
-        terminate('SIGTERM');
+        stop();
       });
       // Legacy string commands deliberately retain their explicit shell contract. Argv-form
       // commands stay shell-free; only the known Windows npm/npx batch shims receive the narrow,
@@ -251,8 +259,7 @@ export async function runQualityCommand(command, args = [], {
         timeoutDecisionTimer = null;
         if (settled || exited) return;
         timedOut = true;
-        terminate('SIGTERM');
-        hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
+        stop();
       }, 0);
     }, timeoutMs);
     const onAbort = () => {
@@ -261,19 +268,23 @@ export async function runQualityCommand(command, args = [], {
       timer = null;
       if (timeoutDecisionTimer) clearTimeout(timeoutDecisionTimer);
       timeoutDecisionTimer = null;
-      terminate('SIGTERM');
-      hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
+      stop();
     };
     signal?.addEventListener('abort', onAbort, { once: true });
-    child.on('close', (code, terminationSignal) => {
+    child.on('close', async (code, terminationSignal) => {
       if (settled) return;
-      settled = true;
       if (timer) clearTimeout(timer);
       if (timeoutDecisionTimer) clearTimeout(timeoutDecisionTimer);
+      signal?.removeEventListener?.('abort', onAbort);
+      // `close` proves only that the command's own pipes closed. A command this run stopped is
+      // reported once nothing of its group is left: a descendant holding no pipe that trapped the
+      // SIGTERM, or was forked as it went out, would otherwise go on running after the report [TCE:REQ-034].
+      if (stopped && killTree) await (groupsModule ??= import('./git-child-groups.mjs'))
+        .then((groups) => groups.endStoppedProcessGroup(child, { platform }), () => null);
+      settled = true;
       if (hardKillTimer) clearTimeout(hardKillTimer);
       clearTimeout(lingerTimer);
       groupTracking?.then((untrack) => untrack?.());
-      signal?.removeEventListener?.('abort', onAbort);
       if (stdoutRedactor) emitStdout(Buffer.from(stdoutRedactor.end()));
       if (stderrRedactor) {
         const rest = Buffer.from(stderrRedactor.end());

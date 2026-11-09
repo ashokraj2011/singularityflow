@@ -583,8 +583,10 @@ export function createGenericProcessExecutionUnit(manifest, {
       let overflow = false;
       let timedOut = false;
       let forceTimer = null;
+      let stopped = false;
       const terminate = () => {
         if (child.exitCode !== null || child.signalCode !== null) return;
+        stopped = true;
         if (process.platform === 'win32' && child.pid) {
           if (!tryWindowsTaskkill(child.pid, {
             environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
@@ -619,9 +621,11 @@ export function createGenericProcessExecutionUnit(manifest, {
       runtime.signal.addEventListener('abort', stop, { once: true });
       const timer = setTimeout(() => { timedOut = true; terminate(); },
         contract.budgets.activeMinutes * 60_000);
-      child.on('close', (status, signal) => {
+      child.on('close', async (status, signal) => {
         runtime.signal.removeEventListener('abort', stop);
         clearTimeout(timer);
+        // A stopped unit is reported once nothing of its group is left, not when its pipes close.
+        if (stopped) await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child);
         if (forceTimer) clearTimeout(forceTimer);
         resolve({
           status: status ?? 1, signal, overflow, timedOut,

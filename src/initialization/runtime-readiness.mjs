@@ -716,7 +716,9 @@ async function defaultRunCommand(command, {
       cleanup();
       resolve(result);
     };
+    let stopped = false;
     const terminate = async (terminationSignal) => {
+      stopped = true;
       await terminateTree(child, terminationSignal, { platform, environment }).catch(() => false);
     };
     const forceSettlement = (result) => {
@@ -760,10 +762,14 @@ async function defaultRunCommand(command, {
       cleanup();
       reject(error);
     });
-    child.once('close', (code, childSignal) => {
+    child.once('close', async (code, childSignal) => {
       if (settled) return;
+      // A stopped smoke run quiesced only once nothing of its group is left, not when its pipes close.
+      const quiescent = !stopped || await (await import('../git-child-groups.mjs')).endStoppedProcessGroup(child, { platform });
       if (command.mode === 'launch-survival') {
-        finish(survived
+        finish(survived && !quiescent
+          ? summary('failed', { exitCode: code, signal: childSignal, reason: 'process-tree-not-quiescent' })
+          : survived
           ? summary('pass', { exitCode: code, signal: childSignal, reason: 'launch-survived' })
           : summary('failed', { exitCode: code, signal: childSignal, reason: 'start-exited-before-survival' }));
       } else {

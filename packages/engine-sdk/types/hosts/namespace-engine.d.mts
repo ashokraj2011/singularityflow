@@ -3,8 +3,9 @@ import type {NamespaceStore,NamespaceScope} from '../namespace.mjs';
 import type {ContentStore} from '../content.mjs';
 import type {SourceUnit} from '../source.mjs';
 import type {NamespaceStoryAccessFacts} from './namespace-story.mjs';
+import type {NamespaceChecksBindings} from './namespace-checks.mjs';
 export type NamespaceAccessOperation='project.enroll'|'configuration.approve'|'story.create'|'source.bind'|
-  'phase.prepare'|'phase.draft.read'|'phase.draft.write'|'phase.draft.rebase'|'phase.publish'|'phase.submit'|'phase.approve'|'decision.choose';
+  'phase.prepare'|'phase.draft.read'|'phase.draft.write'|'phase.draft.rebase'|'phase.publish'|'phase.submit'|'phase.approve'|'decision.choose'|'phase.checks.run';
 export interface NamespaceEngineAccess {
   current(request:{readonly projectId:string;readonly workId?:string;readonly operation:NamespaceAccessOperation;readonly signal?:AbortSignal|null}):
     (NamespaceStoryAccessFacts&{readonly agentId:string|null})|Promise<NamespaceStoryAccessFacts&{readonly agentId:string|null}>;
@@ -18,5 +19,6 @@ export interface NamespaceEngineOptions {
   /** Optional local attachment store, distinct from the private draft store if supplied. */
   readonly localContent?:ContentStore|null;readonly sources?:readonly SourceUnit[];readonly modelEnabled?:boolean;
   readonly notice?:(notice:unknown)=>unknown;
+  readonly checks?:NamespaceChecksBindings;
 }
 export declare function createNamespaceEngine(options:NamespaceEngineOptions):Engine;

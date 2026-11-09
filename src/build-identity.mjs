@@ -53,7 +53,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/adhoc-policy.mjs',
   'kernel/mcp-policy.mjs',
   'kernel/step-action-policy.mjs',
-  'kernel/test-report-codec.mjs','verification/test-report-reader.mjs','test-runtime.mjs',
+  'kernel/test-report-codec.mjs','kernel/phase-checks.mjs','verification/test-report-reader.mjs','test-runtime.mjs',
   'kernel/configuration-policy.mjs', 'kernel/configuration-declarations.mjs', 'kernel/configuration-path-policies.mjs',
   'kernel/specification-policy.mjs', 'kernel/skill-binding-header.mjs',
   'kernel/skill-phase-contract.mjs', 'foundation/portable-paths.mjs', 'configuration-read-scope.mjs', 'engine-compatibility/node-network-syntax.mjs', 'repository-commit-policy/diagnostics.mjs',

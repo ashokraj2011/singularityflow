@@ -140,7 +140,8 @@ import { submittedDecisionInputPlan, applySubmittedDecisionInput } from './kerne
 import { assertChoiceKeepsDependencies, describeOutcome, pendingDecisionRecord, resolveDecisionChoice } from './workflow-decisions.mjs';
 export { completionPhaseOf, nextPhaseAfterSkillAmendment } from './kernel/lifecycle-transitions.mjs';
 
-export { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
+export { qualityValidationVerdict } from './kernel/phase-checks.mjs';
+import {qualityReportUsesStdout} from './kernel/phase-checks.mjs';
 import { mcpTargetOriginServers, storyStartTargetOrigin } from './mcp-target.mjs';
 import { referenceRevision, registerReference } from './harness-imports.mjs';
 
@@ -3920,12 +3921,7 @@ function isolatedRunHint(error, check) {
 
 /** Whether a structured test command's report is its own stdout, captured to the result path. */
 function stdoutReportCaptured(policy) {
-  return policy.kind === 'test' && Array.isArray(policy.argv) && (policy.result?.adapter === 'go-test-json'
-    || policy.result?.adapter === 'node-tap'
-    || policy.result?.adapter === 'karma-text'
-    || (policy.result?.adapter === 'cargo-json' && /^cargo(?:\.exe)?$/iu.test(path.basename(policy.argv[0])))
-    || (policy.result?.adapter === 'junit-xml'
-      && policy.argv.some((argument) => argument === '--test-reporter=junit')));
+  return qualityReportUsesStdout(policy,path.basename);
 }
 
 /**

@@ -179,6 +179,13 @@ export const NAMESPACE_DRAFT_SCHEMAS = Object.freeze({
 export const NAMESPACE_PREPARATION_SCHEMAS = Object.freeze({
   context: frozenFamily('namespace-preparation-context'), generation: frozenFamily('namespace-source-generation')
 });
+export const NAMESPACE_PHASE_CHECK_SCHEMAS = /* @__PURE__ */ Object.freeze({
+  plan: /* @__PURE__ */ frozenFamily('namespace-phase-check-plan'),
+  intent: /* @__PURE__ */ frozenFamily('namespace-phase-check-intent'),
+  result: /* @__PURE__ */ frozenFamily('namespace-phase-check-result'),
+  manifest: /* @__PURE__ */ frozenFamily('namespace-phase-check-manifest'),
+  index: /* @__PURE__ */ frozenFamily('namespace-phase-check-index')
+});
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'), manifest: frozenFamily('namespace-phase-publication')
 });

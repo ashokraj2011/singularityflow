@@ -5,7 +5,7 @@ import {
 } from './specifications.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { storyRepositoryBases, storyRepositoryBaseText } from './capability-branches.mjs';
-import { qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
+import { qualityValidationVerdict } from './kernel/phase-checks.mjs';
 import { countedApprovals } from './presence/counted.mjs';
 import { workDir } from './story-paths.mjs';
 import { run } from './util.mjs';

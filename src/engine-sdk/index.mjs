@@ -27,6 +27,7 @@ import {projectEnrollmentInput,projectEnrollmentBinding,projectEnrollmentResult,
 import {storyCreationInput,storyCreationBinding,storyCreationResult} from '../kernel/story-creation.mjs';
 import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kernel/source-binding.mjs';
 import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phaseDraftMutationResult} from '../kernel/phase-preparation.mjs';
+import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -175,7 +176,11 @@ const definitions = [
   {id:'phase.draft.rebase',version:1,effect:'local-draft',humanDecision:false,authority:'phase.draft.rebase',
     confirmation:'exact-current-draft-body-digest',inputFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','confirm','reason']),
     requiredFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','confirm','reason']),port:'phaseDraftRebase',
-    stages:WRITE_STAGES,validate:'draftMutationInput',execute:'mutatePhaseDraft'}
+    stages:WRITE_STAGES,validate:'draftMutationInput',execute:'mutatePhaseDraft'},
+  {id:'phase.checks.run',version:1,effect:'phase-check-execution',humanDecision:false,authority:'phase.checks.run',
+    inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),
+    port:'phaseChecks',stages:Object.freeze(['load','retained','prepare','execute','commit','finish']),
+    validate:'phaseChecksInput',execute:'runPhaseChecks'}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
@@ -184,6 +189,16 @@ function enrollmentInput(value) { return projectEnrollmentInput(data(value)); }
 function configurationApprovalInput(value) { return projectConfigurationInput(data(value)); }
 function draftReadInput(value){return phaseDraftReadInput(data(value));}
 function draftMutationInput(value,operation){return phaseDraftMutationInput(data(value),operation);}
+function phaseChecksInput(value){return checkedPhaseChecksInput(data(value));}
+async function runPhaseChecks(port,input,signal) {
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  let accepted=await port.retained(context,input,{signal});notCancelled(signal);
+  if(accepted===null){const prepared=await port.prepare(context,input,{signal});notCancelled(signal);
+    const completed=await port.execute(context,prepared,{signal});notCancelled(signal);
+    accepted=await port.commit(context,completed,{signal});}
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.checks.run',
+    ...phaseChecksResult(input,data(await port.finish(context,accepted,{signal:null})))});
+}
 async function readPhaseDraft(port,input,signal) {
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   if(context?.subject?.kind!=='story'||typeof context.subject.id!=='string'||typeof context.phase!=='string'
@@ -1450,7 +1465,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
-    sourceBindingInput,bindSources,
+    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

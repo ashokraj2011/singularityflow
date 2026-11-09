@@ -26,7 +26,7 @@ import { assertStoryTestRiskGate } from '../test-recovery-runtime.mjs';
 import { head, actionActor } from '../git.mjs';
 import { canonicalJson } from '../foundation/record-schema.mjs';
 import { createHash } from 'node:crypto';
-import { qualityValidationVerdict } from '../lifecycle-evidence-policy.mjs';
+import { qualityValidationVerdict } from '../kernel/phase-checks.mjs';
 import { readRecord, phaseApprovalSummaryVersion } from '../schema-migrations.mjs';
 import { applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline } from '../work-intervals.mjs';
 import { requiredRepoPath } from '../story-state-validation.mjs';

@@ -45,7 +45,7 @@ export interface ExecutionCandidate {readonly kind:'candidate-result';readonly e
 export interface ExecutionUnit {
   descriptor():ExecutionUnitManifest;doctor(context?:ExecutionObject):Promise<ExecutionAttestation>;
   planCapability(request:{readonly requiredCapabilities?:readonly string[]}):Promise<{readonly capable:boolean;readonly unavailable:readonly string[]}>;
-  start(contract:AgentTaskContract):Promise<ExecutionHandle>;observe(handle:ExecutionHandle,cursor?:number):AsyncIterable<ExecutionEvent>;
+  start(contract:AgentTaskContract,options?:{readonly signal?:AbortSignal|null}):Promise<ExecutionHandle>;observe(handle:ExecutionHandle,cursor?:number):AsyncIterable<ExecutionEvent>;
   requestStop(handle:ExecutionHandle,request?:{readonly reason?:string}):Promise<ExecutionStopReceipt>;
   quiesce(handle:ExecutionHandle):Promise<ExecutionQuiescenceReceipt>;collect(handle:ExecutionHandle):Promise<ExecutionCandidate>;
 }

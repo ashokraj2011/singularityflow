@@ -9,7 +9,7 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
 const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
-  'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal','testing/reports','testing/node','testing/execution']);
+  'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal','testing/reports','testing/node','testing/execution','hosts/namespace-checks']);
 const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:sqlite', 'node:net', 'node:child_process']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
   'application-namespace-adapter', 'sqlite-namespace-adapter', 'sqlite-namespace-journal', 'sqlite-native', 'sqlite-content-adapter']);

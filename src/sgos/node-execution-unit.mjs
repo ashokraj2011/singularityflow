@@ -240,10 +240,12 @@ function executionHandle(manifest, contract, adapterHandle) {
 }
 
 class BufferedExecution {
-  constructor(manifest, contract, run) {
+  constructor(manifest, contract, run, parentSignal=null) {
     this.manifest = manifest;
     this.contract = contract;
     this.controller = new AbortController();
+    const stopFromParent=()=>this.controller.abort(new SingularityFlowError('Execution was cancelled before its next effect.',{code:'SGOS_GEU_STOP_REQUESTED'}));
+    parentSignal?.addEventListener('abort',stopFromParent,{once:true});if(parentSignal?.aborted)stopFromParent();
     this.events = [];
     this.result = null;
     this.error = null;
@@ -254,16 +256,16 @@ class BufferedExecution {
       kind: manifest.id, nonceSha256: sha256({ manifest: manifest.manifestSha256, contract: contract.contractSha256 })
     });
     this.push('started', { contractSha256: contract.contractSha256 });
-    this.promise = Promise.resolve().then(() => run({
+    this.promise = Promise.resolve().then(() => {this.controller.signal.throwIfAborted();return run({
       signal: this.controller.signal,
       emit: (type, data = {}) => this.push(type, data)
-    })).then((result) => {
+    });}).then((result) => {
       this.result = result;
       this.push('completed', { resultSha256: sha256(result) });
     }, (error) => {
       this.error = error;
       this.push('failed', { code: error?.code ?? 'SGOS_GEU_FAILED' });
-    }).finally(() => { this.settled = true; });
+    }).finally(() => { parentSignal?.removeEventListener('abort',stopFromParent);this.settled = true; });
   }
 
   push(type, data) {
@@ -305,7 +307,7 @@ function adapter(manifest, execute, doctor = async () => ({ status: 'ready' })) 
       const unavailable = required.filter((name) => manifest.capabilities[name] !== true);
       return freezeDeep({ capable: unavailable.length === 0, unavailable });
     },
-    async start(contract) {
+    async start(contract,{signal=null}={}) {
       const validated = validateAgentTaskContract(contract, manifest);
       if (sessions.size >= MAX_SESSIONS) {
         for (const [handleSha256, existing] of sessions) {
@@ -316,7 +318,7 @@ function adapter(manifest, execute, doctor = async () => ({ status: 'ready' })) 
       if (sessions.size >= MAX_SESSIONS) {
         fail('Execution Unit concurrent session ceiling exceeded.', 'SGOS_GEU_SESSION_LIMIT');
       }
-      const session = new BufferedExecution(manifest, validated, (runtime) => execute(validated, runtime));
+      const session = new BufferedExecution(manifest, validated, (runtime) => execute(validated, runtime),signal);
       sessions.set(session.handle.handleSha256, session);
       return session.handle;
     },

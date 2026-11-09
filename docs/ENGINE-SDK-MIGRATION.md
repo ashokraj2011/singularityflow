@@ -210,6 +210,21 @@ all 23 installed-archive checks, with no failures, cancellations or skips. Sourc
 13 existing bundle budgets passed. The SDK retains 51 operations and builds from 145 modules.
 Actual phase evidence acceptance and full application execution remain Phase 7 work.
 
+The [registered phase-check delivery](ENGINE-SDK-PHASE-CHECKS.md) adds `phase.checks.run` over
+explicit SGOS/source/SDA capabilities. Accepted intents bind the pinned command set to the actual
+draft, configuration, source and lifecycle receipts. The result reader replays retained raw
+reports and verifies conditional acceptance. Interrupted acknowledgement or temporary permission/
+storage failure can resume the original run; another host can acknowledge accepted evidence
+without private drafts or an executor. These operations preserve canonical Story state and record
+no human approval. Publication/submission bindings and complete application execution remain
+required, alongside the remaining Phase 5, 7, 8 and 9 gates.
+
+The slice passed 145 focused Mac checks across nine files, 65 native integration checks across
+six files and all 24 installed-archive checks, with no failures, cancellations or skips. The SDK
+now has 52 operations and builds from 149 source modules. All 13 existing bundle ceilings remain
+unchanged. Source validation passed 3,895 checks across 191 skills; typechecking and the unchanged
+2,011-site process/Git audit passed. Installed Git authority was not changed.
+
 The [artifact-template extraction](ENGINE-SDK-ARTIFACT-TEMPLATES.md) gives native configuration
 and the explicit SDK one content-rule owner, with captured native rendering for all shipped
 workflows. Namespace approval checks real referenced template text before accepting it. Actual

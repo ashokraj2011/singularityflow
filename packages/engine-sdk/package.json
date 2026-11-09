@@ -25,6 +25,7 @@
     "./sources/filesystem": { "types": "./dist/sources/filesystem.d.mts", "import": "./dist/sources/filesystem.mjs" },
     "./hosts/namespace-reader": { "types": "./dist/hosts/namespace-reader.d.mts", "import": "./dist/hosts/namespace-reader.mjs" },
     "./hosts/namespace-engine": { "types": "./dist/hosts/namespace-engine.d.mts", "import": "./dist/hosts/namespace-engine.mjs" },
+    "./hosts/namespace-checks": { "types": "./dist/hosts/namespace-checks.d.mts", "import": "./dist/hosts/namespace-checks.mjs" },
     "./hosts/namespace-project": { "types": "./dist/hosts/namespace-project.d.mts", "import": "./dist/hosts/namespace-project.mjs" },
     "./hosts/namespace-configuration": { "types": "./dist/hosts/namespace-configuration.d.mts", "import": "./dist/hosts/namespace-configuration.mjs" },
     "./hosts/namespace-story": { "types": "./dist/hosts/namespace-story.d.mts", "import": "./dist/hosts/namespace-story.mjs" },

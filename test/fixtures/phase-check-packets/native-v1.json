@@ -1,0 +1,1202 @@
+{
+  "baseline": "bf90a66a2",
+  "qualityBodySha256": "83dc9159dc8fe2d71caf100aec72c91b00ecb666e2fa6b84db81d12aa9ed0b93",
+  "verdicts": [
+    {
+      "checks": [],
+      "required": false,
+      "value": {
+        "verdict": "not-required",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "passed"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "passed",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "failed"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "failed",
+        "failed": [
+          {
+            "status": "failed"
+          }
+        ],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "blocked"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "failed",
+        "failed": [
+          {
+            "status": "blocked"
+          }
+        ],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "unavailable"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "unavailable",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "unavailable"
+          }
+        ],
+        "unavailableRequired": [
+          {
+            "status": "unavailable"
+          }
+        ]
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "unavailable",
+          "requirement": "advisory"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "unavailable",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "unavailable",
+            "requirement": "advisory"
+          }
+        ],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "skipped-warning"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "unavailable",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "skipped-warning"
+          }
+        ],
+        "unavailableRequired": [
+          {
+            "status": "skipped-warning"
+          }
+        ]
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "unknown"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "invalid",
+        "failed": [
+          {
+            "status": "unknown"
+          }
+        ],
+        "invalid": [
+          {
+            "status": "unknown"
+          }
+        ],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": null
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "invalid",
+        "failed": [
+          {
+            "status": null
+          }
+        ],
+        "invalid": [
+          {
+            "status": null
+          }
+        ],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        null
+      ],
+      "required": false,
+      "error": {
+        "name": "TypeError",
+        "code": null,
+        "message": "Cannot read properties of null (reading 'status')"
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "passed"
+        },
+        {
+          "status": "skipped-warning",
+          "requirement": "advisory"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "partial",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "skipped-warning",
+            "requirement": "advisory"
+          }
+        ],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "passed"
+        },
+        {
+          "status": "unavailable",
+          "requirement": "required"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "partial",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "unavailable",
+            "requirement": "required"
+          }
+        ],
+        "unavailableRequired": [
+          {
+            "status": "unavailable",
+            "requirement": "required"
+          }
+        ]
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "failed",
+          "requirement": "advisory"
+        },
+        {
+          "status": "passed"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "failed",
+        "failed": [
+          {
+            "status": "failed",
+            "requirement": "advisory"
+          }
+        ],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "future-status"
+        },
+        {
+          "status": "failed"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "invalid",
+        "failed": [
+          {
+            "status": "failed"
+          },
+          {
+            "status": "future-status"
+          }
+        ],
+        "invalid": [
+          {
+            "status": "future-status"
+          }
+        ],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "unavailable"
+        },
+        {
+          "status": "skipped-warning",
+          "requirement": "advisory"
+        }
+      ],
+      "required": false,
+      "value": {
+        "verdict": "unavailable",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "unavailable"
+          },
+          {
+            "status": "skipped-warning",
+            "requirement": "advisory"
+          }
+        ],
+        "unavailableRequired": [
+          {
+            "status": "unavailable"
+          }
+        ]
+      }
+    },
+    {
+      "checks": [],
+      "required": true,
+      "value": {
+        "verdict": "invalid",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "passed"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "passed",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "failed"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "failed",
+        "failed": [
+          {
+            "status": "failed"
+          }
+        ],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "blocked"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "failed",
+        "failed": [
+          {
+            "status": "blocked"
+          }
+        ],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "unavailable"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "unavailable",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "unavailable"
+          }
+        ],
+        "unavailableRequired": [
+          {
+            "status": "unavailable"
+          }
+        ]
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "unavailable",
+          "requirement": "advisory"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "unavailable",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "unavailable",
+            "requirement": "advisory"
+          }
+        ],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "skipped-warning"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "unavailable",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "skipped-warning"
+          }
+        ],
+        "unavailableRequired": [
+          {
+            "status": "skipped-warning"
+          }
+        ]
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "unknown"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "invalid",
+        "failed": [
+          {
+            "status": "unknown"
+          }
+        ],
+        "invalid": [
+          {
+            "status": "unknown"
+          }
+        ],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": null
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "invalid",
+        "failed": [
+          {
+            "status": null
+          }
+        ],
+        "invalid": [
+          {
+            "status": null
+          }
+        ],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        null
+      ],
+      "required": true,
+      "error": {
+        "name": "TypeError",
+        "code": null,
+        "message": "Cannot read properties of null (reading 'status')"
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "passed"
+        },
+        {
+          "status": "skipped-warning",
+          "requirement": "advisory"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "partial",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "skipped-warning",
+            "requirement": "advisory"
+          }
+        ],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "passed"
+        },
+        {
+          "status": "unavailable",
+          "requirement": "required"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "partial",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "unavailable",
+            "requirement": "required"
+          }
+        ],
+        "unavailableRequired": [
+          {
+            "status": "unavailable",
+            "requirement": "required"
+          }
+        ]
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "failed",
+          "requirement": "advisory"
+        },
+        {
+          "status": "passed"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "failed",
+        "failed": [
+          {
+            "status": "failed",
+            "requirement": "advisory"
+          }
+        ],
+        "invalid": [],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "future-status"
+        },
+        {
+          "status": "failed"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "invalid",
+        "failed": [
+          {
+            "status": "failed"
+          },
+          {
+            "status": "future-status"
+          }
+        ],
+        "invalid": [
+          {
+            "status": "future-status"
+          }
+        ],
+        "unavailable": [],
+        "unavailableRequired": []
+      }
+    },
+    {
+      "checks": [
+        {
+          "status": "unavailable"
+        },
+        {
+          "status": "skipped-warning",
+          "requirement": "advisory"
+        }
+      ],
+      "required": true,
+      "value": {
+        "verdict": "unavailable",
+        "failed": [],
+        "invalid": [],
+        "unavailable": [
+          {
+            "status": "unavailable"
+          },
+          {
+            "status": "skipped-warning",
+            "requirement": "advisory"
+          }
+        ],
+        "unavailableRequired": [
+          {
+            "status": "unavailable"
+          }
+        ]
+      }
+    }
+  ],
+  "stdout": [
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "node-tap"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "node-tap"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "go-test-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "go-test-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "karma-text"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "karma-text"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "vitest-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "vitest-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "cargo"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "cargo.exe"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "/opt/tool/cargo"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "C:\\tools\\cargo.exe"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "other"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "error": {
+        "name": "TypeError",
+        "code": "ERR_INVALID_ARG_TYPE",
+        "message": "The \"path\" argument must be of type string. Received undefined"
+      }
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": null,
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "posix",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "node-tap"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "node-tap"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "go-test-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "go-test-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "karma-text"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "karma-text"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "vitest-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "compile",
+        "argv": [
+          "node",
+          "--test-reporter=junit"
+        ],
+        "result": {
+          "adapter": "vitest-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "cargo"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "cargo.exe"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "/opt/tool/cargo"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "C:\\tools\\cargo.exe"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": true
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "other"
+        ],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [],
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "error": {
+        "name": "TypeError",
+        "code": "ERR_INVALID_ARG_TYPE",
+        "message": "The \"path\" argument must be of type string. Received undefined"
+      }
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": null,
+        "result": {
+          "adapter": "cargo-json"
+        }
+      },
+      "value": false
+    },
+    {
+      "grammar": "win32",
+      "policy": {
+        "kind": "test",
+        "argv": [
+          "node"
+        ],
+        "result": {
+          "adapter": "junit-xml"
+        }
+      },
+      "value": false
+    }
+  ]
+}

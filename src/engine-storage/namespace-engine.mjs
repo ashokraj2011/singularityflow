@@ -15,6 +15,7 @@ import {createNamespacePublicationPort} from './namespace-publication.mjs';
 import {createNamespaceSubmissionPorts} from './namespace-submission.mjs';
 import {createNamespaceApprovalPorts} from './namespace-approval.mjs';
 import {createNamespaceRoutingChoicePorts} from './namespace-routing-choice.mjs';
+import {createNamespacePhaseChecksPort} from './namespace-phase-checks.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
 function captured(port,validate,methods) {
   validate(port);
@@ -22,7 +23,7 @@ function captured(port,validate,methods) {
 }
 
 export function createNamespaceEngine(options={}) {
-  const fields=['records','content','scope','workId','authority','access','clock','working','localContent','sources','modelEnabled','notice'];
+  const fields=['records','content','scope','workId','authority','access','clock','working','localContent','sources','modelEnabled','notice','checks'];
   if(!options||typeof options!=='object'||Array.isArray(options)||Object.keys(options).some(key=>!fields.includes(key)))invalid('Use explicit namespace Engine bindings and capabilities.');
   options=Object.fromEntries(fields.map(key=>[key,options[key]]));
   const scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID');
@@ -46,13 +47,14 @@ export function createNamespaceEngine(options={}) {
     return Object.freeze({descriptor,capture:unit.capture.bind(unit)});
   }));
   const common={records,content,scope,workId,authority,access,clock,localContent,sources,
-    modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{})};
+    modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks};
   const runtime=working?createNamespacePreparationRuntime({...common,localRecords:working.records,localContent:working.content}):null;
   const ports={...createNamespaceReadPorts(common,{authority}),
     ...(authority.epoch===1?createNamespaceProjectPorts(common):{}),
     ...createNamespaceConfigurationPorts(common),...createNamespaceStoryPorts(common),
     sourceBinding:createNamespaceSourceBindingPort(common),...(runtime?.ports??{}),
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
-    ...createNamespaceApprovalPorts(common),...createNamespaceRoutingChoicePorts(common)};
+    ...createNamespaceApprovalPorts(common),...createNamespaceRoutingChoicePorts(common),
+    ...(options.checks?{phaseChecks:createNamespacePhaseChecksPort(common,runtime)}:{})};
   return createEngine({ports});
 }

@@ -836,6 +836,70 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     `);
   });
 
+  await t.test('installed registered phase checks retain real evidence and reopen without private drafts or executors',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';import path from 'node:path';import {mkdir,writeFile,readFile} from 'node:fs/promises';
+      import {createHash} from 'node:crypto';import {DatabaseSync} from 'node:sqlite';
+      import {createFilesystemNamespaceStore} from '${packageName}/storage/filesystem';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
+      import {createNamespacePhaseChecksEngine} from '${packageName}/hosts/namespace-checks';
+      import {createFilesystemSourceUnit} from '${packageName}/sources/filesystem';
+      import {createNodeCheckExecutionUnit} from '${packageName}/testing/execution';
+      import {createNodeExecutionOwner} from '${packageName}/execution/runtime';
+      const fresh=process.argv[2]==='fresh',scope={projectId:'package-checks'},workId='checked-story',authority={id:'application-authority',epoch:1};
+      const shared={kind:'shared'},records=await createFilesystemNamespaceStore({root:path.resolve('registered-check-records'),binding:shared,create:fresh});
+      const database=new DatabaseSync('registered-check-content.db');database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
+      const content=createSqliteContentStore({database,binding:shared,create:fresh});let localDatabase;
+      const clock={now(){if(!fresh)throw Error('An acknowledgement cannot restamp the check.');return '2026-11-09T00:00:00.000Z';}};
+      const identity={name:'Example reviewer',email:'reviewer@example.test',login:null};
+      const access={current(){return {projectId:scope.projectId,principalId:'check-author',actorKind:'human',identity,agentId:fresh?'analyst':null,
+        permissions:fresh?['project.enroll','configuration.approve','story.create','source.bind','phase.prepare','phase.draft.read','phase.draft.write','phase.checks.run']:[]};}};
+      const common={records,content,scope,workId,authority,access,clock},input={operationId:'run-pinned-checks',workId,phaseId:'intake'};
+      try{
+        let engine;
+        if(fresh){
+          const localBinding={kind:'machine-local',deviceId:'installed-check-device'};
+          const localRecords=await createFilesystemNamespaceStore({root:path.resolve('registered-check-local-records'),binding:localBinding,create:true});
+          localDatabase=new DatabaseSync('registered-check-local-content.db');localDatabase.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
+          const localContent=createSqliteContentStore({database:localDatabase,binding:localBinding,create:true});
+          const root=path.resolve('registered-check-source');await mkdir(root);
+          await writeFile(path.join(root,'case.test.mjs'),"import test from 'node:test';import assert from 'node:assert/strict';test('real registered check',()=>assert.equal(7+1,8));");
+          const source=await createFilesystemSourceUnit({root,id:'app-checkout',projectId:scope.projectId,repositoryId:'app'});
+          const executableSha256='sha256:'+createHash('sha256').update(await readFile(process.execPath)).digest('hex');
+          const unit=await createNodeCheckExecutionUnit({id:'registered-node-check',root,projectId:scope.projectId,repositoryId:'app',content,
+            command:{executable:process.execPath,executableSha256,arguments:['--test','--test-reporter=tap','case.test.mjs'],environment:{}},
+            report:{adapter:'node-tap',files:[]},authorizeCommand:value=>value.manifestSha256});
+          engine=createNamespaceEngine({...common,working:{records:localRecords,content:localContent},sources:[source],checks:{
+            owner:createNodeExecutionOwner({hostId:'registered-check-host'}),bindings:[{phaseId:'intake',commandId:'node-tests',repositoryId:'app',executable:'node',executableSha256,environment:{},unit}]}});
+          await engine.run('project.enroll',{operationId:'enroll-check-project'});
+          const text=async value=>(await content.put(scope,'config',Buffer.from(value))).reference,body=await text('# Review template');
+          const packet={schemaVersion:1,format:'sflow-namespace-configuration-source/v1',definition:{version:2,planning:{enabled:false},templatesRoot:'singularity/templates',
+            phases:{intake:{label:'Intake',artifact:{path:'artifacts/intake/plan.md'},defaultTemplate:'intake.md',
+              approval:{authorities:['reviewers'],minimum:1,rejectTo:['intake']},qualityCommands:[{id:'node-tests',kind:'test',modelPolicy:'never',
+                argv:['node','--test','--test-reporter=tap','case.test.mjs'],result:{adapter:'node-tap',path:'results/tests.tap'}}]}},
+            approvalAuthorities:{reviewers:{members:[{email:'reviewer@example.test'}]}},workTypes:{simple:{label:'Reviewed checks',phases:['intake'],
+              omits:['scope','plan','implement','verify'].map(responsibility=>({responsibility,reason:'This workflow reviews a document and existing tests without delivering new application behavior.',authority:'reviewers'}))}}},
+            agents:[{id:'analyst',label:'Analyst',phases:['intake'],defaultFor:['intake'],mode:'read-write',body,skills:[],instructions:[]}],
+            skills:[],instructions:[],templates:[{path:'singularity/templates/intake.md',body}],files:[]};
+          const configuration=await text(JSON.stringify(packet));await engine.run('configuration.approve',{operationId:'approve-check-config',source:configuration,expectedRevision:null,confirm:configuration.sha256,reason:'Reviewed the actual check workflow.'});
+          const storySource=(await content.put(scope,'state',Buffer.from('Retain actual existing test execution.'))).reference;
+          const story=await engine.run('story.create',{operationId:'create-check-story',workId,title:'Check existing behavior',workTypeId:'simple',configurationId:'approve-check-config',source:storySource});
+          await engine.run('source.bind',{operationId:'bind-check-source',workId,expectedRevision:story.revision,repositories:['app'],reason:'Select the real application bytes.'});
+          await engine.run('phase.prepare',{phaseId:'intake'});const draft=await engine.run('phase.draft.read',{phaseId:'intake'});
+          const authored=(await localContent.put(scope,'local',Buffer.from('# Authored review artifact'))).reference;
+          await engine.run('phase.draft.write',{operationId:'author-check-draft',workId,phaseId:'intake',expectedRevision:draft.manifest.draft.revision,content:authored,reason:'Complete the check context.'});
+        }else engine=createNamespacePhaseChecksEngine({...common,checks:{}});
+        const result=await engine.run('phase.checks.run',input);assert.equal(result.verdict,'passed');assert.equal(result.checks[0].tests.passed,1);
+        assert.equal(result.status,fresh?'recorded':'retained');assert.equal(result.effects.committed,fresh);assert.equal(result.effects.approvalRecorded,false);
+        process.stdout.write(JSON.stringify(result));
+      }finally{localDatabase?.close();database.close();}
+    `;
+    const first=JSON.parse(await run('registered-checks.mjs',source,['fresh']));
+    const later=JSON.parse(await run('registered-checks.mjs',source,['replay']));
+    assert.deepEqual(later.record,first.record);assert.equal(later.recordedAt,first.recordedAt);
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -859,6 +923,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createNamespaceRoutingChoiceEngine,NAMESPACE_ROUTING_CHOICE_PROFILE } from '${packageName}/hosts/namespace-routing-choice';
       import {createNamespaceEngine} from '${packageName}/hosts/namespace-engine';
       import type {NamespaceEngineOptions} from '${packageName}/hosts/namespace-engine';
+      import {createNamespacePhaseChecksEngine} from '${packageName}/hosts/namespace-checks';
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import type { SourceUnit } from '${packageName}/source';
       import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
@@ -877,6 +942,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const localCheckPromise:Promise<ExecutionUnit>=createNodeCheckExecutionUnit({id:'declared-check',projectId:'example',repositoryId:'application',root:'/explicit',content:runtimeContent,
         command:{executable:'/explicit/node',executableSha256:'sha256:abc',arguments:['--test'],environment:{}},
         report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});
+      declare const phaseCheckOptions:NamespaceEngineOptions;
+      createNamespacePhaseChecksEngine(phaseCheckOptions).run('phase.checks.run',{operationId:'run-checks',workId:'example',phaseId:'review'});
+      // @ts-expect-error Replacement commands do not enter the registered phase-check operation.
+      createNamespacePhaseChecksEngine(phaseCheckOptions).run('phase.checks.run',{operationId:'run-checks',workId:'example',phaseId:'review',argv:['node','other']});
       // @ts-expect-error Local checks require an explicit immutable content store.
       createNodeCheckExecutionUnit({id:'missing-content',root:'/explicit',projectId:'example',repositoryId:'application',command:{executable:'/node',executableSha256:'sha256:abc',arguments:[]},report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});
       const reports:TestReportCodec=createNodeTestReportCodec();

@@ -92,7 +92,8 @@ test('only explicit storage adapters consume namespace contracts outside their p
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/sgos/node-check-execution-unit.mjs','src/sgos/durable-execution-unit.mjs','src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
+  const namespaceAdapters = new Set(['src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-contract.mjs',
+    'src/sgos/node-check-execution-unit.mjs','src/sgos/durable-execution-unit.mjs','src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
     'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
     'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs',
     'src/sda/content/contract.mjs', 'src/sda/sqlite-content-adapter.mjs',
@@ -471,7 +472,7 @@ test('namespace policy proof is read-only, versioned, and independent of Story c
   const rule='src/kernel/story-policy.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[rule],allowed:[rule,...await sourceFiles('src/foundation')]});
   assert.deepEqual(pure.problems,[]);
   const owners=new Set([reader,'src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs',
-    'src/engine-storage/namespace-preparation.mjs','src/engine-storage/namespace-publication.mjs',
+    'src/engine-storage/namespace-preparation.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-phase-checks.mjs',
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-routing-choice.mjs']);
   for(const file of await sourceFiles('src')) {
     if(owners.has(file))continue;
@@ -550,7 +551,7 @@ test('private preparation composes explicit storage and source ports without an 
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
     for(const node of ast.statements.filter(ts.isImportDeclaration))if(node.moduleSpecifier.text.startsWith('.')) {
       const target=path.posix.normalize(path.posix.join(path.posix.dirname(file),node.moduleSpecifier.text));
-      if(!['src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-engine.mjs'].includes(file))assert.notEqual(target,owner,file+' cannot implicitly replace installed preparation');
+      if(!['src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-engine.mjs'].includes(file))assert.notEqual(target,owner,file+' cannot implicitly replace installed preparation');
       assert.notEqual(target,draft,file+' cannot save private phase drafts outside their explicit composition');
     }
   }
@@ -703,7 +704,7 @@ test('the opt-in headless composition captures capabilities and constructs exact
   const allowed=new Set(['../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/source-snapshot.mjs',
     '../sda/namespace/contract.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-reader.mjs',
     './namespace-project.mjs','./namespace-configuration.mjs','./namespace-story.mjs','./namespace-source.mjs',
-    './namespace-preparation.mjs','./namespace-publication.mjs','./namespace-submission.mjs','./namespace-approval.mjs','./namespace-routing-choice.mjs']);
+    './namespace-preparation.mjs','./namespace-publication.mjs','./namespace-submission.mjs','./namespace-approval.mjs','./namespace-routing-choice.mjs','./namespace-phase-checks.mjs']);
   const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
   let engines=0;
   const visit=node=>{

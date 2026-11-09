@@ -13,7 +13,8 @@ import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import path from 'node:path';
 import { assertPlannedClaimsReady } from './config.mjs';
 import { resolvedArtifactSet, memberRoot } from './artifact-sets.mjs';
-import { inputFindingSeverity, qualityValidationVerdict } from './lifecycle-evidence-policy.mjs';
+import {inputFindingSeverity} from './kernel/phase-inputs.mjs';
+import {qualityValidationVerdict} from './kernel/phase-checks.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
 
 export const WORKFLOW_LIFECYCLE_SIMULATION_PROFILE = 'story-structural-lifecycle/v1';

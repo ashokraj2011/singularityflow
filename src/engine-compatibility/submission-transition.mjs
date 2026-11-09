@@ -38,7 +38,7 @@ import { externalCommandText } from '../external-command-policy.mjs';
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../foundation/record-schema.mjs';
 import { assertVisualCoverage } from '../visual-coverage.mjs';
-import { qualityValidationVerdict } from '../lifecycle-evidence-policy.mjs';
+import { qualityValidationVerdict } from '../kernel/phase-checks.mjs';
 import path from 'node:path';
 import { witnessResult, describeWitnessResult } from '../verification/witness-results.mjs';
 import { decisionOutcome } from '../workflow-decisions.mjs';

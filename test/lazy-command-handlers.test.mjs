@@ -451,9 +451,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // +147, command-skills.mjs +30) and the redactor's token shapes are exported for a prompt's secret check
     // (git-remote-diagnostics.mjs +7) [PCR:REQ-002, REQ-003]. The plain-chat
     // guard, the prompt log and the command stay lazy (copilot-plain-chat.mjs, plain-chat-prompts.mjs, commands/prompts.mjs).
-    // 9,621,000 (measured 9,620,974, commands/phase-lifecycle.mjs): init writes the repository's Copilot hooks (config.mjs +193)
-    // and doctor --repair-hooks is a flag (util.mjs +60) [PCR:REQ-030]. The hooks module stays lazy (repository-hooks.mjs).
-    assert.ok(closure.bytes <= 9_621_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,621,100 (measured 9,621,059, commands/phase-lifecycle.mjs): init and bootstrap write an application checkout's Copilot
+    // hooks (config.mjs +251, bootstrap.mjs +27) and doctor --repair-hooks is a flag (util.mjs +60) [PCR:REQ-030]. The hooks
+    // module stays lazy (repository-hooks.mjs).
+    assert.ok(closure.bytes <= 9_621_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -674,8 +675,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,183,150 (measured 4,183,120): both of the above together, each one's growth as measured.
   // 4,183,350 (measured 4,183,304): the same prompts command and exported token shapes as root dispatch (+154), and the
   // command's route to /sf-prompt-log (command-skills.mjs +30) [PCR:REQ-002].
-  // 4,183,600 (measured 4,183,557): the same flag (util.mjs +60) and init's hook files (config.mjs +193) [PCR:REQ-030].
-  assert.ok(current.bytes <= 4_183_600, `session current loads ${current.bytes} source bytes`);
+  // 4,183,650 (measured 4,183,615): the same flag (util.mjs +60) and init's hook files (config.mjs +251) [PCR:REQ-030].
+  assert.ok(current.bytes <= 4_183_650, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

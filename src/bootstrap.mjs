@@ -376,7 +376,7 @@ export async function bootstrapRepository(url, {
     // or re-run without the flag.
     const { initializeDefinition } = await import('./config.mjs');
     const actor = gitCommitIdentity(root, { env: gitEnv });
-    const wrote = await initializeDefinition(root);
+    const wrote = await initializeDefinition(root, { repositoryHooks: true });
     if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(root, branch);
     await describeRepository(root, repositoryId, remote, branch, actor);
     await describeCapability(root, { capabilityId, capabilityName, kind, repositoryId, jiraProject, appId: app, teams });

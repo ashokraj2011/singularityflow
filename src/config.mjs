@@ -1752,7 +1752,7 @@ export function refuseRetiredControlRoot(root) {
   }
 }
 
-export async function initializeDefinition(root) {
+export async function initializeDefinition(root, { repositoryHooks = false } = {}) {
   refuseRetiredControlRoot(root);
   const wrote = [];
   for (const [source, destination] of INITIALIZATION_MAPPINGS) {
@@ -1778,8 +1778,8 @@ export async function initializeDefinition(root) {
       wrote.push(path.posix.join(destination, file));
     }
   }
-  // The repository's own Copilot hooks [PCR:REQ-030]; files that exist stay.
-  wrote.push(...await (await import('./repository-hooks.mjs')).writeRepositoryHooks(root, { onlyMissing: true }));
+  // An application checkout's Copilot hooks [PCR:REQ-030]; existing files stay.
+  if (repositoryHooks) wrote.push(...await (await import('./repository-hooks.mjs')).writeRepositoryHooks(root, { onlyMissing: true }));
   return wrote;
 }
 

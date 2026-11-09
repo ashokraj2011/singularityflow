@@ -456,7 +456,7 @@ async function initCommand(options) {
       fetch: optionBoolean(options, 'fetch')
     });
   }
-  const wrote = await initializeDefinition(root);
+  const wrote = await initializeDefinition(root, { repositoryHooks: true });
   const config = await loadConfig(root);
   if (workId) validateId(config, workId);
   console.log(wrote.length

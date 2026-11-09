@@ -50,16 +50,19 @@ test('PCR REQ-030, REQ-033: the hook file names the plugin\'s seven events, each
   assert.equal(repositoryHookSetting('{"hooks":{}}'), null, 'a file that is not SFlow\'s carries no setting');
 });
 
-test('PCR REQ-030: init writes the hook files, the shell launcher runnable, and keeps a person\'s own edits', async (t) => {
+test('PCR REQ-030: init writes the hook files into an application checkout, the shell launcher runnable, and keeps a person\'s own edits', async (t) => {
   const root = await temporary(t, 'pcr-init');
   spawnSync('git', ['init', '-q', '-b', 'main', root]);
-  const wrote = await initializeDefinition(root);
+  const wrote = await initializeDefinition(root, { repositoryHooks: true });
   for (const file of Object.keys(await repositoryHookFiles('record'))) assert.ok(wrote.includes(file), file);
   assert.equal(repositoryHookSetting(await readFile(path.join(root, REPOSITORY_HOOK_FILE), 'utf8')), 'record');
   assert.ok(statSync(path.join(root, '.github/hooks/sflow-hook.sh')).mode & 0o100);
   assert.match(await readFile(path.join(root, '.github/hooks/README.md'), 'utf8'), /Your prompts are kept/u);
   await writeFile(path.join(root, '.github/hooks/README.md'), 'Our own words.\n');
-  assert.deepEqual((await initializeDefinition(root)).filter((file) => file.startsWith('.github/hooks/')), []);
+  assert.deepEqual((await initializeDefinition(root, { repositoryHooks: true })).filter((file) => file.startsWith('.github/hooks/')), []);
+  // A configuration branch's tree is no application checkout: it never gets them.
+  const authority = await temporary(t, 'pcr-authority');
+  assert.equal((await initializeDefinition(authority)).some((file) => file.startsWith('.github/hooks/')), false);
   assert.equal(await readFile(path.join(root, '.github/hooks/README.md'), 'utf8'), 'Our own words.\n');
   // The setting changed: the file and its README take it, and nothing else.
   assert.deepEqual(await setRepositoryHookSetting(root, 'refuse'), [REPOSITORY_HOOK_FILE, '.github/hooks/README.md']);

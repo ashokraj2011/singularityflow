@@ -92,7 +92,11 @@ export function nonTestVerification(clauseId, claim, contracts, intent = null) {
   if (AC.test(clauseId) && criterionId !== clauseId) return null;
   const contract = contracts?.get?.(criterionId);
   const primary = contract?.slots?.filter(slot => slot.role === 'primary') ?? [];
-  if (!primary.length || primary.some(slot => !['visual', 'inspection'].includes(slot.method))) return null;
+  // A requirement proven under another clause's AC borrows only the methods its approved intent names;
+  // that AC's own primary test slot still binds the AC, so it waives nothing here. A criterion claimed
+  // non-test itself must have no primary test slot, or an automated test would be waived.
+  const borrowed = Boolean(intent) && criterionId !== clauseId;
+  if (!primary.length || (!borrowed && primary.some(slot => !['visual', 'inspection'].includes(slot.method)))) return null;
   if (intent && intent.methods.some(method => !primary.some(slot => slot.method === method))) return null;
   if (intent && contract.combination === 'any'
       && primary.some(slot => intent.methods.some(method => slot.method !== method))) return null;
@@ -109,10 +113,14 @@ export function validatePlannedVerification(claims, contracts = [], clauses = []
       if ((!AC.test(id) && !intent) || (intent && claim.verificationCriterion !== intent.criterionId)
           || !nonTestVerification(id, claim, byCriterion, intent)) {
         const criterion = claim.verificationCriterion ?? intent?.criterionId ?? (AC.test(id) ? id : null);
+        const primary = byCriterion.get(criterion)?.slots?.filter(slot => slot.role === 'primary') ?? [];
+        const tested = criterion === id && primary.some(slot => !['visual', 'inspection'].includes(slot.method));
         const missing = !AC.test(id) && !intent ? `${id} is not an acceptance criterion and has no approved Verification intent`
           : intent && claim.verificationCriterion !== intent.criterionId ? `Planned tests says verification: ${claim.verificationCriterion ?? 'nothing'}, but the approved criterion is ${intent.criterionId}`
             : !byCriterion.get(criterion) ? `the Verification contracts table has no row with Criterion \`${criterion}\``
-              : `${criterion}'s contract rows have no primary visual or inspection slot${intent ? ` for every method ${id} lists (${intent.methods.join(', ')})` : ''}`;
+              // Its own contract has a primary test slot: plan that test for it rather than call it non-test.
+              : tested ? `${criterion}'s own contract has a primary test slot, so plan its test paths instead of verification: ${criterion}`
+                : `${criterion}'s contract rows have no primary visual or inspection slot${intent ? ` for every method ${id} lists (${intent.methods.join(', ')})` : ''}`;
         throw invalid(`${id} non-test proof needs its approved AC Criterion and exact primary visual/inspection contract; it cannot waive an automated test. Missing: ${missing}.`, { clauseId: id });
       }
     }

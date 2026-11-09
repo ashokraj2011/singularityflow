@@ -454,7 +454,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,621,100 (measured 9,621,059, commands/phase-lifecycle.mjs): init and bootstrap write an application checkout's Copilot
     // hooks (config.mjs +251, bootstrap.mjs +27) and doctor --repair-hooks is a flag (util.mjs +60) [PCR:REQ-030]. The hooks
     // module stays lazy (repository-hooks.mjs).
-    assert.ok(closure.bytes <= 9_621_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,622,000 (measured 9,621,911, commands/phase-lifecycle.mjs): a requirement may borrow only the visual proof of an AC
+    // that is also tested, and an AC called non-test while its own contract has a test slot is told so
+    // (verification/intent.mjs +852).
+    assert.ok(closure.bytes <= 9_622_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -676,7 +679,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,183,350 (measured 4,183,304): the same prompts command and exported token shapes as root dispatch (+154), and the
   // command's route to /sf-prompt-log (command-skills.mjs +30) [PCR:REQ-002].
   // 4,183,650 (measured 4,183,615): the same flag (util.mjs +60) and init's hook files (config.mjs +251) [PCR:REQ-030].
-  assert.ok(current.bytes <= 4_183_650, `session current loads ${current.bytes} source bytes`);
+  // 4,184,500 (measured 4,184,467): the same borrowed visual proof (verification/intent.mjs +852).
+  assert.ok(current.bytes <= 4_184_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -868,6 +868,7 @@ test('every step only a person takes in their own terminal is refused in every t
       'singularity-flow lock release-file /tmp/workspaces.json.lock --confirm 0123456789abcdef --json'],
     'configuration-approve': ['singularity-flow configuration approve sflow/config-change/workflow/studio-x --yes',
       'singularity-flow configuration approve --json'],
+    'workflow-activate': ['singularity-flow workflow activate sflow/config-change/workflow/studio-x --confirm 0123456789abcdef0123456789abcdef01234567 --acknowledge-unprotected --json'],
     'approval-evidence-confirmation': ['singularity-flow approve custom-step --work-id PMC-1 --confirm-evidence'],
     'adjudication-answers': ['singularity-flow story adjudicate --answers /tmp/a.json --expect sha256:abc --work-id PMC-1'],
     // The whole table asks a person at their own terminal; no chat turn answers it, /sf-converge included.

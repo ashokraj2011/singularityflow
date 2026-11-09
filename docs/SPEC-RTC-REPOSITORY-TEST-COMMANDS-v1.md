@@ -1,6 +1,6 @@
 # Repository test commands (RTC) — v1: how a repository runs its tests is set once, for the repository
 
-Status: owner decisions recorded 2026-11-09. Being built.
+Status: owner decisions recorded 2026-11-09. Built the same day (M0–M4), with owner decisions 6–7 from that build.
 
 How a repository runs its tests belongs to the repository, not to a step of one workflow. A repository has as many
 test setups as it needs: one per module, runner or level (unit, component, integration, end-to-end). Test setup saves
@@ -43,6 +43,14 @@ configurations (decision 4).
      machine, never written into `tests:`.
    - Running an environment-bound setup on a developer machine still needs the capability policy
      `localIntegrationEvidence: allowed`. That rule is unchanged, and the result says so as it does today.
+
+**From the build** (2026-11-09; the owner took each recommendation):
+
+6. **Only a person activates.** `workflow activate` joins `configuration approve` as a step the person runs in their
+   own terminal, so a chat turn that has been given the activation line cannot run it for them. VS Code's Save and
+   activate and Workflow Studio's Review and activate stay theirs. *Decided: yes.*
+7. **A proposal made from a chat still locks the Center's Test setup page** until it is activated or merged. The page
+   says to activate it in Workflow Studio → Changes. *Decided: keep the lock.*
 
 ## What happens today (main 2e3e74c8c)
 

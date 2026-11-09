@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
+import { terminalRecoveryActions } from '../src/evidence/terminal.mjs';
 import { riskEligibility } from '../src/evidence/risk-decisions.mjs';
 import { matrixMarkdown } from '../src/evidence/matrix.mjs';
 import { readRecord } from '../src/schema-migrations.mjs';
@@ -75,18 +76,23 @@ const delivery = (generation) => ({
 const BEFORE = { req: hash('a'), ac1: hash('b'), ac2: hash('c') };
 
 /** A Story whose intake was approved, built on, and then revised: `revised` names the new bodies. */
-function revisedStory(revised, { implementationGeneration = 1, extra = {} } = {}) {
+function revisedStory(revised, options = {}) {
+  return revisedEvaluation(revised, options).evaluation;
+}
+
+/** The same, with the Story it evaluated. */
+function revisedEvaluation(revised, { implementationGeneration = 1, extra = {} } = {}) {
   const workflow = { ...story(), ...extra };
   recordScopeRevision(workflow, { clauses: acceptedClauses([index(1, BEFORE)]), origin: { kind: 'approval', phase: 'intake', generation: 1 }, at: '2026-10-03T00:00:00.000Z' });
   workflow.phases.intake.generation = 2;
   const after = { ...BEFORE, ...revised };
   recordScopeRevision(workflow, { clauses: acceptedClauses([index(2, after)]), origin: { kind: 'intent-amendment', id: 'AMD-001', phase: 'intake', generation: 2 }, at: '2026-10-03T01:00:00.000Z' });
   workflow.phases.implementation.generation = implementationGeneration;
-  return evaluateEvidence(evidenceGraph({
+  return { workflow, evaluation: evaluateEvidence(evidenceGraph({
     workflow,
     records: records({ intakeGeneration: 2, implementationGeneration, bodies: after }),
     deliveries: [delivery(implementationGeneration)]
-  }));
+  })) };
 }
 
 test('a revision is recorded only when the accepted clause set changes, and each one chains to the last', () => {
@@ -214,4 +220,24 @@ test('carried evidence is worded once for the card, the Copilot CLI table, the t
   assert.deepEqual([opened.storedVersion, opened.record.schemaVersion, opened.record.actorName], [1, 2, undefined], 'read as is: no name is invented');
   workflow.phases.implementation.generation = 2;
   assert.deepEqual(carriedEvidence(workflow), [], 'a step that ran again carries nothing');
+});
+
+test('[PHR:REQ-003] stale evidence routes to the step that produced it: its approvers\' "still holds" where owed, or a return there', () => {
+  // No amendment owes a revalidation: testing, still in progress, records an upstream issue for implementation.
+  const plain = revisedEvaluation({ ac2: hash('d') });
+  const routes = terminalRecoveryActions(W, plain.evaluation, null, plain.workflow);
+  assert.ok(routes.includes(`singularity-flow upstream-issue raise --work-id ${W} --phase implementation --about ${AC2} --problem "Its evidence predates the scope revision; run implementation again"`), routes.join('\n'));
+  // Submitted, and allowed to return there: the return itself.
+  const submitted = revisedEvaluation({ ac2: hash('d') });
+  Object.assign(submitted.workflow.phases.testing, { status: 'awaiting_approval', approvalPolicy: { ...policy, rejectTo: ['implementation', 'testing'] } });
+  assert.ok(terminalRecoveryActions(W, submitted.evaluation, null, submitted.workflow)
+    .includes(`singularity-flow reject testing --work-id ${W} --to implementation --reason <REASON>`));
+  // The amendment lists implementation for revalidation: its approvers' "still holds" leads.
+  const owed = revisedEvaluation({ ac2: hash('d') }, { extra: { intentAmendments: [listedAmendment()] } });
+  const owedRoutes = terminalRecoveryActions(W, owed.evaluation, null, owed.workflow);
+  const revalidate = `singularity-flow upstream-issue revalidate implementation --work-id ${W} --amendment AMD-001 --outcome <unchanged|return> --reason "<why>"`;
+  assert.ok(owedRoutes.indexOf(revalidate) >= 0 && owedRoutes.indexOf(revalidate) < owedRoutes.findIndex((command) => command.includes(' upstream-issue raise ')), owedRoutes.join('\n'));
+  // Current evidence offers none of these.
+  const rerun = revisedEvaluation({ ac2: hash('d') }, { implementationGeneration: 2 });
+  assert.equal(terminalRecoveryActions(W, rerun.evaluation, null, rerun.workflow).some((command) => / revalidate | upstream-issue raise .*predates/u.test(command)), false);
 });

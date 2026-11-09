@@ -467,7 +467,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // routes, a decided upstream issue settles the clause it names, and the plan's own corrections are named
     // (spec-coverage-preview.mjs +3789, upstream-routes.mjs +1461, state.mjs +1432, phase-resolution.mjs +912,
     // recovery-plan.mjs +557) [PHR:REQ-003]. No new eager file.
-    assert.ok(closure.bytes <= 9_633_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,633,650 (measured 9,633,634, commands/phase-lifecycle.mjs): the revalidation route is a placeholder the route filter
+    // admits (forward-amendments.mjs +197); the stale-evidence routes stay lazy (evidence/terminal.mjs) [PHR:REQ-003].
+    assert.ok(closure.bytes <= 9_633_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

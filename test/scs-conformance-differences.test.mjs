@@ -261,7 +261,7 @@ test('a revalidation row is the step\'s own approvers\' choice on the list: it s
   const facts = { phaseId: 'conformance', at: AT, endsStory: true, gaps: [], issues: [], activeReuse: [], candidates: [], reuseProblems: [], testRisks: [],
     unavailable: [], state: {}, pending: { forwardAmendments: [
       { code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: 'AMD-001', phase: 'implementation', producer: 'requirements', message: 'm',
-        command: 'singularity-flow upstream-issue revalidate implementation --work-id ORD-7 --amendment AMD-001 --outcome unchanged|return --reason "<why>"' },
+        command: 'singularity-flow upstream-issue revalidate implementation --work-id ORD-7 --amendment AMD-001 --outcome <unchanged|return> --reason "<why>"' },
       { code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: 'AMD-001', phase: 'conformance', producer: 'requirements', message: 'm', command: 'c' }] } };
   const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
     actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });

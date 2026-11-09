@@ -54,7 +54,9 @@ export function pendingAmendmentRevalidations(workflow) {
 }
 
 export function revalidateCommand(workId, entry) {
-  return `singularity-flow upstream-issue revalidate ${entry.phase} --work-id ${workId} --amendment ${entry.amendment} --outcome unchanged|return --reason "<why>"`;
+  // The outcome is the approvers' choice, so it is a placeholder: a bare `unchanged|return` failed the
+  // route filter, and every refusal plan and hold dropped the revalidation [PHR:REQ-003].
+  return `singularity-flow upstream-issue revalidate ${entry.phase} --work-id ${workId} --amendment ${entry.amendment} --outcome <unchanged|return> --reason "<why>"`;
 }
 
 /**

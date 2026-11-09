@@ -18,7 +18,7 @@ import { gateRefusal } from './gate-refusal.mjs';
 import { completionLabel } from './labels.mjs';
 import { upstreamIssueTerminalBlockers } from '../upstream-issues.mjs';
 import { decidableUpstreamStep, raiseUpstreamIssueRoute } from '../upstream-routes.mjs';
-import { forwardAmendmentTerminalBlockers } from '../forward-amendments.mjs';
+import { forwardAmendmentTerminalBlockers, pendingAmendmentRevalidations, revalidateCommand } from '../forward-amendments.mjs';
 import { markSyntheticApproval } from '../presence/counted.mjs';
 
 const MAX_LISTED = 20;
@@ -78,6 +78,16 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
       if (route) add(upstream, route.command.replace('<clause-or-section>', row.id).replace('<what-is-wrong>', obligation.correctionSteps
         ? `"Tests are the whole delivery: plan ${row.id} as test-only"` : '<what-is-wrong>'));
     }
+    // Evidence a scope revision made stale is its own step's to bring current: that step's approvers
+    // say it still holds where the amendment owes them that, or it returns there [PHR:REQ-003]. It
+    // had no route: pending is neither upstream-owned nor risk-eligible (2026-11-09 audit).
+    if (workflow) for (const obligation of row.obligations ?? []) {
+      const owner = obligation.facets?.freshness === 'stale' ? obligation.owningSteps?.at(-1) : null;
+      if (!owner || owner === workflow.currentPhase) continue;
+      const owed = pendingAmendmentRevalidations(workflow).find((entry) => entry.phase === owner);
+      if (owed) add(upstream, revalidateCommand(workId, owed));
+      add(upstream, staleEvidenceReturn(workflow, owner, row.id));
+    }
     for (const slot of row.verification?.contract?.slots ?? []) {
       if (!BLOCKING_RESULTS.has(slot.status) || !WITNESSED_METHODS.has(slot.method)) continue;
       // The approver confirms the evidence with the approval itself; a separate witness stays possible.
@@ -91,6 +101,23 @@ export function terminalRecoveryActions(workId, evaluation, gate = null, workflo
   // The decision list shows this same as-if-closed evaluation, and runs in any turn.
   if ((gate?.errors ?? []).length) add(diagnostics, `singularity-flow decisions ${workId}`);
   return [...decisions, ...upstream, ...witnesses, ...risks, ...diagnostics];
+}
+
+/**
+ * The return of stale evidence to the step that produced it: the submitted current step's own return
+ * when its policy allows it, else an upstream issue its approvers decide (a return among the
+ * choices). Null when neither is open from here, such as on a closed Story.
+ */
+function staleEvidenceReturn(workflow, owner, clauseId) {
+  const workId = workflow.workItem.id;
+  const current = workflow.phases?.[workflow.currentPhase];
+  if (workflow.status === 'in_progress' && current?.status === 'awaiting_approval' && (current.approvalPolicy?.rejectTo ?? []).includes(owner)) {
+    return `singularity-flow reject ${current.id} --work-id ${workId} --to ${owner} --reason <REASON>`;
+  }
+  const step = decidableUpstreamStep(workflow, owner);
+  const route = step ? raiseUpstreamIssueRoute(workflow, step, workflow.currentPhase) : null;
+  return route ? route.command.replace('<clause-or-section>', clauseId)
+    .replace('<what-is-wrong>', `"Its evidence predates the scope revision; run ${owner} again"`) : null;
 }
 
 /**

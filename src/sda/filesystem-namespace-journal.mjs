@@ -34,7 +34,7 @@ async function directory(file, { create = false } = {}) {
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw corrupt('A namespace storage directory is not an ordinary directory.');
 }
 
-async function readJson(file) {
+async function readJsonBytes(file) {
   let handle;
   try {
     const before = await lstat(file);
@@ -44,12 +44,17 @@ async function readJson(file) {
     if (stat.ino !== before.ino || stat.dev !== before.dev || !stat.isFile() || stat.size > MAX_FILE_BYTES) {
       throw corrupt('A namespace entry changed identity or exceeds its storage bound.');
     }
-    const bytes = await handle.readFile('utf8');
-    if (Buffer.byteLength(bytes) !== stat.size) throw corrupt('A namespace entry changed while being read.');
-    try { return JSON.parse(bytes); }
-    catch (cause) { throw corrupt('A namespace entry contains invalid JSON.', cause); }
+    const bytes = await handle.readFile();
+    // Retain the existing UTF-8 length check, including its malformed-input behavior.
+    if (Buffer.byteLength(bytes.toString('utf8')) !== stat.size) throw corrupt('A namespace entry changed while being read.');
+    return bytes;
   } finally { await handle?.close(); }
 }
+function parseJsonBytes(bytes) {
+  try { return JSON.parse(bytes.toString('utf8')); }
+  catch (cause) { throw corrupt('A namespace entry contains invalid JSON.', cause); }
+}
+async function readJson(file) { return parseJsonBytes(await readJsonBytes(file)); }
 
 async function syncDirectory(file) {
   const handle = await open(file, constants.O_RDONLY);
@@ -95,6 +100,7 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
   }
   const normalizedBinding = namespaceBinding(binding);
   const normalizedLimits = namespaceLimits(limits);
+  limits = normalizedLimits;
   let canonicalRoot, manifest;
   try {
     if (create) await mkdir(root, { recursive: true, mode: 0o700 });
@@ -124,6 +130,26 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
     if (create) await syncDirectory(canonicalRoot);
   } catch (cause) { throw unavailable('store-open', cause); }
   const manifestBytes = JSON.stringify(manifest);
+  // Byte-verified memoization, not an advisory read cache. Every call still opens every
+  // observed entry and checks its complete current bytes before reusing replay work.
+  const replayPrefixes = new Map();
+  const maximumReplayBytes = 8 * 1024 * 1024, maximumReplayProjects = 8, maximumReplayFiles = 16_384;
+  let retainedReplayBytes = 0;
+  function forgetReplay(projectId) {
+    const previous = replayPrefixes.get(projectId);
+    if (previous) { retainedReplayBytes -= previous.bytes; replayPrefixes.delete(projectId); }
+  }
+  function rememberReplay(projectId, value) {
+    const bytes = Buffer.byteLength(JSON.stringify({records:[...value.state.records],events:[...value.state.events],
+      operations:[...value.state.operations]})) + value.fingerprints.length * 128;
+    forgetReplay(projectId);
+    if (bytes > maximumReplayBytes) return;
+    while (replayPrefixes.size >= maximumReplayProjects || retainedReplayBytes + bytes > maximumReplayBytes) {
+      forgetReplay(replayPrefixes.keys().next().value);
+    }
+    replayPrefixes.set(projectId, {...value, bytes}); retainedReplayBytes += bytes;
+  }
+
   const projectDirectory = scope => path.join(canonicalRoot, `project-${hash(JSON.stringify(namespaceScope(scope)))}`);
 
   async function checkManifest() {
@@ -160,7 +186,7 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
     return { project, commits, staging };
   }
 
-  async function read(scope, { through = null } = {}) {
+  async function readVerified(scope, through, useReplay) {
     try {
       const normalizedScope = namespaceScope(scope);
       await checkManifest();
@@ -172,11 +198,30 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
       }
       const files = (await readdir(paths.commits)).sort();
       if (files.some(name => !FILE.test(name))) throw corrupt('The namespace journal contains an unrecognized entry.');
-      const revisions = new Set();
+      const projectId = normalizedScope.projectId;
+      const previous = useReplay && files.length <= maximumReplayFiles ? replayPrefixes.get(projectId) : null;
+      const cached = previous && previous.sequence <= files.length && (through === null || through >= previous.sequence) ? previous : null;
+      if (cached) state = cached.state;
+      const revisions = new Set(cached?.revisions ?? []), fingerprints = [];
+      let observedBytes = 0;
       for (const file of files) {
         if (through !== null && sequence >= through) break;
         if (Number(FILE.exec(file)[1]) !== sequence + 1) throw corrupt('The namespace journal has a missing or invalid sequence.');
-        const envelope = await readJson(path.join(paths.commits, file));
+        const bytes = await readJsonBytes(path.join(paths.commits, file));
+        observedBytes += bytes.byteLength;
+        const fingerprint = hash(bytes);
+        if (files.length <= maximumReplayFiles) fingerprints.push(fingerprint);
+        if (cached && sequence < cached.sequence) {
+          if (fingerprint !== cached.fingerprints[sequence]) {
+            forgetReplay(projectId);
+            // Preserve existing interpretation of changed valid bytes; never serve the old view.
+            return await readVerified(scope, through, false);
+          }
+          sequence += 1;
+          if (sequence === cached.sequence) sha256 = cached.sha256;
+          continue;
+        }
+        const envelope = parseJsonBytes(bytes);
         let applied;
         try {
           exactObject(envelope, ['body', 'sha256']);
@@ -206,9 +251,18 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
         state = applied.state; sequence += 1; sha256 = envelope.sha256;
       }
       if (through !== null && sequence !== through) throw corrupt('The requested namespace snapshot is no longer present.');
-      return { scope: normalizedScope, state, sha256, sequence };
+      if (through === null) {
+        if (files.length > maximumReplayFiles || observedBytes > maximumReplayBytes) forgetReplay(projectId);
+        else if (cached && cached.sequence === sequence && cached.sha256 === sha256) {
+          replayPrefixes.delete(projectId); replayPrefixes.set(projectId, cached);
+        } else rememberReplay(projectId, {state, sha256, sequence, fingerprints, revisions});
+      }
+      // The trusted journal caller receives a detached view, never the retained memoized Maps.
+      return { scope: normalizedScope, state: structuredClone(state), sha256, sequence };
     } catch (cause) { throw unavailable('journal-read', cause); }
   }
+
+  const read = (scope, {through = null} = {}) => readVerified(scope, through, true);
 
   async function append(scope, observed, transaction, { signal } = {}) {
     const normalizedScope = namespaceScope(scope);

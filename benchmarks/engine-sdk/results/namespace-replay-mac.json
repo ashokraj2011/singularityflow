@@ -1,0 +1,1388 @@
+{
+  "schemaVersion": 1,
+  "scenario": "namespace-three-phase-ask-v1",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "node": "v26.12.0",
+  "measurement": "single matched initialized local fixture pair; not a host-wide cold-start benchmark",
+  "baseline": {
+    "revision": "65221f93e",
+    "journalSourceSha256": "47fd1cba5cd62e2092c9bdcef6ba85cd7bef35eacf1963f880b7b9b4e2d82845"
+  },
+  "candidate": {
+    "journalSourceSha256": "dc200c2a2fe568ba9f070abc25917d9f7b23d36d7dfeb70a29646b8f5d880821"
+  },
+  "operationCount": 29,
+  "portRequestCountsEqual": true,
+  "improvementPercent": 80.16194688622814,
+  "runs": {
+    "before": {
+      "schemaVersion": 1,
+      "scenario": "namespace-three-phase-ask-v1",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v26.12.0",
+      "metadataBackend": "filesystem",
+      "contentBackend": "sqlite",
+      "journalSourceSha256": "47fd1cba5cd62e2092c9bdcef6ba85cd7bef35eacf1963f880b7b9b4e2d82845",
+      "status": "closed",
+      "totalMs": 49105.892958000004,
+      "operations": [
+        {
+          "operation": "phase.prepare:intake",
+          "ms": 771.4830000000001
+        },
+        {
+          "operation": "phase.draft.read:intake",
+          "ms": 559.1174579999999
+        },
+        {
+          "operation": "phase.draft.write:intake",
+          "ms": 370.7382499999999
+        },
+        {
+          "operation": "phase.publish:intake",
+          "ms": 1073.355458
+        },
+        {
+          "operation": "phase.submit:intake",
+          "ms": 1863.2626249999994
+        },
+        {
+          "operation": "phase.review.resources:intake",
+          "ms": 584.8808749999998
+        },
+        {
+          "operation": "document.read:",
+          "ms": 435.2960000000003
+        },
+        {
+          "operation": "document.read:",
+          "ms": 311.3956250000001
+        },
+        {
+          "operation": "phase.approve:intake",
+          "ms": 2830.742375
+        },
+        {
+          "operation": "decision.context:",
+          "ms": 688.9817500000008
+        },
+        {
+          "operation": "decision.choose:",
+          "ms": 3203.6609580000004
+        },
+        {
+          "operation": "phase.prepare:review",
+          "ms": 1480.5234999999993
+        },
+        {
+          "operation": "phase.draft.read:review",
+          "ms": 901.336041999999
+        },
+        {
+          "operation": "phase.draft.write:review",
+          "ms": 1091.7997910000013
+        },
+        {
+          "operation": "phase.publish:review",
+          "ms": 2423.673458000001
+        },
+        {
+          "operation": "phase.submit:review",
+          "ms": 2907.662750000003
+        },
+        {
+          "operation": "phase.review.resources:review",
+          "ms": 1082.9153330000008
+        },
+        {
+          "operation": "document.read:",
+          "ms": 797.7115000000013
+        },
+        {
+          "operation": "document.read:",
+          "ms": 680.5249169999988
+        },
+        {
+          "operation": "phase.approve:review",
+          "ms": 4026.7322079999976
+        },
+        {
+          "operation": "phase.prepare:release",
+          "ms": 2034.931958000001
+        },
+        {
+          "operation": "phase.draft.read:release",
+          "ms": 1349.0934589999997
+        },
+        {
+          "operation": "phase.draft.write:release",
+          "ms": 1432.5199169999978
+        },
+        {
+          "operation": "phase.publish:release",
+          "ms": 3771.6293340000047
+        },
+        {
+          "operation": "phase.submit:release",
+          "ms": 4185.07475
+        },
+        {
+          "operation": "phase.review.resources:release",
+          "ms": 1365.460334000003
+        },
+        {
+          "operation": "document.read:",
+          "ms": 836.6142499999987
+        },
+        {
+          "operation": "document.read:",
+          "ms": 892.947500000002
+        },
+        {
+          "operation": "phase.approve:release",
+          "ms": 5151.827582999998
+        }
+      ],
+      "ports": [
+        {
+          "operation": "phase.approve:release:records.read",
+          "calls": 79,
+          "totalMs": 3310.638294999968,
+          "maxMs": 73.0020829999994
+        },
+        {
+          "operation": "document.read::records.read",
+          "calls": 102,
+          "totalMs": 2929.3959560000176,
+          "maxMs": 99.17245799999728
+        },
+        {
+          "operation": "phase.submit:release:records.read",
+          "calls": 79,
+          "totalMs": 2684.5447059999933,
+          "maxMs": 55.194541999997455
+        },
+        {
+          "operation": "phase.approve:review:records.read",
+          "calls": 79,
+          "totalMs": 2618.1688730000205,
+          "maxMs": 58.635291999999026
+        },
+        {
+          "operation": "phase.publish:release:records.read",
+          "calls": 67,
+          "totalMs": 2382.048160000013,
+          "maxMs": 76.78262499999983
+        },
+        {
+          "operation": "decision.choose::records.read",
+          "calls": 91,
+          "totalMs": 1920.3829540000006,
+          "maxMs": 43.40770900000098
+        },
+        {
+          "operation": "phase.submit:review:records.read",
+          "calls": 79,
+          "totalMs": 1785.4274220000116,
+          "maxMs": 36.371084000002156
+        },
+        {
+          "operation": "phase.approve:intake:records.read",
+          "calls": 85,
+          "totalMs": 1763.757503999992,
+          "maxMs": 87.83770900000127
+        },
+        {
+          "operation": "phase.approve:release:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 1619.719703999981,
+          "maxMs": 113.42749999999796
+        },
+        {
+          "operation": "phase.publish:review:records.read",
+          "calls": 67,
+          "totalMs": 1451.8862060000029,
+          "maxMs": 42.78220800000054
+        },
+        {
+          "operation": "phase.prepare:release:records.read",
+          "calls": 39,
+          "totalMs": 1413.7890859999898,
+          "maxMs": 58.994166000000405
+        },
+        {
+          "operation": "phase.submit:release:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 1293.794002000017,
+          "maxMs": 81.97516699999687
+        },
+        {
+          "operation": "phase.approve:review:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 1229.9672100000025,
+          "maxMs": 65.62174999999843
+        },
+        {
+          "operation": "decision.choose::records.inspectOperation",
+          "calls": 40,
+          "totalMs": 1086.6847070000022,
+          "maxMs": 48.760832999998456
+        },
+        {
+          "operation": "phase.publish:release:records.inspectOperation",
+          "calls": 24,
+          "totalMs": 1063.5319580000141,
+          "maxMs": 88.50325000000157
+        },
+        {
+          "operation": "phase.prepare:review:records.read",
+          "calls": 39,
+          "totalMs": 1055.7596290000074,
+          "maxMs": 36.329084000000876
+        },
+        {
+          "operation": "phase.submit:intake:records.read",
+          "calls": 79,
+          "totalMs": 1041.122749000006,
+          "maxMs": 76.0842090000001
+        },
+        {
+          "operation": "phase.draft.write:release:records.read",
+          "calls": 26,
+          "totalMs": 958.8679159999992,
+          "maxMs": 60.0413750000007
+        },
+        {
+          "operation": "phase.submit:review:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 951.5806220000086,
+          "maxMs": 53.37274999999863
+        },
+        {
+          "operation": "document.read::records.inspectOperation",
+          "calls": 24,
+          "totalMs": 949.7675830000062,
+          "maxMs": 80.41983299999993
+        },
+        {
+          "operation": "phase.review.resources:release:records.read",
+          "calls": 23,
+          "totalMs": 928.291001000005,
+          "maxMs": 51.62483300000167
+        },
+        {
+          "operation": "phase.approve:intake:records.inspectOperation",
+          "calls": 36,
+          "totalMs": 886.7854539999962,
+          "maxMs": 34.26116600000023
+        },
+        {
+          "operation": "phase.draft.read:release:records.read",
+          "calls": 26,
+          "totalMs": 874.3940000000039,
+          "maxMs": 58.71020800000042
+        },
+        {
+          "operation": "phase.review.resources:review:records.read",
+          "calls": 23,
+          "totalMs": 727.7196240000048,
+          "maxMs": 49.56279100000029
+        },
+        {
+          "operation": "phase.draft.write:review:records.read",
+          "calls": 26,
+          "totalMs": 714.2600830000029,
+          "maxMs": 40.715000000000146
+        },
+        {
+          "operation": "phase.submit:intake:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 683.9198740000011,
+          "maxMs": 66.43712499999992
+        },
+        {
+          "operation": "phase.publish:review:records.inspectOperation",
+          "calls": 24,
+          "totalMs": 682.1616259999901,
+          "maxMs": 52.62720900000204
+        },
+        {
+          "operation": "phase.draft.read:review:records.read",
+          "calls": 26,
+          "totalMs": 591.5412919999926,
+          "maxMs": 32.57974999999897
+        },
+        {
+          "operation": "phase.publish:intake:records.read",
+          "calls": 67,
+          "totalMs": 572.6478720000005,
+          "maxMs": 15.427040999999917
+        },
+        {
+          "operation": "phase.prepare:release:records.inspectOperation",
+          "calls": 12,
+          "totalMs": 543.9303330000075,
+          "maxMs": 66.0113339999989
+        },
+        {
+          "operation": "phase.draft.read:release:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 422.1922919999997,
+          "maxMs": 74.2888329999987
+        },
+        {
+          "operation": "decision.context::records.read",
+          "calls": 26,
+          "totalMs": 417.89958300000217,
+          "maxMs": 21.4776669999992
+        },
+        {
+          "operation": "phase.review.resources:release:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 415.9827090000035,
+          "maxMs": 106.4629169999971
+        },
+        {
+          "operation": "phase.review.resources:intake:records.read",
+          "calls": 23,
+          "totalMs": 372.505083,
+          "maxMs": 23.449666999999863
+        },
+        {
+          "operation": "phase.prepare:intake:records.read",
+          "calls": 39,
+          "totalMs": 367.6521679999996,
+          "maxMs": 17.746791999999914
+        },
+        {
+          "operation": "phase.prepare:review:records.inspectOperation",
+          "calls": 12,
+          "totalMs": 363.6834579999995,
+          "maxMs": 42.41008300000067
+        },
+        {
+          "operation": "phase.draft.write:release:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 362.89329200000793,
+          "maxMs": 57.09883400000399
+        },
+        {
+          "operation": "phase.review.resources:review:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 332.2282079999968,
+          "maxMs": 61.527500000000146
+        },
+        {
+          "operation": "phase.publish:intake:records.inspectOperation",
+          "calls": 24,
+          "totalMs": 324.2558740000004,
+          "maxMs": 28.692375000000084
+        },
+        {
+          "operation": "phase.draft.read:intake:records.read",
+          "calls": 26,
+          "totalMs": 297.334791,
+          "maxMs": 15.56233300000008
+        },
+        {
+          "operation": "phase.draft.write:review:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 279.7608330000003,
+          "maxMs": 40.62250000000131
+        },
+        {
+          "operation": "phase.draft.read:review:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 260.8769179999981,
+          "maxMs": 38.83575000000019
+        },
+        {
+          "operation": "decision.context::records.inspectOperation",
+          "calls": 10,
+          "totalMs": 240.99674900000173,
+          "maxMs": 31.96416700000009
+        },
+        {
+          "operation": "phase.draft.read:intake:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 223.24345900000003,
+          "maxMs": 73.49858399999994
+        },
+        {
+          "operation": "phase.prepare:intake:records.inspectOperation",
+          "calls": 12,
+          "totalMs": 210.7674159999999,
+          "maxMs": 31.172207999999955
+        },
+        {
+          "operation": "phase.draft.write:intake:records.read",
+          "calls": 26,
+          "totalMs": 210.46737600000074,
+          "maxMs": 10.726584000000003
+        },
+        {
+          "operation": "phase.review.resources:intake:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 187.8940829999974,
+          "maxMs": 28.61945899999955
+        },
+        {
+          "operation": "phase.approve:release:records.transact",
+          "calls": 2,
+          "totalMs": 131.28608300000633,
+          "maxMs": 80.94745800000237
+        },
+        {
+          "operation": "phase.submit:release:records.transact",
+          "calls": 2,
+          "totalMs": 126.31383399999322,
+          "maxMs": 84.87954199999513
+        },
+        {
+          "operation": "phase.draft.write:intake:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 100.41433299999971,
+          "maxMs": 14.797125000000051
+        },
+        {
+          "operation": "phase.approve:review:records.transact",
+          "calls": 2,
+          "totalMs": 92.21916699999929,
+          "maxMs": 50.44054200000028
+        },
+        {
+          "operation": "phase.publish:release:records.transact",
+          "calls": 2,
+          "totalMs": 88.88154100000247,
+          "maxMs": 57.201750000000175
+        },
+        {
+          "operation": "phase.publish:review:records.transact",
+          "calls": 2,
+          "totalMs": 87.21999900000083,
+          "maxMs": 58.322291000000405
+        },
+        {
+          "operation": "decision.choose::records.transact",
+          "calls": 2,
+          "totalMs": 85.03591700000106,
+          "maxMs": 51.42754200000127
+        },
+        {
+          "operation": "phase.submit:review:records.transact",
+          "calls": 2,
+          "totalMs": 84.247540999997,
+          "maxMs": 48.47845799999777
+        },
+        {
+          "operation": "phase.approve:intake:records.transact",
+          "calls": 2,
+          "totalMs": 70.19783400000051,
+          "maxMs": 39.49245900000096
+        },
+        {
+          "operation": "phase.submit:intake:records.transact",
+          "calls": 2,
+          "totalMs": 55.06291699999929,
+          "maxMs": 31.023041999999805
+        },
+        {
+          "operation": "phase.publish:intake:records.transact",
+          "calls": 2,
+          "totalMs": 49.38391700000011,
+          "maxMs": 25.86175000000003
+        },
+        {
+          "operation": "phase.publish:review:content.put",
+          "calls": 3,
+          "totalMs": 13.94087500000387,
+          "maxMs": 12.84887499999968
+        },
+        {
+          "operation": "phase.submit:release:content.read",
+          "calls": 55,
+          "totalMs": 13.534035000004224,
+          "maxMs": 5.086458000005223
+        },
+        {
+          "operation": "phase.approve:release:content.read",
+          "calls": 64,
+          "totalMs": 13.36754399997153,
+          "maxMs": 0.9149160000015399
+        },
+        {
+          "operation": "decision.choose::content.read",
+          "calls": 74,
+          "totalMs": 13.031290999999328,
+          "maxMs": 0.6550829999996495
+        },
+        {
+          "operation": "phase.approve:intake:content.read",
+          "calls": 68,
+          "totalMs": 12.187330000001566,
+          "maxMs": 0.6163329999999405
+        },
+        {
+          "operation": "phase.approve:review:content.read",
+          "calls": 64,
+          "totalMs": 12.047795999998925,
+          "maxMs": 0.5169999999998254
+        },
+        {
+          "operation": "phase.submit:review:content.read",
+          "calls": 55,
+          "totalMs": 11.812627999988763,
+          "maxMs": 1.5430839999971795
+        },
+        {
+          "operation": "phase.approve:intake:content.put",
+          "calls": 3,
+          "totalMs": 9.629625000000487,
+          "maxMs": 7.801958000000013
+        },
+        {
+          "operation": "phase.submit:intake:content.read",
+          "calls": 55,
+          "totalMs": 9.028791999999612,
+          "maxMs": 0.4842079999998532
+        },
+        {
+          "operation": "phase.publish:intake:content.read",
+          "calls": 54,
+          "totalMs": 8.968995000000632,
+          "maxMs": 0.7489160000000084
+        },
+        {
+          "operation": "phase.publish:release:content.read",
+          "calls": 54,
+          "totalMs": 8.703711000009207,
+          "maxMs": 0.8122920000023441
+        },
+        {
+          "operation": "phase.publish:review:content.read",
+          "calls": 54,
+          "totalMs": 8.15933299999233,
+          "maxMs": 0.5651250000009895
+        },
+        {
+          "operation": "document.read::content.read",
+          "calls": 36,
+          "totalMs": 7.348080999989179,
+          "maxMs": 0.6656250000005457
+        },
+        {
+          "operation": "phase.prepare:review:content.read",
+          "calls": 21,
+          "totalMs": 4.563455999996222,
+          "maxMs": 0.6135409999988042
+        },
+        {
+          "operation": "phase.prepare:release:content.read",
+          "calls": 21,
+          "totalMs": 4.4447479999980715,
+          "maxMs": 0.4526670000013837
+        },
+        {
+          "operation": "decision.context::content.read",
+          "calls": 21,
+          "totalMs": 4.146958999999697,
+          "maxMs": 0.39566699999886623
+        },
+        {
+          "operation": "phase.prepare:intake:content.read",
+          "calls": 21,
+          "totalMs": 3.680460000000039,
+          "maxMs": 0.4250419999999622
+        },
+        {
+          "operation": "phase.draft.write:intake:content.read",
+          "calls": 10,
+          "totalMs": 3.3348750000009204,
+          "maxMs": 1.3415410000000065
+        },
+        {
+          "operation": "phase.review.resources:review:content.read",
+          "calls": 17,
+          "totalMs": 3.214332999992621,
+          "maxMs": 0.6350419999980659
+        },
+        {
+          "operation": "phase.submit:release:content.put",
+          "calls": 2,
+          "totalMs": 3.2112080000006245,
+          "maxMs": 1.8951250000027358
+        },
+        {
+          "operation": "phase.review.resources:intake:content.read",
+          "calls": 17,
+          "totalMs": 3.194872999997642,
+          "maxMs": 0.4781250000005457
+        },
+        {
+          "operation": "phase.review.resources:release:content.read",
+          "calls": 17,
+          "totalMs": 2.970625999994809,
+          "maxMs": 0.48283299999457086
+        },
+        {
+          "operation": "phase.publish:intake:content.put",
+          "calls": 3,
+          "totalMs": 2.906207999999424,
+          "maxMs": 1.921958999999788
+        },
+        {
+          "operation": "phase.draft.read:review:content.read",
+          "calls": 10,
+          "totalMs": 2.651040999997349,
+          "maxMs": 0.8334580000009737
+        },
+        {
+          "operation": "phase.draft.read:intake:content.read",
+          "calls": 10,
+          "totalMs": 2.1407910000000356,
+          "maxMs": 0.5088749999999891
+        },
+        {
+          "operation": "phase.draft.read:release:content.read",
+          "calls": 10,
+          "totalMs": 2.0895830000081332,
+          "maxMs": 0.36016700000254787
+        },
+        {
+          "operation": "phase.approve:release:content.put",
+          "calls": 3,
+          "totalMs": 1.9603750000096625,
+          "maxMs": 0.9969170000040322
+        },
+        {
+          "operation": "phase.publish:release:content.put",
+          "calls": 3,
+          "totalMs": 1.9418339999974705,
+          "maxMs": 0.803249999997206
+        },
+        {
+          "operation": "phase.submit:review:content.put",
+          "calls": 2,
+          "totalMs": 1.9092500000042492,
+          "maxMs": 0.9821250000022701
+        },
+        {
+          "operation": "decision.choose::content.put",
+          "calls": 2,
+          "totalMs": 1.848623999998381,
+          "maxMs": 1.0831659999985277
+        },
+        {
+          "operation": "phase.approve:review:content.put",
+          "calls": 3,
+          "totalMs": 1.6698749999995925,
+          "maxMs": 0.6911250000011933
+        },
+        {
+          "operation": "phase.draft.write:review:content.read",
+          "calls": 10,
+          "totalMs": 1.6087489999972604,
+          "maxMs": 0.3558339999999589
+        },
+        {
+          "operation": "phase.draft.write:release:content.read",
+          "calls": 10,
+          "totalMs": 1.6011260000050243,
+          "maxMs": 0.43283299999893643
+        },
+        {
+          "operation": "phase.submit:intake:content.put",
+          "calls": 2,
+          "totalMs": 1.3071669999999358,
+          "maxMs": 0.6625420000000304
+        }
+      ]
+    },
+    "after": {
+      "schemaVersion": 1,
+      "scenario": "namespace-three-phase-ask-v1",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v26.12.0",
+      "metadataBackend": "filesystem",
+      "contentBackend": "sqlite",
+      "journalSourceSha256": "dc200c2a2fe568ba9f070abc25917d9f7b23d36d7dfeb70a29646b8f5d880821",
+      "status": "closed",
+      "totalMs": 9741.653127,
+      "operations": [
+        {
+          "operation": "phase.prepare:intake",
+          "ms": 243.128833
+        },
+        {
+          "operation": "phase.draft.read:intake",
+          "ms": 122.51183399999991
+        },
+        {
+          "operation": "phase.draft.write:intake",
+          "ms": 123.27695899999992
+        },
+        {
+          "operation": "phase.publish:intake",
+          "ms": 434.0880420000001
+        },
+        {
+          "operation": "phase.submit:intake",
+          "ms": 499.3466249999999
+        },
+        {
+          "operation": "phase.review.resources:intake",
+          "ms": 136.9011250000001
+        },
+        {
+          "operation": "document.read:",
+          "ms": 75.16929200000027
+        },
+        {
+          "operation": "document.read:",
+          "ms": 85.66383300000007
+        },
+        {
+          "operation": "phase.approve:intake",
+          "ms": 596.5657919999999
+        },
+        {
+          "operation": "decision.context:",
+          "ms": 158.97775000000001
+        },
+        {
+          "operation": "decision.choose:",
+          "ms": 824.3148329999999
+        },
+        {
+          "operation": "phase.prepare:review",
+          "ms": 253.09641699999975
+        },
+        {
+          "operation": "phase.draft.read:review",
+          "ms": 165.80129200000056
+        },
+        {
+          "operation": "phase.draft.write:review",
+          "ms": 187.1972910000004
+        },
+        {
+          "operation": "phase.publish:review",
+          "ms": 512.2240830000001
+        },
+        {
+          "operation": "phase.submit:review",
+          "ms": 669.5792499999998
+        },
+        {
+          "operation": "phase.review.resources:review",
+          "ms": 195.79712500000005
+        },
+        {
+          "operation": "document.read:",
+          "ms": 105.78449999999975
+        },
+        {
+          "operation": "document.read:",
+          "ms": 90.65837499999998
+        },
+        {
+          "operation": "phase.approve:review",
+          "ms": 670.1936669999996
+        },
+        {
+          "operation": "phase.prepare:release",
+          "ms": 303.6162919999997
+        },
+        {
+          "operation": "phase.draft.read:release",
+          "ms": 219.6088750000008
+        },
+        {
+          "operation": "phase.draft.write:release",
+          "ms": 226.05820800000038
+        },
+        {
+          "operation": "phase.publish:release",
+          "ms": 757.4399169999997
+        },
+        {
+          "operation": "phase.submit:release",
+          "ms": 751.2005000000008
+        },
+        {
+          "operation": "phase.review.resources:release",
+          "ms": 222.41941599999882
+        },
+        {
+          "operation": "document.read:",
+          "ms": 152.41270900000018
+        },
+        {
+          "operation": "document.read:",
+          "ms": 119.70399999999972
+        },
+        {
+          "operation": "phase.approve:release",
+          "ms": 838.9162919999999
+        }
+      ],
+      "ports": [
+        {
+          "operation": "phase.approve:release:records.read",
+          "calls": 79,
+          "totalMs": 405.1046699999897,
+          "maxMs": 10.114542000001165
+        },
+        {
+          "operation": "decision.choose::records.read",
+          "calls": 91,
+          "totalMs": 399.2473710000031,
+          "maxMs": 50.060833
+        },
+        {
+          "operation": "phase.submit:release:records.read",
+          "calls": 79,
+          "totalMs": 379.37482300000283,
+          "maxMs": 8.553000000001703
+        },
+        {
+          "operation": "document.read::records.read",
+          "calls": 102,
+          "totalMs": 365.1975049999928,
+          "maxMs": 6.754750000000058
+        },
+        {
+          "operation": "phase.approve:review:records.read",
+          "calls": 79,
+          "totalMs": 322.92941899999823,
+          "maxMs": 6.523083000000042
+        },
+        {
+          "operation": "phase.approve:release:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 314.8618340000012,
+          "maxMs": 19.28162499999962
+        },
+        {
+          "operation": "phase.publish:release:records.read",
+          "calls": 67,
+          "totalMs": 312.28499900000133,
+          "maxMs": 9.041416000000027
+        },
+        {
+          "operation": "phase.submit:review:records.read",
+          "calls": 79,
+          "totalMs": 291.6507509999956,
+          "maxMs": 7.102082999999766
+        },
+        {
+          "operation": "phase.publish:release:records.inspectOperation",
+          "calls": 24,
+          "totalMs": 283.62249899999733,
+          "maxMs": 31.980290999999852
+        },
+        {
+          "operation": "phase.submit:review:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 260.01162399999976,
+          "maxMs": 13.892291000000114
+        },
+        {
+          "operation": "phase.submit:release:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 257.80837599999904,
+          "maxMs": 14.372292000000016
+        },
+        {
+          "operation": "decision.choose::records.inspectOperation",
+          "calls": 40,
+          "totalMs": 255.15654100000074,
+          "maxMs": 11.765457999999853
+        },
+        {
+          "operation": "phase.approve:intake:records.inspectOperation",
+          "calls": 36,
+          "totalMs": 254.10916499999848,
+          "maxMs": 13.628375000000233
+        },
+        {
+          "operation": "phase.approve:review:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 232.39549800000077,
+          "maxMs": 9.782083000000057
+        },
+        {
+          "operation": "phase.submit:intake:records.inspectOperation",
+          "calls": 32,
+          "totalMs": 223.83937599999922,
+          "maxMs": 11.836374999999862
+        },
+        {
+          "operation": "phase.approve:intake:records.read",
+          "calls": 85,
+          "totalMs": 216.45208600000342,
+          "maxMs": 4.044542000000092
+        },
+        {
+          "operation": "phase.publish:review:records.read",
+          "calls": 67,
+          "totalMs": 213.37975399999686,
+          "maxMs": 4.534916000000521
+        },
+        {
+          "operation": "document.read::records.inspectOperation",
+          "calls": 24,
+          "totalMs": 203.8919969999988,
+          "maxMs": 16.070707999999286
+        },
+        {
+          "operation": "phase.submit:intake:records.read",
+          "calls": 79,
+          "totalMs": 170.2760850000002,
+          "maxMs": 3.7581250000000637
+        },
+        {
+          "operation": "phase.prepare:release:records.read",
+          "calls": 39,
+          "totalMs": 163.14216300000044,
+          "maxMs": 5.330415999999786
+        },
+        {
+          "operation": "phase.publish:review:records.inspectOperation",
+          "calls": 24,
+          "totalMs": 152.80162199999904,
+          "maxMs": 13.082707999999911
+        },
+        {
+          "operation": "phase.publish:intake:records.inspectOperation",
+          "calls": 24,
+          "totalMs": 148.84749999999985,
+          "maxMs": 12.795958000000041
+        },
+        {
+          "operation": "phase.publish:intake:records.read",
+          "calls": 67,
+          "totalMs": 138.72741399999893,
+          "maxMs": 8.785540999999967
+        },
+        {
+          "operation": "phase.review.resources:release:records.read",
+          "calls": 23,
+          "totalMs": 114.09662599999683,
+          "maxMs": 6.386249999999563
+        },
+        {
+          "operation": "phase.prepare:review:records.read",
+          "calls": 39,
+          "totalMs": 113.66795899999988,
+          "maxMs": 4.231792000000041
+        },
+        {
+          "operation": "phase.draft.read:release:records.read",
+          "calls": 26,
+          "totalMs": 107.64253899999858,
+          "maxMs": 6.156665999999859
+        },
+        {
+          "operation": "phase.draft.write:release:records.read",
+          "calls": 26,
+          "totalMs": 104.4464999999982,
+          "maxMs": 5.827249999999367
+        },
+        {
+          "operation": "phase.prepare:intake:records.read",
+          "calls": 39,
+          "totalMs": 95.68904199999969,
+          "maxMs": 5.14224999999999
+        },
+        {
+          "operation": "phase.review.resources:review:records.read",
+          "calls": 23,
+          "totalMs": 91.30504400000336,
+          "maxMs": 5.367083000000093
+        },
+        {
+          "operation": "phase.prepare:review:records.inspectOperation",
+          "calls": 12,
+          "totalMs": 89.72020800000064,
+          "maxMs": 12.143292000000201
+        },
+        {
+          "operation": "phase.prepare:release:records.inspectOperation",
+          "calls": 12,
+          "totalMs": 89.19283199999882,
+          "maxMs": 10.65350000000035
+        },
+        {
+          "operation": "phase.review.resources:release:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 87.08858300000247,
+          "maxMs": 13.050666999999521
+        },
+        {
+          "operation": "phase.draft.write:review:records.read",
+          "calls": 26,
+          "totalMs": 84.34691999999632,
+          "maxMs": 4.250791999999819
+        },
+        {
+          "operation": "phase.review.resources:review:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 82.12624799999867,
+          "maxMs": 23.1465419999995
+        },
+        {
+          "operation": "phase.draft.read:release:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 79.88162400000056,
+          "maxMs": 13.200874999999542
+        },
+        {
+          "operation": "phase.draft.read:review:records.read",
+          "calls": 26,
+          "totalMs": 77.84479500000361,
+          "maxMs": 5.0011670000003505
+        },
+        {
+          "operation": "phase.prepare:intake:records.inspectOperation",
+          "calls": 12,
+          "totalMs": 76.53741600000001,
+          "maxMs": 9.279583000000002
+        },
+        {
+          "operation": "phase.draft.write:release:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 73.79608299999927,
+          "maxMs": 11.193749999999454
+        },
+        {
+          "operation": "decision.context::records.inspectOperation",
+          "calls": 10,
+          "totalMs": 68.55941499999972,
+          "maxMs": 8.54287499999964
+        },
+        {
+          "operation": "decision.context::records.read",
+          "calls": 26,
+          "totalMs": 67.21345899999915,
+          "maxMs": 4.568834000000152
+        },
+        {
+          "operation": "phase.review.resources:intake:records.read",
+          "calls": 23,
+          "totalMs": 60.47324999999955,
+          "maxMs": 3.520999999999958
+        },
+        {
+          "operation": "phase.draft.read:review:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 56.5497490000007,
+          "maxMs": 10.5529590000001
+        },
+        {
+          "operation": "phase.draft.write:review:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 54.72954199999913,
+          "maxMs": 8.222917000000052
+        },
+        {
+          "operation": "phase.review.resources:intake:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 48.47162500000013,
+          "maxMs": 7.7844169999998485
+        },
+        {
+          "operation": "phase.draft.read:intake:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 43.51304100000016,
+          "maxMs": 7.126708000000008
+        },
+        {
+          "operation": "phase.draft.read:intake:records.read",
+          "calls": 26,
+          "totalMs": 43.39824899999985,
+          "maxMs": 2.5944169999999076
+        },
+        {
+          "operation": "phase.draft.write:intake:records.inspectOperation",
+          "calls": 8,
+          "totalMs": 42.582083999999895,
+          "maxMs": 7.507499999999936
+        },
+        {
+          "operation": "phase.draft.write:intake:records.read",
+          "calls": 26,
+          "totalMs": 40.60207899999932,
+          "maxMs": 2.2899999999999636
+        },
+        {
+          "operation": "phase.publish:release:records.transact",
+          "calls": 2,
+          "totalMs": 40.509125999999924,
+          "maxMs": 23.890292000000045
+        },
+        {
+          "operation": "phase.submit:release:records.transact",
+          "calls": 2,
+          "totalMs": 35.12183299999742,
+          "maxMs": 18.924874999998792
+        },
+        {
+          "operation": "phase.submit:review:records.transact",
+          "calls": 2,
+          "totalMs": 34.51337400000011,
+          "maxMs": 18.577041000000463
+        },
+        {
+          "operation": "phase.publish:review:records.transact",
+          "calls": 2,
+          "totalMs": 32.681290999999874,
+          "maxMs": 16.558124999999563
+        },
+        {
+          "operation": "phase.approve:release:records.transact",
+          "calls": 2,
+          "totalMs": 32.253875000000335,
+          "maxMs": 16.99029200000041
+        },
+        {
+          "operation": "phase.publish:intake:records.transact",
+          "calls": 2,
+          "totalMs": 32.037250000000085,
+          "maxMs": 20.404833000000053
+        },
+        {
+          "operation": "phase.approve:review:records.transact",
+          "calls": 2,
+          "totalMs": 31.161540999999488,
+          "maxMs": 15.713249999999789
+        },
+        {
+          "operation": "phase.submit:intake:records.transact",
+          "calls": 2,
+          "totalMs": 28.548292000000174,
+          "maxMs": 16.48050000000012
+        },
+        {
+          "operation": "phase.approve:intake:records.transact",
+          "calls": 2,
+          "totalMs": 27.497791999999663,
+          "maxMs": 14.954917000000023
+        },
+        {
+          "operation": "decision.choose::records.transact",
+          "calls": 2,
+          "totalMs": 27.422875999999633,
+          "maxMs": 13.995042000000012
+        },
+        {
+          "operation": "decision.choose::content.read",
+          "calls": 74,
+          "totalMs": 13.477334999997765,
+          "maxMs": 0.8618329999999332
+        },
+        {
+          "operation": "phase.approve:review:content.read",
+          "calls": 64,
+          "totalMs": 10.929087999997137,
+          "maxMs": 0.4147499999999127
+        },
+        {
+          "operation": "phase.approve:release:content.read",
+          "calls": 64,
+          "totalMs": 10.164706999992632,
+          "maxMs": 0.4082079999989219
+        },
+        {
+          "operation": "phase.approve:intake:content.read",
+          "calls": 68,
+          "totalMs": 10.084626000000299,
+          "maxMs": 0.4915000000000873
+        },
+        {
+          "operation": "phase.submit:release:content.read",
+          "calls": 55,
+          "totalMs": 9.861625999999887,
+          "maxMs": 0.8986249999998108
+        },
+        {
+          "operation": "phase.submit:review:content.read",
+          "calls": 55,
+          "totalMs": 9.244919999998274,
+          "maxMs": 0.516500000000633
+        },
+        {
+          "operation": "phase.publish:review:content.read",
+          "calls": 54,
+          "totalMs": 8.263544000004003,
+          "maxMs": 0.5010839999995369
+        },
+        {
+          "operation": "phase.publish:intake:content.read",
+          "calls": 54,
+          "totalMs": 8.185414000000264,
+          "maxMs": 1.1103749999999764
+        },
+        {
+          "operation": "phase.submit:intake:content.read",
+          "calls": 55,
+          "totalMs": 7.451750000000175,
+          "maxMs": 0.409874999999829
+        },
+        {
+          "operation": "phase.publish:release:content.read",
+          "calls": 54,
+          "totalMs": 6.8622500000028595,
+          "maxMs": 0.46824999999989814
+        },
+        {
+          "operation": "document.read::content.read",
+          "calls": 36,
+          "totalMs": 5.662081000001763,
+          "maxMs": 0.4267090000000735
+        },
+        {
+          "operation": "phase.prepare:intake:content.read",
+          "calls": 21,
+          "totalMs": 4.566082999999821,
+          "maxMs": 0.44500000000005
+        },
+        {
+          "operation": "phase.prepare:release:content.read",
+          "calls": 21,
+          "totalMs": 4.182292000000416,
+          "maxMs": 0.5568329999996422
+        },
+        {
+          "operation": "phase.review.resources:intake:content.read",
+          "calls": 17,
+          "totalMs": 3.5320429999999305,
+          "maxMs": 0.3192500000000109
+        },
+        {
+          "operation": "phase.prepare:review:content.read",
+          "calls": 21,
+          "totalMs": 3.425623000000087,
+          "maxMs": 0.3285409999998592
+        },
+        {
+          "operation": "phase.review.resources:release:content.read",
+          "calls": 17,
+          "totalMs": 3.2389149999980873,
+          "maxMs": 0.48141600000053586
+        },
+        {
+          "operation": "phase.publish:intake:content.put",
+          "calls": 3,
+          "totalMs": 3.1519160000000284,
+          "maxMs": 1.4457079999999678
+        },
+        {
+          "operation": "phase.approve:intake:content.put",
+          "calls": 3,
+          "totalMs": 2.998917000000347,
+          "maxMs": 1.3239590000002863
+        },
+        {
+          "operation": "phase.publish:review:content.put",
+          "calls": 3,
+          "totalMs": 2.9181670000007216,
+          "maxMs": 1.1839170000002923
+        },
+        {
+          "operation": "phase.review.resources:review:content.read",
+          "calls": 17,
+          "totalMs": 2.8933349999970233,
+          "maxMs": 0.3845840000003591
+        },
+        {
+          "operation": "decision.context::content.read",
+          "calls": 21,
+          "totalMs": 2.673958999999286,
+          "maxMs": 0.3392499999999927
+        },
+        {
+          "operation": "phase.approve:release:content.put",
+          "calls": 3,
+          "totalMs": 2.378210000000763,
+          "maxMs": 1.1219590000000608
+        },
+        {
+          "operation": "phase.approve:review:content.put",
+          "calls": 3,
+          "totalMs": 2.199291999999332,
+          "maxMs": 1.1466669999999795
+        },
+        {
+          "operation": "phase.draft.write:intake:content.read",
+          "calls": 10,
+          "totalMs": 2.15958400000045,
+          "maxMs": 0.49175000000002456
+        },
+        {
+          "operation": "phase.publish:release:content.put",
+          "calls": 3,
+          "totalMs": 2.0431659999994736,
+          "maxMs": 1.1167500000001382
+        },
+        {
+          "operation": "phase.draft.write:review:content.read",
+          "calls": 10,
+          "totalMs": 2.0235430000011547,
+          "maxMs": 0.37866699999995035
+        },
+        {
+          "operation": "decision.choose::content.put",
+          "calls": 2,
+          "totalMs": 1.931250000000091,
+          "maxMs": 1.340458000000126
+        },
+        {
+          "operation": "phase.submit:review:content.put",
+          "calls": 2,
+          "totalMs": 1.812542000000576,
+          "maxMs": 1.1073330000008355
+        },
+        {
+          "operation": "phase.draft.read:release:content.read",
+          "calls": 10,
+          "totalMs": 1.771665999997822,
+          "maxMs": 0.31258299999990413
+        },
+        {
+          "operation": "phase.submit:release:content.put",
+          "calls": 2,
+          "totalMs": 1.768458999998984,
+          "maxMs": 1.15099999999984
+        },
+        {
+          "operation": "phase.draft.write:release:content.read",
+          "calls": 10,
+          "totalMs": 1.7472929999994449,
+          "maxMs": 0.2613339999998061
+        },
+        {
+          "operation": "phase.draft.read:intake:content.read",
+          "calls": 10,
+          "totalMs": 1.6659990000000562,
+          "maxMs": 0.3162079999999605
+        },
+        {
+          "operation": "phase.draft.read:review:content.read",
+          "calls": 10,
+          "totalMs": 1.586540000000241,
+          "maxMs": 0.2849580000001879
+        },
+        {
+          "operation": "phase.submit:intake:content.put",
+          "calls": 2,
+          "totalMs": 1.5317919999999958,
+          "maxMs": 0.8654579999999896
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,312 @@
+{
+  "baseline": "65221f93e",
+  "initial": {
+    "format": "sflow.sgos.operational-state",
+    "formatVersion": 1,
+    "storeId": "compatibility-store",
+    "revision": 0,
+    "eventSha256": null,
+    "entriesSha256": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "entries": {},
+    "stateSha256": "sha256:1a4552777f5d1915d219f8a93921d4ec6b0b52206d4c88c0f21b9c747cd8b88b"
+  },
+  "first": {
+    "format": "sflow.sgos.operational-state",
+    "formatVersion": 1,
+    "storeId": "compatibility-store",
+    "revision": 1,
+    "eventSha256": "sha256:0a8532d5dfece8a469b07831cc3828f35e7873c264b052401ec3056683d40b48",
+    "entriesSha256": "sha256:4cec29321734941ffa92e5641ced9c9c5b9e7fd1470d217a992cb7790dbcdcf5",
+    "entries": {
+      "lease/task-1": {
+        "owner": "device-a",
+        "sequence": 1
+      },
+      "task/one": {
+        "state": "running",
+        "input": "λ"
+      }
+    },
+    "stateSha256": "sha256:80ce10ffd5d2c7b974143d4e309981dd7f3ee75e128e986b0841ff09973e487e"
+  },
+  "second": {
+    "format": "sflow.sgos.operational-state",
+    "formatVersion": 1,
+    "storeId": "compatibility-store",
+    "revision": 2,
+    "eventSha256": "sha256:2b13c301566f780a5ecc362eb4218947a2dbf77c286086dca16e4a8fae685099",
+    "entriesSha256": "sha256:24ceeceefea81979aab409d8bdadc34405a46fba74e96fe3a76a7b500039e125",
+    "entries": {
+      "task/one": {
+        "state": "succeeded",
+        "result": 42
+      }
+    },
+    "stateSha256": "sha256:fb512496a8f486405d030ec4e64292133d7970703ce4bdd41274de2dca3220df"
+  },
+  "backup": {
+    "format": "sflow.sgos.operational-backup",
+    "formatVersion": 1,
+    "profile": "memory-replay-v1",
+    "storeId": "compatibility-store",
+    "events": [
+      {
+        "format": "sflow.sgos.operational-event",
+        "formatVersion": 1,
+        "storeId": "compatibility-store",
+        "revision": 1,
+        "priorEventSha256": null,
+        "beforeStateSha256": "sha256:1a4552777f5d1915d219f8a93921d4ec6b0b52206d4c88c0f21b9c747cd8b88b",
+        "afterEntriesSha256": "sha256:4cec29321734941ffa92e5641ced9c9c5b9e7fd1470d217a992cb7790dbcdcf5",
+        "operation": "transact",
+        "changes": [
+          {
+            "op": "put",
+            "key": "lease/task-1",
+            "value": {
+              "owner": "device-a",
+              "sequence": 1
+            }
+          },
+          {
+            "op": "put",
+            "key": "task/one",
+            "value": {
+              "state": "running",
+              "input": "λ"
+            }
+          }
+        ],
+        "eventSha256": "sha256:0a8532d5dfece8a469b07831cc3828f35e7873c264b052401ec3056683d40b48"
+      },
+      {
+        "format": "sflow.sgos.operational-event",
+        "formatVersion": 1,
+        "storeId": "compatibility-store",
+        "revision": 2,
+        "priorEventSha256": "sha256:0a8532d5dfece8a469b07831cc3828f35e7873c264b052401ec3056683d40b48",
+        "beforeStateSha256": "sha256:80ce10ffd5d2c7b974143d4e309981dd7f3ee75e128e986b0841ff09973e487e",
+        "afterEntriesSha256": "sha256:24ceeceefea81979aab409d8bdadc34405a46fba74e96fe3a76a7b500039e125",
+        "operation": "transact",
+        "changes": [
+          {
+            "op": "delete",
+            "key": "lease/task-1"
+          },
+          {
+            "op": "put",
+            "key": "task/one",
+            "value": {
+              "state": "succeeded",
+              "result": 42
+            }
+          }
+        ],
+        "eventSha256": "sha256:2b13c301566f780a5ecc362eb4218947a2dbf77c286086dca16e4a8fae685099"
+      }
+    ],
+    "head": {
+      "format": "sflow.sgos.operational-state",
+      "formatVersion": 1,
+      "storeId": "compatibility-store",
+      "revision": 2,
+      "eventSha256": "sha256:2b13c301566f780a5ecc362eb4218947a2dbf77c286086dca16e4a8fae685099",
+      "entriesSha256": "sha256:24ceeceefea81979aab409d8bdadc34405a46fba74e96fe3a76a7b500039e125",
+      "entries": {
+        "task/one": {
+          "state": "succeeded",
+          "result": 42
+        }
+      },
+      "stateSha256": "sha256:fb512496a8f486405d030ec4e64292133d7970703ce4bdd41274de2dca3220df"
+    },
+    "backupSha256": "sha256:59c3ac57bb2184189e3980418ab66c439dae494412895de8a3e2e95c29cb9917"
+  },
+  "rollback": {
+    "kind": "sgos-operational-rollback-plan",
+    "storeId": "compatibility-store",
+    "profile": "memory-replay-v1",
+    "beforeRevision": 2,
+    "beforeStateSha256": "sha256:fb512496a8f486405d030ec4e64292133d7970703ce4bdd41274de2dca3220df",
+    "targetRevision": 1,
+    "targetStateSha256": "sha256:80ce10ffd5d2c7b974143d4e309981dd7f3ee75e128e986b0841ff09973e487e",
+    "confirmationSha256": "sha256:863f691b0ca0c1205b2b7c63fe034ca87942ad7297363bd65b8a8fdf1c1ad33e"
+  },
+  "rolledBack": {
+    "rolledBack": true,
+    "storeId": "compatibility-store",
+    "profile": "memory-replay-v1",
+    "targetRevision": 1,
+    "revision": 3,
+    "stateSha256": "sha256:dff6adf91a19722405a75fa4dd7290d486298d1aa741a4f5b20c41ea205cdc96",
+    "planSha256": "sha256:863f691b0ca0c1205b2b7c63fe034ca87942ad7297363bd65b8a8fdf1c1ad33e"
+  },
+  "afterRollback": {
+    "format": "sflow.sgos.operational-state",
+    "formatVersion": 1,
+    "storeId": "compatibility-store",
+    "revision": 3,
+    "eventSha256": "sha256:df58fe8550bf7531ef10ebc04c2c2dbbe0e296dd06bc9ab42d49585bf638ada7",
+    "entriesSha256": "sha256:4cec29321734941ffa92e5641ced9c9c5b9e7fd1470d217a992cb7790dbcdcf5",
+    "entries": {
+      "lease/task-1": {
+        "owner": "device-a",
+        "sequence": 1
+      },
+      "task/one": {
+        "state": "running",
+        "input": "λ"
+      }
+    },
+    "stateSha256": "sha256:dff6adf91a19722405a75fa4dd7290d486298d1aa741a4f5b20c41ea205cdc96"
+  },
+  "afterBackup": {
+    "format": "sflow.sgos.operational-backup",
+    "formatVersion": 1,
+    "profile": "memory-replay-v1",
+    "storeId": "compatibility-store",
+    "events": [
+      {
+        "format": "sflow.sgos.operational-event",
+        "formatVersion": 1,
+        "storeId": "compatibility-store",
+        "revision": 1,
+        "priorEventSha256": null,
+        "beforeStateSha256": "sha256:1a4552777f5d1915d219f8a93921d4ec6b0b52206d4c88c0f21b9c747cd8b88b",
+        "afterEntriesSha256": "sha256:4cec29321734941ffa92e5641ced9c9c5b9e7fd1470d217a992cb7790dbcdcf5",
+        "operation": "transact",
+        "changes": [
+          {
+            "op": "put",
+            "key": "lease/task-1",
+            "value": {
+              "owner": "device-a",
+              "sequence": 1
+            }
+          },
+          {
+            "op": "put",
+            "key": "task/one",
+            "value": {
+              "state": "running",
+              "input": "λ"
+            }
+          }
+        ],
+        "eventSha256": "sha256:0a8532d5dfece8a469b07831cc3828f35e7873c264b052401ec3056683d40b48"
+      },
+      {
+        "format": "sflow.sgos.operational-event",
+        "formatVersion": 1,
+        "storeId": "compatibility-store",
+        "revision": 2,
+        "priorEventSha256": "sha256:0a8532d5dfece8a469b07831cc3828f35e7873c264b052401ec3056683d40b48",
+        "beforeStateSha256": "sha256:80ce10ffd5d2c7b974143d4e309981dd7f3ee75e128e986b0841ff09973e487e",
+        "afterEntriesSha256": "sha256:24ceeceefea81979aab409d8bdadc34405a46fba74e96fe3a76a7b500039e125",
+        "operation": "transact",
+        "changes": [
+          {
+            "op": "delete",
+            "key": "lease/task-1"
+          },
+          {
+            "op": "put",
+            "key": "task/one",
+            "value": {
+              "state": "succeeded",
+              "result": 42
+            }
+          }
+        ],
+        "eventSha256": "sha256:2b13c301566f780a5ecc362eb4218947a2dbf77c286086dca16e4a8fae685099"
+      },
+      {
+        "format": "sflow.sgos.operational-event",
+        "formatVersion": 1,
+        "storeId": "compatibility-store",
+        "revision": 3,
+        "priorEventSha256": "sha256:2b13c301566f780a5ecc362eb4218947a2dbf77c286086dca16e4a8fae685099",
+        "beforeStateSha256": "sha256:fb512496a8f486405d030ec4e64292133d7970703ce4bdd41274de2dca3220df",
+        "afterEntriesSha256": "sha256:4cec29321734941ffa92e5641ced9c9c5b9e7fd1470d217a992cb7790dbcdcf5",
+        "operation": "rollback",
+        "changes": [
+          {
+            "op": "put",
+            "key": "lease/task-1",
+            "value": {
+              "owner": "device-a",
+              "sequence": 1
+            }
+          },
+          {
+            "op": "put",
+            "key": "task/one",
+            "value": {
+              "state": "running",
+              "input": "λ"
+            }
+          }
+        ],
+        "rollbackRevision": 1,
+        "eventSha256": "sha256:df58fe8550bf7531ef10ebc04c2c2dbbe0e296dd06bc9ab42d49585bf638ada7"
+      }
+    ],
+    "head": {
+      "format": "sflow.sgos.operational-state",
+      "formatVersion": 1,
+      "storeId": "compatibility-store",
+      "revision": 3,
+      "eventSha256": "sha256:df58fe8550bf7531ef10ebc04c2c2dbbe0e296dd06bc9ab42d49585bf638ada7",
+      "entriesSha256": "sha256:4cec29321734941ffa92e5641ced9c9c5b9e7fd1470d217a992cb7790dbcdcf5",
+      "entries": {
+        "lease/task-1": {
+          "owner": "device-a",
+          "sequence": 1
+        },
+        "task/one": {
+          "state": "running",
+          "input": "λ"
+        }
+      },
+      "stateSha256": "sha256:dff6adf91a19722405a75fa4dd7290d486298d1aa741a4f5b20c41ea205cdc96"
+    },
+    "backupSha256": "sha256:52409c924e41688f3a465ab67e9828b3e8b355b4e672ac9d9118a95a04a4c91c"
+  },
+  "errors": [
+    {
+      "name": "SingularityFlowError",
+      "code": "SGOS_OPERATIONAL_ADAPTER_INVALID",
+      "message": "SGOS Operational Store adapter contract is invalid."
+    },
+    {
+      "name": "SingularityFlowError",
+      "code": "SGOS_OPERATIONAL_STORE_SELECTION_REFUSED",
+      "message": "Operational Store selection cannot satisfy the pinned Program storage authority.",
+      "details": {
+        "purpose": "runtime",
+        "profile": "memory-replay-v1",
+        "programStorageProfileSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "selectedStorageProfileSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "SingularityFlowError",
+      "code": "SGOS_OPERATIONAL_CAS_MISMATCH",
+      "message": "Operational transaction lost its compare-and-swap race.",
+      "details": {
+        "currentRevision": 2,
+        "currentStateSha256": "sha256:fb512496a8f486405d030ec4e64292133d7970703ce4bdd41274de2dca3220df"
+      }
+    },
+    {
+      "name": "SingularityFlowError",
+      "code": "SGOS_OPERATIONAL_STORE_DELETE_MISSING",
+      "message": "Operational key 'missing' does not exist."
+    },
+    {
+      "name": "SingularityFlowError",
+      "code": "SGOS_OPERATIONAL_STORE_INVALID",
+      "message": "Operational key 'task/one' is changed more than once."
+    }
+  ]
+}

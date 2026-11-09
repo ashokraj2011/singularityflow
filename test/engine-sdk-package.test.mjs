@@ -80,6 +80,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       assert.equal(execution.EXECUTION_UNIT_CONTRACT,'sflow-execution-unit/v1');
       assert.equal(execution.EXECUTION_UNIT_METHODS.length,8);
       assert.throws(()=>execution.captureExecutionUnit({}),error=>error instanceof sdk.SingularityFlowError&&error.code==='ENGINE_EXECUTION_UNIT_PORT_INVALID');
+      const operational=await import('${packageName}/execution/storage');
+      assert.equal(operational.SGOS_OPERATIONAL_STORE_SPI_VERSION,1);
+      assert.equal(operational.SGOS_OPERATIONAL_STORE_METHODS.length,10);
+      assert.equal(operational.SGOS_OPERATIONAL_STORE_CAPABILITIES.authorityEligible,false);
       const artifacts = await import('${packageName}/artifacts');
       assert.equal(artifacts.renderArtifactTemplateText('{{work.id}} {{phase.label}}',
         {id:'team-review',label:'Team review'},{id:'T-1'}),'T-1 Team review');
@@ -720,6 +724,49 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     `);
   });
 
+  await t.test('installed operational history survives another empty-PATH host without Git or lifecycle storage',async()=>{
+    const source=`
+      import assert from 'node:assert/strict';
+      import {registerHooks} from 'node:module';
+      import {mkdir,writeFile,readFile} from 'node:fs/promises';
+      import path from 'node:path';
+      import {DatabaseSync} from 'node:sqlite';
+      const hooks=registerHooks({resolve(specifier,context,next){
+        if(['model-runner','git-access','sgos/store.mjs','sgos/runtime.mjs','config.mjs'].some(part=>specifier.includes(part)))throw Error('Unexpected installed owner: '+specifier);
+        return next(specifier,context);
+      }});
+      const {createFilesystemNamespaceStore}=await import('${packageName}/storage/filesystem');
+      const {createSqliteContentStore}=await import('${packageName}/storage/sqlite-content');
+      const {createNamespaceSgosOperationalStore}=await import('${packageName}/execution/storage/namespace');
+      const fresh=process.argv[2]==='fresh',root=path.join(process.cwd(),'operational-history'),binding={kind:'shared'},scope={projectId:'execution-project'};
+      if(fresh)await mkdir(root);
+      const records=await createFilesystemNamespaceStore({root:path.join(root,'metadata'),binding,create:fresh});
+      const database=new DatabaseSync(path.join(root,'content.db'));
+      database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
+      try{
+        const content=createSqliteContentStore({database,binding,create:fresh});
+        const store=createNamespaceSgosOperationalStore({records,content,scope,storeId:'fixture-execution'});
+        if(fresh){const initial=await store.read();await store.transact({expectedRevision:initial.revision,expectedStateSha256:initial.stateSha256,
+          changes:[{op:'put',key:'attempt/one',value:{state:'running',owner:'first-device'}}]});
+          const running=await store.read();const completed=await store.transact({expectedRevision:running.revision,expectedStateSha256:running.stateSha256,
+            changes:[{op:'put',key:'attempt/one',value:{state:'succeeded',result:{passed:2,failed:0}}}]});
+          await writeFile(path.join(root,'expected.json'),JSON.stringify(completed));
+        }else{const expected=JSON.parse(await readFile(path.join(root,'expected.json'),'utf8'));assert.deepEqual(await store.read(),expected);
+          assert.equal((await store.verify()).eventCount,2);const plan=await store.planRollback(1);
+          await store.rollback({revision:1,confirmationSha256:plan.confirmationSha256});
+          assert.equal((await store.read()).revision,3);assert.equal((await store.read()).entries['attempt/one'].state,'running');
+          const key='sgos/operational/fixture-execution/head',head=(await records.read(scope,'runtime',key)).record;
+          const original=await content.read(scope,head.value.lineage);
+          const bytes=Buffer.concat([Buffer.from([239,187,191]),Buffer.from(original.data)]),lineage=(await content.put(scope,'runtime',bytes)).reference;
+          await records.transact(scope,{operationId:'installed-bom-fixture',preconditions:[{namespace:'runtime',key,version:head.version}],
+            changes:[{op:'put',namespace:'runtime',key,immutable:false,value:{...head.value,lineage}}],events:[]});
+          await assert.rejects(store.read(),{code:'SGOS_OPERATIONAL_STORE_CORRUPT'});}
+        for(const namespace of ['state','config','evidence'])assert.deepEqual((await records.list(scope,namespace,{limit:100})).entries,[]);
+      }finally{database.close();hooks.deregister();}
+    `;
+    await run('operational-history.mjs',source,['fresh']);await run('operational-history.mjs',source,['reopen']);
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -748,9 +795,18 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
       import type {ExecutionUnit,AgentTaskInput,ExecutionCandidate} from '${packageName}/execution';
       import {createDeterministicTranslatorExecutionUnit,createAgentTaskContract,createGenericProcessExecutionUnit} from '${packageName}/execution/node';
+      import {createNamespaceSgosOperationalStore} from '${packageName}/execution/storage/namespace';
+      import type {OperationalStore,OperationalState} from '${packageName}/execution/storage';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
+      declare const runtimeMetadata:NamespaceStore;declare const runtimeContent:ContentStore;
+      const operational:OperationalStore=createNamespaceSgosOperationalStore({records:runtimeMetadata,content:runtimeContent,scope:{projectId:'example'},storeId:'execution'});
+      const operationalState:Promise<OperationalState>=operational.read();
+      // @ts-expect-error Runtime persistence requires an explicit immutable-content port.
+      createNamespaceSgosOperationalStore({records:runtimeMetadata,scope:{projectId:'example'},storeId:'execution'});
+      // @ts-expect-error Operational transactions do not expose lifecycle approval operations.
+      operational.transact({expectedRevision:0,expectedStateSha256:'sha256:fixture',changes:[{op:'approve',key:'phase'}]});
       const engine=createEngine({ports:{publication:{load:async()=>{throw new Error('host');},retained:async()=>null,
         prepare:async()=>null,commit:async()=>null,finish:async()=>null}}});
       const execution:ExecutionUnit=captureExecutionUnit(createDeterministicTranslatorExecutionUnit());
@@ -965,4 +1021,5 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     }
     for (const helper of Object.keys(ENGINE_HELPERS)) assert.ok(declared.includes(`  ${helper}(`));
   });
+
 });

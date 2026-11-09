@@ -49,9 +49,9 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
-  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'execution', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'execution', 'execution/storage', 'storage/journal'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
-    allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries] });
+    allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries, 'src/sgos/operational-contract.mjs'] });
   assert.deepEqual(report.problems, []);
 });
 
@@ -80,7 +80,7 @@ test('only explicit storage adapters consume namespace contracts outside their p
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
+  const namespaceAdapters = new Set(['src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
     'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
     'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs',
     'src/sda/content/contract.mjs', 'src/sda/sqlite-content-adapter.mjs',
@@ -117,6 +117,20 @@ test('only explicit storage adapters consume namespace contracts outside their p
     visit(source);
   }
   assert.deepEqual(violations, [], 'new namespace backends must not change installed Git routing');
+});
+
+test('namespace operational history uses SDA ports without selecting files, Git, models or lifecycle authority',async()=>{
+  const file='src/sgos/namespace-operational-store.mjs',allowed=new Set(['node:crypto','../foundation/record-schema.mjs',
+    '../foundation/failures.mjs','../sda/namespace/contract.mjs','../sda/namespace/values.mjs',
+    '../sda/namespace/transaction.mjs','../sda/content/contract.mjs','./operational-contract.mjs']);
+  const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+    if(ts.isIdentifier(node)&&['process','repoRoot','loadDefinition','invokeModel','transactStory'].includes(node.text))assert.fail('Operational storage must use explicit SDA ports.');
+    if(ts.isStringLiteral(node))assert.equal(['state','config','evidence','local'].includes(node.text),false,'Operational storage may only publish runtime records.');
+    ts.forEachChild(node,visit);
+  };visit(ast);
 });
 
 test('kernel tree shaking is backed by pure initialization and no side-effect-only imports', async () => {

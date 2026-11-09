@@ -76,7 +76,7 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 | 4 | Publication through the registry and SDK, with explicit CLI result projection parity | Implemented; 406 focused Mac tests passed |
 | 5 | Submit, decisions, approve, advance, phase manifests and queries, one operation per slice | In progress: submission, approval, rejection, decision coordination/writers, standalone scope/routing/test/evidence/witness decisions, plan amendments/corrections, upstream issues/forward amendments and their list query, phase review and document manifests, document body reads, phase entry and its authoring read plan, local generation begin/reviewed rollover, configured preparation, phase-input preparation and its provenance manifest, draft and prepublication inspection, portable workflow asset inventory, ordinary Story status and shared recorded-evidence counts, registered workflow guides and shared continuation/authoring/hold rules, pure aggregate/submission/approval state updates, decision compilation and branch/loop/choice interpretation, registered semantic next-step planning, portable artifact-content rules, workflow-definition compilation and effective resolution, convergence advancement and shared post-transition effects extracted; remaining queries and native policy extraction remain |
 | 6 | Filesystem adapter for new projects, including crash/retry and concurrency qualification | Implemented for explicitly created namespace stores; shared conformance and native Mac crash/concurrency checks passed. Installed authority cutover remains a later gate |
-| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, one public namespace Engine composition, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, reviewed-document branching/rework/human choice completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
+| 7 | Database/application adapter and installable headless Node runtime | In progress: application journal port, native SQLite adapter, installable explicit-port SDK preview, one public namespace Engine composition, separate immutable content port, namespace-backed phase/document read host, internal conditional lifecycle committer, explicit new-project enrollment, registered namespace configuration approval and Story creation with canonical lifecycle reads, explicit SGOS filesystem observations and registered source binding, namespace-backed SGOS operational history, actual device-local preparation and conditional private draft read/write/rebind, primary-document publication/submission/human approval, reviewed-document branching/rework/human choice completion, retained-receipt recovery, shared proof readers and versioned terminal read views implemented; remaining production policy/execution ports and complete cross-agent application Story execution remain |
 | 8 | Verified migration of existing projects and an explicit authority cutover | Planned; export, verification, old-writer fencing and reconciliation required |
 | 9 | Remove obsolete direct accesses, qualify distribution and compare performance | Planned; preserve existing skill and CLI contracts during migration |
 
@@ -150,6 +150,27 @@ observations through explicit SGOS units and SDA content/record ports. Takeover 
 observations and original receipts without storing source code or physical roots. Binding does
 not open a generation or claim execution readiness; portable preparation and lifecycle execution
 still require their own policy ports.
+
+The [namespace operational store](ENGINE-SDK-OPERATIONAL-STORAGE.md) separates the SGOS v1 history
+codec from native filesystem I/O and persists the same state/event protocol through explicit SDA
+ports. A conditional runtime head accepts verified immutable lineage; backup, restore, rollback,
+lost acknowledgements and interrupted content preparation keep their distinct meanings. This
+supplies portable durable history. Actual attempt/lease coordination, live-owner checks, retained
+phase-test evidence and complete application Story execution remain Phase 7 integration gates;
+Phases 5, 7, 8 and 9 remain open.
+
+The filesystem namespace backend reuses verified replay prefixes only after freshly reading and
+checking the observed file bytes. Snapshot isolation, physical I/O failures, final bindings,
+receipts and on-disk versions retain their existing meanings. A matched initialized three-phase
+fixture measured 49.1 seconds before and 9.7 seconds after, with identical port request counts.
+This is component qualification; full distribution and supported-host cold/warm benchmarking
+remain a Phase 9 gate.
+
+The operational-storage delivery passed all 751 checks across 44 namespace consumer files,
+135 final policy/integrity checks, and 21 actual installed-archive checks, with no failures,
+cancellations or skips in those final runs. The SDK preview retains 51 operations and 135 source
+modules. Final source and host qualification remain separate from complete application execution;
+Phases 5, 7, 8 and 9 remain open.
 
 The [artifact-template extraction](ENGINE-SDK-ARTIFACT-TEMPLATES.md) gives native configuration
 and the explicit SDK one content-rule owner, with captured native rendering for all shipped

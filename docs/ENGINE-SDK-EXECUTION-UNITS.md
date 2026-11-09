@@ -68,7 +68,7 @@ state changes, compatibility imports, isolated execution and NodeNext declaratio
 
 Source validation passed 3,866 checks across 191 skills. VS Code typechecking, the unchanged
 2,011-site execution audit and all 13 existing bundle budgets passed. The optional SDK retains
-51 registered operations and builds from 131 modules / 1,321,846 input bytes. The gateway stays at
+51 registered operations and builds from 131 source modules / 1,321,846 generated JavaScript bytes. The gateway stays at
 851 modules, the extension at 152, Help at 135, support at 111 and prewarm at 23; no ceiling was
 raised. These are compatibility and packaging checks, not an end-to-end performance measurement.
 

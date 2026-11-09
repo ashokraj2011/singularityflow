@@ -89,6 +89,10 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
 - `execution`: provider-neutral execution-unit method binding and operational TypeScript contracts.
 - `execution/node`: explicitly selected deterministic or fixed-command Node execution units.
+- `execution/storage`: pure SGOS Operational Store v1 protocol and TypeScript contracts.
+- `execution/storage/namespace`: durable execution history over explicit shared SDA record/content
+  ports, with conditional heads, retained lineage and confirmed backup/restore/rollback. It does
+  not select native runtime authority, certify test evidence or replace the execution coordinator.
 - `hosts/namespace-source`: record actual repository observations through `source.bind`, retaining
   canonical lifecycle reads, original receipts and first source observations across takeover.
 - `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase

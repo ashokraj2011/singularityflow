@@ -16,6 +16,8 @@
     "./source": { "types": "./dist/source.d.mts", "import": "./dist/source.mjs" },
     "./execution": { "types": "./dist/execution.d.mts", "import": "./dist/execution.mjs" },
     "./execution/node": { "types": "./dist/execution/node.d.mts", "import": "./dist/execution/node.mjs" },
+    "./execution/storage": { "types": "./dist/execution/storage.d.mts", "import": "./dist/execution/storage.mjs" },
+    "./execution/storage/namespace": { "types": "./dist/execution/storage/namespace.d.mts", "import": "./dist/execution/storage/namespace.mjs" },
     "./sources/filesystem": { "types": "./dist/sources/filesystem.d.mts", "import": "./dist/sources/filesystem.mjs" },
     "./hosts/namespace-reader": { "types": "./dist/hosts/namespace-reader.d.mts", "import": "./dist/hosts/namespace-reader.mjs" },
     "./hosts/namespace-engine": { "types": "./dist/hosts/namespace-engine.d.mts", "import": "./dist/hosts/namespace-engine.mjs" },

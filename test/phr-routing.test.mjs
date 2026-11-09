@@ -370,3 +370,23 @@ test('[PHR:REQ-003] finding 2: the plan\'s approvers may uphold a plan against t
   assert.ok(!phaseResolutionChoices(workflow, workflow.phases.planning, finding('plan-row')).choices.some((entry) => entry.kind === 'dispute'));
 
 });
+
+test('[PHR:REQ-003] finding 2: at planning a decided upstream issue\'s accepted risk settles the intent of the clause it names; a dismissal settles nothing', async () => {
+  const { upheldIntentRows } = await import('../src/phase-finding-dispute.mjs');
+  const [req1, req2] = ['W-2:REQ-001', 'W-2:REQ-002'];
+  const clauses = [{ id: req1, verification: { methods: ['test'], criterionId: null } }, { id: req2, verification: { methods: ['test'], criterionId: null } }];
+  const plan = '# Plan\n';
+  const workflow = planningStory();
+  // A decided upstream issue: an unexpired accepted risk naming the clause settles it at planning; a dismissal settles nothing.
+  const issue = { id: 'UPI-001', phase: 'specification', about: req1, problem: 'The page is static; a test cannot observe it.' };
+  workflow.upstreamIssues = [issue];
+  workflow.upstreamIssueDecisions = [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }];
+  assert.deepEqual([...await upheldIntentRows(null, {}, workflow, workflow.phases.planning, { text: plan, clauses })], [req1]);
+  workflow.upstreamIssueDecisions = [{ issue: 'UPI-001', outcome: 'dismiss' }];
+  assert.deepEqual([...await upheldIntentRows(null, {}, workflow, workflow.phases.planning, { text: plan, clauses })], []);
+  workflow.upstreamIssueDecisions = [];
+  assert.deepEqual([...await upheldIntentRows(null, {}, workflow, workflow.phases.planning, { text: plan, clauses })], [], 'an open issue leads to the decision list, as built');
+  // The settled clause is skipped by the plan's intent check, as a decided issue settles code coverage; the other still falls short.
+  assert.throws(() => validatePlannedVerification({ [req1]: { tests: [], testDisposition: 'not-applicable' }, [req2]: { tests: [], testDisposition: 'not-applicable' } },
+    [], clauses, { upheld: new Set([req1]) }), (error) => error.details.clauseId === req2);
+});

@@ -268,10 +268,13 @@ export async function inspectPlanIntentDisputes(root, config, workflow, phase) {
 
 /**
  * The rows the plan's approvers upheld against the approved intent, for this exact draft: those an
- * active dispute names. `text` and `clauses` are the draft and the clauses the caller judges it with.
+ * active dispute names, and each clause an unexpired accepted risk on an upstream issue against an
+ * earlier step names (as settledUpstreamClauses settles code coverage). A dismissal settles nothing.
+ * `text` and `clauses` are the draft and the clauses the caller judges it with.
  */
 export async function upheldIntentRows(root, config, workflow, phase, { text, clauses }) {
-  const upheld = new Set();
+  const { settledUpstreamClauses } = await import('./upstream-routes.mjs');
+  const upheld = new Set(settledUpstreamClauses(workflow, phase.id, clauses.map((clause) => clause.id)).map((entry) => String(entry.clauseId).toUpperCase()));
   if ((workflow.qualityRiskDecisions ?? []).some((record) => record?.gate === PLAN_INTENT_GATE && record.binding?.phaseId === phase.id)) {
     const { nextPhaseGeneration } = await import('./phase-generation.mjs');
     const generation = Number(phase.status === 'in_progress' ? nextPhaseGeneration(phase) : phase.generation);

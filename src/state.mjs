@@ -22,8 +22,8 @@ export { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { storyPublicationPending } from './story-publication-read.mjs';
 export { storyPublicationPending } from './story-publication-read.mjs';
 import {
-  convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, latestStepBefore, scopeStepOf,
-  stepResponsibilities
+  convergencePhaseOf, intentAmendmentSource, isConformancePhase, isConvergencePhase, isVisualVerificationPhase, latestStepBefore, ownerStepChecks,
+  phaseResponsibilityPin, scopeStepOf, stepResponsibilities
 } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseCorrectionTargets } from './phase-finding-policy.mjs';
@@ -1243,6 +1243,8 @@ export async function createWorkflow(root, config, {
       sourceSha256: createHash('sha256').update(`${JSON.stringify(source, null, 2)}\n`).digest('hex'),
       // Sealed in the test policy since intake chose it, and never read by a gate until it was also here [TCE:REQ-091].
       testExecutionMode: resolution.testExecutionMode,
+      // The owner-step checks this Story is held to, pinned so a Story already running keeps its policy [PHR:REQ-002].
+      phaseResponsibility: phaseResponsibilityPin(),
       ...(snapshotState.repositoryCommitPolicy == null ? {} : { repositoryCommitPolicy: structuredClone(snapshotState.repositoryCommitPolicy) }),
       phases: resolution.phases
     },
@@ -6674,6 +6676,10 @@ export async function evaluateApproval(root, config, workflow, {
           );
         }
       }
+    });
+    await stage('scope-items', async () => {
+      // The step that defines the scope last owns its dispositions: its approvers decide each, here [PHR:REQ-002].
+      await (await import('./scope/authoring.mjs')).assertScopeDispositioned(root, config, workflow, phase);
     });
     await stage('source-review', async () => {
       // Re-evaluate the exact retained review at the human decision boundary as well as submission.

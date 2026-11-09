@@ -74,6 +74,11 @@ export function phaseOwnsScope(workflow, phase) {
     && ['requirements', 'implementation-spec'].includes(artifactKindOf(phase));
 }
 
+/** The last step on the route that defines the Story's scope: no later step can link a statement after it. */
+export function finalScopeStep(workflow) {
+  return [...(workflow?.phaseOrder ?? [])].reverse().map((id) => workflow.phases?.[id]).find((phase) => phase && phaseOwnsScope(workflow, phase)) ?? null;
+}
+
 /** The latest step before `phaseId` in the Story's order that passes `test`, or null. */
 export function latestStepBefore(workflow, phaseId, test) {
   const order = workflow?.phaseOrder ?? [];
@@ -161,4 +166,19 @@ export function visualVerificationPhaseOf(workflow, phaseId = workflow?.currentP
 /** A step whose output is test evidence, the record that the change was verified. */
 export function isTestEvidencePhase(phase) {
   return TEST_EVIDENCE_KINDS.has(interpretedKind(phase));
+}
+
+/**
+ * Owner-step checks [PHR:REQ-002]: what a later step judges of an earlier step's output, its own step
+ * checks first. Pinned at Story start [SPK:CON-039], so a Story already running keeps its policy.
+ */
+export const OWNER_STEP_CHECKS = 1;
+
+export function phaseResponsibilityPin() {
+  return { ownerStepChecks: OWNER_STEP_CHECKS };
+}
+
+/** Whether this Story pinned the owner-step checks when it started. */
+export function ownerStepChecks(workflow) {
+  return Number(workflow?.resolution?.phaseResponsibility?.ownerStepChecks ?? 0) >= 1;
 }

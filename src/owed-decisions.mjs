@@ -8,7 +8,7 @@
  * last approval. Readiness, the approval review and later steps' entry packets now list each with
  * its exact command. Nothing here blocks, records or decides: only the authorized person may.
  */
-import { stepResponsibilities } from './phase-roles.mjs';
+import { finalScopeStep, ownerStepChecks, stepResponsibilities } from './phase-roles.mjs';
 import { retainedEvidenceDelivered, WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
@@ -130,9 +130,13 @@ export async function owedDecisions(root, config, workflow, phaseIds, { limit = 
       : scopeItemsOf(workflow, graph.untrusted ? await reader.previewScopeInventory(root, config, workflow) : graph.scope);
     if (!witnesses.length && !scopeItems.length) return null;
     const owedWitnesses = listed(witnesses, limit), owedScope = listed(scopeItems, limit);
+    // The step that defines the scope last is approved only once each is decided [PHR:REQ-002].
+    const scopeHoldsApproval = scopeItems.length > 0 && ownerStepChecks(workflow) && scoping.includes(finalScopeStep(workflow)?.id);
     return { advisory: true, status: 'owed', contextBinding: witnessContextBinding(workflow),
       witnesses: owedWitnesses.entries, scopeItems: owedScope.entries, more: { witnesses: owedWitnesses.more, scopeItems: owedScope.more },
-      instruction: 'Relay each item with its exact command to the user. Only a person who approves the owning step decides these: a sign-off after inspecting its file, a scope item by linking or dispositioning the statement; an agent never records or answers them. The Story cannot end without them. This does not block the current step.' };
+      ...(scopeHoldsApproval ? { scopeHoldsApproval: finalScopeStep(workflow).id } : {}),
+      instruction: 'Relay each item with its exact command to the user. Only a person who approves the owning step decides these: a sign-off after inspecting its file, a scope item by linking or dispositioning the statement; an agent never records or answers them. The Story cannot end without them. '
+        + (scopeHoldsApproval ? `Approving ${finalScopeStep(workflow).id} waits for each scope item.` : 'This does not block the current step.') };
   } catch (error) {
     return { advisory: true, status: 'unavailable', reason: error?.code ?? 'evaluation-failed' };
   }
@@ -154,7 +158,7 @@ export function owedDecisionLines(owed) {
   }
   const scopeCount = owed.scopeItems.length + owed.more.scopeItems;
   if (scopeCount) {
-    lines.push(`Open scope items (${scopeCount}, human only, not blocking this step):`);
+    lines.push(`Open scope items (${scopeCount}, human only, ${owed.scopeHoldsApproval ? `approving ${owed.scopeHoldsApproval} waits for them` : 'not blocking this step'}):`);
     for (const item of owed.scopeItems) {
       lines.push(`  ${item.id} ${item.source ?? ''}: "${item.text}"`, `    ${item.command}`, ...(item.otherCommand ? [`    ${item.otherCommand}`] : []));
     }

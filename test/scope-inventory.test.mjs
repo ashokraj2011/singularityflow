@@ -397,7 +397,11 @@ test('the scope step\'s approver is shown each open statement while reviewing, a
   assert.equal(open[0].command, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <included|existing> --clause <CLAUSE-ID> --reason "<why>"`);
   assert.equal(open[0].otherCommand, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <excluded|deferred|informative|duplicate|superseded> --reason "<why>"`);
   assert.deepEqual(readiness.owedDecisions.witnesses, []);
-  assert.match(sflow('phase', 'show', 'intake').stdout, /Open scope items \(1, human only, not blocking this step\):\n {2}SRI-[0-9a-f]{12} story: "The public API must stay stable\."/u);
+  assert.match(sflow('phase', 'show', 'intake').stdout, /Open scope items \(1, human only, approving intake waits for them\):\n {2}SRI-[0-9a-f]{12} story: "The public API must stay stable\."/u);
+  // Approving before a person decides it is refused in the scope step itself, with the decision list as its route [PHR:REQ-002].
+  const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'intake', '--yes', '--json'], root, { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  assert.match(`${refused.stdout}${refused.stderr}`, /SCOPE_ITEMS_UNRESOLVED/u);
 
   sflow('decision', 'scope', '--item', open[0].id, '--as', 'excluded', '--reason', 'The API contract is out of scope for this Story.');
   assert.equal(JSON.parse(sflow('status', 'SCOPE-2', '--submission-readiness', '--json').stdout).owedDecisions, undefined);
@@ -414,6 +418,9 @@ test('a sign-off commits its own new screenshot, and approval counts that commit
     '## Verification contracts', '', '| Criterion | Slot | Method | Witness | Role | Required assurance |', '|---|---|---|---|---|---|',
     '| `SCOPE-5:AC-001` | `screen` | visual | `the value screen` | primary | source-bound |', ''] });
   sflow('submit', 'intake');
+  // The scope step is approved once its approver has dispositioned each statement [PHR:REQ-002].
+  const [open] = JSON.parse(sflow('status', 'SCOPE-5', '--submission-readiness', '--json').stdout).owedDecisions.scopeItems;
+  sflow('decision', 'scope', '--item', open.id, '--as', 'excluded', '--reason', 'The API contract is out of scope for this Story.');
   sflow('approve', 'intake', '--yes');
   const before = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   const screenshot = 'singularity/work-items/SCOPE-5/evidence/ac-001-screen.png';

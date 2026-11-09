@@ -1,7 +1,7 @@
 # Plain-chat routing (PCR) — v1: every prompt tracked, every change through an `/sf-` skill
 
-Status: owner decisions recorded 2026-11-09; Copilot CLI probed in real runs the same day. P1 and P2 built the same
-day, with owner decisions 11–15 from that build. P3 and P4 are next.
+Status: owner decisions recorded 2026-11-09; Copilot CLI probed in real runs the same day. P1 to P4 built the same
+day, with owner decisions 11–22 from those builds. Decision 21 is to be built after 2026-11-11.
 
 In every repository that uses SFlow, each prompt is tracked, a secret in a prompt is refused as far as the host
 allows, and a change to the work goes through an `/sf-` skill turn, or is recorded as if it had. Each repository
@@ -57,6 +57,26 @@ Copilot, not only to people who installed SFlow. Questions, reading and explaini
     the docs.*
 15. **`singularity-flow prompts` is reached through `/sf-prompt-log`,** with one line added to that skill.
     *Decided: yes.*
+
+**From the P3 and P4 build** (2026-11-09; the owner took each recommendation):
+
+16. **The onboarding note is `.github/hooks/README.md`,** not a section of the repository's own README
+    (`[PCR:REQ-004]`). It sits beside the hook file and leaves the team's README alone. *Decided: yes.*
+17. **A setting changed on `sflow/config` reaches the hook file later.** A capability proposal there cannot rewrite
+    the application branch's `.github/hooks/sflow.json` in the same change. `doctor` names the mismatch, and
+    `doctor --repair-hooks` writes the file again. *Decided: enough for v1.*
+18. **Without SFlow, the fallback refuses only files that always stay on a laptop** (`.env`, `*.local.*`, key files),
+    not the plugin's wider `.json`/`.yml` list. Without SFlow nothing can tell which configuration file holds a
+    secret, and refusing them all would stop ordinary work. *Decided: keep it narrow.*
+19. **The install line** names the README's "Install and initialize" and `singularity-flow plugin install`.
+    *Decided: as written.*
+20. **The first event may be handled twice** on a machine where the plugin was installed some other way. This lasts
+    until the plugin's own launcher writes its marker, which is per machine. *Decided: accepted.*
+21. **`.github/hooks` joins the default protected paths,** so a Story's agent cannot edit the guard away. It changes
+    `templates/workflow.yml`, which is GDP-locked, so it needs its own lock review. *Decided: yes, after the demo on
+    2026-11-11.*
+22. **SF Guard's "continued" means only a stop continuation.** A plain prompt after an `/sf-` turn is a plain chat
+    (`[PCR:REQ-042]`). *Decided: yes.*
 
 ## What the hosts allow
 

@@ -142,7 +142,17 @@ test('a failing run goes to the reviewer, who returns the Story to repair it', s
   assert.equal(phase.stepTestRuns.testExecutions[0].counts.failed, 1);
   const approve = flow(root, ['approve', '--yes', '--json'], { allowFailure: true });
   assert.notEqual(approve.status, 0);
-  assert.equal(JSON.parse(approve.stdout).error.code, 'PHASE_VALIDATION_FAILED');
+  const { error, remediationPlan } = JSON.parse(approve.stdout);
+  assert.equal(error.code, 'PHASE_VALIDATION_FAILED');
+  // The regression is in the code implementation delivered: the refusal and the hold both return it
+  // there, never verification to itself [PHR:REQ-003, REQ-004].
+  const back = 'singularity-flow reject verification --work-id CH-FAIL --to implementation --reason <REASON>';
+  assert.match(error.message, /The repository's own tests fail on the code implementation delivered, which implementation repairs/u);
+  assert.ok(remediationPlan.steps.some((entry) => entry.command === back && entry.skill === '/sf-reject'), JSON.stringify(remediationPlan.steps));
+  const [hold] = JSON.parse(flow(root, ['status', 'CH-FAIL', '--submission-readiness', '--json']).stdout).approvalCheck.holds;
+  assert.equal(hold.code, 'PHASE_VALIDATION_FAILED');
+  assert.equal(hold.action.command, back);
+  assert.match(hold.action.label, /returns verification to implementation/u);
   flow(root, ['reject', '--to', 'implementation', '--reason', 'The ledger suite fails.']);
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/CH-FAIL/workflow.json'), 'utf8'));
   assert.equal(workflow.currentPhase, 'implementation');

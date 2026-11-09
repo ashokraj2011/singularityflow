@@ -457,7 +457,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,622,000 (measured 9,621,911, commands/phase-lifecycle.mjs): a requirement may borrow only the visual proof of an AC
     // that is also tested, and an AC called non-test while its own contract has a test slot is told so
     // (verification/intent.mjs +852).
-    assert.ok(closure.bytes <= 9_622_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,623,400 (measured 9,623,356, commands/phase-lifecycle.mjs): a verification step whose repository tests fail at
+    // approval names the code step's return (state.mjs +1445) [PHR:REQ-003]. The plan that leads with it stays lazy
+    // (refusal-remediation.mjs); no new eager file.
+    assert.ok(closure.bytes <= 9_623_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

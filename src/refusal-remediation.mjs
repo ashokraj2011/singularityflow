@@ -1721,6 +1721,9 @@ function conformanceGapSteps(error) {
 }
 // A producer's own `decision test-risk` route: the step approvers renew or record it, so no cap drops it.
 const testRunRiskRoute = (entry) => entry?.argv?.[0] === 'decision' && entry?.argv?.[1] === 'test-risk';
+// A return the refusal names to the earlier step that owns its cause, not to the refused step itself [PHR:REQ-004].
+const ownerReturnRoute = (entry) => entry?.argv?.[0] === 'reject' && entry.argv.includes('--to')
+  && entry.argv[entry.argv.indexOf('--to') + 1] !== entry.argv[1];
 
 function deduplicate(steps) {
   const seen = new Set();
@@ -1961,6 +1964,9 @@ export function refusalRemediationPlan(error, argv = []) {
         // A lapsed test-run risk is renewed by the step's approvers, not rejected: name that first.
         : nonDuplicateExplicit.some(testRunRiskRoute)
           ? [...nonDuplicateExplicit.filter(testRunRiskRoute), ...phaseSteps, ...known, ...nonDuplicateExplicit.filter(entry => !testRunRiskRoute(entry))]
+        // The return to the step that owns the cause leads; recovering this step could not clear it.
+        : nonDuplicateExplicit.some(ownerReturnRoute)
+          ? [...nonDuplicateExplicit.filter(ownerReturnRoute), ...phaseSteps, ...known, ...nonDuplicateExplicit.filter(entry => !ownerReturnRoute(entry))]
           : [...phaseSteps, ...known, ...nonDuplicateExplicit]
       : upstreamInputBlocked
         ? [...known, ...nonDuplicateExplicit, ...phaseSteps]

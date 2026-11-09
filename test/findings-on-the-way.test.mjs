@@ -56,6 +56,11 @@ async function orders(t, { findings = null, register = true, address = null } = 
     '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n'));
   repo.sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   repo.sflow('submit', 'intake');
+  // The step that defines the scope is approved once each statement is dispositioned [PHR:REQ-002]: an
+  // addressed finding's statement is this fixture's to defer, not to deliver.
+  for (const item of JSON.parse(repo.sflow('evidence', 'scope', '--json')).data.scope.items.filter((entry) => entry.disposition === 'unresolved')) {
+    repo.sflow('decision', 'scope', '--item', item.id, '--as', 'deferred', '--reason', 'The addressed finding is tracked in its own register; this fixture changes the value only.');
+  }
   repo.sflow('approve', 'intake', '--yes');
   repo.sflow('resume', 'QF-1');
   repo.sflow('prepare', 'implement');

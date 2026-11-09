@@ -261,12 +261,13 @@ Test existing behavior first. A fresh pass needs human approval and a no-change 
 `);
   flow('phase', 'publish', 'document-intake');
   flow('submit', 'document-intake');
-  flow('approve', 'document-intake', '--yes');
+  // The step that defines the scope is approved once each statement is dispositioned [PHR:REQ-002].
   const scope = JSON.parse(flow('evidence', 'scope', '--json')).data.scope;
   for (const item of scope.items.filter((entry) => entry.disposition === 'unresolved')) {
     flow('decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'DOC-1:AC-001',
       '--reason', 'The requested document behavior is carried by the exact approved title acceptance criterion.');
   }
+  flow('approve', 'document-intake', '--yes');
   env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify({ workType: ID, agent: 'scenario-tester' });
   flow('prepare', 'scenario-check');
   const testOutput = run(process.execPath, ['--test', 'test/screen.test.mjs']);

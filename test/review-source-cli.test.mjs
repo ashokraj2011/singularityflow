@@ -289,6 +289,13 @@ test('compact review entry binds once and preserves every exact review material 
   assert.equal(git(root, 'rev-parse', 'HEAD'), head);
 });
 
+/** A person dispositions each open statement of the Story's sources, as the scope step's approval needs [PHR:REQ-002]. */
+function dispositionOpenScope(root) {
+  for (const item of JSON.parse(cli(root, 'evidence', 'scope', '--json')).data.scope.items.filter((entry) => entry.disposition === 'unresolved')) {
+    cli(root, 'decision', 'scope', '--item', item.id, '--as', 'excluded', '--reason', 'Outside what this review fixture specifies; another Story owns it.');
+  }
+}
+
 test('real Story CLI retains pinned reviewer report and separate human disposition before submission', async (t) => {
   const { root, authorAgent } = await publishedSpecificationStory(t);
   const packet = completeAgentResult(cli(root, 'review-source', 'context', 'specification', '--json'));
@@ -372,6 +379,9 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   assert.match(`${reviewerSubmit.stderr}\n${reviewerSubmit.stdout}`, /read-only source reviewer/);
   assert.equal(git(root, 'status', '--short'), '');
 
+  // The step that defines the scope is approved once a person dispositions each statement [PHR:REQ-002];
+  // decided while the step is open, before the live authoring resources below change.
+  dispositionOpenScope(root);
   // Submission rewrites the specification's managed metadata (status, commits). The review was bound
   // to what the author wrote, so it still describes the artifact and approval can proceed.
   cli(root, 'agent', '--agent', authorAgent);
@@ -438,6 +448,7 @@ test('real CLI review requires acknowledgement of the human answers retained by 
   const afterSubmission = completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json'));
   assert.equal(afterSubmission.status, 'ready', 'submission metadata must preserve the clarification-bound review');
   assert.deepEqual(afterSubmission.binding.clarifications, packet.binding.clarifications);
+  dispositionOpenScope(root);
   const approval = spawnSync(process.execPath, [executable, 'approve', phaseId, '--yes'], {
     cwd: root, encoding: 'utf8', timeout: childTimeout(30000)
   });

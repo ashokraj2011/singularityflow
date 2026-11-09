@@ -223,16 +223,20 @@ test('the CLI accepts and revokes the risk of an inconclusive criterion through 
   cli('decision', 'test-narrowing', id, '--phase', 'implementation', '--reason', 'The sandbox test is skipped until the provider restores it next sprint.');
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
-  cli('approve', 'implementation', '--yes');
 
   const verify = () => JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows
     .find((row) => row.id === `${id}:AC-001`).obligations.find((entry) => entry.responsibility === 'verify');
   const open = verify();
   assert.equal(open.status, 'inconclusive');
+  // The code step that delivered it is approved only once it is verified or its risk is accepted [PHR:REQ-002].
+  const held = cliRun(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes', '--json'], root, { allowFailure: true });
+  assert.notEqual(held.status, 0);
+  assert.match(`${held.stdout}${held.stderr}`, /CRITERION_TESTS_UNVERIFIED/u);
   const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   cli('decision', 'risk', '--obligation', open.id, '--category', 'assurance-shortfall', '--expires', expires,
     '--reason', 'The sandbox test is skipped until the provider restores it next sprint.');
   assert.deepEqual([verify().status, verify().facets.execution, verify().riskDecision.id], ['excepted', 'passed-with-skips', 'RISK-001']);
+  cli('approve', 'implementation', '--yes');
 
   cli('decision', 'risk', '--revoke', 'RISK-001', '--reason', 'The provider restored the sandbox earlier than planned.');
   assert.equal(verify().status, 'inconclusive');

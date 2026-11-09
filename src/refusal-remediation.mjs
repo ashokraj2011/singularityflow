@@ -1013,7 +1013,14 @@ const KNOWN = Object.freeze({
       : null;
     const inspect = typeof details.diagnosticCommand === 'string'
       ? step('inspect-coverage', 'Inspect the exact source and test obligations still open.', details.diagnosticCommand, 'diagnostic', '/sf-recover') : null;
-    return [list, author, risk, inspect].filter(Boolean);
+    // A row the plan put in the wrong place is the plan's to correct, never more code [PHR:REQ-003]: its
+    // approvers' plan correction, and the upstream issue to them.
+    const corrections = Array.isArray(details.planCorrections) && !decision?.complete ? details.planCorrections : [];
+    const [correction] = corrections.filter((entry) => / decision plan /u.test(entry?.command ?? ''));
+    const raise = corrections.find((entry) => / upstream-issue raise /u.test(entry?.command ?? ''));
+    const plan = correction ? step('correct-plan-row', String(correction.label ?? '').slice(0, 2000), correction.command, 'remediation') : null;
+    const upstream = raise ? step('raise-upstream-issue', String(raise.label ?? '').slice(0, 2000), raise.command, 'remediation', '/sf-decide') : null;
+    return [list, author, risk, inspect, plan, upstream].filter(Boolean);
   },
   // A folder of several agents is a workflow: team import builds one from the same reading of its
   // files and links. Adding one of its agents alone stays possible with --main.
@@ -1698,7 +1705,7 @@ function genericSteps(argv) {
  * earlier step's owners. One that falls after the first three is kept after them.
  */
 export const PLAN_STEP_LIMIT = 3;
-export const PLAN_RESERVED_STEP_IDS = Object.freeze(['open-decision-list', 'accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue',
+export const PLAN_RESERVED_STEP_IDS = Object.freeze(['open-decision-list', 'accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue', 'correct-plan-row',
   'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run']);
 
 const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'correct-report': 'correct-conformance-report', 'raise-upstream-issue': 'raise-upstream-issue', 'decide-upstream-issue': 'decide-conformance-gap',

@@ -16,7 +16,7 @@ import {
 } from './specifications.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { workDir } from './story-paths.mjs';
-import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueStates } from './upstream-routes.mjs';
+import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, raiseUpstreamIssueRoute, settledUpstreamClauses, upstreamIssueStates } from './upstream-routes.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
 /**
@@ -33,6 +33,64 @@ export function upstreamDecisionFor(workflow, clauseIds) {
   if (!issues.length) return null;
   const waiting = new Set(issues.flatMap((entry) => entry.clauses));
   return { issues, complete: clauseIds.length > 0 && clauseIds.every((clauseId) => waiting.has(clauseId)) };
+}
+
+/**
+ * What a coverage refusal says and carries for the clauses open upstream issues name: which clauses
+ * wait on which issue and, when every one does, the decision list as its next action. The same at
+ * publication, submission and approval [PHR:REQ-003].
+ */
+export function upstreamWaiting(workflow, upstreamDecision) {
+  if (!upstreamDecision) return { text: '', details: {} };
+  const phases = [...new Set(upstreamDecision.issues.map((entry) => entry.phase))].join(' and ');
+  const text = ` ${upstreamDecision.issues.map((entry) => `${entry.id} (raised against ${entry.phase}) names ${entry.clauses.join(', ')}`).join('; ')}: `
+    + `${upstreamDecision.complete ? 'every clause listed here waits' : 'those clauses wait only'} on that decision by ${phases}'s approvers, not on this step's code`
+    + `${upstreamDecision.complete ? '; they decide it in the decision list (singularity-flow decisions ' + workflow.workItem.id + ').' : '; deliver the others.'}`;
+  return { text, details: { upstreamDecision,
+    // Every gap waits on a person's decision: the decision list is the way through, for every surface.
+    ...(upstreamDecision.complete ? { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id} --json`, skill: '/sf-decide',
+      label: `${phases}'s approvers decide ${upstreamDecision.issues.map((entry) => entry.id).join(', ')} (return, plan correction, accepted risk or dismissal) in the decision list.` } } : {}) } };
+}
+
+/**
+ * The plan's own corrections for clauses the code step did not deliver where the plan put them, and
+ * the upstream issue to the plan's approvers [PHR:REQ-003]. A coder cannot move a planned location;
+ * an approver of the plan records `decision plan --replace-location / --remove-location /
+ * --replace-test` in their own terminal, or decides the issue. None of these is the coder's to take.
+ */
+export function planCorrectionRoutes(workflow, ownerId, currentPhaseId, clauseIds, planned = {}) {
+  const [clause] = clauseIds ?? [];
+  if (!clause) return { text: '', routes: [] };
+  const workId = workflow.workItem.id;
+  const row = planned[clause] ?? {};
+  const location = row.expectedPaths?.[0] ?? '<PATH>';
+  const test = row.tests?.[0] ?? '<TEST>';
+  const owner = ownerId ?? 'the plan';
+  const raised = ownerId ? raiseUpstreamIssueRoute(workflow, ownerId, currentPhaseId) : null;
+  const decide = `an approver of ${owner} corrects the row in their own terminal`;
+  const routes = [
+    { command: `singularity-flow decision plan ${workId} --replace-location ${clause}=${location}:<NEW-PATH> --reason <why>`,
+      label: `If ${owner} put ${clause} in the wrong place, ${decide}; no code is rewritten for it.` },
+    { command: `singularity-flow decision plan ${workId} --remove-location ${clause}=${location} --reason <why>`,
+      label: `If ${clause} needs no change at ${location}, ${decide}.` },
+    { command: `singularity-flow decision plan ${workId} --replace-test ${clause}=${test}:<NEW-TEST> --reason <why>`,
+      label: `If ${clause}'s planned test is the wrong file, ${decide}.` },
+    ...(raised ? [{ command: raised.command.replace('<clause-or-section>', clauseIds.join(',')), skill: '/sf-decide',
+      label: `Or record it for ${owner}'s approvers and keep working: they decide a plan correction, a return, an accepted risk or a dismissal.` }] : [])
+  ];
+  const text = ` If ${owner}'s plan is what is wrong, ${decide} (singularity-flow decision plan ${workId} --replace-location, --remove-location or --replace-test)`
+    + `${raised ? `, or ${raised.command.replace('<clause-or-section>', clauseIds.join(','))} records it for them` : ''}.`;
+  return { text, routes };
+}
+
+/** A coverage result without the clauses a decided upstream issue settles, which no longer count against it. */
+export function withoutSettledClauses(coverage, settled) {
+  if (!settled.length) return coverage;
+  const ids = new Set(settled.map((entry) => entry.clauseId));
+  const unimplemented = coverage.unimplemented.filter((id) => !ids.has(id));
+  const complete = !unimplemented.length && !(coverage.unclaimedChangedPaths ?? []).length
+    && !(coverage.withdrawnButClaimed ?? []).length && !(coverage.invalidEvidence ?? []).length;
+  return { ...coverage, unimplemented, complete, ...(complete ? { severity: 'pass' } : {}), settledByUpstreamIssue: settled };
 }
 
 /** Check the actual editable candidate, before tests, publication or submission consume it. */
@@ -66,9 +124,12 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
   }, { policy, requireSourceBindings: workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce' });
   const changed = [...new Set(delivery.changeSet.entries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))]
     .filter((candidate) => isApplicationPath(candidate, applicationPathContext(config, workflow)));
-  const coverage = evaluateSpecCoverage({ ...records, observed: [
+  const evaluated = evaluateSpecCoverage({ ...records, observed: [
     ...records.observed.filter((record) => record.phase !== phase.id), { ...observed, phase: phase.id }
   ] }, changed, policy, { workflow });
+  // A clause a decided upstream issue settles is never thrown back at this step's author [PHR:REQ-003].
+  const coverage = withoutSettledClauses(evaluated, settledUpstreamClauses(workflow, phase.id,
+    evaluated.unimplemented.filter((id) => final || allocated[id])));
   const open = coverage.unimplemented.filter((id) => final || allocated[id]);
   const claimGaps = open.map(clauseId => {
     const plan = allocated[clauseId];
@@ -96,19 +157,14 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
   if ((open.length || (final && coverage.invalidEvidence.length)) && enforcement !== 'enforce') {
     return { ...coverage, advisory: [`Planned delivery is incomplete: ${gapText || coverage.invalidEvidence.join('; ')}. This Story's ending refuses an unimplemented clause; deliver it in this step or a later one.`] };
   }
-  const upstreamDecision = upstreamDecisionFor(workflow, open);
-  const waitingText = upstreamDecision ? ` ${upstreamDecision.issues.map((entry) => `${entry.id} (raised against ${entry.phase}) names ${entry.clauses.join(', ')}`).join('; ')}: `
-    + `${upstreamDecision.complete ? 'every clause listed here waits' : 'those clauses wait only'} on that decision by ${[...new Set(upstreamDecision.issues.map((entry) => entry.phase))].join(' and ')}'s approvers, not on this step's code`
-    + `${upstreamDecision.complete ? '; they decide it in the decision list (singularity-flow decisions ' + workflow.workItem.id + ').' : '; deliver the others.'}` : '';
+  const waiting = upstreamWaiting(workflow, upstreamDecisionFor(workflow, open));
+  const corrections = waiting.details.upstreamDecision?.complete ? { text: '', routes: [] } : planCorrectionRoutes(workflow, owner, phase.id, open, allocated);
   if (open.length || (final && coverage.invalidEvidence.length)) throw new SingularityFlowError(
-    `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}.${waitingText} `
-    + 'Inspect these exact source/test obligations while this generation is editable. Add a binding only where the approved behavior is actually implemented; an incorrect location needs a reviewed plan correction. Preserve application code and approved maps. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.',
+    `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}.${waiting.text} `
+    + `Inspect these exact source/test obligations while this generation is editable. Add a binding only where the approved behavior is actually implemented; an incorrect location needs a reviewed plan correction.${corrections.text} Preserve application code and approved maps. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.`,
     { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id,
       coverage, claimGaps, planningOwner: owner, diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
-      ...(upstreamDecision ? { upstreamDecision } : {}),
-      // Every gap waits on a person's decision: the decision list is the way through, for every surface.
-      ...(upstreamDecision?.complete ? { nextAction: { command: `singularity-flow decisions ${workflow.workItem.id} --json`, skill: '/sf-decide',
-        label: `${[...new Set(upstreamDecision.issues.map((entry) => entry.phase))].join(' and ')}'s approvers decide ${upstreamDecision.issues.map((entry) => entry.id).join(', ')} (return, plan correction, accepted risk or dismissal) in the decision list.` } } : {}) } });
+      ...waiting.details, ...(corrections.routes.length ? { planCorrections: corrections.routes } : {}) } });
   return coverage;
 }
 

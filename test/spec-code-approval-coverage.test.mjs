@@ -318,9 +318,42 @@ test('a clause an open upstream issue names waits on that decision, never on mor
   assert.equal(partial.details.upstreamDecision.complete, false);
   assert.equal(partial.details.nextAction, undefined, 'the coder still delivers the other clause first');
   assert.match(partial.message, /those clauses wait only on that decision[^;]*; deliver the others/u);
-  // A decided issue no longer holds the clause.
+  // A decided issue settles the clause it names: it is never thrown back at the coder [PHR:REQ-003].
   workflow.upstreamIssueDecisions = [{ issue: 'UPI-001', outcome: 'dismiss' }];
-  assert.equal((await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate(['src/first.mjs'])).catch((error) => error)).details.upstreamDecision, undefined);
+  const settled = await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate(['src/first.mjs']));
+  assert.deepEqual(settled.settledByUpstreamIssue.map((entry) => [entry.clauseId, entry.issue, entry.outcome]), [['COVER-1:REQ-002', 'UPI-001', 'dismiss']]);
+  assert.equal(settled.complete, true);
+  // A clause it does not name is still the coder's, with the plan's own corrections beside it.
+  const own = await assertCandidateSpecificationCoverage(root, config, workflow, workflow.phases.implementation, candidate([])).catch((error) => error);
+  assert.deepEqual(own.details.coverage.unimplemented, ['COVER-1:REQ-001']);
+  assert.equal(own.details.planCorrections[0].command, 'singularity-flow decision plan COVER-1 --replace-location COVER-1:REQ-001=src/first.mjs:<NEW-PATH> --reason <why>');
+});
+
+test('[PHR:REQ-003] code approval applies the publication check\'s upstream routes: an open issue waits, a decided one settles, the plan\'s corrections are named', async () => {
+  const { root, config, workflow } = await fixture();
+  const phase = workflow.phases.implementation;
+  const revision = git(root, 'rev-parse', 'HEAD');
+  // REQ-002 is not delivered. No issue: the refusal names the plan's corrections and the upstream issue too.
+  const plain = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision).catch((error) => error);
+  assert.equal(plain.code, 'SPEC_COVERAGE_INCOMPLETE');
+  assert.equal(plain.details.upstreamDecision, undefined);
+  assert.deepEqual(plain.details.planCorrections.map((entry) => entry.command.split(' ').slice(0, 5).join(' ')), [
+    'singularity-flow decision plan COVER-1 --replace-location', 'singularity-flow decision plan COVER-1 --remove-location',
+    'singularity-flow decision plan COVER-1 --replace-test', 'singularity-flow upstream-issue raise --work-id COVER-1']);
+  assert.match(plain.details.planCorrections[3].command, / --phase planning --about COVER-1:REQ-002 /u);
+  assert.match(plain.message, /If planning's plan is what is wrong, an approver of planning corrects the row in their own terminal/u);
+  // An open issue names it: the same waiting words and decision list as publication, never more code.
+  workflow.upstreamIssues = [{ id: 'UPI-001', phase: 'planning', about: 'COVER-1:REQ-002', problem: 'The plan places REQ-002 in a module this change cannot reach.' }];
+  const waiting = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision).catch((error) => error);
+  assert.deepEqual(waiting.details.upstreamDecision, { issues: [{ id: 'UPI-001', phase: 'planning', clauses: ['COVER-1:REQ-002'] }], complete: true });
+  assert.equal(waiting.details.nextAction.command, 'singularity-flow decisions COVER-1 --json');
+  assert.equal(waiting.details.planCorrections, undefined, 'the decision list is the way through');
+  assert.match(waiting.message, /every clause listed here waits on that decision by planning's approvers, not on this step's code/u);
+  // Decided: accept-risk or dismiss settles it, so the step can be approved as delivered.
+  workflow.upstreamIssueDecisions = [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2999-01-01T00:00:00.000Z' }];
+  const settled = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision);
+  assert.equal(settled.complete, true);
+  assert.deepEqual(settled.settledByUpstreamIssue.map((entry) => [entry.clauseId, entry.outcome]), [['COVER-1:REQ-002', 'accept-risk']]);
 });
 
 test('live pilot acceptance commits only decision metadata and keeps its human event identity',

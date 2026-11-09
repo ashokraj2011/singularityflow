@@ -283,6 +283,15 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'No automatic repair or waiver is registered for this finding. Give the maintainer this exact finding and preserved-state diagnostics.', '/sf-doctor');
   }
+  // Coverage the code step did not deliver where the plan put it may be the plan's fault: its own
+  // corrections and the upstream issue go with the route, never in its place [PHR:REQ-003].
+  if (code === 'spec_coverage_incomplete' && resolution.kind !== 'upstream-decision') {
+    const corrections = (finding.details?.planCorrections ?? []).filter((entry) => typeof entry?.command === 'string');
+    const owner = `${finding.details?.planningOwner ?? 'plan'}-approval-authority`;
+    gapRoutes.push(...[corrections.find((entry) => / decision plan /u.test(entry.command)), corrections.find((entry) => / upstream-issue raise /u.test(entry.command))]
+      .filter(Boolean).map((entry) => ({ ...route(/ upstream-issue raise /u.test(entry.command) ? 'upstream-issue' : 'plan-correction', owner,
+        entry.command.split(' ').slice(1), entry.label ?? '', entry.skill ?? null), command: entry.command })));
+  }
   // A route its own command refuses for this Story is no way out: inspect instead, and let the
   // check below name someone other than the author.
   if (routeRefusedForStory(workflow, resolution, phase)) resolution = recovery;

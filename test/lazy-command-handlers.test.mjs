@@ -463,7 +463,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,625,300 (measured 9,625,286, commands/phase-lifecycle.mjs): planning prepublish routes missing clauses to the step
     // that defines them (phase-prepublish.mjs +1394, state.mjs +191), and a finding naming an earlier step's output is
     // that step's to correct (phase-resolution.mjs +345) [PHR:REQ-001]. No new eager file.
-    assert.ok(closure.bytes <= 9_625_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,633,450 (measured 9,633,437, commands/phase-lifecycle.mjs): code submission and approval apply publication's upstream
+    // routes, a decided upstream issue settles the clause it names, and the plan's own corrections are named
+    // (spec-coverage-preview.mjs +3789, upstream-routes.mjs +1461, state.mjs +1432, phase-resolution.mjs +912,
+    // recovery-plan.mjs +557) [PHR:REQ-003]. No new eager file.
+    assert.ok(closure.bytes <= 9_633_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

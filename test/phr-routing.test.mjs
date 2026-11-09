@@ -11,6 +11,8 @@ import { approvalHold } from '../src/approval-check.mjs';
 import { findingOwnedByPhase, phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { planCorrectionRoutes, upstreamWaiting, withoutSettledClauses } from '../src/spec-coverage-preview.mjs';
+import { settledUpstreamClauses } from '../src/upstream-routes.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 
 /** Code is approved, verification awaits approval and may return to code. */
@@ -96,4 +98,58 @@ test('[PHR:REQ-001] no clauses before planning is the specification\'s to fix: p
   assert.equal(findingOwnedByPhase(workflow, planning, own), true);
   assert.equal(phaseFindingPolicy(own).repairableByProducer, true);
   assert.notEqual(phaseResolutionChoices(workflow, planning, own).choices[0].kind, 'upstream-owner');
+});
+
+/** Planning approved, implementation the last code step being submitted, with the Story's upstream issues. */
+function codeStory(issues = [], decisions = []) {
+  const step = (id, status, generation = 1) => ({ id, label: id, status, generation, approvals: [], approvalPolicy: { authorities: ['engineering'], minimum: 1, rejectTo: [id] } });
+  return { workItem: { id: 'US-1' }, status: 'in_progress', currentPhase: 'implementation', phaseOrder: ['planning', 'implementation', 'verification'],
+    phases: { planning: step('planning', 'approved'), implementation: { ...step('implementation', 'in_progress'), generationPolicy: { task: 'code' } },
+      verification: step('verification', 'not_started', 0) },
+    upstreamIssues: issues, upstreamIssueDecisions: decisions, resolution: {} };
+}
+
+test('[PHR:REQ-003] a coverage gap at code submission and approval: a decided issue settles its clause, an open one waits, and the plan\'s corrections are named', () => {
+  const issue = { id: 'UPI-001', phase: 'planning', about: 'US-1:REQ-002', problem: 'The plan puts it in the wrong module.' };
+  const later = '2999-01-01T00:00:00.000Z';
+  // Decided: accept-risk (unexpired) or dismiss settles the clause it names; nothing else.
+  for (const outcome of ['accept-risk', 'dismiss']) {
+    const workflow = codeStory([issue], [{ issue: 'UPI-001', outcome, ...(outcome === 'accept-risk' ? { expiresAt: later } : {}) }]);
+    assert.deepEqual(settledUpstreamClauses(workflow, 'implementation', ['US-1:REQ-001', 'US-1:REQ-002']).map((entry) => [entry.clauseId, entry.issue, entry.outcome]),
+      [['US-1:REQ-002', 'UPI-001', outcome]]);
+  }
+  // An expired risk, a return or an open issue settles nothing; nor does an issue against a later step.
+  assert.deepEqual(settledUpstreamClauses(codeStory([issue], [{ issue: 'UPI-001', outcome: 'accept-risk', expiresAt: '2000-01-01T00:00:00.000Z' }]), 'implementation', ['US-1:REQ-002']), []);
+  assert.deepEqual(settledUpstreamClauses(codeStory([issue], [{ issue: 'UPI-001', outcome: 'return' }]), 'implementation', ['US-1:REQ-002']), []);
+  assert.deepEqual(settledUpstreamClauses(codeStory([issue]), 'implementation', ['US-1:REQ-002']), []);
+  assert.deepEqual(settledUpstreamClauses(codeStory([{ ...issue, phase: 'verification' }], [{ issue: 'UPI-001', outcome: 'dismiss' }]), 'implementation', ['US-1:REQ-002']), []);
+
+  // The settled clause leaves the coverage the refusal reads; with nothing else open it is complete.
+  const coverage = { unimplemented: ['US-1:REQ-002'], unclaimedChangedPaths: [], withdrawnButClaimed: [], invalidEvidence: [], complete: false, severity: 'error' };
+  const settled = withoutSettledClauses(coverage, [{ clauseId: 'US-1:REQ-002', issue: 'UPI-001', outcome: 'dismiss' }]);
+  assert.deepEqual([settled.complete, settled.severity, settled.unimplemented], [true, 'pass', []]);
+  assert.equal(withoutSettledClauses({ ...coverage, unimplemented: ['US-1:REQ-001', 'US-1:REQ-002'] }, [{ clauseId: 'US-1:REQ-002' }]).complete, false);
+
+  // Open: the same waiting words and decision-list action publication carries.
+  const waiting = upstreamWaiting(codeStory([issue]), { issues: [{ id: 'UPI-001', phase: 'planning', clauses: ['US-1:REQ-002'] }], complete: true });
+  assert.match(waiting.text, /every clause listed here waits on that decision by planning's approvers, not on this step's code/u);
+  assert.equal(waiting.details.nextAction.command, 'singularity-flow decisions US-1 --json');
+
+  // Neither: the plan's own corrections and the upstream issue to its approvers, beside the delivery.
+  const corrections = planCorrectionRoutes(codeStory(), 'planning', 'implementation', ['US-1:REQ-002'], { 'US-1:REQ-002': { expectedPaths: ['src/a.mjs'], tests: ['test/a.test.mjs'] } });
+  assert.deepEqual(corrections.routes.map((entry) => entry.command), [
+    'singularity-flow decision plan US-1 --replace-location US-1:REQ-002=src/a.mjs:<NEW-PATH> --reason <why>',
+    'singularity-flow decision plan US-1 --remove-location US-1:REQ-002=src/a.mjs --reason <why>',
+    'singularity-flow decision plan US-1 --replace-test US-1:REQ-002=test/a.test.mjs:<NEW-TEST> --reason <why>',
+    'singularity-flow upstream-issue raise --work-id US-1 --phase planning --about US-1:REQ-002 --problem <what-is-wrong>']);
+  assert.match(corrections.text, /an approver of planning corrects the row in their own terminal/u);
+  const details = { workId: 'US-1', phase: 'implementation', planningOwner: 'planning', coverage: { unimplemented: ['US-1:REQ-002'] },
+    diagnosticCommand: 'singularity-flow recover US-1 --phase implementation --json', planCorrections: corrections.routes };
+  const plan = refusalRemediationPlan(refusal('SPEC_COVERAGE_INCOMPLETE', details), ['submit', 'implementation', '--work-id', 'US-1']);
+  const ids = plan.steps.map((entry) => entry.id);
+  assert.ok(ids.includes('correct-plan-row') && ids.includes('raise-upstream-issue'), JSON.stringify(ids));
+  assert.ok(ids.indexOf('deliver-missing-clauses') < ids.indexOf('correct-plan-row'), 'delivery stays first');
+  const choices = phaseResolutionChoices(codeStory(), codeStory().phases.implementation, { code: 'SPEC_COVERAGE_INCOMPLETE', details }).choices;
+  assert.deepEqual(choices.filter((entry) => ['plan-correction', 'upstream-issue'].includes(entry.kind)).map((entry) => [entry.kind, entry.owner, entry.command]), [
+    ['plan-correction', 'planning-approval-authority', corrections.routes[0].command], ['upstream-issue', 'planning-approval-authority', corrections.routes[3].command]]);
 });

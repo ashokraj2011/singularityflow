@@ -594,6 +594,13 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           }));
           continue;
         }
+        // A row the plan put in the wrong place is the plan's approvers' to correct [PHR:REQ-003]: said
+        // beside the delivery below, as the refusal names it.
+        const [planCorrection] = error.code === 'SPEC_COVERAGE_INCOMPLETE' ? (error.details?.planCorrections ?? [])
+          .filter((entry) => / decision plan /u.test(entry?.command ?? '')) : [];
+        if (planCorrection) {
+          actions.push(action({ id: `correct-plan-row:${phase.id}`, mode: 'manual', detail: planCorrection.label, command: planCorrection.command }));
+        }
         if (error.code === 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED') {
           actions.push(action({ id: `reconcile-excluded-files:${phase.id}`, mode: 'manual',
             detail: error.message, command: error.details.accountingCommand, skill: '/sf-decide' }));

@@ -361,6 +361,26 @@ export function conformanceGapDecisions(workflow, phaseId, gaps, { now = new Dat
   });
 }
 
+/**
+ * The clauses a decided upstream issue settles for a later step [PHR:REQ-003]: an issue against a step
+ * before `phaseId` names the clause (in its about or problem), its latest decision accepts the risk
+ * (unexpired at `now`) or dismisses it, and no open issue names it. Its approvers decided the gap, so
+ * it is never thrown back at the later step's author, as a decided conformance gap is not.
+ */
+export function settledUpstreamClauses(workflow, phaseId, clauseIds, { now = new Date().toISOString() } = {}) {
+  const order = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
+  const earlier = order.slice(0, Math.max(0, order.indexOf(phaseId)));
+  const states = upstreamIssueStates(workflow, now).filter((state) => !state.supersededBy && earlier.includes(state.issue.phase));
+  if (!states.length) return [];
+  return (clauseIds ?? []).flatMap((clauseId) => {
+    const named = states.filter((state) => issueNamesClause(`${state.issue.about ?? ''} ${state.issue.problem ?? ''}`, clauseId));
+    if (named.some((state) => OPEN_UPSTREAM_ISSUE_STATUSES.includes(state.status))) return [];
+    const covering = named.findLast((state) => state.status === 'decided' && ['accept-risk', 'dismiss'].includes(state.decision?.outcome));
+    return covering ? [Object.freeze({ clauseId, issue: covering.issue.id, phase: covering.issue.phase,
+      outcome: covering.decision.outcome, expiresAt: covering.decision.expiresAt ?? null })] : [];
+  });
+}
+
 /** One line for an undecided gap: its verdict and who decides it next. */
 export function conformanceGapLine(gap) {
   const owner = gap.owner ?? 'the owning step';

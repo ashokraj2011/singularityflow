@@ -124,7 +124,7 @@ import {
 } from './generation-boundary.mjs';
 import { conformanceVerdictGaps, decidesConformanceDifferences } from './conformance-verdicts.mjs';
 import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
-import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, upstreamIssueStates } from './upstream-routes.mjs';
+import { CONFORMANCE_GAP_RULE, conformanceGapRefusal, reopenAuthorityStep, settledUpstreamClauses, upstreamIssueStates } from './upstream-routes.mjs';
 import { conformanceEvidenceReuse, inspectPhaseQualifiedConformance, withSelfApprovalDisclosures, withVerdictSummary } from './conformance-readiness.mjs';
 import { runQualityCommand, withoutHostSurfaceVariables } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure, requiredTestFailureExamples } from './test-execution-diagnostics.mjs';
@@ -1941,6 +1941,18 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
     pathContext: applicationPathContext(config, workflow)
   });
   const coverageResult = evaluateSpecCoverage(records, changedPaths, policy, { root, workflow });
+  // The publication check's routes on every path [PHR:REQ-003, 1f68d7b6c]: a clause a decided upstream
+  // issue settles no longer counts, one an open issue names waits on its decision, and a row the plan
+  // may have put in the wrong place names the plan's own corrections.
+  const coverageRoutes = await import('./spec-coverage-preview.mjs');
+  const planOwner = planningOwnerForCode(workflow, phase)?.id ?? null;
+  const upstreamRoutes = (open) => {
+    const waiting = coverageRoutes.upstreamWaiting(workflow, coverageRoutes.upstreamDecisionFor(workflow, open));
+    const corrections = waiting.details.upstreamDecision?.complete ? { text: '', routes: [] }
+      : coverageRoutes.planCorrectionRoutes(workflow, planOwner, phase.id, open, planned);
+    return { text: `${waiting.text}${corrections.text}`, details: { ...waiting.details, ...(planOwner ? { planningOwner: planOwner } : {}),
+      ...(corrections.routes.length ? { planCorrections: corrections.routes } : {}) } };
+  };
   // Observations accumulate across code phases, but a later phase can restore a previously
   // changed file to its pre-Story bytes. A still-existing file is not proof that its observed
   // implementation survived in the exact code revision being approved. Deletions remain valid
@@ -1956,23 +1968,26 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
         .map((candidate) => `${id} references source evidence absent from the final change set: ${candidate}`)
     );
   }))].sort();
-  const coverage = revertedClaims.length
+  const reverted = revertedClaims.length
     ? { ...coverageResult,
         invalidEvidence: [...new Set([...coverageResult.invalidEvidence, ...revertedClaims])].sort(),
         complete: false, severity: 'error' }
     : coverageResult;
+  const coverage = coverageRoutes.withoutSettledClauses(reverted, settledUpstreamClauses(workflow, phase.id,
+    reverted.unimplemented.filter((id) => finalStep || allocatedHere.includes(id))));
   if (!finalStep) {
     const open = coverage.unimplemented.filter((id) => allocatedHere.includes(id));
     if (!open.length) return coverage;
     if (enforcement !== 'enforce') {
       return { ...coverage, advisory: open.map((id) => `clause ${id}, which the plan allocates to ${phase.id}, is not fully implemented; this Story's ending refuses it unless a later step delivers it`) };
     }
+    const routes = upstreamRoutes(open);
     throw new SingularityFlowError(
       `Phase '${phase.id}' cannot be ${boundary} because rows the plan allocates to it are not implemented:\n- `
       + open.map((id) => `clause ${id} is not fully implemented`).join('\n- ')
-      + '\nReturn this phase for correction, complete their source and test evidence, then publish and submit a new generation.',
+      + `\nReturn this phase for correction, complete their source and test evidence, then publish and submit a new generation.${routes.text}`,
       { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-        evidenceCommit, allocated: allocatedHere, open, coverage: { ...coverage, unimplemented: open } } }
+        evidenceCommit, allocated: allocatedHere, open, coverage: { ...coverage, unimplemented: open }, ...routes.details } }
     );
   }
   if (coverage.complete) return coverage;
@@ -1991,14 +2006,15 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
     ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
     ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
   ];
+  const routes = coverage.unimplemented.length ? upstreamRoutes(coverage.unimplemented) : { text: '', details: {} };
   throw new SingularityFlowError(
     `Phase '${phase.id}' cannot be ${boundary} because specification coverage is incomplete:\n- ${findings.join('\n- ')}\n`
-    + `Run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. Correct delivery evidence in a reviewed new generation, or use singularity-flow decision plan to amend exact planned locations without regenerating application code. Screenshots belong to fulfillment evidence with a visual/inspection contract, not product source or executable tests. Never hand-edit an observed claim map.`,
+    + `Run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json. Correct delivery evidence in a reviewed new generation, or use singularity-flow decision plan to amend exact planned locations without regenerating application code. Screenshots belong to fulfillment evidence with a visual/inspection contract, not product source or executable tests. Never hand-edit an observed claim map.${routes.text}`,
     {
       code: 'SPEC_COVERAGE_INCOMPLETE',
       details: {
         workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-        evidenceCommit, coverage,
+        evidenceCommit, coverage, ...routes.details,
         // An unplanned path is accounted for by a narrow plan amendment, not by deleting it [E2G-012].
         // Which row is the approver's choice, so the rows go with it: nobody should have to open the plan to find them.
         ...(coverage.unclaimedChangedPaths.length ? {

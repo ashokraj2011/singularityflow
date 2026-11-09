@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,6 +77,10 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const sdk = await import('${packageName}');
       assert.equal(sdk.ENGINE_CONTRACT, 'sflow-engine/v1');
       const changes=await import('${packageName}/changes');
+      const sourceControl=await import('${packageName}/source-control');
+      assert.equal(sourceControl.SOURCE_CONTROL_READER_CONTRACT,'sflow-source-control-reader/v1');
+      assert.equal(sourceControl.SOURCE_CONTROL_LIMITS.maximumDurationMs,300000);
+      assert.throws(()=>sourceControl.validateSourceControlReader({}),{code:'SGOS_SOURCE_CONTROL_CONTRACT_INVALID'});
       let digestCalls=0;
       const changeCodec=changes.createRepositoryChangeSetCodec(Object.freeze({profile:changes.REPOSITORY_CHANGE_SET_VALUES,
         sha256Text:value=>{digestCalls++;return 'sha256:'+createHash('sha256').update(value).digest('hex');},compareUtf8:(a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b))}));
@@ -1000,6 +1004,36 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     assert.deepEqual(later.record,first.record);assert.equal(later.recordedAt,first.recordedAt);
   });
 
+  await t.test('the installed opt-in Git reader captures real local changes with an explicit binary and no CLI discovery',async()=>{
+    let executable;
+    for(const directory of (process.env.PATH??'').split(path.delimiter))try{executable=await realpath(path.join(directory,process.platform==='win32'?'git.exe':'git'));break;}catch{}
+    assert.ok(executable,'A real Git binary is required for the installed reader qualification');
+    await run('git-source.mjs',`
+      import assert from 'node:assert/strict';
+      import {execFileSync} from 'node:child_process';
+      import {mkdir,readFile,writeFile} from 'node:fs/promises';
+      import {createHash} from 'node:crypto';
+      import path from 'node:path';
+      import {createFilesystemSourceUnit} from '${packageName}/sources/filesystem';
+      import {createNodeGitSourceControlReader} from '${packageName}/sources/git';
+      const executable=process.argv[2],root=process.argv[3];await mkdir(root);
+      const git=(...args)=>execFileSync(executable,args,{cwd:root,encoding:'utf8',env:process.env}).trim();
+      git('init','-q','-b','main');git('config','user.name','Example fixture');git('config','user.email','fixture@example.test');
+      await writeFile(path.join(root,'app.js'),'baseline bytes');git('add','app.js');git('commit','-qm','baseline');
+      const baselineCommit=git('rev-parse','HEAD');await writeFile(path.join(root,'app.js'),'current bytes');
+      await writeFile(path.join(root,'new.js'),'new bytes');
+      const source=await createFilesystemSourceUnit({root,id:'app-source',projectId:'project',repositoryId:'app'});
+      const reader=await createNodeGitSourceControlReader({id:'actual-git',root,source:source.descriptor,baselineCommit,
+        git:{executable,executableSha256:'sha256:'+createHash('sha256').update(await readFile(executable)).digest('hex')},authorizeCapture:()=>true});
+      const subject={workId:'application',phase:'implementation',generation:1,generationIntentId:'generation-one'};
+      const first=await reader.capture(subject),second=await reader.capture(subject);
+      assert.equal(first.observation.control.entries.length,2);assert.equal(second.revision,first.revision);
+      assert.equal(second.metrics.baselineCacheReused,true);assert.ok(first.metrics.gitCalls>second.metrics.gitCalls);
+      assert.equal(first.observation.baseline.entries[0].sha256,createHash('sha256').update('baseline bytes').digest('hex'));
+      assert.equal(first.observation.current.snapshot.entries[0].sha256,createHash('sha256').update('current bytes').digest('hex'));
+      assert.equal(JSON.stringify(first).includes(root),false);assert.equal(Object.hasOwn(first,'publicationReady'),false);
+    `,[executable,path.join(directory,'git-source')]);
+  });
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -1031,7 +1065,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { createFilesystemSourceUnit } from '${packageName}/sources/filesystem';
       import {createNamespaceSourceBaselineEngine} from '${packageName}/hosts/namespace-source-baseline';
       import {createNamespaceDeliveryInspectionEngine} from '${packageName}/hosts/namespace-delivery-inspection';
-      import type { SourceUnit } from '${packageName}/source';
+      import type { SourceUnit,SourceDescriptor } from '${packageName}/source';
+      import type {SourceControlReader,SourceControlSubject} from '${packageName}/source-control';
+      import {createNodeGitSourceControlReader} from '${packageName}/sources/git';
       import {captureExecutionUnit,EXECUTION_UNIT_CONTRACT} from '${packageName}/execution';
       import type {ExecutionUnit,AgentTaskInput,ExecutionCandidate} from '${packageName}/execution';
       import {createDeterministicTranslatorExecutionUnit,createAgentTaskContract,createGenericProcessExecutionUnit} from '${packageName}/execution/node';
@@ -1045,6 +1081,15 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
       declare const runtimeMetadata:NamespaceStore;declare const runtimeContent:ContentStore;declare const unitPort:ExecutionUnit;
+      declare const gitSource:SourceDescriptor;
+      const gitReader:Promise<SourceControlReader>=createNodeGitSourceControlReader({id:'git',root:'/explicit',source:gitSource,baselineCommit:'exact-commit',
+        git:{executable:'/explicit/git',executableSha256:'sha256:exact'},authorizeCapture:(descriptor,subject)=>subject.phase==='implementation'});
+      const gitSubject:SourceControlSubject={workId:'example',phase:'implementation',generation:1,generationIntentId:null};
+      gitReader.then(reader=>reader.capture(gitSubject,{signal:null}));
+      // @ts-expect-error Local Git access requires an explicit authorization capability.
+      createNodeGitSourceControlReader({id:'git',root:'/explicit',source:gitSource,baselineCommit:'exact-commit',git:{executable:'/git',executableSha256:'sha256:exact'}});
+      // @ts-expect-error Fixed Git commands cannot be replaced by operation data.
+      gitReader.then(reader=>reader.capture({...gitSubject,argv:['push']}));
       const changeCodec:RepositoryChangeSetCodec=createRepositoryChangeSetCodec(Object.freeze({profile:REPOSITORY_CHANGE_SET_VALUES,
         sha256Text:(text:string)=>text,compareUtf8:(a:string,b:string)=>a===b?0:a<b?-1:1}));
       const changeEntries=[changeCodec.withEntryIdentity({newPath:'src/value.js',status:'added'})];

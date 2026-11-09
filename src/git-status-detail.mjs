@@ -6,7 +6,8 @@
 
 // `ignoreBOM: true` is counterintuitive but means “do not strip a leading UTF-8 BOM”. A filename
 // beginning with EF BB BF must round-trip as U+FEFF followed by its remaining characters.
-const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+import {SingularityFlowError} from './foundation/failures.mjs';
+const utf8 = /* @__PURE__ */ new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_RECORDS = 500_000;
 const DEFAULT_MAX_PATH_BYTES = 1024 * 1024;
@@ -327,4 +328,45 @@ export function parseGitIndexStages(input, {
       stage: Number(stageText), path: repoPath(record.subarray(tab + 1), maxPathBytes) });
   }
   return immutable({ objectFormat, entries });
+}
+
+/** Legacy raw-diff decoding stays in the source-control adapter; no Git program is executed. */
+export function createGitRawDiffParser(normalizeRepositoryPath){
+  if(typeof normalizeRepositoryPath!=='function')throw new SingularityFlowError('Raw Git decoding needs an explicit path normalizer.',{code:'CHANGE_SET_PATH_INVALID'});
+const STATUS = Object.freeze({
+  A: 'added', C: 'copied', D: 'deleted', M: 'modified', R: 'renamed',
+  T: 'type-changed', U: 'unmerged', X: 'unknown', B: 'broken'
+});
+
+
+  function nullFields(value){return value.split('\0').filter(field=>field!=='');}
+/** Parse `git diff --raw -z`; rename/copy records deliberately retain both endpoints. */
+function parseRawDiff(value) {
+  const fields = nullFields(value);
+  const entries = [];
+  for (let index = 0; index < fields.length;) {
+    const header = fields[index++];
+    const match = header.match(/^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])(\d+)?$/i);
+    if (!match) throw new SingularityFlowError(`Unable to parse Git raw diff record '${header}'.`, { code: 'CHANGE_SET_PARSE_FAILED' });
+    const [, oldMode, newMode, oldObject, newObject, letter, score] = match;
+    const firstPath = normalizeRepositoryPath(fields[index++]);
+    const secondPath = ['R', 'C'].includes(letter.toUpperCase())
+      ? normalizeRepositoryPath(fields[index++])
+      : null;
+    entries.push({
+      status: STATUS[letter.toUpperCase()] ?? 'unknown',
+      similarity: score == null ? null : Number(score),
+      oldPath: letter.toUpperCase() === 'A' ? null : firstPath,
+      newPath: letter.toUpperCase() === 'D' ? null : (secondPath ?? firstPath),
+      oldMode,
+      newMode,
+      oldObject: /^0+$/.test(oldObject) ? null : oldObject,
+      newObject: /^0+$/.test(newObject) ? null : newObject
+    });
+  }
+  return entries;
+}
+
+
+return parseRawDiff;
 }

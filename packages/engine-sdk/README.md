@@ -100,6 +100,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   explicitly bound SHA-256 and UTF-8 primitives. It preserves supplied logical data; source-control
   execution, wire decoding and accepted provenance remain adapter/lifecycle responsibilities.
 - `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
+- `source-control`: pure, versioned candidate-observation contracts, separate from source content
+  and evidence acceptance. `sources/git` binds actual local Git observations to an explicit checkout,
+  baseline, pinned executable, environment and authorization callback; it does not publish or approve.
   The separate `createFilesystemSourceContentReader` capability reads bounded byte ranges;
   the original observation unit does not gain file-content access implicitly.
 - `execution`: provider-neutral execution-unit method binding and operational TypeScript contracts.

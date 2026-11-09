@@ -5,14 +5,10 @@ import path from 'node:path';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath } from './util.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
+import {createGitRawDiffParser} from './git-status-detail.mjs';
 import {repositoryChangeSetDigest,repositoryChangeEntryOrder as entryOrder,
   withRepositoryChangeEntryIdentity as withEntryIdentity} from './engine-compatibility/node-source-policy.mjs';
 export {compareRepositoryIdentity,repositoryChangeSetDigest,verifyRepositoryChangeSetIntegrity} from './engine-compatibility/node-source-policy.mjs';
-
-const STATUS = Object.freeze({
-  A: 'added', C: 'copied', D: 'deleted', M: 'modified', R: 'renamed',
-  T: 'type-changed', U: 'unmerged', X: 'unknown', B: 'broken'
-});
 
 function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
@@ -39,32 +35,7 @@ function normalizeRepositoryPath(value) {
   return normalized;
 }
 
-/** Parse `git diff --raw -z`; rename/copy records deliberately retain both endpoints. */
-export function parseRawDiff(value) {
-  const fields = nullFields(value);
-  const entries = [];
-  for (let index = 0; index < fields.length;) {
-    const header = fields[index++];
-    const match = header.match(/^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])(\d+)?$/i);
-    if (!match) throw new SingularityFlowError(`Unable to parse Git raw diff record '${header}'.`, { code: 'CHANGE_SET_PARSE_FAILED' });
-    const [, oldMode, newMode, oldObject, newObject, letter, score] = match;
-    const firstPath = normalizeRepositoryPath(fields[index++]);
-    const secondPath = ['R', 'C'].includes(letter.toUpperCase())
-      ? normalizeRepositoryPath(fields[index++])
-      : null;
-    entries.push({
-      status: STATUS[letter.toUpperCase()] ?? 'unknown',
-      similarity: score == null ? null : Number(score),
-      oldPath: letter.toUpperCase() === 'A' ? null : firstPath,
-      newPath: letter.toUpperCase() === 'D' ? null : (secondPath ?? firstPath),
-      oldMode,
-      newMode,
-      oldObject: /^0+$/.test(oldObject) ? null : oldObject,
-      newObject: /^0+$/.test(newObject) ? null : newObject
-    });
-  }
-  return entries;
-}
+export const parseRawDiff=/* @__PURE__ */ createGitRawDiffParser(normalizeRepositoryPath);
 
 function nullFields(value) {
   return value.split('\0').filter((field) => field !== '');

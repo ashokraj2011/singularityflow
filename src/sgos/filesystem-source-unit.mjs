@@ -97,6 +97,9 @@ async function filesystemSourceBinding({root,id,projectId,repositoryId,excludePa
   return {unit,descriptor,physical,rootStat,selected};
 }
 
+// Internal SGOS compositions reuse the same bounded root binding; the public SourceUnit stays v1.
+export {filesystemSourceBinding as bindFilesystemSource};
+
 /** Existing observation ABI: the optional content capability is never added implicitly. */
 export async function createFilesystemSourceUnit(options={}) {
   return (await filesystemSourceBinding(options)).unit;

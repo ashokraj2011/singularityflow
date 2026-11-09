@@ -67,6 +67,20 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [explicit source-control observation capability](ENGINE-SDK-SOURCE-CONTROL.md) provides a pure
+contract and an opt-in Node Git reader over the shared SGOS process and filesystem owners. Actual
+baseline blobs, current file hashes, committed/index/worktree/untracked changes and final fresh
+Git bindings are observed without importing installed Git/CLI authority into the SDK core. The
+native adapter shares its unchanged raw decoder and record identities. Conditional evidence
+acceptance and full application publication remain required; Phases 5, 7, 8 and 9 remain open.
+
+Mac qualification passed the final 41-case reader/native-decoder/filesystem group, 84 additional
+affected execution/archive/delivery cases, 68 architecture cases and 26 installed offline SDK
+checks. The final affected groups contain no failures, cancellations or skips. Source validation
+passed 3,936 checks across 191 skills; typechecking, the unchanged 2,011-site Git audit and all 13
+unchanged bundle budgets passed. The optional SDK has 56 operations across 179 owned modules;
+these observations are not yet accepted namespace evidence or application publication readiness.
+
 The [shared change-record identity owner](ENGINE-SDK-CHANGE-IDENTITIES.md) extracts ordering,
 canonical entry identities and digest/integrity rules behind explicit value primitives. Native
 source-control captures use the same rule instances; Git execution and wire decoding retain

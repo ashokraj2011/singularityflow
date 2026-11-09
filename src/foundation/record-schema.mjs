@@ -207,6 +207,7 @@ export const NAMESPACE_SOURCE_BASELINE_SCHEMAS = /* @__PURE__ */ Object.freeze({
   manifest: /* @__PURE__ */ frozenFamily('namespace-source-baseline-manifest'),
   index: /* @__PURE__ */ frozenFamily('namespace-source-baseline-index')
 });
+export const SOURCE_CONTROL_OBSERVATION_SCHEMA=/* @__PURE__ */ frozenFamily('source-control-observation');
 export const PHASE_PUBLICATION_SCHEMAS = Object.freeze({
   binding: frozenFamily('phase-publication-binding'),
   manifest:Object.freeze({id:'namespace-phase-publication',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,

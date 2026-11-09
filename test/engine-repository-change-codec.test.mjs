@@ -29,7 +29,7 @@ test('225 UTF-8 orderings and 240 native digest/integrity outcomes preserve orig
 });
 test('five extracted native bodies retain independent fingerprints, and native exports use the shared binding',async()=>{
   const printer=ts.createPrinter({removeComments:false}),found=new Set();
-  for(const file of ['../src/kernel/source-path-policies.mjs','../src/repository-change-set.mjs']){
+  for(const file of ['../src/kernel/source-path-policies.mjs','../src/repository-change-set.mjs','../src/git-status-detail.mjs']){
     const ast=ts.createSourceFile(file,await readFile(new URL(file,import.meta.url),'utf8'),ts.ScriptTarget.Latest,true);
     const visit=node=>{if(ts.isFunctionDeclaration(node)&&Object.hasOwn(original.functions,node.name?.text??'')){
       assert.equal(hash(printer.printNode(ts.EmitHint.Unspecified,node.body,ast)),original.functions[node.name.text],node.name.text);found.add(node.name.text);}

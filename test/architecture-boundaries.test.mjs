@@ -49,7 +49,7 @@ test('the shared foundation and SDA contracts have no infrastructure dependency 
 test('public SDK core, errors, namespace and journal entries remain pure and do not select a backend', async () => {
   const foundation = await sourceFiles('src/foundation'), kernel = await sourceFiles('src/kernel');
   const sdk = await sourceFiles('src/engine-sdk'), namespaces = await sourceFiles('src/sda/namespace'), content = await sourceFiles('src/sda/content');
-  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'changes', 'execution', 'execution/storage', 'storage/journal','testing/reports'].map(name => `packages/engine-sdk/src/${name}.mjs`);
+  const entries = ['index', 'errors', 'namespace', 'content', 'artifacts', 'source', 'source-control', 'changes', 'execution', 'execution/storage', 'storage/journal','testing/reports'].map(name => `packages/engine-sdk/src/${name}.mjs`);
   const report = await inspectPureModuleGraph({ root: packageRoot, entries,
     allowed: [...foundation, ...kernel, ...sdk, ...namespaces, ...content, ...entries, 'src/sgos/operational-contract.mjs'] });
   assert.deepEqual(report.problems, []);
@@ -569,6 +569,22 @@ test('source binding separates source I/O, pure rules and namespace persistence'
         file+' cannot implicitly bind installed source context');
     }
   }
+});
+
+test('the opt-in Git source reader uses fixed local reads and the shared pinned process owner',async()=>{
+  const owner='src/sgos/node-git-source-control-reader.mjs',allowed=new Set(['node:crypto','node:os','node:path',
+    '../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs','../foundation/source-control.mjs',
+    '../engine-compatibility/node-source-policy.mjs','../git-status-detail.mjs','./filesystem-source-unit.mjs','./node-execution-unit.mjs']);
+  const text=await readFile(path.join(packageRoot,owner),'utf8'),ast=ts.createSourceFile(owner,text,ts.ScriptTarget.Latest,true);
+  const visit=node=>{
+    if(ts.isImportDeclaration(node)||ts.isExportDeclaration(node)&&node.moduleSpecifier)assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);
+    if(ts.isIdentifier(node)&&['process','require','eval','Function','spawn','spawnSync','loadDefinition','repoRoot','transactStory'].includes(node.text))assert.fail(owner+' must use explicit capabilities');
+    if(ts.isPropertyAccessExpression(node)&&['put','transact','writeFile','mkdir','unlink','rm','rename','chmod','publish'].includes(node.name.text))assert.fail('Source-control observation is read-only');
+    ts.forEachChild(node,visit);
+  };visit(ast);assert.match(text,/await executePinnedProcess/u);assert.match(text,/await bindFilesystemSource/u);
+  const protocol='src/git-status-detail.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[protocol],allowed:[protocol,...await sourceFiles('src/foundation')]});
+  assert.deepEqual(pure.problems,[],'Git wire decoding has no process, filesystem, kernel or installed configuration dependency');
 });
 
 test('private preparation composes explicit storage and source ports without an installed authority or ambient host',async()=>{

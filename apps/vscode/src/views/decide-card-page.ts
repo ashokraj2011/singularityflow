@@ -20,19 +20,25 @@ export const openRows = (packet: DecisionPacket): DecisionItemPacket[] => packet
 export const decideRows = (packet: DecisionPacket): DecisionItemPacket[] => [...openRows(packet), ...(packet.offered ?? [])];
 
 /**
- * The answers one reason may cover: offered by two or more rows, needing nothing but a reason. A
- * departure's plan row, test or clause-touching wording is decided one by one (`oneByOne`), never here.
+ * The answers one reason may cover: offered by two or more rows this person decides, needing nothing but a
+ * reason. A departure's plan row, test or clause-touching wording is decided one by one (`oneByOne`), never
+ * here. `others` counts the rows offering the same answer that other approvers decide: Apply to all leaves them.
  */
-export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label: string; rows: number }> {
-  const seen = new Map<string, { id: string; label: string; rows: number }>();
+export function sharedAnswers(packet: DecisionPacket): Array<{ id: string; label: string; rows: number; others: number }> {
+  const seen = new Map<string, { id: string; label: string; rows: number; others: number }>();
   for (const item of decideRows(packet)) {
     if (!item.decidedBy?.allowed) continue;
     for (const option of item.options.filter(decidable)) {
       const needs = option.needs ?? {};
       if (option.oneByOne || needs.cause || needs.expires || needs.clause || needs.article) continue;
       const known = seen.get(option.id);
-      if (known) known.rows += 1; else seen.set(option.id, { id: option.id, label: option.label, rows: 1 });
+      // One word for every row it covers, as the Copilot CLI says it: a row's own label may name its step ("Code still holds").
+      if (known) known.rows += 1; else seen.set(option.id, { id: option.id, label: option.sharedLabel ?? option.label, rows: 1, others: 0 });
     }
+  }
+  for (const entry of seen.values()) {
+    entry.others = decideRows(packet).filter((item) => item.options.some((option) => option.id === entry.id
+      && (!item.decidedBy?.allowed || !decidable(option)))).length;
   }
   return [...seen.values()].filter((entry) => entry.rows > 1);
 }
@@ -157,7 +163,8 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
     ${route ? `<div class="dc-own"><code>${escape(route)}</code><button type="button" data-route>Put it in a terminal</button></div>` : ''}
     ${shared.length ? `<section class="dc-all"><label for="dc-all-choice">One answer for all that offer it</label>
       <select id="dc-all-choice"><option value="">Choose…</option>${shared.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.label)} (${entry.rows} rows)</option>`).join('')}</select>
-      <input id="dc-all-reason" aria-label="One reason for all of them" placeholder="One reason" maxlength="1000"><button type="button" data-apply-all>Apply to all</button></section>` : ''}
+      <input id="dc-all-reason" aria-label="One reason for all of them" placeholder="One reason" maxlength="1000"><button type="button" data-apply-all>Apply to all</button>
+      ${shared.filter((entry) => entry.others).map((entry) => `<p class="muted">"${escape(entry.label)}" covers only the rows you decide; ${entry.others === 1 ? '1 more stays' : `${entry.others} more stay`} listed for their own approvers.</p>`).join('')}</section>` : ''}
     <div class="dc-table"><table>
       <thead><tr><th>What it is</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${rows.map((item) => rowHtml(item, draft)).join('')}</tbody>

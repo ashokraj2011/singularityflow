@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 96
+version: 97
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1665,8 +1665,11 @@ decisions list for its own approvers: it still holds, or the Story returns to it
 again). "Still holds" keeps that step's approval and its evidence across the amended wording, and every place
 the approval evidence is read names it, with the person by name ("AC-001: Code's evidence predates AMD-001's
 wording; Pat Lee, for the Code approvers (engineering-reviewers), said it still holds"). An answer recorded
-before names were kept shows its Git identity instead. Any other intent amendment reopens the steps after the
-scope, as before.
+before names were kept shows its Git identity instead. A person who approves several of those steps may say
+"still holds" for all of them at once, with one reason: "Still holds for all N, with one reason" on the first
+form of Copilot CLI's `/decide`, and "One answer for all" on the VS Code card. It covers only the rows that
+person decides (rows for other approvers stay listed for them), each row is still recorded on its own, and a
+return is always decided row by row. Any other intent amendment reopens the steps after the scope, as before.
 
 An unplanned row whose files a departure already covers, accepted by a person, counts as decided.
 Under `legacy`, only `partial` and `missing` rows are decided.

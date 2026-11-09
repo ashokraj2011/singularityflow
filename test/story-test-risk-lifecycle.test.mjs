@@ -303,6 +303,9 @@ test('supplemental document risk is exact, terminal-reviewed, transition-specifi
     assert.equal(phase().deliveryEvidence.validation.status, 'passed', 'real Node tests still execute and pass');
     await assert.rejects(invoke(value.root, () => approvePhase(value.root, value.config, value.workflow,
       { phaseId: 'implementation', actor: phaseReviewer, agent: null, persist: false })), { code: 'TRP_DOCUMENT_GATE_BLOCKED' });
+    // At its own step's approval the reviewers see, and decide in the one plan, the later steps that read
+    // the document too, so none of them is held for it [PHR:REQ-002, finding 17].
+    assert.deepEqual((await riskPlan(value, 'approve', docOptions)).plan.decision.transitions, ['approve', 'downstream']);
     await acceptRisk(value, 'approve', docOptions);
     setActor(value.root, phaseReviewer);
     await invoke(value.root, () => commitAndPublish(value.root, value.config, value.workflow,
@@ -313,9 +316,6 @@ test('supplemental document risk is exact, terminal-reviewed, transition-specifi
       }));
     await value.reload();
     assert.equal(phase().status, 'approved');
-    await assert.rejects(assertStoryDocumentRiskGates(value.root, value.config, value.workflow, phase(), 'downstream'),
-      { code: 'TRP_DOCUMENT_GATE_BLOCKED' });
-    await acceptRisk(value, 'downstream', docOptions);
     assert.equal((await assertStoryDocumentRiskGates(value.root, value.config, value.workflow, phase(), 'downstream')).length, 1);
     await assert.rejects(assertStoryDocumentRiskGates(value.root, value.config, value.workflow, phase(), 'replay'),
       { code: 'TRP_DOCUMENT_GATE_BLOCKED' });

@@ -33,7 +33,7 @@ const CONFORMANCE_GAPS = [
 const QUALIFIED_ROWS = [check('conformance-readiness.mjs', 'inspectQualifiedConformanceReport', 'draft-check, publication, submission')];
 const CODE_COVERAGE = [
   check('spec-coverage-preview.mjs', 'assertStrictCandidateSpecificationCoverage', 'code publication (refuses when enforced, returns a warning when recorded)'),
-  check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (refuses when enforced, warns when recorded)')
+  check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (refuses when enforced, and at the last code step\'s approval when recorded on a Story that pinned the owner-step checks; warns otherwise)')
 ];
 
 export const GATE_PARITY = Object.freeze({

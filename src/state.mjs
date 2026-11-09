@@ -1999,13 +1999,35 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
     );
   }
   if (coverage.complete) return coverage;
-  // Recorded coverage is told what a qualified ending refuses: all of this but unclaimed paths.
+  // Recorded coverage is told what a qualified ending refuses: all of this but unclaimed paths. For a
+  // Story that pinned the owner-step checks, the last code step's approval refuses it instead, while
+  // its author can still deliver it [PHR:REQ-002], finding 13; submission is told so.
+  const ownerCheck = enforcement === 'qualified-ending' && ownerStepChecks(workflow);
   if (enforcement !== 'enforce') {
-    const advisory = [
-      ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
+    // A person's accepted implementation risk carries its clause, as the ending reads it.
+    const accepted = ownerCheck ? (await import('./evidence/risk-decisions.mjs')).acceptedImplementationClauses(workflow) : new Set();
+    const owed = { ...coverage, unimplemented: coverage.unimplemented.filter((id) => !accepted.has(id)), unclaimedChangedPaths: [] };
+    const lines = [
+      ...owed.unimplemented.map((id) => `clause ${id} is not fully implemented`),
       ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
       ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
-    ].map((line) => `${line}; this Story's ending refuses it unless a later step corrects it`);
+    ];
+    if (ownerCheck && boundary === 'approved' && lines.length) {
+      const routes = owed.unimplemented.length ? upstreamRoutes(owed.unimplemented) : { text: '', details: {} };
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' cannot be approved because the Story's ending would refuse its specification coverage:\n- ${lines.join('\n- ')}\n`
+        + `It is the last code step, so this is where it is delivered: return ${phase.id} for its author to complete the source and test evidence in a reviewed new generation, `
+        + `or use singularity-flow decision plan to amend exact planned locations. Never hand-edit an observed claim map.${routes.text}`,
+        { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id, generation: phase.generation, ownerPhase: phase.id,
+          evidenceCommit, coverage: owed, ...routes.details,
+          repairCommand: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --reason <REASON>`,
+          recoveryCommands: await Promise.all(owed.unimplemented.slice(0, 3).map(async (id) => ({ label: 'Or a person who may accept this risk records it, with its category and expiry.',
+            command: `singularity-flow decision risk --obligation ${(await import('./evidence/vocabulary.mjs')).obligationId(workflow.workItem.id, 'implement', id)} --category <category> --expires <YYYY-MM-DD> --reason "<why>"` }))),
+          diagnosticCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` } }
+      );
+    }
+    const advisory = lines.map((line) => `${line}; ${ownerCheck ? `approving ${phase.id} refuses it until it is delivered or its risk is accepted`
+      : 'this Story\'s ending refuses it unless a later step corrects it'}`);
     return advisory.length ? { ...coverage, advisory } : coverage;
   }
   const findings = [

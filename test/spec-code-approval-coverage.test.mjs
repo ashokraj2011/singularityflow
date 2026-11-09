@@ -12,6 +12,7 @@ import {
 } from '../src/specifications.mjs';
 import { assertCandidateSpecificationCoverage, inspectUnclaimedChangedPaths } from '../src/spec-coverage-preview.mjs';
 import { assertFinalCodeSpecificationCoverage } from '../src/state.mjs';
+import { phaseResponsibilityPin } from '../src/phase-roles.mjs';
 import { STORY_DECISION_LISTS, storyDecisionsDigest } from '../src/phase-upstream.mjs';
 import { currentSchemaVersion, readRecord } from '../src/schema-migrations.mjs';
 import { acceptQualityRisk, coverageRiskEligibility, inspectPhaseQualityGate, normalizeQualityGateMode,
@@ -554,4 +555,30 @@ test('the packaged default (recorded coverage, qualified rows) tells the code st
   // Legacy rows end on recorded coverage alone, so the code step stays silent there.
   workflow.resolution.spec = { mode: 'record', coverage: 'record', conformanceRows: 'legacy' };
   assert.equal(await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')), null);
+});
+
+test('[PHR:REQ-002] finding 13: under recorded coverage the last code step\'s approval refuses what the qualified ending would, so the ending no longer meets it', async () => {
+  const { root, config, workflow } = await fixture();
+  workflow.resolution.spec = { mode: 'record', coverage: 'record', conformanceRows: 'qualified' };
+  workflow.resolution.codeDelivery = { traceability: { sourceBindings: 'enforce' } };
+  workflow.resolution.phaseResponsibility = phaseResponsibilityPin();
+  const phase = workflow.phases.implementation;
+  const revision = git(root, 'rev-parse', 'HEAD');
+  // Submission is told that approval refuses it; the generation still goes to its approvers.
+  const submitted = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision, { boundary: 'submitted' });
+  assert.deepEqual(submitted.advisory, ['clause COVER-1:REQ-002 is not fully implemented; approving implementation refuses it until it is delivered or its risk is accepted']);
+  // Approval refuses it, with the author's return and a person's dated risk as structured routes.
+  const refused = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision).catch((error) => error);
+  assert.equal(refused.code, 'SPEC_COVERAGE_INCOMPLETE');
+  assert.deepEqual([refused.details.ownerPhase, refused.details.coverage.unimplemented], ['implementation', ['COVER-1:REQ-002']]);
+  assert.equal(refused.details.repairCommand, 'singularity-flow reject implementation --work-id COVER-1 --fetch --reason <REASON>');
+  assert.match(refused.details.recoveryCommands[0].command, /^singularity-flow decision risk --obligation OBL:COVER-1:implement:REQ-002 /u);
+  // A person's accepted implementation risk carries the clause, as the ending reads it.
+  workflow.riskDecisions = [{ id: 'RISK-001', obligationId: 'OBL:COVER-1:implement:REQ-002', category: 'scope', expiresAt: '2999-01-01T00:00:00.000Z', transitions: ['terminal'] }];
+  assert.equal((await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision)).complete, false, 'excepted, never satisfied');
+  // A Story started before the check keeps its policy: told, never refused, and its ending judges it.
+  delete workflow.resolution.phaseResponsibility;
+  workflow.riskDecisions = [];
+  assert.deepEqual((await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, revision)).advisory,
+    ["clause COVER-1:REQ-002 is not fully implemented; this Story's ending refuses it unless a later step corrects it"]);
 });

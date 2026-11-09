@@ -112,7 +112,7 @@ export function evidenceHtml(packet: DecisionPacket): string {
   const part = (title: string, body: string, warn: boolean) => `<section class="dc-ev${warn ? ' dc-ev-warn' : ''}"><h3>${escape(title)}</h3>${body}</section>`;
   const list = (items: string[]) => (items.length ? `<ul class="dc-ev-list">${items.map((item) => `<li>${item}</li>`).join('')}</ul>` : '');
   const more = (count?: number) => (count ? `<p class="muted">And ${count} more.</p>` : '');
-  const { coverage, proof, findings, hold, requiredChecks, askedFor } = evidence;
+  const { coverage, proof, findings, hold, requiredChecks, askedFor, carried } = evidence;
   // A held package whose command a row above already offers is not offered twice.
   const offered = new Set(decideRows(packet).filter((item) => item.decidedBy?.allowed).flatMap((item) => ownSteps(item).map((option) => option.action?.command)));
   const holdStep = (entry: NonNullable<typeof hold>['entries'][number], index: number) => (!entry.allowed
@@ -123,6 +123,8 @@ export function evidenceHtml(packet: DecisionPacket): string {
       <button type="button" class="secondary" data-hold-terminal="${index}">Put it in a terminal</button>
       <button type="button" class="secondary" data-hold-copy="${index}">Copy</button></div>`);
   const parts = [
+    // Never silent: what counts on a person's word instead of a run, with whose word and for which amendment.
+    carried ? part('Carried by "still holds"', `<p class="muted">${escape(carried.words)}</p>${list(carried.entries.map((entry) => escape(entry.words)))}${more(carried.more)}`, true) : '',
     askedFor ? part('Asked for', `<p class="muted">${escape(askedFor.words)}</p>${list(askedFor.instructions.map((entry) => `<q class="dc-asked">${escape(entry.text)}</q>${entry.accountWords
       ? ` <span class="muted">${escape(entry.accountWords)}</span>` : ''}`))}${more(askedFor.more)}`, askedFor.unaccounted > 0) : '',
     coverage ? part('Changed-line coverage', `<p>${escape(coverage.words)}</p>${list((coverage.files ?? []).map((file) => linked(file.words, file.path)))}${more(coverage.more)}`,

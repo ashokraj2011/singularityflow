@@ -366,6 +366,11 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
     const { draftIntentAmendment } = await import('./story.mjs');
     return draftIntentAmendment(root, config, workflow, {}, { rows: effect.rows ?? [], reason: step.values.reason, keepEdits: true });
   }
+  if (effect.kind === 'amendment-revalidation') {
+    const { commitAmendmentRevalidation } = await import('./upstream-issue.mjs');
+    return commitAmendmentRevalidation(root, config, workflow, { amendmentId: effect.amendment, phaseId: effect.phase, outcome: effect.outcome,
+      reason: step.values.reason }, { actor, agent });
+  }
   if (effect.kind === 'upstream-issue') {
     const { commitUpstreamIssue } = await import('./upstream-issue.mjs');
     return commitUpstreamIssue(root, config, workflow, { phase: effect.phase, about: effect.about, problem: effect.problem,
@@ -439,6 +444,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
 }
 
 function recordId(kind, record) {
+  if (kind === 'amendment-revalidation') return `${record?.phase} ${record?.outcome} after ${record?.amendment}${record?.link ? ` (${record.link})` : ''}`;
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
   if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;
   if (kind === 'completeness-review') return 'completeness review';

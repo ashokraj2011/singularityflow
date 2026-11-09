@@ -4,6 +4,9 @@
  * dismiss it. Only Stories that pin the rule; a Story pinned before keeps the rule its report was approved under.
  */
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { verdictSummaryBlock } from '../src/conformance-readiness.mjs';
@@ -243,4 +246,75 @@ test('a proposed amendment is the row\'s item: it holds the approval, and the ap
     actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
   assert.deepEqual(packet.items.map((item) => [item.kind, item.holdsApproval]), [['intent-amendment', true], ['approval', false]]);
   assert.match(packet.items[0].title, /Decide intent amendment AMD-001/u);
+});
+
+test('an approved amendment that is revalidated still decides its row', () => {
+  const workflow = story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'revalidated', changedClauses: [`${W}:REQ-003`] }] } });
+  assert.deepEqual([byClause(decided(workflow), 'REQ-003').status, byClause(decided(workflow), 'REQ-003').outcome], ['decided', 'amended']);
+});
+
+test('a revalidation row is the step\'s own approvers\' choice on the list: it still holds, or the Story returns to it [SCS:REQ-022]', () => {
+  const workflow = story({ status: 'awaiting_approval', extra: { intentAmendments: [{ id: 'AMD-001', status: 'approved', producer: 'requirements',
+    revalidate: [{ phase: 'implementation', generation: 1 }, { phase: 'conformance', generation: 1 }] }] } });
+  const facts = { phaseId: 'conformance', at: AT, endsStory: true, gaps: [], issues: [], activeReuse: [], candidates: [], reuseProblems: [], testRisks: [],
+    unavailable: [], state: {}, pending: { forwardAmendments: [
+      { code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: 'AMD-001', phase: 'implementation', producer: 'requirements', message: 'm',
+        command: 'singularity-flow upstream-issue revalidate implementation --work-id ORD-7 --amendment AMD-001 --outcome unchanged|return --reason "<why>"' },
+      { code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: 'AMD-001', phase: 'conformance', producer: 'requirements', message: 'm', command: 'c' }] } };
+  const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
+    actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
+  const [code, report] = packet.items.filter((entry) => entry.kind === 'forward-amendment');
+  assert.equal(code.title, 'Revalidate Implementation after AMD-001');
+  assert.match(code.why, /^Implementation read Requirements before AMD-001 amended it\. Its approvers say it still holds/u);
+  assert.deepEqual(code.options.map((entry) => [entry.id, entry.label, entry.effects[0].outcome, entry.decidedBy.groups]), [
+    ['still-holds', 'Implementation still holds', 'unchanged', ['engineering-reviewers']],
+    ['return-step', 'Return the Story to Implementation', 'return', ['engineering-reviewers']]]);
+  assert.deepEqual(report.options.map((entry) => entry.label), ['Confirm the report: it still holds', 'Return it for a new report']);
+  assert.deepEqual(report.options[0].decidedBy.groups, ['quality-reviewers'], 'the report\'s approvers confirm it');
+  assert.ok([...code.options, ...report.options].every((entry) => entry.oneByOne), 'each step\'s own approvers answer it alone, never one answer for all');
+  assert.ok(!DECISION_LIST_CHAT_OPTIONS.includes('still-holds') && !DECISION_LIST_CHAT_OPTIONS.includes('return-step'), 'never a chat turn\'s to answer');
+  assert.equal(recordableInApproval(code.options[0]), false);
+  // A return moves the Story, so it is written after every other answer.
+  const plan = decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${report.id}=return-step`, `${code.id}=still-holds`],
+    reason: [`${report.id}=The report should judge the amended requirement again.`] }), { at: AT });
+  assert.deepEqual(plan.steps.map((step) => [step.item, step.option]), [[code.id, 'still-holds'], [report.id, 'return-step']]);
+  assert.match(effectWords(workflow, plan.steps[0].effects[0]), /^record that Implementation still holds under AMD-001/u);
+  assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: [`${report.id}=return-step`] }), { at: AT }), /reason for d\d must be 20 to 1000/u);
+});
+
+test('rows hold the waiting step\'s approval and carry its input, ending and history holds, so no hold reads as nobody\'s [SCS:REQ-022]', () => {
+  const workflow = story({ extra: { intentAmendments: [{ id: 'AMD-001', status: 'approved', producer: 'requirements', revalidate: [{ phase: 'conformance', generation: 1 }] }] } });
+  const words = 'These 2 commits after the submission may not precede approval: - 15b3 [ORD-7][intent-amendment:propose] AMD-001; - 180e [ORD-7][intent-amendment:approve] AMD-001.';
+  const facts = { phaseId: 'conformance', at: AT, endsStory: true, gaps: [], issues: [], activeReuse: [], candidates: [], reuseProblems: [], testRisks: [], unavailable: [], state: {},
+    pending: { forwardAmendments: [{ code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: 'AMD-001', phase: 'conformance', producer: 'requirements', message: 'm', command: 'c' }] },
+    approvalCheck: { holds: [{ code: 'STORY_REVIEW_INTERVENING_COMMIT', owner: 'author-repairs', summary: words, message: words },
+      { code: 'STORY_COMPLETION_REFUSED', owner: 'someone-decides', summary: 'Story ORD-7 cannot finish yet.', message: 'conformance read requirements before AMD-001 amended it.' }] } };
+  const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
+    actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
+  assert.deepEqual(packet.items.map((item) => [item.kind, item.holdsApproval]), [['forward-amendment', true], ['approval', false]]);
+  // Another commit after the submission is its own hold, as before.
+  const other = decisionPacket(workflow, { ...facts, approvalCheck: { holds: [{ code: 'STORY_REVIEW_INTERVENING_COMMIT', owner: 'author-repairs',
+    summary: 'One commit after the submission: 9a9a [ORD-7] edit the report.', message: 'One commit after the submission: 9a9a [ORD-7] edit the report.' }] } },
+  { authorities: workflow.resolution.approvalAuthorities, actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
+  assert.deepEqual(other.items.map((item) => item.kind), ['forward-amendment', 'approval-hold', 'approval']);
+});
+
+test('only an amendment whose changed clauses are all differences of the waiting report is revalidated; any other reopens, as before [SCS:REQ-022]', async (t) => {
+  const { differenceAmendmentReport } = await import('../src/state.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-scs-qualifies-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const config = { workItemRoot: 'singularity/work-items' };
+  await mkdir(path.join(root, 'singularity/work-items', W, 'artifacts/conformance'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/work-items', W, 'artifacts/conformance/spec-code-comparison.md'), REPORT);
+  const amendment = (...changed) => ({ diff: { changed } });
+  const qualifies = (workflow, proposal) => differenceAmendmentReport(root, config, workflow, proposal);
+  assert.deepEqual(await qualifies(story(), amendment(`${W}:REQ-003`)), { phase: 'conformance', clauses: [`${W}:REQ-003`] });
+  assert.deepEqual(await qualifies(story(), amendment(`${W}:REQ-004`, `${W}:REQ-003`)), { phase: 'conformance', clauses: [`${W}:REQ-003`, `${W}:REQ-004`] });
+  assert.equal(await qualifies(story(), amendment(`${W}:REQ-003`, `${W}:REQ-006`)), null, 'a matched clause changes what the code must do');
+  assert.equal(await qualifies(story(), amendment(`${W}:REQ-005`)), null, 'a partial row is a gap, not a difference');
+  assert.equal(await qualifies(story(), amendment(`${W}:REQ-099`)), null, 'a new clause');
+  assert.equal(await qualifies(story(), amendment()), null);
+  assert.equal(await qualifies(story({ spec: {} }), amendment(`${W}:REQ-003`)), null, 'a Story pinned before differences were decided');
+  assert.equal(await qualifies(story({ status: 'in_progress' }), amendment(`${W}:REQ-003`)), null, 'the report is not waiting for its approval');
+  assert.equal(await qualifies({ ...story(), currentPhase: 'verification' }, amendment(`${W}:REQ-003`)), null, 'the current step is not the report');
 });

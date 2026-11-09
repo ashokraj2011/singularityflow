@@ -28,6 +28,7 @@ import { testSetupFiles } from './test-support-files.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
+import { isConformancePhase } from './phase-roles.mjs';
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -39,7 +40,7 @@ const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
 // A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
-const EFFECT_ORDER = Object.freeze(['intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'routing', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'amendment-revalidation', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure']);
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
@@ -87,6 +88,8 @@ function issueGroups(workflow, phaseId) {
 
 /** The approval groups that must decide one effect; null when anyone may (raising an issue). */
 function effectGroups(workflow, effect) {
+  // A revalidation is the revalidated step's own approvers' [UIF-M3].
+  if (effect.kind === 'amendment-revalidation') return issueGroups(workflow, effect.phase);
   // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
   if (effect.kind === 'upstream-issue' || effect.kind === 'intent-amendment-draft') return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
@@ -700,14 +703,44 @@ function intentAmendmentItem(workflow, context, amendment) {
 
 /** A forward amendment or a revalidation it asked for, as the Story's ending reads them. */
 function forwardAmendmentItem(workflow, context, blocker) {
-  const revalidation = blocker.code === 'AMENDMENT_REVALIDATION_REQUIRED';
+  if (blocker.code === 'AMENDMENT_REVALIDATION_REQUIRED') return revalidationItem(workflow, context, blocker);
   return stepItem(workflow, context, {
-    kind: 'forward-amendment', title: revalidation ? `Revalidate ${stepName(workflow, blocker.phase)} after ${blocker.amendment}` : `Decide forward amendment ${blocker.amendment}`,
+    kind: 'forward-amendment', title: `Decide forward amendment ${blocker.amendment}`,
     why: blocker.message, groups: approvers(workflow, blocker.phase),
-    options: [{ id: revalidation ? 'revalidate' : 'decide', label: revalidation ? 'Revalidate it' : 'Approve or reject it',
-      command: blocker.command, words: 'Decided in your own terminal by an approver of that step.' }],
+    options: [{ id: 'decide', label: 'Approve or reject it', command: blocker.command, words: 'Decided in your own terminal by an approver of that step.' }],
     details: { code: blocker.code, amendment: blocker.amendment, phase: blocker.phase }
   });
+}
+
+/**
+ * A step that read an earlier document an amendment changed [UIF-M3, SCS:REQ-022]: its own approvers say
+ * it still holds, which binds its approval to the amended generation, or return the Story to it, as a
+ * rejection does. A conformance step's approver confirms its report or returns it for a new one. Recorded
+ * here with `upstream-issue revalidate`'s own function; never a chat turn's to answer.
+ */
+function revalidationItem(workflow, context, blocker) {
+  const name = stepName(workflow, blocker.phase);
+  const producer = blocker.producer ? stepName(workflow, blocker.producer) : 'the earlier step';
+  const report = isConformancePhase(workflow.phases?.[blocker.phase]);
+  const effect = (outcome) => [{ kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase, outcome }];
+  // Each step's own approvers answer for that step alone: never one answer for every row.
+  const own = (built) => ({ ...built, oneByOne: true });
+  return {
+    kind: 'forward-amendment', title: `Revalidate ${name} after ${blocker.amendment}`,
+    why: `${name} read ${producer} before ${blocker.amendment} amended it. ${report
+      ? `Its approvers confirm the report still holds under the amended ${producer}, or return it for a new report.`
+      : `Its approvers say it still holds under the amended ${producer}, which keeps its approval, or return the Story to it.`}`,
+    options: [
+      own(option(workflow, context, { id: 'still-holds', label: report ? 'Confirm the report: it still holds' : `${name} still holds`,
+        words: report ? `The report stands as written, read against the amended ${producer}; its approval comes next, as always.`
+          : `Its approval stands, bound to the amended ${producer}.`, effects: effect('unchanged'),
+        needs: { reason: textNeed(`${name} still holds under ${blocker.amendment}: the amended ${producer} says what it was built and checked against.`, REASON) } })),
+      own(option(workflow, context, { id: 'return-step', label: report ? 'Return it for a new report' : `Return the Story to ${name}`,
+        words: report ? `${name} is written again against the amended ${producer}.` : `${name} runs again against the amended ${producer}, and the steps after it with it.`,
+        effects: effect('return'), needs: { reason: textNeed('', REASON) } }))
+    ],
+    details: { code: blocker.code, amendment: blocker.amendment, phase: blocker.phase, producer: blocker.producer ?? null, commands: [blocker.command] }
+  };
 }
 
 /** An exact-diff appeal of the current step that waits for a person. */
@@ -1391,12 +1424,19 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const dirty = holds.find((hold) => hold.owner === 'this-checkout');
   // The Story's ending names what is already on the list, so only an ending nothing lists is an item of its own.
   const ending = holds.some((hold) => hold.code === 'STORY_COMPLETION_REFUSED');
+  // A step still to revalidate fails the input check the approval and the ending run, so its row carries those holds,
+  // and the history check's for the report's own amendment until its approvers confirm the report [SCS:REQ-022].
+  const revalidating = listed.filter((item) => item.details?.code === 'AMENDMENT_REVALIDATION_REQUIRED');
+  const carriedByRows = (hold) => revalidating.length > 0 && (hold.code === 'STORY_COMPLETION_REFUSED'
+    || (hold.code === 'STORY_REVIEW_INTERVENING_COMMIT' && revalidating.some((item) => item.details.phase === facts.phaseId
+      && String(hold.message ?? hold.summary).includes(item.details.amendment))));
   const carriedByEnding = (hold) => hold.code === 'STORY_COMPLETION_REFUSED' && listed.some((item) => [...APPROVAL_HOLDING_KINDS, 'owed-decision'].includes(item.kind));
-  const extra = holds.filter((hold) => hold !== dirty && holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)) && !carriedByEnding(hold))
+  const extra = holds.filter((hold) => hold !== dirty && holdItemKind(hold) !== 'approval' && !carried.has(holdItemKind(hold)) && !carriedByEnding(hold) && !carriedByRows(hold))
     .flatMap((hold) => (hold.unclaimedPaths?.length ? planPathItems(workflow, context, hold)
       : [holdItem(workflow, context, holdItemKind(hold) === 'test-run-risk' ? 'test-run-risk' : 'approval-hold', hold)]));
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
-  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && amendmentItem(item)) || (awaiting && heldKinds.has(item.kind)
+  const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && amendmentItem(item))
+    || (awaiting && revalidating.includes(item)) || (awaiting && heldKinds.has(item.kind)
     && (!item.details?.amendment || holds.some((hold) => String(hold.message ?? hold.summary).includes(item.details.amendment))));
   const built = [...listed, ...extra, ...(pending.transport ?? []).map((entry) => machineItem(workflow, entry))];
   const items = built.map((item, index) => {
@@ -1631,12 +1671,16 @@ export function decisionRecordPlan(packet, answers, { at }) {
       effects: selected.effects.map((effect) => ({ ...effect })) });
   }
   // A route moves the Story on, so everything else on this list is written first.
-  const routes = (step) => step.effects.some((effect) => effect.kind === 'routing');
+  const routes = (step) => step.effects.some((effect) => effect.kind === 'routing' || (effect.kind === 'amendment-revalidation' && effect.outcome === 'return'));
   return { steps: [...steps.filter((step) => !routes(step)), ...steps.filter(routes)], refused: refusedItems };
 }
 
 /** One record a plan writes, in plain words with its record kind, for summaries and reports. */
 export function effectWords(workflow, effect, values = {}) {
+  if (effect.kind === 'amendment-revalidation') {
+    return effect.outcome === 'unchanged' ? `record that ${stepName(workflow, effect.phase)} still holds under ${effect.amendment} (amendment revalidation)`
+      : `return the Story to ${stepName(workflow, effect.phase)} after ${effect.amendment} (amendment revalidation and return)`;
+  }
   if (effect.kind === 'intent-amendment-draft') {
     return `draft ${stepName(workflow, effect.phase)}'s scope with a slot for ${listWords((effect.clauses ?? []).map((clause) => clauseName(workflow, clause)))}`
       + `${effect.path ? ` at ${effect.path}` : ''}; nothing is recorded or decided (intent-amendment draft)`;

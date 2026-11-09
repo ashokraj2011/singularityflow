@@ -639,7 +639,11 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
     `singularity-flow decisions record PMC-1 --choose d1=dismiss --confirm ${digest} --fetch`,
     // A convergence item is adjudicated by a person on a card or in their own terminal, never by a chat turn [SCS:REQ-032].
     ...['rework', 'accepted-deviation', 'dismissed', 'deferred'].map((disposition) => `singularity-flow decisions record PMC-1 --choose d1=${disposition} --confirm ${digest}`),
-    `singularity-flow decisions record PMC-1 --choose d1=update-intent --clause d1=REQ-001 --reason "d1=The spec is wrong." --confirm ${digest}`]) {
+    `singularity-flow decisions record PMC-1 --choose d1=update-intent --clause d1=REQ-001 --reason "d1=The spec is wrong." --confirm ${digest}`,
+    // A step's revalidation after an amendment is its own approvers' answer, never a chat turn's [SCS:REQ-022].
+    `singularity-flow decisions record PMC-1 --choose d1=still-holds --confirm ${digest}`,
+    `singularity-flow decisions record PMC-1 --choose d1=return-step --reason "d1=The report should be written again." --confirm ${digest}`,
+    `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=still-holds --confirm ${digest}`]) {
     const denied = await shell(decide, command);
     assert.equal(denied.permissionDecision, 'deny', command);
   }
@@ -698,7 +702,9 @@ test('an authoring turn may raise an upstream issue but never decide one', async
   assert.deepEqual(await shell('singularity-flow upstream-issue list --open --json'), {});
   assert.deepEqual(await shell('singularity-flow upstream-issue propose-amendment --phase intake --file singularity/work-items/PMC-1/artifacts/custom-step/intake-draft.md --reason "The intake omits the error case entirely."'), {});
   for (const command of ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "Agent approving." --confirm FAM-001',
-    'singularity-flow upstream-issue revalidate design --amendment FAM-001 --outcome unchanged --reason "Agent revalidating."']) {
+    'singularity-flow upstream-issue revalidate design --amendment FAM-001 --outcome unchanged --reason "Agent revalidating."',
+    'singularity-flow upstream-issue revalidate conformance --amendment AMD-001 --outcome unchanged --reason "Agent confirming the report."',
+    'singularity-flow upstream-issue revalidate implementation --amendment AMD-001 --outcome return --reason "Agent returning the code step."']) {
     assert.equal((await shell(command)).permissionDecision, 'deny', command);
   }
   const decided = await shell('singularity-flow upstream-issue decide UPI-001 --outcome dismiss --reason "The agent thinks it is fine."');

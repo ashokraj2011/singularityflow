@@ -9,7 +9,7 @@
  * only while the revalidated step keeps the input record it was approved with.
  *
  * Three append-only lists: `forwardAmendments` (proposals), `forwardAmendmentDecisions` and
- * `amendmentRevalidations`. Pure: no I/O.
+ * `amendmentRevalidations`, which also keeps the answers for an intent amendment's rows. Pure: no I/O.
  */
 import { countedRecords } from './presence/counted.mjs';
 
@@ -33,16 +33,24 @@ export function pendingForwardAmendments(workflow) {
  * Each step an approved amendment listed for revalidation that has no revalidation yet and still
  * stands at the generation it was approved with. A step sent back for rework reads its inputs again
  * in its next generation, so nothing is owed for it any more.
+ *
+ * An approved intent amendment that updated the spec to what a conformance report found the code doing
+ * lists the steps that read the scope the same way, the report's own step among them, waiting for its
+ * approval [SCS:REQ-022]; the scope step is their producer.
  */
 export function pendingAmendmentRevalidations(workflow) {
   const decided = new Set(countedRecords(workflow, workflow?.amendmentRevalidations).map((entry) => `${entry.amendment}\u0000${entry.phase}`));
-  return countedRecords(workflow, workflow?.forwardAmendmentDecisions)
-    .filter((entry) => entry?.decision === 'approved')
-    .flatMap((entry) => (entry.revalidate ?? [])
-      .filter((item) => workflow.phases?.[item.phase]?.status === 'approved'
-        && Number(workflow.phases[item.phase].generation) === Number(item.generation)
-        && !decided.has(`${entry.amendment}\u0000${item.phase}`))
-      .map((item) => ({ amendment: entry.amendment, phase: item.phase, generation: item.generation, producer: entry.phase })));
+  const owed = (amendment, producer, items) => (items ?? [])
+    .filter((item) => ['approved', 'awaiting_approval'].includes(workflow.phases?.[item.phase]?.status)
+      && Number(workflow.phases[item.phase].generation) === Number(item.generation)
+      && !decided.has(`${amendment}\u0000${item.phase}`))
+    .map((item) => ({ amendment, phase: item.phase, generation: item.generation, producer }));
+  return [
+    ...countedRecords(workflow, workflow?.forwardAmendmentDecisions).filter((entry) => entry?.decision === 'approved')
+      .flatMap((entry) => owed(entry.amendment, entry.phase, entry.revalidate)),
+    ...(workflow?.intentAmendments ?? []).filter((entry) => ['approved', 'revalidated'].includes(entry?.status) && entry.producer)
+      .flatMap((entry) => owed(entry.id, entry.producer, entry.revalidate))
+  ];
 }
 
 export function revalidateCommand(workId, entry) {

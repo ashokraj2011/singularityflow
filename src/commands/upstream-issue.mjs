@@ -426,6 +426,40 @@ async function decideAmendment(root, config, workflow, amendmentId, options) {
     body: { decision: value.decision, revalidate: owed.map((entry) => entry.phase), refreshed: value.refreshed ?? null }, changed: true });
 }
 
+/**
+ * A later step's approvers record that it holds under the amended input, or return the Story to it; the
+ * same for an intent amendment's rows [SCS:REQ-022]. Returning the current step itself (a conformance
+ * step's report, after its scope was amended) is its ordinary return for a new generation. Also what the
+ * decision list records for a row.
+ */
+export async function commitAmendmentRevalidation(root, config, workflow, { amendmentId, phaseId, outcome, reason }, { actor, agent = null }) {
+  if (outcome === 'return') {
+    const current = workflow.phases?.[workflow.currentPhase];
+    if (!current || !['in_progress', 'awaiting_approval'].includes(current.status)) {
+      refused('A return needs a current step in progress or awaiting approval.', 'UPSTREAM_ISSUE_RETURN_UNAVAILABLE');
+    }
+    // The commit kind every intervening-commit check already reads for a revalidation, whichever amendment asked for it.
+    return (await transactStory(root, config, workflow, {
+      type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: current.id, generation: current.generation, actor, agent,
+      payload: { targetPhaseId: phaseId }
+    }, `[${workflow.workItem.id}][forward-amendment] ${amendmentId} returns to ${phaseId}`, async (aggregate) => {
+      const entry = await revalidateAfterForwardAmendment(root, config, aggregate, { amendmentId, phaseId, outcome, reason, actor, agent });
+      const returned = await rejectPhase(root, config, aggregate, { phaseId: current.id, target: phaseId, reason, actor, agent,
+        channel: 'terminal', ...(phaseId === current.id ? {} : { upstreamIssue: { id: amendmentId } }) });
+      entry.link = returned.changeRequest.id;
+      return entry;
+    }, { eventFromResult: (entry) => ({ payload: { targetPhaseId: phaseId, changeRequestId: entry.link } }) })).value;
+  }
+  return (await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+    actor, agent, authorityGroup: null, payload: { decision: 'forward-amendment' }
+  }, `[${workflow.workItem.id}][forward-amendment] ${phaseId} revalidated after ${amendmentId}`, async (aggregate) => {
+    await assertNoPendingPublication(root, config, aggregate, 'revalidate a step');
+    return revalidateAfterForwardAmendment(root, config, aggregate, { amendmentId, phaseId, outcome, reason, actor, agent });
+  }, { exactWorkItemPaths: [], eventFromResult: (entry) => ({ authorityGroup: entry.authorityGroup, identityAssurance: entry.identityAssurance,
+    payload: { decision: 'forward-amendment', amendment: amendmentId, revalidated: phaseId, reviewPacketSha256: null } }) })).value;
+}
+
 /** A later step's approvers record that it holds under the amended input, or return the Story to it. */
 async function revalidate(root, config, workflow, phaseId, options) {
   const amendmentId = optionString(options, 'amendment');
@@ -434,32 +468,7 @@ async function revalidate(root, config, workflow, phaseId, options) {
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-  let value;
-  if (outcome === 'return') {
-    const current = workflow.phases?.[workflow.currentPhase];
-    if (!current || !['in_progress', 'awaiting_approval'].includes(current.status)) {
-      refused('A return needs a current step in progress or awaiting approval.', 'UPSTREAM_ISSUE_RETURN_UNAVAILABLE');
-    }
-    ({ value } = await transactStory(root, config, workflow, {
-      type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: current.id, generation: current.generation, actor, agent,
-      payload: { targetPhaseId: phaseId }
-    }, `[${workflow.workItem.id}][forward-amendment] ${amendmentId} returns to ${phaseId}`, async (aggregate) => {
-      const entry = await revalidateAfterForwardAmendment(root, config, aggregate, { amendmentId, phaseId, outcome, reason, actor, agent });
-      const returned = await rejectPhase(root, config, aggregate, { phaseId: current.id, target: phaseId, reason, actor, agent,
-        channel: 'terminal', upstreamIssue: { id: amendmentId } });
-      entry.link = returned.changeRequest.id;
-      return entry;
-    }, { eventFromResult: (entry) => ({ payload: { targetPhaseId: phaseId, changeRequestId: entry.link } }) }));
-  } else {
-    ({ value } = await transactStory(root, config, workflow, {
-      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
-      actor, agent, authorityGroup: null, payload: { decision: 'forward-amendment' }
-    }, `[${workflow.workItem.id}][forward-amendment] ${phaseId} revalidated after ${amendmentId}`, async (aggregate) => {
-      await assertNoPendingPublication(root, config, aggregate, 'revalidate a step');
-      return revalidateAfterForwardAmendment(root, config, aggregate, { amendmentId, phaseId, outcome, reason, actor, agent });
-    }, { exactWorkItemPaths: [], eventFromResult: (entry) => ({ authorityGroup: entry.authorityGroup, identityAssurance: entry.identityAssurance,
-      payload: { decision: 'forward-amendment', amendment: amendmentId, revalidated: phaseId, reviewPacketSha256: null } }) }));
-  }
+  const value = await commitAmendmentRevalidation(root, config, workflow, { amendmentId, phaseId, outcome, reason }, { actor, agent });
   if (!optionBoolean(options, 'json')) {
     console.log(outcome === 'return'
       ? `${value.link} returned the Story to ${phaseId} after ${amendmentId}.`
@@ -477,7 +486,7 @@ export async function run(argv, { positionals = argv, options = {} } = {}) {
       + 'list: [--open]\n'
       + 'decide UPI-ID --outcome plan-correction|amend|return|accept-risk|dismiss --reason TEXT [--link PRC-ID|FAM-ID] [--expires YYYY-MM-DD]\n'
       + 'propose-amendment --phase EARLIER --reason TEXT [--file DRAFT] [--issue UPI-ID]; decide-amendment FAM-ID --decision approve|reject --reason TEXT --confirm FAM-ID\n'
-      + 'revalidate PHASE --amendment FAM-ID --outcome unchanged|return --reason TEXT\n'
+      + 'revalidate PHASE --amendment FAM-ID|AMD-ID --outcome unchanged|return --reason TEXT\n'
       + 'Raising never stops the current step; the earlier step\'s approvers decide, and the Story completes only when every issue is decided.');
     return;
   }

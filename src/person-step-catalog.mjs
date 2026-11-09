@@ -219,7 +219,7 @@ export const PERSON_STEPS = Object.freeze([
   // rejection is its own record (`decision departure`); an acceptance is the record its kind already has.
   { id: 'departure', guard: 'decision:story-decision', effect: 'departure', review: { kind: 'departure', entry: safe({ departures: 'departure_recorded', departureDecisions: 'departure_decided' }) },
     family: { list: 'departureDecisions', action: 'decision.departure', label: 'Departure decision', isPerson: always } },
-  { id: 'amendment-revalidation', guard: 'own:upstream-amendment-decision', review: { kind: 'forward-amendment', entry: safe({ amendmentRevalidations: 'amendment_revalidated' }) },
+  { id: 'amendment-revalidation', guard: 'own:upstream-amendment-decision', effect: 'amendment-revalidation', review: { kind: 'forward-amendment', entry: safe({ amendmentRevalidations: 'amendment_revalidated' }) },
     family: { list: 'amendmentRevalidations', action: 'decision.revalidate', label: 'Amendment revalidation', isPerson: always } },
   // SPEC-PSS-v1 §10.12: an intent amendment's or a skill version's decision sits inside its summary. The
   // command signs it before it is written; here it is read so every check counts it like the rest.

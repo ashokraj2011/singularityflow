@@ -16,6 +16,7 @@ import { countedApprovals } from '../presence/counted.mjs';
 import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, plannedProductSourcePaths, testOnlyClaimEvidence } from '../specifications.mjs';
+import { revalidationCarriers } from '../scope/carried-evidence.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';
 import { scopeDecisionArgv, scopeDecisionCommandLine } from '../scope/extract.mjs';
 import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
@@ -267,7 +268,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   };
   const plannedFrom = provenance(records.planned ?? []);
   const observedFrom = provenance(records.observed ?? []);
-  const staleness = scopeStaleness(workflow, clauses);
+  const staleness = scopeStaleness(workflow, clauses, { carriers: revalidationCarriers(workflow) });
   const atGeneration = (ids) => ids.map((phaseId) => ({ phaseId, generation: phases[phaseId]?.generation ?? 0 }));
   const submittedCode = codePhaseIds.length > 0 && codePhaseIds.every((id) =>
     phaseFinished(phases[id]) || deliveries.some((delivery) => delivery.phaseId === id && delivery.receipt?.status === 'ready'));
@@ -512,12 +513,19 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       review: atGeneration(implementers.slice(-1))
     };
     const stale = new Map();
+    const carried = [];
     for (const [index, obligation] of obligations.entries()) {
       if (obligation.status === 'not-applicable') continue;
       const revision = (sources[obligation.responsibility] ?? [])
         .map((source) => staleness.staleBy(id, source.phaseId, source.generation))
         .filter(Boolean)
         .sort((left, right) => right.revision - left.revision)[0];
+      // Kept current across an intent amendment's revision by its step's approvers' "still holds", never silently [SCS:REQ-022].
+      const carriers = revision ? [] : (sources[obligation.responsibility] ?? []).flatMap((source) => staleness.carriedBy(id, source.phaseId, source.generation));
+      if (carriers.length) {
+        obligations[index] = { ...obligation, carriedBy: carriers };
+        carried.push(...carriers.map((carrier) => ({ ...carrier, responsibility: obligation.responsibility, obligationId: obligation.id })));
+      }
       if (!revision) continue;
       stale.set(obligation.id, revision);
       obligations[index] = {
@@ -534,6 +542,13 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
       rowFindings.push(finding('EVIDENCE_STALE_AFTER_SCOPE_REVISION',
         `${id} changed in scope revision ${latest}; its ${responsibilities.join(', ')} evidence predates that revision and counts again only when its step runs again.`,
         { obligationIds: [...stale.keys()] }));
+    }
+    for (const group of Map.groupBy(carried, (carrier) => `${carrier.amendment}\u0000${carrier.phase}`).values()) {
+      const [first] = group;
+      const by = typeof first.actor === 'string' ? first.actor : first.actor?.name ?? first.actor?.email ?? first.actor?.login ?? 'a person';
+      rowFindings.push(finding('EVIDENCE_CARRIED_BY_REVALIDATION',
+        `${id}: its ${[...new Set(group.map((carrier) => carrier.responsibility))].join(', ')} evidence predates ${first.amendment}'s wording; ${by}, for the ${phases[first.phase]?.label ?? first.phase} approvers (${first.authorityGroup}), said it still holds.`,
+        { obligationIds: [...new Set(group.map((carrier) => carrier.obligationId))], blocking: false }));
     }
     // Governed risk acceptance [E2G-025]: an active decision carries an open obligation at the
     // transition it names, and what was observed stays visible. One that expired, was revoked, does

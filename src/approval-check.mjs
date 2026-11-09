@@ -421,6 +421,46 @@ function rejectedIntentAmendmentPair(root, config, workflow, id, rejectionCommit
 }
 
 /**
+ * An intent amendment that updated the spec to what this submitted report found the code doing, approved
+ * while the report waited, once the report's own approvers recorded that it still holds [SCS:REQ-022, owner
+ * decision 12]: its proposal and its approval may precede the report's approval. Each is found by what it
+ * records, never by its message: the proposal as verifiedProposal checks one; the approval as one governed
+ * commit whose event approves exactly that amendment, that writes only the Story's own records and none of
+ * this step's files, leaves this step's record exactly as reviewed, and lists the step at that generation
+ * for revalidation. Any other commit after the submission, one between them included, still stales it.
+ * The revalidations themselves are review-safe decisions (person-step-catalog.mjs).
+ */
+export async function confirmedIntentAmendments(root, config, workflow, phase, commits) {
+  if (!commits.length || !(workflow.amendmentRevalidations ?? []).length) return [];
+  const { revalidationCarriers } = await import('./scope/carried-evidence.mjs');
+  const confirmed = [...new Set([...revalidationCarriers(workflow).values()]
+    .filter((answer) => answer.phase === phase.id && Number(answer.generation) === Number(phase.generation)).map((answer) => answer.amendment))];
+  if (!confirmed.length) return [];
+  const state = await import('./state.mjs');
+  const own = new Set((phase.artifacts ?? []).map((artifact) => artifact.path));
+  const listed = (entry) => (entry?.revalidate ?? []).some((item) => item.phase === phase.id && Number(item.generation) === Number(phase.generation));
+  const found = [];
+  // Oldest first, as the approval records them.
+  for (const commit of [...commits].reverse()) {
+    for (const id of confirmed) {
+      const summary = workflow.intentAmendments.find((entry) => entry.id === id);
+      if (verifiedProposal(root, config, workflow, id, commit, summary, state)) { found.push({ id, kind: 'proposal', commit }); break; }
+      const change = state.governedStateChange(root, config, workflow, commit);
+      if (!change || !amendmentEventMatches(change, LIFECYCLE_EVENT.INTENT_AMENDMENT_APPROVED, workflow, id, summary)) continue;
+      const before = (change.before.intentAmendments ?? []).find((entry) => entry?.id === id);
+      const after = (change.after.intentAmendments ?? []).find((entry) => entry?.id === id);
+      if (before?.status !== 'proposed' || after?.status !== 'approved' || !listed(after)
+          || change.changed.some((file) => !file.startsWith(`${change.item}/`) || own.has(file))
+          || change.before.currentPhase !== phase.id || change.after.currentPhase !== phase.id
+          || recordSha256(change.before.phases?.[phase.id] ?? null) !== recordSha256(change.after.phases?.[phase.id] ?? null)) continue;
+      found.push({ id, kind: 'approval', commit });
+      break;
+    }
+  }
+  return found;
+}
+
+/**
  * The acknowledgements of approved intent amendments among the commits after a submission
  * [SPEC-OAP M2]. An acknowledgement adds amendment records only: who acknowledged it, on the
  * amendment's summary and record, and the stamp on the steps the amendment reopened. Approving an

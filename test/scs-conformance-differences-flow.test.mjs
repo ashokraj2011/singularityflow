@@ -224,14 +224,113 @@ test('Update the spec drafts the scope\'s amendment in one choice; written, prop
   assert.match(held.error.message, /AMD-001/u);
 
   // The scope's approvers decide it: a new generation of the scope, the later steps revalidate, and the row is decided.
-  cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001', '--work-id', W);
+  const decided = cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001', '--work-id', W).stdout;
+  assert.match(decided, /Nothing was reset\. Each of implementation, testing, conformance has a row on the decisions list/u);
+  assert.doesNotMatch(decided, /Acknowledge before submitting/u, 'nothing was reset, so nothing to acknowledge');
   const after = await workflow();
   assert.equal(after.intentAmendments[0].status, 'approved');
   assert.equal(after.phases.intake.generation, 2);
   assert.match(await readFile(path.join(item, 'artifacts/intake/intake.md'), 'utf8'), /3 for callers in the legacy path/u);
-  assert.notEqual(after.phases.conformance.status, 'approved');
-  assert.ok(after.phases.conformance.intentAmendmentRevalidation?.id === 'AMD-001' || after.phases.conformance.status === 'not_started');
   const { conformanceGapDecisions } = await import('../src/upstream-routes.mjs');
   const [settled] = conformanceGapDecisions(after, 'conformance', [{ clauseId: AC1, verdict: 'deviated', difference: 'x' }]);
   assert.deepEqual([settled.status, settled.outcome, settled.issue], ['decided', 'amended', 'AMD-001']);
+
+  // Nothing is reset: each step that read the scope has a row in the one list, still holds or return [SCS:REQ-022].
+  assert.deepEqual(['implementation', 'testing', 'conformance'].map((id) => after.phases[id].status), ['approved', 'approved', 'awaiting_approval']);
+  assert.equal(after.currentPhase, 'conformance');
+  assert.equal(after.intentAmendments[0].acknowledgementRequired, false, 'no reset, so nothing to acknowledge');
+  const rows = json(cli('decisions', W, '--json')).data;
+  assert.equal(rows.items.some((entry) => entry.kind === 'intent-amendment'), false, 'no Acknowledge item');
+  const revalidations = rows.items.filter((entry) => entry.kind === 'forward-amendment');
+  assert.deepEqual(revalidations.map((entry) => [entry.title, entry.options.map((choice) => choice.id), entry.holdsApproval]), [
+    ['Revalidate Code after AMD-001', ['still-holds', 'return-step'], true],
+    ['Revalidate Testing after AMD-001', ['still-holds', 'return-step'], true],
+    ['Revalidate Code checking after AMD-001', ['still-holds', 'return-step'], true]]);
+  assert.equal(revalidations[2].options[0].label, 'Confirm the report: it still holds');
+  assert.equal(revalidations[2].options[1].label, 'Return it for a new report');
+  const refusedApproval = json(attempt('approve', 'conformance', '--yes', '--json'));
+  assert.ok(refusedApproval.error?.code, 'the existing input check holds the approval until each row is answered');
+
+  // Each step's approvers answer: still holds binds its approval to the amended scope and carries its evidence.
+  const [code, testing, report] = revalidations.map((entry) => entry.id);
+  json(cli('decisions', 'record', W, '--choose', `${code}=still-holds`, '--choose', `${testing}=still-holds`, '--confirm', rows.packetSha256, '--json'));
+  // Until the report's own approvers confirm it, the amendment's commits after its submission still stale it.
+  assert.equal(json(attempt('approve', 'conformance', '--yes', '--json')).error?.code, 'STORY_REVIEW_INTERVENING_COMMIT');
+  const left = json(cli('decisions', W, '--json')).data;
+  json(cli('decisions', 'record', W, '--choose', `${left.items.find((entry) => entry.kind === 'forward-amendment').id}=still-holds`, '--confirm', left.packetSha256, '--json'));
+  const answered = await workflow();
+  assert.deepEqual(answered.amendmentRevalidations.map((entry) => [entry.amendment, entry.phase, entry.outcome, entry.binding?.producer, entry.binding?.producerGeneration]), [
+    ['AMD-001', 'implementation', 'unchanged', 'intake', 2], ['AMD-001', 'testing', 'unchanged', 'intake', 2], ['AMD-001', 'conformance', 'unchanged', 'intake', 2]]);
+  const confirmedList = json(cli('decisions', W, '--json')).data;
+  assert.equal(confirmedList.items.some((entry) => entry.kind === 'forward-amendment'), false);
+  assert.deepEqual(confirmedList.items.map((entry) => entry.kind), ['approval'], 'nothing else holds it: no stale evidence, no intervening commit');
+  // Carried evidence is never silent: the evidence beside the approval says whose word carried which clause.
+  const carried = confirmedList.approvalEvidence?.carried;
+  assert.deepEqual(carried.entries.map((entry) => [entry.amendment, entry.phase, entry.clauses]),
+    [['AMD-001', 'implementation', [AC1]], ['AMD-001', 'testing', [AC1]], ['AMD-001', 'conformance', [AC1]]]);
+  assert.match(carried.entries[0].words, new RegExp(`^${AC1}: Code's evidence predates AMD-001's wording; [^,]+, for the Code approvers \\(engineering-reviewers\\), said it still holds\\.$`, 'u'));
+  const approved = cli('approve', 'conformance', '--yes').stdout;
+  assert.match(approved, /Carried by "still holds": .*AC-001: Code's evidence predates AMD-001's wording/u, 'named before the approver confirms');
+  const done = await workflow();
+  assert.equal(done.phases.conformance.status, 'approved', 'the confirmed report is approved against the amended scope, nothing rerun');
+  assert.deepEqual(['intake', 'implementation', 'testing', 'conformance'].map((id) => done.phases[id].generation), [2, 1, 1, 1]);
+  const stored = JSON.parse(await readFile(path.join(item, 'approvals/conformance.json'), 'utf8'));
+  const decision = stored.decisions.findLast((entry) => entry.decision === 'approved');
+  assert.deepEqual(decision.carriedEvidence?.map((entry) => [entry.amendment, entry.phase]), [['AMD-001', 'implementation'], ['AMD-001', 'testing'], ['AMD-001', 'conformance']]);
+  assert.deepEqual(decision.confirmedIntentAmendments?.map((entry) => [entry.id, entry.kind]), [['AMD-001', 'proposal'], ['AMD-001', 'approval']]);
+});
+
+test('a row answered return sends the Story back: the report is written again, and a returned code step runs again', slowLane({ timeout: 900_000 }), async (t) => {
+  const { W, AC1, cli, json, workflow } = await deviatedStory(t);
+  const row = json(cli('decisions', W, '--json')).data;
+  const draftPath = json(cli('decisions', 'record', W, '--choose', `${row.items[0].id}=update-spec`,
+    '--reason', `${row.items[0].id}=Legacy callers rely on 3; the intake should say so.`, '--confirm', row.packetSha256, '--json')).data.drafted[0].path;
+  const draft = await readFile(draftPath, 'utf8');
+  await writeFile(draftPath, draft.split('\n').filter((line) => !line.startsWith('<!-- sflow-draft: drafted from the approved specification'))
+    .map((line) => (line.includes(`[${AC1}]`) ? `| [${AC1}] | The exported value equals 2, and 3 for callers in the legacy path. |` : line)).join('\n'));
+  cli('story', 'intent-amendment', 'propose', '--work-id', W, '--file', draftPath, '--reason', 'Legacy callers rely on 3; the intake should say so.');
+  cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001', '--work-id', W);
+  const rows = () => json(cli('decisions', W, '--json')).data;
+  const titled = (list, name) => list.items.find((entry) => entry.title === `Revalidate ${name} after AMD-001`);
+
+  // The report's approver returns it for a new one: the step is open again, at the generation it had.
+  let list = rows();
+  json(cli('decisions', 'record', W, '--choose', `${titled(list, 'Code checking').id}=return-step`,
+    '--reason', `${titled(list, 'Code checking').id}=The report should judge AC-001 against the amended intake.`, '--confirm', list.packetSha256, '--json'));
+  let state = await workflow();
+  assert.deepEqual([state.currentPhase, state.phases.conformance.status], ['conformance', 'in_progress']);
+  assert.deepEqual(state.amendmentRevalidations.map((entry) => [entry.phase, entry.outcome]), [['conformance', 'return']]);
+  list = rows();
+  assert.equal(titled(list, 'Code checking'), undefined, 'answered once');
+  assert.ok(titled(list, 'Code') && titled(list, 'Testing'), 'the approved steps still owe their answer');
+
+  // The code step's approvers return the Story to it: it runs again, and the steps after it owe nothing now.
+  json(cli('decisions', 'record', W, '--choose', `${titled(list, 'Code').id}=return-step`,
+    '--reason', `${titled(list, 'Code').id}=The legacy path needs its own test before it is relied on.`, '--confirm', list.packetSha256, '--json'));
+  state = await workflow();
+  assert.deepEqual([state.currentPhase, state.phases.implementation.status, state.phases.testing.status, state.phases.conformance.status],
+    ['implementation', 'in_progress', 'not_started', 'not_started']);
+  assert.equal(rows().items.some((entry) => entry.kind === 'forward-amendment'), false, 'a returned step reads the amended scope in its next generation');
+});
+
+test('confirming the report admits only the amendment\'s own commits: another commit between them still stales the submission', slowLane({ timeout: 900_000 }), async (t) => {
+  const { root, W, AC1, cli, attempt, json } = await deviatedStory(t);
+  const row = json(cli('decisions', W, '--json')).data;
+  const draftPath = json(cli('decisions', 'record', W, '--choose', `${row.items[0].id}=update-spec`,
+    '--reason', `${row.items[0].id}=Legacy callers rely on 3; the intake should say so.`, '--confirm', row.packetSha256, '--json')).data.drafted[0].path;
+  const draft = await readFile(draftPath, 'utf8');
+  await writeFile(draftPath, draft.split('\n').filter((line) => !line.startsWith('<!-- sflow-draft: drafted from the approved specification'))
+    .map((line) => (line.includes(`[${AC1}]`) ? `| [${AC1}] | The exported value equals 2, and 3 for callers in the legacy path. |` : line)).join('\n'));
+  cli('story', 'intent-amendment', 'propose', '--work-id', W, '--file', draftPath, '--reason', 'Legacy callers rely on 3; the intake should say so.');
+  // A commit no amendment made, between the proposal and the approval.
+  run('git', ['commit', '--allow-empty', '-m', `[${W}][intent-amendment:approve] AMD-001`], root);
+  const stray = run('git', ['rev-parse', '--short=12', 'HEAD'], root).stdout.trim();
+  cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001', '--work-id', W);
+  const list = json(cli('decisions', W, '--json')).data;
+  json(cli('decisions', 'record', W, ...list.items.filter((entry) => entry.kind === 'forward-amendment').flatMap((entry) => ['--choose', `${entry.id}=still-holds`]),
+    '--confirm', list.packetSha256, '--json'));
+  const refused = json(attempt('approve', 'conformance', '--yes', '--json'));
+  assert.equal(refused.error?.code, 'STORY_REVIEW_INTERVENING_COMMIT', 'a message that reads like the amendment\'s is not what makes a commit one');
+  assert.equal(refused.error.details.blockingCommitCount, 1, 'only the stray commit: the amendment\'s own proposal and approval are admitted');
+  assert.deepEqual(refused.error.details.blockingCommits.map((entry) => String(entry.commit).slice(0, 12)), [stray]);
 });

@@ -1,6 +1,6 @@
 # Spec–code sync (SCS) — v1
 
-Status: owner decisions recorded 2026-11-08 and 2026-11-09 (every recommended default taken). M1, M2, M3 and M4 are on main (M2–M4 landed from scs-next on 2026-11-09), with REQ-034 and REQ-035. Owner decisions 15 and 16 (revalidation after an amendment) are being built.
+Status: owner decisions recorded 2026-11-08 and 2026-11-09 (every recommended default taken). M1, M2, M3 and M4 are on main (M2–M4 landed from scs-next on 2026-11-09), with REQ-034 and REQ-035 and owner decisions 12–16.
 
 The code and the approved documents must say the same thing. When they don't, a person decides each
 difference once: either the code changes to match the document, or the document changes to match the
@@ -155,6 +155,13 @@ The list never writes over a draft someone changed.
     for a new one.
 - `[SCS:REQ-023]` The difference is decided once the amendment is approved. Until then it holds
   approval and names who clears it.
+
+Built 2026-11-09 for `[SCS:REQ-022]` (owner decisions 15 and 16). Approving a qualifying amendment resets nothing and
+asks for no acknowledgement. Each approved step that read the scope, and the waiting report, gets a revalidation
+row (the forward-amendment revalidation records), answered on the card, the Copilot CLI forms or the terminal
+table by that step's approvers. "Still holds" binds the step's input record to the amended scope generation and
+carries its evidence across the revision; "return" is the ordinary return (the report's own is a return for a new
+report). Any other intent amendment reopens the later steps, as before.
 
 ## M3 One decisions list `[SCS:REQ-030]`
 

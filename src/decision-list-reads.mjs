@@ -274,14 +274,15 @@ async function pendingStateFacts(root, config, workflow, phase, { approvalCheck,
   const intentAmendments = (workflow.intentAmendments ?? [])
     .filter((entry) => entry.status === 'proposed' || (entry.status === 'approved' && entry.acknowledgementRequired === true && !entry.acknowledgedAt));
   let forwardAmendments = [];
-  if ((workflow.forwardAmendments ?? []).length) {
+  // An intent amendment that updated the spec to the code lists its steps the same way [SCS:REQ-022].
+  if ((workflow.forwardAmendments ?? []).length || (workflow.intentAmendments ?? []).some((entry) => entry.revalidate?.length)) {
     const { pendingAmendmentRevalidations, pendingForwardAmendments, revalidateCommand } = await import('./forward-amendments.mjs');
     forwardAmendments = [
       ...pendingForwardAmendments(workflow).map((proposal) => ({ code: 'FORWARD_AMENDMENT_PENDING', amendment: proposal.id, phase: proposal.phase,
         message: `${proposal.id} proposes a corrected ${proposal.phase}; ${proposal.phase}'s approvers have not decided it.`,
         command: `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workId} --decision approve|reject --reason "<why>" --confirm ${proposal.id}` })),
       ...pendingAmendmentRevalidations(workflow).map((entry) => ({ code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: entry.amendment, phase: entry.phase,
-        message: `${entry.phase} read ${entry.producer} before ${entry.amendment} amended it; ${entry.phase}'s approvers have not revalidated it.`,
+        producer: entry.producer, message: `${entry.phase} read ${entry.producer} before ${entry.amendment} amended it; ${entry.phase}'s approvers have not revalidated it.`,
         command: revalidateCommand(workId, entry) }))
     ];
   }

@@ -42,3 +42,20 @@ test('a revalidation binds the step generation and its exact input record', () =
   assert.equal(acceptedRevalidationBindings(workflow, { ...workflow.phases.design, generation: 2 }, 'b'.repeat(64)).size, 0);
   assert.equal(acceptedRevalidationBindings(workflow, workflow.phases.detail, 'b'.repeat(64)).size, 0, 'a return vouches for nothing');
 });
+
+test('an intent amendment that updated the spec to the code owes a row for each step it listed, the report\'s own while it awaits approval [SCS:REQ-022]', () => {
+  const workflow = { workItem: { id: 'ORD-7' }, phaseOrder: ['intake', 'implementation', 'testing', 'conformance'],
+    phases: { intake: { id: 'intake', status: 'approved', generation: 2 }, implementation: { id: 'implementation', status: 'approved', generation: 1 },
+      testing: { id: 'testing', status: 'approved', generation: 1 }, conformance: { id: 'conformance', status: 'awaiting_approval', generation: 1 } },
+    intentAmendments: [{ id: 'AMD-001', status: 'approved', producer: 'intake',
+      revalidate: [{ phase: 'implementation', generation: 1 }, { phase: 'testing', generation: 1 }, { phase: 'conformance', generation: 1 }] },
+    { id: 'AMD-002', status: 'approved', changedClauses: ['ORD-7:REQ-001'] }] };
+  assert.deepEqual(pendingAmendmentRevalidations(workflow).map((entry) => [entry.amendment, entry.phase, entry.producer]),
+    [['AMD-001', 'implementation', 'intake'], ['AMD-001', 'testing', 'intake'], ['AMD-001', 'conformance', 'intake']],
+    'an amendment that reopened its steps lists none');
+  workflow.amendmentRevalidations = [{ amendment: 'AMD-001', phase: 'testing', generation: 1, outcome: 'unchanged' }];
+  workflow.phases.conformance = { ...workflow.phases.conformance, status: 'in_progress' };
+  assert.deepEqual(pendingAmendmentRevalidations(workflow).map((entry) => entry.phase), ['implementation'],
+    'answered once, and a report returned for a new one reads the amended scope');
+  assert.match(forwardAmendmentTerminalBlockers(workflow)[0].command, /upstream-issue revalidate implementation --work-id ORD-7 --amendment AMD-001 /u);
+});

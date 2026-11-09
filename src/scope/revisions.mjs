@@ -90,23 +90,40 @@ export function staleClausesOf(revision, clauses = []) {
 /**
  * A reader for one evaluation: `staleBy(clauseId, phaseId, generation)` returns the latest revision
  * that makes that step's evidence of that clause stale, or null when the evidence is current.
+ * `carriedBy` returns the "still holds" answers that kept it current across an intent amendment's
+ * revision (`carriers`, from scope/carried-evidence.mjs): the answer must name that revision's
+ * amendment and the scope generation it made, for that step at that generation. Without `carriers`
+ * nothing is carried.
  */
-export function scopeStaleness(workflow, clauses = []) {
+export function scopeStaleness(workflow, clauses = [], { carriers = new Map() } = {}) {
   const revisions = (workflow?.scopeRevisions ?? []).filter((revision) => revision.changes)
     .map((revision) => ({ revision, stale: staleClausesOf(revision, clauses) }));
+  const carrierOf = (revision, phaseId, generation) => {
+    const origin = revision.origin ?? {};
+    if (origin.kind !== 'intent-amendment') return null;
+    const answer = carriers.get(`${origin.id}\u0000${phaseId}\u0000${Number(generation)}`);
+    return answer && answer.binding.producer === origin.phase && Number(answer.binding.producerGeneration) === Number(origin.generation) ? answer : null;
+  };
+  const walk = (clauseId, phaseId, generation) => {
+    const id = String(clauseId).toUpperCase();
+    const carried = [];
+    // A step that has not published anything yet has no evidence to be stale.
+    if (!(Number(generation ?? 0) > 0)) return { revision: null, carried };
+    for (let index = revisions.length - 1; index >= 0; index -= 1) {
+      const { revision, stale } = revisions[index];
+      if (!stale.has(id) || !Object.hasOwn(revision.dependentGenerations ?? {}, phaseId)) continue;
+      if (Number(generation ?? 0) > Number(revision.dependentGenerations[phaseId])) continue;
+      const answer = carrierOf(revision, phaseId, generation);
+      if (!answer) return { revision, carried };
+      carried.push({ revision: revision.revision, amendment: answer.amendment, phase: phaseId, generation: Number(generation),
+        actor: answer.actor ?? null, authorityGroup: answer.authorityGroup, at: answer.at ?? null });
+    }
+    return { revision: null, carried };
+  };
   return {
     revisions: revisions.map((entry) => entry.revision),
-    staleBy(clauseId, phaseId, generation) {
-      const id = String(clauseId).toUpperCase();
-      // A step that has not published anything yet has no evidence to be stale.
-      if (!(Number(generation ?? 0) > 0)) return null;
-      for (let index = revisions.length - 1; index >= 0; index -= 1) {
-        const { revision, stale } = revisions[index];
-        if (!stale.has(id) || !Object.hasOwn(revision.dependentGenerations ?? {}, phaseId)) continue;
-        if (Number(generation ?? 0) <= Number(revision.dependentGenerations[phaseId])) return revision;
-      }
-      return null;
-    }
+    staleBy: (clauseId, phaseId, generation) => walk(clauseId, phaseId, generation).revision,
+    carriedBy: (clauseId, phaseId, generation) => walk(clauseId, phaseId, generation).carried
   };
 }
 

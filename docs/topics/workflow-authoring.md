@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 94
+version: 95
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1658,6 +1658,13 @@ differs in its Deviation cell or after its verdict. A person picks one of four c
   intent-amendment propose`) writes the wording and proposes it, and the scope approvers decide it;
 - accept it for now until a date;
 - dismiss a wrong row.
+
+When the scope approvers approve an amendment that changes only clauses the waiting report marks deviated or
+unplanned, no step runs again. Each step that read the scope, and the report itself, gets a row on the
+decisions list for its own approvers: it still holds, or the Story returns to it (the report is written
+again). "Still holds" keeps that step's approval and its evidence across the amended wording, and every place
+the approval evidence is read names it ("AC-001: Code's evidence predates AMD-001's wording; ... said it still
+holds"). Any other intent amendment reopens the steps after the scope, as before.
 
 An unplanned row whose files a departure already covers, accepted by a person, counts as decided.
 Under `legacy`, only `partial` and `missing` rows are decided.

@@ -445,6 +445,7 @@ export async function approveWithReceipt(
   let inApproval: { digest: string; items: InApprovalItem[] } | null = null;
   let blockingCommits: unknown = null;
   let approvalCheck: unknown = null;
+  let carried: { words: string; entries: Array<{ words: string }> } | null = null;
   let testRun: { label: string; totals: string } | null = null;
   let sfGuard: import('./views/approval-review.ts').ApprovalReviewRequest['sfGuard'] = null;
   if (request.kind === 'story') {
@@ -455,7 +456,8 @@ export async function approveWithReceipt(
       // What the approval would be refused for, read beside the bundle: the page then offers the
       // decision list first. A failed read shows nothing extra; the approval gate still decides.
       const decisions = client.run<{ data?: { items?: unknown[]; holding?: number; headline?: string; packetSha256?: string;
-        inApproval?: { items?: string[]; options?: Record<string, string[]> } } }>(
+        inApproval?: { items?: string[]; options?: Record<string, string[]> };
+        approvalEvidence?: { carried?: { words: string; entries: Array<{ words: string }> } | null } | null } }>(
         ['decisions', request.workId, '--phase', request.phaseId, '--json']).catch(() => null);
       // Commits after the submission that approval would refuse for (an undecided intent amendment
       // among them), named on the page before the person reviews. Advisory, read the same way.
@@ -475,6 +477,8 @@ export async function approveWithReceipt(
       const holding = typeof listed?.holding === 'number' ? listed.holding : Array.isArray(listed?.items) ? listed.items.length : 0;
       pendingDecisions = holding && typeof listed?.headline === 'string' ? { count: holding, headline: listed.headline } : null;
       inApproval = inApprovalOf(listed);
+      // Evidence counted on a "still holds" across an amendment's wording, named before approving [SCS:REQ-022].
+      carried = listed?.approvalEvidence?.carried && Array.isArray(listed.approvalEvidence.carried.entries) ? listed.approvalEvidence.carried : null;
       const read = await readiness;
       blockingCommits = read?.blockingCommits ?? null;
       approvalCheck = read?.approvalCheck ?? null;
@@ -525,6 +529,7 @@ export async function approveWithReceipt(
       witnessedClauses: storyReview?.specificationQuality?.witnessedClauses ?? null,
       witnessMappings: storyReview?.witnessReview?.mappings ?? [],
       evidenceConsistency: storyReview?.evidenceConsistency ?? null,
+      carried,
       pendingDecisions,
       inApproval,
       blockingCommits,

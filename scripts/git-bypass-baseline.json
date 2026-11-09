@@ -1559,7 +1559,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "f45b1b198f2c907794b7a4e9bb5e8c9145b2b20c893197cb2c62bcd211417596"
+      "digest": "e7fd34f0b60774a5d27fe0165b14efd204428ceacd2a3c9823e07c694c5eda32"
     },
     "src/sgos/human-authority.mjs": {
       "counts": {

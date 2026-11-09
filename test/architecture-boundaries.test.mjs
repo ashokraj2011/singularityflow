@@ -75,12 +75,24 @@ test('standalone execution units have no installed provider, repository configur
   }
 });
 
+test('local check execution binds only explicit SGOS, report and content owners',async()=>{
+  const file='src/sgos/node-check-execution-unit.mjs',text=await readFile(path.join(packageRoot,file),'utf8');
+  const ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true),allowed=new Set(['node:fs','node:fs/promises','node:crypto','node:path',
+    '../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs',
+    '../sda/namespace/values.mjs','../sda/content/contract.mjs','../verification/test-report-reader.mjs',
+    './filesystem-source-unit.mjs','./node-execution-unit.mjs']);
+  for(const statement of ast.statements)if(ts.isImportDeclaration(statement))assert.ok(allowed.has(statement.moduleSpecifier.text),statement.moduleSpecifier.text);
+  assert.doesNotMatch(text,/\bspawn\b|\bspawnSync\b|loadDefinition|invokeModel|repoRoot|transactStory|process\.env/u);
+  assert.match(text,/sandbox:\{kind:'host-local',enforcement:'none'\}/u);assert.match(text,/network:\{mode:'host-unrestricted'\}/u);
+  assert.match(text,/await executePinnedProcess/u);
+});
+
 test('only explicit storage adapters consume namespace contracts outside their pure directory', async () => {
   const directory = path.join(packageRoot, 'src/sda/namespace') + path.sep;
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/sgos/durable-execution-unit.mjs','src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
+  const namespaceAdapters = new Set(['src/sgos/node-check-execution-unit.mjs','src/sgos/durable-execution-unit.mjs','src/sgos/namespace-operational-store.mjs','src/sda/filesystem-namespace-adapter.mjs', 'src/sda/filesystem-namespace-journal.mjs',
     'src/sda/namespace-journal-adapter.mjs', 'src/sda/application-namespace-adapter.mjs',
     'src/sda/sqlite-namespace-adapter.mjs', 'src/sda/sqlite-namespace-journal.mjs', 'src/sda/sqlite-native.mjs',
     'src/sda/content/contract.mjs', 'src/sda/sqlite-content-adapter.mjs',

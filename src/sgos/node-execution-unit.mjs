@@ -364,7 +364,7 @@ function adapter(manifest, execute, doctor = async () => ({ status: 'ready' })) 
       await session.promise;
       session.quiescenceReceipt ??= seal('quiescence-receipt', 'quiescenceReceiptSha256', {
         handleSha256: session.handle.handleSha256,
-        quiescent: true,
+        quiescent: session.error?.quiescenceUnknown !== true,
         eventHeadSha256: session.events.at(-1)?.eventSha256 ?? null,
         observedAt: nowIso()
       });
@@ -409,6 +409,82 @@ export function createDeterministicTranslatorExecutionUnit() {
   }));
 }
 
+export async function assertPinnedExecutionExecutable(command,signal) {
+    signal?.throwIfAborted();
+    let info;
+    try { info = await lstat(command.executable); } catch (error) {
+      signal?.throwIfAborted();
+      fail('Generic process Execution Unit executable is unavailable.',
+        'SGOS_GEU_EXECUTABLE_MISSING', { causeCode: error?.code ?? null });
+    }
+    if (!info.isFile() || info.isSymbolicLink()) {
+      fail('Generic process Execution Unit executable must remain a regular non-symlink file.',
+        'SGOS_GEU_EXECUTABLE_CHANGED');
+    }
+    signal?.throwIfAborted();
+    const observedSha256 = bytesSha256(await readFile(command.executable,{signal}));
+    if (observedSha256 !== command.executableSha256) {
+      fail('Generic process Execution Unit executable bytes changed after manifest review.',
+        'SGOS_GEU_EXECUTABLE_CHANGED', {
+          expectedSha256: command.executableSha256,
+          observedSha256
+        });
+    }
+  }
+
+/** One SGOS process owner. Stream/spawn errors are reported only after the actual child closes. */
+export function executePinnedProcess({command,root,environment,input=null,signal,timeoutMs,maximumOutputBytes=MAX_OUTPUT_BYTES}) {
+  signal?.throwIfAborted();
+  return new Promise(resolve=>{
+    const child=spawn(command.executable,command.arguments,{cwd:root,env:environment,shell:false,
+      detached:process.platform!=='win32',stdio:['pipe','pipe','pipe'],windowsHide:true});
+    const stdout=[],stderr=[];let bytes=0,overflow=false,timedOut=false,forceTimer=null,processError=null,terminating=false;
+    const signalTree=force=>{
+      if(!child.pid)return;
+      if(process.platform==='win32') {
+        if(child.exitCode!==null||child.signalCode!==null)return;
+        if(!tryWindowsTaskkill(child.pid,{force,environment:process.env,spawnSyncCommand:spawnSync,timeoutMs:5_000}))child.kill(force?'SIGKILL':'SIGTERM');
+      }else{
+        // A leader can exit while a descendant still holds its pipes. Signal the owned group.
+        try{process.kill(-child.pid,force?'SIGKILL':'SIGTERM');}catch{try{child.kill(force?'SIGKILL':'SIGTERM');}catch{}}
+      }
+    };
+    const terminate=()=>{if(terminating)return;terminating=true;signalTree(false);
+      forceTimer=setTimeout(()=>signalTree(true),TERMINATION_GRACE_MS);forceTimer.unref?.();};
+    const closeOwnedGroup=async()=>{
+      if(process.platform==='win32'||!child.pid)return;
+      const gone=()=>{try{process.kill(-child.pid,0);return false;}catch(cause){if(cause.code==='ESRCH')return true;throw cause;}};
+      if(gone())return;
+      // Descendants may close their stdio and survive the leader. They are still owned work.
+      for(const force of [false,true]){
+        signalTree(force);const deadline=Date.now()+TERMINATION_GRACE_MS;
+        do{if(gone())return;await new Promise(done=>setTimeout(done,10));}while(Date.now()<deadline);
+      }
+      if(!gone())throw new SingularityFlowError('The owned execution group did not confirm termination.',{code:'SGOS_GEU_QUIESCENCE_UNCONFIRMED'});
+    };
+    const append=(target,chunk)=>{const value=Buffer.from(chunk);bytes+=value.length;
+      if(bytes>maximumOutputBytes){overflow=true;terminate();}else target.push(value);};
+    child.stdout.on('data',chunk=>append(stdout,chunk));child.stderr.on('data',chunk=>append(stderr,chunk));
+    const failed=error=>{processError??=error;terminate();};
+    child.on('error',failed);child.stdin.on('error',failed);
+    const stop=()=>terminate();signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();
+    const timer=setTimeout(()=>{timedOut=true;terminate();},timeoutMs);
+    child.on('close',async(status,exitSignal)=>{
+      signal?.removeEventListener('abort',stop);clearTimeout(timer);if(forceTimer)clearTimeout(forceTimer);
+      try{await closeOwnedGroup();}catch(cause){
+        cause.quiescenceUnknown=true;
+        if(processError){cause.cause??=processError;cause.details={...(cause.details??{}),processError:{name:processError.name??'Error',
+          code:processError.code??null,message:processError.message??String(processError)}};}
+        processError=cause;
+      }
+      const error=processError,err=Buffer.concat(stderr);
+      resolve({status:status??1,signal:exitSignal,overflow,timedOut,stdout:Buffer.concat(stdout),stderr:err,
+        stderrSha256:bytesSha256(err),error});
+    });
+    try{child.stdin.end(input);}catch(error){failed(error);}
+  });
+}
+
 export function createGenericProcessExecutionUnit(manifest, {
   root = null,
   authorizeManifest = null
@@ -429,28 +505,7 @@ export function createGenericProcessExecutionUnit(manifest, {
     fail('Generic process Execution Unit requires an externally attested sandbox and denied network.',
       'SGOS_GEU_SANDBOX_REQUIRED', { manifestSha256: validated.manifestSha256 });
   }
-  async function assertPinnedExecutable(signal) {
-    signal?.throwIfAborted();
-    let info;
-    try { info = await lstat(validated.command.executable); } catch (error) {
-      signal?.throwIfAborted();
-      fail('Generic process Execution Unit executable is unavailable.',
-        'SGOS_GEU_EXECUTABLE_MISSING', { causeCode: error?.code ?? null });
-    }
-    if (!info.isFile() || info.isSymbolicLink()) {
-      fail('Generic process Execution Unit executable must remain a regular non-symlink file.',
-        'SGOS_GEU_EXECUTABLE_CHANGED');
-    }
-    signal?.throwIfAborted();
-    const observedSha256 = bytesSha256(await readFile(validated.command.executable,{signal}));
-    if (observedSha256 !== validated.command.executableSha256) {
-      fail('Generic process Execution Unit executable bytes changed after manifest review.',
-        'SGOS_GEU_EXECUTABLE_CHANGED', {
-          expectedSha256: validated.command.executableSha256,
-          observedSha256
-        });
-    }
-  }
+
   return adapter(validated, async (contract, runtime) => {
     runtime.signal.throwIfAborted();
     const authorization = await untilStopped(authorizeManifest(validated),runtime.signal);
@@ -467,70 +522,13 @@ export function createGenericProcessExecutionUnit(manifest, {
           allowedDevices: contract.allowedDevices.length
         });
     }
-    await untilStopped(assertPinnedExecutable(runtime.signal),runtime.signal);
+    await untilStopped(assertPinnedExecutionExecutable(validated.command,runtime.signal),runtime.signal);
     runtime.signal.throwIfAborted();
     const allowedEnvironment = Object.fromEntries(validated.command.environmentAllowlist
       .filter((key) => Object.hasOwn(process.env, key)).map((key) => [key, process.env[key]]));
-    const result = await new Promise((resolve, reject) => {
-      const child = spawn(validated.command.executable, validated.command.arguments, {
-        cwd: root, env: allowedEnvironment, shell: false,
-        detached: process.platform !== 'win32',
-        stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true
-      });
-      const stdout = [];
-      const stderr = [];
-      let bytes = 0;
-      let overflow = false;
-      let timedOut = false;
-      let forceTimer = null;
-      const terminate = () => {
-        if (child.exitCode !== null || child.signalCode !== null) return;
-        if (process.platform === 'win32' && child.pid) {
-          if (!tryWindowsTaskkill(child.pid, {
-            environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
-          })) child.kill('SIGTERM');
-        } else {
-          try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
-        }
-        forceTimer ??= setTimeout(() => {
-          if (child.exitCode !== null || child.signalCode !== null) return;
-          if (process.platform === 'win32' && child.pid) {
-            if (!tryWindowsTaskkill(child.pid, {
-              force: true, environment: process.env, spawnSyncCommand: spawnSync,
-              timeoutMs: 5_000
-            })) child.kill('SIGKILL');
-          } else {
-            try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
-          }
-        }, TERMINATION_GRACE_MS);
-        forceTimer.unref?.();
-      };
-      const append = (target, chunk) => {
-        const value = Buffer.from(chunk);
-        bytes += value.length;
-        if (bytes > MAX_OUTPUT_BYTES) { overflow = true; terminate(); }
-        else target.push(value);
-      };
-      child.stdout.on('data', (chunk) => append(stdout, chunk));
-      child.stderr.on('data', (chunk) => append(stderr, chunk));
-      child.on('error', reject);
-      child.stdin.on('error', reject);
-      const stop = () => terminate();
-      runtime.signal.addEventListener('abort', stop, { once: true });
-      if(runtime.signal.aborted)stop();
-      const timer = setTimeout(() => { timedOut = true; terminate(); },
-        contract.budgets.activeMinutes * 60_000);
-      child.on('close', (status, signal) => {
-        runtime.signal.removeEventListener('abort', stop);
-        clearTimeout(timer);
-        if (forceTimer) clearTimeout(forceTimer);
-        resolve({
-          status: status ?? 1, signal, overflow, timedOut,
-          stdout: Buffer.concat(stdout), stderrSha256: bytesSha256(Buffer.concat(stderr))
-        });
-      });
-      child.stdin.end(canonicalJson(contract));
-    });
+    const result = await executePinnedProcess({command:validated.command,root,environment:allowedEnvironment,
+      input:canonicalJson(contract),signal:runtime.signal,timeoutMs:contract.budgets.activeMinutes*60_000});
+    if(result.error)throw result.error;
     if (result.status !== 0 || result.overflow || result.timedOut) {
       const error = new SingularityFlowError('Generic Execution Unit process failed.', {
         code: result.overflow ? 'SGOS_GEU_OUTPUT_LIMIT'
@@ -546,7 +544,7 @@ export function createGenericProcessExecutionUnit(manifest, {
     }
     return { output };
   }, async () => {
-    try { await assertPinnedExecutable(); return { status: 'ready' }; }
+    try { await assertPinnedExecutionExecutable(validated.command); return { status: 'ready' }; }
     catch (error) {
       return {
         status: 'unavailable',
@@ -558,4 +556,4 @@ export function createGenericProcessExecutionUnit(manifest, {
 
 
 /** Trusted provider composition, never task inputs. */
-export {adapter as createExecutionUnitAdapter,sha256 as executionUnitSha256,TRANSLATOR_MANIFEST as DETERMINISTIC_EXECUTION_UNIT_MANIFEST};
+export {untilStopped as untilExecutionStopped,adapter as createExecutionUnitAdapter,sha256 as executionUnitSha256,TRANSLATOR_MANIFEST as DETERMINISTIC_EXECUTION_UNIT_MANIFEST};

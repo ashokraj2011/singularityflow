@@ -19,6 +19,7 @@
     "./execution/runtime": { "types": "./dist/execution/runtime.d.mts", "import": "./dist/execution/runtime.mjs" },
     "./testing/reports": { "types": "./dist/testing/reports.d.mts", "import": "./dist/testing/reports.mjs" },
     "./testing/node": { "types": "./dist/testing/node.d.mts", "import": "./dist/testing/node.mjs" },
+    "./testing/execution": { "types": "./dist/testing/execution.d.mts", "import": "./dist/testing/execution.mjs" },
     "./execution/storage": { "types": "./dist/execution/storage.d.mts", "import": "./dist/execution/storage.mjs" },
     "./execution/storage/namespace": { "types": "./dist/execution/storage/namespace.d.mts", "import": "./dist/execution/storage/namespace.mjs" },
     "./sources/filesystem": { "types": "./dist/sources/filesystem.d.mts", "import": "./dist/sources/filesystem.mjs" },

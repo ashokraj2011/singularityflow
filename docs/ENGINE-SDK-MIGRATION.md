@@ -197,6 +197,19 @@ That reader passed 310 native integration checks across 13 files and all 22 inst
 checks, with no failures, cancellations or skips. Phases 5, 7, 8 and 9 remain open. This does not
 change installed Git authority or authorize migration of an existing project.
 
+The [explicit local check unit](ENGINE-SDK-CHECK-EXECUTION.md) adds real pinned-command execution,
+verified raw report/stream retention and before/after source observations. It reuses the existing
+SGOS process owner and durable attempt coordinator. Authenticated phase-command resolution,
+conditional acceptance of execution evidence and its publication/submission bindings still need
+their registry integration. This delivery does not complete application Story execution or any of
+the remaining Phase 5, 7, 8 and 9 gates.
+
+The check-execution delivery passed 226 broad native checks, a final 105-case focused recheck and
+all 23 installed-archive checks, with no failures, cancellations or skips. Source validation passed
+3,889 checks across 191 skills. Typechecking, the unchanged 2,011-site process/Git audit and all
+13 existing bundle budgets passed. The SDK retains 51 operations and builds from 145 modules.
+Actual phase evidence acceptance and full application execution remain Phase 7 work.
+
 The [artifact-template extraction](ENGINE-SDK-ARTIFACT-TEMPLATES.md) gives native configuration
 and the explicit SDK one content-rule owner, with captured native rendering for all shipped
 workflows. Namespace approval checks real referenced template text before accepting it. Actual

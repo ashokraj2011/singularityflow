@@ -99,6 +99,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `testing/reports`: pure structured test-report interpretation with explicit byte/hash capabilities.
 - `testing/node`: the same report rules with Node bytes and hashing. Supply actual report contents;
   it reads no files and launches no command. Parsed counts do not certify phase acceptance.
+- `testing/execution`: explicitly authorized fixed-command local checks with actual process output,
+  raw reports and source observations retained in shared runtime content. Compose it with durable
+  execution for at-most-once attempts and takeover. It does not accept phase evidence or approvals.
 - `hosts/namespace-source`: record actual repository observations through `source.bind`, retaining
   canonical lifecycle reads, original receipts and first source observations across takeover.
 - `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase

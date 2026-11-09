@@ -809,6 +809,33 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     `);
   });
 
+  await t.test('installed local checks execute pinned tests and retain actual bytes without Git or a CLI',async()=>{
+    await run('actual-check.mjs',`
+      import assert from 'node:assert/strict';import {mkdir,writeFile,readFile} from 'node:fs/promises';
+      import {createHash} from 'node:crypto';import {DatabaseSync} from 'node:sqlite';import path from 'node:path';
+      import {createNodeCheckExecutionUnit} from '${packageName}/testing/execution';
+      import {createAgentTaskContract} from '${packageName}/execution/node';
+      import {createSqliteContentStore} from '${packageName}/storage/sqlite-content';
+      const database=new DatabaseSync('actual-check-content.db');database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON');
+      const content=createSqliteContentStore({database,binding:{kind:'shared'},create:true});
+      const root=path.resolve('actual-check-source');await mkdir(root);
+      await writeFile(path.join(root,'case.test.mjs'),"import test from 'node:test';import assert from 'node:assert/strict';test('real installed check',()=>assert.equal(3+3,6));");
+      const digest='sha256:'+createHash('sha256').update(await readFile(process.execPath)).digest('hex');
+      const unit=await createNodeCheckExecutionUnit({id:'installed-check',projectId:'installed',repositoryId:'application',root,content,
+        command:{executable:process.execPath,executableSha256:digest,arguments:['--test','--test-reporter=tap','case.test.mjs'],environment:{}},
+        report:{adapter:'node-tap',files:[]},authorizeCommand:manifest=>manifest.manifestSha256});
+      const contract=createAgentTaskContract({taskId:'check-one',processId:'PROC-installed',instructionId:'test',objective:'Run the installed check.',
+        acceptanceClauses:[],policySnapshotSha256:digest,programSha256:digest,inputs:[],readScope:['repository:application'],writeScope:['repository:application'],
+        forbiddenScope:[],allowedDevices:[],environmentManifestSha256:digest,candidatePolicy:'immutable-snapshot',outputSchema:{type:'object'},requiredEvidence:[],
+        budgets:{activeMinutes:1,modelInvocations:0,touchedResources:10},stopConditions:[],executionUnitManifestSha256:unit.descriptor().manifestSha256});
+      const handle=await unit.start(contract),result=(await unit.collect(handle)).output;
+      assert.equal(result.process.status,0);assert.equal(result.source.unchanged,true);assert.equal(result.reports.parsed.tests.passed,1);
+      assert.equal(result.reports.parsed.testcaseObservation,null);assert.equal(Object.hasOwn(result,'verification'),false);
+      const retained=await content.read({projectId:'installed'},result.stdout);assert.equal(retained.status,'present');
+      assert.match(Buffer.from(retained.data).toString(),/real installed check/);database.close();
+    `);
+  });
+
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -841,11 +868,17 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       import {createDurableExecutionUnit,createNodeExecutionOwner} from '${packageName}/execution/runtime';
       import {createNodeTestReportCodec} from '${packageName}/testing/node';
       import type {TestReportCodec,ParsedTestReport} from '${packageName}/testing/reports';
+      import {createNodeCheckExecutionUnit} from '${packageName}/testing/execution';
       import type {OperationalStore,OperationalState} from '${packageName}/execution/storage';
       import type { ContentStore, ContentReference } from '${packageName}/content';
       import { emptyNamespaceState, NAMESPACE_JOURNAL_PORT } from '${packageName}/storage/journal';
       import type { NamespaceStore, NamespaceTransaction } from '${packageName}/namespace';
       declare const runtimeMetadata:NamespaceStore;declare const runtimeContent:ContentStore;declare const unitPort:ExecutionUnit;
+      const localCheckPromise:Promise<ExecutionUnit>=createNodeCheckExecutionUnit({id:'declared-check',projectId:'example',repositoryId:'application',root:'/explicit',content:runtimeContent,
+        command:{executable:'/explicit/node',executableSha256:'sha256:abc',arguments:['--test'],environment:{}},
+        report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});
+      // @ts-expect-error Local checks require an explicit immutable content store.
+      createNodeCheckExecutionUnit({id:'missing-content',root:'/explicit',projectId:'example',repositoryId:'application',command:{executable:'/node',executableSha256:'sha256:abc',arguments:[]},report:{adapter:'node-tap',files:[]},authorizeCommand:()=>true});
       const reports:TestReportCodec=createNodeTestReportCodec();
       const parsed:ParsedTestReport=reports.replayTestReports('node-tap',[{contents:new Uint8Array()}]);
       // @ts-expect-error Report byte inputs are explicit data, never an implicit filesystem path object.

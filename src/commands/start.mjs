@@ -3,6 +3,7 @@ import { assertBaseCarriesGovernance, durableLocalStoryOnBranch, testRecoveryInt
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
 import { gitAnswer } from './shared/git-answer.mjs';
 import { normalizeQualityGateMode } from '../phase-quality-risk.mjs';
+import { ownerStepChecks } from '../phase-roles.mjs';
 import { activatePhaseAgent, summary } from './kernel.mjs';
 import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
@@ -2006,6 +2007,10 @@ async function startCommandAtRoot(positionals, options) {
   const findingsMark = addressedFindings?.picked.length
     ? await (await import('../findings/register/pick.mjs')).markFindingsInStory(root, addressedFindings.picked, workflow.workItem.id, { branch: workflow.workItem.branch, ledger: config.ledger ?? {} })
     : null;
+  // A gated step only its author could approve is told now, not met at that approval; it informs only [PHR:REQ-002].
+  const staffing = ownerStepChecks(workflow)
+    ? (await import('../approval-staffing.mjs')).approvalStaffingWarnings(workflow, workflow.workItem.createdBy) : [];
+  if (staffing.length) startReadiness = { ...startReadiness, warnings: [...(startReadiness.warnings ?? []), ...staffing] };
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -2122,7 +2127,10 @@ async function startCommandAtRoot(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     summary(workflow);
     console.log(`Story-start readiness: ${startReadiness.status} · configuration, workflow agents, and Git publication verified.`);
-    for (const warning of startReadiness.warnings ?? []) console.log(`Readiness advisory: ${warning.message}`);
+    for (const warning of startReadiness.warnings ?? []) {
+      console.log(`Readiness advisory: ${warning.message}`);
+      if (warning.id === 'approval-staffing') console.log(`  ${warning.nextAction.command}`);
+    }
     if (configurationSnapshot?.closureUnavailable) console.log(`Configuration: this Story branch carries the whole approved configuration, not only its own workflow's files (${CLOSURE_FALLBACK[configurationSnapshot.closureUnavailable] ?? configurationSnapshot.closureUnavailable}).`);
     if (sealedTestPolicy?.capability?.status === 'not-checked' || sealedTestPolicy?.capability?.modules?.length) {
       console.log('Test capability (sealed with the Story; plan each criterion where its test can run):');

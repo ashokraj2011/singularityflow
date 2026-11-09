@@ -22,6 +22,7 @@ import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { plannedBasePathProblems } from '../src/plan-base-paths.mjs';
 import { fulfillmentPlanCorrections } from '../src/delivery-evidence.mjs';
 import { separatePlanGaps } from '../src/state.mjs';
+import { approvalStaffingWarnings } from '../src/approval-staffing.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { finalScopeStep, scopeDispositionRefusal } from '../src/scope/authoring.mjs';
 import { recordScopeDecision } from '../src/scope/decisions.mjs';
@@ -280,4 +281,30 @@ test('[PHR:REQ-002] finding 15: an approved separate plan that parts from the am
   assert.deepEqual(await separatePlanGaps(root, config, workflow(true), ['AMD-1:REQ-001', 'AMD-1:REQ-002']), [], 'a plan that still plans every clause');
   // A Story started before the check keeps its policy: nothing is judged at the amendment.
   assert.deepEqual(await separatePlanGaps(root, config, workflow(false), ['AMD-1:REQ-001', 'AMD-1:REQ-003']), []);
+});
+
+test('[PHR:REQ-002] finding 16: Story start names each gated step only its author could approve, and holds nothing', () => {
+  const author = { email: 'author@example.test', login: 'author' };
+  const group = (...emails) => ({ allowAnyGitIdentity: false, members: emails.map((email) => ({ email })) });
+  const policy = (authorities, extra = {}) => ({ mode: 'required', minimum: 1, authorities, ...extra });
+  const workflow = { workItem: { id: 'STAFF-1' }, phaseOrder: ['intake', 'design', 'code', 'release', 'notes', 'open'],
+    resolution: { approvalAuthorities: { product: group('author@example.test'), engineering: group('author@example.test', 'reviewer@example.test'),
+      release: group('lead@example.test'), everyone: { allowAnyGitIdentity: true, members: [] } } },
+    phases: {
+      // Only the author is in its group and self-approval is forbidden: nobody can approve it.
+      intake: { approvalPolicy: policy(['product'], { allowSelfApproval: false }) },
+      // Only the author, but they may approve it themselves (recorded as self-approval).
+      design: { approvalPolicy: policy(['product']) },
+      code: { approvalPolicy: policy(['engineering'], { allowSelfApproval: false }) },
+      release: { approvalPolicy: policy(['release']) },
+      notes: { approvalPolicy: { mode: 'none', minimum: 0, authorities: [] } },
+      open: { approvalPolicy: policy(['everyone'], { allowSelfApproval: false }) } } };
+  const warnings = approvalStaffingWarnings(workflow, author);
+  assert.deepEqual(warnings.map((entry) => [entry.id, entry.phase]), [['approval-staffing', 'intake']]);
+  assert.match(warnings[0].message, /Nobody but this Story's author can approve intake, and its policy forbids self-approval \(product\)/u);
+  assert.equal(warnings[0].nextAction.command, 'singularity-flow story approvers refresh STAFF-1 --reason <why>');
+  // A step whose groups name nobody at all, so the author is in none of them, is named too.
+  const empty = { ...workflow, phaseOrder: ['release'], resolution: { approvalAuthorities: { release: group() } } };
+  const [unstaffed] = approvalStaffingWarnings(empty, author);
+  assert.match(unstaffed.message, /Nobody but this Story's author can approve release, and the author is in none of its approval groups \(release\)/u);
 });

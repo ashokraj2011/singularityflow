@@ -9,6 +9,9 @@ import { askUntilRight, DATE_PATTERN, refusedWords, textField } from './form-rou
 export const LEAVE = 'Leave undecided';
 export const EACH = 'Decide each one';
 export const NOT_NOW = 'Not now';
+// Answers already given and what the plan settled: asked only once the person chooses to, as /adjudicate does [SCS:REQ-034, REQ-035].
+export const CHANGE = 'Change an answer or overrule the plan';
+export const CHANGEABLE_KINDS = Object.freeze(['convergence-answer', 'convergence-settled']);
 export const RECORD = 'Record these decisions';
 export const SIGN = 'Record this review';
 export const FORM_SIZE = 5;
@@ -33,6 +36,7 @@ export const openRows = (packet) => packet.items.filter((item) => item.kind !== 
 /** What this card shows: the open decisions, then anything offered that nothing waits on. */
 export const cardRows = (packet) => [...openRows(packet), ...(packet.offered ?? [])];
 const decidable = (packet) => cardRows(packet).filter((item) => item.decidedBy?.allowed && item.options.some(choosable));
+const changeable = (item) => CHANGEABLE_KINDS.includes(item.kind);
 
 function howWords(item) {
   if (!item.decidedBy?.allowed) return `${item.decidedBy?.words ?? ''}${item.decidedBy?.share ? ` Share: ${item.decidedBy.share}` : ''}`;
@@ -41,6 +45,7 @@ function howWords(item) {
   const own = ownSteps(item);
   const terminal = own.length === 1 ? `\`${own[0].action.command}\``
     : own.map((option) => `${option.label.replace(/[.!?]+$/u, '')}: \`${option.action.command}\``).join('; ');
+  if (changeable(item) && item.options.some(choosable)) return `Yours to change if you disagree: "${CHANGE}" on the first form below`;
   if (item.options.some(choosable)) return `Your decision, on the forms below${own.length ? `; or in your terminal: ${terminal}` : ''}`;
   if (reviews(item).length) return `Your sign-off, on the forms below${own.length ? `; or in your terminal: ${terminal}` : ''}`;
   return own.length ? `Stays in your terminal: ${terminal}` : (item.options[0]?.words ?? '');
@@ -96,11 +101,19 @@ export function sharedAnswers(packet) {
   return [...seen.values()].filter((entry) => entry.items.length > 1);
 }
 
+/**
+ * How the person wants to decide: one answer for all that share it, each one, or, when the list offers answers given or files
+ * the plan settled, changing those. `change` is that choice's words, null when there is nothing to change.
+ */
 export function firstForm(packet) {
   const shared = sharedAnswers(packet).map((entry) => ({ ...entry, word: `${entry.label} for all ${entry.items.length}, with one reason` }));
-  const open = decidable(packet).length;
-  return { shared, form: { message: `${open} still need a decision from you.`, requestedSchema: { type: 'object', required: ['choice'], properties: {
-    choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), EACH, NOT_NOW] } } } } };
+  const open = decidable(packet).filter((item) => !changeable(item)).length;
+  const later = decidable(packet).filter(changeable).length;
+  const change = later ? `${CHANGE} (${later})` : null;
+  return { shared, change, form: { message: `${open ? `${open} still need a decision from you.` : 'Nothing here waits on a decision from you.'}${later
+    ? ` ${later} ${later === 1 ? 'is' : 'are'} offered beside the list: an answer already given, or a file the plan settled, which you may change if you disagree.` : ''}`,
+  requestedSchema: { type: 'object', required: ['choice'], properties: {
+    choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), ...(open ? [EACH] : []), ...(change ? [change] : []), NOT_NOW] } } } } };
 }
 
 /** The one reason an answer for all needs, under the tightest rule of the rows it covers. */
@@ -268,13 +281,15 @@ const reviewOn = (packet, key) => cardRows(packet).flatMap(reviews).map((option)
 
 /** Every answer the person gives before they confirm: `{ answers }`, `{ cancelled: true }` or `{ refused: problem }`. */
 async function askRows(packet, ask) {
-  const { shared, form } = firstForm(packet);
+  const { shared, change, form } = firstForm(packet);
   let answers = [];
-  if (shared.length) {
-    const first = await askUntilRight(ask, form, (content) => (content.choice === EACH || content.choice === NOT_NOW || shared.some((entry) => entry.word === content.choice)
+  let changing = false;
+  if (shared.length || change) {
+    const first = await askUntilRight(ask, form, (content) => (form.requestedSchema.properties.choice.enum.includes(content.choice)
       ? { choice: content.choice } : { problem: 'Choose one of these.' }));
     if (first.cancelled || first.choice === NOT_NOW) return { cancelled: true };
     if (first.refused) return first;
+    changing = first.choice === change;
     const entry = shared.find((candidate) => candidate.word === first.choice);
     if (entry) {
       const options = (item) => item.options.find((option) => option.id === entry.id);
@@ -289,7 +304,9 @@ async function askRows(packet, ask) {
     }
   }
   const taken = new Set(answers.map((entry) => entry.item));
-  for (const page of rowForms(decidable(packet).filter((item) => !taken.has(item.id)))) {
+  // What waits; answers given and what the plan settled only once the person chose to change them, first, then what waits.
+  const rows = decidable(packet).filter((item) => !taken.has(item.id));
+  for (const page of rowForms(changing ? [...rows.filter(changeable), ...rows.filter((item) => !changeable(item))] : rows.filter((item) => !changeable(item)))) {
     const chosen = await askUntilRight(ask, page.form, (content) => choicesFromRows(page.items, content));
     if (chosen.cancelled) return answers.length ? { answers } : { cancelled: true };
     if (chosen.refused) return chosen;

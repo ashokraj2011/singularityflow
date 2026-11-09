@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { choicesFromRows, detailForm, valuesFromForm, sharedReasonForm, answersOnCurrentList, cardRows, confirmForm, decisionsTable, EACH, firstForm, LEAVE, NOT_NOW, RECORD, rowForms, runCard, sharedAnswers, SIGN, witnessAnswers, witnessForm } from '../plugin/extensions/decisions/card.mjs';
+import { choicesFromRows, detailForm, valuesFromForm, sharedReasonForm, answersOnCurrentList, cardRows, CHANGE, confirmForm, decisionsTable, EACH, firstForm, LEAVE, NOT_NOW, RECORD, rowForms, runCard, sharedAnswers, SIGN, witnessAnswers, witnessForm } from '../plugin/extensions/decisions/card.mjs';
 
 const allowed = { allowed: true, words: 'You may decide this.', groups: ['planners'] };
 const choice = (id, label, needs = { reason: { default: '', minimum: 20, maximum: 500 } }) => ({ id, label, recommended: false, effects: [{ kind: 'plan-amendment' }], needs, decidedBy: allowed });
@@ -358,4 +358,54 @@ test('Update the spec on the forms writes a draft: the confirmation and the resu
   const result = await runCard(ui);
   assert.equal(result.status, 'drafted');
   assert.match(result.message, new RegExp(`^No decision was recorded\\. Drafted at ${where.replace(/[./]/gu, '\\$&')}\\. Write the wording, then propose it\\.`, 'u'));
+});
+
+// [SCS:REQ-034, REQ-035] Answers given and files the plan settled wait behind their own first choice, as /adjudicate keeps
+// "Overrule a row the plan settled": the forms cover what waits unless the person chooses to change those (owner, 2026-11-09).
+const DISPOSITIONS = [['rework', 'Send back to fix'], ['accepted-deviation', 'Accept as is'], ['dismissed', 'Not a real finding'], ['deferred', 'Decide later']];
+const convergence = (id, kind, title) => ({ id, kind, title, why: `${title}.`, decidedBy: allowed, details: kind === 'convergence-item' ? {} : { path: `${id}.json` },
+  options: DISPOSITIONS.map(([option, label]) => ({ ...choice(option, label, { reason: { default: '', minimum: option === 'rework' ? 0 : 1, maximum: 1000 } }),
+    effects: [{ kind: 'convergence-adjudication' }], oneByOne: true })) });
+const converging = (offered) => packet({ items: [convergence('d1', 'convergence-item', 'REQ-002: no recorded trace')], offered });
+const settledFiles = [convergence('d2', 'convergence-answer', 'REQ-001: answered Decide later'),
+  ...['d3', 'd4', 'd5', 'd6', 'd7', 'd8'].map((id) => convergence(id, 'convergence-settled', `config ${id}: settled by the plan`))];
+
+test('answers given and settled files wait behind "Change an answer or overrule the plan"; the forms ask only what waits', async () => {
+  const list = converging(settledFiles);
+  const { form, change } = firstForm(list);
+  assert.equal(change, `${CHANGE} (7)`);
+  assert.deepEqual(form.requestedSchema.properties.choice.enum, [EACH, `${CHANGE} (7)`, NOT_NOW]);
+  assert.match(form.message, /^1 still need a decision from you\. 7 are offered beside the list: an answer already given, or a file the plan settled, which you may change if you disagree\.$/u);
+  assert.match(decisionsTable(list), /\| d3\.json \| config d3: settled by the plan\. \| Yours to change if you disagree: "Change an answer or overrule the plan" on the first form below \|/u);
+  // Deciding each one asks only the open row.
+  const each = person([accept({ choice: EACH }), accept({ decision0: 'Decide later' }), accept({ reason: 'Waits for the next Story.' }), accept({ confirm: RECORD })], [list, { ...list, items: [] }]);
+  await runCard(each.ui);
+  assert.deepEqual(Object.keys(each.seen.asked[1].requestedSchema.properties), ['decision0'], 'an offered row was asked with what waits');
+  assert.deepEqual(each.seen.recorded[0].document.choose, { d1: 'deferred' });
+  // Choosing to change asks the offered rows first, five to a form, then what waits; sending back to fix needs no reason.
+  const changing = person([accept({ choice: `${CHANGE} (7)` }), accept({ decision0: LEAVE, decision1: 'Send back to fix', decision2: LEAVE, decision3: LEAVE, decision4: LEAVE }),
+    accept({}), accept({ decision0: LEAVE, decision1: LEAVE, decision2: LEAVE }), accept({ confirm: RECORD })], [list, list]);
+  await runCard(changing.ui);
+  const pages = changing.seen.asked.filter((asked) => asked.requestedSchema.properties.decision0);
+  assert.deepEqual(pages.map((page) => Object.values(page.requestedSchema.properties).map((field) => field.title.split(':')[0])),
+    [['d2.json', 'd3.json', 'd4.json', 'd5.json', 'd6.json'], ['d7.json', 'd8.json', 'REQ-002']]);
+  const rework = changing.seen.asked[2];
+  assert.deepEqual(rework.requestedSchema.required, [], 'the form demanded a reason the record does not need');
+  assert.deepEqual(changing.seen.recorded[0].document, { choose: { d3: 'rework' }, reason: { d3: '' }, cause: {}, expires: {}, clause: {}, article: {}, confirm: 'sha256:aaa' });
+});
+
+test('with nothing open, the first form offers only the change or Not now, and Not now or Esc keeps what was answered', async () => {
+  const list = { ...converging(settledFiles), items: [] };
+  assert.deepEqual(firstForm(list).form.requestedSchema.properties.choice.enum, [`${CHANGE} (7)`, NOT_NOW]);
+  assert.match(firstForm(list).form.message, /^Nothing here waits on a decision from you\. 7 are offered/u);
+  const notNow = person([accept({ choice: NOT_NOW })], [list]);
+  assert.equal((await runCard(notNow.ui)).status, 'cancelled');
+  assert.deepEqual(notNow.seen.recorded, []);
+  // Esc on a later form keeps the answers already given, and asks to confirm them.
+  const esc = person([accept({ choice: `${CHANGE} (7)` }), accept({ decision0: 'Accept as is', decision1: LEAVE, decision2: LEAVE, decision3: LEAVE, decision4: LEAVE }),
+    accept({ reason: 'It is fine as it is.' }), { action: 'cancel' }, accept({ confirm: RECORD })], [list, list]);
+  await runCard(esc.ui);
+  assert.deepEqual(esc.seen.recorded[0].document.choose, { d2: 'accepted-deviation' });
+  // A chat that asked carries on when nothing waits, as before.
+  assert.equal((await runCard({ ...person([], [list]).ui, askedInChat: true })).status, 'nothing-to-decide');
 });

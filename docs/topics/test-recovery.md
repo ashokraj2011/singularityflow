@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 42
+version: 43
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -328,7 +328,7 @@ singularity-flow decision test-command <WORK-ID> --revoke TCD-001 --reason "<why
 ```
 
   The request appears in the decision list of the people who may accept it. An accepted command runs at every publication and submission of the step like a configured one, covers its affected roots, and its tests must pass; nothing is waived. A step nobody approves is decided by the next step on the route that has approvers, under that step's self-approval rule. An agent may request, never accept or revoke. The repository configuration does not change.
-- **Every later Story:** `/sf-test-setup` proposes the command (`capability test-setup --step <STEP> … --confirm`). Once a configuration approver activates it, `recover` offers this Story the adoption: a person who approves the step previews and applies `story test-policy amend --reason TEXT`, and the tests run fresh.
+- **Every later Story:** `/sf-test-setup` proposes the command for the repository's `tests:`, which every step that runs tests uses (`capability test-setup … --confirm`; `--step <STEP>` for one step only). Once the person activates it (the line the result prints, or Workflow Studio → Changes → Review and activate), `recover` offers this Story the adoption: a person who approves the step previews and applies `story test-policy amend --reason TEXT`, and the tests run fresh.
 - **The repository's own runner:** repair an in-scope test script or runner declaration so a supported runner is inferred.
 
 ### Reusing a run an earlier step recorded

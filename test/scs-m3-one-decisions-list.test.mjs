@@ -281,7 +281,8 @@ test('a decided answer is offered beside the list: it holds nothing, is never co
   for (const entry of answer.options) {
     assert.equal(entry.recommended, false);
     assert.equal(entry.oneByOne, true, `${entry.id} could change someone's answer through one answer for all`);
-    assert.deepEqual(entry.needs.reason, { default: '', minimum: 1, maximum: 1000 }, `${entry.id} could change an answer without a reason`);
+    // Sending back to fix may go unexplained, as on the Adjudicate page; any other change states its reason (owner, 2026-11-09).
+    assert.deepEqual(entry.needs.reason, { default: '', minimum: entry.id === 'rework' ? 0 : 1, maximum: 1000 }, `${entry.id} has the wrong reason rule`);
     assert.deepEqual(entry.effects, [{ kind: 'convergence-adjudication', phase: 'convergence', items: ['CF-999999999999'], disposition: entry.id, expect: DIGEST,
       replaces: { disposition: 'deferred', actor: 'lead@example.invalid' } }]);
   }
@@ -302,6 +303,8 @@ test('decided items are one row only while they carry the same answer', () => {
   assert.deepEqual(both.details.convergence, ['CF-aaaaaaaaaaaa', 'CC-bbbbbbbbbbbb']);
   assert.match(both.title, /^REQ-002: no recorded trace that it is delivered and proposed as missing \(CF-aaaaaaaaaaaa and 1 more\), answered Decide later$/u);
   assert.match(both.why, /A change records each of CF-aaaaaaaaaaaa and CC-bbbbbbbbbbbb by name\./u);
+  // An assisted proposal sent back to fix still states its reason: the kernel lets only what it found itself go unexplained.
+  assert.equal(both.options.find((entry) => entry.id === 'rework').needs.reason.minimum, 1);
   const apart = table([alike.items[0], { ...alike.items[1], decision: decided({ disposition: 'dismissed', reason: 'Not missing.', clauseIds: ['SDS-1:REQ-002'] }) }]);
   assert.deepEqual(answers(packetOf(story(), apart)).map((row) => [row.details.convergence, row.details.answer.disposition]),
     [[['CF-aaaaaaaaaaaa'], 'deferred'], [['CC-bbbbbbbbbbbb'], 'dismissed']], 'two answers were shown, and would be changed, as one');
@@ -313,7 +316,8 @@ test('decided items are one row only while they carry the same answer', () => {
 test('changing an answer on the list is the one adjudication write, names the answer it replaces, and always states a reason', async () => {
   const packet = packetOf();
   const plan = (choose, reason = {}, clause = {}) => decisionRecordPlan(packet, parseDecisionAnswers({ choose, reason, clause }), { at: AT });
-  assert.throws(() => plan({ d6: 'rework' }), /The reason for d6 must be 1 to 1000 characters/u, 'a change went unexplained');
+  assert.throws(() => plan({ d6: 'dismissed' }), /The reason for d6 must be 1 to 1000 characters/u, 'a change went unexplained');
+  assert.equal(plan({ d6: 'rework' }).steps[0].values.reason, '', 'sending back to fix needed a reason');
   assert.throws(() => plan({ d6: 'update-intent' }, { d6: 'The spec is wrong.' }), /Name the clauses that carry d6/u);
   // Changed beside an open item: still one write of the table both were read from.
   const chosen = plan({ d5: 'deferred', d6: 'accepted-deviation' }, { d5: 'Waits for the test environment.', d6: 'The unit command is not bound on purpose.' });
@@ -380,7 +384,12 @@ test('every host shows the offered answer and asks what a change needs', async (
   assert.equal(cardRows(packet).at(-1).id, 'd6');
   const [, second] = rowForms(cardRows(packet).filter((entry) => entry.decidedBy.allowed));
   assert.match(second.form.requestedSchema.properties.decision0.title, /^Convergence: no bound test result \(CF-999999999999\), answered Decide later: Decided: Decide later, by lead@example\.invalid/u);
-  assert.match(detailForm(answers(packet)[0], answers(packet)[0].options[0]).requestedSchema.properties.reason.title, /1 to 1000 characters/u);
+  const [offeredAnswer] = answers(packet);
+  const reasonTitle = (id) => detailForm(offeredAnswer, offeredAnswer.options.find((entry) => entry.id === id)).requestedSchema.properties.reason.title;
+  assert.match(reasonTitle('accepted-deviation'), /1 to 1000 characters/u);
+  assert.match(reasonTitle('rework'), /0 to 1000 characters/u, 'sending back to fix asked for a reason');
+  assert.deepEqual(detailForm(offeredAnswer, offeredAnswer.options.find((entry) => entry.id === 'rework')).requestedSchema.required, [],
+    'the Copilot CLI form demanded a reason the record does not need');
   // The terminal asks it last, and records it like any other choice.
   const input = Readable.from(['6\n', '6\n', '6\n', '6\n', '6\n', '2\n', 'The unit command is not bound on purpose.\n', 'y\n']);
   input.isTTY = true;
@@ -422,12 +431,13 @@ test('what the plan settled is offered beside the list: it asks nobody, holds no
   for (const entry of supporting.options) {
     assert.equal(entry.recommended, false);
     assert.equal(entry.oneByOne, true, `${entry.id} could overrule the plan through one answer for all`);
-    assert.deepEqual(entry.needs.reason, { default: '', minimum: 1, maximum: 1000 }, `${entry.id} could overrule the plan without a reason`);
+    assert.deepEqual(entry.needs.reason, { default: '', minimum: entry.id === 'rework' ? 0 : 1, maximum: 1000 }, `${entry.id} has the wrong reason rule`);
     assert.deepEqual(entry.effects, [{ kind: 'convergence-adjudication', phase: 'convergence', items: ['CF-21034d278357'], disposition: entry.id, expect: DIGEST }]);
   }
   // An overrule is the one write of the table, beside any other answer.
   const plan = (choose, reason = {}) => decisionRecordPlan(packet, parseDecisionAnswers({ choose, reason }), { at: AT });
-  assert.throws(() => plan({ d7: 'rework' }), /The reason for d7 must be 1 to 1000 characters/u);
+  assert.throws(() => plan({ d7: 'accepted-deviation' }), /The reason for d7 must be 1 to 1000 characters/u);
+  assert.equal(plan({ d7: 'rework' }).steps[0].values.reason, '', 'sending a settled file back to fix needed a reason');
   const writes = [];
   await runDecisionPlan(plan({ d5: 'deferred', d7: 'rework' }, { d5: 'Waits for the test environment.', d7: 'The retry script must not run against production.' }),
     async (effect) => { writes.push(effect); return { recorded: effect.answers.map((entry) => entry.itemId), unchanged: [] }; });

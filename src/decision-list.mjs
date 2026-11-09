@@ -1007,7 +1007,9 @@ function convergenceSubject(workflow, members) {
   const words = [...new Set(members.map((item) => CONVERGENCE_WORDS[item.classification ?? item.kind] ?? item.kind))];
   const plan = members.map((item) => item.plan).find(Boolean) ?? null;
   const found = members.map((item) => (item.classification ? `The assisted pass proposed: "${String(item.text ?? '').slice(0, 400)}"` : foundWords(item.detail)));
-  return { ids, paths, clauses, group, plan, found, title: `${subject}: ${listWords(words)} (${ids[0]}${ids.length > 1 ? ` and ${ids.length - 1} more` : ''})` };
+  // Only what the kernel found itself may be sent back unexplained: an assisted proposal's rework states its reason.
+  const deterministic = members.every((item) => !item.classification);
+  return { ids, paths, clauses, group, plan, found, deterministic, title: `${subject}: ${listWords(words)} (${ids[0]}${ids.length > 1 ? ` and ${ids.length - 1} more` : ''})` };
 }
 
 /**
@@ -1021,7 +1023,7 @@ function convergenceItems(workflow, context, list) {
   const phase = list.phase;
   const issues = (context.facts.issues ?? []).filter((state) => ['open', 'expired'].includes(state.status));
   return convergenceRows(list).map((members) => {
-    const { ids, paths, clauses, group, plan, found, title } = convergenceSubject(workflow, members);
+    const { ids, paths, clauses, group, plan, found, deterministic, title } = convergenceSubject(workflow, members);
     const named = issues.filter((state) => clauses.some((clause) => issueNamesClause(state.issue.about, clause)));
     const why = [
       ...found,
@@ -1032,7 +1034,6 @@ function convergenceItems(workflow, context, list) {
       `${stepName(workflow, phase)}'s approvers decide it; the report is generated again once every item is decided.`
     ].filter(Boolean).join(' ');
     // Rework on what the kernel found itself may go unexplained; any other answer, or one on a proposal, states its reason.
-    const deterministic = members.every((item) => !item.classification);
     const shareable = members.every((item) => item.acceptAll);
     const options = (list.dispositions ?? []).map(({ id, label }) => ({ ...option(workflow, context, { id, label, words: DISPOSITION_EFFECT[id] ?? label,
       effects: [{ kind: 'convergence-adjudication', phase, items: ids, disposition: id, expect: list.digest }],
@@ -1072,7 +1073,7 @@ function convergenceAnswerItems(workflow, context, list) {
   const given = (answer) => `${label(answer.disposition)}${answer.actor ? `, by ${answer.actor}` : ''}${answer.at ? ` on ${String(answer.at).slice(0, 10)}` : ''}${
     String(answer.reason ?? '').trim() ? ` ("${String(answer.reason).trim()}")` : ', with no reason given'}`;
   const until = (verb) => `Nothing waits on it: ${stepName(workflow, list.phase)}'s approvers may ${verb} it until the step is published.`;
-  const row = ({ ids, paths, clauses, plan, found, title }, current, settledBy = null) => {
+  const row = ({ ids, paths, clauses, plan, found, deterministic, title }, current, settledBy = null) => {
     const changes = current?.disposition === 'update-intent' && current.clauseIds?.length ? ` Clauses to change: ${listWords(current.clauseIds.map((id) => clauseName(workflow, id)))}.` : '';
     // The latest first: each answer replaced the one after it.
     const earlier = [...(current?.replaced ?? [])].reverse();
@@ -1090,8 +1091,9 @@ function convergenceAnswerItems(workflow, context, list) {
       effects: [{ kind: 'convergence-adjudication', phase: list.phase, items: ids, disposition: id, expect: list.digest,
         ...(current ? { replaces: { disposition: current.disposition, actor: current.actor ?? null } } : {}) }],
       needs: { ...(id === 'update-intent' ? { clause: { known: [...new Set([...clauses, ...(list.clauses ?? [])])], words: 'The clauses the specification should change', label: 'Clauses to change' } } : {}),
-        // A change, or a word against the plan, always says why.
-        reason: textNeed('', ADJUDICATION_REASON) } }),
+        // Sending back to fix may go unexplained, as on the Adjudicate page (owner, 2026-11-09); any other change, or word
+        // against the plan, says why. The kernel lets only what it found itself, or the plan settled, go unexplained.
+        reason: textNeed('', id === 'rework' && deterministic ? { ...ADJUDICATION_REASON, minimum: 0 } : ADJUDICATION_REASON) } }),
     // An answer someone gave, or what the plan settled, is changed on its own row with its own reason: never by one answer for all.
     oneByOne: true }));
     return {
@@ -1109,7 +1111,8 @@ function convergenceAnswerItems(workflow, context, list) {
   };
   const settled = (list.settled ?? []).map((entry) => {
     const paths = entry.paths ?? [];
-    const subject = { ids: [entry.id], paths, clauses: entry.clauseIds ?? [], plan: entry.settledBy, found: [], title: `${listWords(paths) || entry.id}: settled by the plan (${entry.id})` };
+    // A settled path is one the kernel found changed: rework on it may go unexplained.
+    const subject = { ids: [entry.id], paths, clauses: entry.clauseIds ?? [], plan: entry.settledBy, found: [], deterministic: true, title: `${listWords(paths) || entry.id}: settled by the plan (${entry.id})` };
     return row(subject, entry.decision, entry.settledBy ?? {});
   });
   return [...convergenceRows(list, { decided: true }).map((members) => row(convergenceSubject(workflow, members), members[0].decision)), ...settled];

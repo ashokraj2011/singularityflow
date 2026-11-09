@@ -380,12 +380,13 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.equal(beforeOverrule.items.some((entry) => entry.details?.convergence?.includes(settledPackage.id)), false, 'what the plan settled was asked as open');
   const overruleOnList = (packet, disposition, reason) => sflow(root, ['decisions', 'record', WORK, '--choose', `${settledOn(packet).id}=${disposition}`,
     '--reason', `${settledOn(packet).id}=${reason}`, '--confirm', packet.packetSha256, '--json']);
-  overruleOnList(beforeOverrule, 'deferred', 'Overruled on the decisions list.');
+  // Sending a settled file back to fix needs no reason; it is still the person's own answer, kept when it is changed.
+  overruleOnList(beforeOverrule, 'rework', '');
   const overruledOnList = listedNow();
   assert.equal(settledOn(overruledOnList).kind, 'convergence-answer', 'an overrule did not read as an answer given');
   overruleOnList(overruledOnList, 'dismissed', 'Changed on the decisions list.');
   const settledRecord = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout).settled.find((entry) => entry.id === settledPackage.id).decision;
-  assert.deepEqual([settledRecord.disposition, settledRecord.replaced.map((answer) => answer.disposition)], ['dismissed', ['deferred']], 'the overrule it replaced is gone');
+  assert.deepEqual([settledRecord.disposition, settledRecord.replaced.map((answer) => [answer.disposition, answer.reason || null])], ['dismissed', [['rework', null]]], 'the overrule it replaced is gone');
   const overruled = JSON.parse(sflow(root, ['story', 'adjudicate', settledPackage.id, '--disposition', 'rework', '--json']).stdout);
   assert.equal(overruled.unresolvedBlockers.length, 1, 'overruling the plan did not block');
   await writeFile(convergenceRecord, serializeConvergence(iteration));
@@ -619,8 +620,11 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   const again = JSON.parse(changeOnList(decisionList(), 'deferred', 'Changed on the decisions list.').stdout).data;
   assert.deepEqual(again.recorded, [], 'the same answer was recorded twice');
   assert.equal(again.unchanged.length, 1);
-  // Back to rework, which the rest of this journey goes on from.
-  assert.equal(changeOnList(decisionList(), 'rework', 'Back to rework on the decisions list.').status, 0);
+  // Back to rework, which the rest of this journey goes on from: sending back to fix needs no reason (owner, 2026-11-09).
+  const backToRework = changeOnList(decisionList(), 'rework', '');
+  assert.equal(backToRework.status, 0, backToRework.output);
+  const reworked = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout).items.find((entry) => entry.id === absent.id).decision;
+  assert.deepEqual([reworked.disposition, reworked.reason || null, reworked.replaced.at(-1).disposition], ['rework', null, 'deferred']);
   let lastAnswer = firstAnswer;
   for (const fact of others) {
     lastAnswer = sflow(root, ['story', 'adjudicate', fact.id, '--disposition', 'dismissed', '--reason', 'Refactor noise; no requirement claims it.']).stdout;

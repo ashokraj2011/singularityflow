@@ -139,7 +139,8 @@ function neededFields(item, option) {
 export function detailForm(item, option) {
   const properties = neededFields(item, option);
   return { message: `${itemName(item)}: ${option.label}. ${option.words ?? ''}`.trim(), requestedSchema: { type: 'object',
-    required: Object.keys(properties).filter((name) => !name.startsWith('why-')), properties } };
+    // A reason that may be left empty (sending back to fix) is not required: the form must not demand what the record does not.
+    required: Object.keys(properties).filter((name) => !name.startsWith('why-') && properties[name].minLength !== 0), properties } };
 }
 
 /** The rows a person chose on one form, or what is wrong with them. Nothing here is chosen for the person. */

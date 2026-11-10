@@ -66,6 +66,31 @@ const FIELD_BYTES = 6_000;
 // Story and step. Every skill's boundary runs its commands from `repositoryPath`, so these leave a view last.
 const IDENTITY_FIELDS = new Set(['ready', 'repositoryPath', 'workId', 'phase', 'phaseStatus', 'generation', 'status']);
 const identityLast = (left, right) => Number(IDENTITY_FIELDS.has(left)) - Number(IDENTITY_FIELDS.has(right));
+/**
+ * The field a reader of a result reads, by what the result is: help's page, the articles a person answers before
+ * approval, the decision list's items, a review's findings. In a 4 KB view it leaves after everything but who and
+ * where, and act names it in `read`, so one that does not fit is in the read plan the guard admits (2026-11-10:
+ * help's page and phase show's checklist were moved out unnamed). `[agent-output]`
+ */
+export const READER_FIELDS = Object.freeze([
+  Object.freeze({ kind: 'help-page', fields: ['content'], matches: (result) => typeof result.selectedTopic === 'string' && typeof result.content === 'string' }),
+  Object.freeze({ kind: 'approval-checklist', fields: ['approvalChecklist'], matches: (result) => Boolean(result.approvalChecklist) && typeof result.approvalChecklist === 'object' }),
+  Object.freeze({ kind: 'decision-list', fields: ['items', 'record', 'preview'], matches: (result) => result.resultType === 'sflow-decisions' }),
+  Object.freeze({ kind: 'decision-list-command', fields: ['data'], matches: (result) => result.data?.resultType === 'sflow-decisions' }),
+  Object.freeze({ kind: 'source-review-check', fields: ['repair', 'findings'], matches: (result) => result.resultType === 'source-review-check' }),
+  Object.freeze({ kind: 'source-review-status', fields: ['findings', 'pendingDispositions', 'continuation'], matches: (result) => result.resultType === 'source-review-status' }),
+  Object.freeze({ kind: 'refusal', fields: ['error', 'remediationPlan'], matches: (result) => Boolean(result.error) && typeof result.error === 'object' })
+]);
+/** The reader fields this result holds. */
+export function readerFields(result) {
+  if (!result || typeof result !== 'object') return [];
+  return [...new Set(READER_FIELDS.filter((entry) => entry.matches(result)).flatMap((entry) => entry.fields)
+    .filter((field) => result[field] !== undefined && result[field] !== null))];
+}
+const readerLast = (reader) => (left, right) => Number(reader.has(left)) - Number(reader.has(right));
+/** act naming the reader fields it holds, where act reads named fields at all (no `read` means it reads every one). */
+const actReadingFields = (act, reader) => (act && Array.isArray(act.read) && reader.size
+  ? { ...act, read: [...new Set([...act.read, ...reader])] } : act);
 const SMALL_FIELD_BYTES = 300;
 const KEPT_RESULTS = 40;
 // The omitted-field list a view shows; past it, a count and a paged index file. `[OUT:REQ-014]`
@@ -881,9 +906,11 @@ function omittedList(references, index) {
  * still fits, keeps what it can, and names the fields it does not show instead of printing them all.
  * `[OUT:REQ-014]`
  */
-function unretainedView(act, ordered, budget, agentJson, unkept = null) {
+function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   const keys = Object.keys(ordered).filter((key) => key !== 'act');
   const size = Object.fromEntries(keys.map((key) => [key, bytes(JSON.stringify(ordered[key]) ?? 'null')]));
+  const reader = new Set(readerFields(ordered));
+  const act = actReadingFields(given, reader);
   const reads = new Set((act?.read ?? []).map((field) => String(field).split('.')[0]));
   const agentOutput = { complete: false, retained: false, state: 'detail-unavailable', bytes: bytes(agentJson(ordered)),
     ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_RESULT }
@@ -893,8 +920,24 @@ function unretainedView(act, ordered, budget, agentJson, unkept = null) {
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])), ...nextOf(act, ordered) });
   const kept = new Set(keys);
   // The fields act reads stay longest; otherwise the largest go first.
-  const order = (left, right) => identityLast(left, right) || Number(reads.has(left)) - Number(reads.has(right)) || size[right] - size[left];
+  const order = (left, right) => identityLast(left, right) || readerLast(reader)(left, right) || Number(reads.has(left)) - Number(reads.has(right)) || size[right] - size[left];
   while (bytes(render(kept)) > budget && kept.size) kept.delete([...kept].sort(order)[0]);
+  // A reader's text with nowhere to keep the rest: its start, as much as fits, says so at its end.
+  const text = [...reader].find((key) => !kept.has(key) && typeof ordered[key] === 'string');
+  if (text) {
+    const cut = (shown) => `${shown}\n[Cut here: ${bytes(ordered[text]) - bytes(shown)} more bytes. Run the command without --for-agent to read all of it.]`;
+    const withText = (shown) => agentJson({ ...(act ? { act: { ...act, complete: false } } : {}), agentOutput,
+      ...omittedList(keys.filter((key) => !kept.has(key) && key !== text).map((key) => ({ field: key, bytes: size[key] })), null),
+      ...Object.fromEntries(keys.filter((key) => kept.has(key) || key === text).map((key) => [key, key === text ? cut(shown) : ordered[key]])), ...nextOf(act, ordered) });
+    // Measured as JSON, which escapes the text's line breaks and quotes.
+    let room = budget - bytes(withText('')) - 16;
+    for (let attempt = 0; attempt < 6 && room > 200; attempt += 1) {
+      const shown = headLines(ordered[text], room);
+      const over = bytes(withText(shown)) - budget;
+      if (shown && over <= 0) return `${withText(shown)}\n`;
+      room -= Math.max(over, 64);
+    }
+  }
   const rendered = render(kept);
   if (bytes(rendered) <= budget) return `${rendered}\n`;
   // Nothing else fits: what is missing, by name and count only.
@@ -1097,9 +1140,11 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   // before small ones, and within each, the material before the packet's read order before what
   // `act` itself reads. Ids, status and the fields `act` names stay longest.
   const top = (fields) => new Set((fields ?? []).map((field) => String(field).split('.')[0]));
+  const reader = new Set(readerFields(result).filter((field) => keys.includes(field)));
+  act = actReadingFields(act, reader);
   const actReads = top(act?.read), readOrder = top([...(result.agentGuide ? ['agentGuide'] : []), ...(result.agentGuide?.readOrder ?? [])]);
   const tier = (key) => actReads.has(key) ? 0 : readOrder.has(key) ? 1 : 2;
-  const removalOrder = (left, right) => identityLast(left, right) || (size[right] > SMALL_FIELD_BYTES) - (size[left] > SMALL_FIELD_BYTES)
+  const removalOrder = (left, right) => identityLast(left, right) || readerLast(reader)(left, right) || (size[right] > SMALL_FIELD_BYTES) - (size[left] > SMALL_FIELD_BYTES)
     || tier(right) - tier(left) || size[right] - size[left];
   const kept = new Set(keys.filter((key) => textFiles[key].length === 0 && (size[key] <= FIELD_BYTES || tier(key) < 2)));
   // What stays is decided first, against the widest numbers the file can produce: reordering its

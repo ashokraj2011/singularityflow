@@ -201,7 +201,9 @@ test('a refused step is relayed with its own recovery plan, not one rebuilt from
   assert.equal(process.exitCode, 3);
   process.exitCode = previousExitCode;
   // The agent's copy leads with `act` from the step's own plan; the rest is the step's refusal unchanged.
-  const { act, ...relayed } = JSON.parse(printed.join('\n'));
+  // Its last line repeats act's next action for a host that keeps only the tail (agent-output.mjs nextOf).
+  const { act, next: last, ...relayed } = JSON.parse(printed.join('\n'));
+  assert.match(last, /recover A-1 --phase code/u);
   assert.deepEqual(relayed, await withAgentRoutes(refusal), 'the step\'s refusal, field for field, with agent routes');
   assert.deepEqual([act.state, act.do.shell], ['refused', 'singularity-flow recover A-1 --phase code --for-agent --json']);
 });

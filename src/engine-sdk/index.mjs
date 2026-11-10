@@ -3,6 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
+import {phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -115,6 +116,12 @@ const definitions = [
     inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'testDecisionRecord',
     stages:Object.freeze(['load','prepare','resolve','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'})),
   ...UPSTREAM_OPERATIONS,
+  {id:'conformance.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'conformanceContext',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectConformanceContext'},
+  {id:'conformance.decide',version:1,effect:'decision-record',humanDecision:true,recordKind:'conformance-gap',phaseBinding:'requested-target',keepsCurrentPhase:true,
+    requestFields:Object.freeze(['phaseId','expected','clauseId','ownerPhase','outcome','expires','reason']),
+    inputFields:Object.freeze(['workId','phaseId','expected','clauseId','ownerPhase','outcome','expires','reason']),port:'conformanceDecision',
+    stages:Object.freeze(['load','prepare','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'},
   {id:'decision.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'decisionContext',
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectDecisionContext'},
   {id:'story.guide',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyGuide',
@@ -553,6 +560,27 @@ function rejectionInput(value, operation) {
     invalid('Invalid rejection selection or change-request input.');
   }
   return input;
+}
+
+async function inspectConformanceContext(port,inputs,signal) {
+  const record=(value,fields)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===fields.length&&fields.every(key=>Object.hasOwn(value,key));
+  notCancelled(signal);const context=await port.load(inputs,{signal});notCancelled(signal);
+  const workId=context?.workflow?.workItem?.id,phaseId=inputs.phaseId??context?.phase?.id??context?.workflow?.currentPhase,
+    phase=context?.workflow?.phases?.[phaseId];
+  if(typeof workId!=='string'||!workId.trim()||context?.subject?.kind!=='story'||context.subject.id!==workId
+    ||inputs.workId!=null&&inputs.workId!==workId||typeof phaseId!=='string'||!phaseId.trim()||!phase
+    ||!Number.isSafeInteger(phase.generation)||phase.generation<0)throw new SingularityFlowError(
+      'The conformance port returned an invalid Story or phase binding.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  const observed=await port.read(context,{signal});notCancelled(signal);let result;
+  try{result=data(observed);}catch(cause){throw new SingularityFlowError('The conformance port returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  let publicationValid=false;try{publicationValid=phasePublicationBindingValue(result.publication).generation===result.generation;}catch{ /* The port response is checked below. */ }
+  if(!record(result,['phase','generation','expected','publication','report','gaps','actions'])
+    ||result.phase!==phaseId||result.generation!==phase.generation||!/^([a-f0-9]{64})$/u.test(result.expected??'')
+    ||!publicationValid||!record(result.report,['namespace','sha256','bytes'])||result.report.namespace!=='evidence'||!/^([a-f0-9]{64})$/u.test(result.report.sha256??'')
+    ||!Number.isSafeInteger(result.report.bytes)||result.report.bytes<1||result.report.bytes>MAXIMUM_DOCUMENT_READ_BYTES
+    ||!Array.isArray(result.gaps)||!Array.isArray(result.actions))throw new SingularityFlowError('The conformance context has another Story or generation.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'conformance.context',status:'ready',subject:context.subject,...result,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
 }
 
 async function reject(port, inputs, signal) {
@@ -1561,7 +1589,7 @@ export function createEngine(options = {}) {
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
     preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
-    recordSingleDecision, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,
+    recordSingleDecision, inspectConformanceContext, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,
     storyStatusInput, submissionInput, submit, upstreamOperation, workflowAssetsInput
   });
 }

@@ -9,6 +9,7 @@ import {createNamespaceCodeInputReader} from './namespace-code-inputs.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {namespaceSpecificationManifest,namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
+import {createNamespaceConformanceDecisionOwner} from './namespace-conformance-decision-reader.mjs';
 import {namespaceConformanceManifest} from './namespace-policy-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null,cause)=>new SingularityFlowError(message,{code,details,cause});
@@ -57,11 +58,21 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
   function evidence(value){return [value.binding.record,value.manifest.report,...inputs.sourceEvidence(value.code),
     ...value.report.definitions.flatMap(row=>[row.publication.record,row.submission.record,row.index])];}
   async function freshSources(publication,units,options){const value=proof(publication);if(!value)throw error('Verify the exact conformance before source admission.','ENGINE_INPUT_INVALID');return inputs.freshEvidence(value.code,units,options);}
-  function assertApproval(publication,{reached=true,reworkTarget=null}={}){
+  function dispositionRequirement(publication,{reached=true,reworkTarget=null}={}){
     const value=proof(publication);if(!value)throw error('Read the exact conformance before its human disposition.','ENGINE_INPUT_INVALID');
-    if(reached&&value.report.gaps.length&&(!reworkTarget||value.report.gaps.some(row=>!row.owners.includes(reworkTarget))))throw error(
-      'Keep the honest verdict. Its upstream owners need an explicit decision or a configured return for repair.','ENGINE_CONFORMANCE_DECISION_REQUIRED',{
-        phase:publication.phase,gaps:value.report.gaps,required:['upstream-gap-human-disposition'],actions:[{operation:'phase.review',inputs:{workId,phaseId:publication.phase}}]});
+    return {value,required:reached&&value.report.gaps.length>0&&(!reworkTarget||value.report.gaps.some(row=>!row.owners.includes(reworkTarget)))};
   }
-  return Object.freeze({candidate,verify,proof,evidence,freshSources,assertApproval});
+  function requiresDisposition(publication,options){return dispositionRequirement(publication,options).required;}
+  async function assertApproval(publication,{reached=true,reworkTarget=null,snapshot=null,at=null,signal}={}){
+    const {value,required}=dispositionRequirement(publication,{reached,reworkTarget});if(!required)return [];
+    if(!snapshot||!at)throw error('A conformance approval needs its original human decision basis.','ENGINE_INPUT_INVALID');
+    const owned=createNamespaceConformanceDecisionOwner({observer,scope,workId}),source=await owned.owner.read(snapshot,{phaseId:publication.phase},{signal}),
+      decisions=await owned.retained(snapshot,source,{signal,at}),open=value.report.gaps.filter(gap=>!gap.owners.length||gap.owners.some(owner=>!decisions.some(row=>
+        row.active&&row.value.request.clauseId===gap.clauseId&&row.value.request.ownerPhase===owner)));
+    if(open.length)throw error('Keep the honest verdict. Its upstream owners need an explicit decision or a reviewed return for repair.','ENGINE_CONFORMANCE_DECISION_REQUIRED',{
+      phase:publication.phase,gaps:open,required:['upstream-gap-human-disposition'],actions:[{operation:'conformance.context',inputs:{workId,phaseId:publication.phase}},
+        {operation:'phase.review',inputs:{workId,phaseId:publication.phase}}]});
+    return decisions.filter(row=>row.active).flatMap(row=>[row.reference,...row.source.references]);
+  }
+  return Object.freeze({candidate,verify,proof,evidence,freshSources,assertApproval,requiresDisposition});
 }

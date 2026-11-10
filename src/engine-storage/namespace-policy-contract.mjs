@@ -8,7 +8,7 @@ export const NAMESPACE_POLICY_PUBLICATION_PROFILE='sflow-policy-publication/v1';
 export const SPECIFICATION_ANALYSIS_EVIDENCE='specification-analysis/v1';
 export const CODE_DELIVERY_EVIDENCE='code-delivery/v1';
 export const CODE_REWORK_EVIDENCE='code-delivery/v2';
-export const isCodePolicyEvidence=kind=>[CODE_DELIVERY_EVIDENCE,CODE_REWORK_EVIDENCE].includes(kind);
+export const isCodePolicyEvidence=kind=>[CODE_DELIVERY_EVIDENCE,CODE_REWORK_EVIDENCE,'code-delivery/v3'].includes(kind);
 export const CODE_INPUT_EVIDENCE='approved-code-inputs/v1';
 export const CONFORMANCE_EVIDENCE='conformance/v1';
 const evidence=value=>{if(contentReference(value).namespace!=='evidence')throw Error('Policy evidence requires shared immutable content.');};

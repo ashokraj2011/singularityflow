@@ -127,6 +127,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   function readBindings(publication) {return proofs(publication).flatMap(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().readBindings(value):value.binding.kind===CLARIFICATION_EVIDENCE?[{...value.manifest.observed}]:[]);}
   function codeEvidence(publication){const value=proofs(publication).find(row=>isCodePolicyEvidence(row.binding.kind));
     return value?structuredClone({binding:value.binding,manifest:value.manifest,report:value.report,sources:value.source.plan.sources}):null;}
+  function conformanceEvidence(publication){const value=proofs(publication).find(row=>row.binding.kind===CONFORMANCE_EVIDENCE);return value?structuredClone(value):null;}
   function verifyPlan(publication,plan) {
     if(!publication.policyEvidence)return;
     const values=proofs(publication);
@@ -144,6 +145,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     codeInputCandidate:(...args)=>inputReader().candidate(...args),conformanceCandidate:(...args)=>conformanceReader().candidate(...args),
     freshInputSources:(publication,...args)=>proofs(publication).some(value=>value.binding.kind===CONFORMANCE_EVIDENCE)
       ?conformanceReader().freshSources(publication,...args):inputReader().freshSources(publication,...args),
-    assertApproval:(publication,options)=>{if(proofs(publication).some(value=>value.binding.kind===CONFORMANCE_EVIDENCE))conformanceReader().assertApproval(publication,options);},
-    freshCodeSources:(...args)=>codeReader().freshSources(...args),codeEvidence,verify,owners,evidence,resources,readBindings,verifyPlan,checklist});
+    requiresDisposition:(publication,options)=>publication.policyEvidence?.some(value=>value.kind===CONFORMANCE_EVIDENCE)===true&&proofs(publication).some(value=>value.binding.kind===CONFORMANCE_EVIDENCE)&&conformanceReader().requiresDisposition(publication,options),
+    assertApproval:async(publication,options)=>proofs(publication).some(value=>value.binding.kind===CONFORMANCE_EVIDENCE)?conformanceReader().assertApproval(publication,options):[],
+    freshCodeSources:(...args)=>codeReader().freshSources(...args),codeEvidence,conformanceEvidence,verify,owners,evidence,resources,readBindings,verifyPlan,checklist});
 }

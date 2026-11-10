@@ -12,6 +12,7 @@
  * each raise or decision is one appended entry. Pure: no I/O.
  */
 import { z } from 'zod';
+import {upstreamDispositionFacts} from './kernel/decision-plan.mjs';
 import { discrepancyItemSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates } from './upstream-routes.mjs';
@@ -26,8 +27,6 @@ export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend'
 export const UPSTREAM_ISSUE_PROPOSALS = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'unknown']);
 /** The longest problem an issue records; a longer recorded item is refused, never cut. */
 export const UPSTREAM_ISSUE_PROBLEM_MAXIMUM = 1000;
-const MAX_RISK_DAYS = 90;
-const DAY = 24 * 60 * 60 * 1000;
 const text = (minimum, maximum) => z.string().trim().min(minimum).max(maximum);
 const optionalText = z.string().trim().min(1).max(1000).nullable();
 
@@ -247,16 +246,7 @@ export function decideUpstreamIssue(workflow, {
   } else if (link) {
     refused(`--link is used only with --outcome plan-correction or amend.`);
   }
-  let expiry = null;
-  if (outcome === 'accept-risk') {
-    const parsed = Date.parse(expiresAt ?? '');
-    if (!Number.isFinite(parsed) || parsed <= Date.parse(at) || parsed - Date.parse(at) > MAX_RISK_DAYS * DAY) {
-      refused(`An accepted risk expires: give --expires within ${MAX_RISK_DAYS} days.`, 'UPSTREAM_ISSUE_RISK_EXPIRY_REQUIRED');
-    }
-    expiry = new Date(parsed).toISOString();
-  } else if (expiresAt) {
-    refused('--expires is used only with --outcome accept-risk.');
-  }
+  const {expiresAt: expiry} = upstreamDispositionFacts({outcome,reason,expiresAt,at});
   const decision = { issue: issueId, outcome, reason: String(reason ?? '').trim(), link: link ?? null, expiresAt: expiry,
     actor, authorityGroup, identityAssurance, at };
   const checked = UpstreamIssueDecisionSchema.safeParse(decision);

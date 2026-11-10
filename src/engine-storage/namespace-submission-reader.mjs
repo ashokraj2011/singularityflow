@@ -102,6 +102,6 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
   return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review,
     publicationOwners:value=>[...publications.specifications.owners(value),...publications.policies.owners(value)],
     publicationChecklist:publications.policies.checklist,publicationPolicyEvidence:publications.policies.evidence,
-    publicationApproval:publications.policies.assertApproval,
+    publicationApproval:publications.policies.assertApproval,publicationRequiresDisposition:publications.policies.requiresDisposition,
     publicationResources:publications.policies.resources,publicationCodeEvidence:publications.policies.codeEvidence});
 }

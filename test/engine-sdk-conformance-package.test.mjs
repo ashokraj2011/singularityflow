@@ -4,7 +4,7 @@ import {copyFile,mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';im
 import {buildEngineSdk} from '../scripts/build-engine-sdk.mjs';import {resolvePlatformProcess} from '../src/platform-process.mjs';
 import {isolatedTestEnvironment} from '../scripts/test-machine-state.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),packageName='@singularity-flow/engine-sdk';
-for(const profile of ['conformance','rework'])describe('installed '+profile+' survives phase-by-phase process restarts',{concurrency:false},()=>{
+for(const profile of ['conformance','rework','human-return','partial-decisions'])describe('installed '+profile+' survives phase-by-phase process restarts',{concurrency:false},()=>{
   let directory,consumer,env,source,child,previous,completed='';
   before(async()=>{
     directory=await mkdtemp(path.join(os.tmpdir(),'sflow-sdk-'+profile+'-package-'));
@@ -23,11 +23,14 @@ for(const profile of ['conformance','rework'])describe('installed '+profile+' su
     await writeFile(path.join(consumer,'journey.mjs'),source);
   },{timeout:120000});
   after(async()=>{if(directory)await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});});
-  const stages=['setup',...(profile==='rework'?['review','repair-write','repair-publish']:[]),'finish','replay'];
+  const repair=['rework','human-return'].includes(profile),partial=profile==='partial-decisions',
+    stages=['setup',...(profile==='rework'?['review','repair-write','repair-publish']:profile==='human-return'?['draft-partial','return','repair-write','repair-publish','repair-approve']:partial?['draft-partial','decide-requirement','decide-acceptance']:[]),
+      ...(!partial?['publish-final']:[]),'submit-final','approve-final','finish',
+      ...(profile==='human-return'?['replay-return']:partial?['replay-decisions']:[]),'replay-build','replay-validate','replay'];
   for(const [index,stage]of stages.entries())test(stage,{timeout:120000},()=>{
     assert.equal(completed,index?stages[index-1]:'','The preceding durable phase must have succeeded.');
     const output=JSON.parse(child(process.execPath,['journey.mjs',stage,profile],{cwd:consumer,env:{...env,PATH:''}}));
-    if(stage==='finish'){assert.deepEqual(output.report.gaps,[]);assert.equal(output.report.inputs.inputs[0].generation,profile==='rework'?2:1);previous=output;}
+    if(stage==='finish'){assert.equal(output.report.gaps.length,profile==='partial-decisions'?2:0);assert.equal(output.report.inputs.inputs[0].generation,repair?2:1);previous=output;}
     if(stage==='replay')assert.deepEqual(output,previous);completed=stage;
   });
 });

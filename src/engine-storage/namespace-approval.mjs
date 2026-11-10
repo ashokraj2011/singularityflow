@@ -85,7 +85,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
     const snapshot={workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion};
     const proof=await packets.inspect(snapshot,s.phaseId,{signal});
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The routed approval lost its original submitted packet.','ENGINE_STORAGE_CORRUPT');
-    const value=await votes.read(binding,s.phaseId,proof,{signal}),active=await votes.activeAccepted(snapshot,s.phaseId,proof,{signal});
+    const value=await votes.read(binding,s.phaseId,proof,{signal,approvalCandidate:{operationId:s.operationId,snapshot}}),active=await votes.activeAccepted(snapshot,s.phaseId,proof,{signal});
     checkRetainedChecklist(s,value,proof.published);
     if(!value.routing||value.operationId!==s.operationId||value.requestSha256!==s.requestSha256||value.baseRevision!==plan.basis.headVersion
       ||!same(value.configuration,plan.basis.head.configuration)||!same(value.actor,s.reviewer.actor)||value.agentId!==s.reviewer.agentId
@@ -109,7 +109,12 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
     const snapshot={workflow:body.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion};
     const proof=await packets.inspect(snapshot,s.phaseId,{signal});
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The retained approval lost its submitted packet.','ENGINE_STORAGE_CORRUPT');
-    const active=await votes.active(snapshot,s.phaseId,proof,{signal}),matches=active.votes.filter(item=>item.value.operationId===s.operationId);
+    let approvalCandidate=null;
+    if(packets.publicationRequiresDisposition(proof.published,{reached:true})){
+      const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
+      approvalCandidate={operationId:s.operationId,snapshot:{workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion}};
+    }
+    const active=await votes.active(snapshot,s.phaseId,proof,{signal,approvalCandidate}),matches=active.votes.filter(item=>item.value.operationId===s.operationId);
     if(matches.length!==1)throw error('The retained approval has no exact human vote.','ENGINE_STORAGE_CORRUPT');
     const {value,binding}=matches[0],phase=body.workflow.phases[s.phaseId];
     checkRetainedChecklist(s,value,proof.published);
@@ -236,7 +241,10 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
           operation:'phase.approve',required:[...required].sort()});
         const policy=checklistAuthority??principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
         const outcome=policy.reached&&s.routed?decisionOutcomeFacts(workflow,phase):null;
-        packets.publicationApproval(s.proof.published,{reached:policy.reached,reworkTarget:outcome?.kind==='loop'?outcome.target:null});
+        s.approvalPolicy={reached:policy.reached,reworkTarget:outcome?.kind==='loop'?outcome.target:null};
+        s.dispositionRequired=packets.publicationRequiresDisposition(s.proof.published,s.approvalPolicy);
+        s.dispositionEvidence=await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot,
+          at:s.dispositionRequired?projectEnrollmentTimestamp(await now()):null,signal});
         if(plan) {
           const original=await retained(plan,s,signal);
           if(original.value.authorityGroup!==policy.authorityGroup||original.value.selfApproval!==policy.selfApproval||original.value.thresholdReached!==policy.reached) {
@@ -272,7 +280,7 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
           const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow:proposed});
           await authorize(signal,s.reviewer);await unchanged(snapshot,signal);
           const evidence=[...new Map([reference,artifactSet,value.reviewPacket,s.proof.value.publication.record,s.proof.published.artifact.content,
-            ...packets.publicationPolicyEvidence(s.proof.published)].map(ref=>[canonicalJson(ref),ref])).values()];
+            ...packets.publicationPolicyEvidence(s.proof.published),...s.dispositionEvidence].map(ref=>[canonicalJson(ref),ref])).values()];
           try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.approve',inputsSha256:s.requestSha256,
             state:Buffer.from(canonicalJson(body)),evidence},{signal});}
           catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
@@ -291,7 +299,8 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
     async commit(context,token,{signal}={}) {
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this approval preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
-      return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,s.reviewer);await unchanged(p.snapshot,signal);},{signal});
+      return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,s.reviewer);await unchanged(p.snapshot,signal);
+        if(s.dispositionRequired)await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot:p.snapshot,at:projectEnrollmentTimestamp(await now()),signal});},{signal});
     },
     async finish(context,_prepared,accepted) {
       const s=selected(context),plan=checkedPlan(await committer.intent(s.operationId),s);

@@ -225,7 +225,7 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   These checkpoints do not record phase approval or replace the remaining code-delivery owners.
   See `docs/ENGINE-SDK-CLARIFICATIONS.md` in the source repository.
   Code publication retains actual source archives and exact executed acceptance tests. The v1
-  Code profile stays generation-1-only. The separate v2 profile authenticates the original human
+  Code profile stays generation-1-only. The separate v2 profile authenticates the configured-loop human
   return and predecessor before a separately tested successor. Conformance publication records
   qualified rows against approved definitions and Code evidence, keeps partial verdicts honest
   and attributes carried tests to their original producer. Final partial gaps need a supported
@@ -237,6 +237,13 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `hosts/namespace-approval`: record an explicitly confirmed human vote over that exact shared
   submission, enforce pinned authority and quorum, and advance a reviewed-document workflow.
   Acknowledgement on another host preserves the original receipt and creates no new vote.
+  The main namespace Engine additionally exposes `conformance.context` and `conformance.decide`: the original
+  upstream owner's authenticated human may accept a dated risk or dismiss that exact gap. Verdicts
+  and retained execution evidence stay unchanged. `phase.reject` supports a reviewed return to an
+  allowed target, using a separate Code v3 successor proof. Original Code v1 and loop v2 replay
+  retain their meanings. Use `hosts/namespace-engine` for these actions; the focused approval host
+  only consumes their verified receipts. These are opt-in namespace operations; native CLI/installed authority
+  cutover is still pending.
   Versioned routed votes apply pinned branches and rework, preserve receipts through successor
   generations, and pause unanswered human choices. Actual code/test execution still needs its
   separate runtime owners.

@@ -1,0 +1,32 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {readFile,writeFile,rm} from 'node:fs/promises';import path from 'node:path';
+import {namespaceReleaseFixture,releaseReport,releasePublish} from './helpers/namespace-release-fixture.mjs';
+import {createNamespaceEngine} from '../src/engine-storage/namespace-engine.mjs';
+import {createNamespaceStoryObserver} from '../src/engine-storage/namespace-story-reader.mjs';
+import {createNamespaceCodeHistoryReader} from '../src/engine-storage/namespace-code-history.mjs';
+test('a human reviewer can return partial conformance to Code without a configured loop, then retest and publish a versioned successor',async t=>{
+  const f=await namespaceReleaseFixture(t),original=await f.published('build');f.control.permissions.push('phase.reject');
+  await f.write('release',releaseReport('partial'));await f.engine.run('phase.publish',{phaseId:'release',...releasePublish});
+  await f.engine.run('phase.submit',{phaseId:'release'});const review=await f.reviewer.run('phase.review',{phaseId:'release'});
+  Object.assign(f.control,{principalId:'independent-reviewer',agentId:null,creator:{name:'Independent reviewer',email:'independent@example.test',login:null}});const request={phaseId:'release',target:'build',reason:'Add the missing boundary regression and run the exact retained tests again.',confirm:review.manifest.reviewBinding.packetSha256},before=await f.head();
+  await assert.rejects(f.engine.run('phase.reject',{...request,confirm:'f'.repeat(64)}),{code:'ENGINE_APPROVAL_CONFIRMATION_STALE'});assert.deepEqual(await f.head(),before);
+  const returned=await f.engine.run('phase.reject',request);assert.equal(returned.currentPhase,'build');assert.equal(returned.changeRequest.id,'CR-001');
+  assert.deepEqual(await f.engine.run('phase.reject',request),returned);
+  const state=await f.capture(),reader=createNamespaceCodeHistoryReader({observer:createNamespaceStoryObserver(f.common),scope:f.scope,workId:f.inputs.workId}),
+    forged=structuredClone(state);forged.workflow.changeRequests[0].comment='A copied request';await assert.rejects(reader.opening(forged,'build'),{code:'ENGINE_STORAGE_CORRUPT'});
+  Object.assign(f.control,{principalId:'author',agentId:'analyst',creator:{name:'Example reviewer',email:'reviewer@example.test',login:null}});await f.write('build','# Repaired implementation\n\n## Agent brief\n\nAdd the approved boundary regression while preserving the original converter implementation.\n');
+  const file=path.join(f.root,'test/converter.test.js');await writeFile(file,(await readFile(file,'utf8'))+"\ntest('checks the next integer',()=>assert.equal(convert(256),'100'));\n");
+  await f.engine.run('phase.source.retain',{operationId:'human-return-source',workId:f.inputs.workId,phaseId:'build'});
+  await assert.rejects(f.engine.run('phase.publish',{phaseId:'build',...releasePublish}),{code:'ENGINE_CHECK_EVIDENCE_REQUIRED'});
+  await f.engine.run('phase.checks.run',{operationId:'human-return-tests',workId:f.inputs.workId,phaseId:'build'});
+  await f.engine.run('phase.publish',{phaseId:'build',...releasePublish});const next=await f.published('build');
+  assert.equal(next.policy.kind,'code-delivery/v3');assert.equal(next.report.preflight.history.profile,'sflow-namespace-code-history/v2');
+  assert.deepEqual(next.report.preflight.history.predecessor.publication,original.binding);
+  assert.ok(next.report.preflight.history.return.rejection.record);assert.equal(next.report.repositories[0].witnesses[0].result.status,'met');
+  await f.approve('build');f.control.agentId='release-reviewer';await f.write('release',releaseReport());
+  await f.engine.run('phase.publish',{phaseId:'release',...releasePublish});await f.approve('release');
+  assert.equal((await f.capture()).workflow.status,'closed');assert.equal(f.starts(),2);assert.deepEqual(await f.json(original.manifest.report),original.report);
+  Object.assign(f.control,{principalId:'independent-reviewer',agentId:null,creator:{name:'Independent reviewer',email:'independent@example.test',login:null}});for(const root of f.roots)await rm(root,{recursive:true,force:true});
+  const replay=createNamespaceEngine({...f.common,clock:{now(){throw Error('A retained return cannot run again.');}}});
+  assert.deepEqual(await replay.run('phase.reject',request),returned);
+});

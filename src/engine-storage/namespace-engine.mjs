@@ -15,6 +15,8 @@ import {createNamespacePreparationRuntime} from './namespace-preparation.mjs';
 import {createNamespacePublicationPort} from './namespace-publication.mjs';
 import {createNamespaceSubmissionPorts} from './namespace-submission.mjs';
 import {createNamespaceApprovalPorts} from './namespace-approval.mjs';
+import {createNamespaceRejectionPorts} from './namespace-rejection.mjs';
+import {createNamespaceConformanceDecisionPorts} from './namespace-conformance-decisions.mjs';
 import {createNamespaceRoutingChoicePorts} from './namespace-routing-choice.mjs';
 import {createNamespacePhaseChecksPort} from './namespace-phase-checks.mjs';
 import {createNamespaceSourceInspectionPort} from './namespace-source-inspection.mjs';
@@ -29,6 +31,12 @@ const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INP
 function captured(port,validate,methods) {
   validate(port);
   return Object.freeze({descriptor:structuredClone(port.descriptor),...Object.fromEntries(methods.map(name=>[name,port[name].bind(port)]))});
+}
+/** Unused operation families do not construct additional readers or conditional writers. */
+function lazyPorts(factory,contracts){
+  let owned;
+  return Object.fromEntries(Object.entries(contracts).map(([name,stages])=>[name,Object.fromEntries(stages.map(stage=>
+    [stage,(...parameters)=>{owned??=factory();return owned[name][stage](...parameters);}]))]));
 }
 
 export function createNamespaceEngine(options={}) {
@@ -74,6 +82,8 @@ export function createNamespaceEngine(options={}) {
     phaseTestWitnessInspection:createNamespaceTestWitnessInspectionPort(common,runtime),
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...createNamespaceRoutingChoicePorts(common),
+    ...lazyPorts(()=>createNamespaceConformanceDecisionPorts(common),{conformanceDecision:['load','prepare','commit','finish'],conformanceContext:['load','read']}),
+    ...lazyPorts(()=>createNamespaceRejectionPorts(common),{rejection:['load','prepare','commit','finish']}),
     ...(options.checks?{phaseChecks:createNamespacePhaseChecksPort(common,runtime)}:{})};
   return createEngine({ports});
 }

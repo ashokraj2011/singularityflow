@@ -52,20 +52,20 @@ test('content and namespace read projections share registered schema metadata wi
 });
 
 
-test('Code version profiles retain immutable v1 meaning while admitting explicit rework v2',()=>{
+test('Code version profiles retain immutable v1 meaning while admitting configured-loop v2 and reviewed-return v3',()=>{
   for(const kind of ['code','codeReport']){
     const family=NAMESPACE_PHASE_POLICY_SCHEMAS[kind];assert.equal(Object.isFrozen(family),true);
     assert.throws(()=>schemaFamily(family.id),{code:'SCHEMA_FAMILY_UNKNOWN'},'opt-in SDK families do not change the installed native registry');
-    for(const version of [1,2]){
+    for(const version of [1,2,3]){
       const original={schemaVersion:version,data:'original'},profile=namespaceCodePolicyProfile(kind,original);
-      assert.equal(profile.version,version);assert.equal(profile.rework,version===2);
+      assert.equal(profile.version,version);assert.equal(profile.rework,version>=2);
       assert.equal(profile.format,'sflow-namespace-code-policy'+(kind==='codeReport'?'-report':'')+'/v'+version);
       assert.deepEqual(admitRecordSchemaVersion(family,original),{record:original,storedVersion:version});
       assert.equal(admitRecordSchemaVersion(family,original).record,original);
     }
-    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:3}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
   }
-  for(const version of [1,2])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
+  for(const version of [1,2,3])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:1},{schemaVersion:2}),false);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:2},{schemaVersion:1}),false);
   assert.throws(()=>namespaceCodePolicyProfile('unregistered',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});

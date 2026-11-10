@@ -1,0 +1,43 @@
+/** The actual offline package exposes the new registry vocabulary through its public types. */
+import test from 'node:test';import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';import {copyFile,mkdir,mkdtemp,writeFile,rm} from 'node:fs/promises';
+import os from 'node:os';import path from 'node:path';import {fileURLToPath} from 'node:url';
+import {buildEngineSdk} from '../scripts/build-engine-sdk.mjs';
+import {resolvePlatformProcess} from '../src/platform-process.mjs';
+import {isolatedTestEnvironment} from '../scripts/test-machine-state.mjs';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+test('packed human decision and reviewer-return inputs resolve with NodeNext and reject identity overrides', {timeout:120000},async t=>{
+  const directory=await mkdtemp(path.join(os.tmpdir(),'sflow-sdk-human-types-')),
+    artifact=path.join(directory,'package'),consumer=path.join(directory,'consumer'),archives=path.join(directory,'archives'),tmp=path.join(directory,'tmp');
+  t.after(()=>rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
+  for(const folder of [artifact,consumer,archives,tmp])await mkdir(folder);
+  const env={...isolatedTestEnvironment(path.join(directory,'machine')),TMPDIR:tmp};
+  const child=(executable,args,cwd,spawnOptions={})=>{const value=spawnSync(executable,args,{cwd,env,encoding:'utf8',timeout:60000,...spawnOptions});
+    assert.equal(value.status,0,JSON.stringify({error:value.error?.message,stderr:value.stderr,stdout:value.stdout}));return value.stdout;};
+  const npm=(args,cwd)=>{const launch=resolvePlatformProcess('npm',args);return child(launch.executable,launch.arguments,cwd,launch.spawnOptions);};
+  for(const file of ['package.json','README.md'])await copyFile(path.join(root,'packages/engine-sdk',file),path.join(artifact,file));
+  await buildEngineSdk({outdir:path.join(artifact,'dist')});
+  const packed=JSON.parse(npm(['pack','--offline','--ignore-scripts','--json','--pack-destination',archives],artifact))[0];
+  await writeFile(path.join(consumer,'package.json'),'{"private":true,"type":"module"}');
+  npm(['install',path.join(archives,packed.filename),'--offline','--ignore-scripts','--no-audit','--no-fund'],consumer);
+  await writeFile(path.join(consumer,'human.mts'),`
+import {createNamespaceEngine} from '@singularity-flow/engine-sdk/hosts/namespace-engine';
+declare const engine:ReturnType<typeof createNamespaceEngine>;
+const context=await engine.run('conformance.context',{workId:'story',phaseId:'review'});
+const request={workId:'story',phaseId:'review',expected:'digest',clauseId:'STORY:AC-001',ownerPhase:'code',outcome:'accept-risk',expires:'reviewed-date',reason:'Human-reviewed reason.'};
+await engine.run('conformance.decide',request);
+await engine.run('phase.reject',{workId:'story',phaseId:'review',target:'code',confirm:'packet',reason:'Human-reviewed repair.'});
+// @ts-expect-error identity comes only from the trusted access port
+await engine.run('conformance.decide',{...request,actor:'model'});
+// @ts-expect-error a digest is not a boolean
+await engine.run('conformance.decide',{...request,expected:true});
+// @ts-expect-error review confirmation is a packet digest
+await engine.run('phase.reject',{phaseId:'review',confirm:{approved:true}});
+// @ts-expect-error unregistered vocabulary cannot become a new approval route
+await engine.run('conformance.approve',{});
+void context;
+`);
+  await writeFile(path.join(consumer,'tsconfig.json'),JSON.stringify({compilerOptions:{target:'ES2023',module:'NodeNext',moduleResolution:'NodeNext',
+    strict:true,noEmit:true,types:[],lib:['ES2023','DOM']},include:['human.mts']}));
+  child(process.execPath,[path.join(root,'node_modules/typescript/bin/tsc'),'--project','tsconfig.json'],consumer);
+});

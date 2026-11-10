@@ -4,7 +4,7 @@ import {canonicalJson,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile}
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
-import {namespaceAnalysisManifest,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_DELIVERY_EVIDENCE,CODE_REWORK_EVIDENCE,CODE_INPUT_EVIDENCE,CONFORMANCE_EVIDENCE} from './namespace-policy-contract.mjs';
+import {namespaceAnalysisManifest,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE,CONFORMANCE_EVIDENCE} from './namespace-policy-contract.mjs';
 import {clarificationRecord,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 export function createNamespacePublicationPolicyWriter({observer,content,scope,workId,reader}) {
@@ -39,7 +39,7 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
       manifest={schemaVersion:profile.version,format:namespaceCodePolicyProfile('code',{schemaVersion:profile.version}).format,...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
         artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
     namespaceCodeManifest(manifest,{scope,workId,phaseId:publication.phase});
-    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:profile.rework?CODE_REWORK_EVIDENCE:CODE_DELIVERY_EVIDENCE,record:await save(manifest,signal)}),report,
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:profile.kind,record:await save(manifest,signal)}),report,
       sourceBinding:{source:value.report.preflight.source,baseline:value.report.preflight.baseline}};
   }
   async function retainCodeInputs(publication,{snapshot,head,signal}={}){

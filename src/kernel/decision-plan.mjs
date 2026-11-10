@@ -87,6 +87,7 @@ export function standaloneDecisionAdmission(operation, workflow) {
     'decision.scope':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is decided while it is in progress.`],
     'decision.completeness':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is reviewed while it is in progress.`],
     'decision.applicability':['APPLICABILITY_STORY_CLOSED', `Story ${workId} is ${workflow.status === 'closed' ? 'already closed' : workflow.status}; applicability is decided while it is in progress.`],
+    'conformance.decide':['ENGINE_CONFORMANCE_NOT_CURRENT', 'Decide conformance gaps while the Story is in progress.'],
     'decision.risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`],
     'decision.plan':['PLAN_AMENDMENT_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its plan is amended while it is in progress.`],
     'plan.correction.preview':['PLAN_AMENDMENT_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its plan is amended while it is in progress.`],
@@ -131,6 +132,8 @@ export function standaloneDecisionRequest(operation, input) {
   }
   if (operation === 'decision.completeness') return {confirm:input.confirm ?? null,
     checklist:input.checklist ?? [], reason};
+  if(operation==='conformance.decide')return {phaseId:input.phaseId??null,expected:input.expected??null,clauseId:input.clauseId??null,
+    ownerPhase:input.ownerPhase??null,outcome:input.outcome??null,expires:input.expires??null,reason};
   if(operation==='decision.plan')return {changes:input.changes??[],reason};
   if(operation==='plan.correction.preview'||operation==='plan.correct')return {ownerPhase:input.ownerPhase??null,
     operations:input.operations??[],reason,upstreamIssue:input.upstreamIssue??null};
@@ -377,4 +380,18 @@ export function planCorrectionOwner(workflow, requested) {
   const owner = workflow.phases[requested ?? owners[0]];
   if (!owner.claimMaps?.planned?.sha256) planCorrectionRefused(`Plan ${owner.id} has no bound claim map, so it cannot be corrected.`);
   return owner;
+}
+
+/** Shared with the native upstream decision owner: preserve its reason/expiry contract. */
+export function upstreamDispositionFacts({outcome,reason,expiresAt=null,at}) {
+  let expiry=null;
+  if(outcome==='accept-risk'){
+    const parsed=Date.parse(expiresAt??'');
+    if(!Number.isFinite(parsed)||parsed<=Date.parse(at)||parsed-Date.parse(at)>90*86_400_000)refused(
+      'An accepted risk expires: give --expires within 90 days.','UPSTREAM_ISSUE_RISK_EXPIRY_REQUIRED');
+    expiry=new Date(parsed).toISOString();
+  }else if(expiresAt)refused('--expires is used only with --outcome accept-risk.','UPSTREAM_ISSUE_INVALID');
+  const text=String(reason??'').trim();
+  if(text.length<20||text.length>1000)refused('Say why in 20 to 1000 characters with --reason.','UPSTREAM_ISSUE_REASON_REQUIRED');
+  return {reason:text,expiresAt:expiry};
 }

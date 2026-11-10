@@ -28,9 +28,10 @@ priorities or approval deadlines.
 Partial, missing or deviated rows stay honest in the retained report. Their gaps identify the
 original Code owners; detection does not transfer ownership to Release. Publication and submission
 do not invent a human decision. Final approval either uses an authenticated configured return to
-an owner for repair, or requires the missing upstream-disposition owner. An unsupported terminal
-partial produces `ENGINE_CONFORMANCE_DECISION_REQUIRED` and a review action. General upstream
-risk acceptance/waivers are not implemented by this profile.
+an owner for repair, or uses the exact upstream-owner disposition described in
+[human decisions and reviewer returns](ENGINE-SDK-HUMAN-CONFORMANCE-REWORK.md). An undecided
+terminal partial produces `ENGINE_CONFORMANCE_DECISION_REQUIRED` and the bound conformance-context
+action. The new receipt does not change the report's verdict or certify another test run.
 
 Authoring and review manifests issue the exact conformance report reference as a shared document.
 Another device can verify retained evidence without the first device's private draft or checkout.
@@ -39,7 +40,9 @@ A new publication still checks the selected live sources and final authority/lif
 ## Code successor
 
 Existing `code-delivery/v1` manifests/reports keep their generation-1 meaning. A successor uses
-`code-delivery/v2` with version-2 manifest/report formats and a version-2 preflight. Its history
+`code-delivery/v2` for configured loops, with version-2 manifest/report formats and preflight.
+Reviewer-requested returns use the separate `code-delivery/v3` profile described in the human
+decision extension. Its history
 binds the exact predecessor publication, policy/report and original human-approved return.
 
 Opening rework authenticates the original submitted packet, human identity/quorum, recorded route,
@@ -61,7 +64,7 @@ this slice does not add a historical document-selection API.
 
 The supported return is a configured, human-approved loop to the same original Code phase, with
 one open original change request and the same repository selection. New source selection during
-rework, unchanged revalidation, initial Code after other phase rework, other Code-producing predecessors, general rejection/ask routes,
+rework, unchanged revalidation, initial Code after other phase rework, other Code-producing predecessors, surgical member/clause returns and ask-choice routes,
 shared source-line origins and advanced acceptance/risk contracts still need their named owners.
 There is no default exemption for an unknown configured owner.
 

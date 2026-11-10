@@ -32,7 +32,7 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
     if(value.generation!==binding.generation)throw corrupt('The vote belongs to another submitted review.');
     return value;
   }
-  async function read(binding,phaseId,proof,{signal,policyTraversal}={}) {
+  async function read(binding,phaseId,proof,{signal,policyTraversal,approvalCandidate=null}={}) {
     const value=await decode(binding,phaseId,{signal});
     if(value.generation!==proof.value.generation||!same(value.reviewPacket,proof.binding.record)
       ||!same(value.configuration,proof.value.configuration))throw corrupt('The vote belongs to another submitted review.');
@@ -42,10 +42,17 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
       throw corrupt('The vote artifact set differs from the retained publication.');
     }
     await policies.verify(proof.published,{signal,policyTraversal});
-    policies.assertApproval(proof.published,{reached:value.thresholdReached,reworkTarget:value.routing?.outcome?.kind==='loop'?value.routing.outcome.target:null});
+    let dispositionEvidence=[];
+    const disposition={reached:value.thresholdReached,reworkTarget:value.routing?.outcome?.kind==='loop'?value.routing.outcome.target:null};
+    if(policies.requiresDisposition(proof.published,disposition)){
+      const original=approvalCandidate?.operationId===value.operationId?approvalCandidate.snapshot:null,
+        accepted=original?null:await observer.accepted(value.operationId,{signal}),
+        snapshot=original??{workflow:accepted.basisState.workflow,configuration:accepted.plan.basis.head.configuration,revision:accepted.plan.basis.headVersion};
+      dispositionEvidence=await policies.assertApproval(proof.published,{...disposition,snapshot,at:value.recordedAt,signal});
+    }
     const checklist=policies.checklist(proof.published,value.actor,set.policyChecklist?.result.decisions??[]);
     if(!same(checklist,set.policyChecklist??null))throw corrupt('The human checklist differs from its pinned policy, actor or retained publication.');
-    policyEvidence.set(value,{identity:canonicalJson(value),references:policies.evidence(proof.published)});
+    policyEvidence.set(value,{identity:canonicalJson(value),references:[...policies.evidence(proof.published),...dispositionEvidence]});
     return value;
   }
   async function readAccepted(binding,phaseId,proof,options={}) {

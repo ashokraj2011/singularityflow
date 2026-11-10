@@ -11,6 +11,7 @@ import {candidateSpecificationCoverageReplay,requiredAcceptanceFromPlan,mergedVe
 import {implementationBindingsReplay,scanSourceClauseTags,scanJavaScriptDeclarations} from '../engine-compatibility/node-source-analysis.mjs';
 import {repositoryPlanProjection} from '../engine-compatibility/node-repository-plan.mjs';
 import {createNamespaceCodeSourceReader} from './namespace-code-source.mjs';
+import {namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
@@ -140,7 +141,7 @@ function codePreflightReader(options,requireCurrentIndices){
     for(const binding of [control?.binding.index,...(control?.plan.origins??[]).flatMap(row=>[row.origin,row.baseline]).map(value=>value.index)])if(binding){
       const current=await observer.record('evidence',binding.key,false,signal);if(current?.version!==binding.version)throw failure('Code origin evidence changed during preflight.','ENGINE_CONTEXT_CHANGED');
     }
-    return {profile:history?'sflow-namespace-code-preflight/v2':'sflow-namespace-code-preflight/v1',...(history?{history}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
+    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history}),...(history?{history}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
       index:{key:original.indexKey,version:original.indexVersion}},plan:plan.proof,repositories};
   }
   return Object.freeze({inspect});

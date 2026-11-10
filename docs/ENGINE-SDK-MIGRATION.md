@@ -67,6 +67,25 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [human conformance and reviewer-return extension](ENGINE-SDK-HUMAN-CONFORMANCE-REWORK.md)
+adds registry operations for exact conformance context and upstream-owner dispositions, plus the
+namespace implementation of `phase.reject`. Human records have their own immutable v1 contract;
+reviewer-returned Code uses v3, while original Code v1 and configured-loop v2 keep their meanings.
+The kernel owns disposition and transition rules, SDK adapters coordinate conditional acceptance,
+SDA retains bytes and receipts, and SGOS records each actual successor test run. Read-only evidence
+owners are separate from mutation adapters. Native Git behavior and installed authority remain
+unchanged. Phases 5, 7, 8 and 9 still have their remaining production coverage and cutover gates.
+Current Mac functional checks cover exact owner decisions, expiry/renewal, reviewer returns,
+retained original evidence and all three backends' lost-reply recovery. The unchanged aggregate
+SDK package qualifier currently misses its existing deadline for both this feature and a separately
+archived `0491270f9` baseline on this Mac; its earlier 118-second pass is not a current qualification.
+The 120/60-second limits remain unchanged, and final distribution/performance qualification stays
+open. All 44 installed operation-checkpoint cases passed across four real journeys, including
+checkout-free replay, without skips or cancellations. Those checks qualify durable resumption and
+the supported new profiles, not the separate aggregate performance gate. See the extension document
+for the exact scope and qualification record.
+
+
 The [namespace conformance and Code rework slice](ENGINE-SDK-NAMESPACE-CONFORMANCE-REWORK.md)
 adds retained clause-level conformance checks and a separate Code v2 proof for authenticated
 human-approved repair loops. It preserves conservative partial verdicts, original Code execution

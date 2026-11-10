@@ -3,6 +3,34 @@ import assert from 'node:assert/strict';
 import { createEngine, ENGINE_CONTRACT, ENGINE_OPERATIONS, ENGINE_HELPERS } from '../src/engine-sdk/index.mjs';
 import { SingularityFlowError } from '../src/foundation/failures.mjs';
 
+test('conformance context cannot replace registry metadata or bind another phase generation',async()=>{
+  const reference={namespace:'evidence',sha256:'b'.repeat(64),bytes:1},source={phase:'release',generation:1,expected:'a'.repeat(64),
+    publication:{schemaVersion:1,format:'sflow-phase-publication-binding/v1',generation:1,record:reference},report:reference,gaps:[],actions:[]};
+  const make=value=>createEngine({ports:{conformanceContext:{load:()=>({subject:{kind:'story',id:'S'},workflow:{workItem:{id:'S'},phases:{release:{generation:1}}}}),read:()=>value}}});
+  for(const value of [{...source,operation:'phase.approve'},{...source,generation:2},{...source,expected:'unbound'},
+    {...source,report:{...reference,bytes:4_194_305}},()=>{}])await assert.rejects(
+    make(value).run('conformance.context',{workId:'S',phaseId:'release'}),{code:'ENGINE_PORT_RESULT_INVALID'});
+  assert.equal((await make(source).run('conformance.context',{workId:'S',phaseId:'release'})).operation,'conformance.context');
+});
+
+test('conformance context checks its binding before reading and preserves real read errors',async()=>{
+  const valid={subject:{kind:'story',id:'S'},workflow:{workItem:{id:'S'},currentPhase:'release',phases:{release:{generation:1}}}};
+  for(const context of [null,{subject:{kind:'story'}},{...valid,workflow:{workItem:{id:'S'}}},
+    {...valid,subject:{kind:'story',id:'OTHER'}},{...valid,workflow:{...valid.workflow,phases:{release:{generation:-1}}}}]){
+    let reads=0;
+    const engine=createEngine({ports:{conformanceContext:{load:()=>context,read:()=>{reads++;throw new Error('unexpected read');}}}});
+    await assert.rejects(engine.run('conformance.context',{workId:'S',phaseId:'release'}),{code:'ENGINE_PORT_RESULT_INVALID'});
+    assert.equal(reads,0);
+  }
+  const denied=Object.assign(new Error('report is unreadable'),{code:'EACCES',path:'/retained/report.json'});
+  const engine=createEngine({ports:{conformanceContext:{load:()=>valid,read:()=>{throw denied;}}}});
+  await assert.rejects(engine.run('conformance.context',{workId:'S'}),actual=>actual===denied&&actual.path==='/retained/report.json');
+  const unpublished={...valid,workflow:{...valid.workflow,phases:{release:{generation:0}}}},
+    missing=Object.assign(new Error('Publish the generation before deciding its gaps.'),{code:'PHASE_PUBLICATION_REQUIRED'}),
+    draft=createEngine({ports:{conformanceContext:{load:()=>unpublished,read:()=>{throw missing;}}}});
+  await assert.rejects(draft.run('conformance.context',{workId:'S'}),actual=>actual===missing);
+});
+
 function fixture({ retained = null, phase = null, hook = () => {} } = {}) {
   const calls = [];
   const facts = Object.freeze({workId:'STORY-1',phase:phase?.id??'team-spec',generation:1,revision:'a'.repeat(40),pushed:true,artifact:'document.md'});

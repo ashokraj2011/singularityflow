@@ -46,6 +46,11 @@ await engine.run('conformance.approve',{});
 void context;
 void article;
 declare const output:import('@singularity-flow/engine-sdk/content').ContentReference;
+await engine.run('phase.output.retain',{operationId:'capture-current-output',workId:'story',phaseId:'code',path:'singularity/work-items/story/evidence/result.png',content:output});
+// @ts-expect-error an output needs an explicit immutable content reference, not a laptop filename
+await engine.run('phase.output.retain',{operationId:'capture-current-output',workId:'story',phaseId:'code',path:'result.png',content:'/tmp/result.png'});
+// @ts-expect-error output retention never accepts a successful human visual review flag
+await engine.run('phase.output.retain',{operationId:'capture-current-output',workId:'story',phaseId:'code',path:'result.png',content:output,approved:true});
 await engine.run('plan.correction.context',{operations:[{op:'reclassify-evidence',clauseId:'STORY:AC-001',path:'singularity/work-items/story/evidence/result.png',method:'visual',content:output}],reason:'Review the retained output contract.'});
 // @ts-expect-error retained evidence needs a content reference, not a local laptop path
 await engine.run('plan.correction.context',{operations:[{op:'reclassify-evidence',clauseId:'STORY:AC-001',path:'result.png',method:'visual',content:'/tmp/result.png'}],reason:'Review the retained output contract.'});

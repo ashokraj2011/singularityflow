@@ -2,7 +2,17 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
+import {NAMESPACE_STORE_METHODS,validateNamespaceStore} from '../sda/namespace/contract.mjs';
+import {CONTENT_STORE_METHODS,validateContentStore} from '../sda/content/contract.mjs';
 const proofSessions=new WeakMap();
+/** Capture genuine methods without losing their invocation domain. Copies cannot enroll themselves. */
+export function captureNamespaceReadBindings(records,content){
+  validateNamespaceStore(records);validateContentStore(content);
+  const capturedRecords=Object.freeze({descriptor:structuredClone(records.descriptor),...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,records[name].bind(records)]))}),
+    capturedContent=Object.freeze({descriptor:structuredClone(content.descriptor),...Object.fromEntries(CONTENT_STORE_METHODS.map(name=>[name,content[name].bind(content)]))}),session=proofSessions.get(records);
+  if(session?.content===content)proofSessions.set(capturedRecords,{content:capturedContent,read:session.read});
+  return Object.freeze({records:capturedRecords,content:capturedContent});
+}
 /** Only the observer owning these exact captured ports can reuse an observed immutable origin. */
 export function memoNamespaceStoryOrigin(records,content,key,observe,{signal}={}){
   const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
@@ -22,6 +32,11 @@ export function memoNamespaceDecisionProof(records,content,identity,observe,{sig
 export function memoNamespaceCodePredecessorProof(records,content,identity,observe,{signal}={}){
   const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
   return session.read('accepted-code-predecessors/v1:'+canonicalJson(identity),observe,()=>true,signal,true);
+}
+/** Fully verified immutable Code records only. Never coalesce an unfinished recursive traversal. */
+export function memoNamespaceCodePolicyProof(records,content,identity,observe,{signal}={}){
+  const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
+  return session.read('accepted-code-policy/v1:'+canonicalJson(identity),observe,()=>true,signal,false);
 }
 const LIMITS=Object.freeze({entries:256,bytes:8*1024*1024});
 const cancelled=signal=>{if(signal?.aborted)throw new SingularityFlowError('The namespace read was cancelled.',{code:'ENGINE_OPERATION_CANCELLED'});};

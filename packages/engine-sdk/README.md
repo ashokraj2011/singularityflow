@@ -214,6 +214,12 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   `phase.source.retain`. Supply explicit `sourceReaders` for a new collection. Chunked immutable
   evidence and verified receipts remain readable without the original checkout; baseline file
   contents, publication readiness and human approval remain separate requirements.
+- `phase.output.retain` on `hosts/namespace-engine`: retain one explicitly supplied output content
+  reference at its exact logical Story evidence path. Code outputs bind actual retained source.
+  Evidence/runtime acceptance leaves the lifecycle revision and unchanged tests intact; publication,
+  downstream reads and human witnesses use the exact retained generation. Local input attachments
+  stay local unless explicitly supplied as output. The native Git host does not bind this operation.
+  See `docs/ENGINE-SDK-FRESH-OUTPUTS.md` for bounds, recovery and compatibility profiles.
 - `hosts/namespace-test-witnesses`: join accepted source declarations to their own retained test
   occurrences through `phase.test-witnesses.inspect`. The main Engine binds the same read operation.
   It preserves original approved plan, repository and shared-line provenance. Rows show individual

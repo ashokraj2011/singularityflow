@@ -9,14 +9,14 @@ import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
 import {createNamespaceLifecycleReceiptReader} from './namespace-lifecycle-receipt-reader.mjs';
-import {memoNamespaceStoryOrigin,memoNamespaceWitnessProof as memoWitness,memoNamespaceCodePredecessorProof as memoCodePredecessors,memoNamespaceDecisionProof as memoDecision} from './namespace-read-session.mjs';
+import {memoNamespaceStoryOrigin,memoNamespaceWitnessProof as memoWitness,memoNamespaceCodePredecessorProof as memoCodePredecessors,memoNamespaceCodePolicyProof as memoCodePolicy,memoNamespaceDecisionProof as memoDecision} from './namespace-read-session.mjs';
 import {namespaceStoryValue} from './namespace-story-contract.mjs';
 import {LIFECYCLE_AUTHORITY_KEY,lifecycleAuthority} from './namespace-lifecycle-contract.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story policy inspection was cancelled.','ENGINE_OPERATION_CANCELLED');}
 const readDomains=new WeakMap();
-const witnessMemos=new WeakMap(),decisionMemos=new WeakMap(),codePredecessorMemos=new WeakMap(),localInputReaders=new WeakMap();
+const witnessMemos=new WeakMap(),decisionMemos=new WeakMap(),codePredecessorMemos=new WeakMap(),codePolicyMemos=new WeakMap(),localInputReaders=new WeakMap();
 /** Device bytes remain behind the explicit local content port, including historical review replay. */
 export async function namespaceLocalInputBytes(observer,reference,{signal}={}){
   const read=localInputReaders.get(observer);contentReference(reference);cancelled(signal);
@@ -38,6 +38,9 @@ export function memoNamespaceObservedDecision(observer,identity,observe,options=
 export function memoNamespaceObservedCodePredecessors(observer,identity,observe,options={}){
   return codePredecessorMemos.get(observer)?.(identity,observe,options)??observe();
 }
+export function memoNamespaceObservedCodePolicy(observer,identity,observe,options={}){
+  return codePolicyMemos.get(observer)?.(identity,observe,options)??observe();
+}
 /** Private capability identity: copies or overrides cannot claim another observer's read proof. */
 export function namespaceStoryReadDomain(observer){return readDomains.get(observer)??observer;}
 
@@ -45,6 +48,7 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
   const witnessMemo=(identity,observe,options)=>memoWitness(records,content,{scope,workId,authority,identity},observe,options);
   const decisionMemo=(identity,observe,options)=>memoDecision(records,content,{scope,workId,authority,identity},observe,options);
   const codePredecessorMemo=(identity,observe,options)=>memoCodePredecessors(records,content,{scope,workId,authority,identity},observe,options);
+  const codePolicyMemo=(identity,observe,options)=>memoCodePolicy(records,content,{scope,workId,authority,identity},observe,options);
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
   const base=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
@@ -175,6 +179,7 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
     witnessMemos.set(scoped,(...args)=>{activeScope(token);return witnessMemo(...args);});
     decisionMemos.set(scoped,(...args)=>{activeScope(token);return decisionMemo(...args);});
     codePredecessorMemos.set(scoped,(...args)=>{activeScope(token);return codePredecessorMemo(...args);});
+    codePolicyMemos.set(scoped,(...args)=>{activeScope(token);return codePolicyMemo(...args);});
     try{return await read(scoped);}finally{if(parent===undefined){cache.clear();facts.bytes=0;facts.proof=null;facts.pending=null;facts.receipts=null;}readScopes.set(token,null);}
   }
   // Original evidence readers need only receipt inspection and this observer's read capabilities.
@@ -185,6 +190,7 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
   witnessMemos.set(observer,witnessMemo);
   decisionMemos.set(observer,decisionMemo);
   codePredecessorMemos.set(observer,codePredecessorMemo);
+  codePolicyMemos.set(observer,codePolicyMemo);
   if(localContent){validateContentStore(localContent);if(localContent.descriptor.binding.kind!=='machine-local')throw error('Input documents require an explicit device-bound store.','ENGINE_INPUT_INVALID');
     localInputReaders.set(observer,localContent.read.bind(localContent,scope));}
   return observer;

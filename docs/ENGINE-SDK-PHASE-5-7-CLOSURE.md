@@ -123,7 +123,7 @@ preserving machine rules, immutable publications and independent approval. Three
 custom phases, expiry/renewal, interruption and offline shared-only replay are qualified separately.
 
 - The remaining native query/rule inventory and parity audit.
-- Fresh output retention for successor Code, artifact-only/repository-qualified evidence correction,
+- Artifact-only/repository-qualified evidence correction,
   late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
   plus live application-review and witness-exception profiles.
 - Upstream amend outcomes and forward amendments.
@@ -149,7 +149,7 @@ changed earlier inputs and re-created removals require real revalidation. Reposi
 planning and mixed visual acceptance remain exact. Three real stores, an offline installed
 Release journey and shared-only replay pass. See [the Code delivery record](ENGINE-SDK-MULTIPLE-CODE-PHASES.md).
 The read-only [registered-operation inventory](ENGINE-SDK-OPERATION-INVENTORY.md) covers the
-76-operation vocabulary and names every default native host's compatibility qualifier.
+79-operation vocabulary and names every default native host's compatibility qualifier.
 This delivery passes 356 distinct affected Mac checks, including all 81 native compatibility
 checks and the unchanged 34-check package qualifier in 33.4 seconds. All existing limits pass.
 Targeted repair and the other owners listed above remain required; neither phase is marked complete.
@@ -159,3 +159,11 @@ approved plan, required tests and separate human witness, binds output bytes to 
 and continues through final Release and shared-only replay. Original row/native contracts stay
 unchanged. A late correction has an executable recovery through the approved planner's upstream
 issue. See [the evidence correction record](ENGINE-SDK-NAMESPACE-EVIDENCE-CORRECTIONS.md).
+
+Fresh output retention now has one registered operation, separate conditional evidence records and
+Code profiles 12/13. Published output is readable through phase review, downstream inputs and human
+witness context; two-generation journeys preserve actual tests and require new output/sign-off.
+Publication races preserve the original intent and can select the replacement without changing Code.
+SQLite replay and genuine invocation-local proof reuse remain in their respective storage/read owners.
+See [the retained-output delivery](ENGINE-SDK-FRESH-OUTPUTS.md) for compatibility and qualification.
+The other owners above remain open; this does not complete either phase.

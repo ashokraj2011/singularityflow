@@ -46,6 +46,8 @@ export function createNamespaceWitnessOwners({observer,scope,workId}){
       const value=await publications.accepted(binding,id,{signal,policyTraversal});published.push({phase:id,generation:value.generation,publication:binding});references.push(binding.record,value.artifact.content);
       files.push({path:value.artifact.sourceKey,content:value.artifact.content,phase:id,generation:value.generation});
       const code=publications.policies.codeEvidence(value);
+      for(const output of code?.report.preflight.outputs?.files??[]){await observer.bytes(output.content,output.content.bytes,signal);
+        files.push({path:output.path,content:output.content,phase:id,generation:value.generation});references.push(output.content);}
       if(code)for(const correction of plan.amendments)for(const operation of correction.operations??[]){
         if(operation.op!=='reclassify-evidence'||operation.clauseId!==request.clauseId||operation.delivery.phase!==id||operation.delivery.generation!==value.generation)continue;
         const retained=code.report.preflight.repositories.some(repository=>repository.delivery.fulfillment?.some(row=>row.clauseId===request.clauseId&&row.fulfillment==='evidence'

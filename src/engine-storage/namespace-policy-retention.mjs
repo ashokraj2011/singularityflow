@@ -43,7 +43,7 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
         artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
     namespaceCodeManifest(manifest,{scope,workId,phaseId:publication.phase});
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:profile.kind,record:await save(manifest,signal)}),report,
-      sourceBinding:{source:value.report.preflight.source,baseline:value.report.preflight.baseline}};
+      sourceBinding:{source:value.report.preflight.source,baseline:value.report.preflight.baseline,...(value.report.preflight.outputs?{outputs:value.report.preflight.outputs}:{})}};
   }
   async function retainCodeInputs(publication,{snapshot,head,signal}={}){
     const value=await reader.codeInputCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),

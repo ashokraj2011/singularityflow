@@ -70,7 +70,7 @@ test('Code profiles preserve original versions and separately admit reviewed add
       assert.deepEqual(admitRecordSchemaVersion(family,original),{record:original,storedVersion:version});
       assert.equal(admitRecordSchemaVersion(family,original).record,original);
     }
-    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:12}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:14}),{code:'SCHEMA_VERSION_FUTURE'});
   }
   for(const version of [1,2,3,4,5,6])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:1},{schemaVersion:2}),false);
@@ -89,6 +89,11 @@ test('Code profiles preserve original versions and separately admit reviewed add
     assert.equal(profile.kind,'code-delivery/v'+version);assert.equal(profile.predecessors,true);
     assert.equal(profile.humanAcceptance===true,version===11);
     assert.equal(admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],record).record,record);
+  }
+  for(const kind of ['code','codeReport'])for(const version of [12,13]){
+    const record={schemaVersion:version,data:'original'},profile=namespaceCodePolicyProfile(kind,record);
+    assert.equal(profile.outputs,true);assert.equal(profile.optionalPredecessors,true);assert.equal(profile.predecessors,undefined);
+    assert.equal(profile.humanAcceptance===true,version===13);assert.equal(admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],record).record,record);
   }
 });
 test('Code opening v3 binds approved predecessors without changing original v1/v2 wire profiles',()=>{

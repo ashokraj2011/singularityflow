@@ -258,6 +258,12 @@ export function createNamespacePublicationPort(options={},runtime=null) {
           if(codeEvidence)snapshot.workflow.namespaceDocuments.push({id:'CODE-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-code-policy-gen'+generation+'.json',
             role:'file',name:'Code delivery evidence',kind:'code-delivery',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:codeEvidence.report});
+          for(const output of publicationReader.policies.resources(verified).filter(row=>row.kind==='retained-output')){
+            const data=await observer.bytes(output.reference,output.reference.bytes,signal),encoding=artifactBytesAreText(data)?'utf8':'binary';
+            phase.artifacts.push({path:output.sourceKey,sha256:output.reference.sha256,size:output.reference.bytes,kind:'retained-output'});
+            snapshot.workflow.namespaceDocuments.push({id:'OUTPUT-'+s.phaseId+'-GEN-'+generation+'-'+hash(output.sourceKey).slice(0,24),phase:s.phaseId,generation,
+              sourceKey:output.sourceKey,role:'file',name:output.sourceKey.split('/').at(-1),kind:'retained-output',mimeType:'application/octet-stream',encoding,
+              locality:'project',status:'active',aliases:[],content:output.reference});}
           if(codeInputs)snapshot.workflow.namespaceDocuments.push({id:'CODE-INPUTS-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-code-inputs-gen'+generation+'.json',
             role:'file',name:'Approved Code inputs',kind:'code-inputs',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:codeInputs.report});

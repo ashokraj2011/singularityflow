@@ -1,6 +1,36 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createNamespaceReadSession,memoNamespaceStoryOrigin,memoNamespaceWitnessProof,memoNamespaceCodePredecessorProof,memoNamespaceDecisionProof} from '../src/engine-storage/namespace-read-session.mjs';
+import {createNamespaceReadSession,captureNamespaceReadBindings,memoNamespaceStoryOrigin,memoNamespaceWitnessProof,memoNamespaceCodePredecessorProof,memoNamespaceCodePolicyProof,memoNamespaceDecisionProof} from '../src/engine-storage/namespace-read-session.mjs';
+import {namespaceStoreDescriptor,NAMESPACE_STORE_METHODS} from '../src/sda/namespace/contract.mjs';
+import {contentStoreDescriptor,CONTENT_STORE_METHODS} from '../src/sda/content/contract.mjs';
 const scope={projectId:'P'},reference={namespace:'evidence',sha256:'a'.repeat(64),bytes:4};
+test('genuine captured read bindings preserve their live invocation, while copied or substituted ports cannot enroll themselves',async()=>{
+  const binding={kind:'shared'},forbidden=()=>{throw Error('Capturing read bindings cannot perform I/O.');},
+    records={descriptor:namespaceStoreDescriptor({id:'capture-records',qualification:'test-only',binding}),...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,forbidden])),transact:async()=>({status:'committed'})},
+    content={descriptor:contentStoreDescriptor({id:'capture-content',binding,maximumBytes:134217728}),...Object.fromEntries(CONTENT_STORE_METHODS.map(name=>[name,forbidden]))},
+    session=createNamespaceReadSession({records,content}),captured=captureNamespaceReadBindings(session.records,session.content),
+    copied=captureNamespaceReadBindings({...session.records},session.content);let calls=0;
+  const observe=()=>({proof:++calls}),read=(ports=captured)=>memoNamespaceCodePolicyProof(ports.records,ports.content,{scope,publication:reference},observe);
+  assert.ok(Object.isFrozen(captured.records));assert.throws(()=>{captured.records.read=forbidden;},TypeError);
+  await session.run(async()=>{await read();await read({records:session.records,content:session.content});assert.equal(calls,1);
+    await read(copied);await read(copied);assert.equal(calls,3);await captured.records.transact(scope,{});await read();assert.equal(calls,4);});
+  await session.run(()=>read());assert.equal(calls,5);
+});
+test('completed Code proof reuse preserves exact binding, errors, mutation boundaries and independent result ownership',async()=>{
+  let reads=0,deny=false;const failure=Object.freeze(Object.assign(Error('Actual immutable Code proof is unreadable.'),{code:'EACCES'})),
+    session=createNamespaceReadSession({records:{transact:async()=>({status:'committed'})},content:{}}),identity={scope,workId:'story',authority:{id:'a',epoch:1},publication:reference},
+    observe=()=>{reads++;if(deny)throw failure;return {report:{preflight:{outputs:{files:[{content:reference}]}}}};},
+    read=(selected=identity,records=session.records,content=session.content)=>memoNamespaceCodePolicyProof(records,content,selected,observe);
+  await session.run(async()=>{const first=await read();first.report.preflight.outputs.files.length=0;assert.equal((await read()).report.preflight.outputs.files.length,1);assert.equal(reads,1);
+    await read({...identity,workId:'other'});await read(identity,{...session.records});await read(identity,session.records,{...session.content});assert.equal(reads,4);
+    await session.records.transact(scope,{});await read();assert.equal(reads,5);});
+  deny=true;for(let i=0;i<2;i++)await assert.rejects(session.run(()=>read()),error=>error===failure);assert.equal(reads,7);
+});
+test('unfinished recursive Code traversals are never coalesced into a self-waiting proof',async()=>{
+  const session=createNamespaceReadSession({records:{},content:{}});let calls=0;
+  await session.run(async()=>{const read=()=>memoNamespaceCodePolicyProof(session.records,session.content,{scope,publication:reference},async()=>{
+      calls++;if(calls===1)return read();return {validated:'inner-traversal'};});
+    assert.deepEqual(await read(),{validated:'inner-traversal'});assert.equal(calls,2);await read();assert.equal(calls,2);});
+});
 test('accepted decision projections are private, exact-port bounded and invalidated at every write or invocation',async()=>{
   const failure=Object.freeze(Object.assign(Error('Actual accepted decision read failed.'),{code:'EACCES'}));let reads=0,denied=false;
   const session=createNamespaceReadSession({records:{transact:async()=>({status:'committed'})},content:{}}),

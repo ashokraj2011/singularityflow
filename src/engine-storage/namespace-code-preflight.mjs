@@ -21,6 +21,7 @@ import {createNamespaceSourceBaselineReader} from './namespace-source-baseline-r
 import {createNamespaceSourceClauseReader} from './namespace-source-clauses.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
+import {createNamespaceOutputRetentionReader} from './namespace-output-retention-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=data=>createHash('sha256').update(data).digest('hex');
 const failure=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 const required=owner=>{throw failure('Code publication requires its named evidence owner.','ENGINE_PORT_UNAVAILABLE',{required:[owner]});};
@@ -33,7 +34,7 @@ function codePreflightReader(options,requireCurrentIndices){
     baseline=createNamespaceSourceBaselineReader({...options,observer}),checks=createNamespacePhaseCheckReader({...options,observer}),
     plans=createNamespaceSpecificationReader({observer,scope,workId,checks}),controlReader=createNamespaceSourceControlReader({...options,observer}),
     clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changes,baseline,checks,controlReader}),
-    files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices});
+    files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices}),outputsReader=createNamespaceOutputRetentionReader({...options,observer,sourceReader:changes});
   async function inspect(snapshot,phaseId,identity,{signal,binding=null,policyTraversal}={}){
     const workflow=snapshot.workflow,phase=workflow.phases[phaseId],definition=(await observer.approved(snapshot,{signal})).compiled.definition;
     if(workflow.resolution.testRecovery?.enabled)required('test-recovery');
@@ -55,7 +56,8 @@ function codePreflightReader(options,requireCurrentIndices){
     const plan=await plans.sourcePlan(snapshot,phaseId,{signal}),control=requireCurrentIndices?await controlReader.inspectDraft(identity,{signal}):null,
       clauseFacts=await clauses.inspect(snapshot,phaseId,retained,original,{signal,control});
     if(clauseFacts.requiredPolicyOwners.length)required(clauseFacts.requiredPolicyOwners[0]);
-    const repositories=[];
+    const outputs=binding&&!binding.outputs?null:await outputsReader.selection({phaseId,generation:retained.plan.generation,
+      configuration:snapshot.configuration,source:retained},{signal,...(binding?{binding:binding.outputs}:{})}),repositories=[];
     for(const source of retained.plan.sources){
       const id=source.repository.id,context=await files.capture(retained,original,id,{signal}),sourceBasis=context.sourceBasis,
         projection=plan.repositoryPlan?repositoryPlanProjection(plan.repositoryPlan,id):null,
@@ -78,6 +80,9 @@ function codePreflightReader(options,requireCurrentIndices){
           ||planned.claims[operation.clauseId].fulfillment!=='evidence')continue;
         const prior=correctedEvidence.get(operation.path);if(prior&&!same(prior,operation.content))throw failure('One evidence path has conflicting retained human-reviewed bytes.','PLAN_EVIDENCE_AMENDMENT_INTEGRITY');
         correctedEvidence.set(operation.path,operation.content);}
+      // A new output proves its own actual source/generation. It grants no additional clause scope.
+      for(const output of outputs?.files??[])if(Object.values(planned.claims).some(claim=>claim.fulfillment==='evidence'&&claim.expectedPaths?.includes(output.path)))
+        correctedEvidence.set(output.path,output.content);
       const pathFacts=path=>correctedEvidence.has(path)?{exists:true,regular:true,bytes:correctedEvidence.get(path).bytes}:files.facts(context,path,{signal}),
         readBytes=async(path,maximumBytes=16*1024*1024)=>{const reference=correctedEvidence.get(path);
           if(!reference)return files.bytes(context,path,{signal,maximumBytes});
@@ -141,7 +146,7 @@ function codePreflightReader(options,requireCurrentIndices){
             recovery:{authoringPhase:phaseId,planningPhase:workflow.resolution.plannedClaims?.owners?.[phaseId]??null,
               requires:[request.reason==='protected'?'restore-protected-paths':['unsafe','unreconciled'].includes(request.reason)?'reconcile-candidate-scope':'repair-code-evidence'],
               afterCorrection:{operation:'phase.source.retain',inputs:{workId,phaseId}}}});
-          case 'path-evidence':{const rows=[];for(const path of request.paths){const facts=files.facts(context,path,{signal}),data=facts.exists?await readBytes(path):null,
+          case 'path-evidence':{const rows=[];for(const path of request.paths){const facts=outputs?pathFacts(path):files.facts(context,path,{signal}),data=facts.exists?await readBytes(path):null,
               original=nativeEntries.find(entry=>entry.oldPath===path&&!entry.newPath)?.baseline;
             rows.push({path,kind:isConfigurationPath(path)?'configuration':isAllowedTestAutomationPath(path)?'test':isDocumentationPath(path)?'documentation':'source',
               fileKind:facts.exists?'regular-file':'missing',exists:facts.exists,size:facts.exists?facts.bytes:null,sha256:data?hash(data):null,
@@ -163,7 +168,7 @@ function codePreflightReader(options,requireCurrentIndices){
     for(const binding of [control?.binding.index,...(control?.plan.origins??[]).flatMap(row=>[row.origin,row.baseline]).map(value=>value.index)])if(binding){
       const current=await observer.record('evidence',binding.key,false,signal);if(current?.version!==binding.version)throw failure('Code origin evidence changed during preflight.','ENGINE_CONTEXT_CHANGED');
     }
-    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history,plan:plan.proof,priorCode}),...(history?{history}:{}),...(priorCode?{priorCode}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
+    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history,plan:plan.proof,priorCode,outputs}),...(history?{history}:{}),...(priorCode?{priorCode}:{}),...(outputs?{outputs}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
       index:{key:original.indexKey,version:original.indexVersion}},plan:plan.proof,repositories};
   }
   return Object.freeze({inspect});

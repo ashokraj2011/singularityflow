@@ -27,6 +27,7 @@ import {createNamespaceRoutingChoicePorts} from './namespace-routing-choice.mjs'
 import {createNamespacePhaseChecksPort} from './namespace-phase-checks.mjs';
 import {createNamespaceSourceInspectionPort} from './namespace-source-inspection.mjs';
 import {createNamespaceSourceRetentionPort} from './namespace-source-retention.mjs';
+import {createNamespaceOutputRetentionPort} from './namespace-output-retention.mjs';
 import {createNamespaceSourceBaselinePort} from './namespace-source-baseline.mjs';
 import {createNamespaceDeliveryInspectionPort} from './namespace-delivery-inspection.mjs';
 import {createNamespaceTestWitnessInspectionPort} from './namespace-test-witnesses.mjs';
@@ -108,6 +109,7 @@ export function createNamespaceEngine(options={}) {
     sourceBinding:createNamespaceSourceBindingPort(common),...(runtime?.ports??{}),...createNamespaceClarificationPorts(common),...createNamespacePhaseEntryPorts(common,runtime),
     phaseSourceInspection:createNamespaceSourceInspectionPort(common,runtime),
     phaseSourceRetention:createNamespaceSourceRetentionPort(common,runtime),
+    phaseOutputRetention:createNamespaceOutputRetentionPort(common,runtime),
     phaseSourceControlRetention:createNamespaceSourceControlPort(common,runtime),
     sourceBaselineRetention:createNamespaceSourceBaselinePort(common),
     phaseDeliveryInspection:createNamespaceDeliveryInspectionPort(common,runtime),

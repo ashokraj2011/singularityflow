@@ -15,11 +15,12 @@ import {deriveObservedClaimMapReplay,effectiveContract,mergedVerificationContrac
 import {repositoryPlanProjection,repositoryPlanTestLocation} from '../engine-compatibility/node-repository-plan.mjs';
 import {createNamespaceCodePreflightReader,createNamespaceRetainedCodePreflightReader} from './namespace-code-preflight.mjs';
 import {createNamespaceSourceRetentionReader} from './namespace-source-retention-reader.mjs';
+import {createNamespaceOutputRetentionReader} from './namespace-output-retention-reader.mjs';
 import {createNamespaceSourceBaselineReader} from './namespace-source-baseline-reader.mjs';
 import {sourceRetentionBinding} from './namespace-source-retention-contract.mjs';
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
-import {namespaceStoryReadDomain} from './namespace-story-reader.mjs';
+import {namespaceStoryReadDomain,memoNamespaceObservedCodePolicy} from './namespace-story-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 import {namespaceWitnessAttempt} from './namespace-check-witnesses.mjs';
 import {namespaceCodeManifest} from './namespace-policy-contract.mjs';
@@ -52,7 +53,8 @@ function reportValue(value){
   try{const profile=namespaceCodePolicyProfile('codeReport',value);
     exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance']);
     if(value.format!==profile.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
-    const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[]),...(profile.predecessors?['priorCode']:[])]);
+    const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[]),
+      ...((profile.optionalPredecessors?Boolean(p.priorCode):profile.predecessors)?['priorCode']:[]),...(profile.outputs?['outputs']:[])]);
     const preflightVersion=profile.humanAcceptance?namespaceCodePreflightVersion(p):profile.version;
     if(p.profile!=='sflow-namespace-code-preflight/v'+preflightVersion||namespaceCodePreflightVersion(p)!==preflightVersion||!Array.isArray(p.repositories))throw Error('Another Code preflight.');
     sourceRetentionBinding(p.source);exactObject(p.baseline,['operationId','record','index']);namespaceIdentifier(p.baseline.operationId,'Baseline operation');
@@ -87,13 +89,15 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   const controlBinding=(controls,selected)=>({namespace:'evidence',key:controls.codec.indexKey({input:{phaseId:selected.phaseId},generation:selected.generation,
     basis:{headVersion:selected.baseRevision},draft:selected.draft}),version:null});
   async function sourceBinding(snapshot,selected,{signal}={}){
-    return withReaders(async({sources,baseline})=>{
+    return withReaders(async({observer:selectedObserver,sources,baseline})=>{
       const found=await sources.inspectDraft(selected,{signal});if(!found)throw error('Retain this exact authored Code generation.','ENGINE_SOURCE_EVIDENCE_REQUIRED',{
         operation:'phase.source.retain',workId,phaseId:selected.phaseId});
       if(found.plan.basis.headVersion!==snapshot.revision||!same(found.plan.basis.configuration,snapshot.configuration))throw error('Code source belongs to another lifecycle basis.','ENGINE_CONTEXT_CHANGED');
       const original=await baseline.inspectBinding(found.plan.sourceBinding.operationId,{signal});if(!original)throw error('Retain the exact original Code source.','ENGINE_SOURCE_BASELINE_REQUIRED',{
         operation:'source.baseline.retain',sourceBindingId:found.plan.sourceBinding.operationId,workId});
-      return {source:found.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,index:{key:original.indexKey,version:original.indexVersion}}};
+      const outputs=await createNamespaceOutputRetentionReader({...bindings,observer:selectedObserver,sourceReader:sources}).selection({
+        phaseId:selected.phaseId,generation:selected.generation,configuration:snapshot.configuration,source:found},{signal});
+      return {source:found.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,index:{key:original.indexKey,version:original.indexVersion}},...(outputs?{outputs}:{})};
     });
   }
   async function json(reference,signal){const data=await observer.bytes(reference,reference.bytes,signal);
@@ -163,13 +167,13 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         }
       }
     }
-    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11}[preflightVersion]??7):preflightVersion,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
+    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13}[preflightVersion]??7):preflightVersion,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
     return {report,source,policy};
   }
   async function candidate(publication,snapshot,options){const value=await withReaders(readers=>candidateFor(publication,snapshot,options,readers));
     candidates.set(value,{identity:canonicalJson(publication),sha256:hash(canonicalJson(value))});return value;}
   async function verify(publication,binding,{signal,policyTraversal}={}){
-    return withReaders(async readers=>{
+    const original=canonicalJson({publication,binding}),value=await memoNamespaceObservedCodePolicy(observer,{publication,binding},()=>withReaders(async readers=>{
     const manifest=namespaceCodeManifest(await json(binding.record,signal),{scope,workId,phaseId:publication.phase});
     if(!same(namespaceSpecificationIdentity(publication),Object.fromEntries(Object.keys(namespaceSpecificationIdentity(publication)).map(key=>[key,manifest[key]])))
       ||manifest.recordedAt!==publication.publishedAt||!same(manifest.artifact,{key:publication.artifact.sourceKey,content:publication.artifact.content})
@@ -179,20 +183,22 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
     const state=await readers.observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
       actual=await candidateFor(publication,{revision:manifest.basis.revision,configuration:manifest.configuration,workflow:state.workflow},{signal,bound:report,policyTraversal},readers);
     if(!same(actual.report,report))throw error('The Code report does not replay from its exact accepted source, plan and checks.');
-    const value={binding,manifest,...actual},serialized=canonicalJson(value),identity=canonicalJson(publication);
+    return {binding,manifest,...actual};
+    }),{signal});
+    if(original!==canonicalJson({publication,binding}))throw error('The Code publication changed during verification.','ENGINE_CONTEXT_CHANGED');
+    const serialized=canonicalJson(value),identity=canonicalJson(publication);
     evidenceProofs.set(value,{domain:namespaceStoryReadDomain(observer),identity,sha256:hash(serialized),bytes:new TextEncoder().encode(serialized).byteLength});
     verified.set(publication,{identity,value});return value;
-    });
   }
   function reuse(publication,value){const source=evidenceProofs.get(value),identity=canonicalJson(publication);
     if(!source||source.domain!==namespaceStoryReadDomain(observer)||source.identity!==identity||source.sha256!==hash(canonicalJson(value)))throw error('The Code proof changed or belongs to another read owner.','ENGINE_CONTEXT_CHANGED');
     verified.set(publication,{identity,value});return value;}
   function proof(publication){const found=verified.get(publication),source=found&&evidenceProofs.get(found.value);
     return source&&found.identity===canonicalJson(publication)&&source.sha256===hash(canonicalJson(found.value))?found.value:null;}
-  function readBindings(value){const p=value.report.preflight;return [...[p.source.result,p.source.index,p.baseline.record,p.baseline.index].map(row=>({namespace:'evidence',key:row.key,version:row.version})),value.report.control];}
+  function readBindings(value){const p=value.report.preflight;return [...[p.source.result,p.source.index,p.baseline.record,p.baseline.index,...(p.outputs?[p.outputs.index,...p.outputs.files.map(row=>row.retention.result)]:[])].map(row=>({namespace:'evidence',key:row.key,version:row.version})),value.report.control];}
   function evidence(value){const p=value.report.preflight;return [value.binding.record,value.manifest.report,p.source.result.content,p.baseline.record.content,
     p.plan.publication,p.plan.reviewPacket,p.plan.planned,...p.plan.indices.map(row=>row.record),...(p.plan.repositoryPlan?[p.plan.repositoryPlan]:[]),
-    ...(p.plan.amendments??[]).map(row=>row.record),...(value.source.workflow.planAmendments??[]).flatMap(row=>(row.operations??[]).filter(operation=>operation.op==='reclassify-evidence').map(operation=>operation.content)),
+    ...(p.plan.amendments??[]).map(row=>row.record),...(p.outputs?.files??[]).flatMap(row=>[row.content,row.retention.result.content]),...(value.source.workflow.planAmendments??[]).flatMap(row=>(row.operations??[]).filter(operation=>operation.op==='reclassify-evidence').map(operation=>operation.content)),
     ...(p.priorCode?.phases??[]).flatMap(row=>row.references),...(['sflow-namespace-code-history/v4','sflow-namespace-code-history/v6'].includes(p.history?.profile)?p.history.returns.flatMap(row=>row.references):p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,(p.history.return.upstream??p.history.return.choice??p.history.return.rejection??p.history.return.approval).record,...(p.history.return.references??[]),...(p.history.returns??[]).flatMap(row=>row.references)]:[])];}
   async function freshSources(publication,units,{signal}={}){
     const value=proof(publication);if(!value)throw error('Verify the exact Code proof before checking source freshness.','ENGINE_INPUT_INVALID');

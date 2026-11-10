@@ -9,6 +9,7 @@ import { namespaceTransaction, namespaceTransactionIdentity } from './namespace/
 import { applyNamespaceTransaction, emptyNamespaceState } from './namespace/state-transition.mjs';
 import { SQLITE_NAMESPACE_SCHEMAS, admitSqliteNamespaceSchema } from './namespace/storage-schemas.mjs';
 import { NAMESPACE_JOURNAL_PORT } from './namespace/journal-contract.mjs';
+import { createValidatedNamespaceViewCache } from './namespace/validated-view-cache.mjs';
 import { openNativeSqliteDatabase } from './sqlite-native.mjs';
 
 const FORMAT = 'sflow-sqlite-namespace/v1';
@@ -140,6 +141,7 @@ export async function openSqliteNamespaceJournal({ filename, binding, limits, cr
   } catch (cause) { try { database?.close(); } catch {} throw unavailable('database-open', cause); }
 
   const manifestBytes = JSON.stringify(manifest), key = scope => hash(JSON.stringify(namespaceScope(scope)));
+  const views=createValidatedNamespaceViewCache(),observedVersions=new WeakMap();
   let closed = false;
   function checkLocation() {
     if (closed) throw namespaceError('The namespace database connection is closed.', 'SDA_NAMESPACE_UNAVAILABLE', { stage: 'database-closed' });
@@ -154,19 +156,27 @@ export async function openSqliteNamespaceJournal({ filename, binding, limits, cr
     const value = manifestValue(parseJson(observed[0].body), normalizedBinding, normalizedLimits);
     if (JSON.stringify(value) !== manifestBytes) throw corrupt('The namespace database identity changed while it was open.');
   }
-  async function read(scope, { through = null } = {}) {
+  function dataVersion(){const value=database.prepare('PRAGMA data_version').get().data_version;
+    if(!Number.isSafeInteger(value)||value<1)throw corrupt('The database returned an invalid change token.');return value;}
+  async function read(scope, { through = null } = {}, force=false) {
     const normalizedScope = namespaceScope(scope);
-    let rows, acceptedHead;
+    let rows, acceptedHead,cached,versionBefore,versionAfter,token;
     try {
-      checkLocation(); database.exec('BEGIN');
+      checkLocation();versionBefore=dataVersion();database.exec('BEGIN');
       try {
         checkManifest();
         acceptedHead = database.prepare('SELECT seq, sha256 FROM sflow_ns_heads WHERE scope_key = ?').get(key(normalizedScope));
-        rows = through === null
+        token={version:versionBefore,sequence:acceptedHead?.seq??0,sha256:acceptedHead?.sha256??null};
+        cached=force?null:views.get(key(normalizedScope)+':'+String(through),token);
+        rows = cached?null:through === null
           ? database.prepare('SELECT seq, body, sha256 FROM sflow_ns_entries WHERE scope_key = ? ORDER BY seq').all(key(normalizedScope))
           : database.prepare('SELECT seq, body, sha256 FROM sflow_ns_entries WHERE scope_key = ? AND seq <= ? ORDER BY seq').all(key(normalizedScope), through);
         database.exec('COMMIT');
       } catch (cause) { rollback(); throw cause; }
+      versionAfter=dataVersion();
+      // An external commit between the token and the snapshot must never hide a changed prefix.
+      if(cached){if(versionBefore!==versionAfter)return read(normalizedScope,{through},true);
+        observedVersions.set(cached,{scope:key(normalizedScope),version:versionAfter});return cached;}
       let state = emptyNamespaceState(), sequence = 0, sha256 = null;
       const revisions = new Set();
       for (const row of rows) {
@@ -206,12 +216,16 @@ export async function openSqliteNamespaceJournal({ filename, binding, limits, cr
         || (acceptedHead?.seq === through && acceptedHead.sha256 !== sha256))) {
         throw corrupt('The retained namespace database prefix lost its accepted binding.');
       }
-      return { scope: normalizedScope, state, sequence, sha256 };
+      const value={scope:normalizedScope,state,sequence,sha256};
+      if(versionBefore===versionAfter)views.put(key(normalizedScope)+':'+String(through),token,value);
+      observedVersions.set(value,{scope:key(normalizedScope),version:versionBefore});return value;
     } catch (cause) { throw unavailable('database-read', cause); }
   }
 
   async function append(scope, observed, input, { signal } = {}) {
     const normalizedScope = namespaceScope(scope), transaction = namespaceTransaction(input, normalizedLimits);
+    const observation=observedVersions.get(observed);views.clear();
+    if(observation&&observation.scope!==key(normalizedScope))throw namespaceError('The observed prefix belongs to another project scope.');
     for (const value of [...transaction.preconditions, ...transaction.changes, ...transaction.events]) {
       assertNamespaceBinding({ binding: normalizedBinding }, value.namespace);
     }
@@ -225,6 +239,8 @@ export async function openSqliteNamespaceJournal({ filename, binding, limits, cr
       assertNamespaceNotCancelled(signal); checkLocation(); database.exec('BEGIN IMMEDIATE');
       try {
         checkManifest();
+        if(observation&&observation.version!==dataVersion()){
+          database.exec('ROLLBACK');return {accepted:false};}
         const head = database.prepare('SELECT seq, sha256 FROM sflow_ns_heads WHERE scope_key = ?').get(key(normalizedScope));
         if ((head?.seq ?? 0) !== observed.sequence || (head?.sha256 ?? null) !== observed.sha256) {
           database.exec('ROLLBACK'); return { accepted: false };
@@ -258,6 +274,6 @@ export async function openSqliteNamespaceJournal({ filename, binding, limits, cr
           'SDA_NAMESPACE_UNAVAILABLE', { stage: 'database-confirmation', busy: result.busy });
       } catch (cause) { throw unavailable('database-confirmation', cause); }
     },
-    close() { if (!closed) { database.close(); closed = true; } }
+    close() { if (!closed) { views.clear();database.close(); closed = true; } }
   });
 }

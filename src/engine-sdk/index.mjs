@@ -28,7 +28,7 @@ import {storyCreationInput,storyCreationBinding,storyCreationResult} from '../ke
 import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kernel/source-binding.mjs';
 import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phaseDraftMutationResult} from '../kernel/phase-preparation.mjs';
 import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
-import {phaseSourceInspectionInput,phaseDeliveryInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult,phaseDeliveryInspectionManifest,DELIVERY_INSPECTION_PROFILE_V5} from '../kernel/source-changes.mjs';
+import {phaseSourceInspectionInput,phaseDeliveryInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult,phaseOutputRetentionInput,phaseOutputRetentionResult,phaseDeliveryInspectionManifest,DELIVERY_INSPECTION_PROFILE_V5} from '../kernel/source-changes.mjs';
 import {sourceBaselineRetentionInput,sourceBaselineRetentionResult,phaseSourceControlRetentionResult} from '../kernel/source-changes.mjs';
 import {testWitnessInspectionManifest} from '../kernel/verification-witnesses.mjs';
 import {clarificationOperationInput} from '../kernel/clarification-responses.mjs';
@@ -217,6 +217,9 @@ const definitions = [
   {id:'phase.source.retain',version:1,effect:'source-retention',humanDecision:false,authority:'phase.source.retain',
     inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),port:'phaseSourceRetention',
     stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'sourceRetentionInput',execute:'retainPhaseSources'},
+  {id:'phase.output.retain',version:1,effect:'output-retention',humanDecision:false,authority:'phase.output.retain',
+    inputFields:Object.freeze(['operationId','workId','phaseId','path','content']),requiredFields:Object.freeze(['operationId','workId','phaseId','path','content']),port:'phaseOutputRetention',
+    stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'outputRetentionInput',execute:'retainPhaseSources'},
   {id:'phase.source-control.retain',version:1,effect:'source-control-retention',humanDecision:false,authority:'phase.source.retain',
     inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),port:'phaseSourceControlRetention',
     stages:Object.freeze(['load','retained','prepare','collect','commit','finish']),validate:'sourceRetentionInput',execute:'retainPhaseSources'},
@@ -281,13 +284,14 @@ function phaseChecksInput(value){return checkedPhaseChecksInput(data(value));}
 function sourceInspectionInput(value){return phaseSourceInspectionInput(data(value));}
 function deliveryInspectionInput(value){return phaseDeliveryInspectionInput(data(value));}
 function sourceRetentionInput(value){return phaseSourceRetentionInput(data(value));}
+function outputRetentionInput(value){return phaseOutputRetentionInput(data(value));}
 function baselineRetentionInput(value){return sourceBaselineRetentionInput(data(value));}
 async function retainPhaseSources(port,input,signal,operation) {
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   let accepted=await port.retained(context,input,{signal});notCancelled(signal);
   if(accepted===null){const prepared=await port.prepare(context,input,{signal});notCancelled(signal);
     const collected=await port.collect(context,prepared,{signal});notCancelled(signal);accepted=await port.commit(context,collected,{signal});}
-  const result=operation.id==='source.baseline.retain'?sourceBaselineRetentionResult:operation.id==='phase.source-control.retain'?phaseSourceControlRetentionResult:phaseSourceRetentionResult;
+  const result=operation.id==='phase.output.retain'?phaseOutputRetentionResult:operation.id==='source.baseline.retain'?sourceBaselineRetentionResult:operation.id==='phase.source-control.retain'?phaseSourceControlRetentionResult:phaseSourceRetentionResult;
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,
     ...result(input,data(await port.finish(context,accepted,{signal:null})))});
 }
@@ -1762,7 +1766,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    inspectSourceReviewContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
+    inspectSourceReviewContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

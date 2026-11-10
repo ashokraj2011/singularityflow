@@ -6,9 +6,9 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 import { recordSha256 } from '../records.mjs';
 import { resolveDocumentRecord } from '../document-identity.mjs';
 import { phaseReviewSelection,assertHistoricalReviewPhase,hasPublishedPhaseGeneration,phaseNeedsGeneration } from '../kernel/phase-policy.mjs';
-import { validateNamespaceStore,NAMESPACE_STORE_METHODS } from '../sda/namespace/contract.mjs';
+import { validateNamespaceStore } from '../sda/namespace/contract.mjs';
 import { namespaceScope, namespaceRevision,namespaceIdentifier,exactObject } from '../sda/namespace/values.mjs';
-import { validateContentStore,contentReference,CONTENT_STORE_METHODS } from '../sda/content/contract.mjs';
+import { validateContentStore,contentReference } from '../sda/content/contract.mjs';
 import { namespaceReadHead, namespaceReadLifecycleHead, namespaceReadState, namespaceReadPolicy, namespaceDocumentIndex,
   namespaceReadRecord,projectNamespaceLifecycleReadState } from './namespace-read-contract.mjs';
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
@@ -17,6 +17,7 @@ import { createNamespaceSubmissionReader } from './namespace-submission-reader.m
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceRoutingChoiceReader} from './namespace-routing-choice-reader.mjs';
 import {namespaceStoryReadKey} from './namespace-story-codec.mjs';
+import {captureNamespaceReadBindings} from './namespace-read-session.mjs';
 export {namespaceStoryReadKey} from './namespace-story-codec.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -58,10 +59,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
   const readRecord = records.read.bind(records);
   const readContent = content.read.bind(content), readLocal = localContent?.read.bind(localContent);
   // An authority locator is data; it must not make us recapture replaceable host methods later.
-  const lifecycleRecords=Object.freeze({descriptor:structuredClone(records.descriptor),
-    ...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,records[name].bind(records)]))});
-  const lifecycleContent=Object.freeze({descriptor:structuredClone(content.descriptor),
-    ...Object.fromEntries(CONTENT_STORE_METHODS.map(name=>[name,content[name].bind(content)]))});
+  const {records:lifecycleRecords,content:lifecycleContent}=captureNamespaceReadBindings(records,content);
   async function head(signal) {
     cancelled(signal); const result = await readRecord(scope, 'state', key, { signal }); cancelled(signal);
     if (result?.status === 'missing' && result.record === null) throw unavailable('This backend has no read snapshot for the bound Story.', 'ENGINE_STORY_SNAPSHOT_MISSING', { projectId: scope.projectId, workId });
@@ -156,7 +154,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     const phase = context.workflow.phases[selected.phase];
     const primary = path.posix.join(context.policy.workItemRoot, workId, phase.requiredArtifact.path ?? '');
     const records = context.documents.filter(document => document.phase === phase.id && document.generation === phase.generation
-      && (['artifact','agent-brief'].includes(document.role)||document.role==='file'&&document.kind==='artifact-set-member'))
+      && (['artifact','agent-brief'].includes(document.role)||document.role==='file'&&['artifact-set-member','retained-output'].includes(document.kind)))
       .map(document => ({ ...document,...(document.role==='file'?{role:'artifact'}:{}) }));
     const identities = new Set(records.map(documentKey));
     for (const member of selected.retained) {

@@ -11,8 +11,8 @@ files. The inventory test fails if that mapping is missing or a named qualifier 
 Results are detached from the immutable registry. This command does not run those qualifiers;
 their successful execution must be recorded separately.
 
-The current vocabulary has 78 operations. `createGitEngine` binds 41 of them. A namespace host
-with explicit private working stores binds 61 before optional execution is supplied. These are
+The current vocabulary has 79 operations. `createGitEngine` binds 41 of them. A namespace host
+with explicit private working stores binds 62 before optional execution is supplied. These are
 composition-specific counts: a separate narrow factory may connect another operation, and a
 configured publication may still require additional policy/evidence owners. In particular,
 `phase.checks.run` needs the actual execution capability. A bound `phase.publish` is never proof
@@ -27,7 +27,7 @@ This audit does not claim that utilities outside the registry have migrated, tha
 policy owners are finished, or that production authority has moved. The remaining work stays in
 the [Phase 5/7 ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md).
 
-The current Mac audit executes 81 checks across the declared compatibility files, including the
+The current Mac audit executes 79 checks across the declared compatibility files, including the
 real source/bundled CLI projections, actual native mutations, human authority and failure recovery.
 All pass without skips or cancellations. This result is qualification evidence for the registered
 paths, not a claim that every utility outside the registry has been extracted.

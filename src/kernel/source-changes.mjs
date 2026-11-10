@@ -13,6 +13,26 @@ const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.t
 const revision=value=>typeof value==='string'&&value.length>0&&value.length<=512&&!/[\u0000-\u0020\u007f]/u.test(value);
 const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
 const count=value=>Number.isSafeInteger(value)&&value>=0;
+/** A host supplies bytes through an explicit content port, never an SDK-interpreted laptop path. */
+export function phaseOutputRetentionInput(value){
+  if(!exact(value,['operationId','workId','phaseId','path','content'])||!['operationId','workId','phaseId'].every(key=>id(value[key]))
+    ||typeof value.path!=='string'||value.path.length>512||!exact(value.content,['namespace','sha256','bytes'])
+    ||!['local','evidence'].includes(value.content.namespace)||!sha(value.content.sha256)||!count(value.content.bytes)||value.content.bytes>16*1024*1024)fail(
+      'Name an explicit output operation, Story, phase, logical evidence path and bounded content reference.');
+  try{sourceRelativePath(value.path);}catch{fail('Name an exact relative output path inside the Story evidence directory.');}
+  return structuredClone(value);
+}
+export function phaseOutputRetentionResult(input,value){
+  const bad=()=>fail('The output port returned another operation, path or retained content.','ENGINE_PORT_RESULT_INVALID'),
+    ref=reference=>exact(reference,['namespace','sha256','bytes'])&&reference.namespace==='evidence'&&sha(reference.sha256)&&count(reference.bytes);
+  if(!exact(value,['workId','phase','operationId','generation','recordedAt','principalId','record','replayed','path','content'])
+    ||value.workId!==input.workId||value.phase!==input.phaseId||value.operationId!==input.operationId||value.path!==input.path
+    ||!Number.isSafeInteger(value.generation)||value.generation<1||!id(value.principalId)||typeof value.replayed!=='boolean'
+    ||!exact(value.record,['key','version','content'])||!revision(value.record.version)||!/^output-retention\/results\/[a-f0-9]{64}$/u.test(value.record.key??'')
+    ||!ref(value.record.content)||!ref(value.content)||value.content.sha256!==input.content.sha256||value.content.bytes!==input.content.bytes)bad();
+  try{projectEnrollmentTimestamp(value.recordedAt);}catch{bad();}
+  return {status:'retained',...structuredClone(value),effects:{lifecycleChanged:false,sourceFilesChanged:false,testsRun:false,approvalRecorded:false}};
+}
 export const DELIVERY_INSPECTION_PROFILE_V2='sflow-delivery-evidence-inspection/v2';
 export const DELIVERY_INSPECTION_PROFILE_V3='sflow-delivery-evidence-inspection/v3';
 export const DELIVERY_INSPECTION_PROFILE_V4='sflow-delivery-evidence-inspection/v4';

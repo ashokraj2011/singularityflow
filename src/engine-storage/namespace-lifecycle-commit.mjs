@@ -22,6 +22,7 @@ const writes = new Set(ENGINE_OPERATIONS.filter(op => (!op.subject || op.subject
   && op.effect !== 'local-draft'
   && op.effect !== 'phase-check-execution'
   && op.effect !== 'clarification-record'
+  && !['source-retention','source-control-retention','output-retention'].includes(op.effect)
   && (op.stages.includes('commit') || op.stages.includes('apply'))).map(op => op.id));
 function cancelled(signal) { if (signal?.aborted) throw error('The lifecycle operation was cancelled before its next effect.', 'ENGINE_OPERATION_CANCELLED'); }
 

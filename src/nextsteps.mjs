@@ -314,13 +314,13 @@ export function workflowNextSteps(workflow, {
         )
       : entry);
   }
-  // The step's own route leads; only a prerequisite that blocks it ('now': a required assignment, resume or agent
-  // activation) comes first. An optional one follows it, and `prepare` composes the phase prompt itself, so
+  // The step's own route leads; only a prerequisite that blocks it (a required assignment, resume, agent trust and its
+  // synchronization) comes first. An optional one follows it, and `prepare` composes the phase prompt itself, so
   // composing is never a step of its own before it (owner, 2026-11-11: "most appropriate next step here is sf-phase").
   const preparesFirst = immediate[0]?.command?.startsWith(`singularity-flow prepare ${phase.id}`) === true;
   const shownPrerequisites = prerequisites.filter((entry) => !(preparesFirst && entry.route === 'grounding-composition'));
-  const actions = [...shownPrerequisites.filter((entry) => entry.timing === 'now').map(copilotAction), ...undecided, ...immediate,
-    ...shownPrerequisites.filter((entry) => entry.timing !== 'now').map(copilotAction)];
+  const actions = [...shownPrerequisites.filter((entry) => entry.timing !== 'optional').map(copilotAction), ...undecided, ...immediate,
+    ...shownPrerequisites.filter((entry) => entry.timing === 'optional').map(copilotAction)];
   const applicationReview = !needsGeneration && applicationReviewOffer(workflow, phase);
   if (applicationReview) actions.push(action('alternative', applicationReview.copilotCommand, applicationReview.command, applicationReview.reason));
   if (needsGeneration && !modelMode.enabled) {

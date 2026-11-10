@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { nextStepsSnapshot, nextStepsText, workflowNextSteps } from '../src/nextsteps.mjs';
 import { agentNextSteps, storyPrerequisites, snapshotContinuation } from '../src/commands/nextsteps.mjs';
+import { copilotAction } from '../src/copilot-guidance.mjs';
 
 /** Intake as the Story's last step, which nobody approves: submitting it ends the Story. */
 function endingWorkflow(options) {
@@ -200,7 +201,12 @@ test('compact routing folds composition only into entry-capable authoring; other
   const state = workflow();
   const compose = { timing: 'now', command: 'singularity-flow wm compose --phase intake',
     route: 'grounding-composition' };
-  const snapshot = nextStepsSnapshot({ workflow: state, prerequisites: [compose] });
+  // Where the step's own route is prepare, which composes the prompt itself, composing is no step of its own (owner, 2026-11-11).
+  const prepared = nextStepsSnapshot({ workflow: state, prerequisites: [compose] });
+  assert.equal(prepared.actions.some((action) => action.route === 'grounding-composition'), false);
+  assert.equal(prepared.actions[0].copilotCommand, '/sf-phase');
+  // A compose route that does lead (another caller's) is still folded into an entry-capable authoring skill for an agent.
+  const snapshot = { ...prepared, actions: [copilotAction(compose), ...prepared.actions] };
   const projected = agentNextSteps(snapshot);
   assert.equal(projected.actions.some(action => action.route === 'grounding-composition'), false);
   assert.equal(projected.actions[0].copilotCommand, '/sf-phase');

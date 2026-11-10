@@ -347,13 +347,17 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
 
 Everything up to a real chat is checked with each host's payloads and no model. The owner approved paid runs
 (2026-11-09), and the Copilot CLI probes above are done. Still to run:
-- the same checks with SFlow's plugin hook rather than a repository file;
-- in VS Code, a model that tries a plain chat's edit despite the line, to see the `preToolUse` refusal from the
-  repository's file (the 2026-11-10 run's model never tried; the plugin's refusal was seen on 2026-11-06);
-- whether Copilot CLI sends a blocked prompt on with the next one, as VS Code does.
+- the same checks with SFlow's plugin hook rather than a repository file.
 
-VS Code's run is done (2026-11-10): it loads the file, reads the line, and honours the block, but keeps the blocked
-prompt in its chat, which the chat-wide hold in `[PCR:REQ-003]` answers.
+Done on 2026-11-10:
+- **VS Code** loads the file, reads the line, and honours the block, but keeps the blocked prompt in its chat, which
+  the chat-wide hold in `[PCR:REQ-003]` answers. A second run made the model try the edit: the repository's
+  `payments` capability refuses while the root records, so the line said changes are recorded, the model called
+  `replace_string_in_file` on `services/payments/charge.js`, the repository file's `preToolUse` refused it with the
+  `/sf-start` line, the file stayed as it was, and the model passed the line on without retrying.
+- **Copilot CLI does not keep a blocked prompt.** After a block, `--resume` of that session with a new prompt: the
+  session's own events hold the blocked text only as the prompt hook's input, never as a message, and the model
+  found no earlier message. So Copilot CLI needs no chat-wide hold.
 
 ## Acceptance
 

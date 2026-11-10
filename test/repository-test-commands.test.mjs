@@ -51,18 +51,23 @@ test('steps that run tests get the repository tests they choose; a step with its
   chosen.phases.implementation.testLevels = ['unit'];
   chosen.workTypes.feature.phaseOverrides.verification = { ...chosen.workTypes.feature.phaseOverrides.verification, testIds: ['e2e-local'] };
   const narrowed = resolveWorkType(validateDefinition(chosen), 'feature');
-  assert.deepEqual(ids(phase(narrowed, 'implementation')), ['shop-unit'], 'testLevels: [unit] runs the unit one only');
+  // testLevels: [unit] is the code step's own choice; it also runs, before its approval, the one verification
+  // chose, so verification finds nothing new there [PHR:REQ-007], item 8.
+  assert.deepEqual(ids(phase(narrowed, 'implementation')), ['shop-unit', 'e2e-local'], 'testLevels: [unit], and what the later step runs');
+  assert.deepEqual(phase(narrowed, 'implementation').laterStepTests, { runs: [{ id: 'e2e-local', steps: ['verification'] }], cannotRunHere: [] });
   assert.deepEqual(ids(phase(narrowed, 'verification')), ['e2e-local'], 'testIds in the workflow override runs only the local one');
   assert.equal(Object.hasOwn(phase(narrowed, 'implementation'), 'testLevels'), false, 'the choice is configuration, not Story contract');
   const both = structuredClone(all);
   both.phases.implementation.testLevels = ['unit'];
   both.phases.implementation.testIds = ['e2e-relay'];
-  assert.deepEqual(ids(phase(resolveWorkType(validateDefinition(both), 'feature'), 'implementation')), ['shop-unit', 'e2e-relay'],
-    'with both, a command runs when its level or its ID is listed');
+  const bothResolved = phase(resolveWorkType(validateDefinition(both), 'feature'), 'implementation');
+  assert.deepEqual(ids(bothResolved).slice(0, 2), ['shop-unit', 'e2e-relay'], 'with both, a command runs when its level or its ID is listed');
 
   const own = structuredClone(all);
   own.phases.implementation.qualityCommands = [{ ...unit, id: 'step-own' }];
-  assert.deepEqual(ids(phase(resolveWorkType(validateDefinition(own), 'feature'), 'implementation')), ['step-own'],
+  // A step's own test command replaces the repository's for that step only; the ones the next step runs still run there
+  // first, but not one that is its own command under another name [PHR:REQ-007], item 8.
+  assert.deepEqual(ids(phase(resolveWorkType(validateDefinition(own), 'feature'), 'implementation')), ['step-own', 'e2e-local'],
     "a step's own test command replaces the repository's for that step only");
   assert.deepEqual(ids(phase(resolveWorkType(validateDefinition(own), 'feature'), 'verification')), ['shop-unit', 'e2e-local', 'e2e-relay']);
   const lint = structuredClone(all);
@@ -127,4 +132,28 @@ test('the offer to adopt for a Story in progress includes the repository tests i
   await write({ tests: [unit, local], phases: { implementation: { qualityCommands: [{ ...unit, id: 'step-own' }] } }, workTypes: { feature: { phases: ['implementation'] } } });
   assert.deepEqual((await activatedTestCommandsFor(root, pinnedBefore, 'implementation')).map((entry) => entry.id), ['step-own'],
     "a step's own test command is offered instead of the repository's");
+});
+
+test('[PHR:REQ-007] item 8: a code step also runs, before its approval, the repository tests the steps after it choose; one that needs an environment only that step has is named, not run', async (t) => {
+  const definition = await shipped(t);
+  const chosen = structuredClone({ ...definition, tests: [unit, local, relay] });
+  chosen.phases.implementation.testLevels = ['unit'];
+  const feature = resolveWorkType(validateDefinition(chosen), 'feature');
+  const code = phase(feature, 'implementation');
+  // Its own choice first, then what verification runs that it does not, with the same command, runner and result adapter.
+  assert.deepEqual(ids(code), ['shop-unit', 'e2e-local']);
+  assert.deepEqual(code.qualityCommands[1], local);
+  assert.deepEqual(code.laterStepTests, { runs: [{ id: 'e2e-local', steps: ['verification'] }],
+    cannotRunHere: [{ id: 'e2e-relay', steps: ['verification'], needs: 'environment relay' }] });
+  assert.deepEqual(ids(phase(feature, 'verification')), ['shop-unit', 'e2e-local', 'e2e-relay'], 'the later step keeps all it chose');
+  // Nothing moves where the code step already runs everything the later steps choose.
+  assert.equal(Object.hasOwn(phase(resolveWorkType(validateDefinition({ ...structuredClone(definition), tests: [unit, local] }), 'feature'), 'implementation'), 'laterStepTests'), false);
+  // Story start and the code step's runs say so.
+  const { laterStepTestLines, laterStepTestNotes } = await import('../src/later-step-tests.mjs');
+  const workflow = { phaseOrder: feature.phases.map((entry) => entry.id), resolution: { phases: feature.phases } };
+  assert.deepEqual(laterStepTestLines(workflow, 'implementation'), [
+    'Run here so verification finds nothing new: e2e-local (a repository test verification runs).',
+    'Cannot run here: e2e-relay needs environment relay; verification runs it.']);
+  assert.deepEqual(laterStepTestNotes(workflow).map((entry) => [entry.phase, entry.message]), [['implementation',
+    'implementation also runs e2e-local before its approval, the tests verification runs, so those find nothing new. e2e-relay needs environment relay, so verification runs it, not implementation.']]);
 });

@@ -6116,6 +6116,10 @@ async function submitPhaseTransition(root, config, workflow, {
       disposition: 'accepted-risk', evaluationSha256: retainedRisk.evaluation.recordSha256 };
     phase.deliveryEvidence.testExecutions = testExecutions;
     phase.deliveryEvidence.attemptHistory = attemptHistory;
+    // The later steps' tests this step ran, and the ones it cannot run here [PHR:REQ-007], item 8.
+    if (workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.laterStepTests) {
+      for (const line of (await import('./later-step-tests.mjs')).laterStepTestLines(workflow, phase.id)) console.warn(line);
+    }
     const deliveryReceipt = await readJson(path.join(root, phase.deliveryEvidence.receiptPath));
     const traceabilityBindings = [];
     for (const binding of deliveryReceipt.traceability?.bindings ?? []) {

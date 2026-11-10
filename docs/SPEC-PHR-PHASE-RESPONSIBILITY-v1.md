@@ -57,6 +57,14 @@ Where answer 7 stands (batch 2, 2026-11-10), each for a Story that pinned the ow
   that answers for it.
 - The ratchet (`[PHR:REQ-010]`): every evaluator finding that judges an earlier step's output names its owner-step
   check; an upstream route alone no longer satisfies it.
+- Item 8 (owner, option A, 2026-11-10): a code step runs, before its approval, every repository test (`tests:`) the
+  steps after it choose (`testLevels`, `testIds`), up to the next code step, with the same runner and result adapter.
+  It is resolved when the Story starts, so a running Story keeps what it started with. A failure is repaired in the
+  code step, like its own tests; the later step's run on the same code only confirms it (a passing attempt on this
+  exact code is not run again). A test bound to a declared environment needs what only its later step has: it is
+  not run there, never allowance-listed and never looped back; Story start and the code step's runs say so
+  ("Cannot run here: … needs environment …; <step> runs it"). A code step that changes the code after it owns the
+  result.
 - `gate.visual.threshold` (owner, 2026-11-10: "person accepts the risk"): a failed visual comparison stays in the
   evidence for good, so its repair is a person's accepted risk on that exact comparison, recorded at the visual
   verification step in an approver's own terminal (`decision visual-risk`, with an expiry and a reason). The visual

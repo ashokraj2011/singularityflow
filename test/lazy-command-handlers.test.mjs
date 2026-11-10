@@ -545,7 +545,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,685,750 (measured 9,685,741, commands/phase-lifecycle.mjs): an amendment that revises a clause carries the plan's
     // row for it, which keeps the plan's evidence of that clause current (plan-row-corrections.mjs +871, scope/revisions.mjs
     // +453) [PHR:REQ-008]. No new eager file.
-    assert.ok(closure.bytes <= 9_685_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,688,800 (measured 9,688,752, commands/phase-lifecycle.mjs): a code step also runs the repository tests the steps
+    // after it choose, resolved when the Story starts (config.mjs +2684), and names them at its test runs (state.mjs +327);
+    // the words stay lazy (later-step-tests.mjs) [PHR:REQ-007], item 8. No new eager file.
+    assert.ok(closure.bytes <= 9_688_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -792,7 +795,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,200,200 (measured 4,200,180): the visual-risk person step (person-step-catalog.mjs +477, command-registry.mjs +15), and
   // the level-2 pin (phase-roles.mjs +295) [PHR:REQ-006].
   // 4,201,100 (measured 4,201,051): a revised clause's row kept as it stands (plan-row-corrections.mjs +871) [PHR:REQ-008].
-  assert.ok(current.bytes <= 4_201_100, `session current loads ${current.bytes} source bytes`);
+  // 4,203,750 (measured 4,203,735): a code step's later steps' repository tests, resolved at Story start (config.mjs +2684) [PHR:REQ-007].
+  assert.ok(current.bytes <= 4_203_750, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

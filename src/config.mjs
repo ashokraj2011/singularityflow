@@ -1878,6 +1878,44 @@ function declaredCatalogValue(catalog, id) {
 export { mergePhaseOverride };
 
 /** `run`: a non-code step's submission also runs the repository's tests (verification/repository-tests.mjs). */
+/**
+ * Each code step also runs, before its approval, the repository tests the steps after it choose, up to the next
+ * code step [PHR:REQ-007], item 8 (owner, option A, 2026-11-10). They run here with the same runner and result
+ * adapter, so a failure is repaired where the code is written and the later step's run only confirms it on the
+ * same code (a passing attempt on this exact code is not run again, TCE:REQ-080). A test bound to a declared
+ * environment needs what only its later step has, so it is not run here: the step records it as such
+ * (`laterStepTests.cannotRunHere`), and the later step runs it. A code step after them owns its own change.
+ * The resolved shape moves only where a later step chose a repository test its code step does not run.
+ */
+function withLaterStepTests(phases, chosen) {
+  if (!chosen.size) return phases;
+  return phases.map((phase, index) => {
+    if (!phaseRequiresCodeDelivery(phase)) return phase;
+    // The same command under another name is the same run: its ID and its argv in its folder are both its own.
+    const key = (command) => JSON.stringify([command?.argv ?? command?.command ?? null, command?.workingDirectory ?? '.']);
+    const ownTests = (phase.qualityCommands ?? []).filter((command) => command?.kind === 'test');
+    const own = new Set([...ownTests.map((command) => command.id), ...ownTests.map(key)]);
+    const later = new Map();
+    for (const next of phases.slice(index + 1)) {
+      if (phaseRequiresCodeDelivery(next)) break;
+      for (const command of chosen.get(next.id) ?? []) {
+        if (own.has(command.id) || own.has(key(command))) continue;
+        if (!later.has(command.id)) later.set(command.id, { command, steps: [] });
+        later.get(command.id).steps.push(next.id);
+      }
+    }
+    if (!later.size) return phase;
+    const runs = [...later.values()].filter((entry) => !entry.command.environment);
+    const cannotRunHere = [...later.values()].filter((entry) => entry.command.environment)
+      .map((entry) => ({ id: entry.command.id, steps: entry.steps, needs: `environment ${entry.command.environment}` }));
+    return {
+      ...phase,
+      qualityCommands: [...(phase.qualityCommands ?? []), ...runs.map((entry) => structuredClone(entry.command))],
+      laterStepTests: { runs: runs.map((entry) => ({ id: entry.command.id, steps: entry.steps })), cannotRunHere }
+    };
+  });
+}
+
 function repositoryTestsPolicy(value, label) {
   if (value == null) return 'off';
   if (value !== 'run' && value !== 'off') throw new SingularityFlowError(`${label} repositoryTests must be run or off.`);
@@ -1906,6 +1944,8 @@ export function resolveWorkType(definition, workTypeId) {
     workTypeId, phases: workType.phases
   });
   const repositoryTests = repositoryTestCommands(definition.tests);
+  // The repository tests each step that runs tests chose, for the code step before it [PHR:REQ-007], item 8.
+  const chosenRepositoryTests = new Map();
   let phases = workType.phases.map((id, order) => {
     const phase = structuredClone(declaredCatalogValue(definition.phases, id));
     const override = structuredClone(declaredCatalogValue(workType.phaseOverrides, id) ?? {});
@@ -1981,12 +2021,14 @@ export function resolveWorkType(definition, workTypeId) {
     assertRepositoryTestSelection(merged, repositoryTests, `Work type '${workTypeId}' phase '${id}'`);
     if (repositoryTests.length && !hasOwnTestCommand(resolvedPhase)
         && (phaseRequiresCodeDelivery(resolvedPhase) || resolvedPhase.repositoryTests === 'run')) {
+      chosenRepositoryTests.set(id, selectedRepositoryTests(merged, repositoryTests));
       resolvedPhase.qualityCommands = [...(resolvedPhase.qualityCommands ?? []), ...structuredClone(selectedRepositoryTests(merged, repositoryTests))];
     }
     delete resolvedPhase.testLevels;
     delete resolvedPhase.testIds;
     return resolvedPhase;
   });
+  phases = withLaterStepTests(phases, chosenRepositoryTests);
   const phaseById = Object.fromEntries(phases.map((phase) => [phase.id, phase]));
   phases = phases.map((phase) => ({
     ...phase,

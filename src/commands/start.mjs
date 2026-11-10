@@ -2011,6 +2011,9 @@ async function startCommandAtRoot(positionals, options) {
   const staffing = ownerStepChecks(workflow)
     ? (await import('../approval-staffing.mjs')).approvalStaffingWarnings(workflow, workflow.workItem.createdBy) : [];
   if (staffing.length) startReadiness = { ...startReadiness, warnings: [...(startReadiness.warnings ?? []), ...staffing] };
+  // Each code step's extra tests, the ones the steps after it chose, named before any code [PHR:REQ-007], item 8.
+  const laterTests = (await import('../later-step-tests.mjs')).laterStepTestNotes(workflow);
+  if (laterTests.length) startReadiness = { ...startReadiness, warnings: [...(startReadiness.warnings ?? []), ...laterTests] };
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },

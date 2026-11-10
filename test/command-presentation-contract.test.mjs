@@ -42,7 +42,7 @@ test('phase document display has a read-only Copilot route with the exact phase 
 
 test('all bundled and direct Copilot skills require command pairs or an explicit absence', async () => {
   assert.match(COMMAND_PRESENTATION_CONTRACT, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
-  assert.match(COMMAND_PRESENTATION_CONTRACT, /never combine them on one line or in a table/);
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /never apart from their label, on one line or in a table/);
   const root = new URL('../plugin/skills/', import.meta.url);
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith('sflow-')) continue;

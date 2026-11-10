@@ -36,8 +36,8 @@ test('a new Story at Specification leads with /sf-phase; the optional assignment
   assertPrimaryFirst(nextsteps(story).actions, { phase: 'specification', skill: '/sf-phase' });
   // The words say which is next and which is optional, three routes each.
   const text = story.run(process.execPath, [CLI, '--no-model', 'nextsteps']).stdout;
-  assert.match(text, /\nNext:\n1\. NOW — [^\n]*\n {3}- Copilot: \/sf-phase\n {3}- Shell: singularity-flow prepare specification\n {3}- VS Code/u);
-  assert.match(text, /\nOptional:\n2\. OPTIONAL — Record who is coordinating 'specification'/u);
+  assert.match(text, /\n1\. Now — Write the Specification\n {3}- Copilot: \/sf-phase\n {3}- Shell: singularity-flow prepare specification\n {3}- VS Code/u);
+  assert.match(text, /\n2\. Optional — Record who coordinates specification\n {3}- Copilot: \/sf-assign\n {3}- Shell: singularity-flow assign specification <assignee>\n {3}- VS Code/u);
   // What a session's agent reads first: the primary, then the optional one, labelled; nothing that comes after.
   const opened = json(story.run(process.execPath, [CLI, '--no-model', 'session', 'open', 'NEXT-1', '--for-agent', '--json']));
   assert.deepEqual(opened.act.next.map((entry) => [entry.timing, entry.copilot]), [['now', '/sf-phase'], ['optional', '/sf-assign']]);

@@ -5,7 +5,7 @@ import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { generationSkillForPhase, applicationReviewOffer } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, applicationReviewOffer, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
@@ -27,6 +27,40 @@ function action(timing, skill, command, reason, metadata = {}) {
   // as plannedAction does for results. A mismatched skill must not hide a safe Shell command.
   const guidance = safeCommandGuidance(candidate) ?? safeCommandGuidance({ command });
   return guidance ? Object.freeze({ ...candidate, ...guidance }) : candidate;
+}
+
+/**
+ * What a person reads for one next action: a short, plain label ("Write the Specification", "Record who coordinates
+ * specification"). `reason` stays the agent's instruction (owner, 2026-11-11: the authoring instruction read as the
+ * action's name). A label the action already has is kept; an unknown command keeps its reason's first clause.
+ */
+export function nextActionLabel(entry, workflow = null) {
+  if (typeof entry?.label === 'string' && entry.label.trim()) return entry.label.trim();
+  const argv = Array.isArray(entry?.argv) ? entry.argv : String(entry?.command ?? '').trim().split(/\s+/u).slice(1);
+  const [verb, sub, third] = argv;
+  const phaseOf = (id) => workflow?.phases?.[id] ?? null;
+  const name = (id) => phaseOf(id)?.label ?? id;
+  const named = argv.find((value) => phaseOf(value)) ?? null;
+  if (verb === 'prepare' && sub) return phaseRequiresCodeDelivery(phaseOf(sub)) ? `Write the code for ${name(sub)}` : `Write the ${name(sub)}`;
+  if (verb === 'phase' && sub === 'begin' && third) return `Write the code for ${name(third)}`;
+  if (verb === 'phase' && sub === 'publish' && third) return `Publish the ${name(third)}`;
+  if (verb === 'phase' && sub === 'prepublish' && third) return `Check the ${name(third)} before publishing it`;
+  if (verb === 'submit' && sub) return `Submit the ${name(sub)} for approval`;
+  if (verb === 'approve' && sub) return `Approve the ${name(sub)}`;
+  if (verb === 'reject' && sub) return `Return the ${name(sub)} for correction`;
+  if (verb === 'assign' && sub) return `Record who coordinates ${sub}`;
+  if (verb === 'inputs' && sub) return `Read the ${name(sub)}'s approved inputs`;
+  if (verb === 'review-source') return named ? `Review the ${name(named)} against its sources` : 'Review against the sources';
+  if (verb === 'wm' && sub === 'compose') return named ? `Compose the ${name(named)} prompt` : 'Compose the prompt';
+  if (verb === 'resume') return 'Choose the agent for this session';
+  if (verb === 'agents') return sub === 'lock' ? 'Trust the agent' : sub === 'sync' ? 'Sync the agent' : 'Check the agent';
+  if (verb === 'decisions' || (verb === 'decision' && sub === 'show')) return 'Open the decision list';
+  if (verb === 'recover') return 'See what needs recovering';
+  if (verb === 'cancel') return 'Cancel this Story';
+  if (verb === 'documents') return 'Review the documents';
+  const reason = String(entry?.reason ?? '').replace(/\s+/gu, ' ').trim();
+  const clause = reason.split(/(?<=[.;:])\s/u)[0].replace(/[.;:]$/u, '');
+  return clause.length > 80 ? `${clause.slice(0, 79)}…` : clause || String(entry?.command ?? '');
 }
 
 /** The run's model mode, so a planner called without one never assumes a model is available. */
@@ -443,7 +477,8 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet })
+    .map((entry) => (entry.label ? entry : Object.freeze({ ...entry, label: nextActionLabel(entry, workflow) })));
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,
@@ -478,11 +513,11 @@ export function nextStepsText(snapshot) {
     'Conversation reset is a Copilot chat action; the listed Shell actions remain valid.', '');
   // Every action names its three entry points in the contract order: Copilot, Shell, then the
   // model-free VS Code route. The reason leads; no surface is presented as the secondary product.
-  // Each run of actions with one timing is headed by what it is: the next one, optional ones, what follows.
-  const heading = { now: 'Next:', optional: 'Optional:', then: 'Then:', alternative: 'Or:' };
+  // Each action is its "<timing> — <label>" line with its own three routes right under it (owner, 2026-11-11).
+  const word = { now: 'Now', optional: 'Optional', then: 'Then', alternative: 'Or' };
   snapshot.actions.forEach((item, index) => {
-    if (heading[item.timing] && snapshot.actions[index - 1]?.timing !== item.timing) lines.push(heading[item.timing]);
-    lines.push(`${index + 1}. ${item.timing.toUpperCase()}${item.copilotTiming === 'after-context-boundary' ? ' (Copilot: after conversation boundary)' : ''} — ${item.reason}`);
+    const timing = word[item.timing] ?? `${String(item.timing ?? '').charAt(0).toUpperCase()}${String(item.timing ?? '').slice(1)}`;
+    lines.push(`${index + 1}. ${timing}${item.copilotTiming === 'after-context-boundary' ? ' (Copilot: after conversation boundary)' : ''} — ${nextActionLabel(item)}`);
     const guidance = safeCommandGuidance(item);
     if (guidance) lines.push(...commandRouteLines(guidance, '   '));
     else lines.push('   The supplied command could not be safely displayed.', ...commandRouteLines({}, '   '));

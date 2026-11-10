@@ -173,17 +173,17 @@ test('a no-approval phase never offers review actions and post-submit state targ
   assert.equal(afterActions.some((item) => /(?:prepare|submit|phase publish) intake/.test(item.command)), false);
 });
 
-test('nextsteps text preserves timing and reason and reads Copilot, Shell, then the model-free route', () => {
+test('nextsteps text shows each action as its timing and label, its Copilot, Shell and model-free routes right under it', () => {
   const snapshot = nextStepsSnapshot({ workflow: workflow() });
   const text = nextStepsText(snapshot);
   assert.match(text, /NEXT-1 — next actions/);
   assert.match(text, /Guided router:\n- Copilot: \/sf-next\n- Shell: singularity-flow next\n- VS Code \(model-free\): not available for this action/);
-  assert.match(text, /NOW — .*\n   - Copilot: \/sf-phase\n   - Shell: singularity-flow prepare intake\n   - VS Code \(model-free\): not available for this action\n/);
-  assert.match(text, /THEN — .*\n   - Copilot: \/sf-publish intake\n   - Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host\n   - VS Code \(model-free\): @sflow \/publish intake\n/);
-  assert.match(text, /THEN — .*\n   - Copilot: \/sf-submit\n   - Shell: singularity-flow submit intake\n   - VS Code \(model-free\): @sflow \/submit intake\n/);
+  assert.match(text, /Now — Write the [^\n]*\n   - Copilot: \/sf-phase\n   - Shell: singularity-flow prepare intake\n   - VS Code \(model-free\): not available for this action\n/);
+  assert.match(text, /Then — Publish the [^\n]*\n   - Copilot: \/sf-publish intake\n   - Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host\n   - VS Code \(model-free\): @sflow \/publish intake\n/);
+  assert.match(text, /Then — Submit the [^\n]* for approval\n   - Copilot: \/sf-submit\n   - Shell: singularity-flow submit intake\n   - VS Code \(model-free\): @sflow \/submit intake\n/);
   assert.doesNotMatch(text, /singularity-flow reject/, 'rejection is offered once the step awaits approval');
   assert.match(nextStepsText(nextStepsSnapshot({ workflow: workflow({ generation: 1, phaseStatus: 'awaiting_approval' }) })),
-    /ALTERNATIVE — .*\n   - Copilot: \/sf-reject\n   - Shell: singularity-flow reject/);
+    /Or — Return the [^\n]* for correction\n   - Copilot: \/sf-reject\n   - Shell: singularity-flow reject/);
 });
 
 test('agent trust and synchronization prerequisites precede generation', () => {
@@ -350,7 +350,7 @@ test('unmet MCP readiness names its setup, in order, as NOW instead of a prepare
   assert.equal(held.filter((entry) => entry.timing === 'now').length, 1);
   const snapshot = nextStepsSnapshot({ workflow: workflow(), mcpHold });
   assert.equal(snapshot.mcpHold, mcpHold);
-  assert.match(nextStepsText(snapshot), /1\. NOW — MCP readiness blocks intake[\s\S]*story target-origin NEXT-1/);
+  assert.match(nextStepsText(snapshot), /1\. Now — MCP readiness blocks intake[\s\S]*story target-origin NEXT-1/);
   assert.equal(workflowNextSteps(workflow({ phaseStatus: 'awaiting_approval', generation: 1 }), { mcpHold })[0].command.includes('target-origin'), false, 'a step in review is not held');
   assert.equal(workflowNextSteps(workflow(), { mcpHold: { ...mcpHold, phase: 'requirements' } })[0].command.includes('target-origin'), false, 'another step\'s readiness holds nothing here');
 });

@@ -61,7 +61,7 @@ export function modelFreeCommandForCommand(command) {
 }
 
 /** Layout only: callers still validate untrusted routes and retain their existing execution gates. */
-export const COMMAND_PRESENTATION_CONTRACT = 'After a blank line, display each next action as three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code (model-free): `<modelFreeCommand>`". Preserve exact returned routes; never combine them on one line or in a table. Missing Copilot: "no verified equivalent"; missing Shell or model-free: "not available for this action". Never invent routes or make further calls for formatting.';
+export const COMMAND_PRESENTATION_CONTRACT = 'Each action: "<timing> — <label>", then its three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code (model-free): `<modelFreeCommand>`". Keep returned routes exact; never apart from their label, on one line or in a table. Missing Copilot: "no verified equivalent"; missing Shell or model-free: "not available for this action". Never invent routes or make more calls for formatting.';
 
 export function commandRouteRows(guidance = {}) {
   guidance ??= {};

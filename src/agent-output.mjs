@@ -341,7 +341,7 @@ export function agentAct(result) {
       // What to do now, the primary first, and the optional ones, labelled; what follows the step's own route is not
       // a next action yet (owner, 2026-11-11).
       const next = actions.filter((entry) => ['now', 'optional', undefined, null].includes(entry?.timing))
-        .map((entry) => routes(entry) && { timing: entry.timing ?? null, ...routes(entry) }).filter(Boolean).slice(0, 5);
+        .map((entry) => routes(entry) && { timing: entry.timing ?? null, ...(entry.label ? { label: entry.label } : {}), ...routes(entry) }).filter(Boolean).slice(0, 5);
       return { state: 'next', do: null,
         story: { workId: result.workId ?? open.workId ?? null, repositoryPath: result.repositoryPath ?? open.repositoryPath ?? null,
           commit: typeof open.head === 'string' ? open.head.slice(0, 12) : null, agent: open.agent ?? result.session?.activeAgent ?? null,

@@ -1,7 +1,7 @@
 /** Read current-phase upstream items; command rendering belongs to the host. */
 import path from 'node:path';
 import {readdir,readFile} from 'node:fs/promises';
-import {discrepancySteps,upstreamDiscrepanciesFromMarkdown} from '../phase-upstream-discrepancies.mjs';
+import {discrepancySteps,upstreamDiscrepanciesFromMarkdown} from '../kernel/phase-upstream-discrepancies.mjs';
 import {discrepancyIssueRequests} from '../upstream-issues.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 const refused=message=>{throw new SingularityFlowError(message,{code:'UPSTREAM_ISSUE_INVALID'});};

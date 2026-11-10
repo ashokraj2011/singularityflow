@@ -6,7 +6,7 @@ import { SingularityFlowError } from '../foundation/failures.mjs';
 import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
 import { renderArtifactTemplateText,utf8Bytes } from '../kernel/artifact-content.mjs';
 import { phaseDraftAccess,phasePreparationSelection,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission } from '../kernel/phase-preparation.mjs';
-import { phaseBeginSelection } from '../kernel/phase-policy.mjs';
+import { phaseBeginSelection,nextPhaseGeneration } from '../kernel/phase-policy.mjs';
 import { projectEnrollmentTimestamp } from '../kernel/project-enrollment.mjs';
 import { storyActorValue } from '../kernel/story-creation.mjs';
 import { sourceSnapshot,sourceUnitDescriptor,sourceRelativePath,validateSourceUnit } from '../foundation/source-snapshot.mjs';
@@ -57,7 +57,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     ...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,localRecords[name].bind(localRecords)]))});
   const privateContent=Object.freeze({descriptor:structuredClone(localContent.descriptor),
     ...Object.fromEntries(CONTENT_STORE_METHODS.map(name=>[name,localContent[name].bind(localContent)]))});
-  const contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap(),draftCaptures=new WeakMap(),admissions=new WeakMap(),sourceReads=new WeakMap(),entryReads=new WeakMap(),openingSources=new WeakMap();
+  const contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap(),draftCaptures=new WeakMap(),admissions=new WeakMap(),sourceReads=new WeakMap(),entryReads=new WeakMap(),openingSources=new WeakMap(),inspectionReads=new WeakMap();
   const store=phaseId=>createNamespaceDraftStore({records:privateRecords,content:privateContent,scope,workId,phaseId});
   const selected=context=>{const value=contexts.get(context);if(!value)throw error('Use the issued preparation context.','ENGINE_INPUT_INVALID');return value;};
   async function authorize(operation,signal,expected=null) {
@@ -154,7 +154,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     const w=captured.snapshot.workflow,repositories=w.sourceBindings?.current?.repositories;
     await repositoryPlans.guard(captured.snapshot,captured.phase.id,Array.isArray(repositories)?repositories.map(row=>row.id):[],{signal});
     if(!Array.isArray(repositories)||!repositories.length)throw error('Bind actual repository sources before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE');
-    const continuing=previous?.payload.generation===captured.phase.generation+1&&same(previous.payload.configuration,captured.snapshot.configuration)
+    const continuing=previous?.payload.generation===nextPhaseGeneration(captured.phase)&&same(previous.payload.configuration,captured.snapshot.configuration)
       &&same(previous.payload.sources,repositories)&&previous.generationBytes!==null,
       predecessor=!continuing&&captured.phase.generation>0?await createNamespaceCodeHistoryReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):null,
       observedRows=[];
@@ -398,8 +398,46 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     if((found===null)!==(fresh===null)||found!==null&&(fresh.revision!==found.revision||!same(fresh.body,found.body)))throw error(
       'The authored draft changed during its phase-entry read.','ENGINE_CONTEXT_CHANGED',{workId,phase:captured.phase.id});
   }
+  // Inspection authenticates its own read permission. The private author's identity is data
+  // from the original draft, and never grants the current reader that author's write authority.
+  async function captureInspectionDraft(phaseId,operation,{signal}={}) {
+    if(!['phase.prepublish','phase.draft-check'].includes(operation))throw error('Use a registered draft inspection.','ENGINE_INPUT_INVALID');
+    const principal=await authorize(operation,signal),captured=await canonical(phaseId,signal),found=await inspectPrivate(captured,signal),token=Object.freeze({});
+    const approved=await observer.approved(captured.snapshot,{signal}),phase=approved.compiled.workflows[captured.snapshot.workflow.workItem.workType]?.phases.find(item=>item.id===phaseId);
+    if(!phase)throw error('The inspected phase is absent from the pinned configuration.','ENGINE_STORAGE_CORRUPT');
+    let inputs=null,author=null,stale=false;
+    if(found){
+      const p=found.payload,binding=phasePreparationSelection(captured.snapshot.workflow,{workId,phaseId},modelEnabled),templateKey=String(phase.template).startsWith('agent:')?phase.template
+        :`${approved.compiled.definition.templatesRoot}/${phase.template}`,template=approved.compiled.templates.find(item=>item.path===templateKey);
+      stale=p.baseRevision!==captured.snapshot.revision||p.generation!==binding.generation||!same(p.configuration,captured.snapshot.configuration);
+      if(!stale){author={actor:p.actor,agentId:p.agentId};
+        if(!template||p.artifact.key!==binding.artifactKey||p.template.key!==templateKey||!same(p.template.reference,template.body))throw error(
+          'The private draft differs from its pinned artifact/template contract.','ENGINE_STORAGE_CORRUPT',{workId,phase:phaseId});
+        phasePreparationCatalogAdmission(approved.compiled.definition,captured.snapshot.workflow,captured.phase,author.agentId);
+        inputs=await resources(captured,approved.compiled,author,signal);}
+    }
+    inspectionReads.set(token,{captured,found,approved,principal,phase,inputs,author,stale,operation});return token;
+  }
+  function inspectionRead(token){const value=inspectionReads.get(token);if(!value)throw error('Use the issued read-only draft inspection.','ENGINE_INPUT_INVALID');return value;}
+  function inspectionDraftFacts(token){const {captured,found,approved,inputs,stale}=inspectionRead(token);
+    return structuredClone({workId,phase:captured.phase.id,revision:captured.snapshot.revision,authorityVersion:captured.basis.authorityVersion,
+      workflow:captured.snapshot.workflow,configuration:captured.snapshot.configuration,definition:approved.compiled.definition,
+      stale,resources:inputs?.records??null,draft:found?{revision:found.revision,bodySha256:found.body.sha256,payload:found.payload}:null});}
+  function inspectionArtifactBytes(token,{initial=false}={}){const {found}=inspectionRead(token);
+    if(!found)throw error('Prepare this phase before reading its private artifact.','ENGINE_DRAFT_MISSING');
+    return Buffer.from(initial?found.initialBytes:found.currentBytes);}
+  async function revalidateInspectionDraft(token,{signal}={}){
+    const {captured,found,approved,principal,inputs,author,operation}=inspectionRead(token);
+    await authorize(operation,signal,principal);await unchanged(captured,signal);
+    const actual=await inspectPrivate(captured,signal);
+    if((found===null)!==(actual===null)||found&&(found.revision!==actual.revision||!same(found.body,actual.body)))throw error(
+      'The authored draft changed during its read-only inspection.','ENGINE_CONTEXT_CHANGED',{workId,phase:captured.phase.id});
+    if(inputs&&!same((await resources(captured,approved.compiled,author,signal)).records,inputs.records))throw error(
+      'The phase inputs changed during draft inspection.','ENGINE_CONTEXT_CHANGED',{workId,phase:captured.phase.id});
+  }
   return Object.freeze({ports,captureDraft,draftIdentity,admitDraft,draftFacts,artifactBytes,initialArtifactBytes,generationIntentBytes,revalidateDraft,
-    captureSourceDraft,sourceDraftFacts,revalidateSourceDraft,captureEntryDraft,entryDraftFacts,entryDraftBytes,revalidateEntryDraft});
+    captureSourceDraft,sourceDraftFacts,revalidateSourceDraft,captureEntryDraft,entryDraftFacts,entryDraftBytes,revalidateEntryDraft,
+    captureInspectionDraft,inspectionDraftFacts,inspectionArtifactBytes,revalidateInspectionDraft});
 }
 
 export function createNamespacePreparationEngine(options) {

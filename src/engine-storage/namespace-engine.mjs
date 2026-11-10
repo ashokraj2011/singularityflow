@@ -32,6 +32,9 @@ import {createNamespaceTestWitnessInspectionPort} from './namespace-test-witness
 import {createNamespaceSourceControlPort} from './namespace-source-control.mjs';
 import {createNamespaceClarificationPorts} from './namespace-clarifications.mjs';
 import {createNamespacePhaseEntryPorts} from './namespace-phase-entry.mjs';
+import {createNamespacePhaseInspectionPorts} from './namespace-phase-inspection.mjs';
+import {createNamespaceStoryQueryPorts} from './namespace-story-queries.mjs';
+import {createNamespaceWorkflowAssetsPort} from './namespace-workflow-assets.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
 function captured(port,validate,methods) {
   validate(port);
@@ -78,11 +81,17 @@ export function createNamespaceEngine(options={}) {
   const runtime=working?createNamespacePreparationRuntime({...common,inputContent:localContent,localRecords:working.records,localContent:working.content}):null;
   const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planDecision;
   const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord=Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
-    const operation=parameters.at(-1)?.operation?.id,port=operation==='decision.plan'?(planDecision??=createNamespacePlanDecisionPort(common))
+    const operation=parameters.at(-1)?.operation?.id;
+    if(operation!=='decision.choose'&&operation!=='decision.plan'&&!NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation))throw new SingularityFlowError(
+      'This decision needs its declared namespace evidence and authority owner.',{code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:'decisionRecord',required:[operation]}});
+    const port=operation==='decision.plan'?(planDecision??=createNamespacePlanDecisionPort(common))
       :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
     return port[stage](...parameters);
   }]));
   const ports={...createNamespaceReadPorts(common,{authority}),
+    ...lazyPorts(()=>createNamespaceStoryQueryPorts(common,runtime),{storyStatus:['load','read'],storyGuide:['load'],storyNext:['load']}),
+    ...lazyPorts(()=>({workflowAssets:createNamespaceWorkflowAssetsPort(common)}),{workflowAssets:['load','read']}),
+    ...lazyPorts(()=>createNamespacePhaseInspectionPorts(common,runtime),{phasePrepublish:['load','inspect'],phaseDraftCheck:['load','inspect']}),
     ...(authority.epoch===1?createNamespaceProjectPorts(common):{}),
     ...createNamespaceConfigurationPorts(common),...createNamespaceStoryPorts(common),
     sourceBinding:createNamespaceSourceBindingPort(common),...(runtime?.ports??{}),...createNamespaceClarificationPorts(common),...createNamespacePhaseEntryPorts(common,runtime),

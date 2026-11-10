@@ -49,6 +49,12 @@ authoring and review resource handles, including on another device.
 It does not cover every application workflow or acceptance contract. Additional production policy
 owners and installed-project migration remain required work.
 
+Use `phase.draft-check` for authored-content health and `phase.prepublish` to inspect the actual
+draft, checkpoints and source/test evidence before publication. These read operations grant no
+write or approval authority and do not run tests. `story.next` observes private draft progress;
+`story.status`, `story.guide` and `workflow.assets` expose the accepted Story and approved asset names.
+A missing configured owner still requires its real namespace implementation.
+
 The namespace Engine also records authenticated scope/completeness/applicability decisions and
 additive plan accounting. Read `scope.context` to obtain actual statement IDs and known clauses,
 including the current private specification. Mutations such as `decision.scope` and `decision.plan`

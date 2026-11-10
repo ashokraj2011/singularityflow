@@ -10,6 +10,7 @@ import {deriveRepositoryPlan,repositoryPlanValue,repositoryPlanTestLocation} fro
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {namespaceSpecificationManifest,namespaceSpecificationIdentity as identity} from './namespace-specification-contract.mjs';
 import {createNamespacePlanDecisionOwners} from './namespace-plan-decisions-reader.mjs';
+import {namespaceCandidateContent} from './namespace-candidate-content.mjs';
 
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -100,8 +101,8 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
     }
     return {inputs,indices};
   }
-  async function derivePublication(publication,snapshot,{signal}={}) {
-    const previous=await prior(snapshot,publication.phase,signal,traversal().token),data=await observer.bytes(publication.artifact.content,publication.artifact.content.bytes,signal);
+  async function derivePublication(publication,snapshot,{signal,artifactBytes}={}) {
+    const previous=await prior(snapshot,publication.phase,signal,traversal().token),data=await namespaceCandidateContent(observer,publication.artifact.content,{signal,artifactBytes});
     return {values:derive(publication,snapshot.workflow,previous.indices,data),inputs:previous.inputs};
   }
   /** Resolve the original human-approved plan and definitions, never caller-supplied claim maps. */

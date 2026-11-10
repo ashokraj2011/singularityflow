@@ -1,3 +1,4 @@
+import {textDigestCapability} from '../foundation/record-schema.mjs';
 /** Append-only upstream rules over admitted observations. No discovery, presence registry or wall clock. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {upstreamDispositionFacts} from './decision-plan.mjs';
@@ -188,4 +189,81 @@ export function decideUpstreamIssue(workflow, {
   workflow.upstreamIssueDecisions ??= [];
   workflow.upstreamIssueDecisions.push(checked.data);
   return checked.data;
+}
+
+/** Recorded artifact ownership and deduplication share the native byte identity. */
+export function upstreamDiscrepancyPolicies(textDigests){
+  const digests=textDigestCapability(textDigests),discrepancyItemSha256=(phase,item)=>digests.sha256Utf8(`${phase}\n${String(item).replace(/\s+/gu, ' ').trim()}`);
+// Story-qualified clause IDs (`W:REQ-001`) and bare ones; record IDs (UPI, CR, PRC, FAM) are not clauses.
+const CLAUSE_IDS = /\b(?:[A-Z0-9][A-Z0-9._-]{0,63}:)?[A-Z]{2,4}-\d{3}\b/gu;
+const RECORD_ID = /(?:^|:)(?:UPI|CR|PRC|FAM)-\d{3}$/u;
+
+/** `parts` joined within `maximum` characters, naming how many did not fit; null when none fits. */
+function fittedList(parts, separator, maximum = 200) {
+  for (let count = parts.length; count > 0; count -= 1) {
+    const value = `${parts.slice(0, count).join(separator)}${count < parts.length ? ` and ${parts.length - count} more` : ''}`;
+    if (value.length <= maximum) return value;
+  }
+  return null;
+}
+
+/**
+ * What `--from-artifact` records for one item: its whole text as the problem, the clause IDs it
+ * names anywhere (else its section titles) as what it is about, and its own Assumption, Impact and
+ * Proposed owner action fields. A proposal is read only when it opens with one of the proposal
+ * kinds; anything else stays 'unknown' and its words stay in the problem.
+ */
+function discrepancyIssueFields(item) {
+  const text = String(item?.text ?? '').trim();
+  const ids = [...new Set(text.match(CLAUSE_IDS) ?? [])].filter((id) => !RECORD_ID.test(id));
+  const action = String(item?.proposed ?? '').replace(/[*_`]/gu, '').trim();
+  const proposed = UPSTREAM_ISSUE_PROPOSALS.find((kind) => kind !== 'unknown'
+    && new RegExp(`^${kind.replace('-', '[- ]')}(?![\\p{L}\\p{N}-])`, 'iu').test(action)) ?? 'unknown';
+  return {
+    about: fittedList(ids, ', ') ?? fittedList(item?.sections ?? [], ' / ') ?? 'recorded discrepancy',
+    problem: text.length >= 20 ? text : `Recorded discrepancy: ${text}`,
+    assumption: item?.assumption ?? null, impact: item?.impact ?? null, proposed
+  };
+}
+
+/**
+ * Sort the items a step's own documents record (`{ path, item }`) for `--from-artifact`: requests
+ * to raise; items without exactly one earlier owning step, never raised on a guess; and items too
+ * long to record whole. An item already filed is skipped, including one filed under the 300
+ * characters the reader once kept. One filed against another step (the reader once took the first
+ * step named anywhere in the text) is replaced: the new issue supersedes it while it is open.
+ */
+function discrepancyIssueRequests(workflow, entries, {states = upstreamIssueStates(workflow,undefined)} = {}) {
+  const raised = new Set(states.map(({ issue }) => issue.source?.itemSha256).filter(Boolean));
+  const requests = [];
+  const unowned = [];
+  const tooLong = [];
+  for (const { path, item } of entries) {
+    const fields = discrepancyIssueFields(item);
+    const target = workflow.phases?.[item.phase];
+    // An owner that has not run (a skipped step) has nothing to decide; the author names another.
+    const owner = item.phase && (!(Number(target?.generation) > 0) || target.status === 'not_started')
+      ? { ...item.owner, status: 'not-run' } : item.owner;
+    if (!item.phase || owner !== item.owner) {
+      unowned.push({ path, text: item.text, owner, about: fields.about });
+      continue;
+    }
+    const texts = [...new Set([item.text, item.legacyText ?? item.text])];
+    const itemSha256 = discrepancyItemSha256(item.phase, item.text);
+    if (texts.some((text) => raised.has(discrepancyItemSha256(item.phase, text)))
+      || requests.some((entry) => entry.source.itemSha256 === itemSha256)) continue;
+    const prior = states.find(({ issue }) => issue.phase !== item.phase && issue.source?.path === path
+      && texts.some((text) => discrepancyItemSha256(issue.phase, text) === issue.source.itemSha256));
+    if (prior?.supersededBy) continue;
+    if (fields.problem.length > UPSTREAM_ISSUE_PROBLEM_MAXIMUM) {
+      tooLong.push({ path, length: fields.problem.length, text: item.text });
+      continue;
+    }
+    const supersedes = prior && prior.status !== 'decided' && !requests.some((entry) => entry.supersedes === prior.issue.id) ? prior.issue.id : null;
+    requests.push({ phase: item.phase, ...fields, source: { path, itemSha256 }, supersedes });
+  }
+  return { requests, unowned, tooLong };
+}
+
+  return Object.freeze({discrepancyIssueFields,discrepancyIssueRequests,discrepancyItemSha256});
 }

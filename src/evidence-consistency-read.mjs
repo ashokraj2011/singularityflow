@@ -72,7 +72,7 @@ export async function readEvidenceConsistency(root, config, workflow, phase, opt
       now: options.at, reused: (executionEvidence?.reusedTestEvidence ?? []).filter((entry) => entry.state === 'active') }),
     ...witnessReportFindings(document.content, visualReviews?.reviews ?? [])]
       .map((entry) => ({ ...entry, path: document.path })));
-    const { upstreamDiscrepanciesFromMarkdown, discrepancySteps } = await import('./phase-upstream-discrepancies.mjs');
+    const { upstreamDiscrepanciesFromMarkdown, discrepancySteps } = await import('./kernel/phase-upstream-discrepancies.mjs');
     const { discrepancyIssueRequests } = await import('./upstream-issues.mjs');
     const order = workflow.phaseOrder ?? [];
     const earlier = order.slice(0, Math.max(0, order.indexOf(phase.id)));

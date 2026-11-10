@@ -1,7 +1,7 @@
 /** Upstream command grammar and presentation; registered operations own coordination. */
 import {repoRoot} from '../git.mjs';
 import {createGitEngine} from '../engine-compatibility/git-publication.mjs';
-import {discrepancySteps} from '../phase-upstream-discrepancies.mjs';
+import {discrepancySteps} from '../kernel/phase-upstream-discrepancies.mjs';
 import {revalidateCommand} from '../forward-amendments.mjs';
 import {upstreamIssueDecideCommand} from '../upstream-issues.mjs';
 import {commandResult,effects,noEffects,succeeded} from '../narration/command-result.mjs';

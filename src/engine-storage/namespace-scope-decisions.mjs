@@ -8,7 +8,7 @@ import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
 import {scopeAuthorities} from '../kernel/scope-decisions.mjs';
 import {omissionAuthorities,recordApplicabilityDecision} from '../kernel/applicability.mjs';
 import {resolvedClarificationPolicy} from '../kernel/clarification-responses.mjs';
-import {phaseNeedsGeneration} from '../kernel/phase-policy.mjs';
+import {phaseNeedsGeneration,nextPhaseGeneration} from '../kernel/phase-policy.mjs';
 import {phaseDefinesSpecificationClaims} from '../kernel/specification-policy.mjs';
 import {scopeStatements,scopeInventory,scopeDecisions} from '../engine-compatibility/node-scope-policy.mjs';
 import {extractClauses} from '../engine-compatibility/node-specification-policy.mjs';
@@ -56,7 +56,7 @@ export function createNamespaceScopeDecisionOwners({observer,scope,workId,runtim
       if(phaseDefinesSpecificationClaims(workflow,phase)&&phaseId===workflow.currentPhase&&phaseNeedsGeneration(workflow,phase)){
         if(bound?.profile==='sflow-namespace-scope-source/v2'){
           const retained=bound.drafts?.find(row=>row.phase===phaseId);
-          if(retained){if(retained.generation!==phase.generation+1||retained.artifact.content.namespace!=='evidence')throw error(
+          if(retained){if(retained.generation!==nextPhaseGeneration(phase)||retained.artifact.content.namespace!=='evidence')throw error(
             'The retained draft has another scope generation.','ENGINE_STORAGE_CORRUPT');
             authored={...retained,body:await text(retained.artifact.content,signal)};}
         }else if(!bound&&runtime){
@@ -65,7 +65,7 @@ export function createNamespaceScopeDecisionOwners({observer,scope,workId,runtim
           draftReads.push(token);
           if(draft){const payload=draft.payload,bytes=await runtime.entryDraftBytes(token,payload.artifact.current,{signal}),
             reference={namespace:'evidence',sha256:hash(bytes),bytes:bytes.byteLength};
-            if(payload.generation!==phase.generation+1)throw error('The scope draft is not the next authored generation.','ENGINE_CONTEXT_CHANGED');
+            if(payload.generation!==nextPhaseGeneration(phase))throw error('The scope draft is not the next authored generation.','ENGINE_CONTEXT_CHANGED');
             authored={phase:phaseId,generation:payload.generation,revision:draft.revision,bodySha256:draft.bodySha256,
               artifact:{key:payload.artifact.key,content:reference},body:new TextDecoder('utf-8',{fatal:true}).decode(bytes)};
             pendingEvidence.push({reference,bytes});}
@@ -80,7 +80,7 @@ export function createNamespaceScopeDecisionOwners({observer,scope,workId,runtim
         if(value){artifacts.push({phase:phaseId,generation:phase.generation,publication:binding});references.push(binding.record,value.artifact.content);}
       }
       if(resolvedClarificationPolicy(approved,workflow,phase).mode==='off')continue;
-      const generations=[...(phase.generation>0?[phase.generation]:[]),...(workflow.currentPhase===phaseId&&phaseNeedsGeneration(workflow,phase)?[phase.generation+1]:[])];
+      const generations=[...(phase.generation>0?[phase.generation]:[]),...(workflow.currentPhase===phaseId&&phaseNeedsGeneration(workflow,phase)?[nextPhaseGeneration(phase)]:[])];
       for(const generation of generations){
         let observed,accepted;
         if(bound){const row=bound.checkpoints?.find(item=>item.phase===phaseId&&item.generation===generation);

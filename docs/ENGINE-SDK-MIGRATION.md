@@ -74,6 +74,10 @@ on this Mac within the existing limits. Earlier deadline failures below are hist
 [The active completion ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md) keeps the remaining Phase 5/7
 owners explicit; neither phase is claimed complete.
 
+The [namespace read-owner delivery](ENGINE-SDK-NAMESPACE-READ-OPERATIONS.md) adds actual private-draft
+inspection, ordinary Story queries and approved dependency names. It preserves the installed Git
+paths and leaves the remaining mutation/execution profiles in the completion ledger.
+
 The [human conformance and reviewer-return extension](ENGINE-SDK-HUMAN-CONFORMANCE-REWORK.md)
 adds registry operations for exact conformance context and upstream-owner dispositions, plus the
 namespace implementation of `phase.reject`. Human records have their own immutable v1 contract;

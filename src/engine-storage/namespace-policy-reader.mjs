@@ -12,6 +12,7 @@ import {createNamespaceCodeInputReader} from './namespace-code-inputs.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespaceClarificationReader,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
 import {answeredMarkerHashes,resolvedClarificationPolicy} from '../kernel/clarification-responses.mjs';
+import {namespaceCandidateContent} from './namespace-candidate-content.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -39,16 +40,18 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     const manifest=namespaceAnalysisManifest(await json(evidence.record,signal),{scope,workId,phaseId}),report=await json(manifest.report,signal);
     return {binding,markers:report.markers.open};
   }
-  async function candidate(publication,snapshot,{signal}={}) {
+  async function candidate(publication,snapshot,{signal,artifactBytes,inspectClarification=false}={}) {
     const approved=await observer.approved(snapshot,{signal}),phase=snapshot.workflow.phases[publication.phase],
       selected=specificationAnalysisPublicationPolicy(approved.compiled.definition,snapshot.workflow,phase);
     if(!selected)throw error('This phase does not declare specification analysis.','ENGINE_INPUT_INVALID');
-    const prior=await previous(snapshot,publication.phase,publication.generation,signal),data=await observer.bytes(publication.artifact.content,publication.artifact.content.bytes,signal);
+    const prior=await previous(snapshot,publication.phase,publication.generation,signal),data=await namespaceCandidateContent(observer,publication.artifact.content,{signal,artifactBytes});
     let text;try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(data);}
     catch(cause){throw error('Specification analysis requires actual UTF-8 artifact bytes.','ARTIFACT_AUTHORING_INCOMPLETE',null,cause);}
     const clarification=publication.policyEvidence?.find(item=>item.kind===CLARIFICATION_EVIDENCE);
-    const replies=clarification?await verifyClarification(publication,clarification,signal):null;
-    if(resolvedClarificationPolicy(approved.compiled.definition,snapshot.workflow,phase).mode!=='off'&&!clarification)throw error(
+    const replies=clarification?await verifyClarification(publication,clarification,signal)
+      :inspectClarification&&resolvedClarificationPolicy(approved.compiled.definition,snapshot.workflow,phase).mode!=='off'
+        ?{response:(await clarificationCandidate(publication,snapshot,{signal})).checkpoint.accepted}:null;
+    if(resolvedClarificationPolicy(approved.compiled.definition,snapshot.workflow,phase).mode!=='off'&&!clarification&&!inspectClarification)throw error(
       'Specification analysis needs its actual clarification checkpoint proof.','ENGINE_PORT_UNAVAILABLE',{required:['clarification-record']});
     const gate=specificationGateValue(text,{artifactPath:publication.artifact.sourceKey,phase:publication.phase,generation:publication.generation,
       policy:selected.quality,markerMode:selected.markerMode,namespace:snapshot.workflow.resolution.spec?.namespace??null,previousMarkers:prior.markers,
@@ -143,6 +146,8 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   }
   return Object.freeze({candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
     codeInputCandidate:(...args)=>inputReader().candidate(...args),conformanceCandidate:(...args)=>conformanceReader().candidate(...args),
+    freshCodeCandidate:(...args)=>codeReader().freshCandidate(...args),freshInputCandidate:(...args)=>inputReader().freshEvidence(...args),
+    freshConformanceCandidate:(...args)=>conformanceReader().freshCandidate(...args),
     freshInputSources:(publication,...args)=>proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))
       ?conformanceReader().freshSources(publication,...args):inputReader().freshSources(publication,...args),
     requiresDisposition:(publication,options)=>publication.policyEvidence?.some(value=>isConformanceEvidence(value.kind))===true&&proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))&&conformanceReader().requiresDisposition(publication,options),

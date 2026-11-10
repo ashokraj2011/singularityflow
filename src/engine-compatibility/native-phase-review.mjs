@@ -12,7 +12,7 @@ import { criterionResults, witnessResult } from "../kernel/verification-witnesse
 import { withReadScope } from '../read-scope.mjs';
 import { witnessMappingReview } from '../witness-review-read.mjs';
 import { owedDecisions, stepsThrough } from '../owed-decisions.mjs';
-import { phaseUpstreamDiscrepancies } from '../phase-upstream-discrepancies.mjs';
+import { phaseUpstreamDiscrepancies } from '../kernel/phase-upstream-discrepancies.mjs';
 import { openUpstreamIssues, upstreamIssueDecideCommand } from '../upstream-issues.mjs';
 import { phaseAuthoringSummary } from '../phase-authoring-summary.mjs';
 

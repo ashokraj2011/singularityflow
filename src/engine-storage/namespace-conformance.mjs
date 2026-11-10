@@ -13,13 +13,14 @@ import {namespaceSpecificationManifest,namespaceSpecificationIdentity} from './n
 import {createNamespaceConformanceDecisionOwner} from './namespace-conformance-decision-reader.mjs';
 import {createNamespaceUpstreamOwners} from './namespace-upstream-reader.mjs';
 import {namespaceConformanceManifest} from './namespace-policy-contract.mjs';
+import {namespaceCandidateContent} from './namespace-candidate-content.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null,cause)=>new SingularityFlowError(message,{code,details,cause});
 export function createNamespaceConformanceReader({observer,scope,workId}){
-  const inputs=createNamespaceCodeInputReader({observer,scope,workId}),verified=new WeakMap();
+  const inputs=createNamespaceCodeInputReader({observer,scope,workId}),verified=new WeakMap(),candidates=new WeakMap();
   async function json(reference,signal){const bytes=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch(cause){throw error('Conformance evidence is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',null,cause);}}
-  async function candidate(publication,snapshot,{signal,policyTraversal,version=null}={}){
+  async function candidate(publication,snapshot,{signal,policyTraversal,version=null,artifactBytes}={}){
     const code=await inputs.candidate(publication,snapshot,{signal,policyTraversal,conformance:true});
     return observer.withReadScope(async scoped=>{
       const checks=createNamespacePhaseCheckReader({...scoped.evidenceReads,observer:scoped}),packets=createNamespaceSubmissionReader({observer:scoped,scope,workId,checks}),
@@ -34,7 +35,7 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
       const observations=code.report.inputs.flatMap(input=>input.repositories.flatMap(repository=>Object.entries(repository.observed.claims).map(([clauseId,claim])=>({
         clauseId,phase:input.phase,generation:input.generation,repositoryId:repository.id,verdict:claim.verdict,sourceRevision:repository.sourceRevision,
         checks:input.checks,witnesses:repository.witnesses.filter(row=>row.witness.clauseId===clauseId).map(row=>({id:row.witness.logicalTestId??null,status:row.result.status}))})))),
-        data=await observer.bytes(publication.artifact.content,publication.artifact.content.bytes,signal);
+        data=await namespaceCandidateContent(observer,publication.artifact.content,{signal,artifactBytes});
       let markdown;try{markdown=new TextDecoder('utf-8',{fatal:true}).decode(data);}catch(cause){throw error('Conformance requires UTF-8 report content.','ARTIFACT_AUTHORING_INCOMPLETE',null,cause);}
       const linked=version===2||version===null&&((snapshot.workflow.upstreamIssues??[]).length>0||/\bUPI-\d{3,}\b/u.test(markdown)),
         selected={workflow:snapshot.workflow,phaseId:publication.phase,clauseIds:[...new Set(clauseIds)],observations},
@@ -48,7 +49,8 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
       if(result.findings.length)throw error('Repair the conformance rows against their exact approved evidence.','ARTIFACT_AUTHORING_INCOMPLETE',{
         phase:publication.phase,findings:result.findings,operation:'phase.draft.write'});
       const profile=namespaceConformancePolicyProfile('conformanceReport',{schemaVersion:v2?2:1});
-      return {code,policy:code.policy,report:{schemaVersion:profile.version,format:profile.format,inputs:code.report,definitions,rows:result.rows,gaps:result.gaps,...(v2?{upstream,issueEvidence}:{})}};
+      const value={code,policy:code.policy,report:{schemaVersion:profile.version,format:profile.format,inputs:code.report,definitions,rows:result.rows,gaps:result.gaps,...(v2?{upstream,issueEvidence}:{})}};
+      candidates.set(value,hash(value));return value;
     });
   }
   async function verify(publication,binding,{signal,policyTraversal}={}){
@@ -71,6 +73,8 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
   function evidence(value){return [value.binding.record,value.manifest.report,...inputs.sourceEvidence(value.code),
     ...value.report.definitions.flatMap(row=>[row.publication.record,row.submission.record,row.index]),...(value.report.issueEvidence??[])];}
   async function freshSources(publication,units,options){const value=proof(publication);if(!value)throw error('Verify the exact conformance before source admission.','ENGINE_INPUT_INVALID');return inputs.freshEvidence(value.code,units,options);}
+  async function freshCandidate(value,units,options){if(candidates.get(value)!==hash(value))throw error('Use the unchanged conformance candidate before source admission.','ENGINE_INPUT_INVALID');
+    return inputs.freshEvidence(value.code,units,options);}
   function dispositionRequirement(publication,{reached=true,reworkTarget=null}={}){
     const value=proof(publication);if(!value)throw error('Read the exact conformance before its human disposition.','ENGINE_INPUT_INVALID');
     return {value,required:reached&&value.report.gaps.length>0&&(!reworkTarget||value.report.gaps.some(row=>!row.owners.includes(reworkTarget)))};
@@ -91,5 +95,5 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
         {operation:'phase.review',inputs:{workId,phaseId:publication.phase}}]});
     return [...decisions.filter(row=>row.active).flatMap(row=>[row.reference,...row.source.references]),...linked.filter(row=>row.active).flatMap(row=>row.references)];
   }
-  return Object.freeze({candidate,verify,proof,evidence,freshSources,assertApproval,requiresDisposition});
+  return Object.freeze({candidate,verify,proof,evidence,freshSources,freshCandidate,assertApproval,requiresDisposition});
 }

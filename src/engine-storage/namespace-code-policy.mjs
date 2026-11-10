@@ -76,7 +76,7 @@ async function observedClaimMap(planned,delivery,publication,policy,repositoryId
 }
 export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   const bindings=observer.evidenceReads;if(!bindings)missing('source-evidence-read-bindings');
-  const sources=createNamespaceSourceRetentionReader({...bindings,observer}),verified=new WeakMap();
+  const sources=createNamespaceSourceRetentionReader({...bindings,observer}),verified=new WeakMap(),candidates=new WeakMap();
   function withReaders(read){return observer.withReadScope(scoped=>{const options={...bindings,observer:scoped},scopedChecks=createNamespacePhaseCheckReader(options);return read({observer:scoped,checks:scopedChecks,
     sources:createNamespaceSourceRetentionReader(options),baseline:createNamespaceSourceBaselineReader(options),controls:createNamespaceSourceControlReader(options),
     plans:createNamespaceSpecificationReader({observer:scoped,scope,workId,checks:scopedChecks}),current:createNamespaceCodePreflightReader(options),retained:createNamespaceRetainedCodePreflightReader(options)});});}
@@ -151,7 +151,8 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
     const version=namespaceCodePreflightVersion(preflight),report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
     return {report,source,policy};
   }
-  function candidate(publication,snapshot,options){return withReaders(readers=>candidateFor(publication,snapshot,options,readers));}
+  async function candidate(publication,snapshot,options){const value=await withReaders(readers=>candidateFor(publication,snapshot,options,readers));
+    candidates.set(value,{identity:canonicalJson(publication),sha256:hash(canonicalJson(value))});return value;}
   async function verify(publication,binding,{signal,policyTraversal}={}){
     return withReaders(async readers=>{
     const manifest=namespaceCodeManifest(await json(binding.record,signal),{scope,workId,phaseId:publication.phase});
@@ -179,6 +180,15 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
     ...(p.plan.amendments??[]).map(row=>row.record),...(p.history?.profile==='sflow-namespace-code-history/v4'?p.history.returns.flatMap(row=>row.references):p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,(p.history.return.choice??p.history.return.rejection??p.history.return.approval).record]:[])];}
   async function freshSources(publication,units,{signal}={}){
     const value=proof(publication);if(!value)throw error('Verify the exact Code proof before checking source freshness.','ENGINE_INPUT_INVALID');
+    return readFreshSources(value,publication,units,{signal});
+  }
+  async function freshCandidate(value,publication,units,{signal}={}){
+    const found=candidates.get(value);
+    if(!found||found.identity!==canonicalJson(publication)||found.sha256!==hash(canonicalJson(value)))throw error(
+      'Use the unchanged Code candidate before inspecting its source freshness.','ENGINE_INPUT_INVALID');
+    return readFreshSources(value,publication,units,{signal});
+  }
+  async function readFreshSources(value,publication,units,{signal}={}){
     const selected=new Map(units.map(unit=>[validateSourceUnit(unit).repositoryId,unit]));
     for(const source of value.source.plan.sources){const unit=selected.get(source.repository.id);if(!unit||!same(unit.descriptor,source.repository.descriptor))throw error('Bind the actual Code source before publication.','ENGINE_SOURCE_UNIT_UNAVAILABLE');
       const observed=await unit.capture({signal}),snapshot=sourceSnapshot(observed.snapshot,unit.descriptor);
@@ -187,5 +197,5 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         'Code source changed after its retained evidence.','ENGINE_SOURCE_CHANGED',{operation:'phase.source.retain',workId,phase:publication.phase});
     }
   }
-  return Object.freeze({sourceBinding,candidate,verify,reuse,proof,readBindings,evidence,freshSources});
+  return Object.freeze({sourceBinding,candidate,verify,reuse,proof,readBindings,evidence,freshSources,freshCandidate});
 }

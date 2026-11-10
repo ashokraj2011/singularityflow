@@ -50,6 +50,9 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   per-repository projections and safe same-generation Code continuation after shared decisions.
 - Registered local-only document/image inputs, all-phase read/re-upload manifests, detachment,
   separate input/draft stores and interruption recovery.
+- Namespace draft/prepublication inspection, Story status/guide/next and approved workflow inventory.
+  [The read-owner record](ENGINE-SDK-NAMESPACE-READ-OPERATIONS.md) documents real evidence and limits.
+- One pure discrepancy parser/filing rule owner with native presence-counted compatibility.
 - Invocation-local immutable proof reuse, a narrow Auto Plan/inventory read closure, and the
   unchanged installed-package qualifier passing all 34 checks in 92 seconds on this Mac.
 

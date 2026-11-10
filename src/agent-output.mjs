@@ -62,6 +62,10 @@ const DUPLICATE_TEXT_BYTES = 600;
 const DOCUMENT_BODY_BYTES = 600;
 const DOCUMENT_BODY_REASON = 'document body: the person reviews it outside the chat; open it only to quote a line';
 const FIELD_BYTES = 6_000;
+// Who and where the result is about: an agent that sees only the view still works in the right checkout on the right
+// Story and step. Every skill's boundary runs its commands from `repositoryPath`, so these leave a view last.
+const IDENTITY_FIELDS = new Set(['ready', 'repositoryPath', 'workId', 'phase', 'phaseStatus', 'generation', 'status']);
+const identityLast = (left, right) => Number(IDENTITY_FIELDS.has(left)) - Number(IDENTITY_FIELDS.has(right));
 const SMALL_FIELD_BYTES = 300;
 const KEPT_RESULTS = 40;
 // The omitted-field list a view shows; past it, a count and a paged index file. `[OUT:REQ-014]`
@@ -889,7 +893,7 @@ function unretainedView(act, ordered, budget, agentJson, unkept = null) {
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])), ...nextOf(act, ordered) });
   const kept = new Set(keys);
   // The fields act reads stay longest; otherwise the largest go first.
-  const order = (left, right) => Number(reads.has(left)) - Number(reads.has(right)) || size[right] - size[left];
+  const order = (left, right) => identityLast(left, right) || Number(reads.has(left)) - Number(reads.has(right)) || size[right] - size[left];
   while (bytes(render(kept)) > budget && kept.size) kept.delete([...kept].sort(order)[0]);
   const rendered = render(kept);
   if (bytes(rendered) <= budget) return `${rendered}\n`;
@@ -1095,7 +1099,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   const top = (fields) => new Set((fields ?? []).map((field) => String(field).split('.')[0]));
   const actReads = top(act?.read), readOrder = top([...(result.agentGuide ? ['agentGuide'] : []), ...(result.agentGuide?.readOrder ?? [])]);
   const tier = (key) => actReads.has(key) ? 0 : readOrder.has(key) ? 1 : 2;
-  const removalOrder = (left, right) => (size[right] > SMALL_FIELD_BYTES) - (size[left] > SMALL_FIELD_BYTES)
+  const removalOrder = (left, right) => identityLast(left, right) || (size[right] > SMALL_FIELD_BYTES) - (size[left] > SMALL_FIELD_BYTES)
     || tier(right) - tier(left) || size[right] - size[left];
   const kept = new Set(keys.filter((key) => textFiles[key].length === 0 && (size[key] <= FIELD_BYTES || tier(key) < 2)));
   // What stays is decided first, against the widest numbers the file can produce: reordering its

@@ -44,19 +44,22 @@ export function activeVisualRisk(workflow, comparison, { at = new Date().toISOSt
 
 /** Record a decision on the aggregate; the caller found the comparison and checked the person's authority over `phase`. */
 export function recordVisualRisk(workflow, { comparison, phase, expires, reason, actor, authorityGroup, identityAssurance = null, at }) {
-  if (!comparison) refused('Name a recorded visual comparison with --comparison (singularity-flow visual status lists them).');
+  // Each refusal names the decision as it can be made [PHR:REQ-006].
+  const status = { command: 'singularity-flow visual status --json', label: 'See the recorded comparisons and which of them fail.' };
+  if (!comparison) refused('Name a recorded visual comparison with --comparison (singularity-flow visual status lists them).', { nextAction: status });
   if (!comparisonFails(workflow, comparison)) {
     refused(comparison.unreadable
       ? `${comparison.id} cannot be read, so its risk cannot be accepted: an unreadable record is an integrity failure; restore it.`
-      : `${comparison.id} does not fail this Story's enforced thresholds; there is no risk to accept.`, { comparison: comparison.id });
+      : `${comparison.id} does not fail this Story's enforced thresholds; there is no risk to accept.`, { comparison: comparison.id, nextAction: status });
   }
+  const again = { command: visualRiskCommand(workflow, comparison), label: `Accept the risk of ${comparison.id} with a date and a reason.` };
   const expiry = /^\d{4}-\d{2}-\d{2}$/u.test(String(expires ?? '')) ? new Date(`${expires}T23:59:59.999Z`) : null;
   const now = new Date(at);
   if (!expiry || Number.isNaN(expiry.getTime()) || expiry <= now || expiry - now > MAX_RISK_DAYS * DAY) {
-    refused(`--expires must be a date after today and at most ${MAX_RISK_DAYS} days ahead (YYYY-MM-DD).`);
+    refused(`--expires must be a date after today and at most ${MAX_RISK_DAYS} days ahead (YYYY-MM-DD).`, { nextAction: again });
   }
   const text = String(reason ?? '').trim();
-  if (text.length < 20 || text.length > 1000) refused('Say why the risk is acceptable in 20 to 1000 characters with --reason.');
+  if (text.length < 20 || text.length > 1000) refused('Say why the risk is acceptable in 20 to 1000 characters with --reason.', { nextAction: again });
   workflow.visualRiskDecisions ??= [];
   const record = { id: `VRK-${String(workflow.visualRiskDecisions.length + 1).padStart(3, '0')}`, comparisonId: comparison.id,
     comparisonSha256: comparisonDigest(comparison), profileId: comparison.profileId ?? null, phase,

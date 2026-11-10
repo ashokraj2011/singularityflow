@@ -28,15 +28,17 @@ async function openSlot(root, config, workflow, clauseId, slotName) {
   const { evaluateEvidence } = await import('../evidence/evaluate.mjs');
   const row = evaluateEvidence(await evidenceGraphFromAggregate(root, config, workflow)).rows.find((entry) => entry.id === clauseId) ?? null;
   const slot = row?.type === 'AC' ? (row.verification?.contract?.slots ?? []).find((entry) => entry.slot === slotName) ?? null : null;
+  // Each refusal names where the criterion's sign-offs are read and given [PHR:REQ-006].
+  const matrix = { nextAction: { command: `singularity-flow evidence matrix ${workflow.workItem.id}`, label: 'See each criterion\'s slots and who answers for them.' } };
   if (!slot || !['inspection', 'visual'].includes(slot.method)) {
-    throw new SingularityFlowError(`${clauseId || 'That criterion'} has no inspection or visual slot ${slotName || '(none given)'}; see singularity-flow evidence matrix.`, { code: 'WITNESS_DEFERRAL_INVALID' });
+    throw new SingularityFlowError(`${clauseId || 'That criterion'} has no inspection or visual slot ${slotName || '(none given)'}; see singularity-flow evidence matrix.`, { code: 'WITNESS_DEFERRAL_INVALID', details: matrix });
   }
-  if (slot.status === 'met') throw new SingularityFlowError(`${clauseId}'s slot ${slotName} is already signed off; there is nothing to defer.`, { code: 'WITNESS_DEFERRAL_INVALID' });
+  if (slot.status === 'met') throw new SingularityFlowError(`${clauseId}'s slot ${slotName} is already signed off; there is nothing to defer.`, { code: 'WITNESS_DEFERRAL_INVALID', details: matrix });
   const verify = row.obligations.find((entry) => entry.responsibility === 'verify');
   const implement = row.obligations.find((entry) => entry.responsibility === 'implement');
   const from = activeWitnessDeferral(workflow, clauseId, slotName)?.to
     ?? (verify?.owningSteps?.length ? verify.owningSteps : implement?.owningSteps ?? []).at(-1) ?? null;
-  if (!from) throw new SingularityFlowError(`No step delivers ${clauseId}, so its sign-off cannot be deferred from one.`, { code: 'WITNESS_DEFERRAL_INVALID' });
+  if (!from) throw new SingularityFlowError(`No step delivers ${clauseId}, so its sign-off cannot be deferred from one.`, { code: 'WITNESS_DEFERRAL_INVALID', details: matrix });
   return { method: slot.method, from };
 }
 

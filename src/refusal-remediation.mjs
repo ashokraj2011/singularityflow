@@ -1833,6 +1833,19 @@ function reviewedLockReleasePlan(error, code) {
 }
 
 export function refusalRemediationPlan(error, argv = []) {
+  const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
+  // A refusal that holds a step for its own output leads with the repair in that step, in this turn [PHR:REQ-006].
+  const ownerStep = ownerStepRemediationPlan(error, stripGlobalModelOptions(argv), code);
+  if (ownerStep) return ownerStep;
+  const plan = remediationPlanFor(error, argv);
+  // A criterion's own failing test is repaired in this step; no step sends its author to recover it [PHR:REQ-006].
+  if (code === 'CODE_TEST_FAILED' && error?.details?.criteria?.length) {
+    return Object.freeze({ ...plan, steps: Object.freeze(plan.steps.filter((entry) => !leavesTheStep(entry))) });
+  }
+  return plan;
+}
+
+function remediationPlanFor(error, argv = []) {
   // The CLI drops the global --no-model before dispatching; the phase this refusal belongs to is
   // read from the same command words, or a no-model run loses its phase scope.
   argv = stripGlobalModelOptions(argv);
@@ -2415,6 +2428,12 @@ export function refusalEnvelope(error, argv = []) {
 }
 
 export function renderRefusalPlan(plan) {
+  // An owner-step plan reads as the default phase plan, with its own scope line [PHR:REQ-006].
+  const ownerScope = OWNER_STEP_SCOPES[plan?.context?.strategy];
+  if (ownerScope) {
+    return renderRefusalPlan({ ...plan, context: { ...plan.context, strategy: 'repair-current-phase' } }).split('\n')
+      .map((line) => (line.startsWith('  Scope: phase ') ? `  Scope: phase ${plan.context.phaseId} — ${ownerScope}` : line)).join('\n');
+  }
   const lines = ['Recovery plan:'];
   if (plan.context?.scope === 'phase') {
     lines.push(
@@ -2451,4 +2470,64 @@ export function renderRefusalPlan(plan) {
   if (plan.documentation) lines.push(`  Documentation: ${plan.documentation.command}`);
   lines.push(`  Then: ${plan.retry.label}`);
   return lines.join('\n');
+}
+
+/**
+ * The refusals that hold a step for its own output [PHR:REQ-006]: the one way out is the repair the refusal itself
+ * names, in that step and in this turn. The author repairs (`author-repairs-in-step`), or a person who decides for
+ * that step decides (`person-decides-in-step`). Never a recover, a return to another step, or the end of the turn,
+ * unless the refusal names that as its own repair (a code step's author corrects it in a generation returned to
+ * that same step).
+ */
+const OWNER_STEP_STRATEGIES = Object.freeze({
+  CRITERION_TESTS_FAILED: 'author-repairs-in-step',
+  CRITERION_TESTS_UNVERIFIED: 'author-repairs-in-step',
+  EVIDENCE_STALE_AFTER_SCOPE_REVISION: 'author-repairs-in-step',
+  SPEC_ACCEPTANCE_INCOMPLETE: 'author-repairs-in-step',
+  INTENT_AMENDMENT_PLAN_UNCORRECTED: 'author-repairs-in-step',
+  INTENT_AMENDMENT_PLAN_CORRECTION_INVALID: 'author-repairs-in-step',
+  EVIDENCE_INSPECTION_MISSING: 'person-decides-in-step',
+  VISUAL_THRESHOLD_EXCEEDED: 'person-decides-in-step',
+  INTENT_AMENDMENT_PLAN_STALE: 'person-decides-in-step',
+  WITNESS_DEFERRAL_INVALID: 'person-decides-in-step',
+  VISUAL_RISK_INVALID: 'person-decides-in-step'
+});
+
+const OWNER_STEP_SCOPES = Object.freeze({
+  'author-repairs-in-step': 'its own output; its author repairs it here, in this turn. Nothing earlier needs changing.',
+  'person-decides-in-step': 'a person who decides for this step decides it here, in this turn; nothing about the work needs repairing first.'
+});
+
+/** A step that sends the reader out of the step: recover, a return, or the end of the turn. */
+function leavesTheStep(entry) {
+  return entry?.id === 'leave-approval-turn' || /^singularity-flow (?:recover|reject) /u.test(entry?.command ?? '')
+    || ['/sf-recover', '/sf-reject'].includes(entry?.skill);
+}
+
+function ownerStepRemediationPlan(error, argv, code) {
+  const strategy = OWNER_STEP_STRATEGIES[code];
+  const commands = strategy ? explicitCommands(error) : [];
+  if (!commands.length) return null;
+  const base = phaseRemediationContext(argv, error);
+  const context = base ? Object.freeze({ ...base, strategy, turn: 'current-turn', recoveryCommand: commands[0].command,
+    retryCommand: null, retrySkill: null }) : null;
+  // A return of this same step to its author is the repair a code step's own output needs once it is submitted.
+  const returnsHere = (command) => base?.phaseId && command.command.startsWith(`singularity-flow reject ${base.phaseId} `);
+  const steps = commands.map((command, index) => step(index === 0 ? 'repair-in-step' : `repair-in-step-${index + 1}`,
+    command.label ?? (returnsHere(command) ? `Return ${base.phaseId} to its own author, who repairs it in a new generation of this same step.`
+      : index === 0 ? 'Repair it in this step.' : 'Or this way, in this step.'), command.command, 'remediation', command.skill));
+  return Object.freeze({
+    schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
+    status: 'blocked',
+    code,
+    ...(context ? { context } : {}),
+    steps: Object.freeze(steps),
+    retry: Object.freeze({
+      label: strategy === 'person-decides-in-step'
+        ? 'Run the same command again once the person has decided; nothing was recorded by the refusal.'
+        : 'Run the same command again once the step\'s own output is repaired; nothing was recorded by the refusal.',
+      automatic: false,
+      ...(context ? { turn: 'current-turn', command: null, skill: null } : {})
+    })
+  });
 }

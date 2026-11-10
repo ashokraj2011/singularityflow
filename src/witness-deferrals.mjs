@@ -63,14 +63,21 @@ export function witnessDeferralCandidates(workflow, { from, method }) {
 
 /** Record a deferral on the aggregate; the caller checked the person's authority over `from`. */
 export function recordWitnessDeferral(workflow, { clauseId, slot, method, from, to, reason, actor, authorityGroup, identityAssurance = null, at }) {
-  if (!['inspection', 'visual'].includes(method)) refused(`${clauseId}'s slot ${slot} is proven by ${method}, not by an inspection or a visual sign-off.`);
+  const workId = workflow?.workItem?.id;
+  const defer = (step) => `singularity-flow decision witness-defer ${workId} --criterion ${clauseId} --slot ${slot} --to ${step} --reason <why>`;
+  // Where a refused deferral leaves the sign-off: given at its step, from the decision list [PHR:REQ-006].
+  const giveHere = { command: `singularity-flow decisions ${workId}`, skill: '/sf-decide', label: `Give the sign-off at ${from}, from the decision list.` };
+  if (!['inspection', 'visual'].includes(method)) refused(`${clauseId}'s slot ${slot} is proven by ${method}, not by an inspection or a visual sign-off.`, { nextAction: giveHere });
   const bar = witnessDeferralBar(workflow, { from, to, method });
   if (bar) {
+    const candidates = witnessDeferralCandidates(workflow, { from, method });
     refused(`The sign-off of ${clauseId}'s slot ${slot} cannot be deferred to ${to}: ${bar}.`, {
-      clauseId, slot, from, to, candidates: witnessDeferralCandidates(workflow, { from, method }) });
+      clauseId, slot, from, to, candidates,
+      nextAction: candidates.length ? { command: defer(candidates[0]), label: `Defer it to ${candidates[0]}, which can perform and repair it.` } : giveHere,
+      ...(candidates.length ? { recoveryCommands: [giveHere] } : {}) });
   }
   const text = String(reason ?? '').trim();
-  if (text.length < 20 || text.length > 1000) refused('Say why in 20 to 1000 characters with --reason.');
+  if (text.length < 20 || text.length > 1000) refused('Say why in 20 to 1000 characters with --reason.', { nextAction: { command: defer(to), label: 'Say why in 20 to 1000 characters.' } });
   workflow.witnessDeferrals ??= [];
   const id = String(clauseId).toUpperCase();
   for (const entry of workflow.witnessDeferrals) if (entry.clauseId === id && entry.slot === slot && !entry.withdrawnAt) entry.withdrawnAt = at;

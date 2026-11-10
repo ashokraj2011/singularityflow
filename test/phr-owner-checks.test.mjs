@@ -19,7 +19,7 @@ import { criterionTestRefusal, inspectionWitnessRefusal, ownCriterionFindings, o
 import { acceptanceOwnerRefusal } from '../src/acceptance-owner-check.mjs';
 import { specAcceptanceFindings } from '../src/governance.mjs';
 import { ownerStepChecks, phaseResponsibilityPin } from '../src/phase-roles.mjs';
-import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { plannedBasePathProblems } from '../src/plan-base-paths.mjs';
 import { fulfillmentPlanCorrections } from '../src/delivery-evidence.mjs';
@@ -388,7 +388,9 @@ test('[PHR:REQ-007] G6: the acceptance the ending judges refuses the last code s
   assert.deepEqual(refusal.details.findings.map((entry) => entry.code).sort(), ['gate.acceptance.observed-test-missing', 'gate.acceptance.run-missing']);
   assert.equal(refusal.details.ownerPhase, 'implementation');
   assert.equal(refusal.details.nextAction.command, 'singularity-flow spec acceptance --phase implementation');
-  assert.equal(refusalRemediationPlan(refusal, ['submit', 'implementation']).steps.some((entry) => entry.command === refusal.details.nextAction.command), true);
+  const acceptancePlan = refusalRemediationPlan(refusal, ['submit', 'implementation']);
+  assert.equal(acceptancePlan.steps[0].command, refusal.details.nextAction.command, 'its in-step repair leads [PHR:REQ-006]');
+  assert.doesNotMatch(renderRefusalPlan(acceptancePlan), /sf-recover|singularity-flow recover |Turn boundary/u);
   // The same evaluation the ending runs: the gate's own findings for these records, less the plan's.
   const { entries } = await specAcceptanceFindings(root, config, story, story.resolution.spec, records);
   assert.deepEqual(entries.map((entry) => entry.code).sort(), refusal.details.findings.map((entry) => entry.code).sort());

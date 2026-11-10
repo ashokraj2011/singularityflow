@@ -1,6 +1,6 @@
 /** Namespace review packets name immutable publication proof, without a Git source-commit fiction. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {NAMESPACE_SUBMISSION_SCHEMAS,namespaceSubmissionRecordProfile,namespaceSubmissionWriterProfile,admitRecordSchemaVersion,phasePublicationBindingValue,canonicalJson} from '../foundation/record-schema.mjs';
+import {NAMESPACE_SUBMISSION_SCHEMAS,namespaceSubmissionRecordProfile,namespaceSubmissionWriterProfile,admitRecordSchemaVersion,phasePublicationBindingValue,namespaceSourceReviewRecordProfile,canonicalJson} from '../foundation/record-schema.mjs';
 import {exactObject,namespaceIdentifier,namespaceRevision,namespaceKey,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {storyActorValue} from '../kernel/story-creation.mjs';
@@ -24,7 +24,7 @@ export function namespaceSubmissionBindingValue(value) {return checked(()=>{
 export function namespaceSubmissionValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
   const profile=namespaceSubmissionRecordProfile(value);
   exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256','baseRevision',
-    'configuration','publication','actor','agentId','submittedAt',...(profile.routing?['routing']:[]),...(profile.checks?['checks']:[])]);
+    'configuration','publication','actor','agentId','submittedAt',...(profile.routing?['routing']:[]),...(profile.checks?['checks']:[]),...(profile.sourceReview?['sourceReview']:[])]);
   if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId
     ||value.workId!==workId||value.phase!==phaseId||!digest(value.requestSha256)||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another submission binding.');
   for(const key of ['projectId','workId','phase','operationId'])namespaceIdentifier(value[key]);
@@ -38,7 +38,8 @@ export function namespaceSubmissionValue(value,{projectId,workId,phaseId}={}) {r
   if(value.agentId!==null)namespaceIdentifier(value.agentId);
   projectEnrollmentTimestamp(value.submittedAt);
   if(profile.routing&&(!profile.checks||value.routing!==null))namespaceSubmissionRoutingValue(value.routing);
-  if(profile.checks)phaseCheckEvidenceBinding(value.checks);
+  if(profile.checks&&(!profile.sourceReview||value.checks!==null))phaseCheckEvidenceBinding(value.checks);
+  if(profile.sourceReview)namespaceSubmittedSourceReview(value.sourceReview,{phaseId,generation:value.generation});
   return value;
 });}
 
@@ -70,11 +71,20 @@ export function namespaceSubmissionRoutingValue(value) {return checked(()=>{
 });}
 
 /** Explicit writer profiles keep decision-free v1 bytes unchanged. They do not migrate old packets. */
-export function namespaceSubmissionRecord(value,{routing=null,checks=null}={}) {
-  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','routing','checks'].some(key=>Object.hasOwn(value,key))) {
+export function namespaceSubmissionRecord(value,{routing=null,checks=null,sourceReview=null}={}) {
+  if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','routing','checks','sourceReview'].some(key=>Object.hasOwn(value,key))) {
     throw new SingularityFlowError('Submission wire metadata must come from its registered profile.',{code:'ENGINE_INPUT_INVALID'});
   }
-  const profile=namespaceSubmissionWriterProfile({routing:routing!==null,checks:checks!==null});
+  const profile=namespaceSubmissionWriterProfile({routing:routing!==null,checks:checks!==null,sourceReview:sourceReview!==null});
   return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,...(profile.routing?{routing}:{}),
-    ...(profile.checks?{checks:phaseCheckEvidenceBinding(checks)}:{})};
+    ...(profile.checks?{checks:checks===null&&profile.sourceReview?null:phaseCheckEvidenceBinding(checks)}:{}),...(profile.sourceReview?{sourceReview}:{})};
 }
+
+export function namespaceSubmittedSourceReview(value,{phaseId,generation}={}){return checked(()=>{
+  exactObject(value,['schemaVersion','profile','phase','generation','reportSha256','report','contextBinding','records']);
+  const profile=namespaceSourceReviewRecordProfile('submitted',value);
+  if(value.profile!==profile.profile||value.phase!==phaseId||value.generation!==generation
+    ||!digest(value.reportSha256)||contentReference(value.report).namespace!=='evidence'||value.report.sha256!==value.reportSha256||!/^sha256:[a-f0-9]{64}$/u.test(value.contextBinding??'')||!Array.isArray(value.records)||!value.records.length||value.records.length>128
+    ||new Set(value.records.map(row=>row.sha256)).size!==value.records.length||value.records.some(row=>contentReference(row).namespace!=='evidence'))throw Error('Another exact source-review inventory.');
+  return value;
+});}

@@ -1,6 +1,7 @@
 /** Pure durable-record format, identity capabilities and version admission. */
 import { SingularityFlowError } from './failures.mjs';
 
+export const SOURCE_GROUNDED_REVIEW_SCHEMA=Object.freeze({id:'source-grounded-review',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
 export const TEXT_DIGEST_PROFILE = 'sflow-text-digests/sha256-utf8-v1';
 /** Existing execution-unit v1 ABI bounds, shared by operational hosts and durable decoration. */
 export const EXECUTION_UNIT_LIMITS=Object.freeze({maximumEvents:4096,maximumSessions:1024,maximumOutputBytes:16*1024*1024});
@@ -321,19 +322,24 @@ export function namespaceSpecificationRecordProfile(input){
 export function namespaceSpecificationWriterProfile({repositoryPlan=false}={}){
   return namespaceSpecificationRecordProfile({schemaVersion:repositoryPlan?2:1});
 }
+export const NAMESPACE_SOURCE_REVIEW_SCHEMAS=Object.freeze({context:frozenFamily('namespace-source-review-context'),submitted:frozenFamily('namespace-submitted-source-review')});
+export function namespaceSourceReviewRecordProfile(kind,input){const entry=NAMESPACE_SOURCE_REVIEW_SCHEMAS[kind];
+  if(!entry)throw new SingularityFlowError('Unknown source-review record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(entry,input);
+  return Object.freeze({version:storedVersion,profile:(kind==='context'?'sflow-namespace-source-review-context/v':'sflow-namespace-submitted-source-review/v')+storedVersion});}
 export const NAMESPACE_SUBMISSION_SCHEMAS = Object.freeze({
   binding: frozenFamily('namespace-phase-submission-binding'),
-  packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,
+  packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:4,minimumReadableVersion:1,maximumReadableVersion:4,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   routing:frozenFamily('namespace-submission-routing'),input:frozenFamily('phase-decision-input-record')
 });
 export function namespaceSubmissionRecordProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_SUBMISSION_SCHEMAS.packet,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-review-packet/v${storedVersion}`,
-    profile:`sflow-primary-document-submission/v${storedVersion}`,routing:storedVersion>1,...(storedVersion>2?{checks:true}:{})});
+    profile:`sflow-primary-document-submission/v${storedVersion}`,routing:storedVersion>1,...(storedVersion>2?{checks:true}:{}),...(storedVersion===4?{sourceReview:true}:{})});
 }
-export function namespaceSubmissionWriterProfile({routing=false,checks=false}={}) {
-  return namespaceSubmissionRecordProfile({schemaVersion:checks?3:routing?2:1});
+export function namespaceSubmissionWriterProfile({routing=false,checks=false,sourceReview=false}={}) {
+  return namespaceSubmissionRecordProfile({schemaVersion:sourceReview?4:checks?3:routing?2:1});
 }
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
   vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,

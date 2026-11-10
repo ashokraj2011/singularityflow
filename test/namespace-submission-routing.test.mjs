@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {canonicalJson,namespaceSubmissionRecordProfile} from '../src/foundation/record-schema.mjs';
+import {canonicalJson,NAMESPACE_SUBMISSION_SCHEMAS,namespaceSubmissionRecordProfile} from '../src/foundation/record-schema.mjs';
 import {namespaceSubmissionRecord,namespaceSubmissionValue,NAMESPACE_SUBMISSION_DECISION_PROFILE} from '../src/engine-storage/namespace-submission-contract.mjs';
 import {namespaceApprovalFixture} from './helpers/namespace-approval-fixture.mjs';
 import {createNamespaceSubmissionEngine} from '../src/engine-storage/namespace-submission.mjs';
@@ -26,7 +26,7 @@ test('captured v1 submission packets retain exact bytes, schema and their origin
     assert.throws(()=>namespaceSubmissionValue({...value,routing:null},binding),{code:'ENGINE_STORAGE_CORRUPT'});
     assert.throws(()=>namespaceSubmissionValue({...value,schemaVersion:2,format:'sflow-namespace-phase-review-packet/v2',profile:NAMESPACE_SUBMISSION_DECISION_PROFILE},binding),
       {code:'ENGINE_STORAGE_CORRUPT'});
-    assert.throws(()=>namespaceSubmissionValue({...value,schemaVersion:4},binding),error=>error.code==='ENGINE_STORAGE_UNSUPPORTED'&&error.cause.code==='SCHEMA_VERSION_FUTURE');
+    assert.throws(()=>namespaceSubmissionValue({...value,schemaVersion:NAMESPACE_SUBMISSION_SCHEMAS.packet.maximumReadableVersion+1},binding),error=>error.code==='ENGINE_STORAGE_UNSUPPORTED'&&error.cause.code==='SCHEMA_VERSION_FUTURE');
   }
   assert.equal(namespaceSubmissionRecordProfile({schemaVersion:1}).routing,false);
   assert.equal(namespaceSubmissionRecordProfile({schemaVersion:2}).routing,true);

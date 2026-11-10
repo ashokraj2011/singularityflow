@@ -94,6 +94,13 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   Three backends and the offline SDK pass 186 affected Mac checks with all original limits. See
   [the assignment record](ENGINE-SDK-NAMESPACE-ASSIGNMENTS.md).
 
+- Independent source review now has registered namespace context/record/human-disposition owners,
+  actual publication-bound source and answer reads, exact report resources, submission v4 and
+  original-basis approval replay. Local uploads stay local; citation corrections do not regenerate
+  a valid artifact. All three stores, interruption, custom planning, genuine independent approval
+  and an offline installed consumer pass 288 affected Mac checks. See
+  [the source-review record](ENGINE-SDK-NAMESPACE-SOURCE-REVIEW.md).
+
 ## Still required before either phase can be called complete
 
 - The remaining native query/rule inventory and parity audit.
@@ -101,7 +108,7 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   plus live application-review and witness-exception profiles.
 - Upstream return/amend outcomes and forward amendments.
 - Targeted Code repair and multiple Code predecessors/observed-claim reuse.
-- Constitution/comparison/live application acceptance, independent source review and document/test risk owners.
+- Constitution/comparison/live application acceptance, multiple-source planning review and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
 - Required grounding, external design, skill/MCP host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through actual evidence ports.

@@ -1,3 +1,4 @@
+import {createNamespaceSourceReviewOwners} from './namespace-source-review-reader.mjs';
 /** One read-only owner for namespace submission proof across every explicit host. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
@@ -13,6 +14,7 @@ const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{co
 export function createNamespaceSubmissionReader({observer,scope,workId,checks=null}) {
   const bytes=observer.bytes.bind(observer),publications=createNamespacePublicationReader({observer,scope,workId,checks}),
     votes=createNamespaceApprovalReader({observer,scope,workId,checks});
+  let reviewOwners;const sourceReviews=()=>reviewOwners??=createNamespaceSourceReviewOwners({observer,scope,workId});
   async function decode(binding,phaseId,{signal}={}) {
     namespaceSubmissionBindingValue(binding);let value;
     try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(binding.record,binding.record.bytes,signal)));}
@@ -48,6 +50,11 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     if(value.checks&&(!checks.readBindings(value.checks).every(row=>accepted.plan.readBindings?.some(item=>same(item,row)))
       ||!accepted.plan.evidence.some(ref=>same(ref,value.checks.result.content))))throw error(
       'The submission did not conditionally retain its checked publication.','ENGINE_STORAGE_CORRUPT');
+    if(value.sourceReview){
+      const head=accepted.plan.basis.head,original=await observer.state(await bytes(head.state,head.state.bytes,signal),head,{signal}),
+        review=await sourceReviews().acceptance({revision:accepted.plan.basis.headVersion,configuration:head.configuration,workflow:original.workflow},phaseId,{signal,policyTraversal:cache.policyTraversal});
+      if(!review||!same(review.binding,value.sourceReview)||!review.references.every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error('The submitted review differs from its actual accepted review and human dispositions.','ENGINE_STORAGE_CORRUPT');
+    }
     publications.assertArtifacts(published,phase);
     if(publications.policies.owners(published).includes('artifact-set')&&!publications.policies.evidence(published).every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error(
       'The typed output bundle was not retained by its exact submission.','ENGINE_STORAGE_CORRUPT');
@@ -103,5 +110,5 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     publicationOwners:value=>[...publications.specifications.owners(value),...publications.policies.owners(value)],
     publicationChecklist:publications.policies.checklist,publicationPolicyEvidence:publications.policies.evidence,
     publicationApproval:publications.policies.assertApproval,publicationRequiresDisposition:publications.policies.requiresDisposition,
-    publicationResources:publications.policies.resources,publicationCodeEvidence:publications.policies.codeEvidence});
+    publicationResources:publications.policies.resources,publicationClarification:publications.policies.clarificationEvidence,publicationCodeEvidence:publications.policies.codeEvidence});
 }

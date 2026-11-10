@@ -1,3 +1,4 @@
+import {createNamespaceSourceReviewOwners} from './namespace-source-review-reader.mjs';
 /** Shared-record submission of an actual published document. No private draft or Git discovery. */
 import {createHash} from 'node:crypto';
 import {createEngine} from '../engine-sdk/index.mjs';
@@ -30,13 +31,13 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Submission was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 
-export function createNamespaceSubmissionPorts({records,content,scope,workId,authority,access,clock,notice=()=>{}}={}) {
+export function createNamespaceSubmissionPorts({records,content,localContent=null,scope,workId,authority,access,clock,notice=()=>{}}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
-  const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
+  const observer=createNamespaceStoryObserver({records,content,localContent,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
   const publications=createNamespacePublicationReader({observer,scope,workId,checks});
-  const packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
+  const packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),sourceReviews=createNamespaceSourceReviewOwners({observer,scope,workId});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function'||typeof notice!=='function')throw error('Submission needs explicit authenticated access, clock and notice ports.','ENGINE_INPUT_INVALID');
   const current=access.current.bind(access),now=clock.now.bind(clock),put=content.put.bind(content),contexts=new WeakMap(),preparations=new WeakMap();
   function selected(context){const value=contexts.get(context);if(!value)throw error('Use the issued submission context.','ENGINE_INPUT_INVALID');return value;}
@@ -161,6 +162,7 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
         for(const owner of [...publications.specifications.owners(published),...publications.policies.owners(published)])required.delete(owner);
         if(published.checks){await checks.assertCurrent(published.checks,s.phaseId,{signal});required.delete('check-execution');}
         if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
+        const sourceReview=await sourceReviews.acceptance(snapshot,s.phaseId,{signal});
         publications.assertArtifacts(published,phase);
         if(!same(published.configuration,snapshot.configuration)||published.generation!==phase.generation) {
           throw error('Submission requires the exact retained artifact and publication configuration.','ENGINE_STORAGE_CORRUPT');
@@ -174,7 +176,7 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
           const value=namespaceSubmissionRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
             operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
             publication:s.publication,actor:agent.actor,agentId:agent.agentId,submittedAt},
-            {routing:await routing(snapshot,phase,signal),checks:published.checks??null});
+            {routing:await routing(snapshot,phase,signal),checks:published.checks??null,sourceReview:sourceReview?.binding??null});
           namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const data=Buffer.from(canonicalJson(value)),expectedReference={namespace:'evidence',sha256:hash(data),bytes:data.byteLength};
           const saved=await put(scope,'evidence',data,{signal});
@@ -192,7 +194,7 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
           const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow});
           await authorize(signal,agent);await unchanged(snapshot,signal);
           try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.submit',inputsSha256:s.requestSha256,state:Buffer.from(canonicalJson(body)),
-            evidence:[...new Map([expectedReference,s.publication.record,published.artifact.content,...publications.policies.evidence(published),...(published.checks?[published.checks.result.content]:[])].map(ref=>[canonicalJson(ref),ref])).values()],
+            evidence:[...new Map([expectedReference,s.publication.record,published.artifact.content,...(sourceReview?.references??[]),...publications.policies.evidence(published),...(published.checks?[published.checks.result.content]:[])].map(ref=>[canonicalJson(ref),ref])).values()],
             ...(published.checks?{readBindings:checks.readBindings(published.checks)}:{})},{signal});}
           catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
             const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;

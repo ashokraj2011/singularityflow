@@ -1,3 +1,4 @@
+import {SOURCE_GROUNDED_REVIEW_SCHEMA} from './foundation/record-schema.mjs';
 /**
  * Pure, in-memory schema migration for durable records.
  *
@@ -3284,7 +3285,7 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/context\/application-reviews\/snapshots\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'application-review-capture', currentVersion: 1, immutable: true }),
   family({ id: 'application-review-acceptance', currentVersion: 1, immutable: true }),
-  family({ id: 'source-grounded-review', currentVersion: 1, immutable: true }),
+  family(SOURCE_GROUNDED_REVIEW_SCHEMA),
   family({
     id: 'source-review-record', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/context\/reviews\/(?:specification|planning)\/gen-[1-9][0-9]*\/[a-f0-9]{64}\.json$/]

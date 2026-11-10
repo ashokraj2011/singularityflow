@@ -1,6 +1,6 @@
 /** Phase selection, role/compiler policy and composition admission. No command rendering or I/O. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import { isVisualVerificationPhase } from './phase-policy.mjs';
+import {sourceReviewRequired,isVisualVerificationPhase} from './phase-policy.mjs';
 
 const PUBLICATION_DEPENDENCY_CODES = Object.freeze({
   'evidence-contract': 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED',
@@ -151,6 +151,14 @@ export function phaseAgentMutationFacts(config, workflow, phase, session, operat
   agent, author: phase?.defaultAgent ?? null };
 }
 
+/** A retained review is the one permitted write of the configured independent review role. */
+export function phaseSourceReviewerAdmission(definition,workflow,phase,agentId){
+  const reviewer=workflow.resolution?.sourceReview?.reviewerAgent,agent=definition.agentCatalog?.find(row=>row.id===reviewer);
+  if(!phase||!sourceReviewRequired(workflow,phase.id)||!reviewer||agentId!==reviewer
+    ||agent?.metadata?.['sflow-mode']!=='read-only-review'||agentId===(phase.generatedAgent??phase.defaultAgent))throw new SingularityFlowError(
+    'Select the configured read-only source reviewer, distinct from the published author.',{code:'SOURCE_REVIEWER_REQUIRED',details:{phase:phase?.id??null,reviewerAgent:reviewer}});
+  return {allowed:true};
+}
 /** Catalog and configured author are independent of the human who originally opened a draft. */
 export function phaseCatalogAuthorAdmission(definition,workflow,phase,agentId) {
   const catalog=definition.agentCatalog??[],config={agents:Object.fromEntries(catalog.map(item=>[item.id,item]))};

@@ -88,6 +88,8 @@ export function standaloneDecisionAdmission(operation, workflow) {
     'decision.scope':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is decided while it is in progress.`],
     'decision.completeness':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is reviewed while it is in progress.`],
     'decision.applicability':['APPLICABILITY_STORY_CLOSED', `Story ${workId} is ${workflow.status === 'closed' ? 'already closed' : workflow.status}; applicability is decided while it is in progress.`],
+    'source-review.record':['SOURCE_REVIEW_STORY_CLOSED','Retain source reviews while the Story is in progress.'],
+    'source-review.decide':['SOURCE_REVIEW_STORY_CLOSED','Decide source-review findings while the Story is in progress.'],
     'conformance.decide':['ENGINE_CONFORMANCE_NOT_CURRENT', 'Decide conformance gaps while the Story is in progress.'],
     'decision.risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`],
     'decision.plan':['PLAN_AMENDMENT_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its plan is amended while it is in progress.`],
@@ -111,6 +113,8 @@ export function standaloneDecisionAdmission(operation, workflow) {
 /** Normalize domain values only; identity, policy and publication are never request fields. */
 export function standaloneDecisionRequest(operation, input) {
   const reason = input.reason ?? '';
+  if(operation==='source-review.record')return {phaseId:input.phaseId??null,report:input.report??null,expectedContext:input.expectedContext??null};
+  if(operation==='source-review.decide')return {phaseId:input.phaseId??null,findingId:input.findingId??null,reason,expectedContext:input.expectedContext??null};
   if(operation==='phase.assign')return {phaseId:input.phaseId??null,assignee:input.assignee??null};
   if (operation === 'decision.scope') {
     const item = input.item ?? null, disposition = input.disposition ?? null;

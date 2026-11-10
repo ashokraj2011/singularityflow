@@ -9,7 +9,7 @@ import {namespaceIdentifier,namespaceRevision,namespaceKey,namespaceJson,exactOb
 import {contentReference} from '../sda/content/contract.mjs';
 export {NAMESPACE_DECISION_SCHEMA} from '../foundation/record-schema.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
-const nonHuman=new Set(['phase.assign','upstream.raise','forward-amendment.propose','test-command.request','story.document.attach','story.document.detach']);
+const nonHuman=new Set(['source-review.record','phase.assign','upstream.raise','forward-amendment.propose','test-command.request','story.document.attach','story.document.detach']);
 export function namespaceDecisionValue(value,{projectId,workId}) {
   try{
     admitRecordSchemaVersion(NAMESPACE_DECISION_SCHEMA,value);

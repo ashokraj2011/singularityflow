@@ -1,0 +1,1446 @@
+{
+  "capturedAtCommit": "4c36b3275",
+  "cases": [
+    {
+      "name": "specification:ready",
+      "kind": "specification",
+      "test": "ready",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "ready",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "1a9c076a5fb845b195508dc903abac873478d123e2195dc83a837746a3b40328",
+          "findings": [],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:missing",
+      "kind": "specification",
+      "test": "missing",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "missing",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": null,
+          "findings": [
+            {
+              "code": "review-missing",
+              "message": "No independent source-grounded review report exists."
+            }
+          ],
+          "pendingDispositions": []
+        }
+      }
+    },
+    {
+      "name": "specification:stale",
+      "kind": "specification",
+      "test": "stale",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "stale",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "3eeb0aca6e48499817ea758fdac96cb7a77c95297d8053d18190c2c2ba10cb9b"
+            }
+          },
+          "reportSha256": "1a9c076a5fb845b195508dc903abac873478d123e2195dc83a837746a3b40328",
+          "findings": [
+            {
+              "code": "review-binding-stale",
+              "message": "Pinned sources, human clarifications, approved upstream specification, artifact, phase, or generation changed after review."
+            }
+          ],
+          "pendingDispositions": []
+        }
+      }
+    },
+    {
+      "name": "specification:schema-missing",
+      "kind": "specification",
+      "test": "schema-missing",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "243368839c0264076783823c28d6dc14caaeef525f4ae8e323c76bf367af2da1",
+          "findings": [
+            {
+              "code": "review-contract-invalid",
+              "message": "The report is not a source-grounded review for this phase."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:schema-future",
+      "kind": "specification",
+      "test": "schema-future",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "18073f217ae425d6b842c959585077dfee261515e8ab1cfb9cf1d0b597900fb7",
+          "findings": [
+            {
+              "code": "review-contract-invalid",
+              "message": "The report is not a source-grounded review for this phase."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:schema-string",
+      "kind": "specification",
+      "test": "schema-string",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "ab2be1901ac96d35bef0ad8fb93ce32ebbb36b8dd145d09f3a2eaef5fffc072f",
+          "findings": [
+            {
+              "code": "review-contract-invalid",
+              "message": "The report is not a source-grounded review for this phase."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:wrong-kind",
+      "kind": "specification",
+      "test": "wrong-kind",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "697dc239d42b6ae64b233dca260e2b965a9ee800a3a36a44a600c5ca7c53dad3",
+          "findings": [
+            {
+              "code": "review-contract-invalid",
+              "message": "The report is not a source-grounded review for this phase."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:self-disposition",
+      "kind": "specification",
+      "test": "self-disposition",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "a787b3efc4a3a77f99462daa00542da47bc8b93369d0e12a96c994180f6bd83e",
+          "findings": [
+            {
+              "code": "review-self-disposition",
+              "message": "Human dispositions cannot be supplied in the reviewer report."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:wrong-reviewer",
+      "kind": "specification",
+      "test": "wrong-reviewer",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "e5ac37190c4af2dd10a58800a71f125ab3b9d7c06025831e0574a5e154250506",
+          "findings": [
+            {
+              "code": "reviewer-not-independent",
+              "message": "A trusted, read-only reviewer distinct from the artifact author is required."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:author-collision",
+      "kind": "specification",
+      "test": "author-collision",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "1a9c076a5fb845b195508dc903abac873478d123e2195dc83a837746a3b40328",
+          "findings": [
+            {
+              "code": "reviewer-not-independent",
+              "message": "A trusted, read-only reviewer distinct from the artifact author is required."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:mutable-reviewer",
+      "kind": "specification",
+      "test": "mutable-reviewer",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "1a9c076a5fb845b195508dc903abac873478d123e2195dc83a837746a3b40328",
+          "findings": [
+            {
+              "code": "reviewer-not-independent",
+              "message": "A trusted, read-only reviewer distinct from the artifact author is required."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:unreviewed-source",
+      "kind": "specification",
+      "test": "unreviewed-source",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "b9146e6fd166ff89f39dce5a9713020a98519c9e9204b0b4f0bf8c38762734ec",
+          "findings": [
+            {
+              "code": "sources-not-all-reviewed",
+              "message": "Review source inventory differs from the pinned set; missing: story; unknown: none.",
+              "missing": [
+                "story"
+              ],
+              "unknown": []
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:missing-rows",
+      "kind": "specification",
+      "test": "missing-rows",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "6512e00a6f1c5a2d42b30b884778884442f2d305499fdd3526646fba0406827f",
+          "findings": [
+            {
+              "code": "rows-invalid",
+              "message": "Specification review needs 1 to 2000 source mapping rows."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:bad-citation",
+      "kind": "specification",
+      "test": "bad-citation",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "b6cb5de830d249b98efe1aad983c080e53abd43931d0bbfb08bbaa071d045a13",
+          "findings": [
+            {
+              "code": "citation-quote-invalid",
+              "message": "Review row 1 quote does not occur on story:2.",
+              "field": "rows[0]",
+              "sourceId": "story"
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:missing-clarification",
+      "kind": "specification",
+      "test": "missing-clarification",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "clarifications": [
+              {
+                "id": "clarification:current-phase",
+                "phase": "specification",
+                "generation": 1,
+                "path": "answers.json",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "f939722beabe205bcad934204694bad11b129f28908285f24dd38beb4b56545e",
+          "findings": [
+            {
+              "code": "clarifications-not-all-reviewed",
+              "message": "The review must read and acknowledge the exact publication-bound human clarification records.",
+              "missing": [
+                "clarification:current-phase"
+              ],
+              "unknown": []
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:blocking-finding",
+      "kind": "specification",
+      "test": "blocking-finding",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "6cd9efc94ccfc748421b4ee5046b4477386e30b53b75d837060df4dc3b188ae6",
+          "findings": [
+            {
+              "code": "reviewer-blocker",
+              "message": "Reviewer finding 'gap-1': The described interaction is missing.",
+              "reviewFindingId": "gap-1"
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:invalid-finding",
+      "kind": "specification",
+      "test": "invalid-finding",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "a0d26889b3cbe0adfdfaf4d1ed62ea5dc2741869dfe68da88aeea5810ff19d28",
+          "findings": [
+            {
+              "code": "review-finding-invalid",
+              "message": "Reviewer findings need a unique id, severity \"blocking\" or \"advisory\", and non-empty message (not explanation)."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:ready",
+      "kind": "planning",
+      "test": "ready",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "ready",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "df2102532775b73a00341361f592e19210a50fd45e7f1db2f468f3867b46987f",
+          "findings": [],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:missing",
+      "kind": "planning",
+      "test": "missing",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "missing",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": null,
+          "findings": [
+            {
+              "code": "review-missing",
+              "message": "No independent source-grounded review report exists."
+            }
+          ],
+          "pendingDispositions": []
+        }
+      }
+    },
+    {
+      "name": "planning:stale",
+      "kind": "planning",
+      "test": "stale",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "stale",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "11a308950373207ca74d5d1e43256fb3ed794e194c90efb9e683a65490fa3341"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "df2102532775b73a00341361f592e19210a50fd45e7f1db2f468f3867b46987f",
+          "findings": [
+            {
+              "code": "review-binding-stale",
+              "message": "Pinned sources, human clarifications, approved upstream specification, artifact, phase, or generation changed after review."
+            }
+          ],
+          "pendingDispositions": []
+        }
+      }
+    },
+    {
+      "name": "planning:schema-missing",
+      "kind": "planning",
+      "test": "schema-missing",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "ae68d85ec41205609328c486a6004c5b136fe22c401edc6c66f24e3d8fda5f49",
+          "findings": [
+            {
+              "code": "review-contract-invalid",
+              "message": "The report is not a source-grounded review for this phase."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:schema-future",
+      "kind": "planning",
+      "test": "schema-future",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "1ac19e6fbce31239eb3fdf6fdf362ee0d7fa9234bf57aee04f59a9259859a573",
+          "findings": [
+            {
+              "code": "review-contract-invalid",
+              "message": "The report is not a source-grounded review for this phase."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:schema-string",
+      "kind": "planning",
+      "test": "schema-string",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "ee19b1bc7144e12249729f0f4fdb10ecfbb0a9062370b6c1203f7ffa4564c7c5",
+          "findings": [
+            {
+              "code": "review-contract-invalid",
+              "message": "The report is not a source-grounded review for this phase."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:wrong-kind",
+      "kind": "planning",
+      "test": "wrong-kind",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "2b41c13b1d78e7709283ca4e55c07192b8079e9a6aa553a18096187e288952a6",
+          "findings": [
+            {
+              "code": "review-contract-invalid",
+              "message": "The report is not a source-grounded review for this phase."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:self-disposition",
+      "kind": "planning",
+      "test": "self-disposition",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "13a76dac1c9fe4bc544cf646a154dc0191d367a40b2469715076e023e932768f",
+          "findings": [
+            {
+              "code": "review-self-disposition",
+              "message": "Human dispositions cannot be supplied in the reviewer report."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:wrong-reviewer",
+      "kind": "planning",
+      "test": "wrong-reviewer",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "36e1332804dc37e30607b608829f810956bd2074f10df14c75bdf2da7b7f23ba",
+          "findings": [
+            {
+              "code": "reviewer-not-independent",
+              "message": "A trusted, read-only reviewer distinct from the artifact author is required."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:author-collision",
+      "kind": "planning",
+      "test": "author-collision",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "df2102532775b73a00341361f592e19210a50fd45e7f1db2f468f3867b46987f",
+          "findings": [
+            {
+              "code": "reviewer-not-independent",
+              "message": "A trusted, read-only reviewer distinct from the artifact author is required."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:mutable-reviewer",
+      "kind": "planning",
+      "test": "mutable-reviewer",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "df2102532775b73a00341361f592e19210a50fd45e7f1db2f468f3867b46987f",
+          "findings": [
+            {
+              "code": "reviewer-not-independent",
+              "message": "A trusted, read-only reviewer distinct from the artifact author is required."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:unreviewed-source",
+      "kind": "planning",
+      "test": "unreviewed-source",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "f9e3e672cba4c89bca903f2b916b3a1be112dfe666fb6e01c80ab4e4dcebef24",
+          "findings": [
+            {
+              "code": "sources-not-all-reviewed",
+              "message": "Review source inventory differs from the pinned set; missing: story; unknown: none.",
+              "missing": [
+                "story"
+              ],
+              "unknown": []
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:missing-rows",
+      "kind": "planning",
+      "test": "missing-rows",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "f87929e5eab0c70a63439bad8def72b767476db4dc8dce8f6187d0313c415374",
+          "findings": [
+            {
+              "code": "clause-unreviewed",
+              "message": "Approved clause 'VALUE:REQ-001' has no independent plan review row.",
+              "clauseId": "VALUE:REQ-001"
+            },
+            {
+              "code": "clause-unreviewed",
+              "message": "Approved clause 'VALUE:AC-001' has no independent plan review row.",
+              "clauseId": "VALUE:AC-001"
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:bad-citation",
+      "kind": "planning",
+      "test": "bad-citation",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "d55d4e78fbad41c73cd651c6f5ca5669c3883482087a0fa2edeba6164d89e4a5",
+          "findings": [
+            {
+              "code": "plan-row-mismatch",
+              "message": "Review row 1 expectedPaths does not match the structured plan for 'VALUE:REQ-001'. Copy the pinned reportTemplate field.",
+              "field": "rows[0].expectedPaths",
+              "expected": [
+                "src/draft.mjs"
+              ],
+              "received": [
+                "src/other.mjs"
+              ],
+              "clauseId": "VALUE:REQ-001"
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:missing-clarification",
+      "kind": "planning",
+      "test": "missing-clarification",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "clarifications": [
+              {
+                "id": "clarification:current-phase",
+                "phase": "planning",
+                "generation": 1,
+                "path": "answers.json",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "eeb2fe83e6d59feb4dfeb024b3c3e3ac13937748078a5755ce113a7ef547cfbf",
+          "findings": [
+            {
+              "code": "clarifications-not-all-reviewed",
+              "message": "The review must read and acknowledge the exact publication-bound human clarification records.",
+              "missing": [
+                "clarification:current-phase"
+              ],
+              "unknown": []
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:blocking-finding",
+      "kind": "planning",
+      "test": "blocking-finding",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "63ea9e2cd4e15bc51bf5a669d4160712aaeee366b38a9675fdb9316584fae4a1",
+          "findings": [
+            {
+              "code": "reviewer-blocker",
+              "message": "Reviewer finding 'gap-1': The described interaction is missing.",
+              "reviewFindingId": "gap-1"
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:invalid-finding",
+      "kind": "planning",
+      "test": "invalid-finding",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "8777c67a5addfd6e40188d0ee900f1b321df0dbb5a5351d78af3f7f7acb0089b",
+          "findings": [
+            {
+              "code": "review-finding-invalid",
+              "message": "Reviewer findings need a unique id, severity \"blocking\" or \"advisory\", and non-empty message (not explanation)."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:exclusion",
+      "kind": "specification",
+      "test": "exclusion",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "specification",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "specification.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "f51a04884435b78bd1f5383c4688a73d320ffc08398df79f55f4a83c6648ef78",
+          "findings": [
+            {
+              "code": "scenario-unmapped",
+              "message": "Scenario 'S1' has no cited source-to-clause mapping. Add a covered row citing the source line it refines, also when a clarification answer shaped it (acknowledge that record in clarificationsReviewed; never edit it). If no source line supports it, it is new scope: report a blocking finding.",
+              "scenarioId": "S1"
+            },
+            {
+              "code": "clause-unmapped",
+              "message": "Clause 'VALUE:REQ-001' has no cited source-to-scenario mapping.",
+              "clauseId": "VALUE:REQ-001"
+            },
+            {
+              "code": "clause-unmapped",
+              "message": "Clause 'VALUE:AC-001' has no cited source-to-scenario mapping.",
+              "clauseId": "VALUE:AC-001"
+            },
+            {
+              "code": "human-disposition-required",
+              "message": "Human disposition is required for exclusion:excluded on review f51a04884435.",
+              "dispositionId": "exclusion:excluded"
+            }
+          ],
+          "pendingDispositions": [
+            {
+              "id": "exclusion:excluded",
+              "kind": "exclusion",
+              "rowId": "excluded",
+              "reason": "Ask the scope authority."
+            }
+          ],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "planning:unsupported",
+      "kind": "planning",
+      "test": "unsupported",
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "status": "correction-required",
+          "binding": {
+            "workId": "VALUE",
+            "phase": "planning",
+            "generation": 1,
+            "sources": [
+              {
+                "id": "story",
+                "path": "story.md",
+                "textSha256": "28dcbf5431e7007ad2a95e7c624714b19fb95801c48c6f228b9127d5be27fd82"
+              }
+            ],
+            "artifact": {
+              "path": "planning.md",
+              "sha256": "1a15c127d9e75c0bb64f82e84b66956a71795498b97af65d505e3d1d08b5e3c4"
+            },
+            "upstreamSpec": {
+              "path": "spec.md",
+              "sha256": "c7f4183083f18757625bd9446b13de02e59255811465c5f31f8ea64969ce3437"
+            }
+          },
+          "reportSha256": "fed1d1be51cf92069219d31f451a1daca1e735b18050a22f6e55331a24262554",
+          "findings": [
+            {
+              "code": "plan-assessment-gap",
+              "message": "Review row 1 was not independently assessed as supported."
+            }
+          ],
+          "pendingDispositions": [],
+          "disclaimer": "A ready result verifies review structure, citations, bindings, and recorded dispositions; semantic correctness remains a reviewer judgment."
+        }
+      }
+    },
+    {
+      "name": "specification:invalid-source",
+      "kind": "specification",
+      "test": "invalid-source",
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "Review source 'story' SHA-256 does not match its supplied text.",
+        "code": null,
+        "details": null
+      }
+    }
+  ]
+}

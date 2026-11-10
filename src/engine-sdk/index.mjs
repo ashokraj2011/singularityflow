@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -55,6 +55,8 @@ const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','select
 const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
 const CORRECTION_FIELDS=Object.freeze(['ownerPhase','operations','reason','upstreamIssue']);
 const SINGLE_DECISIONS = Object.freeze([
+  ['source-review.record','source-review',['phaseId','report','expectedContext'],{humanDecision:false,authority:'requester',phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','report','expectedContext'])}],
+  ['source-review.decide','source-review-disposition',['phaseId','findingId','reason','expectedContext'],{phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','findingId','reason','expectedContext'])}],
   ['phase.assign','phase-assignment',['phaseId','assignee'],{authority:'requester',humanDecision:false,phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','assignee'])}],
   ['decision.scope','scope-disposition',['item','disposition','clauseIds','reason']],
   ['decision.completeness','completeness-review',['confirm','checklist','reason']],
@@ -130,6 +132,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectDecisionContext'},
   {id:'scope.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'scopeContext',
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectScopeContext'},
+  {id:'source-review.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'sourceReviewContext',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectSourceReviewContext'},
   {id:'witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','clauseId','slotName','file']),
     requiredFields:Object.freeze(['clauseId','slotName','file']),port:'witnessContext',stages:Object.freeze(['load','read']),validate:'witnessContextInput',execute:'inspectWitnessContext'},
   {id:'plan.correction.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','ownerPhase','operations','reason','upstreamIssue']),
@@ -449,7 +453,8 @@ async function inspectStoryGuide(port, inputs, signal) {
       details:{expectedWorkId:inputs.workId,actualWorkId:id}});
   let manifest;
   try {
-    const plan = workflowGuidePlan(context.workflow);
+    if(context.observations!==undefined)workflowNextManifest(context.workflow,data(context.observations));
+    const plan = workflowGuidePlan(context.workflow,{sourceReviewEvidence:context.observations?.sourceReviewEvidence??null});
     manifest = data({...plan,actions:plan.actions.map(action=>({...action,operation:continuationOperation(action)}))});
   } catch (cause) {
     if (cause?.code !== 'ENGINE_INPUT_INVALID') throw cause;
@@ -492,6 +497,8 @@ function continuationOperation(action) {
     case 'prepare-phase': case 'prepare-convergence': case 'prepare-deterministic-convergence': id='phase.prepare';break;
     case 'return-phase': id='phase.reject';inputs.target=action.targetPhase;break;
     case 'review-code-successor': id='phase.rollover';break;
+    case 'review-published-source': case 'check-source-review-status': id='source-review.context';break;
+    case 'decide-source-review-finding': id='source-review.context';break;
     case 'submit-phase': id='phase.submit';break;
     case 'advance-convergence': id='convergence.advance';delete inputs.phaseId;break;
     case 'approve-phase': id='phase.approve';break;
@@ -623,6 +630,16 @@ async function inspectScopeContext(port,inputs,signal) {
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'scope.context',status:'ready',subject:{kind:'story',id},manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
 }
+async function inspectSourceReviewContext(port,input,signal){notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const bound=data({subject:context.subject,phase:context.phase?.id,generation:context.phase?.generation}),facts=data(await port.read(context,{signal}));notCancelled(signal);
+  let profile=null;try{profile=namespaceSourceReviewRecordProfile('context',facts);}catch{ /* Reject another wire contract below. */ }
+  if(!profile||bound.subject?.kind!=='story'||facts?.profile!==profile.profile
+    ||facts.workId!==bound.subject.id||input.workId!=null&&input.workId!==facts.workId||facts.phase!==bound.phase||facts.generation!==bound.generation
+    ||facts.binding?.workId!==facts.workId||facts.binding.phase!==facts.phase||facts.binding.generation!==facts.generation
+    ||!/^sha256:[a-f0-9]{64}$/u.test(facts.contextBinding??'')||!Array.isArray(facts.resources)||!['missing','ready','stale','correction-required'].includes(facts.status?.status))throw new SingularityFlowError(
+      'The source-review context returned another published binding.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'source-review.context',subject:bound.subject,manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
 function witnessContextInput(value){const input=data(value);if(typeof input.clauseId!=='string'||typeof input.slotName!=='string'||typeof input.file!=='string'
     ||!input.clauseId||!input.slotName||!input.file)throw new SingularityFlowError('Name one criterion, inspection slot and published evidence path.',{code:'ENGINE_INPUT_INVALID'});
   return {...input,clauseId:input.clauseId.toUpperCase()};}
@@ -1118,7 +1135,7 @@ function singleDecisionInput(value, operation, {requestOnly=false,intent=false}=
       if(!Array.isArray(value))invalid('Decision checklist must be an array.');
     } else if (['changes','operations'].includes(key)) {
       if(!Array.isArray(value)||value.some(item=>!item||typeof item!=='object'||Array.isArray(item)))invalid(`Decision ${key} must be an array of JSON records.`);
-    } else if (['command','repin','answers'].includes(key)) {
+    } else if (['command','repin','answers','report'].includes(key)) {
       if(typeof value!=='object'||Array.isArray(value))invalid(`Decision ${key} must be a JSON record.`);
     } else if(typeof value!=='string')invalid(`Decision ${key} must be a string or null.`);
   }
@@ -1691,7 +1708,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
+    inspectSourceReviewContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

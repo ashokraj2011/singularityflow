@@ -1,9 +1,10 @@
+import {createHash} from 'node:crypto';
 /** Read original creation proof and enforce its policy; never create or repair a Story. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {assertStoryPolicy} from '../kernel/story-policy.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {namespaceScope,namespaceIdentityJson} from '../sda/namespace/values.mjs';
-import {contentReference} from '../sda/content/contract.mjs';
+import {contentReference,validateContentStore} from '../sda/content/contract.mjs';
 import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs';
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
@@ -15,7 +16,18 @@ const same=(a,b)=>a===undefined||b===undefined?a===b:namespaceIdentityJson(a)===
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story policy inspection was cancelled.','ENGINE_OPERATION_CANCELLED');}
 const readDomains=new WeakMap();
-const witnessMemos=new WeakMap();
+const witnessMemos=new WeakMap(),localInputReaders=new WeakMap();
+/** Device bytes remain behind the explicit local content port, including historical review replay. */
+export async function namespaceLocalInputBytes(observer,reference,{signal}={}){
+  const read=localInputReaders.get(observer);contentReference(reference);cancelled(signal);
+  if(reference.namespace!=='local')throw error('A machine-local source requires its actual local reference.','ENGINE_INPUT_INVALID');
+  if(!read)throw error('Upload the matching original input on this device.','DOCUMENT_REUPLOAD_REQUIRED',{expected:reference});
+  const value=await read(reference,{maximumBytes:reference.bytes,signal});cancelled(signal);
+  if(value?.status==='missing'&&value.data===null)throw error('Upload the matching original input on this device.','DOCUMENT_REUPLOAD_REQUIRED',{expected:reference});
+  if(value?.status!=='present'||!same(value.reference,reference)||!(value.data instanceof Uint8Array)||value.data.byteLength!==reference.bytes||value.truncated!==false)throw error('The local input port returned another exact read.','ENGINE_PORT_RESULT_INVALID');
+  if(createHash('sha256').update(value.data).digest('hex')!==reference.sha256)throw error('The local source bytes do not match their pinned identity.','ENGINE_STORAGE_CORRUPT');
+  return Buffer.from(value.data);
+}
 /** Only genuine observers can reuse an accepted witness proof through their captured ports. */
 export function memoNamespaceObservedWitness(observer,identity,observe,options={}){
   return witnessMemos.get(observer)?.(identity,observe,options)??observe();
@@ -23,7 +35,7 @@ export function memoNamespaceObservedWitness(observer,identity,observe,options={
 /** Private capability identity: copies or overrides cannot claim another observer's read proof. */
 export function namespaceStoryReadDomain(observer){return readDomains.get(observer)??observer;}
 
-export function createNamespaceStoryObserver({records,content,scope,workId,authority}={}) {
+export function createNamespaceStoryObserver({records,content,localContent=null,scope,workId,authority}={}) {
   const witnessMemo=(identity,observe,options)=>memoWitness(records,content,{scope,workId,authority,identity},observe,options);
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
   const base=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
@@ -161,5 +173,7 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
   const observer=Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted,evidenceReads,withReadScope});
   readDomains.set(observer,Object.freeze({}));
   witnessMemos.set(observer,witnessMemo);
+  if(localContent){validateContentStore(localContent);if(localContent.descriptor.binding.kind!=='machine-local')throw error('Input documents require an explicit device-bound store.','ENGINE_INPUT_INVALID');
+    localInputReaders.set(observer,localContent.read.bind(localContent,scope));}
   return observer;
 }

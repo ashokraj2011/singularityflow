@@ -103,7 +103,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
       if(authority&&(selected.value.authority.id!==authority.id||selected.value.authority.epoch!==authority.epoch))throw unavailable(
         'The canonical read locator belongs to another bound authority.','ENGINE_AUTHORITY_FENCED',{workId,authority});
       if(selected.value.lifecycleHead!==namespaceLifecycleStoryKey(workId))throw unavailable('The lifecycle locator points at another Story.','ENGINE_STORAGE_CORRUPT');
-      const observer=createNamespaceStoryObserver({records:lifecycleRecords,content:lifecycleContent,scope,workId,authority:selected.value.authority});
+      const observer=createNamespaceStoryObserver({records:lifecycleRecords,content:lifecycleContent,localContent,scope,workId,authority:selected.value.authority});
       const {snapshot,basis}=await observer.capture({signal}),workflow=snapshot.workflow;
       let policy,documents,projected;
       try {
@@ -215,6 +215,7 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     for(const member of [proof,...sources]) {
       for(const [kind,reference,sourceKey] of [['review-packet',member.binding.record,null],
         ['artifact',member.published.artifact.content,member.published.artifact.sourceKey],
+        ...(member.value.sourceReview?[['source-review',member.value.sourceReview.report,null]]:[]),
         ...context.submissionReader.publicationResources(member.published).map(item=>[item.kind,item.reference,item.sourceKey??null])]) {
         const candidates=context.documents.filter(record=>record.phase===member.value.phase&&record.generation===member.value.generation
           &&record.status!=='detached'&&record.locality==='project'&&record.content&&sameRef(record.content,reference)

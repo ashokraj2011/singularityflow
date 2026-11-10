@@ -2,14 +2,16 @@
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
-import {phaseAgentMutationFacts} from '../kernel/phase-admission.mjs';
+import {phaseSourceReviewerAdmission,phaseAgentMutationFacts} from '../kernel/phase-admission.mjs';
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const corrupt=cause=>new SingularityFlowError('The human decision does not replay its original authority, evidence and transition.',{code:'ENGINE_STORAGE_CORRUPT',cause});
 export function createNamespaceRecordedMutationReader({observer,scope,workId,operation,owner,contract}){
   async function admitAgent(snapshot,phaseId,agentId,{signal}={}){
     phaseId=owner.agentPhase?.(snapshot,phaseId)??phaseId;
-    const approved=await observer.approved(snapshot,{signal}),facts=phaseAgentMutationFacts({agents:Object.fromEntries(
+    const approved=await observer.approved(snapshot,{signal});
+    if(operation==='source-review.record')return phaseSourceReviewerAdmission(approved.compiled.definition,snapshot.workflow,snapshot.workflow.phases[phaseId],agentId);
+    const facts=phaseAgentMutationFacts({agents:Object.fromEntries(
       approved.compiled.definition.agentCatalog.map(row=>[row.id,row]))},snapshot.workflow,snapshot.workflow.phases[phaseId],{agent:agentId},operation.split('.').at(-1));
     if(!facts.allowed)throw new SingularityFlowError('This phase agent cannot record the human mutation.',{code:facts.code,details:facts});
   }

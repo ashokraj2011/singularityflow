@@ -171,7 +171,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     return {evidence:structuredClone(value.binding),result:evaluateApprovalChecklist({policy:value.selected.quality,decisions,
       authorities:value.definition.approvalAuthorities,actor:actor.identity})};
   }
-  return Object.freeze({candidate,assignmentCandidate,artifactSetCandidate:artifactSets.candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
+  return Object.freeze({candidate,assignmentCandidate,clarificationEvidence:publication=>proofs(publication).find(row=>row.binding.kind===CLARIFICATION_EVIDENCE)??null,artifactSetCandidate:artifactSets.candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
     codeInputCandidate:(...args)=>inputReader().candidate(...args),conformanceCandidate:(...args)=>conformanceReader().candidate(...args),
     freshCodeCandidate:(...args)=>codeReader().freshCandidate(...args),freshInputCandidate:(...args)=>inputReader().freshEvidence(...args),
     freshConformanceCandidate:(...args)=>conformanceReader().freshCandidate(...args),

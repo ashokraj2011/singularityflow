@@ -33,9 +33,9 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Approval was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 
-export function createNamespaceApprovalPorts({records,content,scope,workId,authority,access,clock}={}) {
+export function createNamespaceApprovalPorts({records,content,localContent=null,scope,workId,authority,access,clock}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
-  const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
+  const observer=createNamespaceStoryObserver({records,content,localContent,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
   const packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),votes=createNamespaceApprovalReader({observer,scope,workId,checks});

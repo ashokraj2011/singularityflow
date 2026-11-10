@@ -11,7 +11,7 @@
  * replacing an earlier one. Pure: no I/O.
  */
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { isVisualVerificationPhase } from './phase-roles.mjs';
+import { isVisualVerificationPhase, ownerStepChecks, visualVerificationPhaseOf } from './phase-roles.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -24,6 +24,17 @@ export function activeWitnessDeferral(workflow, clauseId, slot) {
   const id = String(clauseId ?? '').toUpperCase();
   return [...countedRecords(workflow, workflow?.witnessDeferrals)].reverse()
     .find((entry) => entry.clauseId === id && entry.slot === slot && !entry.withdrawnAt) ?? null;
+}
+
+/**
+ * The later step that gives a sign-off besides the steps that deliver its criterion, or null: the one a person
+ * deferred it to, or, for a visual sign-off on a Story that pinned the owner-step checks, the visual verification
+ * step, which captures the screens and holds it at its approval [PHR:REQ-007].
+ */
+export function signOffStep(workflow, clauseId, slot, method) {
+  const deferral = activeWitnessDeferral(workflow, clauseId, slot);
+  if (deferral) return deferral.to;
+  return method === 'visual' && ownerStepChecks(workflow) ? visualVerificationPhaseOf(workflow, null)?.id ?? null : null;
 }
 
 /** The steps a deferral of this Story names: each holds the sign-offs deferred to it. */

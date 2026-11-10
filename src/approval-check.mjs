@@ -726,6 +726,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   EVIDENCE_INSPECTION_MISSING: 'someone-decides',
   // A person's deferral of that sign-off to a later step that cannot perform it: they name one that can [PHR:REQ-007].
   WITNESS_DEFERRAL_INVALID: 'someone-decides',
+  // A step's own criteria with evidence from before a scope revision: its author runs the step again [PHR:REQ-007].
+  EVIDENCE_STALE_AFTER_SCOPE_REVISION: 'author-repairs',
   // The door's own refusals, before any stage runs; approvalAdvisories adds them to the preview.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: 'this-checkout',
   WORKTREE_HIDDEN_CHANGE: 'this-checkout',

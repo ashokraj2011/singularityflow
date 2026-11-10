@@ -15,7 +15,9 @@ import { approvalHold, approvalHoldOwner } from '../src/approval-check.mjs';
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { terminalRecoveryActions } from '../src/evidence/terminal.mjs';
-import { criterionTestRefusal, inspectionWitnessRefusal, ownCriterionFindings } from '../src/owner-step-evidence.mjs';
+import { criterionTestRefusal, inspectionWitnessRefusal, ownCriterionFindings, ownSignOffs, staleEvidenceRefusal } from '../src/owner-step-evidence.mjs';
+import { acceptanceOwnerRefusal } from '../src/acceptance-owner-check.mjs';
+import { specAcceptanceFindings } from '../src/governance.mjs';
 import { ownerStepChecks, phaseResponsibilityPin } from '../src/phase-roles.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
@@ -351,4 +353,65 @@ test('[PHR:REQ-007] owner decision 2: a sign-off is deferred, by a person, only 
   assert.equal(moved.details.nextAction.command, 'singularity-flow decisions CODE-1');
   // The dated risk stays a route beside it, at both steps.
   assert.ok(moved.details.recoveryCommands.some((entry) => /^singularity-flow decision risk --obligation OBL:CODE-1:verify:/u.test(entry.command)));
+});
+
+/** A Story's last code step and a visual verification step after it, with one criterion each test or sign-off answers for. */
+function laterChecksStory({ pinned = true, spec = { mode: 'enforce', coverage: 'record', acceptance: 'verify' } } = {}) {
+  const step = (id, extra = {}) => ({ id, label: id, status: 'approved', generation: 1, approvals: [],
+    approvalPolicy: { mode: 'required', minimum: 1, authorities: ['reviewers'], requiredAuthorities: [], rejectTo: [id] }, ...extra });
+  return { workItem: { id: 'LATE-1' }, status: 'in_progress', currentPhase: 'implementation', phaseOrder: ['planning', 'implementation', 'screens'],
+    resolution: { ...(pinned ? PINNED : {}), spec },
+    phases: { planning: step('planning', { requiredArtifact: { kind: 'implementation-plan' } }),
+      implementation: step('implementation', { status: 'in_progress', generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' } }),
+      screens: step('screens', { status: 'not_started', generation: 0, requiredArtifact: { kind: 'visual-test-evidence' } }) } };
+}
+
+test('[PHR:REQ-007] G6: the acceptance the ending judges refuses the last code step\'s submission, where its author runs it', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phr-accept-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Accept Test'); git('config', 'user.email', 'accept@example.invalid');
+  await writeFile(path.join(root, 'README.md'), 'base\n'); git('add', '.'); git('commit', '-q', '-m', 'base');
+  const AC = 'LATE-1:AC-001';
+  const records = { indexes: [{ workId: 'LATE-1', phase: 'planning', generation: 1, clauses: [{ id: AC, type: 'AC' }] }],
+    planned: [{ workId: 'LATE-1', phase: 'planning', generation: 1, kind: 'planned', claims: { [AC]: { expectedPaths: ['src/a.mjs'], tests: ['test/a.test.mjs'], testDisposition: 'applicable' } } }],
+    observed: [], acceptance: [] };
+  const config = { workItemRoot: 'singularity/work-items' };
+  const story = laterChecksStory();
+  const refusal = await acceptanceOwnerRefusal(root, config, story, story.phases.implementation, { records });
+  assert.equal(refusal?.code, 'SPEC_ACCEPTANCE_INCOMPLETE');
+  assert.deepEqual(refusal.details.findings.map((entry) => entry.code).sort(), ['gate.acceptance.observed-test-missing', 'gate.acceptance.run-missing']);
+  assert.equal(refusal.details.ownerPhase, 'implementation');
+  assert.equal(refusal.details.nextAction.command, 'singularity-flow spec acceptance --phase implementation');
+  assert.equal(refusalRemediationPlan(refusal, ['submit', 'implementation']).steps.some((entry) => entry.command === refusal.details.nextAction.command), true);
+  // The same evaluation the ending runs: the gate's own findings for these records, less the plan's.
+  const { entries } = await specAcceptanceFindings(root, config, story, story.resolution.spec, records);
+  assert.deepEqual(entries.map((entry) => entry.code).sort(), refusal.details.findings.map((entry) => entry.code).sort());
+  // Nothing where the ending refuses nothing, for a Story started before, or at a step that is not the last code step.
+  assert.equal(await acceptanceOwnerRefusal(root, config, laterChecksStory({ spec: { mode: 'record', acceptance: 'verify' } }), story.phases.implementation, { records }), null);
+  assert.equal(await acceptanceOwnerRefusal(root, config, laterChecksStory({ pinned: false }), story.phases.implementation, { records }), null);
+  assert.equal(await acceptanceOwnerRefusal(root, config, story, story.phases.planning, { records }), null);
+});
+
+test('[PHR:REQ-007] a visual sign-off is the visual step\'s to hold, and evidence from before a scope revision the code step\'s', () => {
+  const story = laterChecksStory();
+  const AC = 'LATE-1:AC-001';
+  const row = (extra = {}) => ({ id: AC, type: 'AC', findings: [], actions: [],
+    obligations: [{ id: 'OBL-1', responsibility: 'verify', status: 'missing', owningSteps: ['implementation'] }],
+    verification: { contract: { slots: [{ slot: 'screen', method: 'visual', role: 'primary', status: 'missing' }] } }, ...extra });
+  const evaluation = { rows: [row()] };
+  assert.deepEqual(ownSignOffs(evaluation, story, 'implementation'), [], 'the code step does not capture the screens');
+  const [held] = ownSignOffs(evaluation, story, 'screens');
+  assert.deepEqual([held.clauseId, held.slot, held.findings[0].code], [AC, 'screen', 'EVIDENCE_VISUAL_MISSING']);
+  assert.equal(inspectionWitnessRefusal(story, story.phases.screens, evaluation)?.details.ownerPhase, 'screens');
+  // On a route with no visual step, the code step that delivers the criterion holds it.
+  const noScreens = { ...story, phaseOrder: ['planning', 'implementation'], phases: { planning: story.phases.planning, implementation: story.phases.implementation } };
+  assert.equal(ownSignOffs(evaluation, noScreens, 'implementation').length, 1);
+
+  const stale = { rows: [row({ verification: null, findings: [{ code: 'EVIDENCE_STALE_AFTER_SCOPE_REVISION', message: `${AC} changed in scope revision 2.`, obligationIds: ['OBL-1'] }] })] };
+  const refusal = staleEvidenceRefusal(story, story.phases.implementation, stale);
+  assert.equal(refusal?.code, 'EVIDENCE_STALE_AFTER_SCOPE_REVISION');
+  assert.equal(refusal.details.repairCommand, 'singularity-flow reject implementation --work-id LATE-1 --fetch --reason <REASON>');
+  assert.equal(staleEvidenceRefusal(story, story.phases.screens, stale), null, 'only the step that answers for it');
+  assert.equal(staleEvidenceRefusal(laterChecksStory({ pinned: false }), story.phases.implementation, stale), null);
 });

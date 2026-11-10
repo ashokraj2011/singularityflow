@@ -95,6 +95,8 @@ const FAMILIES = Object.freeze([
     'amendment-plan-corrections.mjs',
     // A criterion's own failing test, named with its repair at a code step's test runs [PHR:REQ-002].
     'criterion-test-failures.mjs',
+    // The specification acceptance the ending judges, judged at the last code step's submission [PHR:REQ-007].
+    'acceptance-owner-check.mjs',
     // A person's deferral of a sign-off to a later step that can perform and repair it [PHR:REQ-007].
     'commands/decision-witness-defer.mjs',
     'first-run-pass.mjs', 'configuration-review-pass.mjs',

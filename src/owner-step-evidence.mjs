@@ -12,7 +12,7 @@ import { evaluateEvidence } from './evidence/evaluate.mjs';
 import { terminalEvidenceDecisions } from './evidence/terminal.mjs';
 import { decisionListRoute } from './upstream-routes.mjs';
 import { activeWitnessDeferral, witnessDeferralCandidates } from './witness-deferrals.mjs';
-import { ownerStepChecks } from './phase-roles.mjs';
+import { ownerStepChecks, visualVerificationPhaseOf } from './phase-roles.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const HELD = new Set(['failed', 'inconclusive', 'missing']);
@@ -73,11 +73,13 @@ export function criterionTestRefusal(workflow, phase, evaluation) {
 
 /**
  * Each sign-off this step answers for that the ending would refuse as missing: an inspection of a criterion it
- * delivers last, and any inspection or visual sign-off deferred to it (witness-deferrals.mjs), slot by slot from
- * the same evaluation the ending runs.
+ * delivers last; a visual sign-off where it is the visual verification step, which captures the screens, or the
+ * code step that delivers the criterion on a route with none [PHR:REQ-007]; and any inspection or visual sign-off
+ * deferred to it (witness-deferrals.mjs). Slot by slot, from the same evaluation the ending runs.
  */
 export function ownSignOffs(evaluation, workflow, phaseId) {
   const held = [];
+  const visualStep = visualVerificationPhaseOf(workflow, null)?.id ?? null;
   for (const row of evaluation?.rows ?? []) {
     if (row.type !== 'AC') continue;
     const verify = (row.obligations ?? []).find((entry) => entry.responsibility === 'verify');
@@ -87,7 +89,8 @@ export function ownSignOffs(evaluation, workflow, phaseId) {
     for (const slot of row.verification?.contract?.slots ?? []) {
       if (slot.role !== 'primary' || !['inspection', 'visual'].includes(slot.method) || !HELD.has(slot.status)) continue;
       const deferral = activeWitnessDeferral(workflow, row.id, slot.slot);
-      if (deferral ? deferral.to !== phaseId : slot.method !== 'inspection' || owners.at(-1) !== phaseId) continue;
+      const owner = slot.method === 'visual' ? visualStep ?? owners.at(-1) : owners.at(-1);
+      if ((deferral ? deferral.to : owner) !== phaseId) continue;
       held.push({ clauseId: row.id, slot: slot.slot, method: slot.method, status: slot.status, obligationId: verify.id,
         ...(deferral ? { deferredFrom: deferral.from, deferral: deferral.id } : {}),
         findings: [{ code: slot.method === 'inspection' ? 'EVIDENCE_INSPECTION_MISSING' : 'EVIDENCE_VISUAL_MISSING',
@@ -135,10 +138,37 @@ export function inspectionWitnessRefusal(workflow, phase, evaluation) {
   );
 }
 
-/** Code approval: the step's own criteria, judged as the ending will judge them. */
+/**
+ * The approval refusal for a step whose own criteria have evidence from before a scope revision, or null
+ * [PHR:REQ-007]: the ending counts it again only once the step runs again, which its author does in a returned
+ * generation, here, rather than at the ending after the step was long approved.
+ */
+export function staleEvidenceRefusal(workflow, phase, evaluation) {
+  if (!ownerStepChecks(workflow)) return null;
+  const held = [];
+  for (const row of evaluation?.rows ?? []) {
+    const finding = (row.findings ?? []).find((entry) => entry.code === 'EVIDENCE_STALE_AFTER_SCOPE_REVISION' && entry.blocking !== false);
+    if (!finding) continue;
+    const owners = (row.obligations ?? []).filter((entry) => (finding.obligationIds ?? []).includes(entry.id))
+      .map((entry) => (entry.owningSteps ?? []).at(-1));
+    if (owners.includes(phase.id)) held.push({ clauseId: row.id, findings: [{ code: finding.code, message: finding.message }] });
+  }
+  if (!held.length) return null;
+  const workId = workflow.workItem.id;
+  return new SingularityFlowError(
+    `Phase '${phase.id}' cannot be approved while ${held.length} criterion(s) it delivered have evidence from before a scope revision:\n- `
+    + held.map((entry) => entry.findings[0].message).join('\n- ')
+    + `\n${phase.id}'s author runs the step again in a returned generation, so its evidence answers the revised clauses. The Story's ending refuses the same rows.`,
+    { code: 'EVIDENCE_STALE_AFTER_SCOPE_REVISION', details: { workId, phase: phase.id, ownerPhase: phase.id, criteria: held.slice(0, 20),
+      repairCommand: `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --reason <REASON>` } }
+  );
+}
+
+/** A step's approval: its own criteria and sign-offs, judged as the ending will judge them. */
 export async function assertOwnCriteriaVerified(root, config, workflow, phase) {
   if (!ownerStepChecks(workflow)) return;
   const evaluation = await ownerStepEvaluation(root, config, workflow);
-  const refusal = criterionTestRefusal(workflow, phase, evaluation) ?? inspectionWitnessRefusal(workflow, phase, evaluation);
+  const refusal = criterionTestRefusal(workflow, phase, evaluation) ?? staleEvidenceRefusal(workflow, phase, evaluation)
+    ?? inspectionWitnessRefusal(workflow, phase, evaluation);
   if (refusal) throw refusal;
 }

@@ -4291,8 +4291,8 @@ async function decisionWitnessCommand(positionals, options) {
   const slot = contract?.slots.find((entry) => entry.slot === slotName) ?? null;
   // Whoever approves the step that delivers or verifies the criterion may witness it.
   const owning = row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps);
-  // A later step a person deferred this sign-off to gives it too [PHR:REQ-007].
-  const deferredTo = (await import('./witness-deferrals.mjs')).activeWitnessDeferral(workflow, clauseId, slotName)?.to;
+  // A later step a person deferred this sign-off to gives it too, and the visual step a visual one [PHR:REQ-007].
+  const deferredTo = (await import('./witness-deferrals.mjs')).signOffStep(workflow, clauseId, slotName, slot?.method);
   const groups = riskAuthorities(workflow, { owningSteps: [...new Set([...owning, ...(deferredTo ? [deferredTo] : [])])] });
   if (!groups.length) {
     throw new SingularityFlowError(`No step delivering ${clauseId} has an approval group, so nobody can witness it.`, { code: 'WITNESS_AUTHORITY_UNAVAILABLE' });

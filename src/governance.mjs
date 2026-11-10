@@ -297,6 +297,27 @@ export function verifiedAbandonedGenerations(root, config, workflow, { errors = 
  * phase entry, submit and approval of a large checkout, and without a run the hash was compared with
  * nothing. Hidden worktree changes are refused either way, as hashing refused them.
  */
+/**
+ * The specification acceptance the ending judges, as gate findings. The last code step's submission runs
+ * the same function on the same records (acceptance-owner-check.mjs) [PHR:REQ-007], G6.
+ */
+export async function specAcceptanceFindings(root, config, workflow, specPolicy, records) {
+  const sourceTreeSha256 = await acceptanceSourceTree(root, records, applicationPathContext(config, workflow));
+  const acceptance = evaluateSpecAcceptance(records, specPolicy, {
+    workId: workflow.workItem.id,
+    sourceTreeSha256,
+    commandSetSha256: configuredAcceptanceCommandSetSha256(specPolicy)
+  });
+  const entries = [
+    ...acceptance.missingPlannedTests.map((id) => ({ code: 'gate.acceptance.planned-test-missing', message: `clause ${id} has no planned test` })),
+    ...acceptance.missingObservedTests.map((id) => ({ code: 'gate.acceptance.observed-test-missing', message: `clause ${id} has no observed test result` })),
+    ...acceptance.failedCommands.map((id) => ({ code: 'gate.acceptance.command-failed', message: `allowlisted acceptance command failed: ${id}` })),
+    ...(acceptance.missingRun ? [{ code: 'gate.acceptance.run-missing', message: 'no specification acceptance run is recorded' }] : []),
+    ...acceptance.staleRunReasons.map((reason) => ({ code: 'gate.acceptance.run-stale', message: `specification acceptance is stale: ${reason}` }))
+  ];
+  return { acceptance, entries };
+}
+
 export async function acceptanceSourceTree(root, records, pathContext) {
   if (!(records?.acceptance ?? []).length) {
     assertNoHiddenWorktreeChanges(root, 'Specification source hashing');
@@ -874,19 +895,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     // which no step could ever plan (2026-10-28).
     if (specPolicy.acceptance !== 'off' && !codeRoute) passes.push('specification acceptance: not applicable, no code step on this route');
     if (specPolicy.acceptance !== 'off' && codeRoute) {
-      const sourceTreeSha256 = await acceptanceSourceTree(root, records, applicationPathContext(config, workflow));
-      const acceptance = evaluateSpecAcceptance(records, specPolicy, {
-        workId: workflow.workItem.id,
-        sourceTreeSha256,
-        commandSetSha256: configuredAcceptanceCommandSetSha256(specPolicy)
-      });
-      const entries = [
-        ...acceptance.missingPlannedTests.map((id) => ({ code: 'gate.acceptance.planned-test-missing', message: `clause ${id} has no planned test` })),
-        ...acceptance.missingObservedTests.map((id) => ({ code: 'gate.acceptance.observed-test-missing', message: `clause ${id} has no observed test result` })),
-        ...acceptance.failedCommands.map((id) => ({ code: 'gate.acceptance.command-failed', message: `allowlisted acceptance command failed: ${id}` })),
-        ...(acceptance.missingRun ? [{ code: 'gate.acceptance.run-missing', message: 'no specification acceptance run is recorded' }] : []),
-        ...acceptance.staleRunReasons.map((reason) => ({ code: 'gate.acceptance.run-stale', message: `specification acceptance is stale: ${reason}` }))
-      ];
+      const { acceptance, entries } = await specAcceptanceFindings(root, config, workflow, specPolicy, records);
       if (acceptance.complete) passes.push(`specification acceptance: ${acceptance.mode}`);
       else if (specPolicy.mode === 'enforce') for (const entry of entries) refuse(entry.code, entry.message);
       else warnings.push(...entries.map((entry) => entry.message));

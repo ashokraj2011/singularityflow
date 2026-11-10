@@ -37,6 +37,8 @@ const CONFORMANCE_GAPS = [
 const QUALIFIED_ROWS = [check('conformance-readiness.mjs', 'inspectQualifiedConformanceReport', 'draft-check, publication, submission')];
 // The ending's own gate findings about an earlier step's output name the upstream issue to that step [PHR:REQ-005].
 const ENDING_UPSTREAM = [check('evidence/terminal.mjs', 'terminalRecoveryActions', 'the ending: the upstream issue to the step gateFindingOwner names')];
+// The ending's acceptance evaluation, run first at the last code step's submission [PHR:REQ-007], G6.
+const ACCEPTANCE_CHECK = [check('acceptance-owner-check.mjs', 'acceptanceOwnerRefusal', 'the last code step\'s submission (pinned Stories under an enforced specification with acceptance on)')];
 const CODE_COVERAGE = [
   check('spec-coverage-preview.mjs', 'assertStrictCandidateSpecificationCoverage', 'code publication (refuses when enforced, returns a warning when recorded)'),
   check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (refuses when enforced, and at the last code step\'s approval when recorded on a Story that pinned the owner-step checks; warns otherwise)')
@@ -44,11 +46,12 @@ const CODE_COVERAGE = [
 
 export const GATE_PARITY = Object.freeze({
   'gate.acceptance-criteria.unbound': entry('author', 'same-check', { checks: [check('delivery-evidence.mjs', 'evaluateCodeDeliveryPreflight', 'code draft-check and publication')] }),
-  'gate.acceptance.command-failed': entry('author', 'final-check-preview', { gap: 'G6: acceptance runs are not run before the ending', routes: ENDING_UPSTREAM }),
-  'gate.acceptance.observed-test-missing': entry('author', 'final-check-preview', { gap: 'G6: acceptance runs are not run before the ending', routes: ENDING_UPSTREAM }),
-  'gate.acceptance.planned-test-missing': entry('author', 'final-check-preview', { gap: 'G7: the planned-test predicate is not shared with planning', routes: ENDING_UPSTREAM }),
-  'gate.acceptance.run-missing': entry('author', 'final-check-preview', { gap: 'G6: acceptance runs are not run before the ending', routes: ENDING_UPSTREAM }),
-  'gate.acceptance.run-stale': entry('author', 'final-check-preview', { gap: 'G6: acceptance runs are not run before the ending', routes: ENDING_UPSTREAM }),
+  'gate.acceptance.command-failed': entry('author', 'same-check', { checks: ACCEPTANCE_CHECK, routes: ENDING_UPSTREAM }),
+  'gate.acceptance.observed-test-missing': entry('author', 'same-check', { checks: ACCEPTANCE_CHECK, routes: ENDING_UPSTREAM }),
+  // G7: the same predicate (evaluateSpecAcceptance, presence) at planning, wherever the ending would refuse it.
+  'gate.acceptance.planned-test-missing': entry('author', 'same-check', { checks: [check('phase-prepublish.mjs', 'phasePrepublish', 'planning prepublish, with the predicate the ending uses (planned claims required, or a pinned Story under an enforced specification with acceptance on)')], routes: ENDING_UPSTREAM }),
+  'gate.acceptance.run-missing': entry('author', 'same-check', { checks: ACCEPTANCE_CHECK, routes: ENDING_UPSTREAM }),
+  'gate.acceptance.run-stale': entry('author', 'same-check', { checks: ACCEPTANCE_CHECK, routes: ENDING_UPSTREAM }),
   'gate.agents.context-uncommitted': entry('engine', 'integrity'),
   'gate.agents.integrity': entry('engine', 'integrity'),
   'gate.agents.remote-output-missing': entry('engine', 'integrity'),
@@ -114,9 +117,13 @@ export const GATE_PARITY = Object.freeze({
   'gate.terminal.phase-skipped': entry('route', 'lifecycle'),
   'gate.terminal.phase-unapproved': entry('route', 'lifecycle'),
   'gate.terminal.workflow-incomplete': entry('route', 'lifecycle'),
-  'gate.visual.coverage': entry('author', 'final-check-preview', { gap: 'G8: visual coverage is not checked at the code step', routes: ENDING_UPSTREAM }),
-  'gate.visual.evidence-unreadable': entry('author', 'final-check-preview', { gap: 'G8: visual comparisons are read only at the ending', routes: ENDING_UPSTREAM }),
-  'gate.visual.threshold': entry('author', 'final-check-preview', { gap: 'G8: visual thresholds are not checked at the code step', routes: ENDING_UPSTREAM }),
+  // G8: the visual verification step, which captures the screens, runs the same coverage evaluation at its submission.
+  'gate.visual.coverage': entry('author', 'same-check', { checks: [check('visual-coverage.mjs', 'assertVisualCoverage', 'the visual verification step\'s submission (enforced coverage)')], routes: ENDING_UPSTREAM }),
+  // A comparison record that will not parse is an integrity failure whatever the comparison mode says (visual-compare.mjs).
+  'gate.visual.evidence-unreadable': entry('engine', 'integrity'),
+  // Reported to the owner, not checked earlier: a failed comparison stays in the evidence for good, so no step can
+  // repair it once recorded; a later passing comparison does not supersede it (2026-11-10).
+  'gate.visual.threshold': entry('author', 'final-check-preview', { gap: 'G8: a failed comparison is never superseded, so no step can repair it once recorded', routes: ENDING_UPSTREAM }),
   'gate.witness.exception-lapsed': entry('approver', 'final-check-preview')
 });
 
@@ -144,6 +151,8 @@ const CLAUSE_CHECK = [check('phase-prepublish.mjs', 'phasePrepublish', 'the defi
 const IMPLEMENTATION_CHECK = [check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (enforced coverage; the last code step under recorded coverage, pinned Stories)')];
 const CRITERION_CHECK = [check('owner-step-evidence.mjs', 'criterionTestRefusal', 'approval of the code step that answers for the criterion (pinned Stories)')];
 const INSPECTION_CHECK = [check('owner-step-evidence.mjs', 'inspectionWitnessRefusal', 'approval of the code step that answers for the criterion (pinned Stories)')];
+const VISUAL_CHECK = [check('owner-step-evidence.mjs', 'inspectionWitnessRefusal', 'approval of the visual verification step, or of the code step that delivers the criterion on a route with none (pinned Stories)')];
+const STALE_CHECK = [check('owner-step-evidence.mjs', 'staleEvidenceRefusal', 'approval of the code step that answers for the criterion (pinned Stories)')];
 const UPSTREAM_ROUTE = [check('evidence/terminal.mjs', 'terminalRecoveryActions', 'the ending: the upstream issue, plan correction, return or revalidation to the owning step')];
 const WITNESS_ROUTE = [check('evidence/terminal.mjs', 'terminalEvidenceDecisions', 'the ending and the decision list: the witness, with who may give it')];
 const SCOPE_ROUTE = [check('evidence/terminal.mjs', 'terminalRecoveryActions', 'the ending: each scope decision, for the scope step\'s approvers')];
@@ -164,7 +173,7 @@ export const EVIDENCE_PARITY = Object.freeze({
   EVIDENCE_RECORDS_UNTRUSTED: evidence('engine', 'integrity'),
   EVIDENCE_RESPONSIBILITY_UNHELD: evidence('route', 'lifecycle'),
   EVIDENCE_REVIEW_PENDING: evidence('route', 'lifecycle'),
-  EVIDENCE_STALE_AFTER_SCOPE_REVISION: evidence('code', 'upstream-route', { routes: UPSTREAM_ROUTE }),
+  EVIDENCE_STALE_AFTER_SCOPE_REVISION: evidence('code', 'owner-check', { checks: STALE_CHECK, routes: UPSTREAM_ROUTE }),
   EVIDENCE_TAG_NOT_ON_TEST: criterion,
   EVIDENCE_TEST_AMBIGUOUS: criterion,
   EVIDENCE_TEST_ASSERTION_MISSING: criterion,
@@ -177,7 +186,7 @@ export const EVIDENCE_PARITY = Object.freeze({
   EVIDENCE_TEST_SKIPPED: criterion,
   EVIDENCE_TEST_UNAVAILABLE: criterion,
   EVIDENCE_TESTS_SKIPPED: criterion,
-  EVIDENCE_VISUAL_MISSING: evidence('code', 'upstream-route', { routes: WITNESS_ROUTE }),
+  EVIDENCE_VISUAL_MISSING: evidence('code', 'owner-check', { checks: VISUAL_CHECK, routes: WITNESS_ROUTE }),
   EVIDENCE_WITNESS_EXCEPTION_EXPIRED: evidence('approver', 'approval'),
   EVIDENCE_WITNESS_MISSING: criterion,
   EVIDENCE_WITNESS_NOT_APPLICABLE: criterion,

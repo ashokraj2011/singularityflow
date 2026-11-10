@@ -215,7 +215,11 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
           }
         }
         const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
-        if (plannedClaimsEnforced(workflow, specPolicy)) {
+        // Wherever the Story's ending refuses a clause with no planned test (an enforced specification with
+        // acceptance on), the plan refuses it here first, with the same predicate [PHR:REQ-007], G7.
+        const plansEnforced = plannedClaimsEnforced(workflow, specPolicy)
+          || (ownerStepChecks(workflow) && specPolicy.mode === 'enforce' && (specPolicy.acceptance ?? 'off') !== 'off');
+        if (plansEnforced) {
           for (const clauseId of gaps) add('specification.planned-test-missing', 'planning-table',
             `Clause ${clauseId} has no exact planned test or reviewed not-applicable reason. Complete the 'Clause | Expected paths | Planned tests' table.`,
             { details: { clauseId } });
@@ -249,7 +253,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         }
         const effectiveGaps = evaluateSpecAcceptance({ indexes, planned: [derived.claimMap] },
           { ...specPolicy, acceptance: 'presence' }).missingPlannedTests;
-        if (plannedClaimsEnforced(workflow, specPolicy)) {
+        if (plansEnforced) {
           for (const clauseId of effectiveGaps.filter((id) => !gaps.includes(id))) {
             add('specification.planned-test-missing', 'planning-table',
               `Clause ${clauseId} has no planned test.`, { details: { clauseId } });

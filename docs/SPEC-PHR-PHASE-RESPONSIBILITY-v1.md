@@ -40,6 +40,27 @@ The owner's answers to batch 2's questions, 2026-11-10:
 7. G6 to G8: owner-step checks in the step that produces acceptance runs and visual evidence, with the ending's own
    evaluation; the ending's upstream route stays the fallback.
 
+Where answer 7 stands (batch 2, 2026-11-10), each for a Story that pinned the owner-step checks:
+
+- G6, the acceptance runs (`gate.acceptance.run-missing`, `run-stale`, `command-failed`, `observed-test-missing`): the
+  last code step's submission runs the ending's own evaluation (`specAcceptanceFindings`) on the same records, under
+  an enforced specification with acceptance on, and refuses there (`SPEC_ACCEPTANCE_INCOMPLETE`, with
+  `spec acceptance --phase` or the publication as its route).
+- G7, `gate.acceptance.planned-test-missing`: planning's prepublish runs the same predicate wherever the ending would
+  refuse it.
+- G8: `gate.visual.coverage` is the visual verification step's own submission check, the same evaluation; an
+  unreadable comparison record is an integrity failure. The visual step holds each visual sign-off at its approval
+  (`EVIDENCE_VISUAL_MISSING`; the code step that delivers the criterion on a route with no visual step), and its
+  approvers give it. Evidence from before a scope revision (`EVIDENCE_STALE_AFTER_SCOPE_REVISION`) holds the code step
+  that answers for it.
+- The ratchet (`[PHR:REQ-010]`): every evaluator finding that judges an earlier step's output names its owner-step
+  check; an upstream route alone no longer satisfies it.
+- **Reported, not checked earlier: `gate.visual.threshold`.** A failed visual comparison stays in the evidence for
+  good and a later passing comparison does not supersede it, so no step can repair it once it is recorded; checking
+  it earlier would only move a refusal nobody can clear. The owner decides what clears a failed comparison (a later
+  passing comparison of the same screen and profile, a person's risk, or a return), and the gate-parity side of the
+  ratchet is strengthened once it is decided. Until then the ending's upstream route to the code step stays.
+
 The owner, 2026-11-09: "no phase should be blocked due to prior ones .. It should be caught in the phase responsible
 and rectify there."
 

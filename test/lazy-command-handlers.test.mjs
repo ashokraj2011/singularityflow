@@ -526,7 +526,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // needs, signed by the plan's approvers in their decision on it, and the plan keeps its approval (state.mjs +2285,
     // plan-row-corrections.mjs +1096, phase-retention.mjs +169); proposing, proving and recording them stays lazy
     // (amendment-plan-corrections.mjs) [PHR:REQ-008]. No new eager file.
-    assert.ok(closure.bytes <= 9_673_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,675,100 (measured 9,675,086, commands/phase-lifecycle.mjs): the acceptance and visual findings the ending judges are
+    // judged in the steps that own them, with the ending's own evaluation (state.mjs +501, governance.mjs +393 to share
+    // it, phase-prepublish.mjs +346, witness-records.mjs +33, owed-decisions.mjs +7); the checks themselves stay lazy
+    // (acceptance-owner-check.mjs, owner-step-evidence.mjs) [PHR:REQ-007]. No new eager file.
+    assert.ok(closure.bytes <= 9_675_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

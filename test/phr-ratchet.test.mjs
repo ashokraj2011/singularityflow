@@ -44,11 +44,12 @@ test('[PHR:REQ-005] every EVIDENCE_ and SCOPE_ finding of the final evaluation s
   }
 });
 
-test('[PHR:REQ-005] no later refusal judges an earlier step\'s output without an owner-step check or an upstream route', () => {
+test('[PHR:REQ-005, REQ-010] no later refusal judges an earlier step\'s output without the identical check at the owning step', () => {
   const stranded = [];
-  // The evaluator's findings: an earlier step's output owns them.
+  // The evaluator's findings: an earlier step's output owns them, and the owning step runs the same evaluation
+  // before its approval. An upstream route alone no longer satisfies this (owner, 2026-11-10).
   for (const [code, entry] of Object.entries(EVIDENCE_PARITY)) {
-    if (EARLIER_OUTPUT_OWNERS.includes(entry.owner) && !entry.checks.length && !entry.routes.length) stranded.push(code);
+    if (EARLIER_OUTPUT_OWNERS.includes(entry.owner) && !entry.checks.length) stranded.push(code);
   }
   // The approval gate's: an author-owned code first refused at the ending judges an earlier step's output there.
   for (const [code, entry] of Object.entries(GATE_PARITY)) {

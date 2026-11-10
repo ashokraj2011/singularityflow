@@ -6036,6 +6036,11 @@ async function submitPhaseTransition(root, config, workflow, {
     attemptHistory.splice(0, attemptHistory.length,
       ...await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id));
   }
+  // The specification acceptance the ending judges, judged where the last code step can still run it [PHR:REQ-007], G6.
+  if (ownerStepChecks(workflow) && phaseRequiresCodeDelivery(phase)) {
+    const refusal = await (await import('./acceptance-owner-check.mjs')).acceptanceOwnerRefusal(root, config, workflow, phase);
+    if (refusal) throw refusal;
+  }
   if (isVisualVerificationPhase(phase)) await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   if (isConvergencePhase(phase)) {
     await assertConvergencePublicationReady(root, config, workflow, phase);
@@ -7130,8 +7135,9 @@ export async function evaluateApproval(root, config, workflow, {
     }, { needs: ['source-binding', 'test-risk', 'validation'] });
     await stage('criteria', async () => {
       // A code step's own criteria, judged as the ending judges them, while its author can correct them [PHR:REQ-002].
-      // So is a later step for each sign-off a person deferred to it (witness-deferrals.mjs).
-      if (ownerStepChecks(workflow) && (phaseRequiresCodeDelivery(phase)
+      // So is a later step for each sign-off a person deferred to it (witness-deferrals.mjs), and the visual
+      // verification step for the visual sign-offs it captures the screens of [PHR:REQ-007].
+      if (ownerStepChecks(workflow) && (phaseRequiresCodeDelivery(phase) || isVisualVerificationPhase(phase)
           || (await import('./witness-deferrals.mjs')).witnessDeferralTargets(workflow).has(phase.id))) {
         await (await import('./owner-step-evidence.mjs')).assertOwnCriteriaVerified(root, config, workflow, phase);
       }

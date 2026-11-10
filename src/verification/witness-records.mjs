@@ -401,8 +401,8 @@ export async function evidenceConfirmations(root, config, workflow, actor) {
       if (open.status !== 'missing' || !['visual', 'inspection'].includes(open.method)) continue;
       const slot = contracts.get(row.id)?.slots.find((entry) => entry.slot === open.slot) ?? null;
       const files = open.method === 'inspection' ? [slot?.witness?.path].filter(Boolean) : plannedEvidenceFiles(row);
-      // A later step a person deferred this sign-off to gives it too [PHR:REQ-007].
-      const deferredTo = deferrals.activeWitnessDeferral(workflow, row.id, open.slot)?.to;
+      // A later step a person deferred this sign-off to gives it too, and the visual step a visual one [PHR:REQ-007].
+      const deferredTo = deferrals.signOffStep(workflow, row.id, open.slot, open.method);
       const owning = [...new Set([...row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps),
         ...(deferredTo ? [deferredTo] : [])])];
       const groups = riskAuthorities(workflow, { owningSteps: owning });

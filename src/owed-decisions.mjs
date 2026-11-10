@@ -19,13 +19,13 @@ const MAX_TEXT = 160;
 // The evidence modules load only when a witnessing step is read; readiness of any other step and
 // the terminal lines below pay nothing for them.
 async function evidenceReader() {
-  const [{ evidenceGraphFromAggregate, previewScopeInventory }, { evaluateEvidence }, { mergedVerificationContracts }, { plannedClaimsForObservedPhase }, { activeWitnessDeferral }] = await Promise.all([
+  const [{ evidenceGraphFromAggregate, previewScopeInventory }, { evaluateEvidence }, { mergedVerificationContracts }, { plannedClaimsForObservedPhase }, { signOffStep }] = await Promise.all([
     import('./evidence/graph.mjs'), import('./evidence/evaluate.mjs'), import('./verification/contracts.mjs'), import('./specifications.mjs'), import('./witness-deferrals.mjs')
   ]);
-  return { evidenceGraphFromAggregate, previewScopeInventory, evaluateEvidence, mergedVerificationContracts, plannedClaimsForObservedPhase, activeWitnessDeferral };
+  return { evidenceGraphFromAggregate, previewScopeInventory, evaluateEvidence, mergedVerificationContracts, plannedClaimsForObservedPhase, signOffStep };
 }
 
-function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhase, activeWitnessDeferral }, workflow, graph, evaluation, phaseId) {
+function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhase, signOffStep }, workflow, graph, evaluation, phaseId) {
   const owned = plannedClaimsForObservedPhase(workflow, phaseId, graph.records.planned ?? []);
   const contracts = mergedVerificationContracts(graph.records.planned ?? []);
   const witnesses = [];
@@ -40,8 +40,8 @@ function witnessesOf({ mergedVerificationContracts, plannedClaimsForObservedPhas
     const owners = [...new Set((row.obligations ?? []).filter(entry => ['verify', 'implement'].includes(entry.responsibility))
       .flatMap(entry => entry.owningSteps ?? []))];
     for (const slot of contract.slots.filter(slot => slot.role === 'primary' && ['visual', 'inspection'].includes(slot.method))) {
-      // A sign-off a person deferred to a later step is that step's to give, and to hold [PHR:REQ-007].
-      const deferredTo = activeWitnessDeferral(workflow, clauseId, slot.slot)?.to;
+      // A sign-off a person deferred to a later step is that step's to give, and to hold, as is a visual one the visual step's [PHR:REQ-007].
+      const deferredTo = signOffStep(workflow, clauseId, slot.slot, slot.method);
       const status = slots.find(result => result.slot === slot.slot)?.status ?? 'pending';
       const files = slot.method === 'inspection' ? [slot.witness.path]
         : (claim.obligations ?? [claim]).filter(entry => entry.fulfillment === 'evidence').flatMap(entry => entry.expectedPaths ?? []);

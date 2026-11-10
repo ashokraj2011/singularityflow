@@ -384,7 +384,7 @@ test('review tool protocol recovers in the same turn; standalone check/stage/ret
     'Get-Content C:\\Users\\dev\\AppData\\Local\\Temp\\1792-copilot-tool-output-1.txt | ConvertFrom-Json']) {
     const refusal = await shell(command);
     assert.match(refusal.permissionDecisionReason, /PHASE_MUTATION_TOOL_PROTOCOL: that file is the host's saved copy of a long result, outside the workspace/u);
-    assert.match(refusal.permissionDecisionReason, /Run singularity-flow result last --wait --for-agent --json, standalone: it returns that command's kept result[^.]*without running the command again/u);
+    assert.match(refusal.permissionDecisionReason, /Run singularity-flow result last --wait --command "<the cut command's words>" --for-agent --json, standalone \(the words of the command whose result was cut\): it returns that command's kept result[^.]*without running the command again/u);
     assert.doesNotMatch(refusal.permissionDecisionReason, /use native file-read tools/u);
   }
   const reportJson = JSON.stringify({ binding: { phase: 'custom-step' }, rows: [], rationale: 'literal [data] > not a redirect', detail: 'x'.repeat(4000) });

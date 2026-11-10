@@ -934,9 +934,10 @@ const KNOWN = Object.freeze({
       `singularity-flow nextsteps${workId ? ` ${workId}` : ''} --json`, 'remediation')];
   },
   // Another live command holds the Story while it publishes: wait for it, never recover.
-  STORY_PUBLICATION_IN_PROGRESS: () => [step('wait-for-publication',
+  // Its result is read by this command's own words, never another command's [review-submit fix].
+  STORY_PUBLICATION_IN_PROGRESS: (argv) => [step('wait-for-publication',
     'Another command is publishing this Story right now. Wait for it to finish, then run the same command once more.',
-    'singularity-flow result last --wait --for-agent --json', 'diagnostic')],
+    `singularity-flow result last --wait${commandWords(argv) ? ` --command "${commandWords(argv)}"` : ''} --for-agent --json`, 'diagnostic')],
   // A waiting commit that cannot be set aside says why, with the person's exact Git step.
   PUBLICATION_SET_ASIDE_REFUSED: (argv, error) => {
     const reason = error?.details?.reason;
@@ -2556,4 +2557,10 @@ function ownerStepRemediationPlan(error, argv, code) {
       ...(context ? { turn: 'current-turn', command: null, skill: null } : {})
     })
   });
+}
+
+/** A command's own words, before its first option: what `result last --command` matches. */
+function commandWords(argv = []) {
+  const end = argv.findIndex((value) => String(value).startsWith('-'));
+  return (end < 0 ? argv : argv.slice(0, end)).filter((value) => /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(String(value))).slice(0, 4).join(' ');
 }

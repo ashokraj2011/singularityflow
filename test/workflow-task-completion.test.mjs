@@ -240,7 +240,7 @@ test('planning, code, verification, release and custom tasks cannot finish at in
     assert.match(answer.reason, /Reuse the current exact paths/);
     assert.match(answer.reason, new RegExp(`phase prepublish ${options.phaseId}`));
     assert.match(answer.reason, /one automatic continuation only/);
-    assert.match(answer.reason, /result last --wait --for-agent --json/);
+    assert.match(answer.reason, /result last --wait --command "<the cut command's words>" --for-agent --json/);
     assert.doesNotMatch(answer.reason, /singularity-flow (?:submit|approve) /u);
     const continuation = await recordRepositoryBoundaryTurn({ ...f.payload, prompt: answer.reason });
     assert.match(continuation.additionalContext, /same admitted workflow task/);

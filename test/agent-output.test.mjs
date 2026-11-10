@@ -226,7 +226,9 @@ test('source-review checks distinguish packet repair from retaining genuine revi
 test('review check accepts output-only agent shaping without relaxing review context or mutations', async () => {
   const { interpretsForAgent } = await import('../src/cli-json-output.mjs');
   assert.equal(interpretsForAgent(['review-source', 'check']), false);
-  for (const action of ['context', 'stage', 'submit', 'decide']) assert.equal(interpretsForAgent(['review-source', action]), true);
+  // The submit's retained result is long: --for-agent only bounds and keeps it; the submit reads its own options as before.
+  assert.equal(interpretsForAgent(['review-source', 'submit']), false);
+  for (const action of ['context', 'stage', 'decide']) assert.equal(interpretsForAgent(['review-source', action]), true);
   const result = await withAgentRoutes({ next: [{
     command: 'singularity-flow review-source check custom-scope --report-file /private/report.json --json'
   }] });

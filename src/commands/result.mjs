@@ -23,7 +23,7 @@ function waitSeconds(value) {
 }
 
 /** What `result last` returns: the kept result itself, marked as kept, or why there is none. */
-export function keptResultView(found) {
+export function keptResultView(found, { command = null } = {}) {
   if (found.status === 'kept') {
     const meta = { command: found.kept.command, startedAt: found.kept.startedAt, finishedAt: found.kept.finishedAt, others: found.others };
     let value = null;
@@ -34,7 +34,22 @@ export function keptResultView(found) {
   }
   return { schemaVersion: 1, resultType: 'sflow-kept-result', status: found.status,
     ...(found.running ? { running: found.running } : {}), ...(found.interrupted ? { interrupted: found.interrupted } : {}),
-    ...(found.status === 'running' ? { retry: RESULT_LAST_COMMAND } : {}) };
+    ...(found.status === 'running' ? { retry: RESULT_LAST_COMMAND } : {}),
+    ...(found.status === 'none' && command ? { command, ...(safeReadFor(command) ? { safeRead: safeReadFor(command) } : {}) } : {}) };
+}
+
+/**
+ * The read that says where a command left things, for one whose result was not kept, so nothing runs it again:
+ * a review's own status (retained or not, and what comes next), else the Story's next steps. Null without a command.
+ */
+export function safeReadFor(command) {
+  const words = String(command ?? '').trim().replace(/^(?:singularity-flow|sflow)\s+/u, '').split(/\s+/u).filter(Boolean);
+  if (!words.length) return null;
+  if (words[0] === 'review-source' && words[1]) {
+    const phase = words[2] && !words[2].startsWith('-') ? ` ${words[2]}` : '';
+    return `singularity-flow review-source status${phase} --for-agent --json`;
+  }
+  return 'singularity-flow nextsteps --for-agent --json';
 }
 
 export async function run(_argv, { positionals, options = {} }) {
@@ -44,7 +59,7 @@ export async function run(_argv, { positionals, options = {} }) {
   // The folder the command was run from, as its results were filed, not a Story checkout it moved to.
   const found = await lastAgentResult({ cwd: globalThis.__SFLOW_INVOCATION_CWD ?? process.cwd(),
     wait: waitSeconds(options.wait), command: optionString(options, 'command', null) });
-  const view = keptResultView(found);
+  const view = keptResultView(found, { command: optionString(options, 'command', null) });
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(view, null, 2));
   if (found.status === 'kept') {
     console.log(`Newest result kept for this checkout: ${found.kept.command} (finished ${found.kept.finishedAt}).`);

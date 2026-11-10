@@ -197,6 +197,9 @@ export function agentAct(result) {
       said: oneLine(`Still running: ${(result.running ?? []).map((entry) => entry.command).join('; ')}. Run this same read again; never run the command itself again.`) };
     if (result.status === 'interrupted') return { state: 'next', do: null,
       said: oneLine(`${result.interrupted?.command ?? 'The command'} ended without a result (interrupted or killed). Run it again once, with --for-agent --json.`) };
+    // Nothing kept for the command that was cut: its own safe read, never another command's result or a repeat of a mutation.
+    if (result.status === 'none' && result.safeRead) return { state: 'read', do: { reason: 'Read where the command left things; never run it again.', copilot: null, shell: result.safeRead, vscode: null },
+      said: oneLine(`No result is kept for ${result.command ?? 'that command'}. Run do.shell to read where it left things; never run the command itself again.`) };
     if (result.status === 'none') return { state: 'read', do: null, said: 'No result is kept for this checkout. Run the command again once, with --for-agent --json.' };
   }
   // Every skill reads the pause state first, so the same answer repeats all day: it is a read to
@@ -380,6 +383,13 @@ export function agentAct(result) {
     return { state: progress?.state === 'repair-report' ? 'correct' : 'review', do: null,
       read: ['progress', ...(result.taskResume ? ['taskResume'] : []), 'reviewGuide', 'reviewer', 'citationGuide', 'sources', 'upstreamSpec', 'clarifications', 'clarificationGuidance', 'artifact', 'reportTemplate', 'reportSchema', 'stagingProtocol'],
       said: progress?.instruction ?? 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
+  }
+  // A retained review, as its submission or its status returns it: what comes after retention, from its own
+  // continuation (the author's successor, submission, or a person's disposition); never retain it again.
+  if (result.resultType === 'source-review-status' && result.reportSha256 && Array.isArray(result.continuation?.actions) && result.continuation.actions.length) {
+    const [next] = result.continuation.actions;
+    return withRoute({ state: 'next', do: null, read: ['status', 'findings', 'pendingDispositions', 'continuation'],
+      said: oneLine(`The review is retained (${result.status}). ${next.reason ?? ''} Never retain or submit this review again.`) }, next);
   }
   if (result.resultType === 'source-review-check') {
     if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,

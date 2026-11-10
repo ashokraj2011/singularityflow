@@ -1584,7 +1584,7 @@ export function readsHostSavedOutput(call) {
 const OWN_ROUTE_TURNS = new Set(['read-only-review', 'review-decision-only', 'decision-only', 'publish-only']);
 // Turns whose own route approves or returns the bound step, from the person's chat confirmation.
 const PERSON_DECISION_TURNS = new Set(['approval-only', 'decision-only', 'confirm']);
-const HOST_SAVED_OUTPUT_DENIAL = 'PHASE_MUTATION_TOOL_PROTOCOL: that file is the host\'s saved copy of a long result, outside the workspace; do not read it with shell tools. Run singularity-flow result last --wait --for-agent --json, standalone: it returns that command\'s kept result, starting with act and fitting the host, without running the command again. This refusal does not invalidate the phase or require repeating clarification';
+const HOST_SAVED_OUTPUT_DENIAL = 'PHASE_MUTATION_TOOL_PROTOCOL: that file is the host\'s saved copy of a long result, outside the workspace; do not read it with shell tools. Run singularity-flow result last --wait --command "<the cut command\'s words>" --for-agent --json, standalone (the words of the command whose result was cut): it returns that command\'s kept result, or the read that says where it left things, starting with act and fitting the host, without running the command again. This refusal does not invalidate the phase or require repeating clarification';
 
 /**
  * XPL2 observed writes, on the guard that already runs: settle what this session's earlier edits

@@ -120,7 +120,7 @@ export async function workflowTaskAgentStop(payload = {}) {
   if (!await saveReviewCompletionTurn(payload, value, { once: true, ...(answers ? { claim: `task-completion-${operation.state}` } : {}) })
     || !answers && !await reserveTaskContinuation(value, operation)) return {};
   return { decision: 'block', reason: `SFLOW_WORKFLOW_TASK_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no verified completed publication from this task. `
-    + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --for-agent --json and follow that result; never replay the command. Otherwise: '
+    + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --command "<the cut command\'s words>" --for-agent --json and follow that result; never replay the command. Otherwise: '
     + (operation.state === 'record-answers' ? `The person has answered and nothing is recorded yet. Stage their answers as {"responses":[...]} at the --response-file path and run ${next.command} alone, then run singularity-flow phase enter --compose --for-agent --json once and do this step's own work from what it returns. If they declined or left a question open, say which and stop; never answer for them. `
       : operation.state === 'refresh-entry' ? `The answers are recorded. Run ${next.command} once, then do this step's own work from what it returns. `
       : operation.state === 'load-context' ? `The admitted entry did not compose context. Run ${next.command} once, then use its delivered inputs and complete the current task. `
@@ -157,7 +157,7 @@ export async function sourceReviewAgentStop(payload = {}) {
   operation.continued = true;
   if (!await saveReviewCompletionTurn(payload, value, { once: true }) || !await reserveTaskContinuation(value, operation)) return {};
   return { decision: 'block', reason: `SFLOW_SOURCE_REVIEW_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no completed retained review from this operation. ${next} `
-    + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --for-agent --json and follow that result; never replay the command. '
+    + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --command "<the cut command\'s words>" --for-agent --json and follow that result; never replay the command. '
     + 'Continue the existing operation in this turn; do not reload context or repeat the input reads. Preserve exact bindings and independent judgments. Honest semantic gaps may be retained as correction-required findings. Never approve, decide for a human, publish an artifact or advance the phase. '
     + 'This is one automatic continuation only. If a real tool/authority/input blocker remains, preserve the draft and report its exact error and recovery route.' };
 }

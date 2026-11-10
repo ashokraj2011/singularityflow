@@ -10,6 +10,7 @@ import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-confi
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import {normalizeClaimMapReplay} from '../engine-compatibility/node-specification-policy.mjs';
 import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
+import {hasPublishedPhaseGeneration,phaseNeedsGeneration,phaseInspectionGeneration} from '../kernel/phase-policy.mjs';
 import {mergePlannedClaimRecords} from '../kernel/specification-policy.mjs';
 import {planDecisions} from '../engine-compatibility/node-plan-policy.mjs';
 import {repositoryPlanTestLocation} from '../engine-compatibility/node-repository-plan.mjs';
@@ -18,6 +19,7 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespaceSourceObservations} from './namespace-source-observations.mjs';
 import {createNamespaceRecordedMutationReader} from './namespace-recorded-mutation-reader.mjs';
 import {namespaceDecisionContract,namespaceDecisionReceipts} from './namespace-decision-contract.mjs';
+import {memoNamespaceObservedDecision} from './namespace-story-reader.mjs';
 const operation='decision.plan',correctionOperation='plan.correction.record',same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(value).digest('hex'),
   error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespacePlanDecisionOwners({observer,scope,workId,sources=[]}){
@@ -28,8 +30,10 @@ export function createNamespacePlanDecisionOwners({observer,scope,workId,sources
     const rows=snapshot.workflow.planAmendments??[],links=namespaceDecisionReceipts(snapshot.workflow).filter(row=>[operation,correctionOperation].includes(row.operation));
     if(!Array.isArray(rows)||links.length>64)throw error('The accepted plan amendment inventory exceeds its contract.','ENGINE_STORAGE_LIMIT');
     if(!links.length){if(rows.length)throw error('Plan amendments have no accepted human receipts.');return {rows:[],links:[],references:[]};}
-    const link=links.at(-1),last=await (link.operation===operation?reader:correctionReader).accepted(link,{signal,policyTraversal});
-    if(!same(rows,last.accepted.state.workflow.planAmendments))throw error('The plan amendment list differs from its last human transition.');
+    const link=links.at(-1),last=await memoNamespaceObservedDecision(observer,{owner:'plan-amendments',link},async()=>{
+      const accepted=await (link.operation===operation?reader:correctionReader).accepted(link,{signal,policyTraversal});
+      return {rows:accepted.accepted.state.workflow.planAmendments};},{signal});
+    if(!same(rows,last.rows))throw error('The plan amendment list differs from its last human transition.');
     // Each prior record is authenticated while replaying that transition's original prefix.
     return {rows,links,references:links.map(row=>row.record)};
   }
@@ -111,15 +115,31 @@ export function createNamespacePlanDecisionOwners({observer,scope,workId,sources
     const ownerRecord=value.planned,clauses=value.active.indexes.flatMap(index=>index.clauses),clauseIds=[...new Set(clauses.map(row=>row.id))],
       normalizeRow=(clauseId,raw)=>{const replay=normalizeClaimMapReplay({claims:{[clauseId]:raw}},{kind:'planned',clauseIds,policy:workflow.resolution.spec});
         let step=replay.next();while(!step.done)step=replay.next(ownerRecord.recordedAt);return step.value.claims[clauseId];},
-      parameters={ownerRecord,ownerMapSha256:value.proof.planned.sha256,operations:request.operations,activeClauseIds:clauseIds,normalizeRow,
+      evidenceOperations=(request.operations??[]).filter(row=>row.op==='reclassify-evidence');
+    let namespaceEvidence=null;
+    if(evidenceOperations.length){const phase=workflow.phases[workflow.currentPhase],approved=await observer.approved(snapshot,{signal}),definition=approved.compiled.definition;
+      if(workflow.status!=='in_progress'||workflow.resolution.plannedClaims?.owners?.[workflow.currentPhase]!==selected.id
+        ||hasPublishedPhaseGeneration(phase)&&!phaseNeedsGeneration(workflow,phase)){
+        const canRaise=workflow.status==='in_progress'&&phase&&workflow.phaseOrder.indexOf(selected.id)>=0
+          &&workflow.phaseOrder.indexOf(selected.id)<workflow.phaseOrder.indexOf(phase.id);
+        throw error('Correct retained evidence in the current unpublished draft. A published generation needs its original planning owner and an authorized return.',
+          'PLAN_EVIDENCE_CORRECTION_LIFECYCLE',{actions:canRaise?[{operation:'upstream.raise',inputs:{workId,phaseId:selected.id,about:'retained-evidence contract',proposed:'return'},
+            requiredInputs:['operationId','problem','assumption','impact']}]:[{operation:'story.status',inputs:{workId}}]});}
+      namespaceEvidence={root:(definition.workItemRoot??'singularity/work-items')+'/'+workId+'/evidence',
+        phaseId:phase.id,generation:phaseInspectionGeneration(workflow,phase),
+        protectedPaths:[...(definition.governance?.protectedPaths??[]),...(workflow.resolution.capability?.policy?.protectedPaths??[])]};}
+    const parameters={ownerRecord,ownerMapSha256:value.proof.planned.sha256,operations:request.operations,activeClauseIds:clauseIds,normalizeRow,
         validate:plan=>validatePlannedVerification(plan.claims,plan.verificationContracts??[],clauses),reason:request.reason,upstreamIssue:request.upstreamIssue},
-      preview=rowPolicies.previewPlanRowCorrection(workflow,parameters);
+      preview=rowPolicies.previewNamespacePlanCorrection(workflow,{...parameters,...(namespaceEvidence?{namespaceEvidence}:{})});
+    if(namespaceEvidence)parameters.namespaceEvidence=namespaceEvidence;
+    const evidenceReferences=preview.operations.filter(row=>row.op==='reclassify-evidence').map(row=>row.content);
+    for(const reference of evidenceReferences)await observer.bytes(reference,reference.bytes,signal);
     if(value.repositoryPlan)for(const row of Object.values(preview.after))for(const path of [...(row.expectedPaths??[]),...(row.tests??[])]){
       if(!repositoryPlanTestLocation(value.repositoryPlan,path,{workflow}))throw error('Keep the corrected path inside an approved repository root.','PLAN_ROW_CORRECTION_INVALID',{path});}
     const groups=rowPolicies.planCorrectionAuthorities(workflow,selected.id);if(!groups.length)throw error('The exact plan owner has no human reviewers.','PLAN_AMENDMENT_AUTHORITY_UNAVAILABLE');
     return {generation:workflow.phases[workflow.currentPhase]?.generation??0,preview,parameters,groups,recording:rowPolicies.namespaceCorrectionRequirements(workflow,preview),
       identity:{profile:'sflow-namespace-plan-correction-source/v1',owner:value.proof,amendments:prior.links,previewSha256:preview.previewSha256},
-      references:[...prior.references,...plans.references]};
+      references:[...prior.references,...plans.references,...evidenceReferences]};
   }
   const correctionOwner={
     async read(snapshot,request,options={}){const value=await correctionPreview(snapshot,request,options);

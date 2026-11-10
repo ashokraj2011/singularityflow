@@ -12,7 +12,7 @@ import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmissio
 import {runDecisionPlan} from './decision-execution.mjs';
 import {phaseReviewSelection,phaseReviewManifest,phaseReviewResourcesManifest,phaseBeginSelection,phaseBeginResult,
   phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation,
-  storyStatusSelection,storyStatusManifest,workflowGuidePlan} from '../kernel/phase-policy.mjs';
+  storyStatusSelection,storyStatusManifest,workflowGuidePlan,phaseInspectionGeneration} from '../kernel/phase-policy.mjs';
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
   documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
 import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
@@ -690,10 +690,15 @@ async function inspectConstitutionExceptionContext(port,input,signal){notCancell
     ||facts.machinePoliciesWaived!==false||facts.phaseApproved!==false)throw new SingularityFlowError('The article context returned another submitted publication or a false authority claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'constitution.exception.context',subject:bound.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
-function planCorrectionContextInput(value){const input=data(value);if(!Array.isArray(input.operations)||!input.operations.length||input.operations.length>20||typeof input.reason!=='string')throw new SingularityFlowError(
+function planCorrectionContextInput(value,operation){const input=data(value);if(!input||typeof input!=='object'||Array.isArray(input)
+  ||Object.keys(input).some(key=>!operation.inputFields.includes(key))||!Array.isArray(input.operations)||!input.operations.length||input.operations.length>20
+  ||input.operations.some(row=>!row||typeof row!=='object'||Array.isArray(row))||typeof input.reason!=='string'
+  ||['workId','ownerPhase','upstreamIssue'].some(key=>input[key]!=null&&typeof input[key]!=='string'))throw new SingularityFlowError(
   'Name a bounded correction and its review reason.',{code:'ENGINE_INPUT_INVALID'});return input;}
 async function inspectPlanCorrectionContext(port,input,signal){notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
-  const bound=data({subject:context.subject,phase:context.workflow?.currentPhase,phases:Object.fromEntries(Object.entries(context.workflow?.phases??{}).map(([id,row])=>[id,{generation:row.generation,status:row.status}]))});
+  const current=context.workflow?.phases?.[context.workflow.currentPhase],
+    bound=data({subject:context.subject,phase:context.workflow?.currentPhase,inspectionGeneration:current?phaseInspectionGeneration(context.workflow,current):null,
+      phases:Object.fromEntries(Object.entries(context.workflow?.phases??{}).map(([id,row])=>[id,{generation:row.generation,status:row.status}]))});
   const facts=data(await port.read(context,{signal}));notCancelled(signal);let profile=null;
   try{profile=namespacePlanCorrectionRecordProfile('context',facts);}catch{ /* Reject another wire contract as a port result. */ }
   const fields=['schemaVersion','format','workId','phase','revision','request','preview','recording','owner','authorities'],preview=facts?.preview,owner=facts?.owner;
@@ -706,6 +711,10 @@ async function inspectPlanCorrectionContext(port,input,signal){notCancelled(sign
     ||!/^[a-f0-9]{64}$/u.test(preview.previewSha256??'')||!Array.isArray(preview.operations)||preview.operations.length!==input.operations.length
     ||preview.reason!==input.reason.trim()||preview.upstreamIssue!==(input.upstreamIssue??null)
     ||preview.operations.some((row,index)=>row.op!==input.operations[index].op||row.clauseId!==String(input.operations[index].clauseId??'').toUpperCase())
+    ||preview.operations.some((row,index)=>row.op==='reclassify-evidence'&&(row.path!==input.operations[index].path||row.method!==input.operations[index].method
+      ||row.delivery?.phase!==bound.phase||row.delivery?.generation!==bound.inspectionGeneration
+      ||!equalJson(row.content,input.operations[index].content)||preview.after?.[row.clauseId]?.fulfillment!=='evidence'
+      ||!equalJson(preview.after[row.clauseId].expectedPaths,[row.path])||!equalJson(preview.after[row.clauseId].tests,preview.before?.[row.clauseId]?.tests)))
     ||!['requires-human-review','owner-required'].includes(facts.recording?.status)||!Array.isArray(facts.recording?.requiredOwners)||!Array.isArray(facts.recording?.affectedPhases)
     ||facts.recording.status!==(facts.recording.requiredOwners.length?'owner-required':'requires-human-review')
     ||facts.recording.requiredOwners.some(value=>typeof value!=='string'||!value)||facts.recording.affectedPhases.some(value=>!bound.phases[value])

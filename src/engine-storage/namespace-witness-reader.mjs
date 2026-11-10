@@ -45,6 +45,12 @@ export function createNamespaceWitnessOwners({observer,scope,workId}){
       if(!binding||phaseNeedsGeneration(workflow,phase))continue;
       const value=await publications.accepted(binding,id,{signal,policyTraversal});published.push({phase:id,generation:value.generation,publication:binding});references.push(binding.record,value.artifact.content);
       files.push({path:value.artifact.sourceKey,content:value.artifact.content,phase:id,generation:value.generation});
+      const code=publications.policies.codeEvidence(value);
+      if(code)for(const correction of plan.amendments)for(const operation of correction.operations??[]){
+        if(operation.op!=='reclassify-evidence'||operation.clauseId!==request.clauseId||operation.delivery.phase!==id||operation.delivery.generation!==value.generation)continue;
+        const retained=code.report.preflight.repositories.some(repository=>repository.delivery.fulfillment?.some(row=>row.clauseId===request.clauseId&&row.fulfillment==='evidence'
+          &&row.paths.some(file=>file.path===operation.path&&file.state==='present'&&file.sha256===operation.content.sha256)));
+        if(retained){await observer.bytes(operation.content,operation.content.bytes,signal);files.push({path:operation.path,content:operation.content,phase:id,generation:value.generation});references.push(operation.content);}}
       const bundle=publications.policies.artifactSetEvidence(value);
       if(bundle)for(const resource of publications.policies.resources(value).filter(row=>row.kind==='artifact-set-member')){
         const relative=resource.sourceKey.slice(value.artifact.sourceKey.length-bundle.report.primary.length);

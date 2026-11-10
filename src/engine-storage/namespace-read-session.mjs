@@ -13,6 +13,11 @@ export function memoNamespaceWitnessProof(records,content,identity,observe,{sign
   const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
   return session.read('accepted-witness/v1:'+canonicalJson(identity),observe,()=>true,signal,true);
 }
+/** Original human receipt projections only, never live authority, readiness or current selection. */
+export function memoNamespaceDecisionProof(records,content,identity,observe,{signal}={}){
+  const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
+  return session.read('accepted-decision/v1:'+canonicalJson(identity),observe,()=>true,signal,true);
+}
 /** Earlier Code proofs are immutable; live source admission and final authority are separate. */
 export function memoNamespaceCodePredecessorProof(records,content,identity,observe,{signal}={}){
   const session=proofSessions.get(records);if(!session||session.content!==content)return observe();

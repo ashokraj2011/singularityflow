@@ -45,6 +45,12 @@ await engine.run('phase.reject',{phaseId:'review',confirm:{approved:true}});
 await engine.run('conformance.approve',{});
 void context;
 void article;
+declare const output:import('@singularity-flow/engine-sdk/content').ContentReference;
+await engine.run('plan.correction.context',{operations:[{op:'reclassify-evidence',clauseId:'STORY:AC-001',path:'singularity/work-items/story/evidence/result.png',method:'visual',content:output}],reason:'Review the retained output contract.'});
+// @ts-expect-error retained evidence needs a content reference, not a local laptop path
+await engine.run('plan.correction.context',{operations:[{op:'reclassify-evidence',clauseId:'STORY:AC-001',path:'result.png',method:'visual',content:'/tmp/result.png'}],reason:'Review the retained output contract.'});
+// @ts-expect-error evidence classification cannot waive tests
+await engine.run('plan.correction.context',{operations:[{op:'reclassify-evidence',clauseId:'STORY:AC-001',path:'result.png',method:'test',content:output}],reason:'Review the retained output contract.'});
 `);
   await writeFile(path.join(consumer,'tsconfig.json'),JSON.stringify({compilerOptions:{target:'ES2023',module:'NodeNext',moduleResolution:'NodeNext',
     strict:true,noEmit:true,types:[],lib:['ES2023','DOM']},include:['human.mts']}));

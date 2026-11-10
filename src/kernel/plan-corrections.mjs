@@ -97,6 +97,13 @@ function applyOperation(result, operation, { check }) {
   if (!claim) return check(false, `The plan has no row for ${id}.`, { clauseId: id });
   check(recordSha256(claim) === operation.previousClaimSha256,
     `The plan row for ${id} is not the row this correction was decided against.`, { clauseId: id });
+  if(operation.op==='reclassify-evidence'){
+    check(/:AC-\d{3}$/u.test(id),'Only an acceptance criterion has a retained-evidence classification.',{clauseId:id});
+    check(!(claim.fulfillment==='evidence'&&claim.expectedPaths?.includes(operation.path)),
+      'This file already has an evidence contract; complete its actual witness instead.',{clauseId:id});
+    const projected=evidenceCorrectionProjection(id,claim,operation.path,operation.method);result.claims[id]=projected.claim;
+    result.verificationContracts=normalizeVerificationContracts([...(result.verificationContracts??[]).filter(row=>row.clauseId!==id),projected.contract]);return;
+  }
   if (operation.op === 'set-fulfillment') {
     check((claim.fulfillment ?? null) !== operation.fulfillment, `${id} is already planned as ${operation.fulfillment}.`, { clauseId: id });
     claim.fulfillment = operation.fulfillment;
@@ -179,11 +186,17 @@ function planCorrectionAuthorities(workflow, ownerPhase) {
  */
 function previewPlanRowCorrection(workflow, {
   ownerRecord, ownerMapSha256, operations = [], activeClauseIds = [], normalizeRow, validate = () => {},
-  reason, actor, authorityGroup, identityAssurance = null, authorizationId, at, upstreamIssue = null
+  reason, actor, authorityGroup, identityAssurance = null, authorizationId, at, upstreamIssue = null,
+  namespaceEvidence = null
 }) {
   if (!ownerRecord || ownerRecord.kind !== 'planned') refused('A plan correction needs the approved plan it corrects.');
   if (!operations.length || operations.length > MAX_OPERATIONS) {
     refused(`Name 1 to ${MAX_OPERATIONS} corrections with --add-row, --set-fulfillment, --add-test, --remove-test, --replace-test, --remove-location or --replace-location.`);
+  }
+  if(namespaceEvidence&&operations.some(row=>row.op==='reclassify-evidence')){
+    const clauses=operations.map(row=>String(row.clauseId??'').toUpperCase());
+    if(operations.some(row=>row.op!=='reclassify-evidence')||new Set(clauses).size!==clauses.length)refused(
+      'Review evidence classification in its own exact packet, once per criterion. Record other row/test changes in a separate correction.');
   }
   const active = new Set(activeClauseIds.map((value) => String(value).toUpperCase()));
   const result = structuredClone(ownerRecord);
@@ -192,7 +205,17 @@ function previewPlanRowCorrection(workflow, {
     const clauseId = String(input.clauseId ?? '').toUpperCase();
     if (!active.has(clauseId)) refused(`${clauseId || 'That clause'} is not an approved clause of this Story.`, { clauseId });
     let operation;
-    if (input.op === 'add-row') {
+    if(input.op==='reclassify-evidence'&&namespaceEvidence){
+      if(Object.keys(input).some(key=>!['op','clauseId','path','method','content'].includes(key)))refused('The evidence correction accepts an exact path, method and retained content only.');
+      const path=exactPath(input.path,`The retained evidence of ${clauseId}`),claim=result.claims[clauseId];
+      if(!claim||!plannedClaimAllocatedTo(claim,workflow.currentPhase)||!/:AC-\d{3}$/u.test(clauseId))refused('Choose an approved criterion allocated to the current phase.');
+      if(!path.startsWith(namespaceEvidence.root+'/'))refused('The retained file must belong to this Story evidence directory.');
+      if((namespaceEvidence.protectedPaths??[]).some(guard=>path.toLowerCase()===String(guard).toLowerCase()
+        ||path.toLowerCase().startsWith(String(guard).replace(/\/$/u,'').toLowerCase()+'/')))refused('Protected evidence needs its original authority.');
+      operation={op:input.op,clauseId,path,method:input.method,content:structuredClone(input.content??null),previousClaimSha256:recordSha256(claim),
+        delivery:{phase:namespaceEvidence.phaseId,generation:namespaceEvidence.generation}};
+      if(!parseRecordShape(shapes.namespaceEvidenceOperation,operation).success)refused('Review one exact retained visual/inspection evidence file and its content reference.');
+    } else if (input.op === 'add-row') {
       const raw = {
         expectedPaths: (input.expectedPaths ?? []).map((value) => exactPath(value, `An expected path of ${clauseId}`)),
         tests: (input.tests ?? []).map((value) => exactPath(value, `A planned test of ${clauseId}`)),
@@ -303,18 +326,20 @@ function recordNamespacePlanCorrection(workflow,input){
   const preview=previewPlanRowCorrection(workflow,input),expected='sha256:'+preview.previewSha256;
   if(input.expectedPreview!==expected)throw new SingularityFlowError('Review the current exact plan correction before recording it.',{
     code:'PLAN_CORRECTION_REVIEW_CHANGED',details:{operation:'plan.correction.context',expectedPreview:expected}});
-  const record={schemaVersion:1,format:'sflow-namespace-plan-row-correction/v1',
+  const profile=namespacePlanCorrectionRecordProfile('record',{schemaVersion:preview.operations.some(row=>row.op==='reclassify-evidence')?2:1}),
+    record={schemaVersion:profile.version,format:profile.format,
     id:'PRC-'+String((workflow.planAmendments??[]).filter(row=>row?.kind==='plan-row-correction').length+1).padStart(3,'0'),kind:'plan-row-correction',
     ownerPhase:preview.ownerPhase,ownerGeneration:preview.ownerGeneration,ownerMapSha256:preview.ownerMapSha256,
     operations:preview.operations,reason:preview.reason,actor:input.actor,authorityGroup:input.authorityGroup,identityAssurance:null,
     at:input.at,upstreamIssue:preview.upstreamIssue,reviewContext:expected};
-  const checked=parseRecordShape(shapes.namespaceRow,record);if(!checked.success)refused('The namespace correction does not satisfy its record contract.');
+  const checked=parseRecordShape(profile.evidenceClassification?shapes.namespaceRowV2:shapes.namespaceRow,record);if(!checked.success)refused('The namespace correction does not satisfy its record contract.');
   workflow.planAmendments??=[];workflow.planAmendments.push(record);return record;
 }
+function previewNamespacePlanCorrection(workflow,input){return previewPlanRowCorrection(workflow,input);}
 function applyNamespacePlanCorrections(record,workflow,observed=[],{originalMapSha256}={}){
   if(!record||record.amendment)return record;let result=record;
   for(const value of observed){if(value.kind!=='plan-row-correction')continue;
-    const profile=namespacePlanCorrectionRecordProfile('record',value),checked=parseRecordShape(shapes.namespaceRow,value);
+    const profile=namespacePlanCorrectionRecordProfile('record',value),checked=parseRecordShape(profile.evidenceClassification?shapes.namespaceRowV2:shapes.namespaceRow,value);
     if(value.format!==profile.format||!checked.success)invalid('The accepted namespace correction has an invalid wire contract.');
     if(!/^[a-f0-9]{64}$/u.test(originalMapSha256??''))invalid('Namespace projection needs the original approved map digest.');
     result=applyCorrection(result,workflow,checked.data,originalMapSha256);
@@ -339,6 +364,6 @@ function planRowCorrections(workflow, ownerPhase = null, observed = workflow?.pl
     && (!ownerPhase || entry.ownerPhase === ownerPhase));
 }
 
-return Object.freeze({planCorrectionAuthorities,recordPlanRowCorrection,previewPlanRowCorrection,recordNamespacePlanCorrection,applyNamespacePlanCorrections,namespaceCorrectionRequirements,applyPlanCorrections,planRowCorrections,
+return Object.freeze({planCorrectionAuthorities,recordPlanRowCorrection,previewPlanRowCorrection,previewNamespacePlanCorrection,recordNamespacePlanCorrection,applyNamespacePlanCorrections,namespaceCorrectionRequirements,applyPlanCorrections,planRowCorrections,
   evidenceOwnerAuthorities,evidenceCorrectionProjection,applyPlanEvidenceAmendments});
 }

@@ -1,6 +1,18 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createNamespaceReadSession,memoNamespaceStoryOrigin,memoNamespaceWitnessProof,memoNamespaceCodePredecessorProof} from '../src/engine-storage/namespace-read-session.mjs';
+import {createNamespaceReadSession,memoNamespaceStoryOrigin,memoNamespaceWitnessProof,memoNamespaceCodePredecessorProof,memoNamespaceDecisionProof} from '../src/engine-storage/namespace-read-session.mjs';
 const scope={projectId:'P'},reference={namespace:'evidence',sha256:'a'.repeat(64),bytes:4};
+test('accepted decision projections are private, exact-port bounded and invalidated at every write or invocation',async()=>{
+  const failure=Object.freeze(Object.assign(Error('Actual accepted decision read failed.'),{code:'EACCES'}));let reads=0,denied=false;
+  const session=createNamespaceReadSession({records:{transact:async()=>({status:'committed'})},content:{}}),
+    identity={scope,workId:'story',authority:{id:'authority',epoch:1},owner:'plan-amendments',link:{record:reference}},
+    observe=()=>{reads++;if(denied)throw failure;return {rows:[{id:'PRC-001',actualContent:reference}]};},
+    read=(input=identity,records=session.records,content=session.content)=>memoNamespaceDecisionProof(records,content,input,observe);
+  await session.run(async()=>{const [a,b]=await Promise.all([read(),read()]);assert.equal(reads,1);a.rows[0].id='counterfeit';assert.equal(b.rows[0].id,'PRC-001');
+    await read({...identity,owner:'another-owner'});assert.equal(reads,2);await read(identity,{...session.records});assert.equal(reads,3);
+    await read(identity,session.records,{...session.content});assert.equal(reads,4);await session.records.transact(scope,{});await read();assert.equal(reads,5);});
+  denied=true;for(let i=0;i<2;i++)await assert.rejects(session.run(()=>read()),error=>error===failure);assert.equal(reads,7);
+  const abort=new AbortController();abort.abort();await assert.rejects(session.run(()=>memoNamespaceDecisionProof(session.records,session.content,identity,observe,{signal:abort.signal})),{code:'ENGINE_OPERATION_CANCELLED'});
+});
 function fixture(){let records=0,contents=0,receipts=0,denied=null;const session=createNamespaceReadSession({
   records:{read:async(_scope,_namespace,key)=>{records++;if(denied)throw denied;return {status:'present',record:{immutable:key!=='head',value:{count:42}}};},
     inspectOperation:async()=>{receipts++;return {status:'committed',receipt:{id:receipts}};}},

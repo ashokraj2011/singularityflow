@@ -1,10 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceConformancePolicyProfile,namespacePreparedPayloadProfile,namespaceWitnessContextProfile,namespaceGenerationProfile } from '../src/foundation/record-schema.mjs';
+import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceConformancePolicyProfile,namespacePreparedPayloadProfile,namespaceWitnessContextProfile,namespaceGenerationProfile,namespacePlanCorrectionRecordProfile } from '../src/foundation/record-schema.mjs';
 import { NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS,
   admitNamespaceStorageSchema, admitSqliteNamespaceSchema } from '../src/sda/namespace/storage-schemas.mjs';
 import { readRecord, schemaFamily } from '../src/schema-migrations.mjs';
 import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION as legacyViewVersion } from '../src/world-model/view-contract-schema-version.mjs';
+test('namespace evidence classification is a separate row profile while the original record and context remain unchanged',()=>{
+  assert.deepEqual(namespacePlanCorrectionRecordProfile('record',{schemaVersion:1}),{version:1,format:'sflow-namespace-plan-row-correction/v1'});
+  assert.deepEqual(namespacePlanCorrectionRecordProfile('record',{schemaVersion:2}),{version:2,format:'sflow-namespace-plan-row-correction/v2',evidenceClassification:true});
+  assert.deepEqual(namespacePlanCorrectionRecordProfile('context',{schemaVersion:1}),{version:1,format:'sflow-namespace-plan-correction-context/v1'});
+  assert.throws(()=>namespacePlanCorrectionRecordProfile('record',{schemaVersion:3}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespacePlanCorrectionRecordProfile('context',{schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});
+});
 
 test('shared version admission preserves current records and the registered missing/future/archived diagnostics', () => {
   const entry = { id: 'sample', currentVersion: 3, minimumReadableVersion: 2, maximumReadableVersion: 3, unversionedAs: null };

@@ -66,7 +66,7 @@ for(const backend of ['filesystem','sqlite','application'])test(backend+': an ex
       denied=Object.freeze(Object.assign(Error('Actual human correction receipt is unavailable.'),{code:'EACCES',path:'retained-human-record'})),
       unavailable=createNamespaceEngine({...f.common,content:{...f.content,read(scope,selected,options){if(selected.sha256===reference.sha256)throw denied;return f.content.read(scope,selected,options);}}});
     await assert.rejects(unavailable.run('plan.correction.record',input),error=>error===denied);
-    const future=await f.json(reference);future.outcome.record.schemaVersion=2;future.outcome.record.format='sflow-namespace-plan-row-correction/v2';
+    const future=await f.json(reference);future.outcome.record.schemaVersion=3;future.outcome.record.format='sflow-namespace-plan-row-correction/v3';
     assert.throws(()=>namespaceDecisionValue(future,{projectId:f.scope.projectId,workId:f.inputs.workId}),error=>error.code==='ENGINE_STORAGE_UNSUPPORTED'&&error.cause.code==='SCHEMA_VERSION_FUTURE');
   }finally{restore();}
 });

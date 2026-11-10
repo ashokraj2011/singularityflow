@@ -123,7 +123,8 @@ preserving machine rules, immutable publications and independent approval. Three
 custom phases, expiry/renewal, interruption and offline shared-only replay are qualified separately.
 
 - The remaining native query/rule inventory and parity audit.
-- Namespace evidence correction, late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
+- Fresh output retention for successor Code, artifact-only/repository-qualified evidence correction,
+  late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
   plus live application-review and witness-exception profiles.
 - Upstream amend outcomes and forward amendments.
 - Targeted Code repair; multiple Code predecessors now have their own authenticated profile
@@ -152,3 +153,9 @@ The read-only [registered-operation inventory](ENGINE-SDK-OPERATION-INVENTORY.md
 This delivery passes 356 distinct affected Mac checks, including all 81 native compatibility
 checks and the unchanged 34-check package qualifier in 33.4 seconds. All existing limits pass.
 Targeted repair and the other owners listed above remain required; neither phase is marked complete.
+
+Exact retained-output classification now uses namespace plan-row correction v2. It preserves the
+approved plan, required tests and separate human witness, binds output bytes to one Code generation,
+and continues through final Release and shared-only replay. Original row/native contracts stay
+unchanged. A late correction has an executable recovery through the approved planner's upstream
+issue. See [the evidence correction record](ENGINE-SDK-NAMESPACE-EVIDENCE-CORRECTIONS.md).

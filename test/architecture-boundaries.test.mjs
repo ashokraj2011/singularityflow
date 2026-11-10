@@ -703,7 +703,15 @@ test('namespace policy proof is read-only, versioned, and independent of Story c
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-conformance-decisions.mjs','src/engine-storage/namespace-rejection.mjs','src/engine-storage/namespace-routing-choice.mjs']);
   for(const file of await sourceFiles('src')) {
     if(owners.has(file))continue;
-    assert.equal((await readFile(path.join(packageRoot,file),'utf8')).includes('namespace-story-reader.mjs'),false,
+    const text=await readFile(path.join(packageRoot,file),'utf8');
+    if(file==='src/engine-storage/namespace-plan-decisions-reader.mjs'){
+      const ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true),selected=ast.statements.filter(node=>ts.isImportDeclaration(node)&&node.moduleSpecifier.text==='./namespace-story-reader.mjs');
+      assert.equal(selected.length,1);assert.equal(selected[0].importClause?.name,undefined);
+      const names=selected[0].importClause?.namedBindings;assert.ok(names&&ts.isNamedImports(names));
+      assert.deepEqual(names.elements.map(node=>[node.propertyName?.text??node.name.text,node.name.text]),[['memoNamespaceObservedDecision','memoNamespaceObservedDecision']],
+        'Plan decision proofs may reuse only the genuine observer memo; constructing Story admission is still forbidden');continue;
+    }
+    assert.equal(text.includes('namespace-story-reader.mjs'),false,
       file+' cannot implicitly activate new-project business admission');
   }
 });
@@ -884,10 +892,10 @@ test('retained source proof and shared observations cannot execute or write',asy
       '../kernel/source-changes.mjs','../engine-compatibility/node-source-policy.mjs','./namespace-submission-reader.mjs','./namespace-phase-check-reader.mjs',
       './namespace-source-retention-reader.mjs','./namespace-specifications.mjs','../records.mjs','./namespace-story-reader.mjs','../engine-compatibility/node-repository-plan.mjs'])],
     ['src/engine-storage/namespace-plan-decisions-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs',
-      '../kernel/decision-plan.mjs','../kernel/approval-policy.mjs','../kernel/specification-policy.mjs','../kernel/plan-corrections.mjs','../kernel/verification-policy.mjs',
+      '../kernel/decision-plan.mjs','../kernel/approval-policy.mjs','../kernel/phase-policy.mjs','../kernel/specification-policy.mjs','../kernel/plan-corrections.mjs','../kernel/verification-policy.mjs',
       '../engine-compatibility/node-configuration-path.mjs','../records.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-plan-policy.mjs',
       '../engine-compatibility/node-repository-plan.mjs','./namespace-specifications.mjs','./namespace-phase-check-reader.mjs','./namespace-source-observations.mjs',
-      './namespace-recorded-mutation-reader.mjs','./namespace-decision-contract.mjs'])],
+      './namespace-recorded-mutation-reader.mjs','./namespace-decision-contract.mjs','./namespace-story-reader.mjs'])],
     ['src/engine-storage/namespace-code-initial-history.mjs',new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs',
       '../kernel/routed-approval.mjs','../kernel/lifecycle-transitions.mjs','./namespace-submission-reader.mjs','./namespace-approval-reader.mjs','./namespace-phase-check-reader.mjs',
       './namespace-rejection-reader.mjs','./namespace-routing-receipt-reader.mjs','./namespace-human-decision-contract.mjs','./namespace-routing-choice-contract.mjs','./namespace-approval-contract.mjs','./namespace-upstream-return-reader.mjs'])],

@@ -72,7 +72,17 @@ function codePreflightReader(options,requireCurrentIndices){
         changeSet={schemaVersion:1,profile:'sflow-namespace-code-change-set/v1',sourceBasis,entries:nativeEntries},
         bound=clauseFacts.repositories.find(row=>row.id===id)?.value;
       let coverage=null;
-      const readBytes=(path,maximumBytes=16*1024*1024)=>files.bytes(context,path,{signal,maximumBytes}),
+      const correctedEvidence=new Map();
+      for(const amendment of plan.amendments)for(const operation of amendment.operations??[]){
+        if(operation.op!=='reclassify-evidence'||operation.delivery.phase!==phaseId||operation.delivery.generation!==retained.plan.generation||!planned.claims[operation.clauseId]?.expectedPaths?.includes(operation.path)
+          ||planned.claims[operation.clauseId].fulfillment!=='evidence')continue;
+        const prior=correctedEvidence.get(operation.path);if(prior&&!same(prior,operation.content))throw failure('One evidence path has conflicting retained human-reviewed bytes.','PLAN_EVIDENCE_AMENDMENT_INTEGRITY');
+        correctedEvidence.set(operation.path,operation.content);}
+      const pathFacts=path=>correctedEvidence.has(path)?{exists:true,regular:true,bytes:correctedEvidence.get(path).bytes}:files.facts(context,path,{signal}),
+        readBytes=async(path,maximumBytes=16*1024*1024)=>{const reference=correctedEvidence.get(path);
+          if(!reference)return files.bytes(context,path,{signal,maximumBytes});
+          if(reference.bytes>maximumBytes)throw failure('The evidence request exceeds its exact retained-file limit.','ENGINE_CODE_SOURCE_LIMIT');
+          return observer.bytes(reference,reference.bytes,signal);},
         text=async(path,maximumBytes)=>{const value=await readBytes(path,maximumBytes);if(value===null)return null;
           try{return new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(value);}catch(cause){throw new SingularityFlowError('Read actual UTF-8 source before deriving Code bindings.',{code:'ENGINE_SOURCE_DIFF_TEXT_REQUIRED',cause});}};
       const accounted=new Map();for(const amendment of plan.amendments)for(const change of amendment.changes??[]){
@@ -110,7 +120,7 @@ function codePreflightReader(options,requireCurrentIndices){
           case 'reusable-paths':if(request.candidates.length)required('namespace-code-history');return [];
           case 'reviewed-baseline-tests':return [];
           case 'allocated-obligations':return obligations;
-          case 'working-path-facts':return files.facts(context,request.candidate,{signal});
+          case 'working-path-facts':return pathFacts(request.candidate);
           case 'working-path-bytes':return readBytes(request.candidate);
           case 'required-acceptance':return definition.governance?.requireAcceptanceCriteriaTags?requiredAcceptanceFromPlan(
             plan.active.indexes.flatMap(index=>index.clauses).filter(clause=>clause.type==='AC'||/:AC-\d+$/u.test(clause.id)).map(clause=>clause.id),planned.claims,mergedVerificationContracts([planned]),phaseId):[];

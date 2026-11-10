@@ -22,6 +22,10 @@ const evidencePath={...string(1,512),path:{windowsSegments:true}},evidence=objec
   reviewAssurance:{kind:'enum',values:['live-terminal-exact-evidence-review','live-local-ui-exact-evidence-review']},at:datetime,recordPath:evidencePath,
   reviewedFile:object({sha256:sha,size:{kind:'integer',minimum:0,maximum:16*1024*1024}}),testsWaived:literal(false),phaseApproved:literal(false),presence:optional({kind:'record'})});
 const {authorizationId,reviewAssurance,presence,...namespaceFields}=row.fields,
-  namespaceRow=object({schemaVersion:literal(1),format:literal('sflow-namespace-plan-row-correction/v1'),...namespaceFields,reviewContext:regex('^sha256:[a-f0-9]{64}$')});
-return freezeRecordShape({row,evidence,portablePath,fulfillment,namespaceRow});
+  namespaceRow=object({schemaVersion:literal(1),format:literal('sflow-namespace-plan-row-correction/v1'),...namespaceFields,reviewContext:regex('^sha256:[a-f0-9]{64}$')}),
+  namespaceEvidenceOperation=operation('reclassify-evidence',{path:evidencePath,method:{kind:'enum',values:['visual','inspection']},previousClaimSha256:sha,
+    content:object({namespace:literal('evidence'),sha256:sha,bytes:{kind:'integer',minimum:1,maximum:16*1024*1024}}),delivery:object({phase:string(),generation:positive})}),
+  namespaceRowV2=object({...namespaceRow.fields,schemaVersion:literal(2),format:literal('sflow-namespace-plan-row-correction/v2'),
+    operations:{...row.fields.operations,item:{...row.fields.operations.item,options:[...row.fields.operations.item.options,namespaceEvidenceOperation]}}});
+return freezeRecordShape({row,evidence,portablePath,fulfillment,namespaceRow,namespaceRowV2,namespaceEvidenceOperation});
 }

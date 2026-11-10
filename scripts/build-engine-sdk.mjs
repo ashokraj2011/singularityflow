@@ -32,7 +32,7 @@ function allowedSource(relative) {
 function inputType(operation, field) {
   if(['constitution.exception.context','decision.constitution-exception'].includes(operation.id))return field==='expires'?'string | null':'string';
   if(operation.id.startsWith('source-review.'))return field==='report'?'JsonValue':'string';
-  if(['plan.correction.context','plan.correction.record'].includes(operation.id))return field==='operations'?'readonly PlanCorrectionOperation[]'
+  if(['plan.correction.context','plan.correction.record'].includes(operation.id))return field==='operations'?'readonly NamespacePlanCorrectionOperation[]'
     :['reason','expectedPreview','operationId'].includes(field)?'string':'string | null';
   if(operation.id.startsWith('story.document.')&&field==='content')return 'ContentReference';
   if(operation.id==='phase.context.read')return ['maximumBytes','offset'].includes(field)?'number':field==='representation'?"'text' | 'base64' | 'metadata'":'string';
@@ -67,7 +67,7 @@ export function engineDeclarations() {
   return `// Generated from the executable engine registry. Context-dependent constraints are checked at runtime.
 import type { JsonValue } from './namespace.mjs';
 import type { ContentReference } from './content.mjs';
-import type { PlanCorrectionOperation } from './plans.mjs';
+import type { NamespacePlanCorrectionOperation } from './plans.mjs';
 export * from './errors.mjs';
 export type { JsonValue } from './namespace.mjs';
 export declare const ENGINE_CONTRACT: ${JSON.stringify(ENGINE_CONTRACT)};

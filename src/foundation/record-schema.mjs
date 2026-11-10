@@ -272,9 +272,11 @@ export function namespacePublicationRecordProfile(input) {
 export const SPECIFICATION_ANALYSIS_REPORT_SCHEMA=frozenFamily('specification-quality-analysis');
 export const NAMESPACE_HUMAN_DECISION_SCHEMA=frozenFamily('namespace-human-decision');
 export const NAMESPACE_UPSTREAM_PLAN_CORRECTION_PROFILE='sflow-namespace-upstream-plan-correction-source/v1';
-export const NAMESPACE_PLAN_CORRECTION_SCHEMAS=Object.freeze({record:frozenFamily('namespace-plan-row-correction'),context:frozenFamily('namespace-plan-correction-context')});
+export const NAMESPACE_PLAN_CORRECTION_SCHEMAS=Object.freeze({record:Object.freeze({id:'namespace-plan-row-correction',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+  unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),context:frozenFamily('namespace-plan-correction-context')});
 export function namespacePlanCorrectionRecordProfile(kind,value){const family=NAMESPACE_PLAN_CORRECTION_SCHEMAS[kind];
-  const {storedVersion}=admitRecordSchemaVersion(family,value);return Object.freeze({version:storedVersion,format:'sflow-'+family.id+'/v'+storedVersion});}
+  const {storedVersion}=admitRecordSchemaVersion(family,value);return Object.freeze({version:storedVersion,format:'sflow-'+family.id+'/v'+storedVersion,
+    ...(kind==='record'&&storedVersion>1?{evidenceClassification:true}:{})});}
 export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily('namespace-phase-policy-evidence-binding'),
   constitution:frozenFamily('namespace-constitution-policy'),constitutionReport:frozenFamily('namespace-constitution-policy-report'),
   assignment:frozenFamily('namespace-phase-assignment-policy'),assignmentReport:frozenFamily('namespace-phase-assignment-report'),

@@ -1,6 +1,6 @@
 /** Publication-operation policy; frequent phase/session reads need none of this operation's intent handling. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import { effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, isConvergencePhase,phaseRequiresCodeDelivery } from './phase-policy.mjs';
+import { effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, isConvergencePhase,phaseRequiresCodeDelivery,stepResponsibilities } from './phase-policy.mjs';
 import {approvedInputPhases} from './phase-inputs.mjs';
 
 /** Resolve the same pinned producer defaults before any publication effect. */
@@ -61,4 +61,16 @@ export function primaryDocumentPublicationRequirements(workflow,phase,{definitio
   need('execution-origin',workflow.executionOrigin?.mode==='auto');
   need('test-command-amendment',Boolean(workflow.testCommandAmendments?.length));
   return Object.freeze([...required].sort());
+}
+
+/** Code evidence is a separate retained policy contract, not a primary-document exemption. */
+export const CODE_PUBLICATION_OWNERS=Object.freeze(['workflow-responsibility-policy','code-delivery','specification-claims','planned-claims']);
+export function codePublicationPolicy(workflow,phase){
+  if(!phase)return null;
+  const roles=stepResponsibilities(workflow,phase.id);
+  if(!phaseRequiresCodeDelivery(phase)||phase.writeScope!=='source-and-artifact'
+    ||workflow.resolution?.phaseSemantics?.profile!=='sflow-phase-semantics/v1'||workflow.resolution?.plannedClaims?.mode!=='required'
+    ||workflow.resolution?.spec?.mode!=='enforce'||!roles.includes('implement')||!roles.includes('verify')
+    ||roles.some(role=>!['implement','verify','review'].includes(role)))return null;
+  return {profile:'sflow-namespace-code-policy/v1',owners:CODE_PUBLICATION_OWNERS};
 }

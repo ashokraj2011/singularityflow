@@ -116,8 +116,7 @@ try {
   assert.deepEqual(implementation.implementation.repositories.map(row=>row.id),repositories);
   assert.equal(implementation.applicationAcceptanceEstablished,false);assert.ok(implementation.requiredPolicyOwners.includes('code-delivery'));
   if(fresh) {
-    await assert.rejects(code.run('phase.publish',{phaseId:'build',authored:'governed-agent',channel:'copilot-host'}),error=>
-      error.code==='ENGINE_PORT_UNAVAILABLE'&&error.details.required.includes('code-delivery'));
+    await assert.rejects(code.run('phase.publish',{phaseId:'build',authored:'governed-agent',channel:'copilot-host'}),{code:'ARTIFACT_AUTHORING_INCOMPLETE'});
     expected.push({phase:'build',clauses:delivery.clauses,implementation:implementation.implementation});await writeFile(file('specification-publications.json'),JSON.stringify(expected));
   }else {assert.deepEqual(delivery.clauses,expected.at(-1).clauses);assert.deepEqual(implementation.implementation,expected.at(-1).implementation);}
   for(const root of roots)await rm(root,{recursive:true,force:true});

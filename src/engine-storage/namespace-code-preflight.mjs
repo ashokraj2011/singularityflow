@@ -22,25 +22,33 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=data=>createHash('sha
 const failure=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 const required=owner=>{throw failure('Code publication requires its named evidence owner.','ENGINE_PORT_UNAVAILABLE',{required:[owner]});};
 async function replay(generator,read){let step=generator.next();while(!step.done){let value;try{value=await read(step.value);}catch(error){step=generator.throw(error);continue;}step=generator.next(value);}return step.value;}
-export function createNamespaceCodePreflightReader(options){
-  const {scope,workId}=options,observer=createNamespaceStoryObserver(options),changes=createNamespaceSourceRetentionReader({...options,observer}),
+export function createNamespaceCodePreflightReader(options){return codePreflightReader(options,true);}
+/** Exact accepted publication proofs replay immutable records, with original read fences checked by verifyPlan. */
+export function createNamespaceRetainedCodePreflightReader(options){return codePreflightReader(options,false);}
+function codePreflightReader(options,requireCurrentIndices){
+  const {scope,workId}=options,observer=options.observer??createNamespaceStoryObserver(options),changes=createNamespaceSourceRetentionReader({...options,observer}),
     baseline=createNamespaceSourceBaselineReader({...options,observer}),checks=createNamespacePhaseCheckReader({...options,observer}),
     plans=createNamespaceSpecificationReader({observer,scope,workId,checks}),controlReader=createNamespaceSourceControlReader({...options,observer}),
     clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changes,baseline,checks,controlReader}),
-    files=createNamespaceCodeSourceReader({observer,retention:changes,baseline});
-  async function inspect(snapshot,phaseId,identity,{signal}={}){
+    files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices});
+  async function inspect(snapshot,phaseId,identity,{signal,binding=null}={}){
     const workflow=snapshot.workflow,phase=workflow.phases[phaseId],definition=(await observer.approved(snapshot,{signal})).compiled.definition;
     if(phase.generation>0||workflow.changeRequests?.length)required('namespace-code-history');
     if(workflow.phaseOrder.slice(0,workflow.phaseOrder.indexOf(phaseId)).some(id=>phaseRequiresCodeDelivery(workflow.phases[id])&&workflow.phases[id].generation>0))required('namespace-observed-claims');
     if(workflow.resolution.testRecovery?.enabled)required('test-recovery');
-    const retained=await changes.inspectDraft(identity,{signal});
+    if(!requireCurrentIndices&&!binding)throw failure('Replay the exact accepted publication source binding.','ENGINE_INPUT_INVALID');
+    const retained=binding?await changes.accepted({operationId:binding.source.operationId,workId,phaseId},{signal}):await changes.inspectDraft(identity,{signal});
     if(!retained)throw failure('Retain this exact authored generation before code publication.','ENGINE_SOURCE_EVIDENCE_REQUIRED',{operation:'phase.source.retain',workId,phaseId});
     if(retained.plan.basis.headVersion!==snapshot.revision||!same(retained.plan.basis.configuration,snapshot.configuration)||!same(retained.workflow,workflow))throw failure('Code source evidence belongs to another lifecycle basis.','ENGINE_CONTEXT_CHANGED');
     if(retained.plan.generation!==1)required('namespace-code-history');
-    const original=await baseline.inspectBinding(retained.plan.sourceBinding.operationId,{signal});
+    if(binding&&!same(retained.binding,binding.source))throw failure('The retained Code result names another accepted source archive.','ENGINE_STORAGE_CORRUPT');
+    let original=binding?await baseline.accepted({operationId:binding.baseline.operationId,workId,sourceBindingId:retained.plan.sourceBinding.operationId},{signal})
+      :await baseline.inspectBinding(retained.plan.sourceBinding.operationId,{signal});
     if(!original)throw failure('Retain the exact original source selection before code publication.','ENGINE_SOURCE_BASELINE_REQUIRED',{
       operation:'source.baseline.retain',sourceBindingId:retained.plan.sourceBinding.operationId,workId});
-    const plan=await plans.sourcePlan(snapshot,phaseId,{signal}),control=await controlReader.inspectDraft(identity,{signal}),
+    if(binding){original={...original,indexKey:baseline.codec.indexKey(original.plan.input)};
+      if(!same(original.record,binding.baseline.record)||original.indexVersion!==binding.baseline.index.version||original.indexKey!==binding.baseline.index.key)throw failure('The retained Code result names another accepted baseline.','ENGINE_STORAGE_CORRUPT');}
+    const plan=await plans.sourcePlan(snapshot,phaseId,{signal}),control=requireCurrentIndices?await controlReader.inspectDraft(identity,{signal}):null,
       clauseFacts=await clauses.inspect(snapshot,phaseId,retained,original,{signal,control});
     if(clauseFacts.requiredPolicyOwners.length)required(clauseFacts.requiredPolicyOwners[0]);
     const repositories=[];

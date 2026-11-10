@@ -7,8 +7,8 @@ import {createNamespaceSourcePatchReader} from './namespace-source-patches.mjs';
 import {verifySourceFileChunks} from './namespace-source-content-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),maximumReadBytes=16*1024*1024,maximumCachedBytes=16*1024*1024,maximumInvocationBytes=64*1024*1024;
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
-export function createNamespaceCodeSourceReader({observer,retention,baseline}){
-  const patches=createNamespaceSourcePatchReader({observer,retention,baseline}),contexts=new WeakMap();
+export function createNamespaceCodeSourceReader({observer,retention,baseline,requireCurrentIndices=true}){
+  const patches=createNamespaceSourcePatchReader({observer,retention,baseline,requireCurrentIndices}),contexts=new WeakMap();
   function selected(context,signal){if(signal?.aborted)throw error('Code source inspection was cancelled.','ENGINE_OPERATION_CANCELLED');
     const state=contexts.get(context);if(!state||!retention.isAccepted(state.found))throw error('Use the original authenticated code-source context.','ENGINE_INPUT_INVALID');return state;}
   async function capture(found,original,repositoryId,{signal}={}){

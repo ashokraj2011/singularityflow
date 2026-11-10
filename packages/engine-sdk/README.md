@@ -39,7 +39,10 @@ through reviewed-document authoring, publication, submission, human approval and
 The optional `working` ports hold device-bound private drafts; shared-only hosts can read/review
 and acknowledge retained effects, including publication without the old private store. Read and
 write authority share the same explicit binding. Construction performs no I/O or enrollment.
-Full application/test execution and additional production policy owners remain required work.
+An initial Code publication profile also binds real source archives and pinned test occurrences to
+publish/submit/approve; see `docs/ENGINE-SDK-NAMESPACE-CODE-PUBLICATION.md` in the source repository.
+It does not cover every application workflow or acceptance contract. Additional production policy
+owners and installed-project migration remain required work.
 
 `phase.enter` also provides a content-reference authoring manifest over actual namespace inputs,
 including pinned agent/skill/instruction dependencies and accepted human clarifications. Read its

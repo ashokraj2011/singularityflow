@@ -67,11 +67,21 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [initial namespace Code publication profile](ENGINE-SDK-NAMESPACE-CODE-PUBLICATION.md)
+connects accepted source archives, approved claims and actual pinned test occurrences to registered
+publication, submission and independent human approval. Its versioned Code policy report is
+recomputed from shared records, including the original transaction's source/baseline read conditions.
+Repository-qualified evidence stays separate. History, other acceptance contracts, downstream Code
+inputs and the remaining production policy owners remain required; Phases 5, 7, 8 and 9 stay open.
+Mac qualification passed 232 distinct affected cases, including 33 installed-SDK checks. Source
+validation, VS Code types, Git ownership and all 13 unchanged runtime bundle ceilings passed.
+No installed project was migrated and no Windows or live-provider run was started.
+
 The [namespace Code preflight bridge](ENGINE-SDK-NAMESPACE-CODE-PREFLIGHT.md) supplies accepted
 original/current source facts and approved claims to the existing shared candidate rules. Git
 and namespace sources use separate observation identities and preserve native Git outputs. This
-internal admission component still needs conditional Code evidence acceptance and its remaining
-execution/policy owners before application publication is complete. Phases 5, 7, 8 and 9 stay open.
+internal admission component supplies the Code profile above. Its remaining execution/policy owners
+still prevent complete application-workflow coverage. Phases 5, 7, 8 and 9 stay open.
 
 The [archived implementation-region delivery](ENGINE-SDK-ARCHIVED-REGIONS.md) reconstructs exact
 changed-line evidence from accepted original/current source archives and drives the existing shared

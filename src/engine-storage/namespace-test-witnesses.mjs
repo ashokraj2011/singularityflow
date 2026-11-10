@@ -8,7 +8,7 @@ import {primaryDocumentPublicationRequirements} from '../kernel/publication-inte
 import {witnessResult,aggregateWitnesses} from '../kernel/verification-witnesses.mjs';
 import {ASSURANCE} from '../kernel/verification-policy.mjs';
 import {discoverAcceptanceWitnessesReplay,commandForTestFileReplay,sourceBaselineInventory,applicationPathContext} from '../engine-compatibility/node-source-policy.mjs';
-import {persistedOccurrences} from '../verification/test-report-reader.mjs';
+import {namespaceWitnessAttempt} from './namespace-check-witnesses.mjs';
 import {effectiveContract} from '../engine-compatibility/node-specification-policy.mjs';
 import {repositoryPlanTestLocation} from '../engine-compatibility/node-repository-plan.mjs';
 import {scanJavaScriptDeclarations,scanSourceClauseTags} from '../engine-compatibility/node-source-analysis.mjs';
@@ -122,9 +122,7 @@ export function createNamespaceTestWitnessInspectionPort(options={},runtime=null
               }
               for(const plannedPath of planned){const {clauseId,slot,local:testSource}=plannedPath,key=[repository.id,clauseId,slot.slot,testSource].join('\0');if(seen.has(key))continue;seen.add(key);
                 const matching=step.value.witnesses.filter(witness=>witness.clauseId===clauseId&&witness.testSource===testSource),results=[];
-                for(const witness of matching){const index=archiveChecksMatched?tested?.found.plan.steps.findIndex(row=>row.repositoryId===repository.id&&row.command.id===witness.commandId):-1,run=index>=0?tested.found.body.results[index]:null,
-                    out=run?.candidate?.output,check=index>=0?tested.found.body.checks[index]:null,attempt=check?{attemptId:tested.binding.operationId+':'+witness.commandId,status:check.status,
-                      exitCode:out?.process.status??null,terminal:out?.process.closed===true,timedOut:out?.process.timedOut===true,adapter:out?.reports.adapter,tests:check.tests,occurrences:persistedOccurrences(out?.reports.parsed)}:null;
+                for(const witness of matching){const attempt=namespaceWitnessAttempt(witness,archiveChecksMatched?tested?.found:null,repository.id);
                   const result=witnessResult(witness,attempt,{submitted:true,enforceAssertionAdequacy:w.resolution.codeDelivery?.assertionAdequacy==='enforce'});
                   results.push({logicalTestId:witness.logicalTestId,declarationSha256:witness.declarationSha256,line:witness.line,outcome:result.outcome,status:result.status,
                     assurance:result.assurance,identity:result.identity,execution:result.execution,requiredAssurance:result.requiredAssurance,attemptId:result.attemptId,reasons:result.reasons});}

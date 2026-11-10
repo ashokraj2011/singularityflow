@@ -21,8 +21,8 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code='ENGINE_STORAGE_CORRUPT',cause=undefined)=>new SingularityFlowError(message,{code,cause});
 export const emptySourceBaselineTotals=()=>({files:0,bytes:0,chunks:0});
 export function createNamespaceSourceBaselineReader(options={}){
-  const {records,content,workId,authority}=options,scope=namespaceScope(options.scope),limits=namespaceLimits(records.descriptor.limits);
-  const observer=createNamespaceStoryObserver({...options,scope}),observations=createNamespaceSourceObservations({observer,scope});
+  const {records,content,workId,authority,observer:givenObserver}=options,scope=namespaceScope(options.scope),limits=namespaceLimits(records.descriptor.limits);
+  const observer=givenObserver??createNamespaceStoryObserver({...options,scope}),observations=createNamespaceSourceObservations({observer,scope});
   const codec=createNamespaceSourceBaselineCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
   const lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS}),inspect=records.inspectOperation.bind(records);
   async function json(reference,kind,signal){reference=contentReference(reference);const data=await observer.bytes(reference,reference.bytes,signal);

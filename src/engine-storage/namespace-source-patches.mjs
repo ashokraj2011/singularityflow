@@ -6,7 +6,8 @@ import {sourceTextHunks,SOURCE_TEXT_DIFF_PROFILE} from '../kernel/source-text-di
 import {verifySourceFileChunks} from './namespace-source-content-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),maximumFileBytes=2*1024*1024;
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null,cause)=>new SingularityFlowError(message,{code,details,cause});
-export function createNamespaceSourcePatchReader({observer,retention,baseline}){
+export function createNamespaceSourcePatchReader({observer,retention,baseline,requireCurrentIndices=true}){
+  if(typeof requireCurrentIndices!=='boolean')throw error('Select an explicit source-proof read profile.','ENGINE_INPUT_INVALID');
   const contexts=new WeakMap();
   async function capture(found,given,{signal}={}){
     if(!retention.isAccepted(found)||!given)throw error('Read source regions from the original accepted generation and baseline.','ENGINE_INPUT_INVALID');
@@ -18,6 +19,7 @@ export function createNamespaceSourcePatchReader({observer,retention,baseline}){
   async function finish(token,{signal}={}){
     if(signal?.aborted)throw error('Source region replay was cancelled.','ENGINE_OPERATION_CANCELLED');
     const state=contexts.get(token);if(!state||!retention.isAccepted(state.found))throw error('Use the issued source-region context.','ENGINE_INPUT_INVALID');
+    if(!requireCurrentIndices)return;
     const {found,original}=state,bindings=[found.binding.index,{key:baseline.codec.indexKey(original.plan.input),version:original.indexVersion}];
     for(const binding of bindings){const value=await observer.record('evidence',binding.key,false,signal);
       if(!value||value.version!==binding.version)throw error('Source-region evidence changed during its replay.','ENGINE_CONTEXT_CHANGED');}

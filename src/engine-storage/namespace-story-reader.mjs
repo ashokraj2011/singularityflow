@@ -19,7 +19,9 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
   const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
   const codec=createNamespaceStoryCodec({scope,workId,authority,limits:namespaceLimits(records.descriptor.limits)});
   const receipts=createNamespaceLifecycleReceiptReader({records,content,scope,workId,authority});
-  const inspectOperation=records.inspectOperation.bind(records),recordId=records.descriptor.id,contentId=content.descriptor.id,proofs=new WeakMap(),workflowProofs=new WeakMap();
+  const inspectOperation=records.inspectOperation.bind(records),recordId=records.descriptor.id,contentId=content.descriptor.id,proofs=new WeakMap(),workflowProofs=new WeakMap(),readScopes=new WeakMap();
+  function activeScope(token){if(token===undefined)return null;const found=readScopes.get(token);
+    if(!found)throw error('Use the active Story proof-reading scope.','ENGINE_INPUT_INVALID');return found;}
   function stored(kind,value,operationId=null) {
     try {return namespaceStoryValue(kind,value,scope,workId,operationId);}
     catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
@@ -73,25 +75,28 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
     await base.bytes(plan.source,plan.source.bytes,signal);cancelled(signal);
     return {workflow,configuration:plan.configuration,approval};
   }
-  async function approved(snapshot,{signal}={}) {
-    cancelled(signal);let proof=proofs.get(snapshot)??workflowProofs.get(snapshot.workflow);
-    if(!proof)proof=await original(signal);
+  async function approved(snapshot,{signal,readScope}={}) {
+    cancelled(signal);const scoped=activeScope(readScope);let proof=proofs.get(snapshot)??workflowProofs.get(snapshot.workflow)??scoped?.proof;
+    if(!proof){if(scoped){scoped.pending??=original(signal);try{proof=await scoped.pending;}finally{scoped.pending=null;}
+        activeScope(readScope);scoped.proof=proof;}else proof=await original(signal);}
     if(!same(snapshot.configuration,proof.configuration))throw error(
       'The Story changed its original configuration without a verified amendment.','ENGINE_STORAGE_CORRUPT',{workId});
     assertStoryPolicy(snapshot.workflow,proof.workflow);proofs.set(snapshot,proof);workflowProofs.set(snapshot.workflow,proof);
     cancelled(signal);return proof.approval;
   }
-  async function accepted(operationId,{signal,cache,snapshot}={}) {
-    const proof=await receipts.accepted(operationId,{signal,cache});
+  async function accepted(operationId,{signal,cache,snapshot,readScope}={}) {
+    const scoped=activeScope(readScope);
+    const proof=await receipts.accepted(operationId,{signal,cache:cache??scoped?.receipts});
     const selected=snapshot??{workflow:proof.state.workflow,configuration:proof.plan.basis.head.configuration};
-    await approved(selected,{signal});const origin=proofs.get(selected);
+    await approved(selected,{signal,readScope});const origin=proofs.get(selected);
     if(!same(origin.configuration,proof.plan.basis.head.configuration))throw error(
       'The accepted operation changed its original Story configuration.','ENGINE_STORAGE_CORRUPT',{workId,operationId});
     assertStoryPolicy(proof.state.workflow,origin.workflow);assertStoryPolicy(proof.basisState.workflow,origin.workflow);return proof;
   }
-  async function observe(options,active) {
+  async function observe(options,active,readScope) {
+    activeScope(readScope);
     const captured=await (active?base.capture(options):base.inspect(options));
-    await approved(captured.snapshot,options);
+    await approved(captured.snapshot,{...options,readScope});
     // Proof traversal cannot extend an earlier head or authority observation indefinitely.
     const fresh=await base.record('state',codec.headKey,false,options?.signal),authorityRecord=await base.record('state',LIFECYCLE_AUTHORITY_KEY,false,options?.signal);
     cancelled(options?.signal);
@@ -99,8 +104,22 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
       'The Story or authority changed during its policy inspection.','ENGINE_CONTEXT_CHANGED',{workId});
     return captured;
   }
-  async function state(data,head,{signal}={}) {
-    const value=base.state(data,head);await approved({workflow:value.workflow,configuration:head.configuration},{signal});return value;
+  async function state(data,head,{signal,readScope}={}) {
+    activeScope(readScope);const value=base.state(data,head);await approved({workflow:value.workflow,configuration:head.configuration},{signal,readScope});return value;
   }
-  return Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted});
+  // Share immutable original policy and accepted receipts for one awaited traversal. Mutable
+  // records, source bytes and final head/authority checks stay fresh; the callback owns its scope.
+  async function withReadScope(read){
+    if(typeof read!=='function')throw error('Provide a Story proof reader.','ENGINE_INPUT_INVALID');
+    const token=Object.freeze({});readScopes.set(token,{receipts:Object.freeze({})});
+    const scoped=Object.freeze({...observer,approved:(snapshot,options)=>approved(snapshot,{...options,readScope:token}),
+      state:(data,head,options)=>state(data,head,{...options,readScope:token}),accepted:(id,options)=>accepted(id,{...options,readScope:token}),
+      capture:options=>observe(options,true,token),inspect:options=>observe(options,false,token)});
+    try{return await read(scoped);}finally{readScopes.set(token,null);}
+  }
+  // Original evidence readers need only receipt inspection and this observer's read capabilities.
+  const evidenceReads=Object.freeze({scope:Object.freeze({...scope}),workId,authority,
+    records:Object.freeze({descriptor:records.descriptor,inspectOperation})});
+  const observer=Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted,evidenceReads,withReadScope});
+  return observer;
 }

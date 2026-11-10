@@ -35,7 +35,7 @@ test('adapter profiles and most-specific command selection preserve the independ
   for(const entry of oracle.rootCases)assert.equal(commandCovering(entry.commands,entry.candidate)?.id??null,entry.selected);
   assert.deepEqual(Object.keys(verificationContractPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS)),[
     'proseVerificationDeclarations','validateRetainedEvidenceDeclarations','parseVerificationContracts','normalizeVerificationContracts',
-    'mergedVerificationContracts','effectiveContract','contractRequiresTestTag','testSlotFor','contractSha256','witnessMappingCore','witnessMappingSha256']);
+    'mergedVerificationContracts','effectiveContract','contractRequiresTestTag','requiredAcceptanceFromPlan','testSlotFor','contractSha256','witnessMappingCore','witnessMappingSha256']);
 });
 
 for(const backend of ['filesystem','sqlite','application'])test(`${backend}: scope and plan retain exact shared records and independent human approval`,async t=>{

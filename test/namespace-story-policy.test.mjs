@@ -30,6 +30,30 @@ for(const backend of ['filesystem','sqlite','application'])test(`${backend}: act
   assert.equal(source.document.integrity,'matched');
 });
 
+test('a bounded Story proof traversal shares original policy but checks each snapshot and never retains a failure or expired scope',async t=>{
+  const f=await namespaceEngineFixture(t,{backend:'filesystem'});await f.bootstrap();await f.author();
+  const snapshot=await f.capture(),genesis=namespaceStoryGenesisKey(f.workId),denied=Object.assign(Error('Original genesis permission failure.'),{code:'EACCES'}),
+    operationId=(await f.records.read(f.scope,'state',namespaceLifecycleStoryKey(f.workId))).record.value.operationId;
+  let originals=0,inspections=0,fail=false,escaped;
+  const records={...f.records,async read(scope,namespace,key,options){if(key===genesis){originals++;if(fail)throw denied;}return f.records.read(scope,namespace,key,options);},
+      inspectOperation(...args){inspections++;return f.records.inspectOperation(...args);}},
+    observer=createNamespaceStoryObserver({...f.options,records});
+  await observer.withReadScope(async scoped=>{
+    escaped=scoped;await Promise.all([scoped.approved(structuredClone(snapshot)),scoped.approved(structuredClone(snapshot))]);
+    assert.equal(originals,1);const proof=await scoped.accepted(operationId),before=inspections;
+    assert.strictEqual(await scoped.accepted(operationId),proof);assert.equal(inspections,before,'the same accepted immutable receipt is verified once per traversal');
+    const changed=structuredClone(snapshot);changed.workflow.resolution.approvalAuthorities.reviewers.members.push({email:'unapproved@example.test'});
+    await assert.rejects(scoped.approved(changed),{code:'ENGINE_STORAGE_CORRUPT'});assert.equal(originals,1,'every different snapshot still checks its policy');
+  });
+  await assert.rejects(escaped.approved(structuredClone(snapshot)),{code:'ENGINE_INPUT_INVALID'});
+  await observer.withReadScope(async scoped=>{fail=true;await assert.rejects(scoped.approved(structuredClone(snapshot)),error=>error===denied);
+    fail=false;await scoped.approved(structuredClone(snapshot));});assert.equal(originals,3,'a failed proof does not poison the traversal');
+  await observer.withReadScope(scoped=>scoped.approved(structuredClone(snapshot)));assert.equal(originals,4,'another traversal reads the original proof again');
+  const controller=new AbortController();controller.abort();
+  await assert.rejects(observer.withReadScope(scoped=>scoped.approved(structuredClone(snapshot),{signal:controller.signal})),{code:'ENGINE_OPERATION_CANCELLED'});
+  assert.deepEqual(await f.capture(),snapshot);
+});
+
 test('genuine creator auto-enrollment is retained rather than replaced with the un-enrolled catalog',async t=>{
   const f=await namespaceEngineFixture(t,{backend:'sqlite',configure(source){source.definition.approvalAuthorities.reviewers.members=[];}});
   await f.bootstrap();const snapshot=await f.capture();

@@ -1,8 +1,9 @@
 # Namespace source facts for Code publication
 
 The Code preflight rules can now evaluate an accepted namespace generation without a Git commit
-or access to its original checkout. This is an internal publication-admission component. It is not
-another public query and is not yet admitted as the complete application-publication writer.
+or access to its original checkout. This is an internal publication-admission component, used by the
+[initial Code publication profile](ENGINE-SDK-NAMESPACE-CODE-PUBLICATION.md). It is not another public
+query or a complete application-workflow writer.
 
 ## One policy, two observation boundaries
 
@@ -53,15 +54,15 @@ The architecture guards, source validator, VS Code types, unchanged Git ownershi
 13 original bundle ceilings passed. Windows, hosted CI, live providers and production installation
 were not exercised. This qualification does not establish application-publication readiness.
 
-## Publication integration still required
+## Publication integration and remaining owners
 
 This component returns a preflight result. It does not attest successful execution or fulfill every
 publication owner. Namespace code history/rework, reviewed test-recovery baselines, exact shared-
 namespace test origins, additional declaration languages, corner-case analysis and accepted finding
 decisions retain explicit owner requirements where their native callbacks are not yet bound.
 
-The next integration must conditionally retain the actual Code policy result, bind it to the exact
-source archive and test execution, verify it after shared-only takeover, and connect it to registered
-publish/submit/approve. The namespace writer still requires its complete policy closure; this work
-does not waive code-delivery, observed claims, constitution, artifact-set, human acceptance or any
-other missing owner. Full application Stories and migration Phases 5, 7, 8 and 9 remain open.
+The initial integration now conditionally retains the actual Code policy result, binds its exact
+source archive and test execution, and replays it for registered publish/submit/approve without the
+old checkout. It supports a first-generation profile with primary test contracts. The namespace
+writer still requires its complete policy closure: constitution, artifact-set, human acceptance and
+other missing owners are not waived. Full application Stories and Phases 5, 7, 8 and 9 remain open.

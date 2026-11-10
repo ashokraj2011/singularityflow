@@ -5,7 +5,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {artifactBytesAreText,artifactContentObservation,inspectRequiredArtifactObservation,inspectBinaryArtifactSize} from '../kernel/artifact-content.mjs';
-import {primaryDocumentPublicationRequirements} from '../kernel/publication-intent.mjs';
+import {primaryDocumentPublicationRequirements,codePublicationPolicy,CODE_PUBLICATION_OWNERS} from '../kernel/publication-intent.mjs';
 import {specificationPublicationPolicy,SPECIFICATION_PUBLICATION_OWNERS} from '../kernel/specification-publication.mjs';
 import {specificationAnalysisPublicationPolicy} from '../kernel/specification-analysis.mjs';
 import {resolvedClarificationPolicy} from '../kernel/clarification-responses.mjs';
@@ -113,7 +113,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
       if(s.missing)throw s.missing;
       const observed=await observer.inspect({signal}),publishedPhase=observed.snapshot.workflow.phases[s.phaseId];
       const clarificationMode=resolvedClarificationPolicy({},observed.snapshot.workflow,publishedPhase).mode;
-      if(publishedPhase?.qualityCommands?.length||clarificationMode!=='off'){
+      if(publishedPhase?.qualityCommands?.length||clarificationMode!=='off'||codePublicationPolicy(observed.snapshot.workflow,publishedPhase)){
         const binding=publishedPhase.publicationBindings?.find(item=>item.generation===publishedPhase.generation);
         if(binding){const publication=await readPublication(binding,s,signal);
           if(publication.draft.sha256===s.identity.bodySha256&&publication.requestSha256===s.requestSha256){
@@ -136,7 +136,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
       const s=selected(context);if(runtime===null)throw workingRequired(s.phaseId);
       const current=s.snapshot??await committer.capture({signal}),currentPhase=current.workflow.phases[s.phaseId],
         clarificationMode=resolvedClarificationPolicy({},current.workflow,currentPhase).mode;
-      if(currentPhase?.qualityCommands?.length||clarificationMode!=='off'){
+      if(currentPhase?.qualityCommands?.length||clarificationMode!=='off'||codePublicationPolicy(current.workflow,currentPhase)){
         s.snapshot=current;
         s.admission=await runtime.admitDraft(s.draft,'phase.publish',{signal});
         const observed=runtime.draftFacts(s.admission);
@@ -147,10 +147,13 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             agentId:observed.agentId,inputs:observed.resources,authorship:intent.authorship},s.snapshot,{signal});
           s.clarificationObservation=candidate.checkpoint.observed;
         }
+        if(codePublicationPolicy(current.workflow,currentPhase))s.codeSource=await publicationReader.policies.codeSourceBinding(current,{
+          phaseId:s.phaseId,generation:observed.payload.generation,baseRevision:observed.revision,draft:s.identity,
+          artifact:observed.payload.artifact.current,configuration:current.configuration},{signal});
         // A repaired run gets its own candidate; an earlier conditional publication stays immutable.
         s.operationId='publish-'+hash(namespaceIdentityJson({scope,authority,workId,phaseId:s.phaseId,draft:s.identity.bodySha256,
           requestSha256:s.requestSha256,...(s.checkEvidence?{checks:s.checkEvidence}:{}),
-          ...(s.clarificationObservation?{clarification:s.clarificationObservation}:{})}));
+          ...(s.clarificationObservation?{clarification:s.clarificationObservation}:{}),...(s.codeSource?{source:s.codeSource}:{})}));
         s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
       }
       return prepareNamespaceOperation(committer,s.operationId,async()=>{
@@ -163,8 +166,9 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         const specificationPolicy=specificationPublicationPolicy(snapshot.workflow,phase);
         const analysisPolicy=specificationAnalysisPublicationPolicy(observed.definition,snapshot.workflow,phase);
         const clarificationPolicy=resolvedClarificationPolicy(observed.definition,snapshot.workflow,phase);
+        const codePolicy=codePublicationPolicy(snapshot.workflow,phase);
         const available=[...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
-          ...(clarificationPolicy.mode!=='off'?['clarification-record']:[])];
+          ...(clarificationPolicy.mode!=='off'?['clarification-record']:[]),...(codePolicy?CODE_PUBLICATION_OWNERS:[])];
         const pending=required.filter(item=>!available.includes(item));
         if(pending.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
           operation:'phase.publish',phase:s.phaseId,required:pending});
@@ -189,20 +193,24 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
             actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
             artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
-          let specifications=null,analysis=null,clarification=null;
-          if(specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off') {
+          let specifications=null,analysis=null,clarification=null,codeEvidence=null;
+          if(specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy) {
             const head=await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal);
             if(head.version!==snapshot.revision)throw error('The Story changed before specification retention.','ENGINE_CONTEXT_CHANGED');
             if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
             if(clarificationPolicy.mode!=='off')clarification=await policyWriter.retainClarification(base,{snapshot,head:head.value,signal});
             if(analysisPolicy)analysis=await policyWriter.retain(clarification?{...base,policyEvidence:[clarification]}:base,{snapshot,head:head.value,signal});
+            if(codePolicy){codeEvidence=await policyWriter.retainCode({...base,checks:s.checkEvidence??null},{snapshot,head:head.value,signal});
+              if(!same(codeEvidence.sourceBinding,s.codeSource))throw error(
+                'Code source evidence changed while preparing publication. Reinspect its retained candidate.','ENGINE_CONTEXT_CHANGED');}
           }
-          const policyEvidence=[...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[])];
+          const policyEvidence=[...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[])];
           const record=namespacePublicationRecord(base,{checks:s.checkEvidence??null,specifications,policyEvidence:policyEvidence.length?policyEvidence:null});
           namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,
             format:'sflow-phase-publication-binding/v1',generation,record:reference};phasePublicationBindingValue(binding);
           const verified=specifications||policyEvidence.length?await publicationReader.read(binding,s.phaseId,{signal}):record;
+          if(codePolicy&&!s.checkEvidence)await publicationReader.policies.freshCodeSources(verified,sources,{signal});
           const fulfilled=[...publicationReader.specifications.owners(verified),...publicationReader.policies.owners(verified)];
           required=required.filter(owner=>!fulfilled.includes(owner));
           if(required.length)throw error('This phase still requires its remaining publication policy owners.','ENGINE_PORT_UNAVAILABLE',{
@@ -217,6 +225,9 @@ export function createNamespacePublicationPort(options={},runtime=null) {
           if(analysis)snapshot.workflow.namespaceDocuments.push({id:'ANALYSIS-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-analysis-gen'+generation+'.json',
             role:'file',name:'Specification analysis',kind:'specification-analysis',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:analysis.report});
+          if(codeEvidence)snapshot.workflow.namespaceDocuments.push({id:'CODE-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
+            sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-code-policy-gen'+generation+'.json',
+            role:'file',name:'Code delivery evidence',kind:'code-delivery',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:codeEvidence.report});
           if(clarification) {
             const checkpointResource=publicationReader.policies.resources(verified).find(item=>item.kind==='clarification-record');
             if(!checkpointResource)throw error('The accepted checkpoint has no readable evidence reference.','ENGINE_STORAGE_CORRUPT');
@@ -254,6 +265,8 @@ export function createNamespacePublicationPort(options={},runtime=null) {
       return commitNamespaceOperation(committer,s.operationId,async()=>{
         await runtime.revalidateDraft(p.admission,{signal});
         if(s.checkEvidence)await checks.freshSources(s.checkEvidence,s.phaseId,sources,{signal});
+        else {const retained=(await retainedPublication(s.plan,s,signal)).publication;
+          if(publicationReader.policies.owners(retained).includes('code-delivery'))await publicationReader.policies.freshCodeSources(retained,sources,{signal});}
       },{signal});
     },
     async finish(context,_prepared,accepted) {

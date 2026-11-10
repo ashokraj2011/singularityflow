@@ -18,6 +18,8 @@ const articles = ['completeness', 'ambiguity', 'consistency', 'verifiability', '
 const SAMPLES = {
   'help-page': { selectedTopic: 'decision', content: Array.from({ length: 160 }, (_, index) => `singularity-flow decision line ${index}`).join('\n') },
   'approval-checklist': { schemaVersion: 1, phase: 'specification', status: 'awaiting_approval', approvalChecklist: { required: true, articles }, ...filler(6) },
+  'phase-show': { schemaVersion: 1, phase: 'planning', handoffScope: 'current', continuation: { nextCommand: 'singularity-flow decisions W-1',
+    nextAction: { reason: "Planning can't be approved yet: 1 decision needed." } }, ...filler(6) },
   'decision-list': { schemaVersion: 1, resultType: 'sflow-decisions', status: 'decisions-needed', items: [{ id: 'd1', title: 'Reuse the run', options: [{ id: 'reuse' }] }],
     record: { form: 'singularity-flow decisions record W --choose <ITEM>=<OPTION> --confirm sha256:x' }, ...filler(6) },
   'decision-list-command': { schemaVersion: 1, resultType: 'command-result', data: { resultType: 'sflow-decisions', status: 'decisions-needed',
@@ -32,7 +34,7 @@ const SAMPLES = {
 
 test('the list of reader fields, by the kind of result', () => {
   assert.deepEqual(READER_FIELDS.map((entry) => [entry.kind, entry.fields]), [
-    ['help-page', ['content']], ['approval-checklist', ['approvalChecklist']], ['decision-list', ['items', 'record', 'preview']],
+    ['help-page', ['content']], ['approval-checklist', ['approvalChecklist']], ['phase-show', ['continuation']], ['decision-list', ['items', 'record', 'preview']],
     ['decision-list-command', ['data']], ['source-review-check', ['repair', 'findings']],
     ['source-review-status', ['findings', 'pendingDispositions', 'continuation']], ['refusal', ['error', 'remediationPlan']]]);
   for (const [kind, sample] of Object.entries(SAMPLES)) {

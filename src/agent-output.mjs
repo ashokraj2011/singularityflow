@@ -75,6 +75,7 @@ const identityLast = (left, right) => Number(IDENTITY_FIELDS.has(left)) - Number
 export const READER_FIELDS = Object.freeze([
   Object.freeze({ kind: 'help-page', fields: ['content'], matches: (result) => typeof result.selectedTopic === 'string' && typeof result.content === 'string' }),
   Object.freeze({ kind: 'approval-checklist', fields: ['approvalChecklist'], matches: (result) => Boolean(result.approvalChecklist) && typeof result.approvalChecklist === 'object' }),
+  Object.freeze({ kind: 'phase-show', fields: ['continuation'], matches: (result) => typeof result.handoffScope === 'string' && Boolean(result.continuation) && typeof result.continuation === 'object' }),
   Object.freeze({ kind: 'decision-list', fields: ['items', 'record', 'preview'], matches: (result) => result.resultType === 'sflow-decisions' }),
   Object.freeze({ kind: 'decision-list-command', fields: ['data'], matches: (result) => result.data?.resultType === 'sflow-decisions' }),
   Object.freeze({ kind: 'source-review-check', fields: ['repair', 'findings'], matches: (result) => result.resultType === 'source-review-check' }),

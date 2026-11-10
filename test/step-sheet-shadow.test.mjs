@@ -15,6 +15,7 @@ import test from 'node:test';
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
 import { APPROVAL_HOLD_OWNERS, approvalHold } from '../src/approval-check.mjs';
 import { approvalRequirementsMet } from '../src/approval-authority.mjs';
+import { completeAgentResult } from '../src/agent-output.mjs';
 import { decisionPacket } from '../src/decision-list.mjs';
 import { nextAfterStep } from '../src/cli-steps.mjs';
 import { commandWithFills, stepSheet } from '../src/step-sheet.mjs';
@@ -312,9 +313,11 @@ test('real Stories through the real CLI: every surface carries one sheet, it agr
   assert.equal(clean.next.actions.find((action) => action.timing === 'now').command.startsWith('singularity-flow approve planning '), true, 'nextsteps says the same');
   assert.equal(clean.sheet.next.command, clean.list.next.command);
   assert.match(clean.sheet.step.packetSha256, /^[a-f0-9]{64}$/u);
-  // No agent reads it yet, so no agent's view pays for it; the JSON a script or VS Code reads carries it.
-  for (const [name, view] of Object.entries({ nextsteps: json('nextsteps', WORK, '--for-agent', '--json'), review: json('phase', 'show', 'planning', '--for-agent', '--json'),
-    list: json('decisions', WORK, '--for-agent', '--json').data })) assert.equal(view.sheet?.digest, undefined, name);
+  // No agent reads it yet, so no agent's view pays for it, nor the result kept behind a short view; the JSON a script or
+  // VS Code reads carries it.
+  for (const [name, view] of Object.entries({ nextsteps: completeAgentResult(json('nextsteps', WORK, '--for-agent', '--json')),
+    review: completeAgentResult(json('phase', 'show', 'planning', '--for-agent', '--json')),
+    list: completeAgentResult(json('decisions', WORK, '--for-agent', '--json')).data })) assert.equal(view.sheet?.digest, undefined, name);
 
   // A stray file: the door's refusal comes first on every surface, with its route.
   const stray = path.join(root, 'stray.txt');

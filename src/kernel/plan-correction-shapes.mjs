@@ -21,5 +21,7 @@ const evidencePath={...string(1,512),path:{windowsSegments:true}},evidence=objec
   reason:string(20,1000,true),actor:string(),authorityGroup:string(),authorizationId:string(),
   reviewAssurance:{kind:'enum',values:['live-terminal-exact-evidence-review','live-local-ui-exact-evidence-review']},at:datetime,recordPath:evidencePath,
   reviewedFile:object({sha256:sha,size:{kind:'integer',minimum:0,maximum:16*1024*1024}}),testsWaived:literal(false),phaseApproved:literal(false),presence:optional({kind:'record'})});
-return freezeRecordShape({row,evidence,portablePath,fulfillment});
+const {authorizationId,reviewAssurance,presence,...namespaceFields}=row.fields,
+  namespaceRow=object({schemaVersion:literal(1),format:literal('sflow-namespace-plan-row-correction/v1'),...namespaceFields,reviewContext:regex('^sha256:[a-f0-9]{64}$')});
+return freezeRecordShape({row,evidence,portablePath,fulfillment,namespaceRow});
 }

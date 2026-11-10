@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceWitnessContextProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -60,6 +60,7 @@ const SINGLE_DECISIONS = Object.freeze([
   ['decision.applicability','applicability',['responsibility','reason']],
   ['decision.risk','obligation-risk',['obligationId','revoke','category','transitions','expires','reason']],
   ['decision.plan','plan-amendment',['changes','reason'],{keepsCurrentPhase:true}],
+  ['plan.correction.record','plan-row-correction',['ownerPhase','operations','reason','upstreamIssue','expectedPreview'],{keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','operations','reason','expectedPreview'])}],
   ['decision.choose','routing',['option','to','expected','reason']],
   ['decision.witness','witness',['clauseId','slotName','file','answers','reason','expectedContext','expectedFile'],{keepsCurrentPhase:true}],
   ['decision.witness-exception','witness-exception-renewal',['phaseId','mappingSha256','expires','reason'],
@@ -130,6 +131,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectScopeContext'},
   {id:'witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','clauseId','slotName','file']),
     requiredFields:Object.freeze(['clauseId','slotName','file']),port:'witnessContext',stages:Object.freeze(['load','read']),validate:'witnessContextInput',execute:'inspectWitnessContext'},
+  {id:'plan.correction.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','ownerPhase','operations','reason','upstreamIssue']),
+    requiredFields:Object.freeze(['operations','reason']),port:'planCorrectionContext',stages:Object.freeze(['load','read']),validate:'planCorrectionContextInput',execute:'inspectPlanCorrectionContext'},
   ...['story.document.attach','story.document.detach'].map(id=>({id,version:1,effect:'input-document',humanDecision:false,port:'storyDocument',
     inputFields:Object.freeze(['operationId','workId','documentId','reason',...(id.endsWith('attach')?['name','mimeType','encoding','content']:[])]),
     requiredFields:Object.freeze(['operationId','workId','documentId','reason',...(id.endsWith('attach')?['name','mimeType','encoding','content']:[])]),
@@ -634,6 +637,30 @@ async function inspectWitnessContext(port,input,signal){notCancelled(signal);con
     ||facts.result?.clauseId!==input.clauseId||facts.result?.slot!==input.slotName||!['missing','failed','met'].includes(facts.result?.status))throw new SingularityFlowError(
       'The witness context returned another criterion, slot or published file.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'witness.context',subject:context.subject,manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
+
+function planCorrectionContextInput(value){const input=data(value);if(!Array.isArray(input.operations)||!input.operations.length||input.operations.length>20||typeof input.reason!=='string')throw new SingularityFlowError(
+  'Name a bounded correction and its review reason.',{code:'ENGINE_INPUT_INVALID'});return input;}
+async function inspectPlanCorrectionContext(port,input,signal){notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const bound=data({subject:context.subject,phase:context.workflow?.currentPhase,phases:Object.fromEntries(Object.entries(context.workflow?.phases??{}).map(([id,row])=>[id,{generation:row.generation,status:row.status}]))});
+  const facts=data(await port.read(context,{signal}));notCancelled(signal);let profile=null;
+  try{profile=namespacePlanCorrectionRecordProfile('context',facts);}catch{ /* Reject another wire contract as a port result. */ }
+  const fields=['schemaVersion','format','workId','phase','revision','request','preview','recording','owner','authorities'],preview=facts?.preview,owner=facts?.owner;
+  if(!facts||!profile||facts.format!==profile.format||Object.keys(facts).length!==fields.length||!fields.every(key=>Object.hasOwn(facts,key))
+    ||bound.subject?.kind!=='story'||facts.workId!==bound.subject.id||input.workId!=null&&facts.workId!==input.workId||facts.phase!==bound.phase
+    ||typeof facts.revision!=='string'||!equalJson(facts.request,standaloneDecisionRequest('plan.correction.context',input))
+    ||!owner||!bound.phases[owner.phase]||owner.generation!==bound.phases[owner.phase].generation||owner.generation<1||bound.phases[owner.phase].status!=='approved'
+    ||input.ownerPhase!=null&&owner.phase!==input.ownerPhase
+    ||preview?.ownerPhase!==owner.phase||preview.ownerGeneration!==owner.generation||preview.ownerMapSha256!==owner.mapSha256
+    ||!/^[a-f0-9]{64}$/u.test(preview.previewSha256??'')||!Array.isArray(preview.operations)||preview.operations.length!==input.operations.length
+    ||preview.reason!==input.reason.trim()||preview.upstreamIssue!==(input.upstreamIssue??null)
+    ||preview.operations.some((row,index)=>row.op!==input.operations[index].op||row.clauseId!==String(input.operations[index].clauseId??'').toUpperCase())
+    ||!['requires-human-review','owner-required'].includes(facts.recording?.status)||!Array.isArray(facts.recording?.requiredOwners)||!Array.isArray(facts.recording?.affectedPhases)
+    ||facts.recording.status!==(facts.recording.requiredOwners.length?'owner-required':'requires-human-review')
+    ||facts.recording.requiredOwners.some(value=>typeof value!=='string'||!value)||facts.recording.affectedPhases.some(value=>!bound.phases[value])
+    ||!Array.isArray(facts.authorities)||!facts.authorities.length||facts.authorities.some(value=>typeof value!=='string'||!value))throw new SingularityFlowError(
+      'The correction context has another approved plan or request.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'plan.correction.context',subject:bound.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
 
 function storyDocumentInput(value,operation) {
@@ -1663,7 +1690,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    witnessContextInput,inspectWitnessContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
+    witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

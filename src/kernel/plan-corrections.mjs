@@ -1,10 +1,12 @@
 /** Plan row/evidence rules over exact approved values and explicitly admitted human records. No I/O or presence registry. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,textDigestCapability} from '../foundation/record-schema.mjs';
+import {canonicalJson,textDigestCapability,namespacePlanCorrectionRecordProfile} from '../foundation/record-schema.mjs';
 import {parseRecordShape} from '../foundation/record-shapes.mjs';
 import {configurationPathSyntax} from './configuration-path-policies.mjs';
 import {verificationContractPolicies} from './verification-policy.mjs';
 import {fallbackAuthorities} from './approval-fallback.mjs';
+import {phaseNeedsGeneration} from './phase-policy.mjs';
+import {plannedClaimAllocatedTo} from './specification-policy.mjs';
 import {planCorrectionRecordShapes} from './plan-correction-shapes.mjs';
 export {planCorrectionRecordShapes} from './plan-correction-shapes.mjs';
 export function planCorrectionPolicies(pathSyntax,digests){
@@ -175,7 +177,7 @@ function planCorrectionAuthorities(workflow, ownerPhase) {
  * an added or changed row is refused exactly where a planner's row would be, and `validate(plan)`
  * checks the whole corrected plan (approved verification intent) before anything is recorded.
  */
-function recordPlanRowCorrection(workflow, {
+function previewPlanRowCorrection(workflow, {
   ownerRecord, ownerMapSha256, operations = [], activeClauseIds = [], normalizeRow, validate = () => {},
   reason, actor, authorityGroup, identityAssurance = null, authorizationId, at, upstreamIssue = null
 }) {
@@ -230,6 +232,17 @@ function recordPlanRowCorrection(workflow, {
   validate(result);
   const text = String(reason ?? '').trim();
   if (text.length < 20 || text.length > 1000) refused('Say why the plan is corrected in 20 to 1000 characters with --reason.');
+  const ids=[...new Set(recorded.map(operation=>operation.clauseId))],
+    before=Object.fromEntries(ids.map(id=>[id,structuredClone(ownerRecord.claims[id]??null)])),
+    after=Object.fromEntries(ids.map(id=>[id,structuredClone(result.claims[id]??null)])),
+    contracts=plan=>(plan.verificationContracts??[]).filter(row=>ids.includes(row.clauseId));
+  return {ownerPhase:ownerRecord.phase,ownerGeneration:Number(ownerRecord.generation),ownerMapSha256,operations:recorded,reason:text,upstreamIssue,
+    before,after,contractsBefore:structuredClone(contracts(ownerRecord)),contractsAfter:structuredClone(contracts(result)),
+    previewSha256:recordSha256({owner:ownerRecord.phase,generation:Number(ownerRecord.generation),map:ownerMapSha256,operations:recorded,reason:text,upstreamIssue})};
+}
+function recordPlanRowCorrection(workflow,input){
+  const {ownerRecord,ownerMapSha256,actor,authorityGroup,identityAssurance=null,authorizationId,at,upstreamIssue=null}=input,
+    {operations:recorded,reason:text}=previewPlanRowCorrection(workflow,input);
   workflow.planAmendments ??= [];
   const sequence = workflow.planAmendments.filter((entry) => entry?.kind === 'plan-row-correction').length + 1;
   const correction = {
@@ -250,13 +263,15 @@ function recordPlanRowCorrection(workflow, {
 function applyRowCorrection(record, workflow, value) {
   const checked = PlanRowCorrectionSchema.safeParse(value);
   if (!checked.success) invalid('A plan correction record is not well formed.', { id: value?.id ?? null });
-  const correction = checked.data;
+  return applyCorrection(record,workflow,checked.data);
+}
+function applyCorrection(record,workflow,correction,originalMapSha256=undefined){
   if (!planCorrectionAuthorities(workflow, correction.ownerPhase).includes(correction.authorityGroup)) {
     invalid(`Plan correction ${correction.id} lacks its owner plan's authority.`, { id: correction.id });
   }
   if (correction.ownerPhase !== record.phase || correction.ownerGeneration !== Number(record.generation)) return record;
   const pointer = workflow.phases?.[record.phase]?.claimMaps?.planned;
-  if (!pointer || pointer.sha256 !== correction.ownerMapSha256) {
+  if ((originalMapSha256===undefined?pointer?.sha256:originalMapSha256) !== correction.ownerMapSha256) {
     invalid(`Plan correction ${correction.id} no longer binds its approved plan.`, { id: correction.id });
   }
   const result = structuredClone(record);
@@ -283,12 +298,47 @@ function applyPlanCorrections(record, workflow, options = {}, observed = workflo
   return result;
 }
 
+/** Separate namespace wire: an exact authenticated context is not a terminal ceremony. */
+function recordNamespacePlanCorrection(workflow,input){
+  const preview=previewPlanRowCorrection(workflow,input),expected='sha256:'+preview.previewSha256;
+  if(input.expectedPreview!==expected)throw new SingularityFlowError('Review the current exact plan correction before recording it.',{
+    code:'PLAN_CORRECTION_REVIEW_CHANGED',details:{operation:'plan.correction.context',expectedPreview:expected}});
+  const record={schemaVersion:1,format:'sflow-namespace-plan-row-correction/v1',
+    id:'PRC-'+String((workflow.planAmendments??[]).filter(row=>row?.kind==='plan-row-correction').length+1).padStart(3,'0'),kind:'plan-row-correction',
+    ownerPhase:preview.ownerPhase,ownerGeneration:preview.ownerGeneration,ownerMapSha256:preview.ownerMapSha256,
+    operations:preview.operations,reason:preview.reason,actor:input.actor,authorityGroup:input.authorityGroup,identityAssurance:null,
+    at:input.at,upstreamIssue:preview.upstreamIssue,reviewContext:expected};
+  const checked=parseRecordShape(shapes.namespaceRow,record);if(!checked.success)refused('The namespace correction does not satisfy its record contract.');
+  workflow.planAmendments??=[];workflow.planAmendments.push(record);return record;
+}
+function applyNamespacePlanCorrections(record,workflow,observed=[],{originalMapSha256}={}){
+  if(!record||record.amendment)return record;let result=record;
+  for(const value of observed){if(value.kind!=='plan-row-correction')continue;
+    const profile=namespacePlanCorrectionRecordProfile('record',value),checked=parseRecordShape(shapes.namespaceRow,value);
+    if(value.format!==profile.format||!checked.success)invalid('The accepted namespace correction has an invalid wire contract.');
+    if(!/^[a-f0-9]{64}$/u.test(originalMapSha256??''))invalid('Namespace projection needs the original approved map digest.');
+    result=applyCorrection(result,workflow,checked.data,originalMapSha256);
+  }return result;
+}
+/** A new plan cannot silently reinterpret an already accepted Code proof. */
+function namespaceCorrectionRequirements(workflow,preview){
+  const required=new Set(),affectedPhases=[];
+  if(workflow.resolution?.presence)required.add('person-presence');
+  for(const [id,owner]of Object.entries(workflow.resolution?.plannedClaims?.owners??{})){
+    if(owner!==preview?.ownerPhase)continue;
+    const affected=(preview.operations??[]).some(row=>[preview.before?.[row.clauseId],preview.after?.[row.clauseId]].some(claim=>claim&&plannedClaimAllocatedTo(claim,id))),phase=workflow.phases?.[id];
+    if(affected&&phase?.publicationBindings?.some(row=>row.generation===phase.generation)&&!phaseNeedsGeneration(workflow,phase)){
+      affectedPhases.push(id);required.add('namespace-plan-revalidation');}
+  }
+  return {status:required.size?'owner-required':'requires-human-review',requiredOwners:[...required].sort(),affectedPhases};
+}
+
 /** Corrections in force for a plan generation, for disclosure. */
 function planRowCorrections(workflow, ownerPhase = null, observed = workflow?.planAmendments ?? []) {
   return observed.filter((entry) => entry?.kind === 'plan-row-correction'
     && (!ownerPhase || entry.ownerPhase === ownerPhase));
 }
 
-return Object.freeze({planCorrectionAuthorities,recordPlanRowCorrection,applyPlanCorrections,planRowCorrections,
+return Object.freeze({planCorrectionAuthorities,recordPlanRowCorrection,previewPlanRowCorrection,recordNamespacePlanCorrection,applyNamespacePlanCorrections,namespaceCorrectionRequirements,applyPlanCorrections,planRowCorrections,
   evidenceOwnerAuthorities,evidenceCorrectionProjection,applyPlanEvidenceAmendments});
 }

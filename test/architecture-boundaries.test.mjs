@@ -501,7 +501,7 @@ test('claim normalization has a shared value owner and native code only services
 test('namespace specification reads cannot write evidence or discover a host and retention cannot mutate lifecycle authority',async()=>{
   const reader='src/engine-storage/namespace-specifications.mjs',writer='src/engine-storage/namespace-specification-retention.mjs';
   const allowed=new Map([
-    [reader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-values.mjs',
+    [reader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-values.mjs','../kernel/plan-corrections.mjs','../records.mjs','../engine-compatibility/node-configuration-path.mjs',
       '../kernel/specification-publication.mjs','../kernel/specification-policy.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-repository-plan.mjs',
       './namespace-submission-reader.mjs','./namespace-specification-contract.mjs','./namespace-plan-decisions-reader.mjs','./namespace-candidate-content.mjs'])],
     [writer,new Set(['node:crypto','../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/content/contract.mjs','./namespace-specification-contract.mjs'])]
@@ -878,7 +878,8 @@ test('retained source proof and shared observations cannot execute or write',asy
     ['src/engine-storage/namespace-generation-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-draft-contract.mjs','./namespace-lifecycle-reader.mjs','./namespace-lifecycle-codec.mjs','../records.mjs'])],
     ['src/engine-storage/namespace-plan-decisions-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs',
-      '../kernel/decision-plan.mjs','../kernel/approval-policy.mjs','../kernel/specification-policy.mjs','../engine-compatibility/node-plan-policy.mjs',
+      '../kernel/decision-plan.mjs','../kernel/approval-policy.mjs','../kernel/specification-policy.mjs','../kernel/plan-corrections.mjs','../kernel/verification-policy.mjs',
+      '../engine-compatibility/node-configuration-path.mjs','../records.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-plan-policy.mjs',
       '../engine-compatibility/node-repository-plan.mjs','./namespace-specifications.mjs','./namespace-phase-check-reader.mjs','./namespace-source-observations.mjs',
       './namespace-recorded-mutation-reader.mjs','./namespace-decision-contract.mjs'])],
     ['src/engine-storage/namespace-code-initial-history.mjs',new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs',

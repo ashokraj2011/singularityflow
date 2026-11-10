@@ -52,8 +52,14 @@ declare const digests:SpecificationDigests,engine:ReturnType<typeof createNamesp
 declare const paths:VerificationPathSyntax;
 planCorrectionPolicies(paths,digests).applyPlanCorrections({}, {}, {evidenceRoot:'stories/example/evidence'},[]);
 const row:PlanCorrectionOperation={op:'add-test',clauseId:'W:AC-001',test:'test/value.mjs'};void row;
+await engine.run('plan.correction.context',{operations:[row],reason:'Inspect the actual row correction.'});
+await engine.run('plan.correction.record',{operationId:'correct-exact-row',operations:[row],reason:'Record this exact reviewed row.',expectedPreview:'sha256:example'});
+// @ts-expect-error a namespace correction requires its exact reviewed context
+await engine.run('plan.correction.record',{operationId:'no-review',operations:[row],reason:'No review digest was supplied.'});
 // @ts-expect-error correction operations cannot grant approval
 const invalid:PlanCorrectionOperation={op:'approve',clauseId:'W:AC-001'};void invalid;
+// @ts-expect-error replacing an exact approved path requires both reviewed locations
+await engine.run('plan.correction.context',{operations:[{op:'replace-location',clauseId:'W:AC-001'}],reason:'Incomplete path correction.'});
 const statements=scopeStatementPolicies(digests).extractNormativeStatements('Reject negative input.',{sourceId:'story'});
 scopeInventoryPolicies(digests).buildScopeInventoryValue({}, {sources:[{id:'story',kind:'story',sha256:null,readable:true,statements}],clauses:[]});
 const recovery=testRecoveryPolicies(digests);recovery.trpDigest({observed:true});

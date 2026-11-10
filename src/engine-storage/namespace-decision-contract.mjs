@@ -1,6 +1,6 @@
 /** Conditional standalone decision records. Domain owners reconstruct the actual input observations. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {admitRecordSchemaVersion,canonicalJson,NAMESPACE_DECISION_SCHEMA} from '../foundation/record-schema.mjs';
+import {admitRecordSchemaVersion,canonicalJson,NAMESPACE_DECISION_SCHEMA,namespacePlanCorrectionRecordProfile} from '../foundation/record-schema.mjs';
 import {standaloneDecisionRequest,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {storyDocumentRequest} from '../kernel/story-documents.mjs';
 import {storyActorValue} from '../kernel/story-creation.mjs';
@@ -30,6 +30,7 @@ export function namespaceDecisionValue(value,{projectId,workId}) {
     exactObject(value.outcome,['currentPhase','record']);
     if(value.outcome.currentPhase!==null)namespaceIdentifier(value.outcome.currentPhase);
     if(!value.outcome.record||typeof value.outcome.record!=='object'||Array.isArray(value.outcome.record))throw Error('Missing domain record.');
+    if(value.operation==='plan.correction.record'&&value.outcome.record.format!==namespacePlanCorrectionRecordProfile('record',value.outcome.record).format)throw Error('Another correction record format.');
     namespaceJson(value);return value;
   }catch(cause){throw new SingularityFlowError('The standalone decision record is invalid.',{cause,
     code:['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT'});}

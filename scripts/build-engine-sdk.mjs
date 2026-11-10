@@ -30,6 +30,8 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(['plan.correction.context','plan.correction.record'].includes(operation.id))return field==='operations'?'readonly PlanCorrectionOperation[]'
+    :['reason','expectedPreview','operationId'].includes(field)?'string':'string | null';
   if(operation.id.startsWith('story.document.')&&field==='content')return 'ContentReference';
   if(operation.id==='phase.context.read')return ['maximumBytes','offset'].includes(field)?'number':field==='representation'?"'text' | 'base64' | 'metadata'":'string';
   if(operation.id.startsWith('clarification.')&&field==='agentId')return 'string | null';
@@ -63,6 +65,7 @@ export function engineDeclarations() {
   return `// Generated from the executable engine registry. Context-dependent constraints are checked at runtime.
 import type { JsonValue } from './namespace.mjs';
 import type { ContentReference } from './content.mjs';
+import type { PlanCorrectionOperation } from './plans.mjs';
 export * from './errors.mjs';
 export type { JsonValue } from './namespace.mjs';
 export declare const ENGINE_CONTRACT: ${JSON.stringify(ENGINE_CONTRACT)};

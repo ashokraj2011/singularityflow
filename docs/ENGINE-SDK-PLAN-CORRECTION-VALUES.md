@@ -17,10 +17,11 @@ The optional SDK exposes the pure `planCorrectionPolicies(paths, digests)` facto
 authenticate no human, consume no review authorization and perform no persistence. They cannot
 approve a phase or waive required test execution.
 
-Namespace recording of a correction remains a separate owner. It must bind the exact approved
-plan and human review through accepted transactions. It must not label a namespace confirmation
+Namespace recording belongs to a separate owner. The subsequent
+[namespace correction delivery](ENGINE-SDK-NAMESPACE-PLAN-CORRECTIONS.md) binds the exact approved
+plan and human review through accepted transactions. It does not label a namespace confirmation
 as the native v1 `live-terminal-exact-plan-review` ceremony. No installed authority or stored record
-was migrated by this extraction.
+was migrated by the value extraction.
 
 ## Mac qualification
 

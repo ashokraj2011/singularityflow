@@ -74,7 +74,7 @@ function codePreflightReader(options,requireCurrentIndices){
       const readBytes=(path,maximumBytes=16*1024*1024)=>files.bytes(context,path,{signal,maximumBytes}),
         text=async(path,maximumBytes)=>{const value=await readBytes(path,maximumBytes);if(value===null)return null;
           try{return new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(value);}catch(cause){throw new SingularityFlowError('Read actual UTF-8 source before deriving Code bindings.',{code:'ENGINE_SOURCE_DIFF_TEXT_REQUIRED',cause});}};
-      const accounted=new Map();for(const amendment of plan.amendments)for(const change of amendment.changes){
+      const accounted=new Map();for(const amendment of plan.amendments)for(const change of amendment.changes??[]){
         accounted.set(change.path,{change,amendment:amendment.id,sha256:amendment.contentHashes?.[change.path]??null});}
       for(const [global,expected]of accounted){if(!expected.sha256)continue;
         const location=plan.repositoryPlan?repositoryPlanTestLocation(plan.repositoryPlan,global,{workflow,definition}):{repositoryId:id,path:global};

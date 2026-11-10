@@ -1,3 +1,6 @@
+import {planCorrectionPolicies} from '../kernel/plan-corrections.mjs';
+import {NODE_TEXT_DIGESTS} from '../records.mjs';
+import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
 /** Replay specification values against actual bytes and original approved inputs; no writes. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,admitRecordSchemaVersion,SPECIFICATION_INDEX_SCHEMA,SPECIFICATION_CLAIM_MAP_SCHEMA} from '../foundation/record-schema.mjs';
@@ -68,6 +71,7 @@ function derive(publication,workflow,indices,data) {
 }
 
 export function createNamespaceSpecificationReader({observer,scope,workId,checks=null}) {
+  const corrections=planCorrectionPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS);
   const verified=new WeakMap();
   async function json(reference,signal) {
     const data=await observer.bytes(reference,reference.bytes,signal);
@@ -132,7 +136,8 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
     }
     // Copy the completed input list: the owner can precede another definition in custom workflows.
     const amendments=includeAmendments?await createNamespacePlanDecisionOwners({observer,scope,workId}).projection(snapshot,{signal}):null;
-    return {active:{indexes},planned,records:[planned,...(amendments?.record?[amendments.record]:[])],amendments:amendments?.rows??[],repositoryPlan,
+    const corrected=amendments?corrections.applyNamespacePlanCorrections(planned,snapshot.workflow,amendments.rows,{originalMapSha256:planProof.planned.sha256}):planned;
+    return {active:{indexes},planned:corrected,records:[corrected,...(amendments?.record?[amendments.record]:[])],amendments:amendments?.rows??[],repositoryPlan,
       proof:{...planProof,indices:[...indices],...(amendments?.receipts.length?{amendments:amendments.receipts}:{})}};
   }
   async function verifyOne(publication,signal,specificationTraversal) {

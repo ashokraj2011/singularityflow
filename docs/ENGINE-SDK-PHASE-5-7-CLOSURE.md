@@ -77,11 +77,17 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   APIs. Presence filtering and committed-file verification stay in native adapters. The new plans
   SDK export and 250 affected Mac checks pass; namespace recording remains separate. See
   [the boundary record](ENGINE-SDK-PLAN-CORRECTION-VALUES.md).
+- Exact human plan-row correction now has registered namespace context/record operations and its
+  own versioned wire, without claiming the native terminal assurance. Original approvals stay
+  immutable; authoring reads the actual correction, resumes the same draft and executes fresh
+  checks. Three storage backends, interruption, shared-only replay and the offline installed SDK
+  pass 258 distinct affected Mac checks. All original deadline and bundle limits pass unchanged.
+  See [the delivery record](ENGINE-SDK-NAMESPACE-PLAN-CORRECTIONS.md).
 
 ## Still required before either phase can be called complete
 
 - The remaining native query/rule inventory and parity audit.
-- Namespace plan-row/evidence correction, obligation/evidence/test decisions and decision batches,
+- Namespace evidence correction, late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
   plus live application-review and witness-exception profiles.
 - Upstream return/amend/correction outcomes and forward amendments.
 - Targeted Code repair and multiple Code predecessors/observed-claim reuse.

@@ -92,6 +92,7 @@ export function standaloneDecisionAdmission(operation, workflow) {
     'decision.plan':['PLAN_AMENDMENT_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its plan is amended while it is in progress.`],
     'plan.correction.preview':['PLAN_AMENDMENT_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its plan is amended while it is in progress.`],
     'plan.correct':['PLAN_AMENDMENT_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its plan is amended while it is in progress.`],
+    'plan.correction.record':['PLAN_AMENDMENT_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its plan is amended while it is in progress.`],
     'decision.witness':['WITNESS_STORY_CLOSED', `Story ${workId} is ${workflow.status}; witnesses are recorded while it is in progress.`],
     'decision.witness-exception':['WITNESS_EXCEPTION_STORY_CLOSED', `Story ${workId} is ${workflow.status}; reopen it at its final step to renew a witness exception.`],
     'decision.test-risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`],
@@ -137,6 +138,9 @@ export function standaloneDecisionRequest(operation, input) {
   if(operation==='decision.plan')return {changes:input.changes??[],reason};
   if(operation==='plan.correction.preview'||operation==='plan.correct')return {ownerPhase:input.ownerPhase??null,
     operations:input.operations??[],reason,upstreamIssue:input.upstreamIssue??null};
+  if(operation==='plan.correction.context'||operation==='plan.correction.record')return {ownerPhase:input.ownerPhase??null,
+    operations:input.operations??[],reason,upstreamIssue:input.upstreamIssue??null,
+    ...(operation==='plan.correction.record'?{expectedPreview:input.expectedPreview??null}:{})};
   if (operation === 'decision.choose') return {option:input.option ?? null, to:input.to ?? null,
     expected:input.expected ?? null, reason};
   if(operation==='decision.witness')return {clauseId:String(input.clauseId??'').toUpperCase(),slotName:input.slotName??'',
@@ -364,11 +368,17 @@ export function planBatches(plan) {
 const planCorrectionRefused=message=>refused(message,'PLAN_ROW_CORRECTION_INVALID');
 
 export function planCorrectionOwner(workflow, requested) {
+  const owner=planCorrectionOwnerSelection(workflow,requested,(workflow.phaseOrder??Object.keys(workflow.phases??{})).filter(id=>workflow.phases[id]?.claimMaps?.planned));
+  if (!owner.claimMaps?.planned?.sha256) planCorrectionRefused(`Plan ${owner.id} has no bound claim map, so it cannot be corrected.`);
+  return owner;
+}
+/** Backend-neutral selection; concrete readers must prove the selected owner's actual map. */
+export function planCorrectionOwnerSelection(workflow,requested,plannedPhases=[]) {
   const plannedPolicy = workflow.resolution?.plannedClaims;
   const order = workflow.phaseOrder ?? Object.keys(workflow.phases ?? {});
   const owners = (plannedPolicy?.mode === 'required'
     ? [...new Set(Object.values(plannedPolicy.owners ?? {}))]
-    : order.filter((id) => workflow.phases?.[id]?.claimMaps?.planned))
+    : order.filter((id) => plannedPhases.includes(id)))
     .filter((id) => workflow.phases?.[id]?.status === 'approved' && workflow.phases[id].generation > 0);
   if (requested && !owners.includes(requested)) {
     planCorrectionRefused(`${requested} is not an approved plan of this Story${owners.length ? `; approved plans: ${owners.join(', ')}` : ''}.`);
@@ -378,7 +388,6 @@ export function planCorrectionOwner(workflow, requested) {
       : 'This Story has no approved plan to correct.');
   }
   const owner = workflow.phases[requested ?? owners[0]];
-  if (!owner.claimMaps?.planned?.sha256) planCorrectionRefused(`Plan ${owner.id} has no bound claim map, so it cannot be corrected.`);
   return owner;
 }
 

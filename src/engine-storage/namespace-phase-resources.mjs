@@ -4,6 +4,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {approvedInputPhases,resolvedPhaseInputs,workflowInputsMode} from '../kernel/phase-inputs.mjs';
 import {pinnedTestEvidenceSource} from '../kernel/phase-policy.mjs';
 import {createNamespaceInputDocumentOwners} from './namespace-input-documents-reader.mjs';
+import {createNamespacePlanDecisionOwners} from './namespace-plan-decisions-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function utf8(data,label) {try {const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(data);if(text.includes('\0'))throw Error('NUL');return text;}
@@ -53,6 +54,17 @@ export function createNamespacePhaseResources({observer,packets,workId,localRead
         if(resources.length!==1)throw error('The approved Code input has no unique readable evidence document.','ENGINE_STORAGE_CORRUPT',{upstreamPhase:id,kind:evidence.kind});
         await observer.bytes(evidence.reference,evidence.reference.bytes,signal);
         result.push({kind:'supporting-document',id:resources[0].id,locality:'project',reference:evidence.reference});
+      }
+    }
+    // New correction profiles add their exact retained human records. Historical manifests that
+    // predate this profile keep their original input inventory, including legacy PAM-only ones.
+    if((w.namespaceDecisionReceipts??[]).some(row=>row.operation==='plan.correction.record')){
+      const decisions=await createNamespacePlanDecisionOwners({observer,scope:observer.evidenceReads.scope,workId}).projection(captured.snapshot,{signal});
+      if(decisions.rows.length!==decisions.receipts.length)throw error('The plan decision inventory lost its exact accepted records.','ENGINE_STORAGE_CORRUPT');
+      for(const [index,row]of decisions.rows.entries()){
+        if(row.kind==='plan-row-correction'&&(w.phases[row.ownerPhase]?.generation!==row.ownerGeneration||w.phases[row.ownerPhase]?.status!=='approved'))continue;
+        const reference=decisions.receipts[index].record;await observer.bytes(reference,reference.bytes,signal);
+        result.push({kind:'supporting-document',id:(row.kind==='plan-row-correction'?'plan-correction-':'plan-amendment-')+row.id,locality:'project',reference});
       }
     }
     const seen=new Set();

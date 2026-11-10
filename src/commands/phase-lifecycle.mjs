@@ -100,7 +100,12 @@ export async function phaseCommand(positionals, options) {
       'Return the submitted packet through authorized rejection before opening a successor; direct rollover is not legal while awaiting approval.',
       { code: 'GENERATION_ROLLOVER_REVIEW_REQUIRED', details: { actions: [plan.action] } }
     );
-    if (!plan || plan.action.mode === 'manual' || !plan.action.command) {
+    // Unchanged published bytes: the next generation opens for a change the person asks for.
+    if (!plan) return (await import('../requested-successor.mjs')).requestedSuccessorRollover(root, config, workflow, phase, options);
+    if (optionString(options, 'reason', null) !== null && plan.action.mode !== 'manual' && plan.action.command) {
+      await (await import('../requested-successor.mjs')).noteRequestedChange(root, workflow, phase, optionString(options, 'reason'));
+    }
+    if (plan.action.mode === 'manual' || !plan.action.command) {
       throw new SingularityFlowError(
         plan?.action.detail ?? `Phase '${phaseId}' has no changed consumed generation to roll over.`,
         { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: plan ?? null }

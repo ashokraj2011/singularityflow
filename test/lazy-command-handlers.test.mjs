@@ -551,7 +551,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,691,100 (measured 9,691,089, commands/phase-lifecycle.mjs): a plan an amendment keeps is read as its approval
     // decided over it, and reads the amended scope as its approvers signed it (forward-amendments.mjs +786, state.mjs +869,
     // phase-retention.mjs +682) [PHR:REQ-008]. No new eager file.
-    assert.ok(closure.bytes <= 9_691_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,691,600 (measured 9,691,563, commands/phase-lifecycle.mjs): a published code step offers its next generation for a
+    // change the person asks for (guide.mjs, phase-authoring-summary.mjs, phase-lifecycle.mjs); the rollover itself stays
+    // lazy (requested-successor.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_691_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -770,6 +770,8 @@ async function acceptsAgentView(argv) {
   if (options.confirm !== undefined || options.json !== true) return false;
   // For every other command it is an output option the CLI removes before the command reads options.
   if (!interpretsForAgent(positionals)) return true;
+  // A rollover runs in exactly the forms the published generation's guard admits (agent-hooks.mjs).
+  if (command === 'phase' && subcommand === 'rollover') return false;
   const withFlag = { ...options, 'for-agent': true };
   try {
     if (command === 'phase' && subcommand === 'enter') {

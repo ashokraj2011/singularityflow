@@ -1182,7 +1182,8 @@ const PAGES = Object.freeze({
       'and commits the result as one transition.',
       'Begin is local and idempotent: it creates no lifecycle event, commit, push, or ledger entry.',
       'Publish verifies and binds the exact generation-start receipt into artifact-generated.',
-      '`phase rollover` previews an exact digest before opening a successor to changed consumed bytes.',
+      '`phase rollover` previews an exact digest before opening a successor to changed consumed bytes,',
+      'or, with the bytes unchanged, for a change the person asks for (typed after /sf-code, or --reason).',
       '',
       'Publication refuses when the phase is not ready — a missing artifact, an unmet world-model',
       'grounding policy, or a phase out of sequence. Nothing is written when it refuses.'
@@ -1192,7 +1193,7 @@ const PAGES = Object.freeze({
       ['--for-agent', 'Compact entry/draft-check/prepublish JSON; retain blockers/actions and expose full inspection routes.'],
       ['draft-check PHASE', 'Read-only authored-content validation with stable correction findings and a fingerprint.'],
       ['--adopt-existing --confirm DIGEST', 'Explicitly adopt reviewed source that predates begin when Story policy permits it.'],
-      ['rollover PHASE [--confirm DIGEST]', 'Preview, then open, a successor generation without discarding the published generation.'],
+      ['rollover PHASE [--reason TEXT] [--confirm DIGEST]', 'Preview, then open, a successor generation without discarding the published generation.'],
       ['--authored human|governed-agent|external-tool', 'Who produced the artifact. Record it explicitly.'],
       ['--change-origin ORIGIN', 'Repeat to attest human, Copilot, formatter, compiler, migration, or generator contributions.'],
       ['--from FILE', 'Import the artifact from a file authored elsewhere.'],

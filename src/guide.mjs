@@ -1,9 +1,9 @@
 import { intentAmendmentSource, isConvergencePhase } from './phase-roles.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
-import { phaseNeedsGeneration } from './sequence.mjs';
+import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
-import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
@@ -19,15 +19,48 @@ function currentPhase(workflow) {
 }
 
 /**
+ * Whether a published code generation is its own step's to change, for a change the person asks for
+ * (requested-successor.mjs): current and in progress, consumed by publication, not submitted, and not
+ * returned or reopened for rework (those prepare their next generation already).
+ */
+export function requestedSuccessorEligible(workflow, phase) {
+  return Boolean(phase) && phaseRequiresCodeDelivery(phase)
+    && workflow?.status === 'in_progress' && workflow.currentPhase === phase.id && phase.status === 'in_progress'
+    && Number(phase.generation ?? 0) > 0 && phase.generationIntent?.status === 'consumed'
+    && Number(phase.generationIntent.generation) === Number(phase.generation)
+    && !phaseExplicitlyReopened(workflow, phase);
+}
+
+/**
+ * The route that starts the next generation for a change. `requested`: the person already said what to
+ * change (their typed words are kept), so its preview comes first; otherwise it follows submission.
+ * `phase rollover` is /sf-recover's command (command-skills.mjs); in a Code turn the agent runs its shell route.
+ */
+export function requestedSuccessorAction(workflow, phase, { requested = false } = {}) {
+  if (!requestedSuccessorEligible(workflow, phase)) return null;
+  const next = Math.max(Number(phase.generation ?? 0), Number(phase.generationHighWatermark ?? 0)) + 1;
+  const kept = `Generation ${phase.generation}, its evidence and its test results stay as published; nothing changes until the person confirms.`;
+  if (requested) return copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
+    reason: `The person asked for a change: preview starting generation ${next} of ${phase.id} for it, then ask them to confirm. ${kept}` });
+  return { ...copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`,
+    reason: `Or, for a change before submitting: start generation ${next} of ${phase.id} with what to change (/sf-code ${phase.id} <what to change>). ${kept}` }),
+  copilotCommand: `/sf-code ${phase.id} <what to change>`, optional: true };
+}
+
+/**
  * What comes after a step's publication: source review when it is enforced for the step, then
  * submission, which completes the step when it has no sign-off. The guide and `phase show` share
  * it, so a skill's closing handoff is the engine's own next action instead of text it hard-codes.
  */
 export function phaseHandoff(workflow, phase, {
-  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path), sourceReviewEvidence = null
+  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path), sourceReviewEvidence = null, requestedChange = false
 } = {}) {
   const hold = phaseGovernanceHold(workflow, phase);
   if (hold) return hold.actions;
+  // A published, unsubmitted code generation can also be changed in its own step: the person's request
+  // leads when they made one, else it follows submission (requested-successor.mjs).
+  const successor = requestedSuccessorAction(workflow, phase, { requested: requestedChange });
+  const withSuccessor = (actions) => !successor ? actions : requestedChange ? [successor, ...actions] : [...actions, successor];
   const view = hasDocuments ? copilotAction({
     skill: '/sflow-phase-documents',
     command: `singularity-flow phase show ${phase.id} --show-artifact`,
@@ -41,7 +74,7 @@ export function phaseHandoff(workflow, phase, {
   // A phase document display must not send reopened authoring back to its old review.
   if (workflow.currentPhase === phase.id && phase.status === 'in_progress'
       && (phaseNeedsGeneration(workflow, phase) || sourceReviewEvidence)) {
-    return withView(sourceReviewContinuation(workflow, phase, sourceReviewEvidence).actions);
+    return withView(withSuccessor(sourceReviewContinuation(workflow, phase, sourceReviewEvidence).actions));
   }
   const submit = copilotAction({
     skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}${decisionSubmitArguments(workflow, phase.id)}`,
@@ -51,14 +84,14 @@ export function phaseHandoff(workflow, phase, {
   });
   // A pinned independent source review must be ready before submission. Route there first: a
   // submit that only refuses leaves an agent following this guide with no next action.
-  if (sourceReviewRequired(workflow, phase.id)) return withView([
+  if (sourceReviewRequired(workflow, phase.id)) return withView(withSuccessor([
     copilotAction({
       skill: '/sflow-review-source', command: `singularity-flow review-source status ${phase.id}`,
       reason: `Check the independent source review of ${phase.id} and any human decisions it still needs, then submit.`
     }),
     submit
-  ]);
-  return withView([submit]);
+  ]));
+  return withView(withSuccessor([submit]));
 }
 
 function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {

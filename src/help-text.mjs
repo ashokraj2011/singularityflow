@@ -902,7 +902,7 @@ Usage:
   singularity-flow phase prepublish [PHASE] [--json] [--for-agent] [--publish-if-ready]
   singularity-flow phase begin [PHASE] [--json]
     [--adopt-existing|--adopt-current-interval] [--confirm CHANGE-SET-DIGEST]
-  singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]
+  singularity-flow phase rollover [PHASE] [--reason TEXT] [--json|--confirm CURRENT-DIGEST]
   singularity-flow phase publish [PHASE]
     [--authored human|governed-agent|deterministic|external-tool]
     [--from FILE] [--channel manual-in-place|manual-import|copilot-host|kernel-model|kernel-generator|external-tool]

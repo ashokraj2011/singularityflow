@@ -1,5 +1,9 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { authoringRoute } from './code-delivery-policy.mjs';
-import { phaseHandoff } from './guide.mjs';
+import { phaseHandoff, requestedSuccessorAction, requestedSuccessorEligible } from './guide.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { pinnedResolutionVerification } from './pinned-policy-read.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { reviewContinuation } from './review-continuation.mjs';
@@ -27,20 +31,28 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
     ? await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phase.id).catch(error => {
       reviewError = { code: error.code ?? null, message: error.message }; return null;
     }) : null;
+  // What the person typed after /sf-code for the next generation leads a published, unsubmitted code step.
+  // Read from the CLI source, so the editor bundles that read an entry do not carry the asked-for record.
+  const requestedChange = requestedSuccessorEligible(workflow, phase)
+    && (await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'requested-successor.mjs')).href))
+      .requestedChanges(root, workflow, phase).catch(() => [])).length > 0;
+  const handoff = phase.status === 'in_progress'
+    ? phaseHandoff(workflow, phase, { sourceReviewEvidence, requestedChange, ...(documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 }) })
+      .map(({ skill, command, copilotCommand, modelFreeCommand, reason, optional }) => ({ skill, command, copilotCommand,
+        modelFreeCommand: modelFreeCommand ?? null, reason, ...(optional ? { optional } : {}) }))
+    : [];
+  let entry = includeEntry ? phaseAuthoringEntry(workflow, phase, { review: sourceReviewEvidence, reviewError }) : null;
+  const offer = entry?.status === 'retained-generation' ? requestedSuccessorAction(workflow, phase, { requested: requestedChange }) : null;
+  if (offer) entry = { ...entry, ...(requestedChange ? { reason: 'change-requested' } : {}),
+    actions: entry.actions ? requestedChange ? [offer, ...entry.actions] : [...entry.actions, offer] : handoff };
   return {
     authoringSkill: route.authoringSkill,
     effectiveAuthoringSkill: route.effectiveAuthoringSkill,
     authoringSkillSource: route.authoringSkillSource,
     ...(route.authoringSkillWarning ? { authoringSkillWarning: route.authoringSkillWarning } : {}),
     policyVerified: true,
-    ...(includeEntry ? { entry: phaseAuthoringEntry(workflow, phase, {
-      review: sourceReviewEvidence, reviewError
-    }) } : {}),
-    handoff: phase.status === 'in_progress'
-      ? phaseHandoff(workflow, phase, { sourceReviewEvidence, ...(documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 }) })
-        .map(({ skill, command, copilotCommand, modelFreeCommand, reason, optional }) => ({ skill, command, copilotCommand,
-          modelFreeCommand: modelFreeCommand ?? null, reason, ...(optional ? { optional } : {}) }))
-      : [],
+    ...(includeEntry ? { entry } : {}),
+    handoff,
     ...(includeContinuation ? {
       handoffScope: 'after-publication',
       continuation: await reviewContinuation(root, config, workflow, phase)

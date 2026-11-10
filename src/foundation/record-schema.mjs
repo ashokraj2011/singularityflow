@@ -268,6 +268,7 @@ export function namespacePublicationRecordProfile(input) {
 }
 export const SPECIFICATION_ANALYSIS_REPORT_SCHEMA=frozenFamily('specification-quality-analysis');
 export const NAMESPACE_HUMAN_DECISION_SCHEMA=frozenFamily('namespace-human-decision');
+export const NAMESPACE_UPSTREAM_PLAN_CORRECTION_PROFILE='sflow-namespace-upstream-plan-correction-source/v1';
 export const NAMESPACE_PLAN_CORRECTION_SCHEMAS=Object.freeze({record:frozenFamily('namespace-plan-row-correction'),context:frozenFamily('namespace-plan-correction-context')});
 export function namespacePlanCorrectionRecordProfile(kind,value){const family=NAMESPACE_PLAN_CORRECTION_SCHEMAS[kind];
   const {storedVersion}=admitRecordSchemaVersion(family,value);return Object.freeze({version:storedVersion,format:'sflow-'+family.id+'/v'+storedVersion});}

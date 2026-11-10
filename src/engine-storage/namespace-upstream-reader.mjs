@@ -1,7 +1,7 @@
 /** Read-only upstream source, authority and accepted-receipt replay. No lifecycle writes. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson} from '../foundation/record-schema.mjs';
+import {canonicalJson,NAMESPACE_UPSTREAM_PLAN_CORRECTION_PROFILE} from '../foundation/record-schema.mjs';
 import {upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
 import {raiseUpstreamIssue,decideUpstreamIssue,upstreamIssueStates,upstreamIssueAuthorities} from '../kernel/upstream-issues.mjs';
 import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
@@ -11,12 +11,14 @@ import {createNamespaceRecordedMutationReader} from './namespace-recorded-mutati
 import {namespaceDecisionContract} from './namespace-decision-contract.mjs';
 import {createNamespaceUpstreamArtifactReader} from './namespace-upstream-artifact-reader.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
+import {createNamespacePlanDecisionOwners} from './namespace-plan-decisions-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=null,artifactSelection=null,artifactReports=null}) {
   const owners=new Map(),readers=new Map(),checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),
     publications=createNamespacePublicationReader({observer,scope,workId,checks});
   const reports=artifactReports??createNamespaceUpstreamArtifactReader({observer,scope,workId,publications,runtime});
+  let planOwners;const plans=()=>planOwners??=createNamespacePlanDecisionOwners({observer,scope,workId});
   async function admitted(snapshot,{signal,policyTraversal}={}) {
     const references=[];
     for(const [operation,field]of [['upstream.raise','upstreamIssues'],['upstream.decide','upstreamIssueDecisions']]) {
@@ -53,6 +55,12 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
         const base={generation:phase.generation,identity:{profile:'sflow-namespace-upstream-source/v1',producer:binding,
           issuesSha256:hash(snapshot.workflow.upstreamIssues??[]),decisionsSha256:hash(snapshot.workflow.upstreamIssueDecisions??[])},
           publication,references:[binding.record,publication.artifact.content,...publications.policies.evidence(publication)]};
+        if(operation==='upstream.decide'&&request.outcome==='plan-correction'){
+          const corrections=await plans().projection(snapshot,{signal,policyTraversal});
+          return {...base,identity:{...base.identity,profile:NAMESPACE_UPSTREAM_PLAN_CORRECTION_PROFILE,
+            corrections:{receipts:corrections.receipts,rowsSha256:hash(corrections.rows)}},
+            planAmendments:corrections.rows,references:[...base.references,...corrections.references]};
+        }
         if(operation!=='upstream.raise'||!artifactSelection&&bound?.profile!=='sflow-namespace-upstream-source/v2')return base;
         const selected=bound?{token:await reports.restore(snapshot,bound.report,{signal,policyTraversal}),batch:bound.batch}:artifactSelection,
           expected={phase:request.phaseId,about:request.about,problem:request.problem,assumption:request.assumption,impact:request.impact,
@@ -87,10 +95,11 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
           proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'upstream_issue_raised',phase:workflow.currentPhase,
             detail:record.id+' against '+record.phase+' ('+record.about+'): '+record.problem+(record.supersedes?' It supersedes '+record.supersedes+'.':'')});
         } else {
-          if(['return','amend','plan-correction'].includes(request.outcome))throw error('This outcome needs its accepted repair or amendment owner.','ENGINE_PORT_UNAVAILABLE',{
-            required:['namespace-upstream-'+request.outcome],operation:request.outcome==='return'?'phase.reject':request.outcome==='amend'?'forward-amendment.propose':'plan.correction.preview',workId});
+          if(['return','amend'].includes(request.outcome))throw error('This outcome needs its accepted repair or amendment owner.','ENGINE_PORT_UNAVAILABLE',{
+            required:['namespace-upstream-'+request.outcome],operation:request.outcome==='return'?'phase.reject':'forward-amendment.propose',workId});
           record=decideUpstreamIssue(proposed,{issue:request.issueId,outcome:request.outcome,reason:request.reason,link:request.link,
-            expiresAt:request.expires,actor:facts.actorId,authorityGroup:facts.authorityGroup,identityAssurance:null,at:facts.at});
+            expiresAt:request.expires,actor:facts.actorId,authorityGroup:facts.authorityGroup,identityAssurance:null,at:facts.at},
+            request.outcome==='plan-correction'?{planAmendments:source.planAmendments}:{});
           proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'upstream_issue_decided',phase:workflow.currentPhase,
             detail:record.issue+': '+record.outcome+'. '+record.reason});
         }

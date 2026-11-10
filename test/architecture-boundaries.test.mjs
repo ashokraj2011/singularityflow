@@ -887,7 +887,7 @@ test('retained source proof and shared observations cannot execute or write',asy
       './namespace-rejection-reader.mjs','./namespace-routing-receipt-reader.mjs','./namespace-human-decision-contract.mjs','./namespace-routing-choice-contract.mjs','./namespace-approval-contract.mjs'])],
     ['src/engine-storage/namespace-upstream-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/decision-plan.mjs','../kernel/upstream-issues.mjs','../kernel/approval-policy.mjs','./namespace-phase-check-reader.mjs',
-      './namespace-publication-reader.mjs','./namespace-recorded-mutation-reader.mjs','./namespace-decision-contract.mjs','./namespace-upstream-artifact-reader.mjs','../kernel/project-enrollment.mjs'])],
+      './namespace-publication-reader.mjs','./namespace-recorded-mutation-reader.mjs','./namespace-decision-contract.mjs','./namespace-upstream-artifact-reader.mjs','./namespace-plan-decisions-reader.mjs','../kernel/project-enrollment.mjs'])],
     ['src/engine-storage/namespace-upstream-artifact-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/phase-policy.mjs','../kernel/phase-upstream-discrepancies.mjs','../kernel/upstream-issues.mjs','../records.mjs'])],
     ['src/engine-storage/namespace-conformance.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../sda/namespace/values.mjs',

@@ -83,13 +83,18 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   checks. Three storage backends, interruption, shared-only replay and the offline installed SDK
   pass 258 distinct affected Mac checks. All original deadline and bundle limits pass unchanged.
   See [the delivery record](ENGINE-SDK-NAMESPACE-PLAN-CORRECTIONS.md).
+- Upstream `plan-correction` dispositions verify the actual PRC and original issue/owner instead
+  of creating another decision or resetting the phase. Missing, unrelated and wrong-owner records
+  are refused. Mac qualification passes 159 distinct checks, including native parity and shared-only
+  replay, with the original installed/bundle bounds unchanged. See
+  [the outcome record](ENGINE-SDK-UPSTREAM-PLAN-CORRECTION.md).
 
 ## Still required before either phase can be called complete
 
 - The remaining native query/rule inventory and parity audit.
 - Namespace evidence correction, late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
   plus live application-review and witness-exception profiles.
-- Upstream return/amend/correction outcomes and forward amendments.
+- Upstream return/amend outcomes and forward amendments.
 - Targeted Code repair and multiple Code predecessors/observed-claim reuse.
 - Constitution/comparison/live application acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.

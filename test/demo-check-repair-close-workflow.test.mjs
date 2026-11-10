@@ -271,12 +271,14 @@ Run node --test test/screen.test.mjs locally. No browser, remote service or prod
 ## Routing and human checkpoints
 Check existing behavior first; a demonstrated failure goes to Repair and independent recheck. A fresh pass goes to Close only after human approval and no-additional-implementation applicability. Missing tools stay blocked. Closing documents and final human approval end the Story.
 `);
-  cli('phase', 'publish', PHASES[0]); cli('submit', PHASES[0]); cli('approve', PHASES[0], '--yes');
+  cli('phase', 'publish', PHASES[0]); cli('submit', PHASES[0]);
+  // demo-intake defines the scope, so its approvers decide each source statement before approving it [PHR:REQ-002].
   const scope = JSON.parse(cli('evidence', 'scope', '--json')).data.scope;
   for (const item of scope.items.filter((entry) => entry.disposition === 'unresolved')) {
     cli('decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'DEMO-LOOP-1:AC-001',
       '--reason', 'The approved exact screen-title criterion carries the requested acceptance behavior.');
   }
+  cli('approve', PHASES[0], '--yes');
   env.SINGULARITY_FLOW_TEST_SELECTION = JSON.stringify({ workType: ID, agent: AGENTS[1] });
   cli('prepare', PHASES[1]);
   const testOutput = run(process.execPath, ['--test', 'test/screen.test.mjs']);
@@ -396,12 +398,14 @@ Run node --test test/screen.test.mjs locally. No browser, remote service or prod
 ## Routing and human checkpoints
 Check existing behavior first; a demonstrated failure goes to Repair and independent recheck. A fresh pass goes to Close after human approval. Closing documents and final human approval end the Story.
 `);
-  cli('phase', 'publish', PHASES[0]); cli('submit', PHASES[0]); cli('approve', PHASES[0], '--yes');
+  cli('phase', 'publish', PHASES[0]); cli('submit', PHASES[0]);
+  // demo-intake defines the scope, so its approvers decide each source statement before approving it [PHR:REQ-002].
   const scope = JSON.parse(cli('evidence', 'scope', '--json')).data.scope;
   for (const item of scope.items.filter((entry) => entry.disposition === 'unresolved')) {
     cli('decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'DEMO-LOOP-2:AC-001',
       '--reason', 'The approved exact screen-title criterion carries the requested acceptance behavior.');
   }
+  cli('approve', PHASES[0], '--yes');
   return { root, env, run, cli, workRoot, readState };
 }
 

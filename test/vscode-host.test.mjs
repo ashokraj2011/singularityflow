@@ -4785,6 +4785,15 @@ test('the packaged POC release candidate journey survives publication, review, C
     if (previousTestIdentity == null) delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
     else process.env.SINGULARITY_FLOW_TEST_IDENTITY = previousTestIdentity;
   });
+  // poc-intake defines the Story's scope, so its approver decides each source statement before approving it
+  // [PHR:REQ-002]; the approval itself is no scope disposition.
+  const scopeRead = cli(['evidence', 'scope', '--json'], reviewer.name);
+  assert.equal(scopeRead.status, 0, scopeRead.stderr);
+  for (const item of JSON.parse(scopeRead.stdout).data.scope.items.filter((entry) => entry.disposition === 'unresolved')) {
+    const decided = cli(['decision', 'scope', '--item', item.id, '--as', 'informative',
+      '--reason', 'Context for the POC journey; the intake acceptance criterion carries the behavior under review.'], reviewer.name);
+    assert.equal(decided.status, 0, decided.stderr);
+  }
   const canonicalRoot = await realpath(storyRoot);
   const reviewHost = stubVscode();
   reviewHost.api.workspace.workspaceFolders = [{ uri: { fsPath: canonicalRoot } }];

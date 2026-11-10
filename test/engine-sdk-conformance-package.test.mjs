@@ -4,7 +4,7 @@ import {copyFile,mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';im
 import {buildEngineSdk} from '../scripts/build-engine-sdk.mjs';import {resolvePlatformProcess} from '../src/platform-process.mjs';
 import {isolatedTestEnvironment} from '../scripts/test-machine-state.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),packageName='@singularity-flow/engine-sdk';
-for(const profile of ['conformance','rework','human-return','partial-decisions','upstream-return'])describe('installed '+profile+' survives phase-by-phase process restarts',{concurrency:false},()=>{
+for(const profile of ['conformance','rework','human-return','partial-decisions','upstream-return','multiple-code'])describe('installed '+profile+' survives phase-by-phase process restarts',{concurrency:false},()=>{
   let directory,consumer,env,source,child,previous,completed='';
   before(async()=>{
     directory=await mkdtemp(path.join(os.tmpdir(),'sflow-sdk-'+profile+'-package-'));
@@ -25,8 +25,10 @@ for(const profile of ['conformance','rework','human-return','partial-decisions',
   after(async()=>{if(directory)await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});});
   const repair=['rework','human-return','upstream-return'].includes(profile),partial=profile==='partial-decisions',
     stages=['setup',...(profile==='rework'?['review','repair-write','repair-publish']:profile==='human-return'?['draft-partial','return','repair-write','repair-publish','repair-approve']:profile==='upstream-return'?['upstream-return','repair-write','repair-publish']:partial?['draft-partial','decide-requirement','decide-acceptance']:[]),
+      ...(profile==='multiple-code'?['write-extend','publish-extend','approve-extend','write-finish','publish-finish','approve-finish']:[]),
       ...(!partial?['publish-final']:[]),'submit-final','approve-final','finish',
-      ...(['human-return','upstream-return'].includes(profile)?['replay-return']:partial?['replay-decisions']:[]),'replay-build','replay-validate','replay'];
+      ...(['human-return','upstream-return'].includes(profile)?['replay-return']:partial?['replay-decisions']:[]),'replay-build',
+      ...(profile==='multiple-code'?['replay-extend','replay-finish']:[]),'replay-validate','replay'];
   for(const [index,stage]of stages.entries())test(stage,{timeout:120000},()=>{
     assert.equal(completed,index?stages[index-1]:'','The preceding durable phase must have succeeded.');
     const output=JSON.parse(child(process.execPath,['journey.mjs',stage,profile],{cwd:consumer,env:{...env,PATH:''}}));

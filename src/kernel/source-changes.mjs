@@ -21,6 +21,16 @@ export const SOURCE_ANALYSIS_PROFILE='sflow-retained-source-analysis/v1';
 export const PLANNED_SOURCE_CLAUSES_PROFILE='sflow-planned-source-clause-observations/v1';
 export const PLANNED_SOURCE_CLAUSES_PROFILE_V2='sflow-planned-source-clause-observations/v2';
 
+/** Earlier approved inputs must remain exact before their observed claims can be carried forward. */
+export function changedApprovedSourceInputs(previous,current,{absentPaths=[]}={}){
+  if(!Array.isArray(previous)||!Array.isArray(current)||!Array.isArray(absentPaths))fail('Compare actual projected application inventories.');
+  for(const rows of [previous,current]){const paths=rows.map(row=>sourceRelativePath(row?.path));
+    if(new Set(paths).size!==paths.length)fail('An application input inventory cannot repeat a path.');}
+  const members=new Map(current.map(row=>[sourceRelativePath(row.path),row]));
+  return [...new Set([...previous.filter(row=>canonicalJson(row)!==canonicalJson(members.get(sourceRelativePath(row.path))??null)).map(row=>row.path),
+    ...absentPaths.map(sourceRelativePath).filter(path=>members.has(path))])];
+}
+
 export function phaseSourceInspectionInput(input) {
   if(!plain(input)||Object.keys(input).some(key=>!['workId','phaseId','maximumEntries'].includes(key))
     ||['workId','phaseId'].some(key=>input[key]!==undefined&&!id(input[key]))

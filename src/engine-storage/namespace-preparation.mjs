@@ -26,6 +26,7 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
 import {createNamespaceRepositoryPlanReader} from './namespace-repository-plan.mjs';
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
+import {createNamespaceCodePredecessorReader} from './namespace-code-predecessors.mjs';
 import {createNamespaceLocalContentReader} from './namespace-local-content-reader.mjs';
 import {namespaceGenerationValue,namespaceGenerationOriginalBasis,verifyNamespaceGenerationContinuation} from './namespace-generation-reader.mjs';
 
@@ -173,7 +174,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     if(!Array.isArray(repositories)||!repositories.length)throw error('Bind actual repository sources before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE');
     const continuing=previous?.payload.generation===nextPhaseGeneration(captured.phase)&&same(previous.payload.configuration,captured.snapshot.configuration)
       &&same(previous.payload.sources,repositories)&&previous.generationBytes!==null,
-      predecessor=!continuing&&captured.phase.generation>0?await createNamespaceCodeHistoryReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):null,
+      priorCode=!continuing&&captured.phase.generation===0?await createNamespaceCodePredecessorReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):null,
+      predecessor=!continuing&&captured.phase.generation>0?await createNamespaceCodeHistoryReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):priorCode?.sources??null,
       observedRows=[];
     for(const repository of repositories) {
       const unit=units.get(repository.id);if(!unit)throw error('Configure the bound source unit before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repository.id});
@@ -191,7 +193,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       if(!continuing&&(!same(retained.entries,observed.snapshot.entries)||!same(retained.selection,observed.snapshot.selection)))throw error('Source bytes changed after their accepted binding.','ENGINE_SOURCE_CHANGED',{repositoryId:repository.id});
       observedRows.push({repositoryId:repository.id,revision});
     }
-    return {repositories:structuredClone(repositories),continuing,observedRows};
+    return {repositories:structuredClone(repositories),continuing,observedRows,...(priorCode?{priorCode:priorCode.proof}:{})};
   }
   async function makePayload(captured,binding,agent,previous,signal) {
     if(binding.mode==='deterministic-convergence')throw error('Convergence preparation requires its retained deterministic projection.','CONVERGENCE_PROJECTION_REQUIRED');
@@ -214,9 +216,10 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       const continuation=opening.continuing?{basis:await namespaceGenerationOriginalBasis(captured,previous.payload,{observer,workId,signal}),
         draft:{reference:previous.body,value:JSON.parse(utf8(await captured.store.bytes(previous.body,{signal}),'Original private draft'))},
         intent:{reference:previous.payload.generationIntent.record,value:JSON.parse(utf8(previous.generationBytes,'Original generation intent'))}}:null;
-      const intent={schemaVersion:continuation?2:1,format:'sflow-namespace-source-generation/v'+(continuation?2:1),workId,phase:phase.id,generation:binding.generation,
+      const version=continuation?2:opening.priorCode?3:1,
+        intent={schemaVersion:version,format:'sflow-namespace-source-generation/v'+version,workId,phase:phase.id,generation:binding.generation,
         baseRevision:captured.snapshot.revision,configuration:captured.snapshot.configuration,actor:agent.actor,agentId:agent.agentId,createdAt:at,sources,inputContext,
-        ...(continuation?{continuation}:{})};
+        ...(continuation?{continuation}:{}),...(opening.priorCode?{predecessors:{basis:{head:captured.basis.head,revision:captured.snapshot.revision},proof:opening.priorCode}}:{})};
       namespaceGenerationValue(intent,{workId,phaseId:phase.id});await verifyNamespaceGenerationContinuation(intent,{observer,workId,phaseId:phase.id,signal});
       const record=await captured.store.put(Buffer.from(canonicalJson(intent)),{signal});
       generationIntent={id:'generation-'+record.sha256,generation:binding.generation,record};

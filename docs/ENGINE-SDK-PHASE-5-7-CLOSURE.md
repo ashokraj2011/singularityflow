@@ -123,7 +123,8 @@ consumer pass. All 323 affected Mac checks and original limits pass. See
 - Namespace evidence correction, late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
   plus live application-review and witness-exception profiles.
 - Upstream amend outcomes and forward amendments.
-- Targeted Code repair and multiple Code predecessors/observed-claim reuse.
+- Targeted Code repair; multiple Code predecessors now have their own authenticated profile
+  described below.
 - Constitution exceptions/comparison/live application acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
 - Required grounding, external design, skill/MCP host, person-presence, architecture,
@@ -137,3 +138,14 @@ visual review remain required. The [return delivery record](ENGINE-SDK-UPSTREAM-
 documents the separate histories and original native compatibility. All 247 affected Mac checks,
 including the unchanged installed qualifier and every original limit, pass. Neither Phase 5 nor
 Phase 7 is complete while the owners above remain open.
+
+Multiple Code predecessors now retain their actual publication, submission, original human approval,
+source observations and test attribution. Later Code phases have separate opening/policy profiles;
+changed earlier inputs and re-created removals require real revalidation. Repository-qualified
+planning and mixed visual acceptance remain exact. Three real stores, an offline installed
+Release journey and shared-only replay pass. See [the Code delivery record](ENGINE-SDK-MULTIPLE-CODE-PHASES.md).
+The read-only [registered-operation inventory](ENGINE-SDK-OPERATION-INVENTORY.md) covers the
+76-operation vocabulary and names every default native host's compatibility qualifier.
+This delivery passes 356 distinct affected Mac checks, including all 81 native compatibility
+checks and the unchanged 34-check package qualifier in 33.4 seconds. All existing limits pass.
+Targeted repair and the other owners listed above remain required; neither phase is marked complete.

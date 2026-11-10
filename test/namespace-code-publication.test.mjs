@@ -7,7 +7,7 @@ import {createNamespacePublicationReader} from '../src/engine-storage/namespace-
 import {createNamespaceStoryObserver} from '../src/engine-storage/namespace-story-reader.mjs';
 import {createNamespacePhaseCheckReader} from '../src/engine-storage/namespace-phase-check-reader.mjs';
 import {createNamespaceLifecycleCommitter} from '../src/engine-storage/namespace-lifecycle-commit.mjs';
-import {canonicalJson} from '../src/foundation/record-schema.mjs';
+import {canonicalJson,NAMESPACE_PHASE_POLICY_SCHEMAS} from '../src/foundation/record-schema.mjs';
 const input={phaseId:'build',authored:'governed-agent',channel:'copilot-host'};
 async function publication(f){const snapshot=await f.capture(),binding=snapshot.workflow.phases.build.publicationBindings[0],
   value=await f.json(binding.record),policy=value.policyEvidence.find(row=>row.kind==='code-delivery/v1'),manifest=await f.json(policy.record);
@@ -58,7 +58,8 @@ test('Code policy reports replay rather than trusting revised verdicts, schemas,
     changed=structuredClone(p.report);
   changed.repositories[0].observed.claims['STORY-1:REQ-001'].paths=['src/other.js'];
   for(const [report,code]of [[changed,'ENGINE_STORAGE_CORRUPT'],[{...p.report,preflight:{}},'ENGINE_STORAGE_CORRUPT'],
-    [{...p.report,schemaVersion:8},'ENGINE_STORAGE_UNSUPPORTED'],[{...p.report,schemaVersion:7},'ENGINE_STORAGE_CORRUPT'],
+    [{...p.report,schemaVersion:NAMESPACE_PHASE_POLICY_SCHEMAS.codeReport.maximumReadableVersion+1},'ENGINE_STORAGE_UNSUPPORTED'],
+    [{...p.report,schemaVersion:8},'ENGINE_STORAGE_CORRUPT'],[{...p.report,schemaVersion:7},'ENGINE_STORAGE_CORRUPT'],
     [{...p.report,schemaVersion:3},'ENGINE_STORAGE_CORRUPT'],[{...p.report,ready:true},'ENGINE_STORAGE_CORRUPT']]){
     const manifest={...p.manifest,report:await save(report)},policy={...p.policy,record:await save(manifest)},
       value={...p.value,policyEvidence:[policy]},binding={...p.binding,record:await save(value)};

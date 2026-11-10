@@ -13,6 +13,11 @@ export function memoNamespaceWitnessProof(records,content,identity,observe,{sign
   const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
   return session.read('accepted-witness/v1:'+canonicalJson(identity),observe,()=>true,signal,true);
 }
+/** Earlier Code proofs are immutable; live source admission and final authority are separate. */
+export function memoNamespaceCodePredecessorProof(records,content,identity,observe,{signal}={}){
+  const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
+  return session.read('accepted-code-predecessors/v1:'+canonicalJson(identity),observe,()=>true,signal,true);
+}
 const LIMITS=Object.freeze({entries:256,bytes:8*1024*1024});
 const cancelled=signal=>{if(signal?.aborted)throw new SingularityFlowError('The namespace read was cancelled.',{code:'ENGINE_OPERATION_CANCELLED'});};
 function copy(value){const result=structuredClone(value);if(value?.data instanceof Uint8Array)result.data=Buffer.from(value.data);return result;}

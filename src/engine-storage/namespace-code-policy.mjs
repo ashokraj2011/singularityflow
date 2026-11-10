@@ -52,7 +52,7 @@ function reportValue(value){
   try{const profile=namespaceCodePolicyProfile('codeReport',value);
     exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance']);
     if(value.format!==profile.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
-    const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[])]);
+    const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[]),...(profile.predecessors?['priorCode']:[])]);
     const preflightVersion=profile.humanAcceptance?namespaceCodePreflightVersion(p):profile.version;
     if(p.profile!=='sflow-namespace-code-preflight/v'+preflightVersion||namespaceCodePreflightVersion(p)!==preflightVersion||!Array.isArray(p.repositories))throw Error('Another Code preflight.');
     sourceRetentionBinding(p.source);exactObject(p.baseline,['operationId','record','index']);namespaceIdentifier(p.baseline.operationId,'Baseline operation');
@@ -163,7 +163,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         }
       }
     }
-    const extended=acceptance.some(row=>row.contract),version=extended?(namespaceCodePreflightVersion(preflight)===8?9:7):namespaceCodePreflightVersion(preflight),report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
+    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11}[preflightVersion]??7):preflightVersion,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
     return {report,source,policy};
   }
   async function candidate(publication,snapshot,options){const value=await withReaders(readers=>candidateFor(publication,snapshot,options,readers));
@@ -192,7 +192,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   function readBindings(value){const p=value.report.preflight;return [...[p.source.result,p.source.index,p.baseline.record,p.baseline.index].map(row=>({namespace:'evidence',key:row.key,version:row.version})),value.report.control];}
   function evidence(value){const p=value.report.preflight;return [value.binding.record,value.manifest.report,p.source.result.content,p.baseline.record.content,
     p.plan.publication,p.plan.reviewPacket,p.plan.planned,...p.plan.indices.map(row=>row.record),...(p.plan.repositoryPlan?[p.plan.repositoryPlan]:[]),
-    ...(p.plan.amendments??[]).map(row=>row.record),...(['sflow-namespace-code-history/v4','sflow-namespace-code-history/v6'].includes(p.history?.profile)?p.history.returns.flatMap(row=>row.references):p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,(p.history.return.upstream??p.history.return.choice??p.history.return.rejection??p.history.return.approval).record,...(p.history.return.references??[]),...(p.history.returns??[]).flatMap(row=>row.references)]:[])];}
+    ...(p.plan.amendments??[]).map(row=>row.record),...(p.priorCode?.phases??[]).flatMap(row=>row.references),...(['sflow-namespace-code-history/v4','sflow-namespace-code-history/v6'].includes(p.history?.profile)?p.history.returns.flatMap(row=>row.references):p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,(p.history.return.upstream??p.history.return.choice??p.history.return.rejection??p.history.return.approval).record,...(p.history.return.references??[]),...(p.history.returns??[]).flatMap(row=>row.references)]:[])];}
   async function freshSources(publication,units,{signal}={}){
     const value=proof(publication);if(!value)throw error('Verify the exact Code proof before checking source freshness.','ENGINE_INPUT_INVALID');
     return readFreshSources(value,publication,units,{signal});

@@ -9,14 +9,14 @@ import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
 import {createNamespaceLifecycleReceiptReader} from './namespace-lifecycle-receipt-reader.mjs';
-import {memoNamespaceStoryOrigin,memoNamespaceWitnessProof as memoWitness} from './namespace-read-session.mjs';
+import {memoNamespaceStoryOrigin,memoNamespaceWitnessProof as memoWitness,memoNamespaceCodePredecessorProof as memoCodePredecessors} from './namespace-read-session.mjs';
 import {namespaceStoryValue} from './namespace-story-contract.mjs';
 import {LIFECYCLE_AUTHORITY_KEY,lifecycleAuthority} from './namespace-lifecycle-contract.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story policy inspection was cancelled.','ENGINE_OPERATION_CANCELLED');}
 const readDomains=new WeakMap();
-const witnessMemos=new WeakMap(),localInputReaders=new WeakMap();
+const witnessMemos=new WeakMap(),codePredecessorMemos=new WeakMap(),localInputReaders=new WeakMap();
 /** Device bytes remain behind the explicit local content port, including historical review replay. */
 export async function namespaceLocalInputBytes(observer,reference,{signal}={}){
   const read=localInputReaders.get(observer);contentReference(reference);cancelled(signal);
@@ -32,11 +32,15 @@ export async function namespaceLocalInputBytes(observer,reference,{signal}={}){
 export function memoNamespaceObservedWitness(observer,identity,observe,options={}){
   return witnessMemos.get(observer)?.(identity,observe,options)??observe();
 }
+export function memoNamespaceObservedCodePredecessors(observer,identity,observe,options={}){
+  return codePredecessorMemos.get(observer)?.(identity,observe,options)??observe();
+}
 /** Private capability identity: copies or overrides cannot claim another observer's read proof. */
 export function namespaceStoryReadDomain(observer){return readDomains.get(observer)??observer;}
 
 export function createNamespaceStoryObserver({records,content,localContent=null,scope,workId,authority}={}) {
   const witnessMemo=(identity,observe,options)=>memoWitness(records,content,{scope,workId,authority,identity},observe,options);
+  const codePredecessorMemo=(identity,observe,options)=>memoCodePredecessors(records,content,{scope,workId,authority,identity},observe,options);
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
   const base=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
@@ -165,6 +169,7 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
       capture:options=>observe(options,true,token),inspect:options=>observe(options,false,token),withReadScope:nested=>withReadScope(nested,token)});
     readDomains.set(scoped,namespaceStoryReadDomain(observer));
     witnessMemos.set(scoped,(...args)=>{activeScope(token);return witnessMemo(...args);});
+    codePredecessorMemos.set(scoped,(...args)=>{activeScope(token);return codePredecessorMemo(...args);});
     try{return await read(scoped);}finally{if(parent===undefined){cache.clear();facts.bytes=0;facts.proof=null;facts.pending=null;facts.receipts=null;}readScopes.set(token,null);}
   }
   // Original evidence readers need only receipt inspection and this observer's read capabilities.
@@ -173,6 +178,7 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
   const observer=Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted,evidenceReads,withReadScope});
   readDomains.set(observer,Object.freeze({}));
   witnessMemos.set(observer,witnessMemo);
+  codePredecessorMemos.set(observer,codePredecessorMemo);
   if(localContent){validateContentStore(localContent);if(localContent.descriptor.binding.kind!=='machine-local')throw error('Input documents require an explicit device-bound store.','ENGINE_INPUT_INVALID');
     localInputReaders.set(observer,localContent.read.bind(localContent,scope));}
   return observer;

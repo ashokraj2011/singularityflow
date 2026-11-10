@@ -4,7 +4,6 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {plannedClaimAllocatedTo,acceptanceTagBindings} from '../kernel/specification-policy.mjs';
 import {SPECIFICATION_CLAIM_TIMESTAMP_REQUEST} from '../kernel/specification-values.mjs';
-import {phaseRequiresCodeDelivery} from '../kernel/phase-policy.mjs';
 import {namespaceCodeDeliveryPreflightReplay,codeDeliveryCandidateScope,isExecutableTestSourceCandidate,isConfigurationPath,isAllowedTestAutomationPath,
   isDocumentationPath,applicationPathContext,discoverAcceptanceWitnessesReplay,commandForTestFileReplay} from '../engine-compatibility/node-source-policy.mjs';
 import {candidateSpecificationCoverageReplay,requiredAcceptanceFromPlan,mergedVerificationContracts} from '../engine-compatibility/node-specification-policy.mjs';
@@ -13,6 +12,7 @@ import {repositoryPlanProjection,repositoryPlanAmendmentProjection,repositoryPla
 import {createNamespaceCodeSourceReader} from './namespace-code-source.mjs';
 import {namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
 import {createNamespaceInitialCodeHistoryReader} from './namespace-code-initial-history.mjs';
+import {createNamespaceCodePredecessorReader} from './namespace-code-predecessors.mjs';
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
@@ -36,12 +36,12 @@ function codePreflightReader(options,requireCurrentIndices){
     files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices});
   async function inspect(snapshot,phaseId,identity,{signal,binding=null,policyTraversal}={}){
     const workflow=snapshot.workflow,phase=workflow.phases[phaseId],definition=(await observer.approved(snapshot,{signal})).compiled.definition;
-    if(workflow.phaseOrder.slice(0,workflow.phaseOrder.indexOf(phaseId)).some(id=>phaseRequiresCodeDelivery(workflow.phases[id])&&workflow.phases[id].generation>0))required('namespace-observed-claims');
     if(workflow.resolution.testRecovery?.enabled)required('test-recovery');
     if(!requireCurrentIndices&&!binding)throw failure('Replay the exact accepted publication source binding.','ENGINE_INPUT_INVALID');
     const retained=binding?await changes.accepted({operationId:binding.source.operationId,workId,phaseId},{signal}):await changes.inspectDraft(identity,{signal});
     if(!retained)throw failure('Retain this exact authored generation before code publication.','ENGINE_SOURCE_EVIDENCE_REQUIRED',{operation:'phase.source.retain',workId,phaseId});
     if(retained.plan.basis.headVersion!==snapshot.revision||!same(retained.plan.basis.configuration,snapshot.configuration)||!same(retained.workflow,workflow))throw failure('Code source evidence belongs to another lifecycle basis.','ENGINE_CONTEXT_CHANGED');
+    const predecessors=createNamespaceCodePredecessorReader({observer,scope,workId}),priorCode=await predecessors.inspect(snapshot,phaseId,retained,{signal,policyTraversal});
     const history=retained.plan.generation>1?await createNamespaceCodeHistoryReader({observer,scope,workId}).inspect(snapshot,phaseId,retained,{signal,policyTraversal})
       :await createNamespaceInitialCodeHistoryReader({observer,scope,workId}).inspect(snapshot,phaseId,{signal,policyTraversal});
     if((retained.plan.generation===1)!==(phase.generation===0))throw failure('The Code generation has no matching predecessor.','ENGINE_CODE_REWORK_REQUIRED');
@@ -61,7 +61,8 @@ function codePreflightReader(options,requireCurrentIndices){
         projection=plan.repositoryPlan?repositoryPlanProjection(plan.repositoryPlan,id):null,
         planned=projection?{...plan.planned,claims:projection.claims,supportingFiles:projection.supportingFiles,supportingFileDetails:projection.supportingFileDetails}:plan.planned,
         amendments=projection?plan.records.filter(row=>row.amendment).map(row=>repositoryPlanAmendmentProjection(plan.repositoryPlan,row,id,{workflow,definition})).filter(Boolean):[],
-        records={indexes:plan.active.indexes,planned:projection?[planned,...amendments]:plan.records,observed:[],acceptance:[]},
+        earlier=predecessors.repository(priorCode,id,{workflow,definition}),
+        records={indexes:plan.active.indexes,planned:[...new Map([...(projection?[planned,...amendments]:plan.records),...earlier.records].map(row=>[canonicalJson(row),row])).values()],observed:earlier.observed,acceptance:[]},
         obligations=Object.entries(planned.claims).filter(([,claim])=>plannedClaimAllocatedTo(claim,phaseId)).map(([clauseId,claim])=>({clauseId,...claim})),
         scope=codeDeliveryCandidateScope(records.planned,workflow,phase),nativeEntries=files.changes(context,{signal}).map(entry=>({
           status:entry.status==='D'?'deleted':entry.status==='A'?'added':'modified',oldPath:entry.oldPath,newPath:entry.newPath,untracked:false,
@@ -103,8 +104,8 @@ function codePreflightReader(options,requireCurrentIndices){
           case 'merged-base-paths':return null;
           case 'candidate-scope':return scope;
           // No unselected application bytes may influence the published candidate.
-          case 'outside-candidates':return null;
-          case 'unreconciled-candidates':return scope?[...new Set(nativeEntries.flatMap(entry=>[entry.oldPath,entry.newPath].filter(path=>path&&!scope.allows(path))))].sort():[];
+          case 'outside-candidates':return priorCode?path=>earlier.paths.has(path):null;
+          case 'unreconciled-candidates':return scope?[...new Set(nativeEntries.flatMap(entry=>[entry.oldPath,entry.newPath].filter(path=>path&&!scope.allows(path)&&!earlier.paths.has(path))))].sort():[];
           case 'executable-test-path':return files.facts(context,request.candidate,{signal}).regular&&isExecutableTestSourceCandidate(request.candidate,{sourceExtensions:request.sourceExtensions});
           case 'reusable-paths':if(request.candidates.length)required('namespace-code-history');return [];
           case 'reviewed-baseline-tests':return [];
@@ -152,7 +153,7 @@ function codePreflightReader(options,requireCurrentIndices){
     for(const binding of [control?.binding.index,...(control?.plan.origins??[]).flatMap(row=>[row.origin,row.baseline]).map(value=>value.index)])if(binding){
       const current=await observer.record('evidence',binding.key,false,signal);if(current?.version!==binding.version)throw failure('Code origin evidence changed during preflight.','ENGINE_CONTEXT_CHANGED');
     }
-    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history,plan:plan.proof}),...(history?{history}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
+    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history,plan:plan.proof,priorCode}),...(history?{history}:{}),...(priorCode?{priorCode}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
       index:{key:original.indexKey,version:original.indexVersion}},plan:plan.proof,repositories};
   }
   return Object.freeze({inspect});

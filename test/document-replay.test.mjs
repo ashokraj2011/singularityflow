@@ -31,7 +31,7 @@ async function race() {
   for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   config.repositoryReadiness.requiredBeforeStory = false;
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'README.md', 'singularity', '.github/agents'], first); run('git', ['commit', '-m', 'initialize'], first);
+  run('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], first); run('git', ['commit', '-m', 'initialize'], first);
   const remote = `${first}.git`;
   run('git', ['init', '--bare', '-b', 'main', remote], first); run('git', ['remote', 'add', 'origin', remote], first); run('git', ['push', '-u', 'origin', 'main'], first);
   flow(first, ['start', 'RACE-1', '--from-branch', 'main', '--title', 'Concurrent uploads']);

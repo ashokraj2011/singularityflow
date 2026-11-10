@@ -161,8 +161,8 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
         for(const owner of [...publications.specifications.owners(published),...publications.policies.owners(published)])required.delete(owner);
         if(published.checks){await checks.assertCurrent(published.checks,s.phaseId,{signal});required.delete('check-execution');}
         if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
-        if(!same(published.configuration,snapshot.configuration)||published.generation!==phase.generation
-          ||!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
+        publications.assertArtifacts(published,phase);
+        if(!same(published.configuration,snapshot.configuration)||published.generation!==phase.generation) {
           throw error('Submission requires the exact retained artifact and publication configuration.','ENGINE_STORAGE_CORRUPT');
         }
         if(s.plan) {
@@ -192,7 +192,7 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
           const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow});
           await authorize(signal,agent);await unchanged(snapshot,signal);
           try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.submit',inputsSha256:s.requestSha256,state:Buffer.from(canonicalJson(body)),
-            evidence:[expectedReference,s.publication.record,published.artifact.content,...(published.checks?[published.checks.result.content]:[])],
+            evidence:[...new Map([expectedReference,s.publication.record,published.artifact.content,...publications.policies.evidence(published),...(published.checks?[published.checks.result.content]:[])].map(ref=>[canonicalJson(ref),ref])).values()],
             ...(published.checks?{readBindings:checks.readBindings(published.checks)}:{})},{signal});}
           catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
             const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;

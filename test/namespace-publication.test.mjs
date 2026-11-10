@@ -158,7 +158,7 @@ test('required assignment and artifact-set policies cannot be dropped by a gener
     source.definition.phases.intake.artifactSet='intake-evidence';
   }});
   await authored(set);const before=await set.head();
-  await assert.rejects(publisher(set).run('phase.publish',input),e=>e.code==='ENGINE_PORT_UNAVAILABLE'&&e.details.required.includes('artifact-set'));
+  await assert.rejects(publisher(set).run('phase.publish',input),e=>e.code==='PHASE_ARTIFACT_SET_INCOMPLETE'&&e.details.missing.includes('evidence/'));
   assert.deepEqual(await set.head(),before);
 });
 

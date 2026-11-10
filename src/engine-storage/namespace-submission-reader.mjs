@@ -48,9 +48,9 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     if(value.checks&&(!checks.readBindings(value.checks).every(row=>accepted.plan.readBindings?.some(item=>same(item,row)))
       ||!accepted.plan.evidence.some(ref=>same(ref,value.checks.result.content))))throw error(
       'The submission did not conditionally retain its checked publication.','ENGINE_STORAGE_CORRUPT');
-    if(!Array.isArray(phase.artifacts)||phase.artifacts.length!==1||!phase.artifacts.some(item=>item?.path===published.artifact.sourceKey&&item.sha256===published.artifact.content.sha256&&item.size===published.artifact.content.bytes)) {
-      throw error('The submitted artifact metadata differs from its publication.','ENGINE_STORAGE_CORRUPT');
-    }
+    publications.assertArtifacts(published,phase);
+    if(publications.policies.owners(published).includes('artifact-set')&&!publications.policies.evidence(published).every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error(
+      'The typed output bundle was not retained by its exact submission.','ENGINE_STORAGE_CORRUPT');
     await routingProof(snapshot,phaseId,value,signal,cache);
     return {binding,value,published,review:{workId,phase:phaseId,generation:phase.generation,packetSha256:binding.record.sha256,
       sourceRevision:value.baseRevision,observedRevision:snapshot.revision}};

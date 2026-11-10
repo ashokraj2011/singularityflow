@@ -62,13 +62,26 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
 - Invocation-local immutable proof reuse, a narrow Auto Plan/inventory read closure, and the
   unchanged installed-package qualifier passing all 34 checks in 67 seconds on this Mac.
 
+- Typed artifact sets with separately versioned private member metadata, exact collection hashes,
+  atomic publication/submission inventories, independent review and downstream member resources.
+  Uploaded input documents remain local; output bundles do not establish test or visual acceptance.
+- Mixed test/inspection/visual verification through Code proof v7 and independently authorized human
+  witness receipts. Exact candidate, file, plan and contract bindings are rechecked; duplicate
+  signatures are refused and shared-only replay preserves the original decision. Original Code
+  proof v1–v6 and native witness meanings remain unchanged.
+- The output/witness delivery passes 282 distinct affected Mac checks, including the unchanged
+  34-check installed qualifier in 34 seconds. Source validation, architecture/schema guards,
+  VS Code types, the unchanged Git audit and all 13 original bundle ceilings pass. See
+  [the qualification record](ENGINE-SDK-OUTPUT-BUNDLES-AND-WITNESSES.md#mac-qualification).
+
 ## Still required before either phase can be called complete
 
 - The remaining native query/rule inventory and parity audit.
-- Namespace plan-row/evidence correction, obligation/witness/evidence/test decisions and decision batches.
+- Namespace plan-row/evidence correction, obligation/evidence/test decisions and decision batches,
+  plus live application-review and witness-exception profiles.
 - Upstream return/amend/correction outcomes and forward amendments.
 - Targeted Code repair and multiple Code predecessors/observed-claim reuse.
-- Artifact sets, constitution/comparison/visual acceptance and document/test risk owners.
+- Constitution/comparison/live application acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
 - Required grounding, external design, skill/MCP host, person-presence, architecture, assignment,
   assurance, signing, integration and automated-execution owners through actual evidence ports.

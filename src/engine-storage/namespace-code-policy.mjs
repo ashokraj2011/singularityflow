@@ -53,7 +53,8 @@ function reportValue(value){
     exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance']);
     if(value.format!==profile.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
     const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[])]);
-    if(p.profile!=='sflow-namespace-code-preflight/v'+profile.version||namespaceCodePreflightVersion(p)!==profile.version||!Array.isArray(p.repositories))throw Error('Another Code preflight.');
+    const preflightVersion=profile.humanAcceptance?namespaceCodePreflightVersion(p):profile.version;
+    if(p.profile!=='sflow-namespace-code-preflight/v'+preflightVersion||namespaceCodePreflightVersion(p)!==preflightVersion||!Array.isArray(p.repositories))throw Error('Another Code preflight.');
     sourceRetentionBinding(p.source);exactObject(p.baseline,['operationId','record','index']);namespaceIdentifier(p.baseline.operationId,'Baseline operation');
     for(const [row,fields]of [[p.baseline.record,['key','version','content']],[p.baseline.index,['key','version']]]){
       exactObject(row,fields);if(typeof row.key!=='string'||namespaceRevision(row.version)===null)throw Error('Invalid baseline binding.');
@@ -133,7 +134,21 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
     const contracts=mergedVerificationContracts([plan.planned]),criteria=plan.active.indexes.flatMap(index=>index.clauses)
       .filter(clause=>(clause.type==='AC'||/:AC-\d+$/u.test(clause.id))&&plannedClaimAllocatedTo(plan.planned.claims[clause.id],publication.phase)),acceptance=[];
     for(const clause of criteria){const contract=effectiveContract(clause.id,contracts,plan.planned.claims[clause.id]);if(!contract)continue;
-      if(contract.combination!=='all'||contract.slots.some(slot=>slot.method!=='test'||slot.role!=='primary'))missing('verification-contract-acceptance');
+      const extended=contract.combination!=='all'||contract.slots.some(slot=>slot.method!=='test'||slot.role!=='primary');
+      if(extended){const testSlots=[];
+        for(const slot of contract.slots.filter(row=>row.method==='test')){const results=[];
+          for(const global of slot.witness.path?[slot.witness.path]:slot.witness.paths??[]){
+            const local=plan.repositoryPlan?repositoryPlanTestLocation(plan.repositoryPlan,global,{workflow,definition}):{repositoryId:repositories[0]?.id,path:global},
+              repository=repositories.find(row=>row.id===local?.repositoryId),matches=repository?.witnesses.filter(row=>row.witness.clauseId===clause.id&&row.witness.testSource===local.path)??[],
+              result=aggregateWitnesses(matches.map(row=>row.result)),assurance=slot.requiredAssurance??matches[0]?.result.requiredAssurance??'module-observed';
+            if(slot.role==='primary'&&contract.combination==='all'&&(result.status!=='met'||ASSURANCE.indexOf(result.assurance)<ASSURANCE.indexOf(assurance)))throw error(
+              'Retain successful execution of each required primary test slot before Code publication.','CODE_TEST_WITNESS_INCOMPLETE',{
+                clauseId:clause.id,slot:slot.slot,repositoryId:local?.repositoryId??null,path:global,operation:'phase.checks.run'});
+            results.push({repositoryId:local?.repositoryId??null,path:global,result,requiredAssurance:assurance});}
+          if(!results.length&&slot.role==='primary'&&contract.combination==='all')throw error('The primary test slot needs an exact planned test path.',
+            'CODE_TEST_WITNESS_INCOMPLETE',{clauseId:clause.id,slot:slot.slot,operation:'phase.draft.write'});
+          testSlots.push({slot:slot.slot,results});}
+        acceptance.push({clauseId:clause.id,contract,testSlots});continue;}
       for(const slot of contract.slots){const paths=slot.witness.path?[slot.witness.path]:slot.witness.paths??[];
         if(!paths.length)throw error('The primary test slot needs its exact planned test path.','CODE_TEST_WITNESS_INCOMPLETE',{clauseId:clause.id,slot:slot.slot,operation:'phase.draft.write'});
         for(const global of paths){
@@ -148,7 +163,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         }
       }
     }
-    const version=namespaceCodePreflightVersion(preflight),report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
+    const extended=acceptance.some(row=>row.contract),version=extended?7:namespaceCodePreflightVersion(preflight),report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
     return {report,source,policy};
   }
   async function candidate(publication,snapshot,options){const value=await withReaders(readers=>candidateFor(publication,snapshot,options,readers));

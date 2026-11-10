@@ -8,6 +8,11 @@ export function memoNamespaceStoryOrigin(records,content,key,observe,{signal}={}
   const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
   return session.read('story-origin:'+key,observe,()=>true,signal,true);
 }
+/** Accepted witness proof only. Current selection, identity and final writer gates stay outside. */
+export function memoNamespaceWitnessProof(records,content,identity,observe,{signal}={}){
+  const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
+  return session.read('accepted-witness/v1:'+canonicalJson(identity),observe,()=>true,signal,true);
+}
 const LIMITS=Object.freeze({entries:256,bytes:8*1024*1024});
 const cancelled=signal=>{if(signal?.aborted)throw new SingularityFlowError('The namespace read was cancelled.',{code:'ENGINE_OPERATION_CANCELLED'});};
 function copy(value){const result=structuredClone(value);if(value?.data instanceof Uint8Array)result.data=Buffer.from(value.data);return result;}

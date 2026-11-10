@@ -3,9 +3,13 @@ import { createHash } from 'node:crypto';
 import { createEngine } from '../engine-sdk/index.mjs';
 import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
+import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,namespacePreparedPayloadProfile,admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
 import { renderArtifactTemplateText,utf8Bytes } from '../kernel/artifact-content.mjs';
 import { phaseDraftAccess,phasePreparationSelection,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission } from '../kernel/phase-preparation.mjs';
+import {phaseAccessIdentity} from '../kernel/phase-preparation.mjs';
+import {namespaceArtifactSetPolicies,NAMESPACE_ARTIFACT_SET_LIMITS} from '../kernel/namespace-artifact-sets.mjs';
+import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
+import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import { phaseBeginSelection,nextPhaseGeneration } from '../kernel/phase-policy.mjs';
 import {workflowInputsMode} from '../kernel/phase-inputs.mjs';
 import { projectEnrollmentTimestamp } from '../kernel/project-enrollment.mjs';
@@ -77,11 +81,13 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
         workId,phase:captured.phase.id,expected:captured.snapshot.revision,observed:fresh.snapshot.revision});
     }
   }
+  const artifactSets=namespaceArtifactSetPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS);
   function payload(value,phaseId) {
     try {
+      const profile=namespacePreparedPayloadProfile(value);
       exactObject(value,['format','generation','baseRevision','authorityVersion','configuration','actor','agentId','createdAt',
-        'template','artifact','inputContext','sources','generationIntent','previousDraft','updatedAt','updatedBy','reason']);
-      if(value.format!=='sflow-namespace-prepared-phase/v1'||!Number.isSafeInteger(value.generation)||value.generation<1
+        'template','artifact','inputContext','sources','generationIntent','previousDraft','updatedAt','updatedBy','reason',...(profile.members?['schemaVersion','members']:[])]);
+      if(value.format!==profile.format||!Number.isSafeInteger(value.generation)||value.generation<1
         ||!Array.isArray(value.sources)
         ||value.sources.length>32||!value.artifact||typeof value.artifact.key!=='string'||!value.template||typeof value.template.key!=='string')throw Error('Invalid fields.');
       storyActorValue(value.actor);storyActorValue(value.updatedBy);projectEnrollmentTimestamp(value.createdAt);projectEnrollmentTimestamp(value.updatedAt);
@@ -94,6 +100,15 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
         if(contentReference(ref).namespace!=='local')throw Error('Private draft bytes are not local.');
       }
       if(contentReference(value.template.reference).namespace!=='config'||contentReference(value.configuration.content).namespace!=='config')throw Error('Missing approved resources.');
+      if(profile.members){
+        if(!Array.isArray(value.members)||value.members.length>NAMESPACE_ARTIFACT_SET_LIMITS.files)throw Error('Invalid member inventory.');
+        const seen=new Set();let bytes=0;
+        for(const member of value.members){exactObject(member,['path','content','generation','actor','recordedAt']);sourceRelativePath(member.path);
+          if(contentReference(member.content).namespace!=='local'||member.generation!==value.generation||seen.has(member.path)
+            ||member.content.bytes>NAMESPACE_ARTIFACT_SET_LIMITS.fileBytes)throw Error('Invalid member identity.');
+          seen.add(member.path);bytes+=member.content.bytes;storyActorValue(member.actor);projectEnrollmentTimestamp(member.recordedAt);}
+        if(bytes>NAMESPACE_ARTIFACT_SET_LIMITS.totalBytes)throw Error('Invalid bundle byte bound.');
+      }
       const repositories=new Set();
       for(const source of value.sources) {
         exactObject(source,['id','unitId','provider','revision','descriptor','snapshot']);const descriptor=sourceUnitDescriptor(source.descriptor);
@@ -106,7 +121,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
         if(value.generationIntent.generation!==value.generation||contentReference(value.generationIntent.record).namespace!=='local'
           ||value.generationIntent.id!=='generation-'+value.generationIntent.record.sha256||!value.sources.length)throw Error('Invalid generation intent.');
       }else if(value.sources.length)throw Error('Source bindings need their captured generation intent.');
-    }catch(cause){throw error('The retained private phase draft is invalid.','ENGINE_STORAGE_CORRUPT',{workId,phase:phaseId},cause);}
+    }catch(cause){throw error('The retained private phase draft is invalid.',
+      ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',{workId,phase:phaseId},cause);}
     return value;
   }
   async function inspectPrivate(captured,signal) {
@@ -209,6 +225,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       authorityVersion:captured.basis.authorityVersion,configuration:captured.snapshot.configuration,actor:agent.actor,agentId:agent.agentId,createdAt:at,
       template:{key,reference:template.body},artifact,inputContext,sources,generationIntent,previousDraft:previous?.body??null,
       updatedAt:at,updatedBy:agent.actor,reason:previous?'Rebind the preserved authored draft.':'Prepare the phase artifact.'};
+    if(previous?.payload.members)value.schemaVersion=2,value.format='sflow-namespace-prepared-phase/v2',value.members=previous.payload.members.filter(row=>row.generation===binding.generation);
     if(opening)openingSources.set(value,opening);return value;
   }
   async function prepareDraft(context,binding,permission,signal){
@@ -264,7 +281,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
         createdAt:p.createdAt,actor:p.actor,agentId:p.agentId},artifact:{key:p.artifact.key,reference:p.artifact.current,content:preview}};
   }};
   function mutationPort(kind) {
-    const permission=kind==='write'?'phase.draft.write':'phase.draft.rebase';
+    const permission=kind==='write'?'phase.draft.write':kind==='rebase'?'phase.draft.rebase':'phase.artifact.'+kind;
     function contextValue(context){const found=selected(context);if(found.permission!==permission)throw error('Use this operation\'s issued draft context.','ENGINE_INPUT_INVALID');return found;}
     function outcome(context,result){const token=Object.freeze({});outcomes.set(token,{context,result});return token;}
     return {
@@ -272,7 +289,10 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
         const context=Object.freeze({}),parametersSha256=hash(namespaceIdentityJson({permission,input,scope,workId,authority}));
         contexts.set(context,{input,permission,parametersSha256,store:store(input.phaseId)});return context;},
       async retained(context,_input,{signal}={}) {const s=contextValue(context),accepted=await s.store.inspect(s.input.operationId,s.parametersSha256,{signal});
-        return accepted?outcome(context,accepted):null;},
+        if(!accepted)return null;
+        const identity=phaseAccessIdentity(namespaceJson(await current({projectId:scope.projectId,workId,operation:permission,signal})),scope.projectId),p=payload(accepted.payload,s.input.phaseId);
+        if(!same(identity.actor,p.updatedBy))throw error('Only the original author can acknowledge this private mutation.','ENGINE_ACTOR_CHANGED');
+        return outcome(context,accepted);},
       async prepare(context,_input,{signal}={}) {
         const s=contextValue(context),captured=await canonical(s.input.phaseId,signal),found=await inspectPrivate(captured,signal);
         if(!found)throw error('Prepare this phase before saving an authored draft.','ENGINE_DRAFT_MISSING',{operation:'phase.prepare'});
@@ -287,10 +307,23 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
           value.reason=s.input.reason;
         }else{
           if(found.payload.baseRevision!==captured.snapshot.revision||found.payload.generation!==binding.generation)throw error('Rebind the preserved draft before writing against another Story revision.','ENGINE_DRAFT_BASIS_CHANGED',{operation:'phase.draft.rebase',revision:found.revision,confirm:found.body.sha256});
-          await s.store.bytes(s.input.content,{signal});
-          const at=projectEnrollmentTimestamp(await now());value={...found.payload,artifact:{...found.payload.artifact,current:s.input.content},previousDraft:found.body,
-            updatedAt:at,updatedBy:agent.actor,reason:s.input.reason};
+          const at=projectEnrollmentTimestamp(await now());
+          if(kind==='write'){
+            await s.store.bytes(s.input.content,{signal});value={...found.payload,artifact:{...found.payload.artifact,current:s.input.content},previousDraft:found.body,
+              updatedAt:at,updatedBy:agent.actor,reason:s.input.reason};
+          }else{
+            const definition=(await observer.approved(captured.snapshot,{signal})).compiled.definition;
+            artifactSets.selection(definition,captured.snapshot.workflow,captured.phase,s.input.memberPath);
+            const old=found.payload.members??[],members=old.filter(row=>row.path!==s.input.memberPath);
+            if(kind==='attach'){
+              if(s.input.content.bytes>NAMESPACE_ARTIFACT_SET_LIMITS.fileBytes)throw error('The output member exceeds its byte limit.','ENGINE_STORAGE_LIMIT');
+              await s.store.bytes(s.input.content,{signal});members.push({path:s.input.memberPath,content:s.input.content,generation:found.payload.generation,actor:agent.actor,recordedAt:at});
+            }else if(members.length===old.length)throw error('The named private member is not attached.','PHASE_ARTIFACT_MEMBER_NOT_FOUND',{memberPath:s.input.memberPath});
+            value={...found.payload,schemaVersion:2,format:'sflow-namespace-prepared-phase/v2',members:members.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0),
+              previousDraft:found.body,updatedAt:at,updatedBy:agent.actor,reason:s.input.reason};
+          }
         }
+        payload(value,captured.phase.id);
         const token=Object.freeze({});preparations.set(token,{context,captured,found,value,agent});return token;
       },
       async commit(context,token,{signal}={}) {
@@ -308,6 +341,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       async finish(context,token) {const s=contextValue(context),accepted=outcomes.get(token);if(!accepted||accepted.context!==context)throw error('The private draft has no accepted result.','ENGINE_PORT_RESULT_INVALID');
         const r=accepted.result,p=payload(r.payload,s.input.phaseId);
         return {workId,phase:s.input.phaseId,operationId:s.input.operationId,generation:p.generation,revision:r.revision,bodySha256:r.body.sha256,
+          ...(['attach','remove'].includes(kind)?{member:{path:s.input.memberPath,content:kind==='attach'?p.members.find(row=>row.path===s.input.memberPath).content:null}}:{}),
           artifact:p.artifact.current,recordedAt:p.updatedAt,principalId:p.updatedBy.principalId,replayed:r.replayed===true};}
     };
   }
@@ -346,8 +380,18 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
         mode:workflowInputsMode(captured.snapshot.workflow),artifact:p?{key:p.artifact.key,content:p.artifact.current}:null,
         context:p?.inputContext??null,resources:saved.inputResources,auditRecorded:!binding.dryRun&&binding.auditRequired,generationOpened:!binding.dryRun&&saved.opened};}
   };
-  const ports={phasePreparation,phaseBegin,phaseInputs,phaseDraftRead,
-    phaseDraftWrite:mutationPort('write'),phaseDraftRebase:mutationPort('rebase')};
+  const phaseArtifactInspection={
+    async load(input,{signal}={}){if(input.workId!=null&&input.workId!==workId)throw error('Inspect the bound Story.','ACTIVE_SUBJECT_MISMATCH');
+      const token=await captureInspectionDraft(input.phaseId,'phase.artifact.inspect',{signal}),facts=inspectionDraftFacts(token),context=Object.freeze({subject:{kind:'story',id:workId},phase:facts.phase});
+      contexts.set(context,{token,facts});return context;},
+    async inspect(context,_input,{signal}={}){const s=selected(context),f=s.facts,declared=artifactSets.declaration(f.definition,f.workflow,f.workflow.phases[f.phase]),draft=f.draft;
+      await revalidateInspectionDraft(s.token,{signal});
+      return {workId,phase:f.phase,revision:f.revision,status:!draft?'missing-draft':f.stale?'stale-draft':!declared?'not-declared':'observed',
+        draft:draft?{generation:draft.payload.generation,revision:draft.revision,bodySha256:draft.bodySha256}:null,set:declared?.set??null,
+        members:(draft?.payload.members??[]).map(row=>({path:row.path,reference:row.content,generation:row.generation,recordedAt:row.recordedAt,principalId:row.actor.principalId}))};}
+  };
+  const ports={phasePreparation,phaseBegin,phaseInputs,phaseDraftRead,phaseArtifactInspection,
+    phaseDraftWrite:mutationPort('write'),phaseDraftRebase:mutationPort('rebase'),phaseArtifactAttach:mutationPort('attach'),phaseArtifactRemove:mutationPort('remove')};
   function draftCapture(token) {const value=draftCaptures.get(token);if(!value)throw error('Use the issued private draft capture.','ENGINE_INPUT_INVALID');return value;}
   function admission(token) {const value=admissions.get(token);if(!value)throw error('Use the issued private draft admission.','ENGINE_INPUT_INVALID');return value;}
   async function captureDraft(phaseId,{signal}={}) {
@@ -380,6 +424,9 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       draftRevision:found.revision,bodySha256:found.body.sha256,payload:found.payload,actor:agent.actor,agentId:agent.agentId,
       operation,binding,resources:inputs.records,definition:approved.approval.compiled.definition});}
   function artifactBytes(token) {return Buffer.from(admission(token).found.currentBytes);}
+  async function artifactMemberBytes(token,path,{signal}={}){const {captured,found}=admission(token),member=found.payload.members?.find(row=>row.path===path);
+    if(!member)throw error('Use an exact attached member from the admitted draft.','PHASE_ARTIFACT_MEMBER_NOT_FOUND',{memberPath:path});
+    return captured.store.bytes(member.content,{signal});}
   function initialArtifactBytes(token) {return Buffer.from(admission(token).found.initialBytes);}
   function generationIntentBytes(token) {const value=admission(token).found.generationBytes;return value===null?null:Buffer.from(value);}
   async function revalidateDraft(token,{signal}={}) {
@@ -438,7 +485,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   // Inspection authenticates its own read permission. The private author's identity is data
   // from the original draft, and never grants the current reader that author's write authority.
   async function captureInspectionDraft(phaseId,operation,{signal}={}) {
-    if(!['phase.prepublish','phase.draft-check','upstream.raise'].includes(operation))throw error('Use a registered draft inspection.','ENGINE_INPUT_INVALID');
+    if(!['phase.prepublish','phase.draft-check','upstream.raise','phase.artifact.inspect'].includes(operation))throw error('Use a registered draft inspection.','ENGINE_INPUT_INVALID');
     const principal=await authorize(operation,signal),captured=await canonical(phaseId,signal),found=await inspectPrivate(captured,signal),token=Object.freeze({});
     const approved=await observer.approved(captured.snapshot,{signal}),phase=approved.compiled.workflows[captured.snapshot.workflow.workItem.workType]?.phases.find(item=>item.id===phaseId);
     if(!phase)throw error('The inspected phase is absent from the pinned configuration.','ENGINE_STORAGE_CORRUPT');
@@ -463,6 +510,9 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   function inspectionArtifactBytes(token,{initial=false}={}){const {found}=inspectionRead(token);
     if(!found)throw error('Prepare this phase before reading its private artifact.','ENGINE_DRAFT_MISSING');
     return Buffer.from(initial?found.initialBytes:found.currentBytes);}
+  async function inspectionMemberBytes(token,path,{signal}={}){const {captured,found}=inspectionRead(token),member=found?.payload.members?.find(row=>row.path===path);
+    if(!member)throw error('Use an exact attached member from the inspected draft.','PHASE_ARTIFACT_MEMBER_NOT_FOUND',{memberPath:path});
+    return captured.store.bytes(member.content,{signal});}
   async function revalidateInspectionDraft(token,{signal}={}){
     const {captured,found,approved,principal,inputs,author,operation}=inspectionRead(token);
     await authorize(operation,signal,principal);await unchanged(captured,signal);
@@ -472,9 +522,9 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     if(inputs&&!same((await resources(captured,approved.compiled,author,signal)).records,inputs.records))throw error(
       'The phase inputs changed during draft inspection.','ENGINE_CONTEXT_CHANGED',{workId,phase:captured.phase.id});
   }
-  return Object.freeze({ports,captureDraft,draftIdentity,admitDraft,draftFacts,artifactBytes,initialArtifactBytes,generationIntentBytes,revalidateDraft,
+  return Object.freeze({ports,captureDraft,draftIdentity,admitDraft,draftFacts,artifactBytes,artifactMemberBytes,initialArtifactBytes,generationIntentBytes,revalidateDraft,
     captureSourceDraft,sourceDraftFacts,revalidateSourceDraft,captureEntryDraft,entryDraftFacts,entryDraftBytes,revalidateEntryDraft,
-    captureInspectionDraft,inspectionDraftFacts,inspectionArtifactBytes,revalidateInspectionDraft});
+    captureInspectionDraft,inspectionDraftFacts,inspectionArtifactBytes,inspectionMemberBytes,revalidateInspectionDraft});
 }
 
 export function createNamespacePreparationEngine(options) {

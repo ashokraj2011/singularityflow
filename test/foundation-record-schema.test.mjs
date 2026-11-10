@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceConformancePolicyProfile } from '../src/foundation/record-schema.mjs';
+import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceConformancePolicyProfile,namespacePreparedPayloadProfile,namespaceWitnessContextProfile } from '../src/foundation/record-schema.mjs';
 import { NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS,
   admitNamespaceStorageSchema, admitSqliteNamespaceSchema } from '../src/sda/namespace/storage-schemas.mjs';
 import { readRecord, schemaFamily } from '../src/schema-migrations.mjs';
@@ -63,12 +63,22 @@ test('Code profiles preserve original versions and separately admit reviewed add
       assert.deepEqual(admitRecordSchemaVersion(family,original),{record:original,storedVersion:version});
       assert.equal(admitRecordSchemaVersion(family,original).record,original);
     }
-    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:7}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:8}),{code:'SCHEMA_VERSION_FUTURE'});
   }
   for(const version of [1,2,3,4,5,6])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:1},{schemaVersion:2}),false);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:2},{schemaVersion:1}),false);
   assert.throws(()=>namespaceCodePolicyProfile('unregistered',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});
+  for(const kind of ['code','codeReport']){const profile=namespaceCodePolicyProfile(kind,{schemaVersion:7});
+    assert.equal(profile.humanAcceptance,true);assert.equal(profile.optionalHistory,true);assert.equal(profile.kind,'code-delivery/v7');}
+});
+test('private member and witness context wire versions are admitted by one pure owner',()=>{
+  const old={format:'sflow-namespace-prepared-phase/v1',data:'original'},copy=structuredClone(old);
+  assert.deepEqual(namespacePreparedPayloadProfile(old),{version:1,format:old.format,members:false});assert.deepEqual(old,copy);
+  assert.equal(namespacePreparedPayloadProfile({schemaVersion:2,format:'sflow-namespace-prepared-phase/v2'}).members,true);
+  assert.throws(()=>namespacePreparedPayloadProfile({schemaVersion:3,format:'sflow-namespace-prepared-phase/v3'}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.equal(namespaceWitnessContextProfile({schemaVersion:1}).profile,'sflow-namespace-witness-context/v1');
+  assert.throws(()=>namespaceWitnessContextProfile({schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});
 });
 
 test('conformance association v2 is separate while v1 remains readable without migration or record changes',()=>{

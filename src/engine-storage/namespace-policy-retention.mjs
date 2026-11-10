@@ -6,6 +6,8 @@ import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
 import {namespaceAnalysisManifest,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE} from './namespace-policy-contract.mjs';
 import {clarificationRecord,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
+import {namespaceArtifactSetManifest,ARTIFACT_SET_EVIDENCE} from './namespace-artifact-set-reader.mjs';
+import {artifactBytesAreText} from '../kernel/artifact-content.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 export function createNamespacePublicationPolicyWriter({observer,content,scope,workId,reader}) {
   const put=content.put.bind(content);
@@ -56,5 +58,16 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     namespaceConformanceManifest(manifest,{scope,workId,phaseId:publication.phase});
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:profile.kind,record:await save(manifest,signal)}),report};
   }
-  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance});
+  async function retainArtifactSet(publication,{snapshot,head,signal,members}={}){
+    const value=await reader.artifactSetCandidate(publication,snapshot,{signal,members});
+    for(const file of value.files){const saved=await put(scope,'evidence',file.data,{signal});
+      if(!same(contentReference(saved?.reference),file.content)||typeof saved.reused!=='boolean')throw new SingularityFlowError('The content store returned another output member.',{code:'ENGINE_PORT_RESULT_INVALID'});
+      await observer.bytes(file.content,file.content.bytes,signal);}
+    const report=await save(value.report,signal),manifest={schemaVersion:1,format:'sflow-namespace-artifact-set-policy/v1',...namespaceSpecificationIdentity(publication),
+      recordedAt:publication.publishedAt,artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
+    namespaceArtifactSetManifest(manifest,{scope,workId,phaseId:publication.phase});
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:ARTIFACT_SET_EVIDENCE,record:await save(manifest,signal)}),
+      report,members:value.files.map(({path,content,data})=>({path,content,encoding:artifactBytesAreText(data)?'utf8':'binary'}))};
+  }
+  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet});
 }

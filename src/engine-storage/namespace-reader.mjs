@@ -156,7 +156,8 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     const phase = context.workflow.phases[selected.phase];
     const primary = path.posix.join(context.policy.workItemRoot, workId, phase.requiredArtifact.path ?? '');
     const records = context.documents.filter(document => document.phase === phase.id && document.generation === phase.generation
-      && ['artifact','agent-brief'].includes(document.role)).map(document => ({ ...document }));
+      && (['artifact','agent-brief'].includes(document.role)||document.role==='file'&&document.kind==='artifact-set-member'))
+      .map(document => ({ ...document,...(document.role==='file'?{role:'artifact'}:{}) }));
     const identities = new Set(records.map(documentKey));
     for (const member of selected.retained) {
       const identity = documentKey({ ...member, phase: phase.id, generation: phase.generation });
@@ -214,10 +215,10 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     for(const member of [proof,...sources]) {
       for(const [kind,reference,sourceKey] of [['review-packet',member.binding.record,null],
         ['artifact',member.published.artifact.content,member.published.artifact.sourceKey],
-        ...context.submissionReader.publicationResources(member.published).map(item=>[item.kind,item.reference,null])]) {
+        ...context.submissionReader.publicationResources(member.published).map(item=>[item.kind,item.reference,item.sourceKey??null])]) {
         const candidates=context.documents.filter(record=>record.phase===member.value.phase&&record.generation===member.value.generation
           &&record.status!=='detached'&&record.locality==='project'&&record.content&&sameRef(record.content,reference)
-          &&(kind==='artifact'?record.role==='artifact'&&record.sourceKey===sourceKey:record.role==='file'&&record.kind===kind));
+          &&(kind==='artifact'?record.role==='artifact'&&record.sourceKey===sourceKey:record.role==='file'&&record.kind===kind&&(sourceKey===null||record.sourceKey===sourceKey)));
         if(candidates.length!==1)throw unavailable('The retained review has no unique readable resource reference.','ENGINE_STORAGE_CORRUPT',{
           workId,phase:member.value.phase,generation:member.value.generation,kind,expected:reference});
         resources.push(issued(candidates[0]));
@@ -235,8 +236,11 @@ export function createNamespaceReadPorts({ records, content, localContent = null
     const request = selected.reference;
     let record;
     if (typeof request === 'object' && request.kind === 'phase-document') record = candidates.find(record => record.reference.id === request.id);
+    else if(typeof request==='object'&&request.kind==='story-document')record=candidates.find(record=>record.reference.kind==='story-document'&&record.id===request.id);
     else {
-      try { record = resolveDocumentRecord(candidates.map(record => ({ ...record, path: record.sourceKey })), typeof request === 'string' ? request : request.id); }
+      const aliases=candidates.filter(record=>!(record.kind==='artifact-set-member'&&record.reference.kind==='phase-document'&&candidates.some(other=>other.reference.kind==='story-document'
+        &&other.id===record.id&&other.sourceKey===record.sourceKey&&sameRef(other.content,record.content))));
+      try { record = resolveDocumentRecord(aliases.map(record => ({ ...record, path: record.sourceKey })), typeof request === 'string' ? request : request.id); }
       catch (cause) { if (cause.code !== 'DOCUMENT_NOT_FOUND') throw cause;
         throw unavailable('The document was not found in this Story read snapshot.', cause.code, { workId, reference: request }, cause); }
     }

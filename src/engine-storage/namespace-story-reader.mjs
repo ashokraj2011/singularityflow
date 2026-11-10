@@ -8,17 +8,23 @@ import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
 import {createNamespaceLifecycleReceiptReader} from './namespace-lifecycle-receipt-reader.mjs';
-import {memoNamespaceStoryOrigin} from './namespace-read-session.mjs';
+import {memoNamespaceStoryOrigin,memoNamespaceWitnessProof as memoWitness} from './namespace-read-session.mjs';
 import {namespaceStoryValue} from './namespace-story-contract.mjs';
 import {LIFECYCLE_AUTHORITY_KEY,lifecycleAuthority} from './namespace-lifecycle-contract.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story policy inspection was cancelled.','ENGINE_OPERATION_CANCELLED');}
 const readDomains=new WeakMap();
+const witnessMemos=new WeakMap();
+/** Only genuine observers can reuse an accepted witness proof through their captured ports. */
+export function memoNamespaceObservedWitness(observer,identity,observe,options={}){
+  return witnessMemos.get(observer)?.(identity,observe,options)??observe();
+}
 /** Private capability identity: copies or overrides cannot claim another observer's read proof. */
 export function namespaceStoryReadDomain(observer){return readDomains.get(observer)??observer;}
 
 export function createNamespaceStoryObserver({records,content,scope,workId,authority}={}) {
+  const witnessMemo=(identity,observe,options)=>memoWitness(records,content,{scope,workId,authority,identity},observe,options);
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
   const base=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
   const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
@@ -146,6 +152,7 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
         activeScope(token);cancelled(signal);return value;},
       capture:options=>observe(options,true,token),inspect:options=>observe(options,false,token),withReadScope:nested=>withReadScope(nested,token)});
     readDomains.set(scoped,namespaceStoryReadDomain(observer));
+    witnessMemos.set(scoped,(...args)=>{activeScope(token);return witnessMemo(...args);});
     try{return await read(scoped);}finally{if(parent===undefined){cache.clear();facts.bytes=0;facts.proof=null;facts.pending=null;facts.receipts=null;}readScopes.set(token,null);}
   }
   // Original evidence readers need only receipt inspection and this observer's read capabilities.
@@ -153,5 +160,6 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
     records:Object.freeze({descriptor:records.descriptor,inspectOperation})});
   const observer=Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted,evidenceReads,withReadScope});
   readDomains.set(observer,Object.freeze({}));
+  witnessMemos.set(observer,witnessMemo);
   return observer;
 }

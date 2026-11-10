@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createNamespaceReadSession,memoNamespaceStoryOrigin} from '../src/engine-storage/namespace-read-session.mjs';
+import {createNamespaceReadSession,memoNamespaceStoryOrigin,memoNamespaceWitnessProof} from '../src/engine-storage/namespace-read-session.mjs';
 const scope={projectId:'P'},reference={namespace:'evidence',sha256:'a'.repeat(64),bytes:4};
 function fixture(){let records=0,contents=0,receipts=0,denied=null;const session=createNamespaceReadSession({
   records:{read:async(_scope,_namespace,key)=>{records++;if(denied)throw denied;return {status:'present',record:{immutable:key!=='head',value:{count:42}}};},
@@ -83,4 +83,15 @@ test('a read in flight across a transaction cannot repopulate the following tran
     read:async()=>{reads++;if(reads===1)await new Promise(resolve=>{release=resolve;});return {status:'present',reference,data:Buffer.alloc(4,reads),truncated:false};}}});
   await session.run(async()=>{const first=session.content.read(scope,reference);await Promise.resolve();await session.records.transact(scope,{changes:[]});
     release();await first;await session.content.read(scope,reference);assert.equal(reads,2);});
+});
+test('accepted witness proof reuse is bounded by exact ports, identity and transaction lifetime',async()=>{
+  let reads=0,deny=false;const failure=Object.freeze(Object.assign(Error('Original witness receipt is unavailable.'),{code:'ETIMEDOUT'})),
+    session=createNamespaceReadSession({records:{transact:async()=>({status:'committed'})},content:{}}),
+    identity={scope,workId:'story',authority:{id:'authority',epoch:1},link:{record:reference}},
+    observe=async()=>{reads++;if(deny)throw failure;return {value:{recordId:'WIT-001',references:[reference]}};},
+    read=(selected=identity,records=session.records,content=session.content)=>memoNamespaceWitnessProof(records,content,selected,observe);
+  await session.run(async()=>{const [a,b]=await Promise.all([read(),read()]);assert.equal(reads,1);a.value.recordId='altered';assert.equal(b.value.recordId,'WIT-001');
+    await read({...identity,workId:'other'});assert.equal(reads,2);await read(identity,{...session.records});assert.equal(reads,3);
+    await session.records.transact(scope,{});await read();assert.equal(reads,4);});
+  deny=true;for(let i=0;i<2;i++)await assert.rejects(session.run(()=>read()),error=>error===failure);assert.equal(reads,6);
 });

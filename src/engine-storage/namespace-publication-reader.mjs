@@ -15,6 +15,11 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
   const bytes=observer.bytes.bind(observer);
   const specifications=createNamespaceSpecificationReader({observer,scope,workId,checks});
   const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks});
+  function artifacts(publication){return [{path:publication.artifact.sourceKey,sha256:publication.artifact.content.sha256,size:publication.artifact.content.bytes},
+    ...policies.resources(publication).filter(row=>row.kind==='artifact-set-member').map(row=>({path:row.sourceKey,sha256:row.reference.sha256,size:row.reference.bytes}))];}
+  function assertArtifacts(publication,phase){const expected=artifacts(publication),observed=phase?.artifacts;
+    if(!Array.isArray(observed)||observed.length!==expected.length||!expected.every(row=>observed.filter(item=>item?.path===row.path&&item.sha256===row.sha256&&item.size===row.size).length===1))throw error(
+      'The phase output inventory differs from its exact retained publication.','ENGINE_STORAGE_CORRUPT');}
   async function read(binding,phaseId,{signal,specificationTraversal,policyTraversal}={}) {
     phasePublicationBindingValue(binding);
     let value;try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(binding.record,binding.record.bytes,signal)));}
@@ -42,6 +47,7 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
       ||!proof.plan.evidence.some(ref=>same(ref,value.artifact.content)))throw error(
       'The accepted publication lost its exact artifact or generation binding.','ENGINE_STORAGE_CORRUPT');
     verifyPlan(value,proof.plan);
+    assertArtifacts(value,phase);
     return value;
   }
   function verifyPlan(value,plan) {
@@ -51,5 +57,5 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
       ||!plan.evidence.some(ref=>same(ref,value.checks.result.content))))throw error(
       'The publication did not conditionally accept its retained check evidence.','ENGINE_STORAGE_CORRUPT');
   }
-  return Object.freeze({read,accepted,verifyPlan,specifications,policies});
+  return Object.freeze({read,accepted,verifyPlan,artifacts,assertArtifacts,specifications,policies});
 }

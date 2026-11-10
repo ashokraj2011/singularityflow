@@ -13,12 +13,15 @@ import {resolvedClarificationPolicy} from '../kernel/clarification-responses.mjs
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
+import {namespaceArtifactSetPolicies} from '../kernel/namespace-artifact-sets.mjs';
+import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
+import {NODE_TEXT_DIGESTS} from '../records.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex'),same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 const repairable=new Set(['ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
   'ENGINE_SOURCE_EVIDENCE_REQUIRED','ENGINE_SOURCE_BASELINE_REQUIRED','CODE_DELIVERY_TEST_COVERAGE_INCOMPLETE',
   'CODE_TEST_WITNESS_INCOMPLETE','SPEC_PLANNED_TEST_BINDING_REQUIRED','SPEC_PLANNED_ALLOCATION_INVALID',
-  'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED']);
+  'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE']);
 const finding=(row,phase)=>({code:row.code??'artifact.authoring.incomplete',sourceCode:row.sourceCode??null,category:row.category??null,
   message:row.message??'',phaseId:row.phaseId??phase,path:row.path??null,line:row.line??null,clauseId:row.clauseId??null,
   upstreamDecisionComplete:false,coverageReviewRequired:false,riskEligible:false});
@@ -26,6 +29,7 @@ const finding=(row,phase)=>({code:row.code??'artifact.authoring.incomplete',sour
 export function createNamespacePhaseInspectionPorts(options,runtime=null){
   const {scope,workId,access,sources=[],modelEnabled=true}=options,observer=createNamespaceStoryObserver(options),contexts=new WeakMap();
   const checks=createNamespacePhaseCheckReader({...options,observer}),publications=createNamespacePublicationReader({observer,scope,workId,checks});
+  const artifactSets=namespaceArtifactSetPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS);
   async function authorize(operation,signal,expected=null){return phaseTransitionAccess(await access.current({projectId:scope.projectId,workId,operation,signal}),
     scope.projectId,operation,{expected});}
   async function load(input,operation,{signal}={}){
@@ -43,6 +47,9 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
     const findings=[],advisories=[],fresh=[];
     async function attempt(readCandidate){try{return await readCandidate();}catch(cause){
       if(!repairable.has(cause.code))throw cause;
+      if(cause.code==='PHASE_ARTIFACT_SET_INCOMPLETE'){
+        findings.push(...cause.details.missing.map(path=>finding({code:cause.code,category:'artifact-set',path,
+          message:'Attach the required output '+path+' using phase.artifact.attach, then inspect this phase again.'},phase.id)));return null;}
       const rows=cause.details?.findings;
       findings.push(...(Array.isArray(rows)&&rows.length?rows.map(row=>finding(row,phase.id))
         :[finding({code:cause.code,message:cause.message,path:cause.details?.path??null,clauseId:cause.details?.clauseId??null},phase.id)]));
@@ -74,10 +81,10 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
           :inspectBinaryArtifactSize(data.byteLength,configured,{path:p.artifact.key})).map(row=>finding(row,phase.id)));
         const spec=specificationPublicationPolicy(workflow,phase),analysis=specificationAnalysisPublicationPolicy(definition,workflow,phase),
           clarification=resolvedClarificationPolicy(definition,workflow,phase),code=codePublicationPolicy(workflow,phase),
-          inputs=codeInputPublicationPolicy(workflow,phase),conformance=conformancePublicationPolicy(workflow,phase),
+          inputs=codeInputPublicationPolicy(workflow,phase),conformance=conformancePublicationPolicy(workflow,phase),bundle=artifactSets.declaration(definition,workflow,phase),
           available=[...(spec?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysis?['specification-analysis']:[]),
             ...(clarification.mode!=='off'?['clarification-record']:[]),...(code?CODE_PUBLICATION_OWNERS:[]),
-            ...(inputs?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformance?CONFORMANCE_PUBLICATION_OWNERS:[]),'check-execution'];
+            ...(inputs?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformance?CONFORMANCE_PUBLICATION_OWNERS:[]),...(bundle?['artifact-set']:[]),'check-execution'];
         if(prepublish){const pending=primaryDocumentPublicationRequirements(workflow,phase,{definition}).filter(owner=>!available.includes(owner));
           if(pending.length)throw error('Bind the actual required policy/execution owners before publication inspection.','ENGINE_PORT_UNAVAILABLE',{
             operation,phase:phase.id,required:pending});}
@@ -87,6 +94,8 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             artifact:{key:p.artifact.key,sourceKey:(definition.workItemRoot??'singularity/work-items')+'/'+workId+'/'+p.artifact.key,
               kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content,fingerprint},inputs:facts.resources};
         if(spec)await attempt(()=>publications.specifications.derive(candidate,snapshot,{signal,artifactBytes:data}));
+        if(bundle){const members=[];for(const member of p.members??[])members.push({path:member.path,data:await runtime.inspectionMemberBytes(token,member.path,{signal})});
+          await attempt(()=>publications.policies.artifactSetCandidate(candidate,snapshot,{signal,artifactBytes:data,members}));}
         if(clarification.mode!=='off')await attempt(()=>publications.policies.clarificationCandidate(candidate,snapshot,{signal}));
         if(analysis){const result=await attempt(()=>publications.policies.candidate(candidate,snapshot,{signal,artifactBytes:data,inspectClarification:true}));
           if(result?.gate.errors?.length)findings.push(...result.gate.errors.map(row=>finding(typeof row==='string'?{code:'specification.analysis.invalid',message:row}:row,phase.id)));

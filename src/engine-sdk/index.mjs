@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceWitnessContextProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -33,6 +33,7 @@ import {sourceBaselineRetentionInput,sourceBaselineRetentionResult,phaseSourceCo
 import {testWitnessInspectionManifest} from '../kernel/verification-witnesses.mjs';
 import {clarificationOperationInput} from '../kernel/clarification-responses.mjs';
 import {storyDocumentRequest} from '../kernel/story-documents.mjs';
+import {phaseArtifactInspectionManifest} from '../kernel/namespace-artifact-sets.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -127,6 +128,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectDecisionContext'},
   {id:'scope.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'scopeContext',
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectScopeContext'},
+  {id:'witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','clauseId','slotName','file']),
+    requiredFields:Object.freeze(['clauseId','slotName','file']),port:'witnessContext',stages:Object.freeze(['load','read']),validate:'witnessContextInput',execute:'inspectWitnessContext'},
   ...['story.document.attach','story.document.detach'].map(id=>({id,version:1,effect:'input-document',humanDecision:false,port:'storyDocument',
     inputFields:Object.freeze(['operationId','workId','documentId','reason',...(id.endsWith('attach')?['name','mimeType','encoding','content']:[])]),
     requiredFields:Object.freeze(['operationId','workId','documentId','reason',...(id.endsWith('attach')?['name','mimeType','encoding','content']:[])]),
@@ -216,6 +219,12 @@ const definitions = [
     confirmation:'exact-current-draft-body-digest',inputFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','confirm','reason']),
     requiredFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','confirm','reason']),port:'phaseDraftRebase',
     stages:WRITE_STAGES,validate:'draftMutationInput',execute:'mutatePhaseDraft'},
+  ...['attach','remove'].map(kind=>({id:'phase.artifact.'+kind,version:1,effect:'local-draft',humanDecision:false,
+    authority:'phase.artifact.'+kind,artifactMember:true,inputFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','memberPath',...(kind==='attach'?['content']:[]),'reason']),
+    requiredFields:Object.freeze(['operationId','workId','phaseId','expectedRevision','memberPath',...(kind==='attach'?['content']:[]),'reason']),
+    port:kind==='attach'?'phaseArtifactAttach':'phaseArtifactRemove',stages:WRITE_STAGES,validate:'draftMutationInput',execute:'mutatePhaseDraft'})),
+  {id:'phase.artifact.inspect',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','maximumEntries']),
+    port:'phaseArtifactInspection',stages:Object.freeze(['load','inspect']),validate:'sourceInspectionInput',execute:'inspectPhaseSources'},
   {id:'phase.checks.run',version:1,effect:'phase-check-execution',humanDecision:false,authority:'phase.checks.run',
     inputFields:Object.freeze(['operationId','workId','phaseId']),requiredFields:Object.freeze(['operationId','workId','phaseId']),
     port:'phaseChecks',stages:Object.freeze(['load','retained','prepare','execute','commit','finish']),
@@ -279,7 +288,8 @@ async function inspectPhaseSources(port,input,signal,operation) {
   const facts=data(await port.inspect(context,input,{signal}));notCancelled(signal);
   if(operation.id==='phase.delivery.inspect'&&input.includeImplementation===true&&facts.profile!==DELIVERY_INSPECTION_PROFILE_V5)throw new SingularityFlowError(
     'This delivery reader does not provide exact implementation-region observations.',{code:'ENGINE_PORT_UNAVAILABLE',details:{required:['implementation-region-reader']}});
-  const manifest=operation.id==='phase.delivery.inspect'?phaseDeliveryInspectionManifest:operation.id==='phase.test-witnesses.inspect'?testWitnessInspectionManifest:phaseSourceInspectionManifest;
+  const manifest=operation.id==='phase.delivery.inspect'?phaseDeliveryInspectionManifest:operation.id==='phase.test-witnesses.inspect'?testWitnessInspectionManifest
+    :operation.id==='phase.artifact.inspect'?phaseArtifactInspectionManifest:phaseSourceInspectionManifest;
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,subject:context.subject,phase:context.phase,
     manifest:manifest(context.subject.id,context.phase,facts,input.maximumEntries),
     effects:{committed:false,pushed:false,localDraftSaved:false,sourceFilesChanged:false,testsRun:false,approvalRecorded:false}});
@@ -609,6 +619,22 @@ async function inspectScopeContext(port,inputs,signal) {
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'scope.context',status:'ready',subject:{kind:'story',id},manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
 }
+function witnessContextInput(value){const input=data(value);if(typeof input.clauseId!=='string'||typeof input.slotName!=='string'||typeof input.file!=='string'
+    ||!input.clauseId||!input.slotName||!input.file)throw new SingularityFlowError('Name one criterion, inspection slot and published evidence path.',{code:'ENGINE_INPUT_INVALID'});
+  return {...input,clauseId:input.clauseId.toUpperCase()};}
+async function inspectWitnessContext(port,input,signal){notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const facts=data(await port.read(context,{signal}));notCancelled(signal);
+  const fields=['schemaVersion','profile','workId','phase','revision','clauseId','slot','file','contextBinding','authorities','result'],file=facts?.file;
+  let profile=null;try{profile=namespaceWitnessContextProfile(facts);}catch{ /* The facts are validated as this port's result below. */ }
+  if(!facts||!profile||Object.keys(facts).length!==fields.length||!fields.every(key=>Object.hasOwn(facts,key))||facts.profile!==profile.profile
+    ||context?.subject?.kind!=='story'||facts.workId!==context.subject.id||facts.phase!==context.workflow?.currentPhase||input.workId!=null&&facts.workId!==input.workId||facts.clauseId!==input.clauseId
+    ||facts.slot?.slot!==input.slotName||!['inspection','visual'].includes(facts.slot?.method)||file?.path!==input.file||file?.content?.namespace!=='evidence'
+    ||!/^[a-f0-9]{64}$/u.test(file?.content?.sha256??'')||!Number.isSafeInteger(file?.content?.bytes)||file.content.bytes<0
+    ||!/^sha256:[a-f0-9]{64}$/u.test(facts.contextBinding??'')||typeof facts.revision!=='string'||!Array.isArray(facts.authorities)||facts.authorities.some(value=>typeof value!=='string'||!value)
+    ||facts.result?.clauseId!==input.clauseId||facts.result?.slot!==input.slotName||!['missing','failed','met'].includes(facts.result?.status))throw new SingularityFlowError(
+      'The witness context returned another criterion, slot or published file.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'witness.context',subject:context.subject,manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
 
 function storyDocumentInput(value,operation) {
   const input=data(value);
@@ -1637,7 +1663,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
+    witnessContextInput,inspectWitnessContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

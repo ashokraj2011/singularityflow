@@ -7,6 +7,13 @@ import {collectDraftDiagnostic,draftDiagnosticSummary,inspectDraftValue,pathDefe
 
 export const VERIFICATION_METHODS = Object.freeze(['test', 'inspection', 'visual']);
 
+export function verificationTestSlot(contract, witness) {
+  const tests = (contract?.slots ?? []).filter((entry) => entry.method === 'test');
+  return tests.find((entry) => entry.witness?.path === witness.testSource)
+    ?? tests.find((entry) => !entry.witness?.path) ?? null;
+}
+
+
 /** Captures path/hash syntax only. No evidence reader, readiness callback or authority is accepted. */
 export function verificationContractPolicies(pathSyntax,digests) {
 const {path}=configurationPathSyntax(pathSyntax);
@@ -326,11 +333,7 @@ function requiredAcceptanceFromPlan(clauseIds,planned,contracts,phaseId){
   }))].sort();
 }
 
-function testSlotFor(contract, witness) {
-  const tests = (contract?.slots ?? []).filter((entry) => entry.method === 'test');
-  return tests.find((entry) => entry.witness?.path === witness.testSource)
-    ?? tests.find((entry) => !entry.witness?.path) ?? null;
-}
+const testSlotFor=verificationTestSlot;
 
 function contractSha256(contract) {
   if (!contract) return null;

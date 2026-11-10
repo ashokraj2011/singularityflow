@@ -7,6 +7,7 @@ import {sequenceAdmission} from './lifecycle-transitions.mjs';
 import {storyActorValue} from './story-creation.mjs';
 import {projectEnrollmentTimestamp} from './project-enrollment.mjs';
 import {utf8Bytes} from './artifact-content.mjs';
+import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
 
 const text=value=>typeof value==='string'&&value.length>0&&value.length<=4096;
 const count=value=>Number.isSafeInteger(value)&&value>=0;
@@ -115,6 +116,8 @@ export function phaseDraftMutationInput(input,operation) {
     ||!operation.requiredFields.every(key=>Object.hasOwn(input,key))
     ||['operationId','workId','phaseId'].some(key=>!draftId(input[key]))||!draftRevision(input.expectedRevision)
     ||typeof input.reason!=='string'||!input.reason.trim()||input.reason.length>4096||/[\u0000\u007f]/u.test(input.reason))draftInvalid('A local draft update needs an exact revision, operation ID, phase and reason.');
+  if(operation.artifactMember){sourceRelativePath(input.memberPath);
+    return {...input,...(operation.id==='phase.artifact.attach'?{content:localDraftReference(input.content)}:{})};}
   if(operation.id==='phase.draft.write')return {...input,content:localDraftReference(input.content)};
   if(!sha(input.confirm))draftInvalid('Rebinding a local draft requires its exact reviewed body digest.');
   return {...input};
@@ -164,14 +167,17 @@ export function phaseDraftReadManifest(workId,phaseId,facts,maximumBytes=65_536)
   return {schemaVersion:1,contract:'sflow-phase-working-draft-manifest/v1',...facts};
 }
 export function phaseDraftMutationResult(input,facts,operation) {
-  if(!facts||!exact(facts,['workId','phase','operationId','generation','revision','bodySha256','artifact','recordedAt','principalId','replayed'])
+  if(!facts||!exact(facts,['workId','phase','operationId','generation','revision','bodySha256','artifact','recordedAt','principalId','replayed',...(operation.artifactMember?['member']:[])])
     ||facts.workId!==input.workId||facts.phase!==input.phaseId||facts.operationId!==input.operationId
     ||!Number.isSafeInteger(facts.generation)||facts.generation<1||!draftRevision(facts.revision)||!sha(facts.bodySha256)
     ||!draftRevision(facts.principalId)||typeof facts.replayed!=='boolean')bad();
   localDraftReference(facts.artifact);projectEnrollmentTimestamp(facts.recordedAt);
-  return {status:operation.id==='phase.draft.write'?'saved':'rebound',subject:{kind:'story',id:input.workId},phase:input.phaseId,
+  if(operation.artifactMember){if(!exact(facts.member,['path','content'])||facts.member.path!==input.memberPath)bad();
+    if(operation.id==='phase.artifact.attach'){localDraftReference(facts.member.content);if(['namespace','sha256','bytes'].some(key=>facts.member.content[key]!==input.content[key]))bad();}
+    else if(facts.member.content!==null)bad();}
+  return {status:operation.id==='phase.draft.write'?'saved':operation.id==='phase.artifact.attach'?'attached':operation.id==='phase.artifact.remove'?'removed':'rebound',subject:{kind:'story',id:input.workId},phase:input.phaseId,
     operationId:input.operationId,generation:facts.generation,revision:facts.revision,bodySha256:facts.bodySha256,
-    artifact:facts.artifact,recordedAt:facts.recordedAt,principalId:facts.principalId,replayed:facts.replayed,
+    artifact:facts.artifact,...(operation.artifactMember?{member:facts.member}:{}),recordedAt:facts.recordedAt,principalId:facts.principalId,replayed:facts.replayed,
     effects:{localDraftSaved:true,committed:false,pushed:false,sourceFilesChanged:false,testsRun:false,
       humanReviewRecorded:false,approvalRecorded:false,storyAdvanced:false}};
 }

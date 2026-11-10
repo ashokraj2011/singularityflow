@@ -35,6 +35,7 @@ import {createNamespacePhaseEntryPorts} from './namespace-phase-entry.mjs';
 import {createNamespacePhaseInspectionPorts} from './namespace-phase-inspection.mjs';
 import {createNamespaceStoryQueryPorts} from './namespace-story-queries.mjs';
 import {createNamespaceWorkflowAssetsPort} from './namespace-workflow-assets.mjs';
+import {createNamespaceWitnessPorts} from './namespace-witness-decisions.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
 function captured(port,validate,methods) {
   validate(port);
@@ -79,16 +80,18 @@ export function createNamespaceEngine(options={}) {
   const common={records,content,scope,workId,authority,access,clock,localContent,sources,
     modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,sourceReaders,sourceControlReaders};
   const runtime=working?createNamespacePreparationRuntime({...common,inputContent:localContent,localRecords:working.records,localContent:working.content}):null;
-  const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planDecision;
+  const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planDecision,witnessPorts;
+  const witnesses=()=>witnessPorts??=createNamespaceWitnessPorts(common);
   const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord=Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
     const operation=parameters.at(-1)?.operation?.id;
-    if(operation!=='decision.choose'&&operation!=='decision.plan'&&!NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation))throw new SingularityFlowError(
+    if(operation!=='decision.choose'&&operation!=='decision.plan'&&operation!=='decision.witness'&&!NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation))throw new SingularityFlowError(
       'This decision needs its declared namespace evidence and authority owner.',{code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:'decisionRecord',required:[operation]}});
-    const port=operation==='decision.plan'?(planDecision??=createNamespacePlanDecisionPort(common))
+    const port=operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?(planDecision??=createNamespacePlanDecisionPort(common))
       :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
     return port[stage](...parameters);
   }]));
   const ports={...createNamespaceReadPorts(common,{authority}),
+    witnessContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>witnesses().witnessContext[stage](...args)])),
     ...lazyPorts(()=>createNamespaceStoryQueryPorts(common,runtime),{storyStatus:['load','read'],storyGuide:['load'],storyNext:['load']}),
     ...lazyPorts(()=>({workflowAssets:createNamespaceWorkflowAssetsPort(common)}),{workflowAssets:['load','read']}),
     ...lazyPorts(()=>createNamespacePhaseInspectionPorts(common,runtime),{phasePrepublish:['load','inspect'],phaseDraftCheck:['load','inspect']}),

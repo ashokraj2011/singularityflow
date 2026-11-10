@@ -2316,6 +2316,12 @@ export function refusalDetails(details) {
       .map((key) => [key, list(details.coverage[key], text)]).filter(([, entries]) => entries.length)));
     if (coverage) projected.coverage = coverage;
   }
+  // The criteria an owner-step check names: each clause, its own test and what the check found [PHR:REQ-002].
+  const criteria = list(details.criteria, (entry) => (entry && typeof entry === 'object' && text(entry.clauseId) ? compact({
+    clauseId: text(entry.clauseId), test: text(entry.test), testSource: text(entry.testSource), commandId: text(entry.commandId), status: text(entry.status),
+    findings: Array.isArray(entry.findings) && entry.findings.length ? list(entry.findings, (finding) => (finding && typeof finding === 'object'
+      ? compact({ code: text(finding.code), message: text(finding.message) }) : null)).slice(0, 5) : null }) : null)).slice(0, 20);
+  if (criteria.length) projected.criteria = criteria;
   // An offloaded workspace repository: the confirm-first fresh clone elsewhere (session-storage-refusal.mjs).
   const relocation = details.relocation;
   if (details.offloaded === true && relocation?.requiresConfirmation === true && Array.isArray(relocation.argv)

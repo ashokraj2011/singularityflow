@@ -5434,7 +5434,11 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         refusal = isolatedRunHint(await attachRequiredTestExecution(error, root, command, check, { workId: workflow.workItem.id }), check);
       }
     }
-    if (refusal) throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
+    if (refusal) {
+      // The criterion whose own test failed is named, with its repair in this step [PHR:REQ-002, finding 11].
+      if (ownerStepChecks(workflow)) await (await import('./criterion-test-failures.mjs')).withCriterionTestFailures(root, phase, refusal, recordedRuns, deliveryEvidence.acceptanceCriteria?.witnesses ?? []);
+      throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
+    }
   } finally {
     const acceptedIds = new Set(passing.map((command) => command.id));
     for (const check of checks) await restoreTransientQualityResult(check, {
@@ -6007,7 +6011,11 @@ async function submitPhaseTransition(root, config, workflow, {
         });
         submittedAttempts.set(command.id, receipt);
       }
-      if (refusal) throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
+      if (refusal) {
+        // A criterion's own test among the failures, exactly attributed, is named with the same-step repair [PHR:REQ-002, finding 11].
+        if (ownerStepChecks(workflow)) await (await import('./criterion-test-failures.mjs')).withCriterionTestFailures(root, phase, refusal, recordedRuns);
+        throw (await import('./test-run-risk.mjs')).withOtherFailedTests(refusal, otherFailed);
+      }
     } finally {
       const acceptedIds = new Set(testExecutions.map((execution) => execution.commandId));
       for (const check of phase.checks) await restoreTransientQualityResult(check, {
@@ -6144,6 +6152,15 @@ async function submitPhaseTransition(root, config, workflow, {
       commandId: traceabilityBindings.find((binding) => binding.clauseId === witness.clauseId
         && binding.testSource === witness.testSource)?.commandId ?? witness.commandId ?? null
     }));
+    // A criterion's own test that failed, exactly attributed to it, is this step's to rectify before it is submitted
+    // [PHR:REQ-002, finding 11]: refused here, with the same-step repair. A failure no exact identity ties to the
+    // criterion is warned below and judged at approval; a run a person accepted as a risk stays theirs.
+    if (ownerStepChecks(workflow) && !retainedRisk) {
+      const accepted = new Set((phase.checks ?? []).filter((check) => check.testRunRisk).map((check) => check.id));
+      const refusal = (await import('./criterion-test-failures.mjs')).criterionTestFailureRefusal(workflow, phase,
+        witnesses.filter((witness) => !accepted.has(witness.commandId)), (witness) => submittedAttempts.get(witness.commandId) ?? null);
+      if (refusal) throw refusal;
+    }
     const readyReceipt = {
       ...deliveryReceipt,
       traceability: { ...deliveryReceipt.traceability, bindings: traceabilityBindings, witnesses },
@@ -6166,8 +6183,8 @@ async function submitPhaseTransition(root, config, workflow, {
     await writeJson(path.join(root, validatedReceiptPath), readyReceipt);
     phase.deliveryEvidence.receiptPath = validatedReceiptPath;
     // Exposed now, judged at this step's approval for a Story that pinned the owner-step checks [PHR:REQ-002],
-    // else at the end: a criterion whose own test did not pass keeps the step, or the Story, until it
-    // passes or its risk is accepted [E2G-016, E2G-028].
+    // else at the end: a criterion whose own test did not pass (and was not refused above) keeps the step,
+    // or the Story, until it passes or its risk is accepted [E2G-016, E2G-028].
     const judgedAt = ownerStepChecks(workflow) ? `approving ${phase.id} waits for it` : 'the Story\'s ending waits for it';
     for (const witness of witnesses) {
       const result = witnessResult(witness, submittedAttempts.get(witness.commandId) ?? null);

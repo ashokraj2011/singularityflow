@@ -420,3 +420,30 @@ test('a tag naming a criterion the specification does not hold is refused at pub
   const review = JSON.parse(cli('phase', 'show', 'implementation', '--json').stdout);
   assert.deepEqual(review.witnessReview.mappings.map((mapping) => mapping.clauseId), [`${workId}:AC-001`]);
 });
+
+test('[PHR:REQ-002] finding 11: a criterion\'s own test that fails, exactly attributed, is refused in the code step with its repair there', async (t) => {
+  const workId = 'EXACT-9';
+  const { root, cli } = await governedRepository(t, workId, {
+    'package.json': JSON.stringify({ type: 'module', private: true, scripts: { test: 'node tools/jest-shim.mjs --runner jest' } }),
+    '.gitignore': '.sflow/\n',
+    'tools/jest-shim.mjs': await readFile(SHIM, 'utf8'),
+    'src/value.js': 'export const value = 1;\n',
+    'test/value.test.js': "import { value } from '../src/value.js';\ntest('baseline value', () => { expect(value).toBe(1); });\n"
+  });
+  const item = await intake(root, cli, workId, [['AC-001', 'The exported value equals 2.']], [['AC-001', '`src/value.js`', '`test/value.test.js`']]);
+  await writeFile(path.join(root, 'src/value.js'), `// @clause:${workId}:AC-001 returns the approved value\nexport const value = 3;\n`);
+  await writeFile(path.join(root, 'test/value.test.js'), [
+    "import { value } from '../src/value.js';", `// @ac:${workId}:AC-001`, "test('exported value is two', () => { expect(value).toBe(2); });", ''].join('\n'));
+  await completeSummary(item);
+  const refused = run(process.execPath, [CLI, '--no-model', 'phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json'],
+    root, { allowFailure: true });
+  assert.notEqual(refused.status, 0);
+  const { error, remediationPlan } = JSON.parse(refused.stdout);
+  assert.equal(error.code, 'CODE_TEST_FAILED', refused.stdout);
+  // The failure is the criterion's own test, so the step is told which criterion and how to rectify it here.
+  assert.deepEqual(error.details.criteria.map((entry) => entry.clauseId), [`${workId}:AC-001`]);
+  assert.match(error.message, /Fix the code or the test so each criterion's own tests pass/u);
+  assert.equal(error.details.nextAction, 'singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready');
+  assert.equal(error.details.criteria[0].test, "'exported value is two' in test/value.test.js");
+  assert.equal(remediationPlan.steps[0].command, 'singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready');
+});

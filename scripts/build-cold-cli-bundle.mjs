@@ -91,6 +91,8 @@ const FAMILIES = Object.freeze([
     'plan-base-paths.mjs',
     // Where an approved plan and the amended clauses part, read at an amendment and its revalidation [PHR:REQ-002].
     'plan-clause-gaps.mjs',
+    // A criterion's own failing test, named with its repair at a code step's test runs [PHR:REQ-002].
+    'criterion-test-failures.mjs',
     'first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',

@@ -1720,6 +1720,23 @@ const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'correct-report': 'correct-conf
   'repair-return': 'return-conformance-gap', 'evidence-reuse': 'reuse-recorded-evidence', 'fresh-recorded-run': 'record-fresh-run' });
 
 /**
+ * A scope step's statement with no disposition is its approvers' to decide [PHR:REQ-002]: the decision list first,
+ * then the first statement's two exact routes (include it through its clauses, or exclude, defer or mark it
+ * informative), so a script has them too.
+ */
+function scopeDispositionSteps(error) {
+  const details = error?.details ?? {};
+  const list = details.nextAction?.command?.startsWith('singularity-flow decisions ')
+    ? step('open-decision-list', String(details.nextAction.label ?? 'Open the decision list.').slice(0, 2000),
+      details.nextAction.command, 'remediation', '/sf-decide') : null;
+  const ids = ['include-scope-statement', 'decide-scope-statement-otherwise'];
+  const routes = (Array.isArray(details.recoveryCommands) ? details.recoveryCommands : []).slice(0, 2)
+    .map((entry, index) => (typeof entry?.command === 'string'
+      ? step(ids[index], String(entry.label ?? '').slice(0, 2000), entry.command, 'remediation', '/sf-decide') : null));
+  return list ? [list, ...routes].filter(Boolean) : [];
+}
+
+/**
  * An honest partial or missing verdict waits for a person, never for a repair of the report: the
  * decision list first (every decision in plain words, as choices), then the first clause's every
  * route and each other clause's decision for scripts, in place of the phase-repair steps.
@@ -1912,6 +1929,10 @@ export function refusalRemediationPlan(error, argv = []) {
   const amendmentPending = ['STORY_REVIEW_INTERVENING_COMMIT', 'APPROVAL_INTENT_AMENDMENT_PENDING'].includes(code)
     && pendingAmendmentSteps(argv, error).length > 0;
   const conformanceGapBlocked = gapSteps.length > 0;
+  // A source statement nobody dispositioned waits for the scope step's approvers, in this turn [PHR:REQ-002]: the
+  // decision list and the statement's own routes, never "repair the phase" or a rejection.
+  const scopeSteps = code === 'SCOPE_ITEMS_UNRESOLVED' ? scopeDispositionSteps(error) : [];
+  const scopeDispositionBlocked = scopeSteps.length > 0;
   const rawPhaseContext = phaseRemediationContext(argv, error);
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
@@ -1922,6 +1943,8 @@ export function refusalRemediationPlan(error, argv = []) {
     : upstreamInputBlocked && rawPhaseContext
       ? Object.freeze({ ...rawPhaseContext, strategy: 'upstream-input',
         upstreamPhases: upstreamInputContext(argv, error).producers, retryCommand: null, retrySkill: null })
+    : scopeDispositionBlocked && rawPhaseContext
+      ? Object.freeze({ ...rawPhaseContext, strategy: 'person-decides-scope', turn: 'current-turn', retryCommand: null, retrySkill: null })
     : conformanceGapBlocked && rawPhaseContext
       // People decide; the decision list opens in this same turn, nothing about the report is repaired.
       ? Object.freeze({ ...rawPhaseContext, strategy: 'person-decides-conformance-gap', turn: 'current-turn', retryCommand: null, retrySkill: null })
@@ -1964,6 +1987,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
   const ordered = conformanceGapBlocked ? gapSteps
+    : scopeDispositionBlocked ? scopeSteps
     : configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
     : selfGuidedBlocked ? [...nonDuplicateExplicit, ...known]
     : sessionTransportBlocked ? [...known, ...nonDuplicateExplicit]
@@ -2424,6 +2448,8 @@ export function renderRefusalPlan(plan) {
           ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; preview a reviewed test-command amendment for the active phase, then follow its preparation or fresh-validation route.`
         : plan.context.strategy === 'escalate-repeated-finding'
           ? `  Scope: phase ${plan.context.phaseId} — the same finding keeps returning; stop repairing it and hand it to someone other than the author. Nothing was accepted or waived.`
+        : plan.context.strategy === 'person-decides-scope'
+          ? `  Scope: phase ${plan.context.phaseId} — its approvers decide each source statement in the decision list now, then approve; nothing about the work needs repairing.`
         : plan.context.strategy === 'person-decides-conformance-gap'
           ? `  Scope: phase ${plan.context.phaseId} — people decide what is open; nothing about the report needs repairing. Open the decision list now.`
         : plan.context.strategy === 'person-decides-intent-amendment'

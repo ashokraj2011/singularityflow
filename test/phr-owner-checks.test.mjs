@@ -19,7 +19,7 @@ import { criterionTestRefusal, inspectionWitnessRefusal, ownCriterionFindings, o
 import { acceptanceOwnerRefusal } from '../src/acceptance-owner-check.mjs';
 import { specAcceptanceFindings } from '../src/governance.mjs';
 import { ownerStepChecks, phaseResponsibilityPin } from '../src/phase-roles.mjs';
-import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
+import { refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { plannedBasePathProblems } from '../src/plan-base-paths.mjs';
 import { fulfillmentPlanCorrections } from '../src/delivery-evidence.mjs';
@@ -82,7 +82,15 @@ test('[PHR:REQ-002] finding 10: the step that defines the scope is approved only
   assert.deepEqual([hold.action.command, hold.who], ['singularity-flow decisions W-1', 'An approver of intake decides']);
   assert.doesNotMatch(JSON.stringify(hold), /reject intake/u);
   const plan = refusalRemediationPlan(refusal, ['approve', 'intake', '--work-id', 'W-1']);
-  assert.ok(plan.steps.some((entry) => entry.command === 'singularity-flow decisions W-1'), JSON.stringify(plan.steps.map((entry) => entry.command)));
+  // The repair is in this step and this turn [PHR:REQ-006]: the decision list leads, then the statement's two routes;
+  // never "recover the phase", "end the turn" or a rejection, which could not clear it.
+  assert.deepEqual(plan.steps.map((entry) => [entry.id, entry.command]), [
+    ['open-decision-list', 'singularity-flow decisions W-1'],
+    ['include-scope-statement', refusal.details.recoveryCommands[0].command],
+    ['decide-scope-statement-otherwise', refusal.details.recoveryCommands[1].command]]);
+  assert.deepEqual([plan.context?.strategy, plan.context?.turn], ['person-decides-scope', 'current-turn']);
+  assert.match(renderRefusalPlan(plan), /^Recovery plan:\n  Scope: phase intake — its approvers decide each source statement in the decision list now, then approve; nothing about the work needs repairing\.\n  1\. An approver of intake decides/u);
+  assert.doesNotMatch(renderRefusalPlan(plan), /sf-recover|sf-reject|Turn boundary/u);
 
   // Once a person dispositions it, the step may be approved, and the ending has nothing left to refuse for it.
   recordScopeDecision(workflow, { item: item.id, disposition: 'excluded', reason: 'Stability is owned by the platform team, not this Story.',

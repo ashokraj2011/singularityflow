@@ -254,7 +254,8 @@ export function namespacePublicationRecordProfile(input) {
 }
 export const SPECIFICATION_ANALYSIS_REPORT_SCHEMA=frozenFamily('specification-quality-analysis');
 export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily('namespace-phase-policy-evidence-binding'),
-  analysis:frozenFamily('namespace-specification-analysis'),code:frozenFamily('namespace-code-policy'),codeReport:frozenFamily('namespace-code-policy-report')});
+  analysis:frozenFamily('namespace-specification-analysis'),code:frozenFamily('namespace-code-policy'),codeReport:frozenFamily('namespace-code-policy-report'),
+  codeInputs:frozenFamily('namespace-code-input-policy'),codeInputReport:frozenFamily('namespace-code-input-policy-report')});
 export const NAMESPACE_CLARIFICATION_SCHEMAS=Object.freeze({response:frozenFamily('namespace-clarification-response'),
   manifest:frozenFamily('namespace-clarification-manifest'),index:frozenFamily('namespace-clarification-index'),
   publication:frozenFamily('namespace-clarification-publication')});

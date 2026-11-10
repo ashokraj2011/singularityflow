@@ -32,7 +32,7 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
     if(value.generation!==binding.generation)throw corrupt('The vote belongs to another submitted review.');
     return value;
   }
-  async function read(binding,phaseId,proof,{signal}={}) {
+  async function read(binding,phaseId,proof,{signal,policyTraversal}={}) {
     const value=await decode(binding,phaseId,{signal});
     if(value.generation!==proof.value.generation||!same(value.reviewPacket,proof.binding.record)
       ||!same(value.configuration,proof.value.configuration))throw corrupt('The vote belongs to another submitted review.');
@@ -41,7 +41,7 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
       {sourceKey:proof.published.artifact.sourceKey,kind:proof.published.artifact.kind,content:proof.published.artifact.content})) {
       throw corrupt('The vote artifact set differs from the retained publication.');
     }
-    await policies.verify(proof.published,{signal});
+    await policies.verify(proof.published,{signal,policyTraversal});
     const checklist=policies.checklist(proof.published,value.actor,set.policyChecklist?.result.decisions??[]);
     if(!same(checklist,set.policyChecklist??null))throw corrupt('The human checklist differs from its pinned policy, actor or retained publication.');
     policyEvidence.set(value,{identity:canonicalJson(value),references:policies.evidence(proof.published)});

@@ -56,14 +56,47 @@ required. Missing bytes, permission errors and deadlines preserve their actual r
 Within one awaited proof traversal, the observer can reuse the verified original Story policy and
 accepted immutable lifecycle receipts. Each new snapshot is still checked against that policy.
 Mutable source indexes, current source bytes and final lifecycle/authority checks remain fresh.
-The scope expires when its callback finishes, failures are not cached, and another traversal reads
-its own proof. This is not a timed or backend-global cache.
+Nested readers share successful immutable records and complete byte reads within that traversal,
+with private copies, at most 256 entries and eight MiB of retained content. Code proof reuse has
+its own 32-entry/eight-MiB bound and accepts only genuine, unchanged proofs from the same read
+owner. Each callback expires independently; the outer callback releases retained facts. Failures,
+partial reads and mutable records are not cached. Another traversal reads its own proof. This is
+not a timed or backend-global cache.
 
 Submission and human approval obtain fulfilled owners from the recomputed proof. Neither can
 waive missing owners by supplying a readiness flag, copying a report or changing its hashes.
 Human identity, authority, self-approval policy and the bound review confirmation stay in force.
 The Code report is registered as a shared Story document, so review-resource manifests issue a
 readable reference rather than a hash with no corresponding document entry.
+
+## Downstream verification and review
+
+`sflow-namespace-code-input-policy/v1` carries exact approved Code publications into artifact-only
+phases with verification or review responsibilities. A verifier must name its pinned
+`testEvidenceFrom`; that producer remains a required dependency when ordinary `inputsMode` is
+off. Agents receive the approved artifact and actual Code report through issued authoring resource
+handles. Custom phase names use the same pinned responsibility rules.
+
+The `approved-code-inputs/v1` binding points to a consumer manifest and a versioned report. Replay
+reconstructs the original producer publication, submission, independent approvals, reviewed plan,
+repository-specific observed claims, actual structured checks and retained source archives. The
+consumer report attributes tests to their producing phase. A verifier without its own run retains
+`checks: null`; carried test counts never become a new execution.
+
+Before preparing and accepting a new consumer publication, the host captures the explicitly
+selected repository sources and compares their application/test inventories with the approved
+Code archive. Changes refuse that candidate and preserve the private draft and shared state.
+Recovery points to the original Code review, readable without its old checkout. Rework still
+requires its authorized lifecycle operation and history owner.
+
+Another device can continue the same Story from shared Code evidence, a matching explicit source
+descriptor and its own private draft. It does not copy the old laptop's private files. Accepted
+publication replay and review require only shared records and original receipts. Review-resource
+manifests expose the consumer report as an exact `code-inputs` document reference.
+
+This profile does not discharge conformance-report rows, scope/planning responsibilities, human
+visual decisions, constitution, artifact sets, repair journals or other configured policy owners.
+Each still needs its own implementation and original evidence.
 
 ## Qualification
 
@@ -87,6 +120,27 @@ VS Code types, the unchanged 2,011-site Git ownership audit and all 13 original 
 the gateway remains 852/852 modules. Windows, hosted CI, live providers and production installation
 were not exercised.
 
+The downstream follow-up passed 356 distinct affected Mac checks. Its overlapping groups contain
+123 integration/architecture checks, 202 native and namespace regressions, a final ten-check
+consumer rerun and 34 installed-package checks; repeated cases are counted once in the total.
+The three real stores cover separately authored verification, original test attribution and
+shared-only replay. The filesystem case also covers takeover into another device's private store,
+changed source/tests, final source races, altered reports, unsupported schemas and original read
+deadlines. Other semantic owners remain required. Existing phase-entry, clarification,
+publication, submission and approval compatibility checks passed.
+
+The installed package completes scope, plan, Code and verifier phases, runs an actual Node test
+once, receives independent human approvals and reopens in another process after deleting the
+source checkout. Its existing 120-second parent and 60-second child bounds are unchanged. An early
+fixture syntax error was fixed. The initial packaged SQLite journey exceeded the child deadline;
+the packaged journey was qualified with filesystem ports, while core SQLite and application
+journeys passed separately. The packaged SQLite journey and final performance milestone remain
+unqualified.
+
+Source validation passed 4,041 checks across 191 skills. VS Code types, the unchanged 2,011-site
+Git audit and all 13 original bundle ceilings passed; gateway remains 852/852 modules and
+6,919,787 bytes. No Windows, hosted CI, live provider, installation or real Story was exercised.
+
 ## Host use and remaining work
 
 Bind shared record/content ports, authenticated access, private working storage, actual source
@@ -104,7 +158,7 @@ execution from the summary. Submission and an authorized human's confirmed appro
 operations.
 
 This is an initial supported application profile. Native history/rework, shared-namespace origins,
-test recovery, other declaration adapters, additional acceptance contracts, downstream Code-input
+test recovery, other declaration adapters, additional acceptance contracts, downstream conformance
 policies, corner-case analysis and finding decisions retain explicit requirements. Constitution,
 artifact-set and other configured owners are not waived. Complete cross-agent application journeys,
 installed-project migration and final distribution/performance qualification keep Phases 5, 7, 8

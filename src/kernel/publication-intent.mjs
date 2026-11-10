@@ -1,6 +1,6 @@
 /** Publication-operation policy; frequent phase/session reads need none of this operation's intent handling. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import { effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, isConvergencePhase,phaseRequiresCodeDelivery,stepResponsibilities } from './phase-policy.mjs';
+import { effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, isConvergencePhase,phaseRequiresCodeDelivery,stepResponsibilities,pinnedTestEvidenceSource } from './phase-policy.mjs';
 import {approvedInputPhases} from './phase-inputs.mjs';
 
 /** Resolve the same pinned producer defaults before any publication effect. */
@@ -42,7 +42,7 @@ export function primaryDocumentPublicationRequirements(workflow,phase,{definitio
   need('clarification-record',pinned?.clarification?.mode!=='off');
   need('specification-claims',resolved.spec?.mode!=='off'||resolved.spec?.coverage!=='off'||resolved.spec?.acceptance!=='off');
   need('planned-claims',resolved.plannedClaims?.mode!=='disabled');
-  need('code-delivery-inputs',approvedInputPhases(workflow,phase).some(id=>phaseRequiresCodeDelivery(workflow.phases[id])));
+  need('code-delivery-inputs',codePublicationInputPhases(workflow,phase).length>0);
   need('comparison-evidence',Object.keys(phase.comparison??{}).length>0);
   need('constitution-policy',resolved.constitution?.mode!=='off');
   need('check-execution',(phase.qualityCommands??[]).length>0);
@@ -73,4 +73,21 @@ export function codePublicationPolicy(workflow,phase){
     ||workflow.resolution?.spec?.mode!=='enforce'||!roles.includes('implement')||!roles.includes('verify')
     ||roles.some(role=>!['implement','verify','review'].includes(role)))return null;
   return {profile:'sflow-namespace-code-policy/v1',owners:CODE_PUBLICATION_OWNERS};
+}
+
+/** Declared Code inputs and the exact test producer pinned independently of inputsMode. */
+export function codePublicationInputPhases(workflow,phase){
+  const source=pinnedTestEvidenceSource(workflow,phase);
+  return [...new Set([...approvedInputPhases(workflow,phase).filter(id=>phaseRequiresCodeDelivery(workflow.phases[id])),...(source?[source]:[])])];
+}
+export const CODE_INPUT_PUBLICATION_OWNERS=Object.freeze(['code-delivery-inputs','workflow-responsibility-policy','specification-claims','planned-claims']);
+/** This profile carries an approved Code proof; conformance rows still need their own rules. */
+export function codeInputPublicationPolicy(workflow,phase){
+  if(!phase||phaseRequiresCodeDelivery(phase)||phase.writeScope!=='artifact-only'
+    ||workflow.resolution?.phaseSemantics?.profile!=='sflow-phase-semantics/v1'||workflow.resolution?.spec?.mode!=='enforce'
+    ||workflow.resolution?.plannedClaims?.mode!=='required'||!codePublicationInputPhases(workflow,phase).length
+    ||phase.requiredArtifact?.kind==='conformance-report')return null;
+  const roles=stepResponsibilities(workflow,phase.id),testSource=pinnedTestEvidenceSource(workflow,phase);
+  if(!roles.length||roles.some(role=>!['verify','review'].includes(role))||roles.includes('verify')&&!testSource)return null;
+  return {profile:'sflow-namespace-code-input-policy/v1',owners:CODE_INPUT_PUBLICATION_OWNERS,testSource};
 }

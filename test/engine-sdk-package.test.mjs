@@ -17,7 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageName = '@singularity-flow/engine-sdk';
 const child = (executable, args, options) => {
   const result = spawnSync(executable, args, { encoding: 'utf8', timeout: 60_000, ...options });
-  assert.equal(result.status, 0, result.error?.message || result.stderr || result.stdout);
+  assert.equal(result.status, 0, [result.error?.message,result.stderr,result.stdout].filter(Boolean).join('\n'));
   return result.stdout;
 };
 
@@ -586,6 +586,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const source=(await readFile(new URL('./helpers/installed-namespace-specification.mjs',import.meta.url),'utf8')).replaceAll('@sdk-name@',packageName);
     const first=JSON.parse(await run('specification-publication.mjs',source,['fresh']));
     const reopened=JSON.parse(await run('specification-publication.mjs',source,['reopen']));assert.deepEqual(reopened,first);
+  });
+  await t.test('installed Code evidence reaches a separately authored verifier and replays without the original checkout',async()=>{
+    const source=(await readFile(new URL('./helpers/installed-namespace-code-inputs.mjs',import.meta.url),'utf8')).replaceAll('@sdk-name@',packageName);
+    const first=JSON.parse(await run('code-inputs-publication.mjs',source,['fresh']));
+    const replayed=JSON.parse(await run('code-inputs-publication.mjs',source,['replay']));assert.deepEqual(replayed,first);
   });
   await t.test('installed submission uses only shared publication records and reopens its exact review packet',async()=>{
     const source=`

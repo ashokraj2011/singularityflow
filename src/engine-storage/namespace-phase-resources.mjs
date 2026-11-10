@@ -2,6 +2,7 @@
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {approvedInputPhases,resolvedPhaseInputs,workflowInputsMode} from '../kernel/phase-inputs.mjs';
+import {pinnedTestEvidenceSource} from '../kernel/phase-policy.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function utf8(data,label) {try {const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(data);if(text.includes('\0'))throw Error('NUL');return text;}
@@ -24,13 +25,13 @@ export function createNamespacePhaseResources({observer,packets,workId,localRead
       }else await observer.bytes(document.content,document.content.bytes,signal);
       result.push({kind:'supporting-document',id:document.id,locality:document.locality,reference:document.content});
     }
-    const inputPhases=approvedInputPhases(w,phase),available=inputPhases.filter(id=>w.phases[id]?.status==='approved');
+    const testSource=pinnedTestEvidenceSource(w,phase),inputPhases=[...new Set([...approvedInputPhases(w,phase),...(testSource?[testSource]:[])])],available=inputPhases.filter(id=>w.phases[id]?.status==='approved');
     const proofs=await packets.inspectApprovedMany(captured.snapshot,available,{signal});
     const acceptedInputs=new Map(available.map((id,index)=>[id,proofs[index]]));
     for(const id of inputPhases) {
-      const producer=w.phases[id],declarations=resolvedPhaseInputs(w,phase),optional=!declarations.some(item=>(typeof item==='string'?item:item.phase)===id&&(typeof item==='string'||item.required!==false));
+      const producer=w.phases[id],declarations=resolvedPhaseInputs(w,phase),optional=id!==testSource&&!declarations.some(item=>(typeof item==='string'?item:item.phase)===id&&(typeof item==='string'||item.required!==false));
       if(!producer||producer.status!=='approved') {
-        if(optional||workflowInputsMode(w)!=='enforce')continue;
+        if(id!==testSource&&(optional||workflowInputsMode(w)!=='enforce'))continue;
         throw error('An upstream input has no accepted generation.','PHASE_INPUTS_NOT_READY',{upstreamPhase:id});
       }
       const document=(w.namespaceDocuments??[]).find(item=>item.phase===id&&item.generation===producer.generation&&item.role==='artifact');
@@ -43,6 +44,13 @@ export function createNamespacePhaseResources({observer,packets,workId,localRead
       await observer.bytes(document.content,document.content.bytes,signal);
       result.push({kind:'approved-input',phase:id,generation:producer.generation,reference:document.content,
         contract:declarations.filter(item=>(typeof item==='string'?item:item.phase)===id)});
+      for(const evidence of packets.publicationResources(proof.published).filter(row=>['code-delivery','code-inputs'].includes(row.kind))){
+        const resources=(w.namespaceDocuments??[]).filter(row=>row.phase===id&&row.generation===producer.generation&&row.role==='file'
+          &&row.kind===evidence.kind&&row.status!=='detached'&&row.locality==='project'&&same(row.content,evidence.reference));
+        if(resources.length!==1)throw error('The approved Code input has no unique readable evidence document.','ENGINE_STORAGE_CORRUPT',{upstreamPhase:id,kind:evidence.kind});
+        await observer.bytes(evidence.reference,evidence.reference.bytes,signal);
+        result.push({kind:'supporting-document',id:resources[0].id,locality:'project',reference:evidence.reference});
+      }
     }
     const seen=new Set();
     const add=async(kind,id,reference)=>{const key=kind+':'+id;if(seen.has(key))return;seen.add(key);

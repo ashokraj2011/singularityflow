@@ -4,7 +4,7 @@ import {canonicalJson,NAMESPACE_PHASE_POLICY_SCHEMAS} from '../foundation/record
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
-import {namespaceAnalysisManifest,namespaceCodeManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_DELIVERY_EVIDENCE} from './namespace-policy-contract.mjs';
+import {namespaceAnalysisManifest,namespaceCodeManifest,namespaceCodeInputManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_DELIVERY_EVIDENCE,CODE_INPUT_EVIDENCE} from './namespace-policy-contract.mjs';
 import {clarificationRecord,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 export function createNamespacePublicationPolicyWriter({observer,content,scope,workId,reader}) {
@@ -42,5 +42,12 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CODE_DELIVERY_EVIDENCE,record:await save(manifest,signal)}),report,
       sourceBinding:{source:value.report.preflight.source,baseline:value.report.preflight.baseline}};
   }
-  return Object.freeze({retain,retainClarification,retainCode});
+  async function retainCodeInputs(publication,{snapshot,head,signal}={}){
+    const value=await reader.codeInputCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),
+      manifest={schemaVersion:1,format:'sflow-namespace-code-input-policy/v1',...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+        artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
+    namespaceCodeInputManifest(manifest,{scope,workId,phaseId:publication.phase});
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CODE_INPUT_EVIDENCE,record:await save(manifest,signal)}),report};
+  }
+  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs});
 }

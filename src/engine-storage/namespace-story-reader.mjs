@@ -3,6 +3,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {assertStoryPolicy} from '../kernel/story-policy.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {namespaceScope,namespaceIdentityJson} from '../sda/namespace/values.mjs';
+import {contentReference} from '../sda/content/contract.mjs';
 import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs';
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
@@ -12,6 +13,9 @@ import {LIFECYCLE_AUTHORITY_KEY,lifecycleAuthority} from './namespace-lifecycle-
 const same=(a,b)=>a===undefined||b===undefined?a===b:namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story policy inspection was cancelled.','ENGINE_OPERATION_CANCELLED');}
+const readDomains=new WeakMap();
+/** Private capability identity: copies or overrides cannot claim another observer's read proof. */
+export function namespaceStoryReadDomain(observer){return readDomains.get(observer)??observer;}
 
 export function createNamespaceStoryObserver({records,content,scope,workId,authority}={}) {
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
@@ -21,7 +25,8 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
   const receipts=createNamespaceLifecycleReceiptReader({records,content,scope,workId,authority});
   const inspectOperation=records.inspectOperation.bind(records),recordId=records.descriptor.id,contentId=content.descriptor.id,proofs=new WeakMap(),workflowProofs=new WeakMap(),readScopes=new WeakMap();
   function activeScope(token){if(token===undefined)return null;const found=readScopes.get(token);
-    if(!found)throw error('Use the active Story proof-reading scope.','ENGINE_INPUT_INVALID');return found;}
+    if(!found)throw error('Use the active Story proof-reading scope.','ENGINE_INPUT_INVALID');
+    if(found.parent!==undefined)activeScope(found.parent);return found.facts;}
   function stored(kind,value,operationId=null) {
     try {return namespaceStoryValue(kind,value,scope,workId,operationId);}
     catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
@@ -86,7 +91,7 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
   }
   async function accepted(operationId,{signal,cache,snapshot,readScope}={}) {
     const scoped=activeScope(readScope);
-    const proof=await receipts.accepted(operationId,{signal,cache:cache??scoped?.receipts});
+    const proof=await receipts.accepted(operationId,{signal,cache:scoped?.receipts??cache});
     const selected=snapshot??{workflow:proof.state.workflow,configuration:proof.plan.basis.head.configuration};
     await approved(selected,{signal,readScope});const origin=proofs.get(selected);
     if(!same(origin.configuration,proof.plan.basis.head.configuration))throw error(
@@ -107,19 +112,42 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
   async function state(data,head,{signal,readScope}={}) {
     activeScope(readScope);const value=base.state(data,head);await approved({workflow:value.workflow,configuration:head.configuration},{signal,readScope});return value;
   }
-  // Share immutable original policy and accepted receipts for one awaited traversal. Mutable
-  // records, source bytes and final head/authority checks stay fresh; the callback owns its scope.
-  async function withReadScope(read){
+  // Nested readers share immutable facts for one awaited traversal. Mutable records, live source
+  // captures and final head/authority checks stay fresh. Each callback owns its expiring capability.
+  async function withReadScope(read,parent){
     if(typeof read!=='function')throw error('Provide a Story proof reader.','ENGINE_INPUT_INVALID');
-    const token=Object.freeze({});readScopes.set(token,{receipts:Object.freeze({})});
+    const facts=activeScope(parent)??{receipts:Object.freeze({}),cache:new Map(),bytes:0},token=Object.freeze({}),cache=facts.cache;
+    readScopes.set(token,{parent,facts});
+    async function memo(key,load,copy,size,signal){
+      activeScope(token);cancelled(signal);const prior=cache.get(key);
+      if(prior){const value=await prior;activeScope(token);cancelled(signal);return copy(value);}
+      if(cache.size>=256&&!cache.has(key)){const value=await load();activeScope(token);cancelled(signal);return value;}
+      const pending=load();cache.set(key,pending);
+      try{const value=await pending;activeScope(token);cancelled(signal);
+        const bytes=value===null?0:size(value);
+        if(value===null||facts.bytes+bytes>8*1024*1024)cache.set(key,null);else facts.bytes+=bytes;
+        return copy(value);
+      }catch(cause){cache.set(key,null);throw cause;}
+    }
     const scoped=Object.freeze({...observer,approved:(snapshot,options)=>approved(snapshot,{...options,readScope:token}),
       state:(data,head,options)=>state(data,head,{...options,readScope:token}),accepted:(id,options)=>accepted(id,{...options,readScope:token}),
-      capture:options=>observe(options,true,token),inspect:options=>observe(options,false,token)});
-    try{return await read(scoped);}finally{readScopes.set(token,null);}
+      record:async(namespace,key,immutable,signal,missing=false)=>{
+        activeScope(token);cancelled(signal);const load=()=>base.record(namespace,key,immutable,signal,missing);
+        const value=await (immutable?memo('record:'+namespaceIdentityJson([namespace,key]),load,structuredClone,value=>new TextEncoder().encode(namespaceIdentityJson(value)).byteLength,signal):load());
+        activeScope(token);cancelled(signal);return value;},
+      bytes:async(reference,maximumBytes,signal)=>{
+        activeScope(token);cancelled(signal);const selected=contentReference(reference),load=()=>base.bytes(reference,maximumBytes,signal);
+        const value=await (maximumBytes===selected.bytes
+          ?memo('bytes:'+namespaceIdentityJson(selected),load,value=>Buffer.from(value),value=>value.byteLength,signal):load());
+        activeScope(token);cancelled(signal);return value;},
+      capture:options=>observe(options,true,token),inspect:options=>observe(options,false,token),withReadScope:nested=>withReadScope(nested,token)});
+    readDomains.set(scoped,namespaceStoryReadDomain(observer));
+    try{return await read(scoped);}finally{if(parent===undefined){cache.clear();facts.bytes=0;facts.proof=null;facts.pending=null;facts.receipts=null;}readScopes.set(token,null);}
   }
   // Original evidence readers need only receipt inspection and this observer's read capabilities.
   const evidenceReads=Object.freeze({scope:Object.freeze({...scope}),workId,authority,
     records:Object.freeze({descriptor:records.descriptor,inspectOperation})});
   const observer=Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted,evidenceReads,withReadScope});
+  readDomains.set(observer,Object.freeze({}));
   return observer;
 }

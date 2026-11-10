@@ -5,7 +5,7 @@ import {nextPhaseGeneration,phaseReviewSelection} from './phase-policy.mjs';
 import {approvedInputPhases,resolvedPhaseInputs,clarificationCheckpointState,normalizeClarificationPolicy} from './phase-inputs.mjs';
 import {validDocumentReference} from './document-read.mjs';
 import {clarificationPublicationState,resolvedClarificationPolicy} from './clarification-responses.mjs';
-import {effectivePhasePublicationProducer} from './phase-policy.mjs';
+import {effectivePhasePublicationProducer,pinnedTestEvidenceSource} from './phase-policy.mjs';
 import {utf8Bytes} from './artifact-content.mjs';
 
 const text=value=>typeof value==='string'&&value.length>0&&value.length<=4096;
@@ -33,6 +33,11 @@ function contentEntrySelection(context,inputs) {
   const binding=phaseEntrySelection(context,inputs);
   if(!text(context.projectId)||typeof context.modelEnabled!=='boolean')bad();
   const phase=context.workflow.phases[binding.phase],producer=effectivePhasePublicationProducer(phase,{modelEnabled:context.modelEnabled});
+  const testSource=pinnedTestEvidenceSource(context.workflow,phase);
+  if(testSource){const existing=binding.inputs.find(input=>input.phase===testSource);
+    if(existing)existing.required=true;
+    else binding.inputs.push({phase:testSource,required:true,...(Object.hasOwn(context.workflow.phases,testSource)
+      ?phaseReviewSelection(context.workflow,testSource):{generation:null,retained:[]})});}
   return {...binding,projectId:context.projectId,producer,authorAgentId:phase.defaultAgent??binding.agentId,
     clarificationPolicy:resolvedClarificationPolicy({},context.workflow,phase)};
 }

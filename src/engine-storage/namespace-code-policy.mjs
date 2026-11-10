@@ -18,6 +18,8 @@ import {createNamespaceSourceRetentionReader} from './namespace-source-retention
 import {createNamespaceSourceBaselineReader} from './namespace-source-baseline-reader.mjs';
 import {sourceRetentionBinding} from './namespace-source-retention-contract.mjs';
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
+import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
+import {namespaceStoryReadDomain} from './namespace-story-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 import {namespaceWitnessAttempt} from './namespace-check-witnesses.mjs';
 import {namespaceCodeManifest} from './namespace-policy-contract.mjs';
@@ -25,6 +27,27 @@ import {namespaceSpecificationIdentity} from './namespace-specification-contract
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=data=>createHash('sha256').update(data).digest('hex');
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null,cause)=>new SingularityFlowError(message,{code,details,cause});
 const missing=owner=>{throw error('Code publication needs its declared evidence owner.','ENGINE_PORT_UNAVAILABLE',{required:[owner]});};
+const evidenceProofs=new WeakMap(),proofTraversals=new WeakMap();
+/** One awaited immutable proof walk; external objects cannot supply cached successful outcomes. */
+export async function withCodePolicyTraversal(given,read){
+  if(given&&proofTraversals.get(given))return read(given);
+  const token=Object.freeze({}),state={entries:[],bytes:0};proofTraversals.set(token,state);
+  try{return await read(token);}finally{state.entries.length=0;state.bytes=0;proofTraversals.set(token,null);}
+}
+export async function verifyCodePolicyInTraversal(reader,observer,publication,binding,{signal,policyTraversal}={}){
+  const cancelled=()=>{if(signal?.aborted)throw error('Code policy replay was cancelled.','ENGINE_OPERATION_CANCELLED');};cancelled();
+  const scope=proofTraversals.get(policyTraversal);if(!scope)return reader.verify(publication,binding,{signal});
+  const domain=namespaceStoryReadDomain(observer),key=canonicalJson([publication,binding]),cached=scope.entries.find(row=>row.key===key&&row.domain===domain);
+  if(cached){const value=await cached.pending;cancelled();if(proofTraversals.get(policyTraversal)!==scope)throw error('The Code proof traversal expired.','ENGINE_CONTEXT_CHANGED');return reader.reuse(publication,value);}
+  if(scope.entries.length>=32)return reader.verify(publication,binding,{signal});
+  const entry={domain,key,pending:reader.verify(publication,binding,{signal})};scope.entries.push(entry);
+  try{const value=await entry.pending,proof=evidenceProofs.get(value);cancelled();
+    if(proofTraversals.get(policyTraversal)!==scope)throw error('The Code proof traversal expired.','ENGINE_CONTEXT_CHANGED');
+    if(!proof)throw error('Code reuse needs its actual verified policy proof.','ENGINE_PORT_RESULT_INVALID');
+    if(scope.bytes+proof.bytes>8*1024*1024){entry.key=null;entry.pending=null;}else scope.bytes+=proof.bytes;
+    return value;
+  }catch(cause){entry.key=null;entry.pending=null;throw cause;}
+}
 function reportValue(value){
   try{admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.codeReport,value);
     exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance']);
@@ -54,9 +77,9 @@ async function observedClaimMap(planned,delivery,publication,policy,repositoryId
 export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   const bindings=observer.evidenceReads;if(!bindings)missing('source-evidence-read-bindings');
   const sources=createNamespaceSourceRetentionReader({...bindings,observer}),verified=new WeakMap();
-  function withReaders(read){return observer.withReadScope(scoped=>{const options={...bindings,observer:scoped};return read({observer:scoped,
+  function withReaders(read){return observer.withReadScope(scoped=>{const options={...bindings,observer:scoped},scopedChecks=createNamespacePhaseCheckReader(options);return read({observer:scoped,checks:scopedChecks,
     sources:createNamespaceSourceRetentionReader(options),baseline:createNamespaceSourceBaselineReader(options),controls:createNamespaceSourceControlReader(options),
-    plans:createNamespaceSpecificationReader({observer:scoped,scope,workId,checks}),current:createNamespaceCodePreflightReader(options),retained:createNamespaceRetainedCodePreflightReader(options)});});}
+    plans:createNamespaceSpecificationReader({observer:scoped,scope,workId,checks:scopedChecks}),current:createNamespaceCodePreflightReader(options),retained:createNamespaceRetainedCodePreflightReader(options)});});}
   const identity=publication=>({phaseId:publication.phase,generation:publication.generation,baseRevision:publication.baseRevision,
     draft:{workId,phase:publication.phase,revision:publication.draft.revision,bodySha256:publication.draft.sha256},configuration:publication.configuration,
     artifact:{...publication.artifact.content,namespace:'local'}});
@@ -74,7 +97,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   }
   async function json(reference,signal){const data=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}catch(cause){throw error('Code policy evidence is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',null,cause);}}
-  async function candidateFor(publication,snapshot,{signal,bound=null}={}, {observer,sources,controls,plans,current,retained}){
+  async function candidateFor(publication,snapshot,{signal,bound=null}={}, {observer,sources,controls,plans,current,retained,checks}){
     const workflow=snapshot.workflow,phase=workflow.phases[publication.phase],policy=codePublicationPolicy(workflow,phase);
     if(!policy)missing('code-publication-policy');
     const selected=identity(publication);
@@ -139,10 +162,16 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
     const state=await readers.observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
       actual=await candidateFor(publication,{revision:manifest.basis.revision,configuration:manifest.configuration,workflow:state.workflow},{signal,bound:report},readers);
     if(!same(actual.report,report))throw error('The Code report does not replay from its exact accepted source, plan and checks.');
-    const value={binding,manifest,...actual};verified.set(publication,{identity:canonicalJson(publication),value});return value;
+    const value={binding,manifest,...actual},serialized=canonicalJson(value),identity=canonicalJson(publication);
+    evidenceProofs.set(value,{domain:namespaceStoryReadDomain(observer),identity,sha256:hash(serialized),bytes:new TextEncoder().encode(serialized).byteLength});
+    verified.set(publication,{identity,value});return value;
     });
   }
-  function proof(publication){const found=verified.get(publication);return found&&found.identity===canonicalJson(publication)?found.value:null;}
+  function reuse(publication,value){const source=evidenceProofs.get(value),identity=canonicalJson(publication);
+    if(!source||source.domain!==namespaceStoryReadDomain(observer)||source.identity!==identity||source.sha256!==hash(canonicalJson(value)))throw error('The Code proof changed or belongs to another read owner.','ENGINE_CONTEXT_CHANGED');
+    verified.set(publication,{identity,value});return value;}
+  function proof(publication){const found=verified.get(publication),source=found&&evidenceProofs.get(found.value);
+    return source&&found.identity===canonicalJson(publication)&&source.sha256===hash(canonicalJson(found.value))?found.value:null;}
   function readBindings(value){const p=value.report.preflight;return [...[p.source.result,p.source.index,p.baseline.record,p.baseline.index].map(row=>({namespace:'evidence',key:row.key,version:row.version})),value.report.control];}
   function evidence(value){const p=value.report.preflight;return [value.binding.record,value.manifest.report,p.source.result.content,p.baseline.record.content,
     p.plan.publication,p.plan.reviewPacket,p.plan.planned,...p.plan.indices.map(row=>row.record),...(p.plan.repositoryPlan?[p.plan.repositoryPlan]:[])];}
@@ -156,5 +185,5 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         'Code source changed after its retained evidence.','ENGINE_SOURCE_CHANGED',{operation:'phase.source.retain',workId,phase:publication.phase});
     }
   }
-  return Object.freeze({sourceBinding,candidate,verify,proof,readBindings,evidence,freshSources});
+  return Object.freeze({sourceBinding,candidate,verify,reuse,proof,readBindings,evidence,freshSources});
 }

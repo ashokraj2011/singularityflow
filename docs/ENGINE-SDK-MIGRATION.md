@@ -71,11 +71,23 @@ The [initial namespace Code publication profile](ENGINE-SDK-NAMESPACE-CODE-PUBLI
 connects accepted source archives, approved claims and actual pinned test occurrences to registered
 publication, submission and independent human approval. Its versioned Code policy report is
 recomputed from shared records, including the original transaction's source/baseline read conditions.
-Repository-qualified evidence stays separate. History, other acceptance contracts, downstream Code
-inputs and the remaining production policy owners remain required; Phases 5, 7, 8 and 9 stay open.
+Repository-qualified evidence stays separate. Artifact-only verification and review now carry
+those approved Code proofs through a separate versioned input policy, with actual source admission,
+original test attribution and readable authoring/review resources. A pinned test producer remains
+required with ordinary inputs disabled. Nested proof readers share bounded immutable facts for one
+awaited traversal; mutable records, live sources and final authority remain fresh. History, other
+acceptance contracts, conformance and remaining production owners keep Phases 5, 7, 8 and 9 open.
 Mac qualification passed 232 distinct affected cases, including 33 installed-SDK checks. Source
 validation, VS Code types, Git ownership and all 13 unchanged runtime bundle ceilings passed.
 No installed project was migrated and no Windows or live-provider run was started.
+
+The downstream Code-input follow-up passed 356 distinct affected Mac checks, including the actual
+four-phase installed-package journey and shared-only replay. Core journeys passed on filesystem,
+SQLite and application stores; the final consumer rerun also verifies takeover, source races,
+tampering and usable recovery without the old checkout. Source validation passed 4,041 checks;
+types, the unchanged Git audit and all 13 original bundle ceilings passed. The gateway remains
+852/852. Package parent/child deadlines remain 120/60 seconds. These are explicit supported
+profiles; conformance, history/rework, other production owners and Phases 5, 7, 8 and 9 stay open.
 
 The [namespace Code preflight bridge](ENGINE-SDK-NAMESPACE-CODE-PREFLIGHT.md) supplies accepted
 original/current source facts and approved claims to the existing shared candidate rules. Git

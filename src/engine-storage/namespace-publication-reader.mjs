@@ -15,7 +15,7 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
   const bytes=observer.bytes.bind(observer);
   const specifications=createNamespaceSpecificationReader({observer,scope,workId,checks});
   const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks});
-  async function read(binding,phaseId,{signal,specificationTraversal}={}) {
+  async function read(binding,phaseId,{signal,specificationTraversal,policyTraversal}={}) {
     phasePublicationBindingValue(binding);
     let value;try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(binding.record,binding.record.bytes,signal)));}
     catch(cause){if(cause.code)throw cause;throw error('The publication record is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',cause);}
@@ -31,7 +31,7 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
       await checks.publication(publication,{signal});
     }
     await specifications.verify(publication,{signal,specificationTraversal});
-    await policies.verify(publication,{signal});
+    await policies.verify(publication,{signal,policyTraversal});
     return publication;
   }
   async function accepted(binding,phaseId,options={}) {

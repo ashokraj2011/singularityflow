@@ -41,6 +41,11 @@ and acknowledge retained effects, including publication without the old private 
 write authority share the same explicit binding. Construction performs no I/O or enrollment.
 An initial Code publication profile also binds real source archives and pinned test occurrences to
 publish/submit/approve; see `docs/ENGINE-SDK-NAMESPACE-CODE-PUBLICATION.md` in the source repository.
+Artifact-only verification/review phases can carry its approved source and test evidence through
+`approved-code-inputs/v1`. A pinned `testEvidenceFrom` stays a required dependency with ordinary
+inputs disabled. Original runs remain attributed to their producer; a new consumer publication
+compares actual source inventories before acceptance. Its report is readable through issued
+authoring and review resource handles, including on another device.
 It does not cover every application workflow or acceptance contract. Additional production policy
 owners and installed-project migration remain required work.
 

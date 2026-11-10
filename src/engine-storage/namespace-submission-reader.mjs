@@ -6,6 +6,7 @@ import {createNamespacePublicationReader} from './namespace-publication-reader.m
 import {createNamespaceApprovalReader} from './namespace-approval-reader.mjs';
 import {assertSubmittedRoutingSelection} from '../kernel/submission-routing.mjs';
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
+import {withCodePolicyTraversal} from './namespace-code-policy.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
 
@@ -43,7 +44,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     const submitted=accepted.state.workflow.phases[phaseId];
     if(submitted?.generation!==value.generation||submitted.status!=='awaiting_approval'||!same(submitted.namespaceSubmission,binding)
       ||submitted.submittedAt!==value.submittedAt)throw error('The accepted submission lost its exact review binding.','ENGINE_STORAGE_CORRUPT');
-    const published=await publication(value,{signal,snapshot,cache:cache.receipts,specificationTraversal:cache.specificationTraversal});
+    const published=await publication(value,{signal,snapshot,cache:cache.receipts,specificationTraversal:cache.specificationTraversal,policyTraversal:cache.policyTraversal});
     if(value.checks&&(!checks.readBindings(value.checks).every(row=>accepted.plan.readBindings?.some(item=>same(item,row)))
       ||!accepted.plan.evidence.some(ref=>same(ref,value.checks.result.content))))throw error(
       'The submission did not conditionally retain its checked publication.','ENGINE_STORAGE_CORRUPT');
@@ -73,23 +74,22 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
   }
   async function approved(snapshot,phaseId,signal,cache) {
     const proof=await inspectCached(snapshot,phaseId,signal,cache);if(!proof)return null;
-    if(!cache.approvals.has(phaseId))cache.approvals.set(phaseId,votes.activeAccepted(snapshot,phaseId,proof,{signal,cache:cache.receipts}));
+    if(!cache.approvals.has(phaseId))cache.approvals.set(phaseId,votes.activeAccepted(snapshot,phaseId,proof,{signal,cache:cache.receipts,policyTraversal:cache.policyTraversal}));
     const active=await cache.approvals.get(phaseId);
     if(snapshot.workflow.phases[phaseId].status!=='approved'||active.votes.at(-1)?.value.thresholdReached!==true) {
       throw error('A reused decision input has no retained human approval threshold.','ENGINE_STORAGE_CORRUPT');
     }
     return proof;
   }
-  const traversal=specificationTraversal=>({packets:new Map(),approvals:new Map(),receipts:{},specificationTraversal});
-  async function inspect(snapshot,phaseId,{signal}={}) {return inspectCached(snapshot,phaseId,signal,traversal());}
-  async function context(snapshot,phaseId,{signal}={}) {
-    const cache=traversal(),proof=await inspectCached(snapshot,phaseId,signal,cache);
-    return {proof,sources:proof?(await Promise.all([...cache.packets.values()])).filter(item=>item&&item!==proof):[]};
+  const traversal=(specificationTraversal,policyTraversal)=>({packets:new Map(),approvals:new Map(),receipts:{},specificationTraversal,policyTraversal});
+  async function inspect(snapshot,phaseId,{signal,policyTraversal}={}) {return withCodePolicyTraversal(policyTraversal,token=>inspectCached(snapshot,phaseId,signal,traversal(undefined,token)));}
+  async function context(snapshot,phaseId,{signal,policyTraversal}={}) {
+    return withCodePolicyTraversal(policyTraversal,async token=>{const cache=traversal(undefined,token),proof=await inspectCached(snapshot,phaseId,signal,cache);
+      return {proof,sources:proof?(await Promise.all([...cache.packets.values()])).filter(item=>item&&item!==proof):[]};});
   }
-  async function inspectApprovedMany(snapshot,phaseIds,{signal,specificationTraversal}={}) {
-    const cache=traversal(specificationTraversal),result=[];
-    for(const phaseId of phaseIds)result.push(await approved(snapshot,phaseId,signal,cache));
-    return result;
+  async function inspectApprovedMany(snapshot,phaseIds,{signal,specificationTraversal,policyTraversal}={}) {
+    return withCodePolicyTraversal(policyTraversal,async token=>{const cache=traversal(specificationTraversal,token),result=[];
+      for(const phaseId of phaseIds)result.push(await approved(snapshot,phaseId,signal,cache));return result;});
   }
   async function verifyRouting(snapshot,phaseId,value,{signal}={}) {
     namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId});
@@ -102,5 +102,5 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
   return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review,
     publicationOwners:value=>[...publications.specifications.owners(value),...publications.policies.owners(value)],
     publicationChecklist:publications.policies.checklist,publicationPolicyEvidence:publications.policies.evidence,
-    publicationResources:publications.policies.resources});
+    publicationResources:publications.policies.resources,publicationCodeEvidence:publications.policies.codeEvidence});
 }

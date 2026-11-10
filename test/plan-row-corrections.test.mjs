@@ -5,6 +5,7 @@ import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { normalizeClaimMap } from '../src/specifications.mjs';
 import { applyPlanCorrections, planRowCorrections, recordPlanRowCorrection } from '../src/plan-row-corrections.mjs';
+import { amendmentPlanCorrection } from '../src/amendment-plan-corrections.mjs';
 import { planClauseGaps } from '../src/plan-clause-gaps.mjs';
 import { planCorrectionOperations } from '../src/commands/plan-correction.mjs';
 
@@ -234,4 +235,41 @@ test('[PHR:REQ-002] finding 15: a plan\'s parting from the amended clauses is na
   const fresh = subject();
   assert.throws(() => correct(fresh.workflow, fresh.record, [{ op: 'remove-row', clauseId: AC2 }]),
     (error) => error.code === 'PLAN_ROW_CORRECTION_INVALID' && /still an approved clause/u.test(error.message));
+});
+
+test('[PHR:REQ-008] owner decision 4: the rows an intent amendment carries are in force once it is approved, never before', () => {
+  const { record, workflow } = subject();
+  // The rows as the proposal carried them, proved against the plan the way decision plan proves its own.
+  const carried = correct(structuredClone(workflow), record, [{ op: 'add-row', clauseId: AC3, expectedPaths: ['src/format.mjs'],
+    tests: ['test/format.test.mjs'], fulfillment: 'new' }]);
+  const sign = (overrides = {}) => amendmentPlanCorrection(workflow, { carried: { ownerPhase: 'planning', ownerGeneration: 1,
+    ownerMapSha256: carried.ownerMapSha256, operations: carried.operations, ...overrides },
+  reason: 'Intent amendment AMD-001: each read shows the value once.', actor: 'lead@example.test', authorityGroup: 'plan-reviewers',
+  at: '2026-10-12T02:00:00.000Z', intentAmendment: 'AMD-001' });
+  const row = sign();
+  assert.deepEqual([row.id, row.reviewAssurance, row.authorizationId, row.intentAmendment], ['PRC-001', 'intent-amendment-decision', null, 'AMD-001']);
+  workflow.planAmendments = [row];
+  workflow.intentAmendments = [{ id: 'AMD-001', status: 'proposed' }];
+  assert.equal(applyPlanCorrections(record, workflow).claims[AC3], undefined, 'not before the amendment is approved');
+  assert.deepEqual(planRowCorrections(workflow), []);
+  workflow.intentAmendments[0].status = 'approved';
+  assert.deepEqual(applyPlanCorrections(record, workflow).claims[AC3].expectedPaths, ['src/format.mjs']);
+  assert.deepEqual(planRowCorrections(workflow).map((entry) => entry.id), ['PRC-001']);
+  workflow.intentAmendments[0].status = 'rejected';
+  assert.equal(applyPlanCorrections(record, workflow).claims[AC3], undefined, 'a rejected amendment carries nothing');
+  // An amendment carries only rows it adds or removes; any other correction is decision plan's, reviewed in a terminal.
+  assert.throws(() => sign({ operations: [{ op: 'add-test', clauseId: AC1, test: 'test/more.test.mjs', previousClaimSha256: recordSha256(record.claims[AC1]) }] }),
+    { code: 'PLAN_ROW_CORRECTION_INVALID' });
+  assert.throws(() => correct(subject().workflow, record, [{ op: 'add-test', clauseId: AC1, test: 'test/more.test.mjs' }], { authorizationId: null }),
+    { code: 'PLAN_ROW_CORRECTION_INVALID' }, 'a terminal-reviewed correction keeps its authorization');
+});
+
+test('[PHR:REQ-008] several new rows each name their tests with --test <clause>=<test>', () => {
+  assert.deepEqual(planCorrectionOperations({ 'add-row': [`${AC2}=src/a.mjs`, `${AC3}=src/b.mjs`], test: [`${AC2}=test/a.test.mjs`, `${AC3}=test/b.test.mjs`] })
+    .map((operation) => [operation.clauseId, operation.expectedPaths, operation.tests]),
+  [[AC2, ['src/a.mjs'], ['test/a.test.mjs']], [AC3, ['src/b.mjs'], ['test/b.test.mjs']]]);
+  assert.throws(() => planCorrectionOperations({ 'add-row': [`${AC2}=src/a.mjs`, `${AC3}=src/b.mjs`], test: [`${AC1}=test/a.test.mjs`] }),
+    { code: 'PLAN_ROW_CORRECTION_INVALID' }, 'a test for a row this command does not add');
+  // One row keeps its plain --test, as before.
+  assert.deepEqual(planCorrectionOperations({ 'add-row': `${AC3}=src/b.mjs`, test: 'test/b.test.mjs' })[0].tests, ['test/b.test.mjs']);
 });

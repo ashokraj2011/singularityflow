@@ -2126,17 +2126,21 @@ async function proposeIntentAmendment(root, config, workflow, options) {
   }
   // Validate the pinned content and planned-clause contracts before recording any proposal.
   await assertAmendedScopeContent(root, config, workflow, specification, proposedText, afterClauses.map((clause) => clause.id));
-  // A separate approved plan that would part from the amended clauses is named now, with its approvers'
-  // corrections; approving the amendment runs that plan again [PHR:REQ-002, finding 15]. It informs only.
-  const planGaps = await (await import('../state.mjs')).separatePlanGaps(root, config, workflow, afterClauses.map((clause) => clause.id));
+  // The amendment made any gap between a separate approved plan and the amended clauses, so it carries the
+  // plan's rows itself, for the plan's approvers to sign when they decide it; the plan keeps its approval.
+  // One that would leave a gap is refused here, naming the rows [PHR:REQ-008].
+  const index = (workflow.intentAmendments ?? []).length + 1;
+  const id = `AMD-${String(index).padStart(3, '0')}`;
+  const planRows = await import('../amendment-plan-corrections.mjs');
+  const { corrections: planCorrections, uncovered } = await planRows.carriedPlanCorrections(root, config, workflow,
+    { afterClauses, options, proposalId: id, reason, file: candidate });
+  if (uncovered.length) throw planRows.uncorrectedPlanRefusal(workflow, uncovered, { file: candidate });
   const requiredClauses = intentAmendmentClauses(diff, optionStrings(options, 'clause'));
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
   const radius = intentAmendmentBlastRadius(diff, records);
   // Proposals carry Git identity and exact reviewed bytes. Only the scope's existing authorized
   // human reviewers may decide them; drafting a proposal never grants amendment approval.
   const actor = actionActor(root);
-  const index = (workflow.intentAmendments ?? []).length + 1;
-  const id = `AMD-${String(index).padStart(3, '0')}`;
   const directory = amendmentDirectoryRelative(root, config, workflow);
   const beforePath = posix(path.join(directory, `${id}-before.md`));
   const proposedPath = posix(path.join(directory, `${id}-proposed.md`));
@@ -2186,6 +2190,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     requiredClauses,
     diff,
     radius,
+    ...(planCorrections.length ? { planCorrections } : {}),
     decisions: []
   };
   const proposal = { ...core, proposalSha256: proposalDigest(core), recordPath };
@@ -2201,6 +2206,9 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     findingIds: proposal.convergence?.findingIds ?? [],
     affectedClaims: radius.totals.affected,
     acknowledgementRequired: false,
+    ...(planCorrections.length ? { planCorrections: planCorrections.map((entry) => ({ ownerPhase: entry.ownerPhase,
+      addsRows: entry.operations.filter((operation) => operation.op === 'add-row').map((operation) => operation.clauseId),
+      removesRows: entry.operations.filter((operation) => operation.op === 'remove-row').map((operation) => operation.clauseId) })) } : {}),
     ...(departure ? { departure } : {})
   };
   const beforeWorkflow = structuredClone(workflow);
@@ -2273,7 +2281,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
       worktreeGuard: exactInputGuard
     }
   );
-  return { proposal, summary, publication, ...(planGaps.length ? { planGaps } : {}) };
+  return { proposal, summary, publication };
 }
 
 /**
@@ -2442,10 +2450,9 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     const result = await proposeIntentAmendment(root, config, workflow, options);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; commit ${result.publication.sha.slice(0, 8)}.`);
-    for (const gap of result.planGaps ?? []) {
-      console.log(`The approved plan of ${gap.phase} ${[gap.unplanned.length ? `has no row for ${gap.unplanned.join(', ')}` : null,
-        gap.removed.length ? `still has rows for ${gap.removed.join(', ')}` : null].filter(Boolean).join(' and ')}; approving this amendment runs ${gap.phase} again, or its approvers correct the plan:`);
-      for (const route of gap.routes) console.log(`  ${route.command}`);
+    for (const carried of result.proposal.planCorrections ?? []) {
+      console.log(`It carries ${carried.ownerPhase}'s rows (${carried.operations.map((operation) => `${operation.op === 'add-row' ? 'adds' : 'removes'} ${operation.clauseId}`).join(', ')}): `
+        + `an approver of ${carried.ownerPhase} signs them by deciding it, and ${carried.ownerPhase} keeps its approval.`);
     }
     printCommandRoutes(
       `singularity-flow story intent-amendment decide ${result.proposal.id} --decision <approve|reject> --confirm ${result.proposal.id}`,
@@ -2465,7 +2472,9 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.transition.reached) {
-      console.log(`Recorded approval for ${proposalId}; ${result.transition.proposal.approvals.reached}/${result.transition.proposal.approvals.required} authority decisions.`);
+      const awaiting = result.transition.proposal.approvals.planSignOffsMissing ?? [];
+      console.log(`Recorded approval for ${proposalId}; ${result.transition.proposal.approvals.reached}/${result.transition.proposal.approvals.required} authority decisions`
+        + `${awaiting.length ? `; an approver of ${awaiting.join(', ')} signs the rows it carries by deciding it too` : ''}.`);
       return;
     }
     if (!result.transition.applied) {

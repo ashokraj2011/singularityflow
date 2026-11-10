@@ -46,11 +46,17 @@ export const PlanRowCorrectionSchema = z.strictObject({
   operations: z.array(Operation).min(1).max(MAX_OPERATIONS),
   reason: z.string().trim().min(20).max(1000),
   actor: z.string().min(1), authorityGroup: z.string().min(1), identityAssurance: z.string().nullable(),
-  authorizationId: z.string().uuid(), reviewAssurance: z.literal('live-terminal-exact-plan-review'),
+  // A row an intent amendment carries is signed in its approver's decision on that amendment, not in a
+  // decision plan terminal review, and is in force once the amendment is approved [PHR:REQ-008].
+  authorizationId: z.string().uuid().nullable(),
+  reviewAssurance: z.enum(['live-terminal-exact-plan-review', 'intent-amendment-decision']),
+  intentAmendment: z.string().regex(/^AMD-\d{3,}$/u).optional(),
   at: z.string().datetime(), upstreamIssue: z.string().regex(/^UPI-\d{3,}$/u).nullable(),
   // SF Guard: the person's presence signature, or the exception it went ahead under (person-records.mjs).
   presence: z.record(z.string(), z.unknown()).optional(),
-});
+}).refine((value) => (value.reviewAssurance === 'intent-amendment-decision'
+  ? Boolean(value.intentAmendment) && value.authorizationId === null && value.operations.every((operation) => ['add-row', 'remove-row'].includes(operation.op))
+  : !value.intentAmendment && value.authorizationId !== null), { message: 'a correction is reviewed in a terminal, or carried by an intent amendment' });
 
 function invalid(message, details = undefined) {
   throw new SingularityFlowError(message, { code: 'PLAN_ROW_CORRECTION_INTEGRITY', ...(details ? { details } : {}) });
@@ -260,6 +266,7 @@ function applyRowCorrection(record, workflow, value) {
     invalid(`Plan correction ${correction.id} lacks its owner plan's authority.`, { id: correction.id });
   }
   if (correction.ownerPhase !== record.phase || correction.ownerGeneration !== Number(record.generation)) return record;
+  if (!inForce(workflow, correction)) return record;
   const pointer = workflow.phases?.[record.phase]?.claimMaps?.planned;
   if (!pointer || pointer.sha256 !== correction.ownerMapSha256) {
     invalid(`Plan correction ${correction.id} no longer binds its approved plan.`, { id: correction.id });
@@ -291,5 +298,12 @@ export function applyPlanCorrections(record, workflow, options = {}) {
 /** Corrections in force for a plan generation, for disclosure. */
 export function planRowCorrections(workflow, ownerPhase = null) {
   return countedRecords(workflow, workflow?.planAmendments).filter((entry) => entry?.kind === 'plan-row-correction'
-    && (!ownerPhase || entry.ownerPhase === ownerPhase));
+    && (!ownerPhase || entry.ownerPhase === ownerPhase) && inForce(workflow, entry));
 }
+
+/** A correction an intent amendment carries is in force once that amendment is approved, never before. */
+function inForce(workflow, correction) {
+  return !correction.intentAmendment
+    || (workflow?.intentAmendments ?? []).some((entry) => entry?.id === correction.intentAmendment && entry.status === 'approved');
+}
+

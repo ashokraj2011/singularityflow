@@ -522,7 +522,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // perform and repair it, which then holds it (person-step-catalog.mjs +481, owed-decisions.mjs +385, witness-records.mjs
     // +273, state.mjs +199, command-registry.mjs +17); the deferral itself stays lazy (witness-deferrals.mjs) [PHR:REQ-007].
     // No new eager file.
-    assert.ok(closure.bytes <= 9_670_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,673,850 (measured 9,673,806, commands/phase-lifecycle.mjs): an intent amendment carries the rows a separate plan
+    // needs, signed by the plan's approvers in their decision on it, and the plan keeps its approval (state.mjs +2285,
+    // plan-row-corrections.mjs +1096, phase-retention.mjs +169); proposing, proving and recording them stays lazy
+    // (amendment-plan-corrections.mjs) [PHR:REQ-008]. No new eager file.
+    assert.ok(closure.bytes <= 9_673_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -759,7 +763,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,190,300 (measured 4,190,259): a plan row upheld against the approved intent (verification/intent.mjs +265,
   // specifications.mjs +52) [PHR:REQ-003].
   // 4,190,800 (measured 4,190,757): the witness-deferral person step (person-step-catalog.mjs +481, command-registry.mjs +17) [PHR:REQ-007].
-  assert.ok(current.bytes <= 4_190_800, `session current loads ${current.bytes} source bytes`);
+  // 4,191,900 (measured 4,191,853): a plan row an intent amendment carries is in force once it is approved
+  // (plan-row-corrections.mjs +1096) [PHR:REQ-008].
+  assert.ok(current.bytes <= 4_191_900, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

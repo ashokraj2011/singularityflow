@@ -25,6 +25,8 @@ function refused(message, details = undefined) {
   throw new SingularityFlowError(message, { code: 'PLAN_ROW_CORRECTION_INVALID', ...(details ? { details } : {}) });
 }
 
+const ROW_TEST = /^([A-Za-z0-9][A-Za-z0-9._-]{0,63}:[A-Za-z]{2,4}-\d{3})=(.+)$/u;
+
 function list(value) {
   return String(value ?? '').split(',').map((entry) => entry.trim()).filter(Boolean);
 }
@@ -42,17 +44,25 @@ export function planCorrectionRequested(options) {
 /** The operations named on the command line, in the order the flags list them. */
 export function planCorrectionOperations(options) {
   const rows = optionStrings(options, 'add-row');
-  const rowFields = { tests: optionStrings(options, 'test').flatMap(list), fulfillment: optionString(options, 'fulfillment'),
+  const tests = optionStrings(options, 'test').flatMap(list);
+  // With several new rows, each test names its row: --test <clause>=<test> (an intent amendment that adds
+  // several clauses carries a row for each [PHR:REQ-008]).
+  const named = tests.map((entry) => ROW_TEST.exec(entry));
+  const byRow = rows.length > 1 && tests.length > 0 && named.every(Boolean);
+  const rowFields = { tests: byRow ? [] : tests, fulfillment: optionString(options, 'fulfillment'),
     steps: list(optionString(options, 'steps')), observableResult: optionString(options, 'observable-result') };
   const usesRowFields = rowFields.tests.length || rowFields.fulfillment || rowFields.steps.length || rowFields.observableResult;
   if (usesRowFields && rows.length !== 1) {
-    refused('--test, --fulfillment, --steps and --observable-result describe one new row; name exactly one --add-row.');
+    refused('--test, --fulfillment, --steps and --observable-result describe one new row; name exactly one --add-row, or give each new row its tests with --test <clause>=<test>.');
+  }
+  const added = rows.map((entry) => (String(entry).includes('=') ? pair(entry, '--add-row') : [String(entry).trim(), '']));
+  if (byRow) {
+    const unknown = named.filter((match) => !added.some(([clauseId]) => clauseId.toUpperCase() === match[1].toUpperCase()));
+    if (unknown.length) refused(`--test ${unknown[0][0]} names no row this command adds.`);
   }
   return [
-    ...rows.map((entry) => {
-      const [clauseId, paths] = String(entry).includes('=') ? pair(entry, '--add-row') : [String(entry).trim(), ''];
-      return { op: 'add-row', clauseId, expectedPaths: list(paths), ...rowFields };
-    }),
+    ...added.map(([clauseId, paths]) => ({ op: 'add-row', clauseId, expectedPaths: list(paths), ...rowFields,
+      ...(byRow ? { tests: named.filter((match) => match[1].toUpperCase() === clauseId.toUpperCase()).map((match) => match[2]) } : {}) })),
     // A row for a clause the specification no longer holds, after an intent amendment [PHR:REQ-002].
     ...optionStrings(options, 'remove-row').map((entry) => ({ op: 'remove-row', clauseId: String(entry).trim() })),
     // Before tests and paths, so they correct the row as the new fulfillment reads it.

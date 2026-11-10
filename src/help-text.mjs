@@ -1122,7 +1122,11 @@ Usage:
     [--authored human|governed-agent|external-tool] [--channel CHANNEL]
     [--external-ai none|assisted] [--change-origin ORIGIN...]
     [--source-phase CURRENT-PHASE] [--clause ID]... (optional exact list; otherwise computed)
+    [--add-row CLAUSE=PATH[,PATH] [--test TEST | --test CLAUSE=TEST]...] [--remove-row CLAUSE]...
     Available in every workflow after scope approval; no convergence finding or rework loop required.
+    A separate approved plan the amendment would leave without a row for a clause it adds, or with one for a
+    clause it removes, gets that row from the amendment itself (--add-row, --remove-row): the plan's approvers
+    sign it by deciding the amendment, and the plan keeps its approval.
   singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
   singularity-flow story intent-amendment acknowledge [AMD-ID]
   singularity-flow story skill-version status [--work-id ID] [--json]

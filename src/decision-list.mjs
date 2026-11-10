@@ -689,10 +689,14 @@ function intentAmendmentItem(workflow, context, amendment) {
   }
   const scope = context.facts.scopePhase ?? null;
   const decide = (decision) => `singularity-flow story intent-amendment decide ${amendment.id} --decision ${decision} --confirm ${amendment.id} --work-id ${workId}`;
+  // The rows it carries for a separate plan: that plan's approvers sign them by deciding it, and the plan keeps its approval [PHR:REQ-008].
+  const plans = (amendment.planCorrections ?? []).map((entry) => entry.ownerPhase);
+  const carries = plans.length ? ` It carries the rows ${listWords(plans.map((id) => stepName(workflow, id)))} needs for the clauses it adds or removes: `
+    + `an approver of ${listWords(plans.map((id) => stepName(workflow, id)))} signs them by deciding it, and ${plans.length === 1 ? 'that plan keeps its' : 'those plans keep their'} approval.` : '';
   return stepItem(workflow, context, {
     kind: 'intent-amendment', title: `Decide intent amendment ${amendment.id}`,
-    why: `${amendment.id} proposes changing ${clauses}. Rejecting it keeps every submission as it is; approving it changes the approved clauses, so the steps that cite them reopen.`,
-    groups: scope ? approvers(workflow, scope) : [],
+    why: `${amendment.id} proposes changing ${clauses}. Rejecting it keeps every submission as it is; approving it changes the approved clauses, so the steps that cite them reopen.${carries}`,
+    groups: [...new Set([...(scope ? approvers(workflow, scope) : []), ...plans.flatMap((id) => approvers(workflow, id))])],
     options: [
       { id: 'reject', label: `Reject ${amendment.id}`, command: decide('reject'), words: 'Decided in your own terminal; an agent cannot decide it.' },
       { id: 'approve', label: `Approve ${amendment.id}`, command: decide('approve'), words: 'Decided in your own terminal; an agent cannot decide it.' }

@@ -91,6 +91,8 @@ const FAMILIES = Object.freeze([
     'plan-base-paths.mjs',
     // Where an approved plan and the amended clauses part, read at an amendment and its revalidation [PHR:REQ-002].
     'plan-clause-gaps.mjs',
+    // The plan rows an intent amendment carries, read where it is proposed and decided [PHR:REQ-008].
+    'amendment-plan-corrections.mjs',
     // A criterion's own failing test, named with its repair at a code step's test runs [PHR:REQ-002].
     'criterion-test-failures.mjs',
     // A person's deferral of a sign-off to a later step that can perform and repair it [PHR:REQ-007].

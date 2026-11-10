@@ -1152,8 +1152,9 @@
           "actor": { "type": "string", "minLength": 1 },
           "authorityGroup": { "type": "string", "minLength": 1 },
           "identityAssurance": { "type": ["string", "null"] },
-          "authorizationId": { "type": "string", "format": "uuid" },
-          "reviewAssurance": { "const": "live-terminal-exact-plan-review" },
+          "authorizationId": { "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+          "reviewAssurance": { "enum": ["live-terminal-exact-plan-review", "intent-amendment-decision"] },
+          "intentAmendment": { "type": "string", "pattern": "^AMD-[0-9]{3,}$", "description": "The intent amendment that carried these rows, signed in its plan approver's decision on it; in force once it is approved." },
           "at": { "type": "string", "format": "date-time" },
           "upstreamIssue": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^UPI-[0-9]{3,}$" }] }
         },

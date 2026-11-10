@@ -8569,19 +8569,29 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     );
   }
   const decisions = [...(proposal.decisions ?? [])];
-  const authority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    specification.approvalPolicy,
-    actor,
-    { preferredAuthorities: decision === 'approve'
-      ? remainingRequiredAuthorities(specification.approvalPolicy, decisions) : [] }
-  );
+  const authorities = workflow.resolution.approvalAuthorities ?? config.approvalAuthorities;
+  // The rows an amendment carries for a separate plan are signed by an approver of that plan, in their own
+  // decision on the amendment [PHR:REQ-008]. One who approves only the plan signs them and is no approver
+  // of the scope: their decision does not count toward the scope's approval.
+  const carried = decision === 'approve' && (proposal.planCorrections ?? []).length ? await import('./amendment-plan-corrections.mjs') : null;
+  const planSigning = carried ? carried.planSigners(workflow, proposal, actor, authorities) : [];
+  const scopeDecisions = decisions.filter((entry) => entry.scope !== 'plan-correction');
+  let planOnly = false;
+  let authority;
+  try {
+    authority = requireApprovalAuthority(authorities, specification.approvalPolicy, actor,
+      { preferredAuthorities: decision === 'approve' ? remainingRequiredAuthorities(specification.approvalPolicy, scopeDecisions) : [] });
+  } catch (error) {
+    if (!planSigning.length) throw error;
+    planOnly = true;
+    authority = planSigning[0].authority;
+  }
   const key = actorKey(actor);
   if (decision === 'approve' && decisions.some((entry) => sameApprover(entry.actor, actor))) {
     throw new SingularityFlowError(`${key} already decided intent amendment ${proposal.id}; decisions require distinct identities.`);
   }
   const selfApproval = sameApprover(proposal.proposedBy ?? {}, actor);
-  if (decision === 'approve' && selfApproval && specification.approvalPolicy.allowSelfApproval === false) {
+  if (decision === 'approve' && selfApproval && !planOnly && specification.approvalPolicy.allowSelfApproval === false) {
     throw new SingularityFlowError(
       `Specification policy prohibits the proposer from approving intent amendment '${proposal.id}'. Ask another authorized Git identity.`
     );
@@ -8600,11 +8610,17 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     channel,
     reason: reason?.trim() || null,
     selfApproval,
+    ...(planOnly ? { scope: 'plan-correction' } : {}),
     ...(actionContext ? { actionContext } : {})
   };
-  // SF Guard: on a Story it requires, this decision is the approver's signed step (SPEC-PSS-v1 §10.12).
+  // Each approver's decision proves the carried rows against the plans as they are now, then records the ones it signs.
+  const planRecords = carried ? await carried.recordCarriedRows(root, config, workflow, proposal, recorded,
+    { signing: planSigning, specification, candidate: amendmentCandidate, actor: key, agent, at }) : [];
+  // SF Guard: on a Story it requires, this decision is the approver's signed step (SPEC-PSS-v1 §10.12),
+  // and so are the plan rows it signs.
   await (await import('./presence/person-steps.mjs')).signPersonRecords(root, workflow,
-    [{ label: 'Intent amendment decision', action: 'decision.intent-amendment', record: recorded }]);
+    [{ label: 'Intent amendment decision', action: 'decision.intent-amendment', record: recorded },
+      ...planRecords.map((record) => ({ label: `Plan rows for ${record.ownerPhase}`, action: 'decision.intent-amendment', record }))]);
   const recordedDecisionSha256 = createHash('sha256').update(canonicalJson(recorded)).digest('hex');
   decisions.push(recorded);
   proposal.decisions = decisions;
@@ -8630,12 +8646,14 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     };
   }
 
-  const approvals = decisions.filter((entry) => entry.decision === 'approved');
+  const approvals = decisions.filter((entry) => entry.decision === 'approved' && entry.scope !== 'plan-correction');
   const minimum = specification.approvalPolicy.minimum ?? 1;
+  const planSignOffsMissing = carried ? carried.unsignedPlanCorrections(workflow, proposal).map((entry) => entry.ownerPhase) : [];
   proposal.approvals = { reached: approvals.length, required: minimum,
-    missingAuthorities: remainingRequiredAuthorities(specification.approvalPolicy, approvals) };
+    missingAuthorities: remainingRequiredAuthorities(specification.approvalPolicy, approvals),
+    ...((proposal.planCorrections ?? []).length ? { planSignOffsMissing } : {}) };
   Object.assign(summary, { approvals: proposal.approvals });
-  if (!approvalRequirementsMet(specification.approvalPolicy, approvals)) {
+  if (!approvalRequirementsMet(specification.approvalPolicy, approvals) || planSignOffsMissing.length) {
     proposal.status = 'proposed';
     await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
     return {
@@ -8654,8 +8672,14 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   const settles = await differenceAmendmentReport(root, config, workflow, proposal);
   // Rule E8: the approved steps after the scope step whose approvals this amendment cannot touch,
   // checked against everything they decided over before anything below changes it.
-  const retentionCandidates = settles ? new Set() : await amendmentRetentionCandidates(root, config, workflow, specification,
-    { addsClauses: (proposal.diff?.added ?? []).length > 0 });
+  const carriedRows = new Map((proposal.planCorrections ?? []).map((entry) =>
+    [entry.ownerPhase, new Set(entry.operations.map((operation) => String(operation.clauseId).toUpperCase()))]));
+  // Read as the plans' approvals decided over it: the rows this amendment carries are their approvers' own
+  // decision on it, not a change behind their approval (a list this amendment started was not there then).
+  const decidedOver = (workflow.planAmendments ?? []).filter((entry) => entry?.intentAmendment !== proposal.id);
+  const retentionCandidates = settles ? new Set() : await amendmentRetentionCandidates(root, config,
+    { ...workflow, planAmendments: decidedOver.length ? decidedOver : undefined }, specification,
+    { addsClauses: (proposal.diff?.added ?? []).length > 0, correctedPlans: new Set(carriedRows.keys()) });
   const { specificationPath, specificationFile, proposedText, proposedSnapshot, amendmentAuthorship } = amendmentCandidate;
   await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
   const priorGeneration = Number(specification.generation ?? 0);
@@ -8845,17 +8869,17 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   for (let index = nextIndex; index < workflow.phaseOrder.length; index += 1) {
     const phase = workflow.phases[workflow.phaseOrder[index]];
     let directlyAffected = isConvergencePhase(phase)
-      || (phaseRequiresCodeDelivery(phase) && Number(proposal.radius?.totals?.affected ?? 0) > 0)
-      // A separate plan that would no longer plan every clause the amended specification holds runs again,
-      // never kept by rule E8 for a code step to meet the gap [PHR:REQ-002, finding 15].
-      || (await separatePlanGaps(root, config, workflow, currentClauses.map((clause) => clause.id), { phases: [phase.id] })).length > 0;
+      || (phaseRequiresCodeDelivery(phase) && Number(proposal.radius?.totals?.affected ?? 0) > 0);
+    // A plan cites a clause the amendment adds or removes only through the row the amendment carries for it,
+    // signed by the plan's approvers: the plan keeps its approval [PHR:REQ-008].
+    const rowsCarried = carriedRows.get(phase.id) ?? new Set();
     for (const artifact of phase.artifacts ?? []) {
       let affected = evidencePaths.has(posix(artifact.path));
       if (!affected) {
         const artifactFile = path.join(root, artifact.path);
         if (existsSync(artifactFile)) {
           const text = await readFile(artifactFile, 'utf8').catch(() => '');
-          affected = clauseReferences(text).some((clauseId) => cited.has(clauseId));
+          affected = clauseReferences(text).some((clauseId) => cited.has(clauseId) && !rowsCarried.has(String(clauseId).toUpperCase()));
         }
       }
       // A step the rows revalidate keeps its records exactly as reviewed: its row is what says it still holds.

@@ -86,9 +86,10 @@ function retain(workflow, phase, approvals, { at, actor, agent, upstream, rule =
  * an intent amendment changes anything, so the amendment is the only change they would see; it then
  * keeps those whose artifacts cite none of its clauses. Code steps, and steps that feed or follow a
  * decision or run a skill, always run again; so does a step that plans when the amendment adds a
- * clause, since a new clause cites nothing yet and still has to be planned.
+ * clause, since a new clause cites nothing yet and still has to be planned, unless the amendment carries
+ * that plan's rows, signed by its approvers (`correctedPlans`) [PHR:REQ-008].
  */
-export async function amendmentRetentionCandidates(root, config, workflow, specification, { addsClauses = false } = {}) {
+export async function amendmentRetentionCandidates(root, config, workflow, specification, { addsClauses = false, correctedPlans = new Set() } = {}) {
   const counts = await presenceCountsOf(root, workflow);
   const order = workflow.phaseOrder ?? [];
   const candidates = new Map();
@@ -97,7 +98,7 @@ export async function amendmentRetentionCandidates(root, config, workflow, speci
     if (phase?.status !== 'approved' || phaseRequiresCodeDelivery(phase)
         || decisionAfter(workflow, phase.id) || decisionFedBy(workflow, phase.id)
         || workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.kind === 'skill'
-        || (addsClauses && stepResponsibilities(workflow, phase.id).includes('plan'))) break;
+        || (addsClauses && stepResponsibilities(workflow, phase.id).includes('plan') && !correctedPlans.has(phase.id))) break;
     const approvals = (phase.approvals ?? []).filter((entry) => entry?.decision === 'approved' && !entry.invalidatedAt
       && Number(entry.generation) === Number(phase.generation) && (!counts || counts(entry)));
     if (!approvals.length || approvals.some((entry) => !entry.upstream?.sha256)

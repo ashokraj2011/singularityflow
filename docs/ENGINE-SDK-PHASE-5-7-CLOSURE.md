@@ -73,6 +73,10 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   34-check installed qualifier in 34 seconds. Source validation, architecture/schema guards,
   VS Code types, the unchanged Git audit and all 13 original bundle ceilings pass. See
   [the qualification record](ENGINE-SDK-OUTPUT-BUNDLES-AND-WITNESSES.md#mac-qualification).
+- Pure plan-row and evidence-correction values now share structural declarations with native schema
+  APIs. Presence filtering and committed-file verification stay in native adapters. The new plans
+  SDK export and 250 affected Mac checks pass; namespace recording remains separate. See
+  [the boundary record](ENGINE-SDK-PLAN-CORRECTION-VALUES.md).
 
 ## Still required before either phase can be called complete
 

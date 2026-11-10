@@ -11,7 +11,7 @@
  * Both lists are append-only: an issue is never edited, and its decision is a separate record, so
  * each raise or decision is one appended entry. Pure: no I/O.
  */
-import {z} from 'zod';
+import {nativeRecordShape as schema} from './engine-compatibility/node-record-shapes.mjs';
 import {upstreamRecordShapes,upstreamDiscrepancyPolicies} from './kernel/upstream-issues.mjs';
 import { discrepancyItemSha256,NODE_TEXT_DIGESTS } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
@@ -65,16 +65,5 @@ export function decideUpstreamIssue(workflow,input) {
 
 const UPSTREAM_RECORD_SHAPES=upstreamRecordShapes();
 // Compatibility schema APIs are compiled from the same pure structural declarations.
-function schema(rule){
-  let value;
-  if(rule.kind==='string'){value=z.string();if(rule.trim)value=value.trim();if(rule.minimum!=null)value=value.min(rule.minimum);if(rule.maximum!=null)value=value.max(rule.maximum);if(rule.pattern)value=value.regex(new RegExp(rule.pattern,'u'));}
-  else if(rule.kind==='datetime')value=z.string().datetime();
-  else if(rule.kind==='enum')value=z.enum(rule.values);
-  else if(rule.kind==='integer')value=z.number().int().nonnegative();
-  else if(rule.kind==='array')value=z.array(schema(rule.item)).max(rule.maximum);
-  else if(rule.kind==='record')value=z.record(z.string(),z.unknown());
-  else value=z.strictObject(Object.fromEntries(Object.entries(rule.fields).map(([key,field])=>[key,schema(field)])));
-  if(rule.nullable)value=value.nullable();if(rule.optional)value=value.optional();return value;
-}
 export const UpstreamIssueSchema=schema(UPSTREAM_RECORD_SHAPES.issue);
 export const UpstreamIssueDecisionSchema=schema(UPSTREAM_RECORD_SHAPES.decision);

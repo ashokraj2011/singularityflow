@@ -1,3 +1,4 @@
+import {parseRecordShape as parseRecord} from '../foundation/record-shapes.mjs';
 import {textDigestCapability} from '../foundation/record-schema.mjs';
 /** Append-only upstream rules over admitted observations. No discovery, presence registry or wall clock. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
@@ -26,32 +27,6 @@ const decisionFields={issue:regex('^UPI-\\d{3,}$'),outcome:enumeration(UPSTREAM_
   identityAssurance:nullable(string(0)),at:datetime,presence:optional({kind:'record'})};
 function freeze(value){if(value&&typeof value==='object'){for(const entry of Object.values(value))freeze(entry);Object.freeze(value);}return value;}
 return freeze({issue:object(issueFields),decision:object(decisionFields)});
-}
-function parseRecord(shape,input){
-  const issues=[];
-  function visit(rule,value,path){
-    const issue=message=>{issues.push({path,message});return value;};
-    if(value===undefined&&rule.optional)return value;
-    if(value===null&&rule.nullable)return null;
-    if(rule.kind==='string'||rule.kind==='datetime'){
-      if(typeof value!=='string')return issue('Invalid input: expected string, received '+(value===null?'null':typeof value));
-      const text=rule.trim?value.trim():value;
-      if(rule.minimum!=null&&text.length<rule.minimum)return issue('Too small: expected string to have >='+rule.minimum+' characters');
-      if(rule.maximum!=null&&text.length>rule.maximum)return issue('Too big: expected string to have <='+rule.maximum+' characters');
-      if(rule.pattern&&!new RegExp(rule.pattern,'u').test(text))return issue('Invalid string: must match pattern /'+rule.pattern+'/u');
-      if(rule.kind==='datetime'&&(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(text)||!Number.isFinite(Date.parse(text))||new Date(text).toISOString().slice(0,10)!==text.slice(0,10)))return issue('Invalid ISO datetime');
-      return text;
-    }
-    if(rule.kind==='integer'){if(!Number.isSafeInteger(value)||value<rule.minimum)return issue('Invalid input: expected nonnegative integer');return value;}
-    if(rule.kind==='enum'){if(!rule.values.includes(value))return issue('Invalid option: expected one of '+rule.values.map(item=>'"'+item+'"').join('|'));return value;}
-    if(rule.kind==='array'){if(!Array.isArray(value))return issue('Invalid input: expected array');if(value.length>rule.maximum)return issue('Too big: expected array to have <='+rule.maximum+' items');return value.map((item,index)=>visit(rule.item,item,[...path,index]));}
-    if(!value||typeof value!=='object'||Array.isArray(value))return issue('Invalid input: expected object');
-    if(rule.kind==='record')return {...value};
-    const result={};for(const [key,field]of Object.entries(rule.fields)){const parsed=visit(field,value[key],[...path,key]);if(parsed!==undefined||Object.hasOwn(value,key))result[key]=parsed;}
-    const unknown=Object.keys(value).filter(key=>!Object.hasOwn(rule.fields,key));if(unknown.length)issue('Unrecognized keys: '+unknown.join(', '));
-    return result;
-  }
-  const data=visit(shape,input,[]);return issues.length?{success:false,error:{issues}}:{success:true,data};
 }
 const issueCodec=Object.freeze({safeParse:value=>parseRecord(upstreamRecordShapes().issue,value)}),
   decisionCodec=Object.freeze({safeParse:value=>parseRecord(upstreamRecordShapes().decision,value)});

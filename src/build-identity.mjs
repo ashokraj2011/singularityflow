@@ -73,7 +73,7 @@ const DECIDING_MODULES = Object.freeze([
   'kernel/document-read.mjs', 'engine-compatibility/git-document-read.mjs', 'engine-compatibility/native-document-references.mjs',
   'commands/documents.mjs', 'commands/documents-view.mjs',
   'commands/shared/document-options.mjs', 'commands/shared/document-presentation.mjs',
-  'engine-sdk/index.mjs', 'kernel/project-enrollment.mjs', 'kernel/phase-policy.mjs', 'kernel/next-plan.mjs', 'kernel/artifact-content.mjs', 'kernel/namespace-artifact-sets.mjs', 'kernel/verification-contract-results.mjs', 'kernel/conformance-report.mjs',
+  'engine-sdk/index.mjs', 'kernel/project-enrollment.mjs', 'kernel/phase-policy.mjs', 'kernel/next-plan.mjs', 'kernel/artifact-content.mjs', 'foundation/record-shapes.mjs', 'engine-compatibility/node-record-shapes.mjs', 'kernel/plan-correction-shapes.mjs', 'kernel/plan-corrections.mjs', 'kernel/namespace-artifact-sets.mjs', 'kernel/verification-contract-results.mjs', 'kernel/conformance-report.mjs',
   'kernel/scope-statements.mjs', 'kernel/scope-inventory.mjs', 'kernel/scope-decisions.mjs', 'kernel/applicability.mjs', 'kernel/test-recovery.mjs', 'kernel/upstream-issues.mjs', 'kernel/phase-upstream-discrepancies.mjs', 'kernel/human-witnesses.mjs', 'kernel/story-documents.mjs', 'kernel/plan-amendments.mjs', 'kernel/obligation-risks.mjs', 'engine-compatibility/node-scope-policy.mjs', 'engine-compatibility/node-plan-policy.mjs', 'engine-compatibility/git-scope-context.mjs', 'foundation/traceability-ids.mjs', 'kernel/publication-intent.mjs',
   'kernel/workflow-assets.mjs', 'engine-compatibility/git-workflow-assets.mjs', 'workflow-transfer.mjs',
   'kernel/decision-inputs.mjs', 'kernel/workflow-decisions.mjs', 'kernel/submission-intent.mjs',

@@ -246,13 +246,14 @@ test('kernel tree shaking is backed by pure initialization and no side-effect-on
   }
 });
 
-test('only the portable value helper is declared side-effect-free in the foundation package', async () => {
+test('only the portable path and structural record helpers are side-effect-free in the foundation package', async () => {
   const { sideEffects } = JSON.parse(await readFile(path.join(packageRoot, 'src/foundation/package.json'), 'utf8'));
   assert.ok(Array.isArray(sideEffects));
   const files = await sourceFiles('src/foundation');
-  assert.deepEqual(files.filter(file => !sideEffects.includes('./' + path.basename(file))), ['src/foundation/portable-paths.mjs']);
-  assert.deepEqual([...sideEffects].sort(), files.filter(file => !file.endsWith('/portable-paths.mjs')).map(file => './' + path.basename(file)).sort());
-  const file = 'src/foundation/portable-paths.mjs';
+  const pure=['src/foundation/portable-paths.mjs','src/foundation/record-shapes.mjs'];
+  assert.deepEqual(files.filter(file => !sideEffects.includes('./' + path.basename(file))), pure);
+  assert.deepEqual([...sideEffects].sort(), files.filter(file => !pure.includes(file)).map(file => './' + path.basename(file)).sort());
+  for(const file of pure){
   const ast = ts.createSourceFile(file, await readFile(path.join(packageRoot, file), 'utf8'), ts.ScriptTarget.Latest, true);
   for (const statement of ast.statements) {
     if (ts.isImportDeclaration(statement)) assert.ok(statement.importClause, 'no side-effect-only imports');
@@ -260,7 +261,7 @@ test('only the portable value helper is declared side-effect-free in the foundat
       assert.ok(statement.declarationList.flags & ts.NodeFlags.Const);
       for (const declaration of statement.declarationList.declarations) assert.ok(declaration.initializer && ts.isRegularExpressionLiteral(declaration.initializer));
     } else assert.ok(ts.isFunctionDeclaration(statement), 'no module-time execution');
-  }
+  }}
 });
 
 test('next-step hosts execute one registered plan and keep native observations out of command handlers', async () => {
@@ -2002,4 +2003,17 @@ test('verification contract evaluation has one pure kernel owner and its native 
   assert.deepEqual(graph.problems,[]);const source=await readFile(path.join(packageRoot,native),'utf8');
   assert.match(source,/evaluateContract\(id,contract,entries/);assert.doesNotMatch(source,/function testSlotResult|function recordSlotResult|BLOCKERS/);
   assert.doesNotMatch(await readFile(path.join(packageRoot,core),'utf8'),/new Date\(\)|Date\.now/);
+});
+
+test('plan corrections share pure value/schema owners while presence and retained Git verification stay native',async()=>{
+  const owners=['src/kernel/plan-corrections.mjs','src/kernel/plan-correction-shapes.mjs','src/foundation/record-shapes.mjs'],
+    graph=await inspectPureModuleGraph({root:packageRoot,entries:owners,allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});
+  assert.deepEqual(graph.problems,[]);
+  for(const file of owners)assert.doesNotMatch(await readFile(path.join(packageRoot,file),'utf8'),/countedRecords|readFile|exactFileAtObject|node:|new Date\(\)|Date\.now/u,file);
+  const row=await readFile(path.join(packageRoot,'src/plan-row-corrections.mjs'),'utf8'),evidence=await readFile(path.join(packageRoot,'src/plan-evidence-amendments.mjs'),'utf8');
+  for(const facade of [row,evidence]){assert.match(facade,/planCorrectionPolicies/u);assert.match(facade,/countedRecords/u);assert.match(facade,/nativeRecordShape/u);}
+  assert.doesNotMatch(row,/function applyOperation|function recordPlanRowCorrection|previousClaimSha256/u);
+  assert.doesNotMatch(evidence,/function evidenceCorrectionProjection|function evidenceOwnerAuthorities/u);assert.match(evidence,/exactFileAtObject/u);
+  const upstream=await readFile(path.join(packageRoot,'src/kernel/upstream-issues.mjs'),'utf8');
+  assert.match(upstream,/parseRecordShape as parseRecord/u);assert.doesNotMatch(upstream,/function parseRecord\(/u);
 });

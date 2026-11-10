@@ -1,0 +1,2123 @@
+{
+  "capturedAtCommit": "d56597560",
+  "cases": [
+    {
+      "name": "replace-location",
+      "operations": [
+        {
+          "op": "replace-location",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "from": "src/old.mjs",
+          "to": "src/value.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "operations": [
+            {
+              "op": "replace-location",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "from": "src/old.mjs",
+              "to": "src/value.mjs",
+              "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/value.mjs"
+              ],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "1fc6f5c7f60aedaf0ceb3261295741954a246f8e215d006d887b5abf6b93d620",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+            "operations": [
+              {
+                "op": "replace-location",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "from": "src/old.mjs",
+                "to": "src/value.mjs",
+                "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "add-row",
+      "operations": [
+        {
+          "op": "add-row",
+          "clauseId": "PLAN-VALUES:AC-003",
+          "expectedPaths": [
+            "src/format.mjs"
+          ],
+          "tests": [
+            "test/format.test.mjs"
+          ],
+          "fulfillment": "new"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "operations": [
+            {
+              "op": "add-row",
+              "clauseId": "PLAN-VALUES:AC-003",
+              "claim": {
+                "expectedPaths": [
+                  "src/format.mjs"
+                ],
+                "tests": [
+                  "test/format.test.mjs"
+                ],
+                "testDisposition": "applicable",
+                "testReason": null,
+                "deviation": null,
+                "fulfillment": "new"
+              }
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            },
+            "PLAN-VALUES:AC-003": {
+              "expectedPaths": [
+                "src/format.mjs"
+              ],
+              "tests": [
+                "test/format.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "new"
+            }
+          }
+        },
+        "sha256": "2afbdf28741c4401709ebbc0346f73c3bebe4bc7f8b9345cb98c8ff8c7345cb0",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+            "operations": [
+              {
+                "op": "add-row",
+                "clauseId": "PLAN-VALUES:AC-003",
+                "claim": {
+                  "expectedPaths": [
+                    "src/format.mjs"
+                  ],
+                  "tests": [
+                    "test/format.test.mjs"
+                  ],
+                  "testDisposition": "applicable",
+                  "testReason": null,
+                  "deviation": null,
+                  "fulfillment": "new"
+                }
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "set-test-only",
+      "operations": [
+        {
+          "op": "set-fulfillment",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "fulfillment": "test-only"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "operations": [
+            {
+              "op": "set-fulfillment",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "fulfillment": "test-only",
+              "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "b85a0c9fb4e014669639757701930daaf1ea4c2c9475ab8211d9c829533458bb",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+            "operations": [
+              {
+                "op": "set-fulfillment",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "fulfillment": "test-only",
+                "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "add-test",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "operations": [
+            {
+              "op": "add-test",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "test": "test/edge.test.mjs",
+              "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/edge.test.mjs",
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "7e9e8918f6ba4eecab27e1c404ea4a8f86870c80ea156e050523144e0f063113",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+            "operations": [
+              {
+                "op": "add-test",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "test": "test/edge.test.mjs",
+                "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "add-supporting-test",
+      "stated": true,
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "f4f8775ed500f25e3908bef92cd4e5cfb381213607b28767edba2085735daff9",
+          "operations": [
+            {
+              "op": "add-test",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "test": "test/edge.test.mjs",
+              "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/edge.test.mjs",
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          },
+          "verificationContracts": [
+            {
+              "clauseId": "PLAN-VALUES:AC-001",
+              "combination": "all",
+              "slots": [
+                {
+                  "slot": "primary",
+                  "method": "test",
+                  "role": "primary",
+                  "witness": {
+                    "path": "test/value.test.mjs"
+                  },
+                  "requiredAssurance": null
+                },
+                {
+                  "slot": "added-test-1",
+                  "method": "test",
+                  "role": "supporting",
+                  "witness": {
+                    "path": "test/edge.test.mjs"
+                  },
+                  "requiredAssurance": null
+                }
+              ]
+            }
+          ]
+        },
+        "sha256": "b5b4be9918d923a3ca62ac8bd1b9cf11ef6302516e4bb47ec4abc5cd7d02d7d7",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "f4f8775ed500f25e3908bef92cd4e5cfb381213607b28767edba2085735daff9",
+            "operations": [
+              {
+                "op": "add-test",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "test": "test/edge.test.mjs",
+                "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "replace-test",
+      "operations": [
+        {
+          "op": "replace-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "from": "test/value.test.mjs",
+          "to": "test/renamed.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "operations": [
+            {
+              "op": "replace-test",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "from": "test/value.test.mjs",
+              "to": "test/renamed.test.mjs",
+              "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/renamed.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "afcf978ea0aa7bf8360f61ced4bb13bf85be1abb6be6a3404b58cc647d7a3a0b",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+            "operations": [
+              {
+                "op": "replace-test",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "from": "test/value.test.mjs",
+                "to": "test/renamed.test.mjs",
+                "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "replace-stated-test",
+      "stated": true,
+      "operations": [
+        {
+          "op": "replace-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "from": "test/value.test.mjs",
+          "to": "test/renamed.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "f4f8775ed500f25e3908bef92cd4e5cfb381213607b28767edba2085735daff9",
+          "operations": [
+            {
+              "op": "replace-test",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "from": "test/value.test.mjs",
+              "to": "test/renamed.test.mjs",
+              "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/renamed.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          },
+          "verificationContracts": [
+            {
+              "clauseId": "PLAN-VALUES:AC-001",
+              "combination": "all",
+              "slots": [
+                {
+                  "slot": "primary",
+                  "method": "test",
+                  "role": "primary",
+                  "witness": {
+                    "path": "test/renamed.test.mjs"
+                  },
+                  "requiredAssurance": null
+                }
+              ]
+            }
+          ]
+        },
+        "sha256": "bf45c8c2b9fda7e930ed15365b5373f15c181cfa04f0f4320aee4f0385950d71",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "f4f8775ed500f25e3908bef92cd4e5cfb381213607b28767edba2085735daff9",
+            "operations": [
+              {
+                "op": "replace-test",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "from": "test/value.test.mjs",
+                "to": "test/renamed.test.mjs",
+                "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "remove-extra-test",
+      "extraTest": true,
+      "operations": [
+        {
+          "op": "remove-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/extra.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "56d7029ee25b657eeb9330d385c0cfb15da2d803984df89319ca8392e47a4a9f",
+          "operations": [
+            {
+              "op": "remove-test",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "test": "test/extra.test.mjs",
+              "previousClaimSha256": "26afa34ace28cd687089af46a513ce1eaf30b2b7114d77ab3e2f2e3e74463aa0"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "56d7029ee25b657eeb9330d385c0cfb15da2d803984df89319ca8392e47a4a9f",
+            "operations": [
+              {
+                "op": "remove-test",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "test": "test/extra.test.mjs",
+                "previousClaimSha256": "26afa34ace28cd687089af46a513ce1eaf30b2b7114d77ab3e2f2e3e74463aa0"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "remove-extra-location",
+      "extraPath": true,
+      "operations": [
+        {
+          "op": "remove-location",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "path": "src/extra.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "0025e8d7c8e37e6d20a7f5f3649f8b3ad54112ed897d4df97e2046f03a4e7302",
+          "operations": [
+            {
+              "op": "remove-location",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "path": "src/extra.mjs",
+              "previousClaimSha256": "0cee81b7c980c3e29a352843bbcb1d5c4069fe6bca1226ce73bf3f0747914970"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "0025e8d7c8e37e6d20a7f5f3649f8b3ad54112ed897d4df97e2046f03a4e7302",
+            "operations": [
+              {
+                "op": "remove-location",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "path": "src/extra.mjs",
+                "previousClaimSha256": "0cee81b7c980c3e29a352843bbcb1d5c4069fe6bca1226ce73bf3f0747914970"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "sequence",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        },
+        {
+          "op": "replace-location",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "from": "src/old.mjs",
+          "to": "src/value.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "operations": [
+            {
+              "op": "add-test",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "test": "test/edge.test.mjs",
+              "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+            },
+            {
+              "op": "replace-location",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "from": "src/old.mjs",
+              "to": "src/value.mjs",
+              "previousClaimSha256": "1794ec67f1f7149701c465748aa8be83343dba678da41d6b811b9e706587b067"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/value.mjs"
+              ],
+              "tests": [
+                "test/edge.test.mjs",
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "0bfaec2f4718f3aa1d82b5cd7a35123ab990d309bc36622d972cc103ee40b549",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+            "operations": [
+              {
+                "op": "add-test",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "test": "test/edge.test.mjs",
+                "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+              },
+              {
+                "op": "replace-location",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "from": "src/old.mjs",
+                "to": "src/value.mjs",
+                "previousClaimSha256": "1794ec67f1f7149701c465748aa8be83343dba678da41d6b811b9e706587b067"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "same-fulfillment",
+      "operations": [
+        {
+          "op": "set-fulfillment",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "fulfillment": "modified"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "PLAN-VALUES:AC-001 is already planned as modified.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown-fulfillment",
+      "operations": [
+        {
+          "op": "set-fulfillment",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "fulfillment": "rewritten"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "PLAN-VALUES:AC-001.fulfillment must be one of new, modified, existing, removed, test-only, document, configuration, evidence.",
+          "code": "SPEC_PLANNED_FULFILLMENT_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "invalid-fulfillment",
+      "operations": [
+        {
+          "op": "set-fulfillment",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "fulfillment": "New Value"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Name the fulfillment of PLAN-VALUES:AC-001, such as test-only.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown-clause",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-999",
+          "test": "test/new.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "PLAN-VALUES:AC-999 is not an approved clause of this Story.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-999"
+          }
+        }
+      }
+    },
+    {
+      "name": "missing-row",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-003",
+          "test": "test/new.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The plan has no row for PLAN-VALUES:AC-003; add one with --add-row.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-003"
+          }
+        }
+      }
+    },
+    {
+      "name": "duplicate-row",
+      "operations": [
+        {
+          "op": "add-row",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "tests": [
+            "test/new.test.mjs"
+          ]
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The plan already has a row for PLAN-VALUES:AC-001; correct that row instead.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "empty-row",
+      "operations": [
+        {
+          "op": "add-row",
+          "clauseId": "PLAN-VALUES:AC-003"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "A new row for PLAN-VALUES:AC-003 needs expected paths or planned tests.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "duplicate-test",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/value.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "test/value.test.mjs is already a planned test of PLAN-VALUES:AC-001.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "remove-only-test",
+      "operations": [
+        {
+          "op": "remove-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/value.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "test/value.test.mjs is PLAN-VALUES:AC-001's only planned test; replace it with --replace-test instead of removing it.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "remove-stated-test",
+      "stated": true,
+      "extraTest": true,
+      "operations": [
+        {
+          "op": "remove-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/value.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "test/value.test.mjs is a witness of PLAN-VALUES:AC-001's stated proof; change that proof with an evidence correction.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "replace-missing-test",
+      "operations": [
+        {
+          "op": "replace-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "from": "test/missing.test.mjs",
+          "to": "test/new.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "test/missing.test.mjs is not a planned test of PLAN-VALUES:AC-001.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "replace-to-existing-test",
+      "extraTest": true,
+      "operations": [
+        {
+          "op": "replace-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "from": "test/value.test.mjs",
+          "to": "test/extra.test.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "test/extra.test.mjs is already a planned test of PLAN-VALUES:AC-001.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "remove-only-location",
+      "operations": [
+        {
+          "op": "remove-location",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "path": "src/old.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "PLAN-VALUES:AC-001 is modified, so it keeps at least one expected path; replace the path instead of removing it.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "remove-missing-location",
+      "operations": [
+        {
+          "op": "remove-location",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "path": "src/missing.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "src/missing.mjs is not an expected path of PLAN-VALUES:AC-001.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "replace-to-existing-location",
+      "extraPath": true,
+      "operations": [
+        {
+          "op": "replace-location",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "from": "src/old.mjs",
+          "to": "src/extra.mjs"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "src/extra.mjs is already an expected path of PLAN-VALUES:AC-001.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "path:../escape",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "../escape"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The planned test for PLAN-VALUES:AC-001 must be one exact repository-relative file path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "path:/absolute",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "/absolute"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The planned test for PLAN-VALUES:AC-001 must be one exact repository-relative file path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "path:C:/absolute",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "C:/absolute"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The planned test for PLAN-VALUES:AC-001 must be one exact repository-relative file path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "path:bad\\path",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "bad\\path"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The planned test for PLAN-VALUES:AC-001 must be one exact repository-relative file path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "path:test/*",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/*"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The planned test for PLAN-VALUES:AC-001 must be one exact repository-relative file path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "path:test/",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The planned test for PLAN-VALUES:AC-001 must be one exact repository-relative file path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "path:test//value",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test//value"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The planned test for PLAN-VALUES:AC-001 must be one exact repository-relative file path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "path:test/./value",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/./value"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The planned test for PLAN-VALUES:AC-001 must be one exact repository-relative file path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "empty-operations",
+      "operations": [],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Name 1 to 20 corrections with --add-row, --set-fulfillment, --add-test, --remove-test, --replace-test, --remove-location or --replace-location.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "unknown-operation",
+      "operations": [
+        {
+          "op": "invent",
+          "clauseId": "PLAN-VALUES:AC-001"
+        }
+      ],
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "A plan correction adds a row or a test, changes a row's fulfillment, or removes or replaces a test or a path.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "short-reason",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        }
+      ],
+      "reason": "short",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Say why the plan is corrected in 20 to 1000 characters with --reason.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "invalid-authorization",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        }
+      ],
+      "authorizationId": "not-a-uuid",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "The plan correction is not well formed: authorizationId: Invalid UUID.",
+          "code": "PLAN_ROW_CORRECTION_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "corrupt-row-digest",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        }
+      ],
+      "tamper": "digest",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Plan correction PRC-001: The plan row for PLAN-VALUES:AC-001 is not the row this correction was decided against.",
+          "code": "PLAN_ROW_CORRECTION_INTEGRITY",
+          "details": {
+            "clauseId": "PLAN-VALUES:AC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "corrupt-authority",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        }
+      ],
+      "tamper": "authority",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Plan correction PRC-001 lacks its owner plan's authority.",
+          "code": "PLAN_ROW_CORRECTION_INTEGRITY",
+          "details": {
+            "id": "PRC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "wrong-owner-map",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        }
+      ],
+      "tamper": "map",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Plan correction PRC-001 no longer binds its approved plan.",
+          "code": "PLAN_ROW_CORRECTION_INTEGRITY",
+          "details": {
+            "id": "PRC-001"
+          }
+        }
+      }
+    },
+    {
+      "name": "later-plan",
+      "operations": [
+        {
+          "op": "add-test",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "test": "test/edge.test.mjs"
+        }
+      ],
+      "later": true,
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PRC-001",
+          "kind": "plan-row-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "operations": [
+            {
+              "op": "add-test",
+              "clauseId": "PLAN-VALUES:AC-001",
+              "test": "test/edge.test.mjs",
+              "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+            }
+          ],
+          "reason": "The exact approved delivery needs this corrected plan row.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+          "reviewAssurance": "live-terminal-exact-plan-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "upstreamIssue": null
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 2,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "e19efc6b3e7ee8a19a72b51705ead379a8c9126606b35da77e686b701b6ff587",
+        "rows": [
+          {
+            "id": "PRC-001",
+            "kind": "plan-row-correction",
+            "ownerPhase": "planning",
+            "ownerGeneration": 1,
+            "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+            "operations": [
+              {
+                "op": "add-test",
+                "clauseId": "PLAN-VALUES:AC-001",
+                "test": "test/edge.test.mjs",
+                "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e"
+              }
+            ],
+            "reason": "The exact approved delivery needs this corrected plan row.",
+            "actor": "reviewer@example.test",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "authorizationId": "7b0c5a52-2f1e-4f7e-9a51-0c6d9f1b2a33",
+            "reviewAssurance": "live-terminal-exact-plan-review",
+            "at": "2026-10-12T01:00:00.000Z",
+            "upstreamIssue": null
+          }
+        ],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "evidence-visual",
+      "evidence": "visual",
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PEA-aaaaaaaaaaaaaaaaaaaaaaaa",
+          "kind": "evidence-contract-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e",
+          "path": "stories/PLAN-VALUES/evidence/screen.png",
+          "method": "visual",
+          "reason": "The approved evidence obligation needs its exact retained inspection contract.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "authorizationId": "authorization-1",
+          "reviewAssurance": "live-terminal-exact-evidence-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "recordPath": "stories/PLAN-VALUES/appeals/evidence/PEA-aaaaaaaaaaaaaaaaaaaaaaaa.json",
+          "reviewedFile": {
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "size": 123
+          },
+          "testsWaived": false,
+          "phaseApproved": false
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "stories/PLAN-VALUES/evidence/screen.png"
+              ],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "evidence"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          },
+          "verificationContracts": [
+            {
+              "clauseId": "PLAN-VALUES:AC-001",
+              "combination": "all",
+              "slots": [
+                {
+                  "slot": "retained-evidence",
+                  "method": "visual",
+                  "role": "primary",
+                  "witness": {
+                    "target": "stories/PLAN-VALUES/evidence/screen.png"
+                  },
+                  "requiredAssurance": "source-bound"
+                },
+                {
+                  "slot": "supporting-test-1",
+                  "method": "test",
+                  "role": "supporting",
+                  "witness": {
+                    "path": "test/value.test.mjs"
+                  },
+                  "requiredAssurance": null
+                }
+              ]
+            }
+          ]
+        },
+        "sha256": "5d293197e3abcc1b5b50433b96be0a2a6f844d8286a661d254c89e15920cd5c7",
+        "rows": [],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "evidence-inspection",
+      "evidence": "inspection",
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PEA-aaaaaaaaaaaaaaaaaaaaaaaa",
+          "kind": "evidence-contract-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e",
+          "path": "stories/PLAN-VALUES/evidence/screen.png",
+          "method": "inspection",
+          "reason": "The approved evidence obligation needs its exact retained inspection contract.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "authorizationId": "authorization-1",
+          "reviewAssurance": "live-terminal-exact-evidence-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "recordPath": "stories/PLAN-VALUES/appeals/evidence/PEA-aaaaaaaaaaaaaaaaaaaaaaaa.json",
+          "reviewedFile": {
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "size": 123
+          },
+          "testsWaived": false,
+          "phaseApproved": false
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 1,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "stories/PLAN-VALUES/evidence/screen.png"
+              ],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "evidence"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          },
+          "verificationContracts": [
+            {
+              "clauseId": "PLAN-VALUES:AC-001",
+              "combination": "all",
+              "slots": [
+                {
+                  "slot": "retained-evidence",
+                  "method": "inspection",
+                  "role": "primary",
+                  "witness": {
+                    "path": "stories/PLAN-VALUES/evidence/screen.png"
+                  },
+                  "requiredAssurance": "source-bound"
+                },
+                {
+                  "slot": "supporting-test-1",
+                  "method": "test",
+                  "role": "supporting",
+                  "witness": {
+                    "path": "test/value.test.mjs"
+                  },
+                  "requiredAssurance": null
+                }
+              ]
+            }
+          ]
+        },
+        "sha256": "4a475937ac166cd9be980c72034e37b61fa0ce3427686e192a231fbe48a8689b",
+        "rows": [],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    },
+    {
+      "name": "evidence-wrong-authority",
+      "evidence": "visual",
+      "tamper": "authority",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Evidence amendment lacks its exact owner plan authority.",
+          "code": "PLAN_EVIDENCE_AMENDMENT_INTEGRITY",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "evidence-wrong-row",
+      "evidence": "visual",
+      "tamper": "digest",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Evidence amendment does not replace the exact reviewed clause row.",
+          "code": "PLAN_EVIDENCE_AMENDMENT_INTEGRITY",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "evidence-outside-story",
+      "evidence": "visual",
+      "tamper": "path",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Evidence amendment points outside this Story.",
+          "code": "PLAN_EVIDENCE_AMENDMENT_INTEGRITY",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "evidence-waives-tests",
+      "evidence": "visual",
+      "tamper": "waiver",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Evidence amendment schema or human decision binding is invalid.",
+          "code": "PLAN_EVIDENCE_AMENDMENT_INTEGRITY",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "evidence-unknown-review",
+      "evidence": "visual",
+      "tamper": "review",
+      "outcome": {
+        "status": "thrown",
+        "error": {
+          "name": "SingularityFlowError",
+          "message": "Evidence amendment schema or human decision binding is invalid.",
+          "code": "PLAN_EVIDENCE_AMENDMENT_INTEGRITY",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "evidence-later-plan",
+      "evidence": "visual",
+      "later": true,
+      "outcome": {
+        "status": "returned",
+        "decision": {
+          "id": "PEA-aaaaaaaaaaaaaaaaaaaaaaaa",
+          "kind": "evidence-contract-correction",
+          "ownerPhase": "planning",
+          "ownerGeneration": 1,
+          "ownerMapSha256": "dc2cfac247099da11c24350bb109ca1c340eacc4d840a08b363522b25b93fd03",
+          "clauseId": "PLAN-VALUES:AC-001",
+          "previousClaimSha256": "50465bd7fcd66512d5667ecac13b83e1f2e62bc82d845f1836154b0426db338e",
+          "path": "stories/PLAN-VALUES/evidence/screen.png",
+          "method": "visual",
+          "reason": "The approved evidence obligation needs its exact retained inspection contract.",
+          "actor": "reviewer@example.test",
+          "authorityGroup": "reviewers",
+          "authorizationId": "authorization-1",
+          "reviewAssurance": "live-terminal-exact-evidence-review",
+          "at": "2026-10-12T01:00:00.000Z",
+          "recordPath": "stories/PLAN-VALUES/appeals/evidence/PEA-aaaaaaaaaaaaaaaaaaaaaaaa.json",
+          "reviewedFile": {
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "size": 123
+          },
+          "testsWaived": false,
+          "phaseApproved": false
+        },
+        "result": {
+          "schemaVersion": 2,
+          "kind": "planned",
+          "workId": "PLAN-VALUES",
+          "phase": "planning",
+          "generation": 2,
+          "recordedAt": "2026-10-12T01:00:00.000Z",
+          "claims": {
+            "PLAN-VALUES:AC-001": {
+              "expectedPaths": [
+                "src/old.mjs"
+              ],
+              "tests": [
+                "test/value.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "modified"
+            },
+            "PLAN-VALUES:AC-002": {
+              "expectedPaths": [],
+              "tests": [
+                "test/only.test.mjs"
+              ],
+              "testDisposition": "applicable",
+              "testReason": null,
+              "deviation": null,
+              "fulfillment": "test-only"
+            }
+          }
+        },
+        "sha256": "e19efc6b3e7ee8a19a72b51705ead379a8c9126606b35da77e686b701b6ff587",
+        "rows": [],
+        "authorities": [
+          "reviewers"
+        ]
+      }
+    }
+  ]
+}

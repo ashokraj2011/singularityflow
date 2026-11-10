@@ -21,10 +21,13 @@ test('offline scope and recovery values run without host I/O and typecheck under
   await writeFile(path.join(consumer,'package.json'),'{"private":true,"type":"module"}');
   npm(['install',path.join(archives,packed.filename),'--offline','--ignore-scripts','--no-audit','--no-fund'],consumer);
   await writeFile(path.join(consumer,'values.mjs'),`
-import assert from 'node:assert/strict';import {createHash} from 'node:crypto';import {registerHooks} from 'node:module';
+import assert from 'node:assert/strict';import path from 'node:path';import {createHash} from 'node:crypto';import {registerHooks} from 'node:module';
 const digests=Object.freeze({profile:'sflow-text-digests/sha256-utf8-v1',sha256Utf8:text=>createHash('sha256').update(text).digest('hex')});
+const paths=Object.freeze({profile:'sflow-configuration-path-syntax/v2',grammar:path.sep==='\\\\'?'win32':'posix',isAbsolute:path.isAbsolute,normalize:path.normalize,parse:path.parse,
+ posixIsAbsolute:path.posix.isAbsolute,posixNormalize:path.posix.normalize,posixBasename:path.posix.basename,posixDirname:path.posix.dirname,posixRelative:path.posix.relative,
+ win32IsAbsolute:path.win32.isAbsolute,toPosix:value=>value.split(path.sep).join('/')});
 const hook=registerHooks({resolve(specifier,context,next){if(specifier.startsWith('node:'))throw Error('Pure entry attempted host I/O: '+specifier);return next(specifier,context);}});
-const scope=await import('@singularity-flow/engine-sdk/scope'),recovery=await import('@singularity-flow/engine-sdk/testing/recovery');
+const scope=await import('@singularity-flow/engine-sdk/scope'),recovery=await import('@singularity-flow/engine-sdk/testing/recovery'),plans=await import('@singularity-flow/engine-sdk/plans');
 const statements=scope.scopeStatementPolicies(digests),original=statements.extractNormativeStatements('The converter must reject a negative integer.',{sourceId:'story'});
 assert.equal(original.length,1);assert.match(original[0].statementSha256,/^[a-f0-9]{64}$/u);
 const inventory=scope.scopeInventoryPolicies(digests).buildScopeInventoryValue({workItem:{id:'example'}},{sources:[{
@@ -32,6 +35,9 @@ const inventory=scope.scopeInventoryPolicies(digests).buildScopeInventoryValue({
 assert.equal(inventory.summary.unresolved,1);assert.equal(inventory.structurallyComplete,false);
 const rules=recovery.testRecoveryPolicies(digests);assert.equal(rules.TRP_EVALUATOR_VERSION,'trp/1.0');
 assert.equal(rules.trpDigest({b:2,a:1}),rules.trpDigest({a:1,b:2}));assert.throws(()=>rules.validateTrpRecord({}),error=>Boolean(error.code));
+const corrected=plans.planCorrectionPolicies(paths,digests).evidenceCorrectionProjection('W:AC-001',{tests:['test/value.mjs']},'stories/W/evidence/screen.png','visual');
+assert.equal(corrected.claim.fulfillment,'evidence');assert.equal(corrected.contract.slots[1].role,'supporting');
+assert.equal(plans.planCorrectionPolicies(paths,digests).applyPlanCorrections(null,{}),null);
 hook.deregister();
 `);
   child(process.execPath,['values.mjs'],consumer);
@@ -40,7 +46,14 @@ import type {SpecificationDigests} from '@singularity-flow/engine-sdk/specificat
 import {scopeStatementPolicies,scopeInventoryPolicies} from '@singularity-flow/engine-sdk/scope';
 import {testRecoveryPolicies,type TrpGateInput} from '@singularity-flow/engine-sdk/testing/recovery';
 import {createNamespaceEngine} from '@singularity-flow/engine-sdk/hosts/namespace-engine';
+import {planCorrectionPolicies,type PlanCorrectionOperation} from '@singularity-flow/engine-sdk/plans';
+import type {VerificationPathSyntax} from '@singularity-flow/engine-sdk/specifications';
 declare const digests:SpecificationDigests,engine:ReturnType<typeof createNamespaceEngine>;
+declare const paths:VerificationPathSyntax;
+planCorrectionPolicies(paths,digests).applyPlanCorrections({}, {}, {evidenceRoot:'stories/example/evidence'},[]);
+const row:PlanCorrectionOperation={op:'add-test',clauseId:'W:AC-001',test:'test/value.mjs'};void row;
+// @ts-expect-error correction operations cannot grant approval
+const invalid:PlanCorrectionOperation={op:'approve',clauseId:'W:AC-001'};void invalid;
 const statements=scopeStatementPolicies(digests).extractNormativeStatements('Reject negative input.',{sourceId:'story'});
 scopeInventoryPolicies(digests).buildScopeInventoryValue({}, {sources:[{id:'story',kind:'story',sha256:null,readable:true,statements}],clauses:[]});
 const recovery=testRecoveryPolicies(digests);recovery.trpDigest({observed:true});

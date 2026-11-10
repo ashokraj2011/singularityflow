@@ -5278,7 +5278,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const key = createHash('sha256').update(repository).digest('hex').slice(0, 32);
     if (told.includes(key)) return;
     void context.globalState.update(plainChatToldKey, [...told, key].slice(-200));
-    void vscode.window.showInformationMessage('Singularity Flow keeps each Copilot prompt in this repository, redacted: in the Story\'s "Asked for" '
+    void showCompactInformationMessage('Singularity Flow keeps each Copilot prompt in this repository, redacted: in the Story\'s "Asked for" '
       + 'in a Story checkout, otherwise in this clone\'s own log (Singularity Flow: Show Kept Copilot Prompts). A prompt that holds what looks like a secret is refused, '
       + 'and a plain chat\'s changes follow the capability\'s "Changes in plain chats" setting. /sf-pause turns this off on this machine.');
   }));
@@ -7955,6 +7955,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const text = await client.runText(args, { input: message.content });
         const disposition = configurationSaveDisposition(text, message.proposal);
+        // Save and activate: the person who chose the change activates the exact proposal it made, the
+        // same activation as Build with Copilot's Finish; a protected sflow/config says to merge [RTC:REQ-006].
+        if (message.activate && disposition.kind === 'proposal') {
+          const activation = await activateWorkflowProposalNow(disposition.branch);
+          if (!activation.activated) await refreshAfterKnownMutation();
+          return { error: null, disposition, activation };
+        }
         await refreshAfterKnownMutation();
         if (store.current.error) {
           output.appendLine(`  configuration refresh warning: ${store.current.error.message}`);
@@ -8340,7 +8347,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const message = activation?.failure?.message ?? `activation is ${activation?.status ?? 'waiting for repository review'}`;
         output.appendLine([message, lazyPanels().configurationGitFailureText(activation?.failure), `Preserved proposal: ${inspected.branch}@${inspected.proposalCommit}`,
           activation?.recoveryCommand, activation?.nextAction].filter(Boolean).join('\n\n'));
-        return { activated: false, message: `${message}. It waits under Changes for someone who may approve configuration.` };
+        return { activated: false, message: `${message.replace(/\.$/u, '')}. It waits under Workflow Studio → Changes for someone who may approve configuration.` };
       }
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();

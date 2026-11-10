@@ -33,10 +33,14 @@ Agent to discard instructions already loaded before pausing.
 
 The packaged hooks accept VS Code's `PLUGIN_ROOT` and the CLI host's
 `COPILOT_PLUGIN_ROOT`; the current host's `PLUGIN_ROOT` takes precedence if both
-are present. Bash and PowerShell invoke the literal installed path, including
-spaces and quotes, without evaluating it or searching repositories. A missing
-root or launcher returns `SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE`, not a raw
-`/hook-launcher.sh` or PowerShell command-not-found failure. The pre-tool hook
+are present. VS Code before 1.141 passes neither, and a chat started before an
+update may name a copy since removed: then the hooks use the plugin folder SFlow
+recorded beside its Copilot mode file, which `singularity-flow plugin install`
+writes and the launcher keeps current. Bash and PowerShell invoke the literal
+installed path, including spaces and quotes, without evaluating it or searching
+repositories. With none of them usable the hooks return
+`SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE`, not a raw `/hook-launcher.sh` or PowerShell
+command-not-found failure. The pre-tool hook
 refuses execution; other hooks emit a diagnostic without inventing lifecycle state.
 After updating the installed SFlow build, run `singularity-flow plugin install`
 and reload VS Code. Existing Stories do not need recreation.

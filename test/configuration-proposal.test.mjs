@@ -609,6 +609,18 @@ test('workflow proposals publish from approved configuration without changing th
     assert.deepEqual(review.workflows.map((entry) => [entry.id, entry.change]), [
       ['customer-onboarding', 'added']
     ]);
+    // The review is the way forward [RTC:REQ-007]: the exact activation line, what its flag means,
+    // and the VS Code place, in --json and in text.
+    assert.equal(review.nextAction,
+      `singularity-flow workflow activate ${result.branch} --confirm ${result.commit} --acknowledge-unprotected`);
+    assert.equal(review.activation.vscode, 'Workflow Studio → Changes → Review and activate');
+    const reviewText = spawnSync(process.execPath, [
+      cli, 'workflow', 'proposal', result.branch
+    ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(reviewText.status, 0, reviewText.stderr || reviewText.stdout);
+    assert.ok(reviewText.stdout.includes(`Activate it: ${review.nextAction}\n`), reviewText.stdout);
+    assert.match(reviewText.stdout, /--acknowledge-unprotected says you accept that SFlow updates sflow\/config itself\. Where the server protects/u);
+    assert.match(reviewText.stdout, /VS Code: Workflow Studio → Changes → Review and activate/u);
 
     const unacknowledged = spawnSync(process.execPath, [
       cli, 'workflow', 'activate', result.branch, '--confirm', result.commit, '--json'
@@ -675,6 +687,11 @@ process.exitCode = result.status == null ? 1 : result.status;
       'a dry run is not branch-protection evidence and must not precede the exact update');
     assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: item.story }).stdout.trim(), storyHead,
       'activation never switches or commits the selected Story checkout');
+    const afterActivation = JSON.parse(spawnSync(process.execPath, [
+      cli, 'workflow', 'proposal', result.branch, '--json'
+    ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } }).stdout);
+    assert.deepEqual([afterActivation.merged, afterActivation.nextAction, afterActivation.activation], [true, undefined, undefined],
+      'a merged proposal names no activation');
 
     const startListAfter = spawnSync(process.execPath, [
       cli, 'workflow', 'list', '--json', '--for-start'

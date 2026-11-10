@@ -115,6 +115,9 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   // Activating approved configuration is the reviewer's decision; every skill already told the
   // person to run it in their own terminal, while /sf-configuration was named as its route (sweep E7).
   ['configuration-approve', ([command, sub]) => command === 'configuration' && sub === 'approve'],
+  // The same decision by its other name: `workflow proposal` and Test setup now give the person this
+  // exact line, so a turn holding it must not run it for them [RTC decision 6].
+  ['workflow-activate', ([command, sub]) => command === 'workflow' && sub === 'activate'],
   // SF Guard: registering, rotating, recovering or revoking a presence key, turning the policy on or
   // off and per-person exceptions each take the person's Touch ID (SPEC-PSS-v1); only status reads.
   ['sf-guard-person-step', ([command, sub]) => command === 'guard' && sub !== undefined && !['status', 'reconcile', 'report', 'remote-check'].includes(sub)]

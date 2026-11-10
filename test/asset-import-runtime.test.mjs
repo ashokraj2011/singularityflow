@@ -67,7 +67,7 @@ async function repository() {
     }))
   };
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root);
   execute('git', ['commit', '-m', 'initial'], root);
   const remote = `${root}.git`;
   execute('git', ['init', '--bare', '-b', 'main', remote], root);

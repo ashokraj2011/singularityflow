@@ -14,7 +14,10 @@ export async function promptsCommand(options = {}, { cwd = process.cwd() } = {})
   const [{ repositoryOf }, { readPromptLog, PROMPT_LOG_DAYS }] = await Promise.all([
     import('../copilot-environment-files-guard.mjs'), import('../plain-chat-prompts.mjs')]);
   const repository = repositoryOf(cwd);
-  if (!repository) throw new SingularityFlowError('Run singularity-flow prompts inside a Git checkout: it reads that clone\'s own log.', { code: 'PROMPTS_NOT_IN_REPOSITORY' });
+  if (!repository) {
+    throw new SingularityFlowError('Run singularity-flow prompts inside a Git checkout: it reads that clone\'s own log.', { code: 'PROMPTS_NOT_IN_REPOSITORY',
+      details: { nextAction: { command: 'singularity-flow prompts', label: 'Open a terminal in the clone whose prompts you want, then run this there.' } } });
+  }
   const story = optionString(options, 'story');
   const limit = Number(optionString(options, 'limit') ?? 50);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAXIMUM) {
@@ -40,7 +43,7 @@ function printResult(result) {
     const how = entry.kind === 'plain' ? 'plain chat' : `/${entry.skill}`;
     const words = String(entry.text ?? '').replace(/\s+/gu, ' ').trim();
     console.log(`\n${entry.at.replace('T', ' ').slice(0, 19)}${where} (${how}, session ${entry.session ?? 'unknown'})`);
-    console.log(`  "${words}"${entry.truncated ? ' (cut at 2,000 characters)' : ''}${entry.secret ? ` (held what looks like a ${entry.secret}; refused, kept redacted)` : ''}`);
+    console.log(`  "${words}"${entry.truncated ? ' (cut at 2,000 characters)' : ''}${entry.secret ? ` (held what looks like a ${entry.secret}; refused, kept redacted)` : ''}${entry.held ? ` (not sent: an earlier prompt in that chat held what looks like a ${entry.held})` : ''}`);
   }
 }
 

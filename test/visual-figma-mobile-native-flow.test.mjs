@@ -55,7 +55,7 @@ async function repository(base) {
       members: [{ email: `${REVIEWER.toLowerCase().replace(/\s+/gu, '.')}@example.com` }] };
   }
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root);
   execute('git', ['commit', '-m', 'initial'], root);
   execute('git', ['init', '--bare', '-b', 'main', path.join(base, 'remote.git')], root);
   execute('git', ['remote', 'add', 'origin', path.join(base, 'remote.git')], root);

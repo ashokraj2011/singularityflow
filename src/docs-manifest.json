@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "4524bfb696b4bd08b80278289167e241696d3820",
+  "sourceCommit": "8c3871f7827b2fad6ad46b0b754644a055a0d477",
   "topicCount": 92,
-  "contentSha256": "2918c9fa0c3f70a37539e8902102cdd64e11f5ad9426734a56b74e35c9157763",
+  "contentSha256": "e1129579b9b79c3c10796bc09519a0114aa2c6f621f1fb24582f0789cf190b0b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 28,
-      "sha256": "153520efdb3c626f12c605de03ea9731df39400c53533c0f2126adaccca85437",
+      "version": 29,
+      "sha256": "5fde62cb7cc02ab30c8791fa706926f7ced89daa53dbc10af705246252770682",
       "routingSha256": "6874a23d15e217eb6dd79f5fbdd5ca670345c6cce3d0cbd1ca82ccfaf8d94049",
       "file": "capability-management.md"
     },
@@ -128,8 +128,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 19,
-      "sha256": "d4f5ca470341060fb27b0be21c9b45738577cbb8c12955cff928b4be4d901a4d",
+      "version": 20,
+      "sha256": "cb2fcd72074e4cc9b4e30bf16411db0e7ec4539bed708748d6e36ebdef03e021",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -432,8 +432,8 @@
     {
       "id": "plain-chat-routing",
       "title": "Plain chats in a repository that uses SFlow",
-      "version": 2,
-      "sha256": "d9a403a5bfa1e0f1fdb6b1686df1d6deabb8fcbcee12a0668cdcc230a199be68",
+      "version": 3,
+      "sha256": "af2983fe6dd8d42822e44b12e709316ef351a9e1c847650a5ce0fbc830c19aba",
       "routingSha256": "2216ec82c46ba1de4270b9576bdbc0237d8cc73f5cfb83a9bae47f65e7861deb",
       "file": "plain-chat-routing.md"
     },
@@ -656,8 +656,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 42,
-      "sha256": "374e9e806a00f0e787311eebee61a15edf7423a69830335c4b3023892d6deb71",
+      "version": 43,
+      "sha256": "3ea010a681d6c57559504b46c299eebdd9086da4f4d85d51a710016da6d93bd8",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },

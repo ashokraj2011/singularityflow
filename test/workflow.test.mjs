@@ -37,7 +37,7 @@ async function repository() {
   config.repositoryReadiness = { ...config.repositoryReadiness, requiredBeforeStory: false };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root); execute('git', ['commit', '-m', 'initial'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root); execute('git', ['commit', '-m', 'initial'], root);
   const remote = `${root}.git`;
   execute('git', ['init', '--bare', '-b', 'main', remote], root);
   execute('git', ['remote', 'add', 'origin', remote], root);

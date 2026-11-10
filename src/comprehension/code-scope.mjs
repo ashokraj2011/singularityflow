@@ -50,10 +50,18 @@ export async function comprehensionPathContext(root) {
   }
 }
 
+/**
+ * The files SFlow itself writes into the repository's Copilot hook folder (repository-hooks.mjs, PCR:REQ-030):
+ * SFlow's own, counted with its other files and never explained as code. Only these four, so a team's own hooks stay.
+ */
+export const SFLOW_REPOSITORY_HOOK_FILES = Object.freeze(['.github/hooks/sflow.json', '.github/hooks/sflow-hook.sh',
+  '.github/hooks/sflow-hook.ps1', '.github/hooks/README.md']);
+
 /** Whether a repository-relative path is code an explanation may show. */
 export function isExplainedPath(path, pathContext, { untracked = false } = {}) {
   if (typeof path !== 'string' || !path) return false;
   if (path === MACHINE_STATE_ROOT || path.startsWith(`${MACHINE_STATE_ROOT}/`)) return false;
+  if (SFLOW_REPOSITORY_HOOK_FILES.includes(path)) return false;
   try {
     return isApplicationChangePath(path, { ...pathContext, untracked });
   } catch {

@@ -50,7 +50,7 @@ async function repository() {
     if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   }
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root);
   execute('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
   execute('git', ['init', '--bare', '-b', 'main', remote], root);

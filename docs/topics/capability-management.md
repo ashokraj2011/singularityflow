@@ -17,7 +17,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 28
+version: 29
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -51,8 +51,9 @@ A `/sf-` command is always refused, whatever this says, and `/sf-pause` turns th
 
 In a repository that uses SFlow, every Copilot prompt is kept, redacted: in the Story's "Asked for", marked plain
 chat, in a Story checkout, and otherwise in the clone's own log, which never leaves it (`singularity-flow prompts`).
-A prompt that holds what looks like a secret is refused: Copilot CLI never sends it, and in VS Code nothing in its turn
-runs. What a plain chat's change does is the capability's choice:
+A prompt that holds what looks like a secret is refused and never sent. VS Code keeps a refused prompt in its chat and
+would send it with the next message, so that chat refuses every later prompt too: start a new chat. If it was no secret,
+`/sf-pause` turns the check off. What a plain chat's change does is the capability's choice:
 
 ```bash
 singularity-flow capability plain-chat <ID> --edits refuse

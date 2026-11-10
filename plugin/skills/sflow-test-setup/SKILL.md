@@ -26,16 +26,18 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    Distinguish inferred suggestions, written `instructionCandidates` (file:line; `--use` a complete one) and user-supplied commands.
    Prefer repository wrappers and its Python virtual environment. Require a real test run and structured
    output; never suggest skip, list-only, dry-run, or no-tests as passing evidence.
-4. Ask the user to choose the workflow/phase and exact commands. Explain intake's separate choices:
-   changed-and-affected or all-configured execution; repair observed existing failures or request an
-   eligible human risk decision. Unknown existing results remain unverified, not accepted failures.
-5. In VS Code offer Capabilities → Test setup, also Configuration Center → Test setup.
-   Otherwise preview: `singularity-flow capability test-setup --step <STEP> [--workflow <WORKFLOW>]
-   --use <SUGGESTION-ID> --for-agent --json` (keep `--source-root`), or for a supplied command `--id <ID> --argv
-   '<JSON ARRAY>' --working-directory <DIR> --affected-root <DIR> --adapter <ADAPTER> --report <PATH>`
-   (report relative to the working directory). Show its `diff`. Only after explicit consent run its
-   `confirmCommand` with `--json`; it proposes the change for review (no sub-agent).
-   Do not rewrite the application's checkout, run tests, merge, or push without the corresponding request.
+4. Test commands are the repository's (`tests:`): every step that runs tests uses them; a step may name
+   `testLevels`/`testIds`. Ask which commands (one or more), their level and, for a URL,
+   `--env`/`--environment`; `--step <STEP> [--workflow <WORKFLOW>]` only for one step. Name intake's
+   choices: changed-and-affected or all-configured execution; repair observed existing failures or
+   request an eligible human risk decision. Unknown results stay unverified, never accepted.
+5. In VS Code offer Capabilities or Configuration Center → Test setup (Save and activate). Otherwise
+   preview `singularity-flow capability test-setup --use <SUGGESTION-ID>... --for-agent --json` (keep
+   `--source-root`), or a supplied command `--id <ID> --argv '<JSON ARRAY>' --working-directory <DIR>
+   --affected-root <DIR> --adapter <ADAPTER> --report <PATH>` (relative to the working directory). Show
+   its `diff`; only after explicit consent run its `confirmCommand` with `--json` (no sub-agent), then
+   show its `data.activation` line and VS Code place: the person activates, never you. Never rewrite the
+   checkout, run tests, merge or push unrequested.
 6. Inference and hidden approved argv (`argvWithheld: true`) need no YAML proposal/amendment.
    Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,
    use `singularity-flow story test-policy amend <WORK-ID>

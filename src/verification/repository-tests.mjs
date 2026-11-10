@@ -32,8 +32,8 @@ import { admitTestAttempts, recordRunsBeforeRefusal, recordTestAttempt } from '.
 import { readSealedStoryTestPolicy } from './test-policy.mjs';
 
 export const REPOSITORY_TESTS_SOURCE = 'repository-tests';
-const SETUP_ROUTE = "Name the repository's test command in this step's checks (Workflow Studio, or qualityCommands in "
-  + `singularity/workflow.yml).\n${formatCommandRouteLines({ copilotCommand: '/sf-test-setup', command: 'singularity-flow capability test-setup --json' }).join('\n')}`;
+const SETUP_ROUTE = "Set the repository's test commands, which every step that runs tests uses (Configuration Center → Tests, or "
+  + `tests: in singularity/workflow.yml).\n${formatCommandRouteLines({ copilotCommand: '/sf-test-setup', command: 'singularity-flow capability test-setup --json' }).join('\n')}`;
 
 function note(id, reason, at) {
   return {

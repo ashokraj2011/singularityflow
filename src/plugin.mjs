@@ -98,6 +98,35 @@ export function removeRetiredPluginCopies({
   return removed;
 }
 
+/**
+ * Records the installed copy's folder in the marker the plugin's hooks read when the host names no
+ * plugin folder: VS Code before 1.141 passes no PLUGIN_ROOT (microsoft/vscode#338967), and a chat
+ * started before an update may name a copy since removed (src/copilot-hook-commands.mjs). Copilot's
+ * own record of the install says which folder it is; the last enabled one with a launcher wins. The
+ * launcher keeps the same marker whenever a host does name its folder. Never stands in the way of an
+ * install, and returns the folder or null.
+ */
+export function notePluginCopy({ env = process.env, homeDirectory = os.homedir() } = {}) {
+  try {
+    const copilotHome = String(env.COPILOT_HOME ?? '').trim() || path.join(homeDirectory, '.copilot');
+    const text = fs.readFileSync(path.join(copilotHome, 'config.json'), 'utf8')
+      .split(/\r?\n/u).filter((line) => !line.trimStart().startsWith('//')).join('\n');
+    const copy = (JSON.parse(text)?.installedPlugins ?? [])
+      .filter((entry) => entry?.name === PLUGIN_NAME && entry.enabled !== false)
+      .map((entry) => String(entry.cache_path ?? '')).reverse()
+      .find((folder) => path.isAbsolute(folder) && fs.existsSync(path.join(folder, 'hook-launcher.sh')));
+    if (!copy) return null;
+    const marker = path.join(path.dirname(copilotModeFile(env, homeDirectory)), 'copilot-plugin');
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    const temporary = `${marker}.${process.pid}`;
+    fs.writeFileSync(temporary, `${copy}\n`);
+    fs.renameSync(temporary, marker);
+    return copy;
+  } catch {
+    return null;
+  }
+}
+
 function installedPluginIdentities(output) {
   const lines = String(output ?? '').split(/\r?\n/u).map((line) => line
     .replace(/^[\s*\-•]+/u, '').trim());
@@ -516,6 +545,7 @@ export function installPlugin({
   installAliases = installDirectSkills,
   verify = verifyPluginInstallation,
   removeRetired = removeRetiredPluginCopies,
+  notePlugin = notePluginCopy,
   log = console.log
 } = {}) {
   requireCopilot(exists);
@@ -541,6 +571,7 @@ export function installPlugin({
     execute, exists, expectedDirectSkills: aliases.installed, targetRoot: aliases.targetRoot
   });
   log(`Verified plugin ${verification.pluginIdentity}, ${verification.enabledPluginSkills} enabled packaged skills, and ${verification.enabledDirectSkills} enabled direct skills.`);
+  notePlugin();
   removeRetired();
   return result;
 }

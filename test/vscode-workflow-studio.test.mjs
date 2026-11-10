@@ -1699,6 +1699,71 @@ test('proposals waiting for review are listed in Changes, and reviewing one relo
   assert.match(host, /private openableFile\(relative: string\): boolean \{\s*if \(relative\.split\('\/'\)\.some/);
 });
 
+test('the Changes count shows no number until the proposals were checked, and opening Studio checks them once (RTC:REQ-008)', () => {
+  const { logic, posted, reply } = studioWithHost();
+  assert.equal(logic.changesCount(), null, 'nothing is counted before Studio has loaded');
+  reply({ type: 'studio.model', model: { workflows: [{ id: 'custom', label: 'Custom', phases: ['intake'] }], protection: {}, phases: [] } });
+  assert.equal(logic.changesCount(), null, 'no false 0 while the host checks the proposals');
+  logic.requestProposals();
+  assert.equal(posted.filter((message) => message.type === 'studio.proposals').length, 0,
+    'the host already checks right after the model, so opening Changes does not ask again');
+  const waiting = { branch: 'sflow/config-change/workflow/save-config-tests-aaaaaaaa-bbbbbbbbbbbb', proposalCommit: 'a'.repeat(40),
+    proposalCreatedAt: null, proposalId: null, valid: true, merged: false, workflows: [], files: 1, invalidFiles: [], failure: null };
+  reply({ type: 'studio.proposals', proposals: [waiting] });
+  assert.equal(logic.changesCount(), 1, 'a proposal made from a chat is counted');
+  reply({ type: 'studio.proposals', proposals: [], error: 'Git could not reach the remote.' });
+  assert.equal(logic.changesCount(), null, 'a failed check is not a 0');
+  reply({ type: 'studio.proposals', proposals: [], local: true });
+  assert.equal(logic.changesCount(), 0, 'a working-tree configuration has no proposals to wait for');
+});
+
+test('a proposal that changes only the repository\'s tests reads as Repository tests in Changes, not as a workflow (RTC:REQ-007)', async () => {
+  const { proposalSummaries } = await import(pathToFileURL(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts')).href);
+  const [summary] = proposalSummaries([{ branch: 'sflow/config-change/workflow/save-config-tests-aaaaaaaa-bbbbbbbbbbbb', proposalCommit: 'a'.repeat(40),
+    valid: true, merged: false, workflows: [], changedFiles: [{ status: 'M', paths: ['singularity/workflow.yml'] }], invalidFiles: [],
+    repositoryTests: { label: 'Repository tests', change: 'added', added: ['e2e-local', 'e2e-relay'], changed: [], removed: [] } }]);
+  assert.deepEqual(summary.repositoryTests, { change: 'added', added: ['e2e-local', 'e2e-relay'], changed: [], removed: [] });
+  const { page, all, text } = agentDuplicationPage();
+  const card = page.proposalCard(summary, false);
+  assert.match(text(card), /Repository tests \(added: adds e2e-local, e2e-relay\)/u);
+  assert.doesNotMatch(text(card), /Configuration-only change/u);
+  assert.ok(all(card).some((node) => node.tag === 'button' && /Review and activate/u.test(text(node))));
+});
+
+test('Workflow Studio lists the repository tests with their level and folders, and says which of them each step runs (RTC:REQ-009)', async () => {
+  const unit = { id: 'shop-unit', kind: 'test', level: 'unit', argv: ['npx', 'vitest', 'run'], workingDirectory: 'apps/shop', affectedRoots: ['apps/shop'],
+    modelPolicy: 'never', result: { adapter: 'vitest-json', path: '.sflow/results/shop-unit.json', minimumDiscovered: 1 } };
+  const relay = { ...unit, id: 'e2e-relay', level: 'e2e', argv: ['npx', 'playwright', 'test'], environment: 'relay',
+    result: { adapter: 'playwright-json', path: '.sflow/results/e2e-relay.json', minimumDiscovered: 1 } };
+  const root = await repository({ edit: (document) => {
+    document.setIn(['tests'], document.createNode([unit, relay]));
+    document.setIn(['phases', 'implementation', 'testLevels'], ['unit']);
+  } });
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  assert.deepEqual(model.tests.map((test) => [test.id, test.level, test.affectedRoots, test.environment ?? null]),
+    [['shop-unit', 'unit', ['apps/shop'], null], ['e2e-relay', 'e2e', ['apps/shop'], 'relay']]);
+  const tested = model.workflows.find((workflow) => ['implementation', 'verification'].every((id) => workflow.phases.includes(id)));
+  const step = (id) => tested.steps.find((entry) => entry.id === id);
+  assert.deepEqual(step('implementation').testsFrom, { source: 'repository', levels: ['unit'], runs: ['shop-unit'] });
+  assert.deepEqual(step('verification').testsFrom, { source: 'repository', runs: ['shop-unit', 'e2e-relay'] });
+  assert.deepEqual(step('implementation').qualityCommands, [], "the repository's tests are not shown as the step's own checks");
+  assert.equal(step('design')?.testsFrom, undefined, 'a step that runs no tests says nothing about them');
+  const element = (tag) => ({ tag, attributes: {}, children: [], style: { setProperty() {} }, textContent: '',
+    setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; },
+    addEventListener(event, fn) { (this.listeners ??= {})[event] = fn; } });
+  const page = loadedStudio(model, { getElementById: () => null, createElement: element, createElementNS: (ns, tag) => element(tag), createTextNode: (value) => ({ text: value }) });
+  const text = (node) => [node.textContent ?? node.text ?? '', ...(node.children ?? []).map(text)].join(' ');
+  assert.equal(page.stepTestsWords(step('implementation')), "the repository's tests at levels unit: shop-unit");
+  assert.equal(page.stepTestsWords(step('verification')), "all 2 of the repository's tests: shop-unit, e2e-relay");
+  assert.equal(page.stepTestsWords({ testsFrom: { source: 'step', ids: ['own'] } }), "this step's own: own");
+  assert.match(text(page.repositoryTestsCard()).replace(/\s+/gu, ' '), /Repository tests .* shop-unit · unit · apps\/shop e2e-relay · e2e · apps\/shop · environment relay/u);
+  // An editable workflow's step panel says the same, with where the tests are changed.
+  const editable = model.workflows.find((workflow) => !workflow.readOnly && workflow.phases.includes('implementation'));
+  assert.ok(editable, 'the repository owns an editable workflow with a code step');
+  const panel = text(page.renderInspector(editable.id, 'implementation')).replace(/\s+/gu, ' ');
+  assert.match(panel, /Tests the repository's tests at levels unit: shop-unit The repository's tests are set in Configuration Center → Tests/u);
+});
+
 test('several approval groups survive editing a step, and taking a group off drops it from the groups that must approve', () => {
   const { logic } = studioLogic();
   const approval = logic.approvalDraft({ mode: 'required', authorities: ['architecture-reviewers', 'engineering-reviewers'], requiredAuthorities: ['engineering-reviewers'], minimum: 2 });

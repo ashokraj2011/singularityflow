@@ -221,6 +221,39 @@ test('PCR REQ-003: a prompt holding a secret is blocked for Copilot CLI, kept on
   });
 });
 
+test('PCR REQ-003: VS Code keeps a blocked prompt in its chat and sends it with the next, so that chat stays blocked until a new one', async (t) => {
+  // A real VS Code run (2026-11-10): the block held, and the next prompt in that chat reached the model with the
+  // blocked one in its history. VS Code's prompt hook names its event; Copilot CLI's does not.
+  const repo = await clone(t, { story: 'QF-1' });
+  const vscode = { hook_event_name: 'UserPromptSubmit' };
+  const first = await repo.prompt('chat', `make the timeout 10s and push with ${TOKEN}`, vscode);
+  assert.equal(first.decision, 'block');
+  assert.match(first.reason, /^SECRET_IN_PROMPT: this prompt held what looks like a GitHub token and was not sent\. VS Code keeps it in this chat and would send it with your next message, so this chat sends nothing more: start a new chat/u);
+  assert.match(first.reason, /this chat's own history still holds what was typed\. If it is no secret, \/sf-pause turns this check off\.$/u);
+  assert.ok(!first.reason.includes('Copilot CLI') && !first.reason.includes(TOKEN));
+  // Every later prompt in that chat would carry it: refused, a /sf- turn too, and none reaches the Story's record.
+  for (const text of ['make the timeout 10s', '/sf-code QF-1 make the timeout 10s']) {
+    const next = await repo.prompt('chat', text, vscode);
+    assert.equal(next.decision, 'block', text);
+    assert.match(next.reason, /^SECRET_IN_PROMPT: an earlier prompt in this chat held what looks like a GitHub token, and VS Code sends it with every message here, so this one was not sent\. Start a new chat/u);
+  }
+  assert.deepEqual((await localAskedFor(path.join(repo.root, '.git'), { workId: 'QF-1', phase: 'implement', generation: 1 })).turns, []);
+  const [latest] = await readPromptLog(path.join(repo.root, '.git'));
+  assert.equal(latest.held, 'GitHub token');
+  assert.equal(latest.secret, undefined, 'the held prompt holds no secret of its own');
+  // /sf-pause is the person's way out when it was no secret: it goes through, and the chat stays held until the pause is on.
+  assert.notEqual((await repo.prompt('chat', '/sf-pause', vscode)).decision, 'block');
+  assert.equal((await repo.prompt('chat', 'make the timeout 10s', vscode)).decision, 'block');
+  await paused(repo, async () => assert.notEqual((await repo.prompt('chat', 'make the timeout 10s', vscode)).decision, 'block'));
+  assert.notEqual((await repo.prompt('chat', 'make the timeout 10s', vscode)).decision, 'block', 'the pause cleared what the chat held');
+  // A new chat is free. Copilot CLI is answered as before: no real run has shown it sending a blocked prompt on.
+  assert.equal((await repo.prompt('other-chat', `push with ${TOKEN}`, vscode)).decision, 'block');
+  assert.notEqual((await repo.prompt('new-chat', 'make the timeout 10s', vscode)).decision, 'block');
+  const cli = await repo.prompt('cli', `push with ${TOKEN}`);
+  assert.match(cli.reason, /Remove it and send it again\..*Copilot CLI's own session log still holds what was typed/u);
+  assert.notEqual((await repo.prompt('cli', 'make the timeout 10s')).decision, 'block');
+});
+
 // ---------------------------------------------------------------------------------------------------
 // [PCR:REQ-010 to REQ-013] Every change through a skill, as the repository's setting says.
 

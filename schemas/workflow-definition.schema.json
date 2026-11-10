@@ -536,7 +536,9 @@
                 "authoringSkill": { "$ref": "#/$defs/authoringSkill" },
                 "afterStep": { "$ref": "#/$defs/afterStep" },
                 "testEvidenceFrom": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-                "repositoryTests": { "enum": ["run", "off"], "description": "run: a non-code step's submission also runs the repository's own test suite, found from its build files. Absent means off." }
+                "repositoryTests": { "enum": ["run", "off"], "description": "run: a non-code step's submission also runs the repository's own test suite, found from its build files. Absent means off." },
+                "testLevels": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["unit", "component", "integration", "e2e", "other"] }, "description": "Which of the repository's tests this step runs, by level. With testIds, a command runs when its level or its ID is listed. Absent (with testIds absent) means every one." },
+                "testIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Which of the repository's tests this step runs, by ID; each must be one tests holds." }
               }
             }
           },
@@ -546,6 +548,11 @@
         },
         "additionalProperties": true
       }
+    },
+    "tests": {
+      "type": "array",
+      "description": "The repository's test commands, owned by no workflow and no step: one per module, runner or level. Every step that runs tests (a code step, or repositoryTests: run) gets them unless it has test commands of its own; testLevels and testIds choose fewer. Each has a step test command's contract (kind: test, argv, workingDirectory, affectedRoots, result) and a unique id.",
+      "items": { "$ref": "#/$defs/qualityCommand" }
     },
     "phases": {
       "type": "object",
@@ -575,6 +582,8 @@
             "items": { "$ref": "#/$defs/qualityCommand" }
           },
           "repositoryTests": { "enum": ["run", "off"], "description": "run: a non-code step's submission also runs the repository's own test suite, found from its build files. Absent means off." },
+          "testLevels": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["unit", "component", "integration", "e2e", "other"] }, "description": "Which of the repository's tests this step runs, by level. With testIds, a command runs when its level or its ID is listed. Absent (with testIds absent) means every one." },
+          "testIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Which of the repository's tests this step runs, by ID; each must be one tests holds." },
           "approval": { "$ref": "#/$defs/approvalPolicy" }
         }
       }
@@ -1392,6 +1401,7 @@
               "type": "object", "maxProperties": 64, "propertyNames": { "pattern": "^[A-Z_][A-Z0-9_]{0,127}$" },
               "additionalProperties": { "type": ["string", "number", "boolean"] }
             },
+            "level": { "enum": ["unit", "component", "integration", "e2e", "other"], "description": "The level a test command runs at, by which a step chooses repository tests (testLevels). Absent means other. An engine older than this key ignores it." },
             "ecosystem": {
               "description": "The language a test command tests. Below its affected roots it is then evidence only for that language's source and files of no language, as an inferred command is; a test setup suggestion carries its own. Leave it out to cover every file below the roots. An engine older than this key ignores it.",
               "enum": ["node", "python", "jvm", "dotnet", "go", "rust", "swift", "ruby", "php", "dart"]

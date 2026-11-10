@@ -34,7 +34,9 @@ test('reviewed help utterances route deterministically with citations and bounde
     }
   }
   assert.equal(correctlyResolved / expectedResolved, 1, 'correct-topic precision regressed');
-  assert.equal(ambiguous, 1, 'ambiguity corpus changed unexpectedly');
+  // Two prompt logs answer "How are prompts logged?": SFlow's audit of the prompts it composes, and the prompts
+  // people ask Copilot that a repository's hooks keep (plain-chat-routing). Help offers both rather than guess.
+  assert.equal(ambiguous, 2, 'ambiguity corpus changed unexpectedly');
   assert.equal(noMatch, 2, 'no-match corpus changed unexpectedly');
 });
 

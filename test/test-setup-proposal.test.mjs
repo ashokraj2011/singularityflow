@@ -45,6 +45,11 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
     await mkdir(path.join(root, directory), { recursive: true });
     await writeFile(path.join(root, directory, 'project.json'), JSON.stringify(project));
   }
+  // The suite reads its target from the environment, so one suite can run against a local server or a relay URL.
+  await writeFile(path.join(root, 'apps/shop-e2e/playwright.config.ts'),
+    "export default { use: { baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000' } };\n");
+  await mkdir(path.join(root, 'libs/util'), { recursive: true });
+  await writeFile(path.join(root, 'libs/util/package.json'), JSON.stringify({ name: 'util', private: true, scripts: { test: 'vitest run' }, devDependencies: { vitest: '2.1.0' } }));
   run(process.execPath, [cli, '--no-model', 'init']);
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
@@ -63,11 +68,11 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
   assert.deepEqual(inspected.suggestions.map((entry) => entry.id), ['apps/shop-e2e-playwright-tests']);
   const suggested = json('capability', 'test-setup', '--step', 'implementation', '--use', 'apps/shop-e2e-playwright-tests', '--source-root', 'apps/shop-e2e');
   assert.deepEqual(suggested.data.problems, []);
-  assert.deepEqual(suggested.data.command.affectedRoots, ['apps/shop-e2e', 'apps/shop']);
+  assert.deepEqual(suggested.data.commands[0].affectedRoots, ['apps/shop-e2e', 'apps/shop']);
   assert.equal(suggested.next[0].command, suggested.data.confirmCommand);
   // The suggestion keeps the language it tests, and its spelled-out confirmation is the same plan.
-  assert.equal(suggested.data.command.ecosystem, 'node');
-  assert.match(suggested.data.confirmCommand, / --ecosystem node --confirm sha256:/u);
+  assert.equal(suggested.data.commands[0].ecosystem, 'node');
+  assert.match(suggested.data.confirmCommand, / --level e2e --ecosystem node --confirm sha256:/u, 'it keeps the level SFlow found');
   assert.equal(shell(suggested.data.confirmCommand.replace(/ --confirm \S+$/u, '')).data.planSha256, suggested.data.planSha256);
 
   // The office case: the person's own Nx command and the JUnit report their Playwright config writes.
@@ -75,7 +80,7 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
     '--argv', '["npx","nx","run","shop-e2e:e2e","--skip-nx-cache"]', '--working-directory', '.', '--affected-root', 'apps/shop-e2e',
     '--affected-root', 'apps/shop', '--adapter', 'junit-xml', '--report', 'coverage/e2e/shop-e2e/junit-results.xml'];
   const preview = json(...office);
-  assert.deepEqual([preview.data.problems, preview.data.replaces, preview.data.testsExecuted], [[], null, false]);
+  assert.deepEqual([preview.data.problems, preview.data.replaces, preview.data.testsExecuted], [[], [], false]);
   assert.match(preview.data.diff, /\+ {6}- id: shop-e2e-junit[\s\S]*\+ {10}- npx[\s\S]*coverage\/e2e\/shop-e2e\/junit-results\.xml/u);
   assert.equal(await readFile(configPath, 'utf8'), before, 'a preview changes nothing');
   assert.equal(refused(...office, '--confirm', sha('stale')).code, 'TEST_SETUP_PLAN_CHANGED');
@@ -107,6 +112,56 @@ test('a test command chosen in /sf-test-setup is previewed, proposed by its dige
 
   // Proposing the same ID again replaces that test command and keeps every other check.
   const again = json(...office.map((value) => (value === 'coverage/e2e/shop-e2e/junit-results.xml' ? 'reports/junit.xml' : value)));
-  assert.equal(again.data.replaces.id, 'shop-e2e-junit');
+  assert.equal(again.data.replaces[0].id, 'shop-e2e-junit');
   assert.equal(again.data.kept.includes('shop-e2e-junit'), false);
+
+  // The repository's tests [RTC:REQ-005]: without --step, several suggestions are one proposal to tests:,
+  // each keeping its level, and the suite's target variable is named for the person to set per setup.
+  const roots = ['--source-root', 'apps/shop-e2e', '--source-root', 'libs/util'];
+  const found = json('capability', 'test-setup', ...roots).suggestions;
+  const e2e = found.find((entry) => entry.id === 'apps/shop-e2e-playwright-tests');
+  const unit = found.find((entry) => entry.level === 'unit');
+  assert.deepEqual([e2e.level, e2e.targetVariables, Boolean(unit)], ['e2e', ['PLAYWRIGHT_BASE_URL'], true], JSON.stringify(found));
+  const both = json('capability', 'test-setup', '--use', e2e.id, '--use', unit.id, ...roots);
+  assert.deepEqual([both.data.target, both.data.commands.map((entry) => entry.id), both.data.replaces, both.data.problems],
+    ['repository', [e2e.id, unit.id], [], []]);
+  assert.deepEqual(both.data.targetVariables, [{ id: e2e.id, variables: ['PLAYWRIGHT_BASE_URL'] }]);
+  assert.match(both.data.diff, /\n\+tests:\n/u);
+  assert.match(both.data.confirmCommand, / --use \S+ --use \S+ --source-root apps\/shop-e2e --source-root libs\/util --confirm sha256:/u);
+  const forRepository = shell(both.data.confirmCommand);
+  const repositoryBranch = forRepository.data.branch;
+  const repositoryConfig = YAML.parse(run('git', ['--git-dir', remote, 'show', `${repositoryBranch}:singularity/workflow.yml`]).stdout);
+  assert.deepEqual(repositoryConfig.tests.map((entry) => [entry.id, entry.level]), [[e2e.id, 'e2e'], [unit.id, 'unit']]);
+  assert.equal(Object.hasOwn(repositoryConfig.tests[0], 'targetVariables'), false, 'what the inspection read is shown, never written');
+  assert.deepEqual(repositoryConfig.phases, approved.phases, 'no step changed');
+  // The person who chose them activates them; the result names the line and the VS Code place [RTC:REQ-006].
+  const repositoryCommit = run('git', ['--git-dir', remote, 'rev-parse', repositoryBranch]).stdout.trim();
+  assert.equal(forRepository.data.activation.command,
+    `singularity-flow workflow activate ${repositoryBranch} --confirm ${repositoryCommit} --acknowledge-unprotected`);
+  assert.match(forRepository.next[0].label, /activates it themselves, never an agent: in their own terminal, singularity-flow workflow activate .* or in Workflow Studio → Changes → Review and activate\./u);
+  // The review reads "Repository tests", not a change to each workflow, and gives the way forward [RTC:REQ-007].
+  const reviewed = json('workflow', 'proposal', repositoryBranch);
+  assert.deepEqual([reviewed.workflows, reviewed.repositoryTests], [[], { label: 'Repository tests', change: 'added', added: [e2e.id, unit.id], changed: [], removed: [] }]);
+  const reviewText = run(process.execPath, [cli, '--no-model', 'workflow', 'proposal', repositoryBranch]).stdout;
+  assert.match(reviewText, new RegExp(`added +Repository tests: adds ${e2e.id}, ${unit.id}\n`, 'u'));
+  assert.ok(reviewText.includes(`Activate it: ${forRepository.data.activation.command}\n`), reviewText);
+  assert.match(run(process.execPath, [cli, '--no-model', 'workflow', 'proposals']).stdout, /Repository tests: adds .* \(added\)/u);
+  run(process.execPath, [cli, '--no-model', 'workflow', 'activate', repositoryBranch, '--confirm', repositoryCommit, '--acknowledge-unprotected']);
+  // A step that runs tests and has none of its own is offered them for a Story in progress [RTC:REQ-003].
+  const verifying = { workItem: { workType: 'feature' }, resolution: { phases: [{ id: 'verification', qualityCommands: [] }] } };
+  assert.deepEqual((await activatedTestCommandsFor(root, verifying, 'verification')).map((entry) => entry.id), [e2e.id, unit.id]);
+
+  // An ID tests: holds is replaced, and the preview says so; a setup can carry its target [RTC:REQ-011].
+  const spelled = (id, ...extra) => ['capability', 'test-setup', '--id', id, '--argv', '["npx","playwright","test"]', '--working-directory', 'apps/shop-e2e',
+    '--affected-root', 'apps/shop-e2e', '--adapter', 'playwright-json', '--report', `.sflow/results/${id}.json`, '--level', 'e2e', ...extra];
+  const local = json(...spelled(e2e.id, '--env', 'PLAYWRIGHT_BASE_URL=http://localhost:3000'));
+  assert.deepEqual([local.data.target, local.data.replaces.map((entry) => entry.id), local.data.commands[0].env], ['repository', [e2e.id], { PLAYWRIGHT_BASE_URL: 'http://localhost:3000' }]);
+  assert.match(run(process.execPath, [cli, '--no-model', ...spelled(e2e.id, '--env', 'PLAYWRIGHT_BASE_URL=http://localhost:3000')]).stdout,
+    new RegExp(`Replaces the test command '${e2e.id}' already there\\.`, 'u'));
+  const relay = json(...spelled('e2e-relay', '--environment', 'relay'));
+  assert.deepEqual([relay.data.replaces, relay.data.commands[0].environment], [[], 'relay']);
+  assert.match(relay.data.confirmCommand, / --level e2e --environment relay --confirm sha256:/u);
+  const secret = refused(...spelled('e2e-secret', '--env', 'PLAYWRIGHT_BASE_URL=https://user:pw@relay.example.test'));
+  assert.equal(secret.code, 'QUALITY_COMMAND_ENV_SECRET');
+  assert.match(secret.message, /singularity\/environments\.yml/u);
 });

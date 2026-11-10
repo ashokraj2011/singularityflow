@@ -530,7 +530,15 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // judged in the steps that own them, with the ending's own evaluation (state.mjs +501, governance.mjs +393 to share
     // it, phase-prepublish.mjs +346, witness-records.mjs +33, owed-decisions.mjs +7); the checks themselves stay lazy
     // (acceptance-owner-check.mjs, owner-step-evidence.mjs) [PHR:REQ-007]. No new eager file.
-    assert.ok(closure.bytes <= 9_675_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,629,500 (measured 9,629,451, commands/phase-lifecycle.mjs): the repository's test commands are checked and given to the
+    // steps that run tests at resolution, which is synchronous (external-command-policy.mjs repository tests, level and URL
+    // credential check +5,927, config.mjs +1,339) [RTC:REQ-001, REQ-002, REQ-011], and workflow activate joins the
+    // own-terminal steps (person-step-catalog.mjs, copilot-mutation-guard.mjs) [RTC decision 6]; no new eager file.
+    // 9,655,600 (measured 9,655,563, commands/phase-lifecycle.mjs): phase-responsibility batch 1 merged with repository test
+    // commands (the two sets above together); no new eager file.
+    // 9,682,650 (measured 9,682,626, commands/phase-lifecycle.mjs): phase-responsibility batch 2 merged with main (batch 1,
+    // repository test commands and the 11-10 fixes): the sets above together; no new eager file.
+    assert.ok(closure.bytes <= 9_682_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -769,7 +777,12 @@ test('the common session projection does not import attach, state stores or publ
   // 4,190,800 (measured 4,190,757): the witness-deferral person step (person-step-catalog.mjs +481, command-registry.mjs +17) [PHR:REQ-007].
   // 4,191,900 (measured 4,191,853): a plan row an intent amendment carries is in force once it is approved
   // (plan-row-corrections.mjs +1096) [PHR:REQ-008].
-  assert.ok(current.bytes <= 4_191_900, `session current loads ${current.bytes} source bytes`);
+  // 4,192,050 (measured 4,192,007): the same repository test commands as start (external-command-policy.mjs, config.mjs)
+  // [RTC:REQ-001, REQ-002, REQ-011].
+  // 4,193,250 (measured 4,193,219): phase-responsibility batch 1 merged with repository test commands (the two sets above
+  // together).
+  // 4,199,400 (measured 4,199,393): phase-responsibility batch 2 merged with main (the sets above together).
+  assert.ok(current.bytes <= 4_199_400, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

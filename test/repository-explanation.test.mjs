@@ -15,6 +15,8 @@ import YAML from 'yaml';
 import { latestStoryStartAstWarmStatus, readRepositoryAstWarmStatus } from '../src/ast-story-start-status.mjs';
 import { runStoryStartAstWarmWorker } from '../src/ast-story-start-warm.mjs';
 import { explainRepository, scheduleRepositoryAstWarm } from '../src/comprehension/repository-explanation.mjs';
+import { SFLOW_REPOSITORY_HOOK_FILES } from '../src/comprehension/code-scope.mjs';
+import { REPOSITORY_HOOK_FILE, REPOSITORY_HOOK_LAUNCHERS, REPOSITORY_HOOK_README } from '../src/repository-hooks.mjs';
 import { cliJson, createChangeRepository, git, isolatedHome } from './helpers/xpl2-fixture.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -56,6 +58,8 @@ test('a repository within the AST budget is explained whole: folders, declaratio
   assert.deepEqual(explanation.files.map((file) => file.path),
     ['package.json', 'src/cart.js', 'src/pay/card.js', 'src/pay/refund.js', 'test/cart.test.js']);
   assert.ok(explanation.hiddenSingularityFiles > 0, 'Singularity Flow\'s own files are counted, not shown');
+  // init writes the repository's Copilot hook folder too: SFlow's own files, hidden like the rest (PCR:REQ-030).
+  assert.deepEqual([...SFLOW_REPOSITORY_HOOK_FILES].sort(), [REPOSITORY_HOOK_FILE, ...REPOSITORY_HOOK_LAUNCHERS, REPOSITORY_HOOK_README].sort());
   assert.deepEqual(explanation.entries.map((entry) => [entry.path, entry.kind, entry.files]),
     [['src', 'folder', 3], ['test', 'folder', 1], ['package.json', 'file', 1]]);
   const declared = Object.fromEntries(explanation.files.map((file) => [file.path, file.symbols.map((symbol) => `${symbol.kind} ${symbol.name}`)]));

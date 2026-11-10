@@ -20,6 +20,13 @@ async function printUnuploadedProposals(root) {
   }
 }
 
+/** A change to the repository's own test commands, by ID (src/cli.mjs prints the same). */
+export function repositoryTestsWords(change) {
+  const part = (word, ids) => (ids?.length ? `${word} ${ids.join(', ')}` : null);
+  const detail = [part('adds', change.added), part('changes', change.changed), part('removes', change.removed)].filter(Boolean).join('; ');
+  return `${change.label}${detail ? `: ${detail}` : ''}`;
+}
+
 export async function run(argv, { positionals, options }) {
   const method = positionals[1];
   if (method === 'list') return (await import('./workflow-list.mjs')).run({ options, argv });
@@ -51,6 +58,8 @@ export async function run(argv, { positionals, options }) {
       const subjects = (proposal.workflows ?? []).map(entry => `${entry.id} (${entry.change})`).join(', ');
       console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  ${proposal.merged ? 'merged' : proposal.valid ? 'pending review' : 'blocked'}`);
       if (subjects) console.log(`  workflows: ${subjects}`);
+      // The repository's own test commands belong to no workflow [RTC:REQ-007].
+      if (proposal.repositoryTests) console.log(`  ${repositoryTestsWords(proposal.repositoryTests)} (${proposal.repositoryTests.change})`);
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
     }
     return;
@@ -59,6 +68,13 @@ export async function run(argv, { positionals, options }) {
   console.log(`  target: ${value.targetBranch}@${value.targetCommit}`);
   console.log(`  status: ${value.merged ? 'already merged' : value.valid ? 'ready for review' : 'invalid'}`);
   for (const workflow of value.workflows) console.log(`  ${workflow.change.padEnd(8)} ${workflow.governs} workflow ${workflow.id}`);
+  if (value.repositoryTests) console.log(`  ${value.repositoryTests.change.padEnd(8)} ${repositoryTestsWords(value.repositoryTests)}`);
   for (const file of value.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
   if (value.invalidFiles.length) console.log(`  refused files: ${value.invalidFiles.join(', ')}`);
+  // The way forward, for the person who may change the approved configuration (src/cli.mjs prints the same).
+  if (value.activation) {
+    console.log(`Activate it: ${value.activation.command}`);
+    console.log(`  ${value.activation.acknowledgement}`);
+    console.log(`  VS Code: ${value.activation.vscode}`);
+  }
 }

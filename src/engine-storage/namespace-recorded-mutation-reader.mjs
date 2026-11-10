@@ -19,7 +19,7 @@ export function createNamespaceRecordedMutationReader({observer,scope,workId,ope
     return contract.value(value,{projectId:scope.projectId,workId});
   }
   function proposed(workflow,value,reference,source){
-    const planned=owner.plan(workflow,value.request,{at:value.recordedAt,actorId:value.actor.principalId,actorKind:value.actor.actorKind,
+    const planned=owner.plan(workflow,value.request,{at:value.recordedAt,actor:value.actor,actorId:value.actor.principalId,actorKind:value.actor.actorKind,
       agentId:value.agentId,authorityGroup:value.authorityGroup},source);
     if(!same(planned.outcome,value.outcome))throw corrupt();
     planned.workflow[contract.receiptField]=[...structuredClone(contract.receipts(workflow)),contract.receipt(value,reference)];

@@ -36,6 +36,7 @@ import {createNamespacePhaseInspectionPorts} from './namespace-phase-inspection.
 import {createNamespaceStoryQueryPorts} from './namespace-story-queries.mjs';
 import {createNamespaceWorkflowAssetsPort} from './namespace-workflow-assets.mjs';
 import {createNamespaceWitnessPorts} from './namespace-witness-decisions.mjs';
+import {createNamespaceAssignmentPort} from './namespace-assignment.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
 function captured(port,validate,methods) {
   validate(port);
@@ -80,13 +81,13 @@ export function createNamespaceEngine(options={}) {
   const common={records,content,scope,workId,authority,access,clock,localContent,sources,
     modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,sourceReaders,sourceControlReaders};
   const runtime=working?createNamespacePreparationRuntime({...common,inputContent:localContent,localRecords:working.records,localContent:working.content}):null;
-  const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planPorts,witnessPorts;
+  const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planPorts,witnessPorts,assignmentPort;
   const witnesses=()=>witnessPorts??=createNamespaceWitnessPorts(common),plans=()=>planPorts??=createNamespacePlanDecisionPorts(common);
   const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord=Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
     const operation=parameters.at(-1)?.operation?.id;
-    if(operation!=='decision.choose'&&operation!=='decision.plan'&&operation!=='plan.correction.record'&&operation!=='decision.witness'&&!NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation))throw new SingularityFlowError(
+    if(operation!=='phase.assign'&&operation!=='decision.choose'&&operation!=='decision.plan'&&operation!=='plan.correction.record'&&operation!=='decision.witness'&&!NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation))throw new SingularityFlowError(
       'This decision needs its declared namespace evidence and authority owner.',{code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:'decisionRecord',required:[operation]}});
-    const port=operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
+    const port=operation==='phase.assign'?(assignmentPort??=createNamespaceAssignmentPort(common)):operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
       :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
     return port[stage](...parameters);
   }]));

@@ -698,7 +698,7 @@ test('namespace policy proof is read-only, versioned, and independent of Story c
   }
   const rule='src/kernel/story-policy.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[rule],allowed:[rule,...await sourceFiles('src/foundation')]});
   assert.deepEqual(pure.problems,[]);
-  const owners=new Set([reader,'src/engine-storage/namespace-witness-reader.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-workflow-assets.mjs','src/engine-storage/namespace-phase-inspection.mjs','src/engine-storage/namespace-story-queries.mjs','src/engine-storage/namespace-plan-decisions.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs','src/engine-storage/namespace-upstream-reader.mjs','src/engine-storage/namespace-input-documents.mjs','src/engine-storage/namespace-code-policy.mjs','src/engine-storage/namespace-code-preflight.mjs','src/engine-storage/namespace-phase-entry.mjs','src/engine-storage/namespace-clarifications.mjs','src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-delivery-inspection.mjs','src/engine-storage/namespace-test-witnesses.mjs',
+  const owners=new Set([reader,'src/engine-storage/namespace-assignment.mjs','src/engine-storage/namespace-witness-reader.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-workflow-assets.mjs','src/engine-storage/namespace-phase-inspection.mjs','src/engine-storage/namespace-story-queries.mjs','src/engine-storage/namespace-plan-decisions.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs','src/engine-storage/namespace-upstream-reader.mjs','src/engine-storage/namespace-input-documents.mjs','src/engine-storage/namespace-code-policy.mjs','src/engine-storage/namespace-code-preflight.mjs','src/engine-storage/namespace-phase-entry.mjs','src/engine-storage/namespace-clarifications.mjs','src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-delivery-inspection.mjs','src/engine-storage/namespace-test-witnesses.mjs',
     'src/engine-storage/namespace-preparation.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-source-inspection.mjs','src/engine-storage/namespace-source-retention-reader.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-reader.mjs',
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-conformance-decisions.mjs','src/engine-storage/namespace-rejection.mjs','src/engine-storage/namespace-routing-choice.mjs']);
   for(const file of await sourceFiles('src')) {
@@ -984,7 +984,7 @@ test('specification analysis shares pure rules; policy verification is read-only
   const reader='src/engine-storage/namespace-policy-reader.mjs',writer='src/engine-storage/namespace-policy-retention.mjs',
     contract='src/engine-storage/namespace-policy-contract.mjs';
   const allowed=new Map([
-    [reader,new Set(['./namespace-witness-reader.mjs','./namespace-artifact-set-reader.mjs','node:crypto','./namespace-clarification-reader.mjs','../kernel/clarification-responses.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-analysis.mjs',
+    [reader,new Set(['./namespace-assignment-reader.mjs','../kernel/phase-policy.mjs','./namespace-witness-reader.mjs','./namespace-artifact-set-reader.mjs','node:crypto','./namespace-clarification-reader.mjs','../kernel/clarification-responses.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-analysis.mjs',
       '../engine-compatibility/node-specification-policy.mjs','./namespace-specification-contract.mjs','./namespace-policy-contract.mjs','./namespace-code-policy.mjs','./namespace-code-inputs.mjs','./namespace-conformance.mjs','./namespace-publication-reader.mjs','./namespace-candidate-content.mjs'])],
     [writer,new Set(['./namespace-artifact-set-reader.mjs','../kernel/artifact-content.mjs','./namespace-clarification-reader.mjs','node:crypto','../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/content/contract.mjs',
       './namespace-specification-contract.mjs','./namespace-policy-contract.mjs'])]
@@ -1186,7 +1186,7 @@ test('the opt-in headless composition captures capabilities and constructs exact
   const allowed=new Set(['../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/source-snapshot.mjs','../foundation/source-control.mjs',
     '../sda/namespace/contract.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-reader.mjs',
     './namespace-project.mjs','./namespace-configuration.mjs','./namespace-story.mjs','./namespace-source.mjs',
-    './namespace-witness-decisions.mjs','./namespace-preparation.mjs','./namespace-publication.mjs','./namespace-submission.mjs','./namespace-approval.mjs','./namespace-conformance-decisions.mjs','./namespace-rejection.mjs','./namespace-routing-choice.mjs','./namespace-read-session.mjs','./namespace-plan-decisions.mjs','./namespace-scope-decisions.mjs','./namespace-upstream.mjs','./namespace-input-documents.mjs','./namespace-phase-checks.mjs','./namespace-source-inspection.mjs','./namespace-source-retention.mjs','./namespace-source-baseline.mjs','./namespace-delivery-inspection.mjs','./namespace-test-witnesses.mjs','./namespace-source-control.mjs','./namespace-clarifications.mjs','./namespace-phase-entry.mjs','./namespace-phase-inspection.mjs','./namespace-story-queries.mjs','./namespace-workflow-assets.mjs']);
+    './namespace-assignment.mjs','./namespace-witness-decisions.mjs','./namespace-preparation.mjs','./namespace-publication.mjs','./namespace-submission.mjs','./namespace-approval.mjs','./namespace-conformance-decisions.mjs','./namespace-rejection.mjs','./namespace-routing-choice.mjs','./namespace-read-session.mjs','./namespace-plan-decisions.mjs','./namespace-scope-decisions.mjs','./namespace-upstream.mjs','./namespace-input-documents.mjs','./namespace-phase-checks.mjs','./namespace-source-inspection.mjs','./namespace-source-retention.mjs','./namespace-source-baseline.mjs','./namespace-delivery-inspection.mjs','./namespace-test-witnesses.mjs','./namespace-source-control.mjs','./namespace-clarifications.mjs','./namespace-phase-entry.mjs','./namespace-phase-inspection.mjs','./namespace-story-queries.mjs','./namespace-workflow-assets.mjs']);
   const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
   let engines=0;
   const visit=node=>{
@@ -1954,7 +1954,7 @@ test('human conformance rules stay pure and conditional human writes have one ex
 
 test('conditional decision coordination has one writer while domain replay remains read only',async()=>{
   const writer='src/engine-storage/namespace-recorded-mutation.mjs',reader='src/engine-storage/namespace-recorded-mutation-reader.mjs',
-    users=new Set([writer,'src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-plan-decisions.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs','src/engine-storage/namespace-input-documents.mjs']);
+    users=new Set([writer,'src/engine-storage/namespace-assignment.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-plan-decisions.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs','src/engine-storage/namespace-input-documents.mjs']);
   for(const file of [writer,reader,'src/engine-storage/namespace-witness-reader.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-upstream-reader.mjs','src/engine-storage/namespace-decision-contract.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs']){
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
     const visit=node=>{
@@ -2017,4 +2017,16 @@ test('plan corrections share pure value/schema owners while presence and retaine
   assert.doesNotMatch(evidence,/function evidenceCorrectionProjection|function evidenceOwnerAuthorities/u);assert.match(evidence,/exactFileAtObject/u);
   const upstream=await readFile(path.join(packageRoot,'src/kernel/upstream-issues.mjs'),'utf8');
   assert.match(upstream,/parseRecordShape as parseRecord/u);assert.doesNotMatch(upstream,/function parseRecord\(/u);
+});
+
+test('coordination shares the original pure reducer and verifies assignment evidence without a writer',async()=>{
+  const native=await readFile(path.join(packageRoot,'src/collaboration.mjs'),'utf8'),ast=ts.createSourceFile('native',native,ts.ScriptTarget.Latest,true),
+    reducer=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='assignPhase').body.getText(ast);
+  assert.match(reducer,/phaseAssignmentStateReplay/u);assert.equal((reducer.match(/nowIso\(/gu)??[]).length,1);
+  assert.doesNotMatch(reducer,/\.assignments|\.notifications|\.history/u);
+  const file='src/engine-storage/namespace-assignment-reader.mjs',source=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true),
+    allowed=new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/phase-policy.mjs','./namespace-recorded-mutation-reader.mjs','./namespace-decision-contract.mjs']);
+  const visit=node=>{if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
+    if(ts.isPropertyAccessExpression(node)&&['put','transact','commit','prepare','start','spawn'].includes(node.name.text))assert.fail('Coordination verification must remain read only');
+    ts.forEachChild(node,visit);};visit(source);
 });

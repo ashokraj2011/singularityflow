@@ -80,7 +80,7 @@ export function createNamespaceRecordedMutationPort(options,{operation,request,o
             authorityGroup=owner.authority(snapshot.workflow,s.request,s.reviewer.actor,source);
           s.source=source;
           await owner.assertNew?.(snapshot,s.request,source,{signal,at});
-          const planned=owner.plan(snapshot.workflow,s.request,{at,actorId:s.reviewer.actor.principalId,actorKind:s.reviewer.actor.actorKind,agentId:s.reviewer.agentId,authorityGroup},source);
+          const planned=owner.plan(snapshot.workflow,s.request,{at,actor:s.reviewer.actor,actorId:s.reviewer.actor.principalId,actorKind:s.reviewer.actor.actorKind,agentId:s.reviewer.agentId,authorityGroup},source);
           for(const retained of source.pendingEvidence??[]){
             const reference=contentReference(retained.reference),bytes=retained.bytes;
             if(reference.namespace!=='evidence'||!(bytes instanceof Uint8Array)||reference.bytes!==bytes.byteLength

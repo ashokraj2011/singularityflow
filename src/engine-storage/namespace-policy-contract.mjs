@@ -6,6 +6,7 @@ import {contentReference} from '../sda/content/contract.mjs';
 import {lifecycleHead} from './namespace-lifecycle-contract.mjs';
 export const NAMESPACE_POLICY_PUBLICATION_PROFILE='sflow-policy-publication/v1';
 export const SPECIFICATION_ANALYSIS_EVIDENCE='specification-analysis/v1';
+export const PHASE_ASSIGNMENT_EVIDENCE='phase-assignment/v1';
 export const CODE_DELIVERY_EVIDENCE='code-delivery/v1';
 export const CODE_REWORK_EVIDENCE='code-delivery/v2';
 export const isCodePolicyEvidence=kind=>[CODE_DELIVERY_EVIDENCE,CODE_REWORK_EVIDENCE,'code-delivery/v3','code-delivery/v4','code-delivery/v5','code-delivery/v6','code-delivery/v7'].includes(kind);
@@ -52,6 +53,16 @@ export function namespaceCodeInputManifest(value,{scope,workId,phaseId}){
       ||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another Code input identity.');
     exactObject(value.basis,['revision','head']);lifecycleHead(value.basis.head,scope,workId);
     if(namespaceRevision(value.baseRevision)===null||namespaceRevision(value.basis.revision)!==value.baseRevision)throw Error('Another Code input basis.');
+    exactObject(value.artifact,['key','content']);evidence(value.artifact.content);evidence(value.report);
+  }catch(cause){throw invalid(cause);}return value;
+}
+export function namespaceAssignmentManifest(value,{scope,workId,phaseId}){
+  try{admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.assignment,value);
+    exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','operationId','baseRevision','configuration','draft','actor','agentId','recordedAt','artifact','basis','report']);
+    if(value.format!=='sflow-namespace-phase-assignment-policy/v1'||value.projectId!==scope.projectId||value.workId!==workId||value.phase!==phaseId
+      ||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another assignment identity.');
+    exactObject(value.basis,['revision','head']);lifecycleHead(value.basis.head,scope,workId);
+    if(namespaceRevision(value.baseRevision)===null||namespaceRevision(value.basis.revision)!==value.baseRevision)throw Error('Another assignment basis.');
     exactObject(value.artifact,['key','content']);evidence(value.artifact.content);evidence(value.report);
   }catch(cause){throw invalid(cause);}return value;
 }

@@ -77,6 +77,7 @@ export function upstreamOperationRequest(operation,input) {
 /** Existing standalone admission, shared by every host before it prepares a human request. */
 export function standaloneDecisionAdmission(operation, workflow) {
   const workId = workflow.workItem.id;
+  if(operation==='phase.assign')return {workId,phase:workflow.currentPhase??null};
   if (operation === 'decision.choose') {
     if (!workflow.pendingDecision) refused(
       `Story ${workId} is not waiting for a decision. See its decisions with singularity-flow decision show ${workId}.`,
@@ -110,6 +111,7 @@ export function standaloneDecisionAdmission(operation, workflow) {
 /** Normalize domain values only; identity, policy and publication are never request fields. */
 export function standaloneDecisionRequest(operation, input) {
   const reason = input.reason ?? '';
+  if(operation==='phase.assign')return {phaseId:input.phaseId??null,assignee:input.assignee??null};
   if (operation === 'decision.scope') {
     const item = input.item ?? null, disposition = input.disposition ?? null;
     if (!item || !disposition) refused(

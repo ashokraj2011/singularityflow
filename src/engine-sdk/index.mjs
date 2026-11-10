@@ -55,6 +55,7 @@ const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','select
 const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
 const CORRECTION_FIELDS=Object.freeze(['ownerPhase','operations','reason','upstreamIssue']);
 const SINGLE_DECISIONS = Object.freeze([
+  ['phase.assign','phase-assignment',['phaseId','assignee'],{authority:'requester',humanDecision:false,phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','assignee'])}],
   ['decision.scope','scope-disposition',['item','disposition','clauseIds','reason']],
   ['decision.completeness','completeness-review',['confirm','checklist','reason']],
   ['decision.applicability','applicability',['responsibility','reason']],
@@ -110,7 +111,7 @@ const definitions = [
     humanDecision:id==='plan.correct',confirmation:id==='plan.correct'?'live-terminal-exact-plan-review':null,
     requestFields:CORRECTION_FIELDS,inputFields:Object.freeze(['workId','fetch',...CORRECTION_FIELDS]),port:'planCorrection',
     stages:Object.freeze(['load','prepare','review','authorize','commit','finish']),validate:'singleDecisionInput',execute:'correctPlan'})),
-  ...SINGLE_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',humanDecision:true,
+  ...SINGLE_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',humanDecision:operation.humanDecision!==false,
     inputFields:Object.freeze(['workId','fetch',...(operation.id==='decision.choose'?[]:['operationId']),...operation.requestFields]),port:'decisionRecord',
     stages:Object.freeze(['load','prepare','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'})),
   ...TEST_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',

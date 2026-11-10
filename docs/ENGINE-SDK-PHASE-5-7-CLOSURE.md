@@ -89,6 +89,11 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   replay, with the original installed/bundle bounds unchanged. See
   [the outcome record](ENGINE-SDK-UPSTREAM-PLAN-CORRECTION.md).
 
+- Registered phase coordination shares the native pure reducer and retains actual assignment
+  receipts and publication reports, including independent approval and shared-only takeover.
+  Three backends and the offline SDK pass 186 affected Mac checks with all original limits. See
+  [the assignment record](ENGINE-SDK-NAMESPACE-ASSIGNMENTS.md).
+
 ## Still required before either phase can be called complete
 
 - The remaining native query/rule inventory and parity audit.
@@ -96,9 +101,9 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   plus live application-review and witness-exception profiles.
 - Upstream return/amend outcomes and forward amendments.
 - Targeted Code repair and multiple Code predecessors/observed-claim reuse.
-- Constitution/comparison/live application acceptance and document/test risk owners.
+- Constitution/comparison/live application acceptance, independent source review and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
-- Required grounding, external design, skill/MCP host, person-presence, architecture, assignment,
+- Required grounding, external design, skill/MCP host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through actual evidence ports.
 - Final qualification of those profiles and their cross-agent application journeys. Phases 8 and
   9 remain separate and unchanged.

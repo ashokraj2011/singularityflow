@@ -5,6 +5,24 @@ import {normalizeSourceBoundary} from './configuration-declarations.mjs';
 import { phaseCorrectionTargets } from './approval-fallback.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
+export const phaseAssignmentRequired=(workflow,definition={})=>(workflow.resolution?.collaboration??definition.collaboration)?.assignmentMode==='required';
+
+/** Coordination does not confer author, reviewer or approval authority. The host supplies time. */
+export function phaseAssignmentSelection(workflow,phaseId,assignee){
+  const phase=workflow.phases[phaseId];if(!phase)throw new Error(`Unknown phase '${phaseId}'.`);
+  if(!assignee?.trim())throw new Error('Assignee must not be empty.');return {phase,assignee:assignee.trim()};
+}
+export function* phaseAssignmentStateReplay(workflow,phaseId,assignee,session,{actorId=session?.actor?.login??session?.actor?.email??session?.actor?.name??'unknown'}={}){
+  const selected=phaseAssignmentSelection(workflow,phaseId,assignee);workflow.collaboration??={assignments:{},notifications:[]};
+  const at=yield 'phase-assignment-timestamp';
+  const record={phase:phaseId,assignee:selected.assignee,assignedAt:at,assignedBy:session?.actor??null,agent:session?.agent??null};
+  workflow.collaboration.assignments[phaseId]=record;
+  workflow.collaboration.notifications.push({at:record.assignedAt,type:'assignment',phase:phaseId,message:`${selected.phase.label} assigned to ${record.assignee}`,read:false});
+  workflow.history.push({at:record.assignedAt,actor:actorId,agent:session?.agent??null,event:'phase_assigned',phase:phaseId,detail:record.assignee});return record;
+}
+export function recordPhaseAssignmentState(workflow,phaseId,assignee,session,{at,...options}={}){
+  const replay=phaseAssignmentStateReplay(workflow,phaseId,assignee,session,options);replay.next();return replay.next(at).value;
+}
 
 /** Recorded counts only. No execution, freshness, quorum or acceptance is implied. */
 export function recordedEvidenceSummary(workflow) {

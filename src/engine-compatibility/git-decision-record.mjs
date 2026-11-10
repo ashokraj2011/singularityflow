@@ -7,7 +7,7 @@ export function createGitDecisionRecordPort({root, interaction=null, notice=()=>
   const prepare = typeof interaction?.prepare === 'function' ? interaction.prepare.bind(interaction) : null;
   return {
     async load(input, {operation}) {
-      if(input.operationId!=null||operation.id==='plan.correction.record')throw new SingularityFlowError('Explicit namespace decision IDs require their namespace record owner.',{
+      if(input.operationId!=null||operation.id==='plan.correction.record'||operation.id==='phase.assign')throw new SingularityFlowError('Explicit namespace decision IDs require their namespace record owner.',{
         code:'ENGINE_PORT_UNAVAILABLE',details:{required:['namespace-decision-idempotency']}});
       const context = await loadNativeDecisionRecordContext(root,input,operation);
       onContext(context);

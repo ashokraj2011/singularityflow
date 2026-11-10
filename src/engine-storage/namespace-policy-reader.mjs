@@ -1,11 +1,12 @@
 /** Recompute concrete policy evidence from original bytes, policy and accepted history. Read only. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,admitRecordSchemaVersion,SPECIFICATION_ANALYSIS_REPORT_SCHEMA,namespaceCodePolicyProfile} from '../foundation/record-schema.mjs';
+import {canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,SPECIFICATION_ANALYSIS_REPORT_SCHEMA,namespaceCodePolicyProfile} from '../foundation/record-schema.mjs';
+import {phaseAssignmentRequired} from '../kernel/phase-policy.mjs';
 import {specificationAnalysisPublicationPolicy} from '../kernel/specification-analysis.mjs';
 import {specificationGateValue,evaluateApprovalChecklist} from '../engine-compatibility/node-specification-policy.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
-import {namespaceAnalysisManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE,isConformanceEvidence,isCodePolicyEvidence} from './namespace-policy-contract.mjs';
+import {namespaceAnalysisManifest,namespaceAssignmentManifest,PHASE_ASSIGNMENT_EVIDENCE,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE,isConformanceEvidence,isCodePolicyEvidence} from './namespace-policy-contract.mjs';
 import {createNamespaceConformanceReader} from './namespace-conformance.mjs';
 import {createNamespaceCodePolicyReader,withCodePolicyTraversal,verifyCodePolicyInTraversal} from './namespace-code-policy.mjs';
 import {createNamespaceCodeInputReader} from './namespace-code-inputs.mjs';
@@ -15,6 +16,7 @@ import {answeredMarkerHashes,resolvedClarificationPolicy} from '../kernel/clarif
 import {namespaceCandidateContent} from './namespace-candidate-content.mjs';
 import {createNamespaceArtifactSetReader,ARTIFACT_SET_EVIDENCE} from './namespace-artifact-set-reader.mjs';
 import {createNamespaceWitnessOwners} from './namespace-witness-reader.mjs';
+import {createNamespaceAssignmentOwners} from './namespace-assignment-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -27,10 +29,27 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   const clarifications=createNamespaceClarificationReader({observer,scope,workId,checks});
   const artifactSets=createNamespaceArtifactSetReader({observer,scope,workId});
   let witnesses=null;const witnessReader=()=>witnesses??=createNamespaceWitnessOwners({observer,scope,workId});
+  let assignments=null;const assignmentReader=()=>assignments??=createNamespaceAssignmentOwners({observer,scope,workId});
   async function json(reference,signal) {
     const bytes=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
     catch(cause){throw error('The policy evidence is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',null,cause);}
+  }
+  async function assignmentCandidate(publication,snapshot,options={}){
+    const approved=await observer.approved(snapshot,options);
+    if(!phaseAssignmentRequired(snapshot.workflow,approved.compiled.definition))throw error('This phase does not require assignment evidence.','ENGINE_INPUT_INVALID');
+    return assignmentReader().publication(snapshot,publication.phase,options);
+  }
+  async function verifyAssignment(publication,binding,{signal,policyTraversal}={}){
+    const manifest=namespaceAssignmentManifest(await json(binding.record,signal),{scope,workId,phaseId:publication.phase});
+    if(!same(namespaceSpecificationIdentity(publication),Object.fromEntries(Object.keys(namespaceSpecificationIdentity(publication)).map(key=>[key,manifest[key]])))
+      ||manifest.recordedAt!==publication.publishedAt||!same(manifest.artifact,{key:publication.artifact.sourceKey,content:publication.artifact.content}))throw error('Assignment evidence has another publication identity.','ENGINE_STORAGE_CORRUPT');
+    const state=await observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
+      snapshot={revision:manifest.basis.revision,configuration:manifest.basis.head.configuration,workflow:state.workflow},expected=await assignmentCandidate(publication,snapshot,{signal,policyTraversal}),report=await json(manifest.report,signal);
+    try{admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.assignmentReport,report);}catch(cause){throw error('The assignment report has an unsupported or invalid schema.',
+      ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}
+    if(!same(report,expected.report))throw error('The assignment report differs from its exact accepted coordination records.','ENGINE_STORAGE_CORRUPT');
+    return {binding,manifest,report,references:expected.references,policy:{owners:['assignment-record']}};
   }
   async function previous(snapshot,phaseId,generation,signal) {
     const phase=snapshot.workflow.phases[phaseId];
@@ -99,6 +118,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     const values=[];
     for(const binding of publication.policyEvidence) {
       namespacePolicyEvidenceBinding(binding);
+      if(binding.kind===PHASE_ASSIGNMENT_EVIDENCE){values.push(await verifyAssignment(publication,binding,{signal,policyTraversal:token}));continue;}
       if(binding.kind===ARTIFACT_SET_EVIDENCE){values.push(await artifactSets.verify(publication,binding,{signal}));continue;}
       if(isConformanceEvidence(binding.kind)){values.push(await conformanceReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
       if(isCodePolicyEvidence(binding.kind)){values.push(await verifyCodePolicyInTraversal(codeReader(),observer,publication,binding,{signal,policyTraversal:token}));continue;}
@@ -127,10 +147,10 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   function proofs(publication) {const found=verified.get(publication);return found&&found.identity===canonicalJson(publication)
     &&found.values.every(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().proof(publication)===value
       :isConformanceEvidence(value.binding.kind)?conformanceReader().proof(publication)===value:value.binding.kind!==CODE_INPUT_EVIDENCE||inputReader().proof(publication)===value)?found.values:[];}
-  function owners(publication) {return proofs(publication).flatMap(value=>(isCodePolicyEvidence(value.binding.kind)||value.binding.kind===CODE_INPUT_EVIDENCE||value.binding.kind===ARTIFACT_SET_EVIDENCE||isConformanceEvidence(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
-  function evidence(publication) {return proofs(publication).flatMap(value=>value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.evidence(value):isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):value.binding.kind===CODE_INPUT_EVIDENCE?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
+  function owners(publication) {return proofs(publication).flatMap(value=>(value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE||isCodePolicyEvidence(value.binding.kind)||value.binding.kind===CODE_INPUT_EVIDENCE||value.binding.kind===ARTIFACT_SET_EVIDENCE||isConformanceEvidence(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
+  function evidence(publication) {return proofs(publication).flatMap(value=>value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE?[value.binding.record,value.manifest.report,...value.references]:value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.evidence(value):isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):value.binding.kind===CODE_INPUT_EVIDENCE?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
     ?[value.binding.record,...(value.response?[value.response.reference]:[])]:[value.binding.record,value.manifest.report,...(value.manifest.previous?[value.manifest.previous.record]:[])]).map(value=>({...value}));}
-  function resources(publication) {return proofs(publication).flatMap(value=>value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.resources(value):[{kind:isConformanceEvidence(value.binding.kind)?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':value.binding.kind===CODE_INPUT_EVIDENCE?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
+  function resources(publication) {return proofs(publication).flatMap(value=>value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.resources(value):[{kind:value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE?'phase-assignment':isConformanceEvidence(value.binding.kind)?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':value.binding.kind===CODE_INPUT_EVIDENCE?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
     reference:{...(value.binding.kind===CLARIFICATION_EVIDENCE?value.response?.reference??value.binding.record:value.manifest.report)}}]);}
   function readBindings(publication) {return proofs(publication).flatMap(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().readBindings(value):value.binding.kind===CLARIFICATION_EVIDENCE?[{...value.manifest.observed}]:[]);}
   function codeEvidence(publication){const value=proofs(publication).find(row=>isCodePolicyEvidence(row.binding.kind));
@@ -151,7 +171,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     return {evidence:structuredClone(value.binding),result:evaluateApprovalChecklist({policy:value.selected.quality,decisions,
       authorities:value.definition.approvalAuthorities,actor:actor.identity})};
   }
-  return Object.freeze({candidate,artifactSetCandidate:artifactSets.candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
+  return Object.freeze({candidate,assignmentCandidate,artifactSetCandidate:artifactSets.candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
     codeInputCandidate:(...args)=>inputReader().candidate(...args),conformanceCandidate:(...args)=>conformanceReader().candidate(...args),
     freshCodeCandidate:(...args)=>codeReader().freshCandidate(...args),freshInputCandidate:(...args)=>inputReader().freshEvidence(...args),
     freshConformanceCandidate:(...args)=>conformanceReader().freshCandidate(...args),

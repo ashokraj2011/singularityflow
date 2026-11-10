@@ -1,0 +1,510 @@
+{
+  "baseline": "e03809e24",
+  "sourceSha256": "19066066c74a788d77353def44c8f106ad7c91f23863d6b5eda0048700a6f217",
+  "at": "2030-01-02T03:04:05.006Z",
+  "cases": [
+    {
+      "name": "coordinator",
+      "phaseId": "intake",
+      "assignee": "  reviewer@example.test  ",
+      "session": {
+        "actor": {
+          "name": "Example",
+          "email": "person@example.test"
+        },
+        "agent": "analyst"
+      },
+      "outcome": {
+        "value": {
+          "phase": "intake",
+          "assignee": "reviewer@example.test",
+          "assignedAt": "2030-01-02T03:04:05.006Z",
+          "assignedBy": {
+            "name": "Example",
+            "email": "person@example.test"
+          },
+          "agent": "analyst"
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": [
+            {
+              "at": "2030-01-02T03:04:05.006Z",
+              "actor": "person@example.test",
+              "agent": "analyst",
+              "event": "phase_assigned",
+              "phase": "intake",
+              "detail": "reviewer@example.test"
+            }
+          ],
+          "collaboration": {
+            "assignments": {
+              "intake": {
+                "phase": "intake",
+                "assignee": "reviewer@example.test",
+                "assignedAt": "2030-01-02T03:04:05.006Z",
+                "assignedBy": {
+                  "name": "Example",
+                  "email": "person@example.test"
+                },
+                "agent": "analyst"
+              }
+            },
+            "notifications": [
+              {
+                "at": "2030-01-02T03:04:05.006Z",
+                "type": "assignment",
+                "phase": "intake",
+                "message": "Intake assigned to reviewer@example.test",
+                "read": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "null-session",
+      "phaseId": "intake",
+      "assignee": "Team",
+      "outcome": {
+        "value": {
+          "phase": "intake",
+          "assignee": "Team",
+          "assignedAt": "2030-01-02T03:04:05.006Z",
+          "assignedBy": null,
+          "agent": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": [
+            {
+              "at": "2030-01-02T03:04:05.006Z",
+              "actor": "unknown",
+              "agent": null,
+              "event": "phase_assigned",
+              "phase": "intake",
+              "detail": "Team"
+            }
+          ],
+          "collaboration": {
+            "assignments": {
+              "intake": {
+                "phase": "intake",
+                "assignee": "Team",
+                "assignedAt": "2030-01-02T03:04:05.006Z",
+                "assignedBy": null,
+                "agent": null
+              }
+            },
+            "notifications": [
+              {
+                "at": "2030-01-02T03:04:05.006Z",
+                "type": "assignment",
+                "phase": "intake",
+                "message": "Intake assigned to Team",
+                "read": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "future-phase",
+      "phaseId": "future",
+      "assignee": "Another team",
+      "session": {
+        "actor": {
+          "login": "example"
+        },
+        "agent": null
+      },
+      "outcome": {
+        "value": {
+          "phase": "future",
+          "assignee": "Another team",
+          "assignedAt": "2030-01-02T03:04:05.006Z",
+          "assignedBy": {
+            "login": "example"
+          },
+          "agent": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": [
+            {
+              "at": "2030-01-02T03:04:05.006Z",
+              "actor": "example",
+              "agent": null,
+              "event": "phase_assigned",
+              "phase": "future",
+              "detail": "Another team"
+            }
+          ],
+          "collaboration": {
+            "assignments": {
+              "future": {
+                "phase": "future",
+                "assignee": "Another team",
+                "assignedAt": "2030-01-02T03:04:05.006Z",
+                "assignedBy": {
+                  "login": "example"
+                },
+                "agent": null
+              }
+            },
+            "notifications": [
+              {
+                "at": "2030-01-02T03:04:05.006Z",
+                "type": "assignment",
+                "phase": "future",
+                "message": "Future assigned to Another team",
+                "read": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "replace-assignment",
+      "phaseId": "intake",
+      "assignee": "Replacement",
+      "initial": {
+        "collaboration": {
+          "assignments": {
+            "intake": {
+              "assignee": "Old"
+            }
+          },
+          "notifications": []
+        }
+      },
+      "outcome": {
+        "value": {
+          "phase": "intake",
+          "assignee": "Replacement",
+          "assignedAt": "2030-01-02T03:04:05.006Z",
+          "assignedBy": null,
+          "agent": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": [
+            {
+              "at": "2030-01-02T03:04:05.006Z",
+              "actor": "unknown",
+              "agent": null,
+              "event": "phase_assigned",
+              "phase": "intake",
+              "detail": "Replacement"
+            }
+          ],
+          "collaboration": {
+            "assignments": {
+              "intake": {
+                "phase": "intake",
+                "assignee": "Replacement",
+                "assignedAt": "2030-01-02T03:04:05.006Z",
+                "assignedBy": null,
+                "agent": null
+              }
+            },
+            "notifications": [
+              {
+                "at": "2030-01-02T03:04:05.006Z",
+                "type": "assignment",
+                "phase": "intake",
+                "message": "Intake assigned to Replacement",
+                "read": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown-phase",
+      "phaseId": "absent",
+      "assignee": "Example",
+      "outcome": {
+        "error": {
+          "name": "Error",
+          "message": "Unknown phase 'absent'."
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": []
+        }
+      }
+    },
+    {
+      "name": "empty-assignee",
+      "phaseId": "intake",
+      "assignee": "  ",
+      "outcome": {
+        "error": {
+          "name": "Error",
+          "message": "Assignee must not be empty."
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": []
+        }
+      }
+    },
+    {
+      "name": "missing-assignee",
+      "phaseId": "intake",
+      "assignee": null,
+      "outcome": {
+        "error": {
+          "name": "Error",
+          "message": "Assignee must not be empty."
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": []
+        }
+      }
+    },
+    {
+      "name": "scalar-assignee",
+      "phaseId": "intake",
+      "assignee": 42,
+      "outcome": {
+        "error": {
+          "name": "TypeError",
+          "message": "assignee?.trim is not a function"
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": []
+        }
+      }
+    },
+    {
+      "name": "closed-coordination",
+      "phaseId": "intake",
+      "assignee": "Reviewer",
+      "initial": {
+        "status": "closed",
+        "currentPhase": null
+      },
+      "outcome": {
+        "value": {
+          "phase": "intake",
+          "assignee": "Reviewer",
+          "assignedAt": "2030-01-02T03:04:05.006Z",
+          "assignedBy": null,
+          "agent": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "closed",
+          "currentPhase": null,
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": [
+            {
+              "at": "2030-01-02T03:04:05.006Z",
+              "actor": "unknown",
+              "agent": null,
+              "event": "phase_assigned",
+              "phase": "intake",
+              "detail": "Reviewer"
+            }
+          ],
+          "collaboration": {
+            "assignments": {
+              "intake": {
+                "phase": "intake",
+                "assignee": "Reviewer",
+                "assignedAt": "2030-01-02T03:04:05.006Z",
+                "assignedBy": null,
+                "agent": null
+              }
+            },
+            "notifications": [
+              {
+                "at": "2030-01-02T03:04:05.006Z",
+                "type": "assignment",
+                "phase": "intake",
+                "message": "Intake assigned to Reviewer",
+                "read": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "missing-notifications",
+      "phaseId": "intake",
+      "assignee": "Example",
+      "initial": {
+        "collaboration": {
+          "assignments": {}
+        }
+      },
+      "outcome": {
+        "error": {
+          "name": "TypeError",
+          "message": "Cannot read properties of undefined (reading 'push')"
+        },
+        "workflow": {
+          "workItem": {
+            "id": "fixture"
+          },
+          "status": "in_progress",
+          "currentPhase": "intake",
+          "phases": {
+            "intake": {
+              "id": "intake",
+              "label": "Intake"
+            },
+            "future": {
+              "id": "future",
+              "label": "Future"
+            }
+          },
+          "history": [],
+          "collaboration": {
+            "assignments": {
+              "intake": {
+                "phase": "intake",
+                "assignee": "Example",
+                "assignedAt": "2030-01-02T03:04:05.006Z",
+                "assignedBy": null,
+                "agent": null
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

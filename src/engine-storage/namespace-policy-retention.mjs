@@ -4,7 +4,7 @@ import {canonicalJson,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
-import {namespaceAnalysisManifest,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE} from './namespace-policy-contract.mjs';
+import {namespaceAnalysisManifest,namespaceAssignmentManifest,PHASE_ASSIGNMENT_EVIDENCE,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE} from './namespace-policy-contract.mjs';
 import {clarificationRecord,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
 import {namespaceArtifactSetManifest,ARTIFACT_SET_EVIDENCE} from './namespace-artifact-set-reader.mjs';
 import {artifactBytesAreText} from '../kernel/artifact-content.mjs';
@@ -69,5 +69,12 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:ARTIFACT_SET_EVIDENCE,record:await save(manifest,signal)}),
       report,members:value.files.map(({path,content,data})=>({path,content,encoding:artifactBytesAreText(data)?'utf8':'binary'}))};
   }
-  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet});
+  async function retainAssignment(publication,{snapshot,head,signal}={}){
+    const value=await reader.assignmentCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),manifest={
+      schemaVersion:NAMESPACE_PHASE_POLICY_SCHEMAS.assignment.currentVersion,format:'sflow-namespace-phase-assignment-policy/v1',...namespaceSpecificationIdentity(publication),
+      recordedAt:publication.publishedAt,artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
+    namespaceAssignmentManifest(manifest,{scope,workId,phaseId:publication.phase});
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:PHASE_ASSIGNMENT_EVIDENCE,record:await save(manifest,signal)}),report};
+  }
+  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment});
 }

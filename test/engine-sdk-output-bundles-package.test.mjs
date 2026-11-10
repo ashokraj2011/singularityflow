@@ -15,9 +15,11 @@ test('installed output bundles remain reviewable and approvable without a workin
   await buildEngineSdk({outdir:path.join(artifact,'dist')});
   const packed=JSON.parse(npm(['pack','--offline','--ignore-scripts','--json','--pack-destination',archives],artifact))[0];
   await writeFile(path.join(consumer,'package.json'),'{"type":"module","private":true}\n');npm(['install',path.join(archives,packed.filename),'--offline','--ignore-scripts','--no-audit','--no-fund'],consumer);
-  const f=await namespaceEngineFixture(t,{configure(source){source.definition.artifactSets={packet:{primary:'plan.md',members:[
+  const f=await namespaceEngineFixture(t,{configure(source){source.definition.collaboration={assignmentMode:'required',notifications:['terminal']};source.definition.artifactSets={packet:{primary:'plan.md',members:[
     {path:'plan.md',role:'requirements',required:true},{path:'diagram.bin',role:'supporting-evidence',required:true}]}};source.definition.phases.intake.artifactSet='packet';}});
-  await f.bootstrap();f.control.permissions.push('phase.artifact.attach');await f.engine.run('phase.prepare',{phaseId:'intake'});
+  await f.bootstrap();f.control.permissions.push('phase.artifact.attach','phase.assign');
+  await f.engine.run('phase.assign',{operationId:'initial-coordination',workId:f.workId,phaseId:'intake',assignee:'Implementation team'});
+  await f.engine.run('phase.prepare',{phaseId:'intake'});
   let draft=await f.engine.run('phase.draft.read',{phaseId:'intake'});const primary=(await f.local.content.put(f.scope,'local',Buffer.from('# Reviewed result\n\nThe actual author prepared this requested packet.\n'))).reference,
     body=Buffer.from([0,255,137,80,78,71,10]),member=(await f.local.content.put(f.scope,'local',body)).reference;
   await f.engine.run('phase.draft.write',{operationId:'installed-primary',workId:f.workId,phaseId:'intake',expectedRevision:draft.manifest.draft.revision,content:primary,reason:'Complete the actual primary document.'});
@@ -34,16 +36,19 @@ test('installed output bundles remain reviewable and approvable without a workin
       content=createSqliteContentStore({database,binding,create:false});
     try{const engine=createNamespaceEngine({records,content,scope:selected.scope,workId:selected.workId,authority:selected.authority,
         access:{current:()=>({projectId:selected.scope.projectId,principalId:'independent-reviewer',actorKind:'human',agentId:null,
-          identity:{name:'Independent reviewer',email:'independent@example.test',login:null},permissions:['phase.approve']})},clock:{now:()=>selected.at}}),
+          identity:{name:'Independent reviewer',email:'independent@example.test',login:null},permissions:['phase.approve','phase.assign']})},clock:{now:()=>selected.at}}),
         review=await engine.run('phase.review',{phaseId:'intake'}),resources=await engine.run('phase.review.resources',{phaseId:'intake'});
       assert.equal(review.manifest.integrity,'matched');assert.equal(review.manifest.items.length,2);
       for(const item of review.manifest.items)await engine.run('document.read',{reference:item.reference});
       const output=resources.manifest.resources.find(row=>row.kind==='artifact-set-member');assert.ok(output);
       const reference={namespace:'evidence',...output.expected};assert.deepEqual(Buffer.from((await content.read(selected.scope,reference)).data),Buffer.from(selected.member,'base64'));
       await engine.run('document.read',{reference:output.reference});
+      const assignment={operationId:'installed-final-coordination',workId:selected.workId,phaseId:'intake',assignee:'Release team'},coordinated=await engine.run('phase.assign',assignment);
+      assert.equal(coordinated.authorityGroup,null);assert.equal(coordinated.record.assignee,'Release team');
       const bound=resources.manifest.reviewBinding,input={phaseId:'intake',confirmation:{workId:selected.workId,phase:'intake',generation:bound.generation,reviewPacketSha256:bound.packetSha256}},
         approval=await engine.run('phase.approve',input),again=await engine.run('phase.approve',input);
       assert.equal(approval.currentPhase,null);assert.equal(again.revision,approval.revision);
+      assert.deepEqual(await engine.run('phase.assign',assignment),coordinated);
       const publication=await engine.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'});assert.equal(publication.status,'retained');
       process.stdout.write(JSON.stringify({members:review.manifest.items.length,approved:approval.approval.thresholdReached,revision:approval.revision}));
     }finally{records.close?.();database.close();hook.deregister();}
@@ -55,6 +60,9 @@ test('installed output bundles remain reviewable and approvable without a workin
     declare const engine:Engine;declare const content:ContentReference;
     engine.run('phase.artifact.attach',{operationId:'a',workId:'w',phaseId:'p',expectedRevision:'r',memberPath:'file.bin',content,reason:'Explicit output'});
     engine.run('phase.artifact.inspect',{maximumEntries:0});engine.run('witness.context',{clauseId:'W:AC-001',slotName:'screen',file:'evidence/output.png'});
+    engine.run('phase.assign',{operationId:'coordinate',workId:'w',phaseId:'p',assignee:'Example team'});
+    // @ts-expect-error coordination requires an explicit operation identity
+    engine.run('phase.assign',{phaseId:'p',assignee:'Example team'});
     // @ts-expect-error Output bytes require an exact content reference.
     engine.run('phase.artifact.attach',{operationId:'a',workId:'w',phaseId:'p',expectedRevision:'r',memberPath:'file.bin',content:'wrong',reason:'Explicit output'});
   `);

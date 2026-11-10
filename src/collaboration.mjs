@@ -1,4 +1,4 @@
-import { nextPhaseGeneration } from './kernel/phase-policy.mjs';
+import { nextPhaseGeneration,phaseAssignmentStateReplay } from './kernel/phase-policy.mjs';
 import { rm } from 'node:fs/promises';
 import {
   branch, changedFiles, changes, excludeAlwaysLocalNames, fetchRemote, hasUpstream, head, indexLockState, pullFastForward,
@@ -28,8 +28,6 @@ import { operationContext } from './operation-context.mjs';
 
 /** A lock older than this is not a Git command still at work; a crashed one left it. */
 export const STALE_INDEX_LOCK_MS = 5 * 60 * 1000;
-
-function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
 function repositoryRelativePath(value) {
   const relative = String(value ?? '').replaceAll('\\', '/').replace(/^\.\//u, '').replace(/\/+$/u, '');
@@ -159,15 +157,7 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
  * prevents a failed commit or push from leaving workflow.json ahead of Git.
  */
 export function assignPhase(workflow, phaseId, assignee, session) {
-  const phase = workflow.phases[phaseId];
-  if (!phase) throw new Error(`Unknown phase '${phaseId}'.`);
-  if (!assignee?.trim()) throw new Error('Assignee must not be empty.');
-  workflow.collaboration ??= { assignments: {}, notifications: [] };
-  const record = { phase: phaseId, assignee: assignee.trim(), assignedAt: nowIso(), assignedBy: session?.actor ?? null, agent: session?.agent ?? null };
-  workflow.collaboration.assignments[phaseId] = record;
-  workflow.collaboration.notifications.push({ at: record.assignedAt, type: 'assignment', phase: phaseId, message: `${phase.label} assigned to ${record.assignee}`, read: false });
-  workflow.history.push({ at: record.assignedAt, actor: actorKey(session?.actor), agent: session?.agent ?? null, event: 'phase_assigned', phase: phaseId, detail: record.assignee });
-  return record;
+  const replay=phaseAssignmentStateReplay(workflow,phaseId,assignee,session);replay.next();return replay.next(nowIso()).value;
 }
 
 export function watchSnapshot(workflow) {

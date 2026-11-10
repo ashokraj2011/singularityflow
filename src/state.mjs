@@ -7141,6 +7141,11 @@ export async function evaluateApproval(root, config, workflow, {
           || (await import('./witness-deferrals.mjs')).witnessDeferralTargets(workflow).has(phase.id))) {
         await (await import('./owner-step-evidence.mjs')).assertOwnCriteriaVerified(root, config, workflow, phase);
       }
+      // A failed visual comparison nobody accepted holds the visual step, whose approvers accept its risk [PHR:REQ-006].
+      if (ownerStepChecks(workflow) && isVisualVerificationPhase(phase)) {
+        const refusal = await (await import('./visual-risks.mjs')).visualThresholdRefusal(root, config, workflow, phase);
+        if (refusal) throw refusal;
+      }
     }, { needs: ['code-delivery'] });
     await stage('dependency-vulnerabilities', async () => {
       // A critical or high vulnerability in a package the Story added waits for a fix or a person's acceptance;

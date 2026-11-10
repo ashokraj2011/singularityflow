@@ -55,11 +55,12 @@ Where answer 7 stands (batch 2, 2026-11-10), each for a Story that pinned the ow
   that answers for it.
 - The ratchet (`[PHR:REQ-010]`): every evaluator finding that judges an earlier step's output names its owner-step
   check; an upstream route alone no longer satisfies it.
-- **Reported, not checked earlier: `gate.visual.threshold`.** A failed visual comparison stays in the evidence for
-  good and a later passing comparison does not supersede it, so no step can repair it once it is recorded; checking
-  it earlier would only move a refusal nobody can clear. The owner decides what clears a failed comparison (a later
-  passing comparison of the same screen and profile, a person's risk, or a return), and the gate-parity side of the
-  ratchet is strengthened once it is decided. Until then the ending's upstream route to the code step stays.
+- `gate.visual.threshold` (owner, 2026-11-10: "person accepts the risk"): a failed visual comparison stays in the
+  evidence for good, so its repair is a person's accepted risk on that exact comparison, recorded at the visual
+  verification step in an approver's own terminal (`decision visual-risk`, with an expiry and a reason). The visual
+  step's approval holds a failed comparison nobody accepted (`VISUAL_THRESHOLD_EXCEEDED`, routed to that decision),
+  and the same decision settles it at the ending, as an exception, not passing evidence. With that, the approval
+  gate's side of the ratchet is tightened too: every author-owned gate code names its owner-step check.
 
 The owner, 2026-11-09: "no phase should be blocked due to prior ones .. It should be caught in the phase responsible
 and rectify there."

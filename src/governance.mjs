@@ -787,7 +787,13 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     // Evidence that will not parse is an integrity failure, not a threshold decision, so it fails
     // the gate whatever the comparison mode says. Otherwise damaging a record is a way past it.
     if (comparison.unreadable) refuse('gate.visual.evidence-unreadable', `visual comparison evidence ${comparison.path} could not be read: ${comparison.error}`, { path: comparison.path });
-    else if (comparison.status === 'fail' && workflow.resolution?.verification?.comparison?.mode === 'enforce') refuse('gate.visual.threshold', `visual comparison ${comparison.id} exceeds policy thresholds`);
+    else if (comparison.status === 'fail' && workflow.resolution?.verification?.comparison?.mode === 'enforce') {
+      // A person's accepted risk on this exact comparison settles it, as it did at the visual step's approval [PHR:REQ-006].
+      const accepted = (await import('./visual-risks.mjs')).activeVisualRisk(workflow, comparison);
+      if (accepted) warnings.push(`Accepted visual risk ${accepted.id}: comparison ${comparison.id} exceeds policy thresholds; accepted by ${accepted.actor} through ${accepted.authorityGroup} until ${accepted.expiresAt.slice(0, 10)}. This is an exception, not passing evidence.`);
+      else refuse('gate.visual.threshold', `visual comparison ${comparison.id} exceeds policy thresholds`,
+        { details: { nextAction: (await import('./visual-risks.mjs')).visualRiskCommand(workflow, comparison) } });
+    }
     else if (comparison.status !== 'pass') warnings.push(`visual comparison ${comparison.id}: ${comparison.status}`);
   }
   if (comparisons.length) passes.push(`visual comparisons: ${comparisons.length} deterministic result(s)`);

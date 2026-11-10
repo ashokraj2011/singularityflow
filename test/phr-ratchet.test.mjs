@@ -1,6 +1,7 @@
 /**
- * Phase responsibility's ratchet [PHR:REQ-005]: a later step's refusal that judges an earlier step's
- * output has an owner-step check, an upstream route to that step, or both. The evidence evaluator's
+ * Phase responsibility's ratchet [PHR:REQ-005, REQ-010]: a later step's refusal that judges an earlier
+ * step's output is matched by the same check at the owning step, run before its approval; the upstream
+ * route to that step stays as the fallback, and alone no longer satisfies it. The evidence evaluator's
  * own findings are classified beside the approval gate's (src/gate-parity.mjs), so a new finding that
  * strands the current author fails here.
  */
@@ -51,9 +52,10 @@ test('[PHR:REQ-005, REQ-010] no later refusal judges an earlier step\'s output w
   for (const [code, entry] of Object.entries(EVIDENCE_PARITY)) {
     if (EARLIER_OUTPUT_OWNERS.includes(entry.owner) && !entry.checks.length) stranded.push(code);
   }
-  // The approval gate's: an author-owned code first refused at the ending judges an earlier step's output there.
+  // The approval gate's: an author-owned code first refused at the ending judges an earlier step's output there, so
+  // the owning step runs the same check first; a route back alone no longer satisfies this (owner, 2026-11-10).
   for (const [code, entry] of Object.entries(GATE_PARITY)) {
-    if (entry.owner === 'author' && entry.stage === 'final-check-preview' && !(entry.routes ?? []).length) stranded.push(code);
+    if (entry.owner === 'author' && entry.stage !== 'same-check') stranded.push(code);
   }
   assert.deepEqual(stranded.filter((code) => !Object.hasOwn(JUDGED_WITHOUT_CHECK_OR_ROUTE, code)).sort(), [],
     'give the owning step its check, or route the later refusal back to it; listing it in JUDGED_WITHOUT_CHECK_OR_ROUTE needs a reason and a report');

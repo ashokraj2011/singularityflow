@@ -64,6 +64,7 @@ const COMMANDS = Object.freeze({
   // OWN_TERMINAL_STEPS.
   witness: ['singularity-flow decision witness PMC-1 --criterion PMC-1:AC-001 --slot screen --file evidence/screen.png --confirm states-the-outcome --reason "Looked at the screen."'],
   risk: ['singularity-flow decision risk PMC-1 --obligation OBL-001 --category evidence --expires 2099-01-01 --reason "Accepted until the device lab returns."'],
+  'visual-risk': ['singularity-flow decision visual-risk PMC-1 --comparison visual-0123456789abcdef01234567 --expires 2099-01-01 --reason "The device lab renders this one pixel row differently."'],
   'witness-deferral': ['singularity-flow decision witness-defer PMC-1 --criterion PMC-1:AC-001 --slot screen --to custom-step --reason "The later step changes the screen this sign-off reads."'],
   'witness-exception-renewal': [`singularity-flow decision witness-exception PMC-1 --phase custom-step --mapping sha256:${'a'.repeat(64)} --expires 2099-01-01 --reason "The device lab is still down."`],
   'test-run-risk': ['singularity-flow decision test-risk PMC-1 --phase custom-step --cause "No browser here." --expires 2099-01-01 --reason "Decided by the approver."',

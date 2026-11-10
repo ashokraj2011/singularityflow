@@ -538,7 +538,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // commands (the two sets above together); no new eager file.
     // 9,682,650 (measured 9,682,626, commands/phase-lifecycle.mjs): phase-responsibility batch 2 merged with main (batch 1,
     // repository test commands and the 11-10 fixes): the sets above together; no new eager file.
-    assert.ok(closure.bytes <= 9_682_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,684,450 (measured 9,684,417, commands/phase-lifecycle.mjs): a person's accepted risk on a failed visual comparison,
+    // read by the visual step's approval and the ending (governance.mjs +641, person-step-catalog.mjs +477, state.mjs +363),
+    // held at the visual step for a Story pinned at level 2 (phase-roles.mjs +295); the decision and the check stay lazy
+    // (visual-risks.mjs) [PHR:REQ-006]. No new eager file.
+    assert.ok(closure.bytes <= 9_684_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -782,7 +786,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,193,250 (measured 4,193,219): phase-responsibility batch 1 merged with repository test commands (the two sets above
   // together).
   // 4,199,400 (measured 4,199,393): phase-responsibility batch 2 merged with main (the sets above together).
-  assert.ok(current.bytes <= 4_199_400, `session current loads ${current.bytes} source bytes`);
+  // 4,200,200 (measured 4,200,180): the visual-risk person step (person-step-catalog.mjs +477, command-registry.mjs +15), and
+  // the level-2 pin (phase-roles.mjs +295) [PHR:REQ-006].
+  assert.ok(current.bytes <= 4_200_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

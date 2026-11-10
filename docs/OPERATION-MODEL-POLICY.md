@@ -251,6 +251,7 @@ Every public operation is classified before its implementation module is importe
 | decision.test-narrowing | mutation | never | — | — |
 | decision.test-risk | mutation | never | — | — |
 | decision.visual-profile | mutation | never | — | — |
+| decision.visual-risk | mutation | never | — | — |
 | decision.witness | mutation | never | — | — |
 | decision.witness-defer | mutation | never | — | — |
 | decision.witness-exception | mutation | never | — | — |

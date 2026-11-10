@@ -121,9 +121,9 @@ export const GATE_PARITY = Object.freeze({
   'gate.visual.coverage': entry('author', 'same-check', { checks: [check('visual-coverage.mjs', 'assertVisualCoverage', 'the visual verification step\'s submission (enforced coverage)')], routes: ENDING_UPSTREAM }),
   // A comparison record that will not parse is an integrity failure whatever the comparison mode says (visual-compare.mjs).
   'gate.visual.evidence-unreadable': entry('engine', 'integrity'),
-  // Reported to the owner, not checked earlier: a failed comparison stays in the evidence for good, so no step can
-  // repair it once recorded; a later passing comparison does not supersede it (2026-11-10).
-  'gate.visual.threshold': entry('author', 'final-check-preview', { gap: 'G8: a failed comparison is never superseded, so no step can repair it once recorded', routes: ENDING_UPSTREAM }),
+  // A failed comparison stays in the evidence for good; an approver of the visual step accepts its risk there, and the
+  // ending reads the same decision (owner, 2026-11-10).
+  'gate.visual.threshold': entry('author', 'same-check', { checks: [check('visual-risks.mjs', 'visualThresholdRefusal', 'the visual verification step\'s approval (pinned Stories): a failed comparison nobody accepted')], routes: ENDING_UPSTREAM }),
   'gate.witness.exception-lapsed': entry('approver', 'final-check-preview')
 });
 

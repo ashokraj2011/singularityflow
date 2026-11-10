@@ -99,6 +99,8 @@ const FAMILIES = Object.freeze([
     'acceptance-owner-check.mjs',
     // A person's deferral of a sign-off to a later step that can perform and repair it [PHR:REQ-007].
     'commands/decision-witness-defer.mjs',
+    // A person's accepted risk on a failed visual comparison, read at the visual step's approval and the ending [PHR:REQ-006].
+    'commands/decision-visual-risk.mjs', 'visual-risks.mjs',
     'first-run-pass.mjs', 'configuration-review-pass.mjs',
     'commands/phase.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs', 'commands/review-source.mjs',
     'commands/submit.mjs', 'commands/approve.mjs', 'commands/nextsteps-deferred.mjs',

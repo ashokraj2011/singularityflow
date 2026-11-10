@@ -928,7 +928,7 @@ function testRunRiskDecision(call, value) {
 
 /** `decision witness`, `decision risk` or `decision witness-exception`: an approver's sign-off on evidence they looked at, or a dated risk or exception. */
 function signOff(positionals) {
-  return positionals[0] === 'decision' && ['witness', 'risk', 'witness-exception', 'witness-defer'].includes(positionals[1]);
+  return positionals[0] === 'decision' && ['witness', 'risk', 'witness-exception', 'witness-defer', 'visual-risk'].includes(positionals[1]);
 }
 /**
  * A witness a turn may not record, routed where a person does: /sf-decide opens the page that takes it,

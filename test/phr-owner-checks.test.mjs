@@ -27,6 +27,7 @@ import { separatePlanGaps } from '../src/state.mjs';
 import { approvalStaffingWarnings } from '../src/approval-staffing.mjs';
 import { riskDecisionTransitions } from '../src/story-test-risk.mjs';
 import { recordWitnessDeferral, witnessDeferralCandidates } from '../src/witness-deferrals.mjs';
+import { activeVisualRisk, recordVisualRisk, visualThresholdRefusal } from '../src/visual-risks.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { finalScopeStep, scopeDispositionRefusal } from '../src/scope/authoring.mjs';
 import { recordScopeDecision } from '../src/scope/decisions.mjs';
@@ -36,6 +37,10 @@ const PINNED = { phaseResponsibility: phaseResponsibilityPin() };
 
 test('[PHR:REQ-002] a Story pins the owner-step checks when it starts; one started before keeps its policy', () => {
   assert.equal(ownerStepChecks({ resolution: PINNED }), true);
+  assert.equal(ownerStepChecks({ resolution: PINNED }, 2), true);
+  // A Story pinned before level 2 keeps level 1's checks and never meets level 2's.
+  assert.equal(ownerStepChecks({ resolution: { phaseResponsibility: { ownerStepChecks: 1 } } }), true);
+  assert.equal(ownerStepChecks({ resolution: { phaseResponsibility: { ownerStepChecks: 1 } } }, 2), false);
   assert.equal(ownerStepChecks({ resolution: {} }), false, 'a Story started before the checks existed');
   assert.equal(ownerStepChecks(null), false);
 });
@@ -414,4 +419,35 @@ test('[PHR:REQ-007] a visual sign-off is the visual step\'s to hold, and evidenc
   assert.equal(refusal.details.repairCommand, 'singularity-flow reject implementation --work-id LATE-1 --fetch --reason <REASON>');
   assert.equal(staleEvidenceRefusal(story, story.phases.screens, stale), null, 'only the step that answers for it');
   assert.equal(staleEvidenceRefusal(laterChecksStory({ pinned: false }), story.phases.implementation, stale), null);
+});
+
+test('[PHR:REQ-006] owner decision 3: a failed visual comparison holds the visual step, whose approver accepts its risk, and the same decision settles the ending', async () => {
+  const story = laterChecksStory();
+  story.resolution.verification = { comparison: { mode: 'enforce', channelTolerance: 0, maxPixels: 40_000_000 } };
+  const failed = { id: 'visual-0123456789abcdef01234567', kind: 'visual-comparison', status: 'fail', profileId: 'phone', disposition: 'pixel-difference', differingPixels: 12, path: 'artifacts/visual-verification/evidence/phone/visual-0123456789abcdef01234567.json' };
+  const passed = { ...failed, id: 'visual-fedcba9876543210fedcba98', status: 'pass', disposition: 'pixel-identical', differingPixels: 0 };
+  const refusal = await visualThresholdRefusal(null, {}, story, story.phases.screens, { comparisons: [failed, passed] });
+  assert.equal(refusal?.code, 'VISUAL_THRESHOLD_EXCEEDED');
+  assert.equal(refusal.details.ownerPhase, 'screens');
+  assert.equal(refusal.details.nextAction.command, `singularity-flow decision visual-risk LATE-1 --comparison ${failed.id} --expires <YYYY-MM-DD> --reason <why>`);
+  assert.deepEqual(refusal.details.comparisons.map((entry) => entry.id), [failed.id], 'a passing comparison holds nothing');
+  assert.equal(await visualThresholdRefusal(null, {}, story, story.phases.implementation, { comparisons: [failed] }), null, 'only the visual step holds it');
+  assert.equal(await visualThresholdRefusal(null, {}, laterChecksStory({ pinned: false }), story.phases.screens, { comparisons: [failed] }), null);
+  const levelOne = laterChecksStory();
+  levelOne.resolution = { ...levelOne.resolution, phaseResponsibility: { ownerStepChecks: 1 }, verification: story.resolution.verification };
+  assert.equal(await visualThresholdRefusal(null, {}, levelOne, levelOne.phases.screens, { comparisons: [failed] }), null, 'a Story pinned at level 1 keeps its policy');
+
+  const at = new Date().toISOString();
+  const expires = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+  const person = { phase: 'screens', expires, reason: 'The device lab renders this one pixel row differently.', actor: 'lead@example.test', authorityGroup: 'reviewers', at };
+  assert.throws(() => recordVisualRisk(structuredClone(story), { ...person, comparison: passed }), { code: 'VISUAL_RISK_INVALID' }, 'nothing to accept');
+  assert.throws(() => recordVisualRisk(structuredClone(story), { ...person, comparison: failed, expires: '2000-01-01' }), { code: 'VISUAL_RISK_INVALID' });
+  assert.throws(() => recordVisualRisk(structuredClone(story), { ...person, comparison: failed, reason: 'short' }), { code: 'VISUAL_RISK_INVALID' });
+  const record = recordVisualRisk(story, { ...person, comparison: failed });
+  assert.equal(record.id, 'VRK-001');
+  assert.equal(activeVisualRisk(story, failed)?.id, 'VRK-001');
+  assert.equal(await visualThresholdRefusal(null, {}, story, story.phases.screens, { comparisons: [failed] }), null, 'accepted: the step may be approved');
+  // Bound to that exact comparison: a changed record, or one after the expiry, is not covered.
+  assert.equal(activeVisualRisk(story, { ...failed, differingPixels: 13 }), null);
+  assert.equal(activeVisualRisk(story, failed, { at: new Date(Date.now() + 30 * 86_400_000).toISOString() }), null);
 });

@@ -305,6 +305,12 @@ test('a verification contract through a real Story: an inspection-only criterion
   assert.equal(submitted['AC-002'].verification.contract.slots[0].method, 'inspection');
   assert.equal(submitted['AC-002'].obligations.find((entry) => entry.responsibility === 'verify').status, 'missing', 'the runbook still needs its inspection record');
 
+  // Deferring the sign-off is a person's decision, and only to a later step that can perform and repair it:
+  // testing can change neither the runbook nor capture screens, so it is refused, with the steps that could [PHR:REQ-007].
+  const deferred = run(process.execPath, [CLI, '--no-model', 'decision', 'witness-defer', workId, '--criterion', `${workId}:AC-002`, '--slot', 'runbook',
+    '--to', 'testing', '--reason', 'The testing step reads the runbook during its manual checks.', '--json'], root, { allowFailure: true });
+  assert.notEqual(deferred.status, 0);
+  assert.equal(JSON.parse(deferred.stdout).error.code, 'WITNESS_DEFERRAL_INVALID', deferred.stdout);
   // A reviewer inspects the runbook: the slot is witnessed by its exact bytes, and only while they hold. The
   // code step's approval waits for it [PHR:REQ-002]; a sign-off made while the step is under review stands.
   cli('decision', 'witness', '--criterion', `${workId}:AC-002`, '--slot', 'runbook', '--file', 'docs/runbook.md',

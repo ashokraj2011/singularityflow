@@ -518,7 +518,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,668,950 (measured 9,668,901, commands/phase-lifecycle.mjs): a code step's publication and submission name the
     // criterion whose own test failed, exactly attributed, with its repair in that step (state.mjs +1471); the attribution
     // stays lazy (criterion-test-failures.mjs) [PHR:REQ-006]. No new eager file.
-    assert.ok(closure.bytes <= 9_668_950, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,670,300 (measured 9,670,256, commands/phase-lifecycle.mjs): a person may defer a sign-off to a later step that can
+    // perform and repair it, which then holds it (person-step-catalog.mjs +481, owed-decisions.mjs +385, witness-records.mjs
+    // +273, state.mjs +199, command-registry.mjs +17); the deferral itself stays lazy (witness-deferrals.mjs) [PHR:REQ-007].
+    // No new eager file.
+    assert.ok(closure.bytes <= 9_670_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -601,7 +605,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 862,150 (measured 862,126): the prompts command classifies in command-registry.mjs (+147) and the redactor's token
   // shapes are exported (git-remote-diagnostics.mjs +7) [PCR:REQ-002]; every command reads both to dispatch.
   // 862,200 (measured 862,186): doctor --repair-hooks is a flag (util.mjs +60) [PCR:REQ-030], which every command reads to dispatch.
-  assert.ok(root.bytes <= 862_200, `root dispatch loads ${root.bytes} source bytes`);
+  // 862,250 (measured 862,203): `decision witness-defer` is a person's mutation [PHR:REQ-007] (command-registry.mjs +17),
+  // which every command reads to dispatch; the command itself loads lazily.
+  assert.ok(root.bytes <= 862_250, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -752,7 +758,8 @@ test('the common session projection does not import attach, state stores or publ
   // (plan-row-corrections.mjs +1050, specifications.mjs +389) [PHR:REQ-002].
   // 4,190,300 (measured 4,190,259): a plan row upheld against the approved intent (verification/intent.mjs +265,
   // specifications.mjs +52) [PHR:REQ-003].
-  assert.ok(current.bytes <= 4_190_300, `session current loads ${current.bytes} source bytes`);
+  // 4,190,800 (measured 4,190,757): the witness-deferral person step (person-step-catalog.mjs +481, command-registry.mjs +17) [PHR:REQ-007].
+  assert.ok(current.bytes <= 4_190_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

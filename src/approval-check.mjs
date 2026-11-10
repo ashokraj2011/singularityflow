@@ -724,6 +724,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   CRITERION_TESTS_UNVERIFIED: 'author-repairs',
   // An inspection of a code step's own criterion: its approvers sign it off, or a person accepts the risk [PHR:REQ-002].
   EVIDENCE_INSPECTION_MISSING: 'someone-decides',
+  // A person's deferral of that sign-off to a later step that cannot perform it: they name one that can [PHR:REQ-007].
+  WITNESS_DEFERRAL_INVALID: 'someone-decides',
   // The door's own refusals, before any stage runs; approvalAdvisories adds them to the preview.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: 'this-checkout',
   WORKTREE_HIDDEN_CHANGE: 'this-checkout',

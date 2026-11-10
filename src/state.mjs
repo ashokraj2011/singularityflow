@@ -7130,7 +7130,9 @@ export async function evaluateApproval(root, config, workflow, {
     }, { needs: ['source-binding', 'test-risk', 'validation'] });
     await stage('criteria', async () => {
       // A code step's own criteria, judged as the ending judges them, while its author can correct them [PHR:REQ-002].
-      if (phaseRequiresCodeDelivery(phase) && ownerStepChecks(workflow)) {
+      // So is a later step for each sign-off a person deferred to it (witness-deferrals.mjs).
+      if (ownerStepChecks(workflow) && (phaseRequiresCodeDelivery(phase)
+          || (await import('./witness-deferrals.mjs')).witnessDeferralTargets(workflow).has(phase.id))) {
         await (await import('./owner-step-evidence.mjs')).assertOwnCriteriaVerified(root, config, workflow, phase);
       }
     }, { needs: ['code-delivery'] });

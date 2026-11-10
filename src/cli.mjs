@@ -4043,6 +4043,7 @@ async function decisionCommand(positionals, options) {
   if (action === 'visual-profile') return (await import('./commands/decision-visual-profile.mjs')).decisionVisualProfileCommand(positionals, options);
   if (action === 'witness') return decisionWitnessCommand(positionals, options);
   if (action === 'witness-exception') return (await import('./commands/decision-witness-exception.mjs')).decisionWitnessExceptionCommand(positionals, options);
+  if (action === 'witness-defer') return (await import('./commands/decision-witness-defer.mjs')).decisionWitnessDeferCommand(positionals, options);
   throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan, decision departure, decision risk, decision test-risk, decision test-narrowing, decision test-command, decision finding-risk, decision evidence-reuse, decision visual-profile, decision witness or decision witness-exception.`, { code: 'COMMAND_UNKNOWN' });
 }
 
@@ -4290,7 +4291,9 @@ async function decisionWitnessCommand(positionals, options) {
   const slot = contract?.slots.find((entry) => entry.slot === slotName) ?? null;
   // Whoever approves the step that delivers or verifies the criterion may witness it.
   const owning = row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps);
-  const groups = riskAuthorities(workflow, { owningSteps: [...new Set(owning)] });
+  // A later step a person deferred this sign-off to gives it too [PHR:REQ-007].
+  const deferredTo = (await import('./witness-deferrals.mjs')).activeWitnessDeferral(workflow, clauseId, slotName)?.to;
+  const groups = riskAuthorities(workflow, { owningSteps: [...new Set([...owning, ...(deferredTo ? [deferredTo] : [])])] });
   if (!groups.length) {
     throw new SingularityFlowError(`No step delivering ${clauseId} has an approval group, so nobody can witness it.`, { code: 'WITNESS_AUTHORITY_UNAVAILABLE' });
   }

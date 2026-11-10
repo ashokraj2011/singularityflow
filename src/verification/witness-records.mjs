@@ -386,10 +386,10 @@ export function witnessRecordResults(records = [], currentSha256 = new Map(), { 
  */
 export async function evidenceConfirmations(root, config, workflow, actor) {
   const [{ createHash }, { readFile }, { evidenceGraphFromAggregate }, { evaluateEvidence }, { mergedVerificationContracts },
-    { mergePlannedClaimRecords }, { riskAuthorities }, { requireApprovalAuthority }, { plannedEvidenceFiles }, { secureRepositoryPath }] = await Promise.all([
+    { mergePlannedClaimRecords }, { riskAuthorities }, { requireApprovalAuthority }, { plannedEvidenceFiles }, { secureRepositoryPath }, deferrals] = await Promise.all([
     import('node:crypto'), import('node:fs/promises'), import('../evidence/graph.mjs'), import('../evidence/evaluate.mjs'),
     import('./contracts.mjs'), import('../specifications.mjs'), import('../evidence/risk-decisions.mjs'),
-    import('../approval-authority.mjs'), import('../evidence/terminal.mjs'), import('../util.mjs')]);
+    import('../approval-authority.mjs'), import('../evidence/terminal.mjs'), import('../util.mjs'), import('../witness-deferrals.mjs')]);
   const graph = await evidenceGraphFromAggregate(root, config, workflow);
   const plans = graph.records.planned ?? [];
   const contracts = mergedVerificationContracts(plans);
@@ -401,7 +401,10 @@ export async function evidenceConfirmations(root, config, workflow, actor) {
       if (open.status !== 'missing' || !['visual', 'inspection'].includes(open.method)) continue;
       const slot = contracts.get(row.id)?.slots.find((entry) => entry.slot === open.slot) ?? null;
       const files = open.method === 'inspection' ? [slot?.witness?.path].filter(Boolean) : plannedEvidenceFiles(row);
-      const owning = [...new Set(row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps))];
+      // A later step a person deferred this sign-off to gives it too [PHR:REQ-007].
+      const deferredTo = deferrals.activeWitnessDeferral(workflow, row.id, open.slot)?.to;
+      const owning = [...new Set([...row.obligations.filter((entry) => ['verify', 'implement'].includes(entry.responsibility)).flatMap((entry) => entry.owningSteps),
+        ...(deferredTo ? [deferredTo] : [])])];
       const groups = riskAuthorities(workflow, { owningSteps: owning });
       const other = (reason) => others.push({ clauseId: row.id, slot: open.slot, reason });
       if (!slot || files.length !== 1) { other('it names no single evidence file to confirm'); continue; }

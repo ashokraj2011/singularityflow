@@ -65,6 +65,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['adjudication-table', adjudicationTableStep],
   ['risk', ([command, sub]) => command === 'decision' && sub === 'risk'],
   ['witness-exception-renewal', ([command, sub]) => command === 'decision' && sub === 'witness-exception'],
+  // A later step gives a sign-off the delivering step's approvers deferred to it [PHR:REQ-007].
+  ['witness-deferral', ([command, sub]) => command === 'decision' && sub === 'witness-defer'],
   ['test-run-risk', ([command, sub]) => command === 'decision' && ['test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(sub)],
   ['test-command-decision', ([command, sub], options) => command === 'decision' && sub === 'test-command'
     && (options.accept !== undefined || options.revoke !== undefined)],
@@ -200,6 +202,8 @@ export const PERSON_STEPS = Object.freeze([
     family: { list: 'visualProfileDecisions', action: 'decision.visual-profile', label: 'Visual profile decision', isPerson: always } },
   { id: 'witness', guard: 'own:witness', review: { kind: 'witness', entry: safe({ witnessRecords: 'witness_recorded' }) },
     family: { list: 'witnessRecords', action: 'decision.witness', label: 'Witness review', isPerson: always } },
+  { id: 'witness-deferral', guard: 'own:witness-deferral', review: { kind: 'witness-defer', entry: safe({ witnessDeferrals: 'witness_deferred' }) },
+    family: { list: 'witnessDeferrals', action: 'decision.witness-defer', label: 'Witness deferral', isPerson: always } },
   { id: 'witness-exception', guard: 'own:witness-exception-renewal', review: { kind: 'witness-exception', entry: safe({ witnessExceptionRenewals: 'witness_exception_renewed' }) },
     family: { list: 'witnessExceptionRenewals', action: 'decision.witness-exception', label: 'Witness exception renewal', isPerson: always } },
   { id: 'scope', guard: 'decision:story-decision', effect: 'scope-disposition', review: { kind: 'scope', entry: safe({ scopeDispositions: 'scope_decided' }) },
@@ -267,7 +271,7 @@ export const PERSON_STEP_FAMILIES = Object.freeze(PERSON_STEPS.filter((row) => r
 
 // The order a commit's lists are read in (REVIEW_SAFE_DECISION_LISTS).
 const REVIEW_KIND_ORDER = Object.freeze(['applicability', 'scope', 'completeness', 'plan', 'departure', 'risk', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'test-scope', 'visual-profile',
-  'witness-exception', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'workflow']);
+  'witness-exception', 'witness-defer', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'workflow']);
 /** What each decision kind does to a submitted review: REVIEW_EFFECTS's `decision-made:*` (state.mjs). */
 export const PERSON_STEP_REVIEW_EFFECTS = Object.freeze(Object.fromEntries(REVIEW_KIND_ORDER.map((kind) =>
   [`decision-made:${kind}`, PERSON_STEPS.find((row) => row.review?.kind === kind).review.entry])));

@@ -24,6 +24,7 @@ import { fulfillmentPlanCorrections } from '../src/delivery-evidence.mjs';
 import { separatePlanGaps } from '../src/state.mjs';
 import { approvalStaffingWarnings } from '../src/approval-staffing.mjs';
 import { riskDecisionTransitions } from '../src/story-test-risk.mjs';
+import { recordWitnessDeferral, witnessDeferralCandidates } from '../src/witness-deferrals.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { finalScopeStep, scopeDispositionRefusal } from '../src/scope/authoring.mjs';
 import { recordScopeDecision } from '../src/scope/decisions.mjs';
@@ -322,4 +323,32 @@ test('[PHR:REQ-002] finding 17: a supplemental document\'s risk accepted at its 
   assert.deepEqual(riskDecisionTransitions(workflow(true, []), 'design', 'approve', { document: true }), ['approve']);
   // A Story started before the check keeps one transition per decision.
   assert.deepEqual(riskDecisionTransitions(workflow(false), 'design', 'approve', { document: true }), ['approve']);
+});
+
+test('[PHR:REQ-007] owner decision 2: a sign-off is deferred, by a person, only to a later step that can perform and repair it, which then holds it', () => {
+  const { workflow, evaluation, AC2 } = codeStep({ inspection: true });
+  // A later code step can change the inspected file, so it can take the sign-off; the non-code testing step cannot.
+  workflow.phaseOrder = ['intake', 'implementation', 'polish', 'testing'];
+  workflow.phases.polish = { id: 'polish', label: 'polish', status: 'not_started', generation: 0, approvals: [],
+    approvalPolicy: { mode: 'required', minimum: 1, authorities: ['reviewers'] }, generationPolicy: { task: 'code' } };
+  assert.deepEqual(witnessDeferralCandidates(workflow, { from: 'implementation', method: 'inspection' }), ['polish']);
+  const decide = (to) => recordWitnessDeferral(workflow, { clauseId: AC2, slot: 'docs', method: 'inspection', from: 'implementation', to,
+    reason: 'The runbook is rewritten in the polish step, so it is inspected there.', actor: 'reviewer', authorityGroup: 'reviewers', at: '2026-11-10T08:00:00.000Z' });
+  assert.throws(() => decide('testing'), (error) => error.code === 'WITNESS_DEFERRAL_INVALID'
+    && /testing can neither change the file the sign-off reads nor capture the screens it shows/u.test(error.message)
+    && error.details.candidates.includes('polish'));
+  assert.throws(() => decide('intake'), (error) => error.code === 'WITNESS_DEFERRAL_INVALID' && /does not come after implementation/u.test(error.message));
+  // Before any deferral the delivering step holds it, and names the deferral among its routes.
+  const held = inspectionWitnessRefusal(workflow, workflow.phases.implementation, evaluation);
+  assert.ok(held.details.recoveryCommands.some((entry) => entry.command === `singularity-flow decision witness-defer CODE-1 --criterion ${AC2} --slot docs --to polish --reason <why>`),
+    JSON.stringify(held.details.recoveryCommands));
+  const record = decide('polish');
+  assert.deepEqual([record.id, record.from, record.to], ['WDF-001', 'implementation', 'polish']);
+  // Deferred: the delivering step is no longer held for it; the step it names holds it as its own check.
+  assert.equal(inspectionWitnessRefusal(workflow, workflow.phases.implementation, evaluation), null);
+  const moved = inspectionWitnessRefusal(workflow, workflow.phases.polish, evaluation);
+  assert.deepEqual(moved.details.criteria.map((entry) => [entry.clauseId, entry.slot, entry.deferredFrom]), [[AC2, 'docs', 'implementation']]);
+  assert.equal(moved.details.nextAction.command, 'singularity-flow decisions CODE-1');
+  // The dated risk stays a route beside it, at both steps.
+  assert.ok(moved.details.recoveryCommands.some((entry) => /^singularity-flow decision risk --obligation OBL:CODE-1:verify:/u.test(entry.command)));
 });

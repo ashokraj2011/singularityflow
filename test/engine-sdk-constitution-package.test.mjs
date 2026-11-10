@@ -5,7 +5,7 @@ import {buildEngineSdk} from '../scripts/build-engine-sdk.mjs';import {resolvePl
 import {isolatedTestEnvironment} from '../scripts/test-machine-state.mjs';
 import {namespaceConstitutionFixture,authorConstitutionDraft} from './helpers/namespace-constitution-fixture.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),name='@singularity-flow/engine-sdk';
-test('offline installed constitution replay and genuine independent human approval',{timeout:120000},async t=>{
+for(const exception of [false,true])test(exception?'offline installed article exception completes independent approval and replays in another process':'offline installed constitution replay and genuine independent human approval',{timeout:120000},async t=>{
   const directory=await mkdtemp(path.join(os.tmpdir(),'sflow-sdk-constitution-'));t.after(()=>rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
   const artifact=path.join(directory,'package'),consumer=path.join(directory,'consumer'),archives=path.join(directory,'archives'),tmp=path.join(directory,'tmp');
   for(const folder of [artifact,consumer,archives,tmp])await mkdir(folder);
@@ -21,20 +21,30 @@ test('offline installed constitution replay and genuine independent human approv
   const f=await namespaceConstitutionFixture(t);await f.bootstrap();await authorConstitutionDraft(f);
   await f.engine.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'});await f.engine.run('phase.submit',{phaseId:'intake'});
   await writeFile(path.join(consumer,'constitution.mjs'),`
-    import assert from 'node:assert/strict';import path from 'node:path';import {DatabaseSync} from 'node:sqlite';import {registerHooks} from 'node:module';
+    import assert from 'node:assert/strict';import path from 'node:path';import {readFile,writeFile} from 'node:fs/promises';import {DatabaseSync} from 'node:sqlite';import {registerHooks} from 'node:module';
     const hook=registerHooks({resolve(specifier,context,next){if(/\\/(?:git|cli|state)\\.mjs$/u.test(specifier)||specifier==='yaml')throw Error('Unexpected external or installed owner: '+specifier);return next(specifier,context);}}),
       {createNamespaceEngine}=await import('${name}/hosts/namespace-engine'),{createFilesystemNamespaceStore}=await import('${name}/storage/filesystem'),
       {createSqliteContentStore}=await import('${name}/storage/sqlite-content'),selected=JSON.parse(process.argv[2]),binding={kind:'shared'},
       database=new DatabaseSync(path.join(selected.directory,'content.db')),records=await createFilesystemNamespaceStore({root:path.join(selected.directory,'records'),binding,create:false}),content=createSqliteContentStore({database,binding,create:false});
     try{const engine=createNamespaceEngine({records,content,scope:selected.scope,workId:selected.workId,authority:selected.authority,
         access:{current:()=>({projectId:selected.scope.projectId,principalId:'independent-reviewer',agentId:null,actorKind:'human',identity:{name:'Independent reviewer',email:'independent@example.test',login:null},
-          permissions:['phase.approve']})},clock:{now:()=>selected.at}}),view=await engine.run('phase.review.resources',{phaseId:'intake'});
+          permissions:['phase.approve','constitution.exception.context','decision.constitution-exception']})},clock:{now(){if(selected.replay)throw Error('Accepted article replay cannot restamp a receipt.');return selected.at;}}});
+      if(selected.replay){const saved=JSON.parse(await readFile('exception.json','utf8'));assert.deepEqual(await engine.run('decision.constitution-exception',saved.request),saved.result);}
+      else{
+      if(selected.exception){const {manifest}=await engine.run('constitution.exception.context',{phaseId:'intake',articleId:'ART-002'}),
+        request={operationId:'installed-human-article',phaseId:'intake',articleId:'ART-002',expectedContext:manifest.expectedContext,
+          scope:'Only the reversal procedure of this exact published result.',reason:'The independent human reviewer accepts this isolated manual procedure with documented mitigation.',expires:'2026-12-01T00:00:00.000Z'},
+        result=await engine.run('decision.constitution-exception',request);assert.equal(result.record.id,'CEX-001');await writeFile('exception.json',JSON.stringify({request,result}));}
+      const view=await engine.run('phase.review.resources',{phaseId:'intake'});
       const resource=view.manifest.resources.find(row=>row.kind==='constitution-policy');assert.ok(resource);
       for(const row of view.manifest.resources)await engine.run('document.read',{reference:row.reference});
       const approval=await engine.run('phase.approve',{phaseId:'intake',confirmation:{workId:selected.workId,phase:'intake',generation:1,reviewPacketSha256:view.manifest.reviewBinding.packetSha256}});
       assert.equal(approval.approval.selfApproval,false);assert.equal(approval.currentPhase,null);
+      }
     }finally{database.close();hook.deregister();}
   `);
-  child(process.execPath,['constitution.mjs',JSON.stringify({directory:f.directory,scope:f.scope,workId:f.workId,authority:f.authority,at:'2026-11-11T12:00:00.000Z'})],{cwd:consumer,env:{...env,PATH:''}});
+  const selected={directory:f.directory,scope:f.scope,workId:f.workId,authority:f.authority,at:'2026-11-11T12:00:00.000Z',exception};
+  child(process.execPath,['constitution.mjs',JSON.stringify(selected)],{cwd:consumer,env:{...env,PATH:''}});
+  if(exception)child(process.execPath,['constitution.mjs',JSON.stringify({...selected,replay:true})],{cwd:consumer,env:{...env,PATH:''}});
   assert.equal((await f.capture()).workflow.status,'closed');
 });

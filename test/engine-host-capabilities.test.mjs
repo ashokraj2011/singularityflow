@@ -26,14 +26,14 @@ test('operation selections cannot contain unknown IDs, duplicates or operations 
 test('namespace composition exposes its real operation owners without opening the stores',async t=>{
   const f=await namespaceEngineFixture(t,{working:false}),engine=f.make({records:{...f.records,read:forbidden,transact:forbidden},content:{...f.content,read:forbidden,put:forbidden}}),
     bound=new Set(engine.capabilities.boundOperations.map(row=>row.id));
-  for(const id of ['source-review.context','source-review.record','phase.assign','decision.scope','decision.plan','plan.correction.record','decision.witness','upstream.raise'])assert.ok(bound.has(id),id);
+  for(const id of ['constitution.exception.context','decision.constitution-exception','source-review.context','source-review.record','phase.assign','decision.scope','decision.plan','plan.correction.record','decision.witness','upstream.raise'])assert.ok(bound.has(id),id);
   for(const id of ['decision.risk','decision.witness-exception','test-command.decide','decisions.record','forward-amendment.propose','forward-amendment.decide','forward-amendment.revalidate','phase.checks'])assert.equal(bound.has(id),false,id);
   assert.equal(engine.capabilities.boundOperations.length+engine.capabilities.unboundOperations.length,ENGINE_OPERATIONS.length);
 });
 
 test('declared mandatory standalone inputs are rejected before any host read or effect',async()=>{
   const engine=createEngine({ports:{decisionRecord:{load:forbidden,prepare:forbidden,commit:forbidden,finish:forbidden}}});
-  for(const operation of ['phase.assign','source-review.record','source-review.decide','plan.correction.record']){
+  for(const operation of ['decision.constitution-exception','phase.assign','source-review.record','source-review.decide','plan.correction.record']){
     await assert.rejects(engine.run(operation,{}),{code:'ENGINE_INPUT_INVALID'});
     if(operation==='source-review.record')await assert.rejects(engine.run(operation,{operationId:'missing-report',phaseId:'intake',expectedContext:'sha256:value',report:null}),{code:'ENGINE_INPUT_INVALID'});
   }

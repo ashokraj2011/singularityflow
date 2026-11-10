@@ -18,6 +18,7 @@ import {createNamespaceArtifactSetReader,ARTIFACT_SET_EVIDENCE} from './namespac
 import {createNamespaceWitnessOwners} from './namespace-witness-reader.mjs';
 import {createNamespaceConstitutionReader,CONSTITUTION_POLICY_EVIDENCE} from './namespace-constitution-reader.mjs';
 import {createNamespaceAssignmentOwners} from './namespace-assignment-reader.mjs';
+import {createNamespaceConstitutionExceptionOwners} from './namespace-constitution-exception-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -32,6 +33,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   const artifactSets=createNamespaceArtifactSetReader({observer,scope,workId});
   let witnesses=null;const witnessReader=()=>witnesses??=createNamespaceWitnessOwners({observer,scope,workId});
   let assignments=null;const assignmentReader=()=>assignments??=createNamespaceAssignmentOwners({observer,scope,workId});
+  let articleExceptions=null;const articleExceptionReader=()=>articleExceptions??=createNamespaceConstitutionExceptionOwners({observer,scope,workId});
   async function json(reference,signal) {
     const bytes=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}
@@ -181,8 +183,11 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     freshInputSources:(publication,...args)=>proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))
       ?conformanceReader().freshSources(publication,...args):inputReader().freshSources(publication,...args),
     requiresDisposition:(publication,options)=>Boolean(manualAcceptance(publication)&&options?.reached!==false&&!options?.reworkTarget)
+      ||proofs(publication).some(value=>value.binding.kind===CONSTITUTION_POLICY_EVIDENCE)&&options?.reached!==false&&!options?.reworkTarget
       ||publication.policyEvidence?.some(value=>isConformanceEvidence(value.kind))===true&&proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))&&conformanceReader().requiresDisposition(publication,options),
     assertApproval:async(publication,options)=>{const result=proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))?await conformanceReader().assertApproval(publication,options):[];
-      const manual=manualAcceptance(publication);if(manual)result.push(...await witnessReader().assertAcceptance(options.snapshot,publication,manual,options));return result;},
+      const manual=manualAcceptance(publication);if(manual)result.push(...await witnessReader().assertAcceptance(options.snapshot,publication,manual,options));
+      if(proofs(publication).some(value=>value.binding.kind===CONSTITUTION_POLICY_EVIDENCE)&&options.reached!==false&&!options.reworkTarget)
+        result.push(...await articleExceptionReader().assertPublication(options.snapshot,publication,options));return result;},
     freshCodeSources:(...args)=>codeReader().freshSources(...args),codeEvidence,conformanceEvidence,artifactSetEvidence,verify,owners,evidence,resources,readBindings,verifyPlan,checklist});
 }

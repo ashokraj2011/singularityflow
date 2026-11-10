@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -58,6 +58,8 @@ const SINGLE_DECISIONS = Object.freeze([
   ['source-review.record','source-review',['phaseId','report','expectedContext'],{humanDecision:false,authority:'requester',phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','report','expectedContext'])}],
   ['source-review.decide','source-review-disposition',['phaseId','findingId','reason','expectedContext'],{phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','findingId','reason','expectedContext'])}],
   ['phase.assign','phase-assignment',['phaseId','assignee'],{authority:'requester',humanDecision:false,phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','assignee'])}],
+  ['decision.constitution-exception','constitution-exception',['phaseId','articleId','scope','reason','expires','expectedContext'],
+    {phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','articleId','scope','reason','expectedContext'])}],
   ['decision.scope','scope-disposition',['item','disposition','clauseIds','reason']],
   ['decision.completeness','completeness-review',['confirm','checklist','reason']],
   ['decision.applicability','applicability',['responsibility','reason']],
@@ -138,6 +140,8 @@ const definitions = [
     requiredFields:Object.freeze(['clauseId','slotName','file']),port:'witnessContext',stages:Object.freeze(['load','read']),validate:'witnessContextInput',execute:'inspectWitnessContext'},
   {id:'plan.correction.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','ownerPhase','operations','reason','upstreamIssue']),
     requiredFields:Object.freeze(['operations','reason']),port:'planCorrectionContext',stages:Object.freeze(['load','read']),validate:'planCorrectionContextInput',execute:'inspectPlanCorrectionContext'},
+  {id:'constitution.exception.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','articleId']),
+    requiredFields:Object.freeze(['articleId']),port:'constitutionExceptionContext',stages:Object.freeze(['load','read']),validate:'constitutionExceptionContextInput',execute:'inspectConstitutionExceptionContext'},
   ...['story.document.attach','story.document.detach'].map(id=>({id,version:1,effect:'input-document',humanDecision:false,port:'storyDocument',
     inputFields:Object.freeze(['operationId','workId','documentId','reason',...(id.endsWith('attach')?['name','mimeType','encoding','content']:[])]),
     requiredFields:Object.freeze(['operationId','workId','documentId','reason',...(id.endsWith('attach')?['name','mimeType','encoding','content']:[])]),
@@ -657,6 +661,35 @@ async function inspectWitnessContext(port,input,signal){notCancelled(signal);con
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'witness.context',subject:context.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
 
+function constitutionExceptionContextInput(value,operation){const input=phaseReviewInput(value,operation);
+  if(!/^[A-Z][A-Z0-9]*-\d{3,}$/u.test(String(input.articleId??'').toUpperCase()))throw new SingularityFlowError('Name one exact pinned constitution article.',{code:'ENGINE_INPUT_INVALID'});
+  return {...input,articleId:input.articleId.toUpperCase()};}
+async function inspectConstitutionExceptionContext(port,input,signal){notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const phase=input.phaseId??context.workflow?.currentPhase,
+    bound=data({subject:context.subject,phase,active:context.workflow?.status==='in_progress'&&context.workflow.currentPhase===phase&&context.workflow.phases[phase]?.status==='awaiting_approval',
+      generations:Object.fromEntries(Object.entries(context.workflow?.phases??{}).map(([id,row])=>[id,row.generation]))}),
+    facts=data(await port.read(context,{signal}));notCancelled(signal);
+  const fields=['schemaVersion','format','workId','phase','generation','revision','article','expectedContext','source','existing','authorities','recording','read','machinePoliciesWaived','phaseApproved'],
+    ref=(value,namespace)=>value&&Object.keys(value).length===3&&Object.keys(value).every(key=>['namespace','sha256','bytes'].includes(key))
+      &&(namespace?value.namespace===namespace:['state','config','evidence'].includes(value.namespace))&&/^[a-f0-9]{64}$/u.test(value.sha256??'')&&Number.isSafeInteger(value.bytes)&&value.bytes>=0,
+    source=facts?.source;
+  let profile=null;try{profile=namespaceConstitutionExceptionContextProfile(facts);}catch{ /* Another wire is an invalid port result. */ }
+  if(!facts||Object.keys(facts).length!==fields.length||!fields.every(key=>Object.hasOwn(facts,key))||!profile
+    ||facts.format!==profile.format||bound.subject?.kind!=='story'||facts.workId!==bound.subject.id
+    ||input.workId!=null&&input.workId!==facts.workId||facts.phase!==bound.phase||facts.generation!==bound.generations[facts.phase]||facts.generation<1
+    ||typeof facts.revision!=='string'||facts.article?.id!==input.articleId||!/^[a-f0-9]{64}$/u.test(facts.article?.articleSha256??'')
+    ||!/^sha256:[a-f0-9]{64}$/u.test(facts.expectedContext??'')||source?.profile!=='sflow-namespace-constitution-exception-source/v1'
+    ||source.constitution?.articleSha256!==facts.article.articleSha256||source.constitution?.articleId!==input.articleId
+    ||source.publication?.generation!==facts.generation||!ref(source.publication?.record,'evidence')||!ref(source.reviewPacket,'evidence')
+    ||typeof source.configuration?.key!=='string'||!ref(source.configuration?.content,'config')||!ref(source.storySource)
+    ||!ref(source.constitution?.policy,'evidence')||!ref(source.constitution?.report,'evidence')||!ref(source.constitution?.source,'config')
+    ||!Array.isArray(facts.existing)||!Array.isArray(facts.authorities)||!facts.authorities.length||facts.authorities.some(value=>typeof value!=='string'||!value)
+    ||!equalJson(facts.read,{operation:'phase.review.resources',inputs:{workId:facts.workId,phaseId:facts.phase}})
+    ||!facts.recording||!Array.isArray(facts.recording.requiredOwners)||facts.recording.requiredOwners.some(value=>value!=='person-presence')
+    ||facts.recording.status!==(!bound.active?'read-only':facts.recording.requiredOwners.length?'owner-required':'requires-human-review')
+    ||facts.machinePoliciesWaived!==false||facts.phaseApproved!==false)throw new SingularityFlowError('The article context returned another submitted publication or a false authority claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'constitution.exception.context',subject:bound.subject,manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
 function planCorrectionContextInput(value){const input=data(value);if(!Array.isArray(input.operations)||!input.operations.length||input.operations.length>20||typeof input.reason!=='string')throw new SingularityFlowError(
   'Name a bounded correction and its review reason.',{code:'ENGINE_INPUT_INVALID'});return input;}
 async function inspectPlanCorrectionContext(port,input,signal){notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
@@ -1720,7 +1753,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    inspectSourceReviewContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
+    inspectSourceReviewContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

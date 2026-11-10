@@ -27,6 +27,14 @@ const context=await engine.run('conformance.context',{workId:'story',phaseId:'re
 const request={workId:'story',phaseId:'review',expected:'digest',clauseId:'STORY:AC-001',ownerPhase:'code',outcome:'accept-risk',expires:'reviewed-date',reason:'Human-reviewed reason.'};
 await engine.run('conformance.decide',request);
 await engine.run('phase.reject',{workId:'story',phaseId:'review',target:'code',confirm:'packet',reason:'Human-reviewed repair.'});
+const article=await engine.run('constitution.exception.context',{workId:'story',phaseId:'review',articleId:'ART-001'});
+await engine.run('decision.constitution-exception',{operationId:'human-article',phaseId:'review',articleId:'ART-001',scope:'Exact reviewed scope.',reason:'The independently reviewed reason.',expectedContext:'sha256:digest',expires:null});
+// @ts-expect-error an article context needs the exact article ID
+await engine.run('constitution.exception.context',{phaseId:'review'});
+// @ts-expect-error a human article decision requires its exact reviewed context
+await engine.run('decision.constitution-exception',{operationId:'human-article',phaseId:'review',articleId:'ART-001',scope:'Exact reviewed scope.',reason:'The independently reviewed reason.'});
+// @ts-expect-error human scope is text, not a successful readiness flag
+await engine.run('decision.constitution-exception',{operationId:'human-article',phaseId:'review',articleId:'ART-001',scope:true,reason:'The independently reviewed reason.',expectedContext:'digest'});
 // @ts-expect-error identity comes only from the trusted access port
 await engine.run('conformance.decide',{...request,actor:'model'});
 // @ts-expect-error a digest is not a boolean
@@ -36,6 +44,7 @@ await engine.run('phase.reject',{phaseId:'review',confirm:{approved:true}});
 // @ts-expect-error unregistered vocabulary cannot become a new approval route
 await engine.run('conformance.approve',{});
 void context;
+void article;
 `);
   await writeFile(path.join(consumer,'tsconfig.json'),JSON.stringify({compilerOptions:{target:'ES2023',module:'NodeNext',moduleResolution:'NodeNext',
     strict:true,noEmit:true,types:[],lib:['ES2023','DOM']},include:['human.mts']}));

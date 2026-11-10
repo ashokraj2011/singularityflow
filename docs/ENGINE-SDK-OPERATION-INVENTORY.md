@@ -11,8 +11,8 @@ files. The inventory test fails if that mapping is missing or a named qualifier 
 Results are detached from the immutable registry. This command does not run those qualifiers;
 their successful execution must be recorded separately.
 
-The current vocabulary has 76 operations. `createGitEngine` binds 41 of them. A namespace host
-with explicit private working stores binds 59 before optional execution is supplied. These are
+The current vocabulary has 78 operations. `createGitEngine` binds 41 of them. A namespace host
+with explicit private working stores binds 61 before optional execution is supplied. These are
 composition-specific counts: a separate narrow factory may connect another operation, and a
 configured publication may still require additional policy/evidence owners. In particular,
 `phase.checks.run` needs the actual execution capability. A bound `phase.publish` is never proof

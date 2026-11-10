@@ -85,6 +85,7 @@ export function standaloneDecisionAdmission(operation, workflow) {
     return {workId, phase:workflow.pendingDecision.after ?? null};
   }
   const closed = {
+    'decision.constitution-exception':['CONSTITUTION_EXCEPTION_STORY_CLOSED','Record an exact article exception while the Story is in progress.'],
     'decision.scope':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is decided while it is in progress.`],
     'decision.completeness':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is reviewed while it is in progress.`],
     'decision.applicability':['APPLICABILITY_STORY_CLOSED', `Story ${workId} is ${workflow.status === 'closed' ? 'already closed' : workflow.status}; applicability is decided while it is in progress.`],
@@ -116,6 +117,8 @@ export function standaloneDecisionRequest(operation, input) {
   if(operation==='source-review.record')return {phaseId:input.phaseId??null,report:input.report??null,expectedContext:input.expectedContext??null};
   if(operation==='source-review.decide')return {phaseId:input.phaseId??null,findingId:input.findingId??null,reason,expectedContext:input.expectedContext??null};
   if(operation==='phase.assign')return {phaseId:input.phaseId??null,assignee:input.assignee??null};
+  if(operation==='decision.constitution-exception')return {phaseId:input.phaseId??null,articleId:String(input.articleId??'').toUpperCase(),
+    scope:input.scope??'',reason,expires:input.expires??null,expectedContext:input.expectedContext??null};
   if (operation === 'decision.scope') {
     const item = input.item ?? null, disposition = input.disposition ?? null;
     if (!item || !disposition) refused(

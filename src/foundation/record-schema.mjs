@@ -359,6 +359,10 @@ export function namespaceApprovalArtifactSetProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.artifactSet,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-primary-approval-artifact-set/v${storedVersion}`,policyChecklist:storedVersion>1});
 }
+export const NAMESPACE_CONSTITUTION_EXCEPTION_SCHEMA=frozenFamily('namespace-constitution-exception');
+export const NAMESPACE_CONSTITUTION_EXCEPTION_CONTEXT_SCHEMA=frozenFamily('namespace-constitution-exception-context');
+export function namespaceConstitutionExceptionContextProfile(input){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_CONSTITUTION_EXCEPTION_CONTEXT_SCHEMA,input);
+  return Object.freeze({version:storedVersion,format:'sflow-namespace-constitution-exception-context/v'+storedVersion});}
 export const NAMESPACE_DECISION_SCHEMA=frozenFamily('namespace-recorded-decision');
 export const NAMESPACE_ROUTING_CHOICE_SCHEMAS=Object.freeze({
   record:frozenFamily('namespace-routing-choice'),receipt:frozenFamily('namespace-routing-choice-receipt')

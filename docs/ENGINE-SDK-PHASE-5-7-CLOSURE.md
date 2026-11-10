@@ -117,7 +117,10 @@ the original limits. See [the review record](ENGINE-SDK-NAMESPACE-SOURCE-REVIEW.
 Constitution values and normal publication now have one kernel owner and exact namespace
 evidence. Native bytes/errors remain compatible; shared-only independent approval and an offline
 consumer pass. All 323 affected Mac checks and original limits pass. See
-[the constitution record](ENGINE-SDK-CONSTITUTION.md). Article exceptions remain below.
+[the constitution record](ENGINE-SDK-CONSTITUTION.md). Exact human judged-article exceptions now
+have their own [registered context/decision profile](ENGINE-SDK-CONSTITUTION-EXCEPTIONS.md),
+preserving machine rules, immutable publications and independent approval. Three actual stores,
+custom phases, expiry/renewal, interruption and offline shared-only replay are qualified separately.
 
 - The remaining native query/rule inventory and parity audit.
 - Namespace evidence correction, late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
@@ -125,7 +128,7 @@ consumer pass. All 323 affected Mac checks and original limits pass. See
 - Upstream amend outcomes and forward amendments.
 - Targeted Code repair; multiple Code predecessors now have their own authenticated profile
   described below.
-- Constitution exceptions/comparison/live application acceptance and document/test risk owners.
+- Comparison/live application acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
 - Required grounding, external design, skill/MCP host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through actual evidence ports.

@@ -30,6 +30,7 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(['constitution.exception.context','decision.constitution-exception'].includes(operation.id))return field==='expires'?'string | null':'string';
   if(operation.id.startsWith('source-review.'))return field==='report'?'JsonValue':'string';
   if(['plan.correction.context','plan.correction.record'].includes(operation.id))return field==='operations'?'readonly PlanCorrectionOperation[]'
     :['reason','expectedPreview','operationId'].includes(field)?'string':'string | null';

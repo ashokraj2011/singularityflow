@@ -35,9 +35,10 @@ independent approval, same-generation citation repair, warn mode, missing conten
 and a lost publication acknowledgement. A separate empty-PATH, offline-installed consumer replays
 the actual approved constitution and completes independent approval without a Git or CLI import.
 
-Namespace article exceptions remain a separate human-decision owner; this proof does not grant an
-exception, waive machine policy or represent automatic semantic acceptance. The Phase 5 and 7
-completion ledger remains authoritative for that and the other remaining work.
+Namespace judged-article exceptions now have a separate registered
+[human-decision owner](ENGINE-SDK-CONSTITUTION-EXCEPTIONS.md). Ordinary publication still grants
+no exception, machine-policy waiver or automatic semantic acceptance. The Phase 5 and 7 completion
+ledger remains authoritative for the other remaining work.
 
 ## Mac qualification
 

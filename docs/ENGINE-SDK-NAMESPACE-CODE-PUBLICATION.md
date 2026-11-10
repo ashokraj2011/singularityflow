@@ -10,7 +10,8 @@ own the lifecycle effects. Installed Git projects keep their existing execution 
 `sflow-namespace-code-policy/v1` requires enforced specification records, required planned claims,
 and a phase whose pinned responsibilities are implementation, verification and optional review.
 Scope and planning responsibilities cannot be discharged by this profile. The current source
-generation must be the first; earlier Code generations and rework retain their explicit owners.
+generation must be the first. The separately versioned [conformance and Code rework profile](ENGINE-SDK-NAMESPACE-CONFORMANCE-REWORK.md)
+adds an authenticated successor without changing v1.
 
 The shared Code preflight still checks selected paths, source comments, implementation regions,
 declarations, planned fulfillment and candidate coverage. Exact declaration witnesses are joined
@@ -86,8 +87,8 @@ consumer report attributes tests to their producing phase. A verifier without it
 Before preparing and accepting a new consumer publication, the host captures the explicitly
 selected repository sources and compares their application/test inventories with the approved
 Code archive. Changes refuse that candidate and preserve the private draft and shared state.
-Recovery points to the original Code review, readable without its old checkout. Rework still
-requires its authorized lifecycle operation and history owner.
+Recovery points to the original Code review, readable without its old checkout. Rework uses the
+separate versioned profile and its original human-approved return.
 
 Another device can continue the same Story from shared Code evidence, a matching explicit source
 descriptor and its own private draft. It does not copy the old laptop's private files. Accepted
@@ -157,9 +158,9 @@ The checks must have been executed and retained for these exact bytes; publicati
 execution from the summary. Submission and an authorized human's confirmed approval are separate
 operations.
 
-This is an initial supported application profile. Native history/rework, shared-namespace origins,
+This is an initial supported application profile. Rework outside the configured-loop profile, shared-namespace origins,
 test recovery, other declaration adapters, additional acceptance contracts, downstream conformance
-policies, corner-case analysis and finding decisions retain explicit requirements. Constitution,
+policies outside the supported conformance profile, corner-case analysis and finding decisions retain explicit requirements. Constitution,
 artifact-set and other configured owners are not waived. Complete cross-agent application journeys,
 installed-project migration and final distribution/performance qualification keep Phases 5, 7, 8
 and 9 open.

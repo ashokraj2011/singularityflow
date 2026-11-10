@@ -224,6 +224,13 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   the original receipt; changed bindings and blocking deferrals offer reviewed repair routes.
   These checkpoints do not record phase approval or replace the remaining code-delivery owners.
   See `docs/ENGINE-SDK-CLARIFICATIONS.md` in the source repository.
+  Code publication retains actual source archives and exact executed acceptance tests. The v1
+  Code profile stays generation-1-only. The separate v2 profile authenticates the original human
+  return and predecessor before a separately tested successor. Conformance publication records
+  qualified rows against approved definitions and Code evidence, keeps partial verdicts honest
+  and attributes carried tests to their original producer. Final partial gaps need a supported
+  human disposition or configured return; they are never silently accepted. See
+  `docs/ENGINE-SDK-NAMESPACE-CONFORMANCE-REWORK.md` for supported profiles and remaining owners.
 - `hosts/namespace-submission`: submit a published primary document using shared records only,
   retain its exact review packet and acknowledge its receipt on another host without private drafts.
   This requests required human approval; it does not record it.

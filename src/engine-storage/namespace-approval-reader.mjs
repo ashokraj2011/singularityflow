@@ -42,6 +42,7 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
       throw corrupt('The vote artifact set differs from the retained publication.');
     }
     await policies.verify(proof.published,{signal,policyTraversal});
+    policies.assertApproval(proof.published,{reached:value.thresholdReached,reworkTarget:value.routing?.outcome?.kind==='loop'?value.routing.outcome.target:null});
     const checklist=policies.checklist(proof.published,value.actor,set.policyChecklist?.result.decisions??[]);
     if(!same(checklist,set.policyChecklist??null))throw corrupt('The human checklist differs from its pinned policy, actor or retained publication.');
     policyEvidence.set(value,{identity:canonicalJson(value),references:policies.evidence(proof.published)});

@@ -43,6 +43,7 @@ export function primaryDocumentPublicationRequirements(workflow,phase,{definitio
   need('specification-claims',resolved.spec?.mode!=='off'||resolved.spec?.coverage!=='off'||resolved.spec?.acceptance!=='off');
   need('planned-claims',resolved.plannedClaims?.mode!=='disabled');
   need('code-delivery-inputs',codePublicationInputPhases(workflow,phase).length>0);
+  need('conformance-report',conformancePublicationPolicy(workflow,phase)!==null);
   need('comparison-evidence',Object.keys(phase.comparison??{}).length>0);
   need('constitution-policy',resolved.constitution?.mode!=='off');
   need('check-execution',(phase.qualityCommands??[]).length>0);
@@ -83,11 +84,17 @@ export function codePublicationInputPhases(workflow,phase){
 export const CODE_INPUT_PUBLICATION_OWNERS=Object.freeze(['code-delivery-inputs','workflow-responsibility-policy','specification-claims','planned-claims']);
 /** This profile carries an approved Code proof; conformance rows still need their own rules. */
 export function codeInputPublicationPolicy(workflow,phase){
+  return artifactCodeInputPolicy(workflow,phase,false);
+}
+export const CONFORMANCE_PUBLICATION_OWNERS=Object.freeze([...CODE_INPUT_PUBLICATION_OWNERS,'conformance-report']);
+export function conformancePublicationPolicy(workflow,phase){return artifactCodeInputPolicy(workflow,phase,true);}
+function artifactCodeInputPolicy(workflow,phase,conformance){
   if(!phase||phaseRequiresCodeDelivery(phase)||phase.writeScope!=='artifact-only'
     ||workflow.resolution?.phaseSemantics?.profile!=='sflow-phase-semantics/v1'||workflow.resolution?.spec?.mode!=='enforce'
     ||workflow.resolution?.plannedClaims?.mode!=='required'||!codePublicationInputPhases(workflow,phase).length
-    ||phase.requiredArtifact?.kind==='conformance-report')return null;
+    ||(phase.requiredArtifact?.kind==='conformance-report')!==conformance)return null;
   const roles=stepResponsibilities(workflow,phase.id),testSource=pinnedTestEvidenceSource(workflow,phase);
   if(!roles.length||roles.some(role=>!['verify','review'].includes(role))||roles.includes('verify')&&!testSource)return null;
-  return {profile:'sflow-namespace-code-input-policy/v1',owners:CODE_INPUT_PUBLICATION_OWNERS,testSource};
+  return {profile:conformance?'sflow-namespace-conformance-policy/v1':'sflow-namespace-code-input-policy/v1',
+    owners:conformance?CONFORMANCE_PUBLICATION_OWNERS:CODE_INPUT_PUBLICATION_OWNERS,testSource};
 }

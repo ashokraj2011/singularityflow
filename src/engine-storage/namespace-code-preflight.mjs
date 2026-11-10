@@ -11,6 +11,7 @@ import {candidateSpecificationCoverageReplay,requiredAcceptanceFromPlan,mergedVe
 import {implementationBindingsReplay,scanSourceClauseTags,scanJavaScriptDeclarations} from '../engine-compatibility/node-source-analysis.mjs';
 import {repositoryPlanProjection} from '../engine-compatibility/node-repository-plan.mjs';
 import {createNamespaceCodeSourceReader} from './namespace-code-source.mjs';
+import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 import {createNamespaceSourceRetentionReader} from './namespace-source-retention-reader.mjs';
@@ -31,16 +32,17 @@ function codePreflightReader(options,requireCurrentIndices){
     plans=createNamespaceSpecificationReader({observer,scope,workId,checks}),controlReader=createNamespaceSourceControlReader({...options,observer}),
     clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changes,baseline,checks,controlReader}),
     files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices});
-  async function inspect(snapshot,phaseId,identity,{signal,binding=null}={}){
+  async function inspect(snapshot,phaseId,identity,{signal,binding=null,policyTraversal}={}){
     const workflow=snapshot.workflow,phase=workflow.phases[phaseId],definition=(await observer.approved(snapshot,{signal})).compiled.definition;
-    if(phase.generation>0||workflow.changeRequests?.length)required('namespace-code-history');
+    if(!phase.generation&&workflow.changeRequests?.length)required('namespace-code-history');
     if(workflow.phaseOrder.slice(0,workflow.phaseOrder.indexOf(phaseId)).some(id=>phaseRequiresCodeDelivery(workflow.phases[id])&&workflow.phases[id].generation>0))required('namespace-observed-claims');
     if(workflow.resolution.testRecovery?.enabled)required('test-recovery');
     if(!requireCurrentIndices&&!binding)throw failure('Replay the exact accepted publication source binding.','ENGINE_INPUT_INVALID');
     const retained=binding?await changes.accepted({operationId:binding.source.operationId,workId,phaseId},{signal}):await changes.inspectDraft(identity,{signal});
     if(!retained)throw failure('Retain this exact authored generation before code publication.','ENGINE_SOURCE_EVIDENCE_REQUIRED',{operation:'phase.source.retain',workId,phaseId});
     if(retained.plan.basis.headVersion!==snapshot.revision||!same(retained.plan.basis.configuration,snapshot.configuration)||!same(retained.workflow,workflow))throw failure('Code source evidence belongs to another lifecycle basis.','ENGINE_CONTEXT_CHANGED');
-    if(retained.plan.generation!==1)required('namespace-code-history');
+    const history=retained.plan.generation>1?await createNamespaceCodeHistoryReader({observer,scope,workId}).inspect(snapshot,phaseId,retained,{signal,policyTraversal}):null;
+    if((retained.plan.generation===1)!==(phase.generation===0))throw failure('The Code generation has no matching predecessor.','ENGINE_CODE_REWORK_REQUIRED');
     if(binding&&!same(retained.binding,binding.source))throw failure('The retained Code result names another accepted source archive.','ENGINE_STORAGE_CORRUPT');
     let original=binding?await baseline.accepted({operationId:binding.baseline.operationId,workId,sourceBindingId:retained.plan.sourceBinding.operationId},{signal})
       :await baseline.inspectBinding(retained.plan.sourceBinding.operationId,{signal});
@@ -138,7 +140,7 @@ function codePreflightReader(options,requireCurrentIndices){
     for(const binding of [control?.binding.index,...(control?.plan.origins??[]).flatMap(row=>[row.origin,row.baseline]).map(value=>value.index)])if(binding){
       const current=await observer.record('evidence',binding.key,false,signal);if(current?.version!==binding.version)throw failure('Code origin evidence changed during preflight.','ENGINE_CONTEXT_CHANGED');
     }
-    return {profile:'sflow-namespace-code-preflight/v1',source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
+    return {profile:history?'sflow-namespace-code-preflight/v2':'sflow-namespace-code-preflight/v1',...(history?{history}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
       index:{key:original.indexKey,version:original.indexVersion}},plan:plan.proof,repositories};
   }
   return Object.freeze({inspect});

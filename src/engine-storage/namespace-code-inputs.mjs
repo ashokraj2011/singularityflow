@@ -4,7 +4,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {exactObject} from '../sda/namespace/values.mjs';
-import {codeInputPublicationPolicy,codePublicationInputPhases} from '../kernel/publication-intent.mjs';
+import {codeInputPublicationPolicy,conformancePublicationPolicy,codePublicationInputPhases} from '../kernel/publication-intent.mjs';
 import {resolvedPhaseInputs} from '../kernel/phase-inputs.mjs';
 import {testReceiptPassing} from '../kernel/test-report-codec.mjs';
 import {sourceBaselineInventory} from '../engine-compatibility/node-source-policy.mjs';
@@ -24,11 +24,12 @@ function inputReport(value){
   return value;
 }
 export function createNamespaceCodeInputReader({observer,scope,workId}){
-  const verified=new WeakMap();
+  const verified=new WeakMap(),candidates=new WeakMap();
+  function issue(value){candidates.set(value,hash(canonicalJson(value)));return value;}
   async function json(reference,signal){const data=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}catch(cause){throw error('Code input evidence is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',null,cause);}}
-  async function candidate(publication,snapshot,{signal,policyTraversal}={}){
-    const workflow=snapshot.workflow,phase=workflow.phases[publication.phase],policy=codeInputPublicationPolicy(workflow,phase);
+  async function candidate(publication,snapshot,{signal,policyTraversal,conformance=false}={}){
+    const workflow=snapshot.workflow,phase=workflow.phases[publication.phase],policy=(conformance?conformancePublicationPolicy:codeInputPublicationPolicy)(workflow,phase);
     if(!policy)throw error('This consumer needs its declared Code input policy owner.','ENGINE_PORT_UNAVAILABLE',{required:['code-input-publication-policy']});
     return observer.withReadScope(async scoped=>{
       const options={...scoped.evidenceReads,observer:scoped},checks=createNamespacePhaseCheckReader(options),
@@ -66,7 +67,8 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
       }
       const report=inputReport({schemaVersion:1,format:'sflow-namespace-code-input-policy-report/v1',testEvidenceFrom:policy.testSource,
         inputs,currentSources:[...current.values()].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0)});
-      return {report,policy,workflow,definition:(await scoped.approved(snapshot,{signal})).compiled.definition};
+      const value={report,policy,workflow,definition:(await scoped.approved(snapshot,{signal})).compiled.definition};
+      return conformance?issue(value):value;
     });
   }
   async function verify(publication,binding,{signal,policyTraversal}={}){
@@ -79,10 +81,18 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
     const value={binding,manifest,...actual};verified.set(publication,{identity:canonicalJson(publication),value,sha256:hash(canonicalJson(value))});return value;
   }
   function proof(publication){const found=verified.get(publication);return found?.identity===canonicalJson(publication)&&found.sha256===hash(canonicalJson(found.value))?found.value:null;}
-  function evidence(value){return [value.binding.record,value.manifest.report,...value.report.inputs.flatMap(row=>[
-    row.publication.record,row.submission.record,...row.approvals.map(vote=>vote.record),row.code.record,row.report])];}
+  const originalEvidence=report=>report.inputs.flatMap(row=>[row.publication.record,row.submission.record,...row.approvals.map(vote=>vote.record),row.code.record,row.report]);
+  function sourceEvidence(value){if(candidates.get(value)!==hash(canonicalJson(value)))throw error('Use the original Code input computation.','ENGINE_INPUT_INVALID');return originalEvidence(value.report);}
+  function evidence(value){return [value.binding.record,value.manifest.report,...originalEvidence(value.report)];}
   async function freshSources(publication,units,{signal}={}){
     const value=proof(publication);if(!value)throw error('Verify the exact Code input proof before source admission.','ENGINE_INPUT_INVALID');
+    return readFreshSources(value,units,{signal});
+  }
+  async function freshEvidence(value,units,{signal}={}){
+    if(candidates.get(value)!==hash(canonicalJson(value)))throw error('Use the original Code input computation before source admission.','ENGINE_INPUT_INVALID');
+    return readFreshSources(value,units,{signal});
+  }
+  async function readFreshSources(value,units,{signal}={}){
     const selected=new Map(units.map(unit=>[validateSourceUnit(unit).repositoryId,unit])),
       retention=createNamespaceSourceRetentionReader({...observer.evidenceReads,observer}),inventory=snapshot=>sourceBaselineInventory(snapshot,{workflow:value.workflow,definition:value.definition});
     for(const source of value.report.currentSources){const unit=selected.get(source.id);
@@ -90,8 +100,8 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
       const observed=await unit.capture({signal}),snapshot=sourceSnapshot(observed.snapshot,unit.descriptor),original=await retention.snapshot(source.content,source.descriptor,source.revision,signal);
       if(observed.revision!=='sha256:'+hash(canonicalJson(snapshot)))throw error('The source port returned another snapshot digest.','ENGINE_PORT_RESULT_INVALID');
       if(!same(inventory(snapshot),inventory(original)))throw error('Application source or test inputs changed after the approved Code execution.','PRIOR_CODE_TEST_EVIDENCE_REQUIRED',{
-        phase:publication.phase,sourcePhase:source.phase,repositoryId:source.id,operation:'phase.review',inputs:{workId,phaseId:source.phase}});
+        phase:value.manifest?.phase??value.workflow.currentPhase,sourcePhase:source.phase,repositoryId:source.id,operation:'phase.review',inputs:{workId,phaseId:source.phase}});
     }
   }
-  return Object.freeze({candidate,verify,proof,evidence,freshSources});
+  return Object.freeze({candidate,verify,proof,evidence,sourceEvidence,freshSources,freshEvidence});
 }

@@ -65,7 +65,7 @@ export async function readEvidenceConsistency(root, config, workflow, phase, opt
       authoredSha256: createHash('sha256').update(authored).digest('hex') });
     if (!reporting) continue;
     const [{ conformanceTableRows }, { inspectConformanceVerdictAdvisories }, { witnessReportFindings }] = await Promise.all([
-      import('./conformance-verdicts.mjs'), import('./conformance-readiness.mjs'), import('./verification/witness-report-findings.mjs')]);
+      import('./engine-compatibility/node-specification-policy.mjs'), import('./conformance-readiness.mjs'), import('./verification/witness-report-findings.mjs')]);
     // Those readers already blank managed content while preserving original file line numbers.
     reportedVerdicts.push(...conformanceTableRows(document.content).map((row) => ({ ...row, path: document.path, assurance: 'authored-claim' })));
     findings.push(...[...inspectConformanceVerdictAdvisories(document.content, { workflow, phaseId: phase.id,

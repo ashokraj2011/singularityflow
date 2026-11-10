@@ -3,89 +3,15 @@ import path from 'node:path';
 
 import {
   conformanceTableRows, conformanceVerdictGaps, contradictedConformanceVerdicts, duplicateQualifiedConformanceRows, missingQualifiedConformanceRows, unreadConformanceTables
-} from './conformance-verdicts.mjs';
+} from './engine-compatibility/node-specification-policy.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
 import { normalizeQualifiedClauseId } from './foundation/traceability-ids.mjs';
 import { conformanceGapDecisions } from './upstream-routes.mjs';
 import { secureRepositoryPath } from './util.mjs';
-import {shown} from './kernel/draft-diagnostics.mjs';
+import { mentionsWhole, undisclosedSelfApprovals, inspectSelfApprovalDisclosures, selfApprovalDisclosureLines, withSelfApprovalDisclosures, inspectConformanceReportContract, inspectQualifiedConformanceReport } from './kernel/conformance-report.mjs';
+export { mentionsWhole, undisclosedSelfApprovals, inspectSelfApprovalDisclosures, selfApprovalDisclosureLines, withSelfApprovalDisclosures, inspectConformanceReportContract, inspectQualifiedConformanceReport } from './kernel/conformance-report.mjs';
 
-const VERDICT = /^(matched|partial|missing|deviated|unplanned)(?:\s|\(|$)/u;
-const ANY_VERDICT = /\b(matched|partial|missing|deviated|unplanned)\b/;
 const TRACEABILITY_KINDS = new Set(['requirements', 'implementation-spec']);
-const MULTIPLE_VERDICTS = /\b(?:matched|partial|missing|deviated|unplanned)\s*(?:\/|\bor\b)\s*(?:matched|partial|missing|deviated|unplanned)\b/u;
-const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/gu;
-const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\s*/u;
-
-function authoredConformanceText(markdown) {
-  return String(markdown ?? '').replace(MANAGED_METADATA, '').replace(MANAGED_INPUTS, '');
-}
-
-const REGEXP_SPECIAL = /[.*+?^${}()|[\]\\]/gu;
-
-/**
- * Whether `text` names `value` whole: a phase ID, login or email not run into a longer one, so
- * `implementation` is not named by `implementation-spec` or `implementation.md`, nor `ann` by `anna`.
- */
-export function mentionsWhole(text, value) {
-  if (!value) return false;
-  return new RegExp(`(?<![\\w.@+-])${String(value).replace(REGEXP_SPECIAL, '\\$&')}(?![\\w@+-]|\\.\\w)`, 'u').test(String(text ?? ''));
-}
-
-function retainedSelfApprovals(workflow) {
-  const entries = [];
-  const phaseIds = [...new Set([...(workflow?.phaseOrder ?? []), ...Object.keys(workflow?.phases ?? {})])];
-  for (const phaseId of phaseIds) {
-    for (const approval of workflow?.phases?.[phaseId]?.approvals ?? []) {
-      if (approval.invalidatedAt || !approval.selfApproval) continue;
-      const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name ?? null;
-      entries.push({ phaseId, actor,
-        line: `- \`${phaseId}\`: self-approved${actor ? ` by ${actor}` : ''}; not an independent review.` });
-    }
-  }
-  return entries;
-}
-
-/**
- * Each retained self-approval `text` does not disclose: one that names neither its phase ID nor its
- * approver whole. Draft check, publication and the gate share it [gate parity]; the message names
- * the exact line that satisfies it.
- */
-export function undisclosedSelfApprovals(text, workflow) {
-  return retainedSelfApprovals(workflow)
-    .filter(({ phaseId, actor }) => !(mentionsWhole(text, phaseId) && (!actor || mentionsWhole(text, actor))))
-    .map((entry) => ({ ...entry,
-      message: `conformance report does not disclose self-approval for ${entry.phaseId}${entry.actor ? ` by ${entry.actor}` : ''}; `
-        + `add this line under the report's self-approval section, naming the phase and approver exactly: ${entry.line}` }));
-}
-
-/** Required disclosure is derived from retained approvals, not model-authored recollection. */
-export function inspectSelfApprovalDisclosures(markdown, workflow) {
-  return undisclosedSelfApprovals(authoredConformanceText(markdown), workflow).map(({ message }) => ({
-    code: 'conformance.self-approval-undisclosed', clauseId: null, line: null, message
-  }));
-}
-
-/** Each self-approval a conformance report owes, from retained approvals, as one Markdown line. */
-export function selfApprovalDisclosureLines(workflow) {
-  return retainedSelfApprovals(workflow).map(({ line }) => line);
-}
-
-/**
- * A new conformance report starts with the self-approval disclosures it owes.
- *
- * The draft check refuses a report that omits one, and an agent that forgets it pays for a bounded
- * repair loop to add a paragraph the engine already knows. The template's own disclosure section,
- * when it has one, receives the lines in place of its TODO; otherwise the section is appended.
- */
-export function withSelfApprovalDisclosures(markdown, workflow) {
-  const lines = selfApprovalDisclosureLines(workflow);
-  if (!lines.length) return markdown;
-  const block = ['Recorded from the retained approvals. Keep every line.', '', ...lines].join('\n');
-  const section = /^## Self-approval disclosures?[ \t]*\n(?:(?!^## )[\s\S])*?^TODO:[^\n]*$/mu;
-  if (section.test(markdown)) return markdown.replace(section, (match) => match.replace(/^TODO:[^\n]*$/mu, block));
-  return `${String(markdown).trimEnd()}\n\n## Self-approval disclosures\n\n${block}\n`;
-}
 
 /**
  * The identifiers a report without qualified rows must mention: every AC- or SPEC- ID in the
@@ -100,64 +26,6 @@ export async function traceableConformanceIds(root, config, workflow) {
     for (const match of text.matchAll(/\b(?:AC|SPEC)-\d+\b/g)) found.add(match[0]);
   }
   return [...found];
-}
-
-/**
- * What every conformance report owes the approval gate apart from qualified rows and self-approval
- * disclosure, read exactly as the gate reads it: a mention of each traceable identifier and at least
- * one recognized verdict. The gate and the earlier checks call this one function, so a report is
- * never refused first at approval [gate parity]. A partial or missing verdict is not a defect of the
- * report: it is an advisory here (inspectConformanceVerdictAdvisories), decided by a person before
- * approval. `rowsQualified` means the qualified row contract already judged the rows.
- */
-export function inspectConformanceReportContract(report, { expected = [], rowsQualified = false } = {}) {
-  const text = String(report ?? '');
-  const findings = [];
-  if (!rowsQualified) {
-    for (const id of expected) {
-      if (!text.includes(id)) findings.push({ code: 'conformance.clause-row-missing', clauseId: id, line: null, message: `conformance report has no row for ${id}` });
-    }
-  }
-  if (!ANY_VERDICT.test(text)) findings.push({ code: 'conformance.verdict-invalid', clauseId: null, line: null, message: 'conformance report has no recognized verdict' });
-  return findings;
-}
-
-/** One report-row contract for draft, publication, approval, and terminal review. */
-export function inspectQualifiedConformanceReport(markdown, clauseIds) {
-  const known = new Set((clauseIds ?? []).map(normalizeQualifiedClauseId).filter(Boolean));
-  if (!known.size) return [];
-  const findings = [];
-  // No table read at all: say which table was skipped and why, not "no row" once per clause.
-  const unread = conformanceTableRows(markdown).length ? [] : unreadConformanceTables(markdown);
-  if (unread.length) {
-    findings.push({ code: 'conformance.table-unrecognized', clauseId: null, line: unread[0].line,
-      message: `conformance report has no comparison table: one needs a Clause ID column (or Clause, ID, Criterion) and a Verdict column; the table at line ${unread[0].line} has ${shown(unread[0].header.join(' | '))}` });
-    return findings;
-  }
-  for (const id of missingQualifiedConformanceRows(markdown, known)) {
-    findings.push({ code: 'conformance.clause-row-missing', clauseId: id,
-      message: `conformance report has no row for ${id}`, line: null });
-  }
-  for (const id of duplicateQualifiedConformanceRows(markdown)) {
-    findings.push({ code: 'conformance.clause-row-duplicate', clauseId: id,
-      message: `conformance report has duplicate row for ${id}`, line: null });
-  }
-  for (const row of conformanceTableRows(markdown)) {
-    const id = normalizeQualifiedClauseId(row.clauseId);
-    if (!id) {
-      findings.push({ code: 'conformance.clause-row-invalid', clauseId: row.clauseId,
-        message: `conformance report has an invalid qualified clause ID on line ${row.line}: it holds ${shown(row.clauseId)}; write it in full, such as ORDER:REQ-001`, line: row.line });
-      continue;
-    }
-    if (!known.has(id)) {
-      findings.push({ code: 'conformance.clause-row-unknown', clauseId: id,
-        message: `conformance report references unapproved clause ${id} on line ${row.line}`, line: row.line });
-    } else if (!VERDICT.test(row.verdict) || MULTIPLE_VERDICTS.test(row.verdict)) {
-      findings.push({ code: 'conformance.verdict-invalid', clauseId: id,
-        message: `conformance ${id} has no recognized verdict on line ${row.line}: its Verdict holds ${shown(row.verdict)}; start it with one word of matched, partial, missing, deviated or unplanned, then any note`, line: row.line });
-    }
-  }
-  return findings;
 }
 
 const advisory = (code, fields) => Object.freeze({ code, category: 'traceability', blocking: false, ...fields });

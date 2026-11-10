@@ -72,3 +72,8 @@ export {evaluateMarkerPolicy,markerPolicy} from '../kernel/specification-markers
 
 export const evaluateApprovalChecklist=/* @__PURE__ */ (()=>analysis.evaluateApprovalChecklist)();
 export const specificationGateValue=/* @__PURE__ */ (()=>analysis.specificationGateValue)();
+
+import {conformanceVerdictPolicies} from '../kernel/conformance-report.mjs';
+const conformance=/* @__PURE__ */ conformanceVerdictPolicies(NODE_TEXT_DIGESTS);
+export const conformanceVerdictGaps=/* @__PURE__ */ (()=>conformance.conformanceVerdictGaps)();
+export { conformanceTableRows, unreadConformanceTables, missingQualifiedConformanceRows, duplicateQualifiedConformanceRows, blockingConformanceVerdicts, contradictedConformanceVerdicts, mentionsWhole, undisclosedSelfApprovals, inspectSelfApprovalDisclosures, selfApprovalDisclosureLines, withSelfApprovalDisclosures, inspectConformanceReportContract, inspectQualifiedConformanceReport } from '../kernel/conformance-report.mjs';

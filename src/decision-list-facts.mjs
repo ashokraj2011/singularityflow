@@ -73,7 +73,7 @@ export function decisionsMayBePending(workflow, phase) {
 
 async function reportGaps(root, config, workflow, step, at) {
   const [{ conformanceVerdictGaps }, { conformanceEvidenceReuse }] = await Promise.all([
-    import('./conformance-verdicts.mjs'), import('./conformance-readiness.mjs')]);
+    import('./engine-compatibility/node-specification-policy.mjs'), import('./conformance-readiness.mjs')]);
   const file = path.join(workDir(root, config, workflow.workItem.id), step.requiredArtifact.path);
   const report = await readFile(file, 'utf8');
   const reused = await conformanceEvidenceReuse(root, config, workflow, step.id, at);

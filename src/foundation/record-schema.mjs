@@ -254,8 +254,20 @@ export function namespacePublicationRecordProfile(input) {
 }
 export const SPECIFICATION_ANALYSIS_REPORT_SCHEMA=frozenFamily('specification-quality-analysis');
 export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily('namespace-phase-policy-evidence-binding'),
-  analysis:frozenFamily('namespace-specification-analysis'),code:frozenFamily('namespace-code-policy'),codeReport:frozenFamily('namespace-code-policy-report'),
-  codeInputs:frozenFamily('namespace-code-input-policy'),codeInputReport:frozenFamily('namespace-code-input-policy-report')});
+  analysis:frozenFamily('namespace-specification-analysis'),
+  code:Object.freeze({id:'namespace-code-policy',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  codeReport:Object.freeze({id:'namespace-code-policy-report',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  codeInputs:frozenFamily('namespace-code-input-policy'),codeInputReport:frozenFamily('namespace-code-input-policy-report'),
+  conformance:frozenFamily('namespace-conformance-policy'),conformanceReport:frozenFamily('namespace-conformance-policy-report')});
+export function namespaceCodePolicyProfile(kind,value){
+  if(!['code','codeReport'].includes(kind))throw new SingularityFlowError('Unknown Code policy record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],value);
+  return {version:storedVersion,rework:storedVersion===2,format:'sflow-namespace-code-policy'+(kind==='codeReport'?'-report':'')+'/v'+storedVersion};
+}
+/** Manifest and report versions are selected together by the immutable record contract. */
+export function namespaceCodePolicyVersionsMatch(manifest,report){
+  return namespaceCodePolicyProfile('code',manifest).version===namespaceCodePolicyProfile('codeReport',report).version;
+}
 export const NAMESPACE_CLARIFICATION_SCHEMAS=Object.freeze({response:frozenFamily('namespace-clarification-response'),
   manifest:frozenFamily('namespace-clarification-manifest'),index:frozenFamily('namespace-clarification-index'),
   publication:frozenFamily('namespace-clarification-publication')});

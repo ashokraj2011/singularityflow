@@ -67,6 +67,22 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [namespace conformance and Code rework slice](ENGINE-SDK-NAMESPACE-CONFORMANCE-REWORK.md)
+adds retained clause-level conformance checks and a separate Code v2 proof for authenticated
+human-approved repair loops. It preserves conservative partial verdicts, original Code execution
+attribution and every earlier accepted generation. New preparation compares the actual checkout
+with the approved predecessor while keeping the original Story baseline for cumulative accounting.
+The supported profile does not complete the remaining policy owners or migration milestones.
+
+Mac qualification passed 229 distinct affected cases, including the original 34 installed SDK
+checks and nine new installed conformance/rework checks. Source validation passed 4,060 checks;
+architecture/schema checks, VS Code types, Git ownership and all 13 unchanged bundle ceilings
+passed. Gateway remains 852/852 modules. Test groups interrupted by the aggregate harness deadline
+were completed through focused backend entries. Package test bounds remain 120/60 seconds.
+The original installed aggregate passes close to its deadline, and the larger database rework
+fixtures remain slow; production latency and final performance qualification stay open.
+No Windows, hosted CI, live provider, real Story mutation or installed authority cutover ran.
+
 The [initial namespace Code publication profile](ENGINE-SDK-NAMESPACE-CODE-PUBLICATION.md)
 connects accepted source archives, approved claims and actual pinned test occurrences to registered
 publication, submission and independent human approval. Its versioned Code policy report is
@@ -75,8 +91,8 @@ Repository-qualified evidence stays separate. Artifact-only verification and rev
 those approved Code proofs through a separate versioned input policy, with actual source admission,
 original test attribution and readable authoring/review resources. A pinned test producer remains
 required with ordinary inputs disabled. Nested proof readers share bounded immutable facts for one
-awaited traversal; mutable records, live sources and final authority remain fresh. History, other
-acceptance contracts, conformance and remaining production owners keep Phases 5, 7, 8 and 9 open.
+awaited traversal; mutable records, live sources and final authority remain fresh. Other history, acceptance and conformance profiles, together with the remaining production owners,
+keep Phases 5, 7, 8 and 9 open.
 Mac qualification passed 232 distinct affected cases, including 33 installed-SDK checks. Source
 validation, VS Code types, Git ownership and all 13 unchanged runtime bundle ceilings passed.
 No installed project was migrated and no Windows or live-provider run was started.

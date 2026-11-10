@@ -19,6 +19,7 @@ import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
 import {createNamespaceRepositoryPlanReader} from './namespace-repository-plan.mjs';
+import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -148,12 +149,17 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     const w=captured.snapshot.workflow,repositories=w.sourceBindings?.current?.repositories;
     await repositoryPlans.guard(captured.snapshot,captured.phase.id,Array.isArray(repositories)?repositories.map(row=>row.id):[],{signal});
     if(!Array.isArray(repositories)||!repositories.length)throw error('Bind actual repository sources before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE');
+    const predecessor=captured.phase.generation>0?await createNamespaceCodeHistoryReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):null;
     for(const repository of repositories) {
       const unit=units.get(repository.id);if(!unit)throw error('Configure the bound source unit before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repository.id});
       if(!same(unit.descriptor,repository.descriptor))throw error('The source unit differs from its accepted binding. Rebind the actual checkout before generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repository.id});
-      const retained=JSON.parse(utf8(await observer.bytes(repository.snapshot,repository.snapshot.bytes,signal),'Source snapshot'));
+      // Opening a human-authorized successor starts at the exact delivered predecessor.
+      // The generation still retains the original Story baseline for cumulative accounting.
+      const prior=predecessor?.find(source=>source.repository.id===repository.id),expected=prior?{snapshot:prior.observed.content,revision:prior.observed.revision}:repository;
+      if(predecessor&&(!prior||!same(prior.repository,repository)))throw error('The Code predecessor has another source selection.','ENGINE_STORAGE_CORRUPT');
+      const retained=JSON.parse(utf8(await observer.bytes(expected.snapshot,expected.snapshot.bytes,signal),'Source snapshot'));
       sourceSnapshot(retained,repository.descriptor);
-      if(repository.revision!=='sha256:'+hash(canonicalJson(retained)))throw error('The retained source revision has another digest.','ENGINE_STORAGE_CORRUPT');
+      if(expected.revision!=='sha256:'+hash(canonicalJson(retained)))throw error('The retained source revision has another digest.','ENGINE_STORAGE_CORRUPT');
       const observed=await unit.capture({signal});sourceSnapshot(observed.snapshot,unit.descriptor);
       const revision='sha256:'+hash(canonicalJson(observed.snapshot));
       if(observed.revision!==revision)throw error('The source unit returned another digest.','ENGINE_PORT_RESULT_INVALID');

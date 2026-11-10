@@ -1,7 +1,7 @@
 /** Recompute Code publication from original source, approved claims and actual check receipts. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS} from '../foundation/record-schema.mjs';
+import {canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {exactObject,namespaceIdentifier,namespaceRevision} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
@@ -22,7 +22,7 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {namespaceStoryReadDomain} from './namespace-story-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 import {namespaceWitnessAttempt} from './namespace-check-witnesses.mjs';
-import {namespaceCodeManifest} from './namespace-policy-contract.mjs';
+import {namespaceCodeManifest,CODE_DELIVERY_EVIDENCE,CODE_REWORK_EVIDENCE} from './namespace-policy-contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=data=>createHash('sha256').update(data).digest('hex');
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null,cause)=>new SingularityFlowError(message,{code,details,cause});
@@ -36,11 +36,11 @@ export async function withCodePolicyTraversal(given,read){
 }
 export async function verifyCodePolicyInTraversal(reader,observer,publication,binding,{signal,policyTraversal}={}){
   const cancelled=()=>{if(signal?.aborted)throw error('Code policy replay was cancelled.','ENGINE_OPERATION_CANCELLED');};cancelled();
-  const scope=proofTraversals.get(policyTraversal);if(!scope)return reader.verify(publication,binding,{signal});
+  const scope=proofTraversals.get(policyTraversal);if(!scope)return reader.verify(publication,binding,{signal,policyTraversal});
   const domain=namespaceStoryReadDomain(observer),key=canonicalJson([publication,binding]),cached=scope.entries.find(row=>row.key===key&&row.domain===domain);
   if(cached){const value=await cached.pending;cancelled();if(proofTraversals.get(policyTraversal)!==scope)throw error('The Code proof traversal expired.','ENGINE_CONTEXT_CHANGED');return reader.reuse(publication,value);}
-  if(scope.entries.length>=32)return reader.verify(publication,binding,{signal});
-  const entry={domain,key,pending:reader.verify(publication,binding,{signal})};scope.entries.push(entry);
+  if(scope.entries.length>=32)return reader.verify(publication,binding,{signal,policyTraversal});
+  const entry={domain,key,pending:reader.verify(publication,binding,{signal,policyTraversal})};scope.entries.push(entry);
   try{const value=await entry.pending,proof=evidenceProofs.get(value);cancelled();
     if(proofTraversals.get(policyTraversal)!==scope)throw error('The Code proof traversal expired.','ENGINE_CONTEXT_CHANGED');
     if(!proof)throw error('Code reuse needs its actual verified policy proof.','ENGINE_PORT_RESULT_INVALID');
@@ -49,11 +49,11 @@ export async function verifyCodePolicyInTraversal(reader,observer,publication,bi
   }catch(cause){entry.key=null;entry.pending=null;throw cause;}
 }
 function reportValue(value){
-  try{admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.codeReport,value);
+  try{const profile=namespaceCodePolicyProfile('codeReport',value);
     exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance']);
-    if(value.format!=='sflow-namespace-code-policy-report/v1'||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
-    const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories']);
-    if(p.profile!=='sflow-namespace-code-preflight/v1'||!Array.isArray(p.repositories))throw Error('Another Code preflight.');
+    if(value.format!==profile.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
+    const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...(profile.rework?['history']:[])]);
+    if(p.profile!=='sflow-namespace-code-preflight/v'+profile.version||!Array.isArray(p.repositories))throw Error('Another Code preflight.');
     sourceRetentionBinding(p.source);exactObject(p.baseline,['operationId','record','index']);namespaceIdentifier(p.baseline.operationId,'Baseline operation');
     for(const [row,fields]of [[p.baseline.record,['key','version','content']],[p.baseline.index,['key','version']]]){
       exactObject(row,fields);if(typeof row.key!=='string'||namespaceRevision(row.version)===null)throw Error('Invalid baseline binding.');
@@ -97,13 +97,13 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   }
   async function json(reference,signal){const data=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}catch(cause){throw error('Code policy evidence is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',null,cause);}}
-  async function candidateFor(publication,snapshot,{signal,bound=null}={}, {observer,sources,controls,plans,current,retained,checks}){
+  async function candidateFor(publication,snapshot,{signal,bound=null,policyTraversal}={}, {observer,sources,controls,plans,current,retained,checks}){
     const workflow=snapshot.workflow,phase=workflow.phases[publication.phase],policy=codePublicationPolicy(workflow,phase);
     if(!policy)missing('code-publication-policy');
     const selected=identity(publication);
     // v1 explicitly excludes an origin/control interpretation it cannot replay, rather than ignoring one.
     if(!bound&&await controls.inspectDraft(selected,{signal}))missing('namespace-code-control-history');
-    const preflight=await (bound?retained:current).inspect(snapshot,publication.phase,selected,{signal,...(bound?{binding:bound.preflight}:{})}),
+    const preflight=await (bound?retained:current).inspect(snapshot,publication.phase,selected,{signal,policyTraversal,...(bound?{binding:bound.preflight}:{})}),
       source=await sources.accepted({operationId:preflight.source.operationId,workId,phaseId:publication.phase},{signal}),
       plan=await plans.sourcePlan(snapshot,publication.phase,{signal}),definition=(await observer.approved(snapshot,{signal})).compiled.definition;
     if(!source||!same(source.binding,preflight.source))throw error('The Code report lost its actual retained source receipt.');
@@ -148,19 +148,20 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         }
       }
     }
-    const report=reportValue({schemaVersion:1,format:'sflow-namespace-code-policy-report/v1',preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
+    const version=preflight.history?2:1,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
     return {report,source,policy};
   }
   function candidate(publication,snapshot,options){return withReaders(readers=>candidateFor(publication,snapshot,options,readers));}
-  async function verify(publication,binding,{signal}={}){
+  async function verify(publication,binding,{signal,policyTraversal}={}){
     return withReaders(async readers=>{
     const manifest=namespaceCodeManifest(await json(binding.record,signal),{scope,workId,phaseId:publication.phase});
     if(!same(namespaceSpecificationIdentity(publication),Object.fromEntries(Object.keys(namespaceSpecificationIdentity(publication)).map(key=>[key,manifest[key]])))
       ||manifest.recordedAt!==publication.publishedAt||!same(manifest.artifact,{key:publication.artifact.sourceKey,content:publication.artifact.content})
       ||!same(manifest.configuration,manifest.basis.head.configuration))throw error('The Code policy differs from its original publication identity.');
-    const report=reportValue(await json(manifest.report,signal));
+    const report=reportValue(await json(manifest.report,signal)),profile=namespaceCodePolicyProfile('code',manifest);
+    if(!namespaceCodePolicyVersionsMatch(manifest,report)||binding.kind!==(profile.rework?CODE_REWORK_EVIDENCE:CODE_DELIVERY_EVIDENCE))throw error('The Code policy binding names another immutable version.');
     const state=await readers.observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
-      actual=await candidateFor(publication,{revision:manifest.basis.revision,configuration:manifest.configuration,workflow:state.workflow},{signal,bound:report},readers);
+      actual=await candidateFor(publication,{revision:manifest.basis.revision,configuration:manifest.configuration,workflow:state.workflow},{signal,bound:report,policyTraversal},readers);
     if(!same(actual.report,report))throw error('The Code report does not replay from its exact accepted source, plan and checks.');
     const value={binding,manifest,...actual},serialized=canonicalJson(value),identity=canonicalJson(publication);
     evidenceProofs.set(value,{domain:namespaceStoryReadDomain(observer),identity,sha256:hash(serialized),bytes:new TextEncoder().encode(serialized).byteLength});
@@ -174,7 +175,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
     return source&&found.identity===canonicalJson(publication)&&source.sha256===hash(canonicalJson(found.value))?found.value:null;}
   function readBindings(value){const p=value.report.preflight;return [...[p.source.result,p.source.index,p.baseline.record,p.baseline.index].map(row=>({namespace:'evidence',key:row.key,version:row.version})),value.report.control];}
   function evidence(value){const p=value.report.preflight;return [value.binding.record,value.manifest.report,p.source.result.content,p.baseline.record.content,
-    p.plan.publication,p.plan.reviewPacket,p.plan.planned,...p.plan.indices.map(row=>row.record),...(p.plan.repositoryPlan?[p.plan.repositoryPlan]:[])];}
+    p.plan.publication,p.plan.reviewPacket,p.plan.planned,...p.plan.indices.map(row=>row.record),...(p.plan.repositoryPlan?[p.plan.repositoryPlan]:[]),...(p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,p.history.return.approval.record]:[])];}
   async function freshSources(publication,units,{signal}={}){
     const value=proof(publication);if(!value)throw error('Verify the exact Code proof before checking source freshness.','ENGINE_INPUT_INVALID');
     const selected=new Map(units.map(unit=>[validateSourceUnit(unit).repositoryId,unit]));

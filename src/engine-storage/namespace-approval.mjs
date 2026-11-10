@@ -9,7 +9,7 @@ import {phaseAgentMutationFacts,skillPhaseHostRequirement} from '../kernel/phase
 import {phaseGovernancePlan,assertHistoricalReviewPhase,phaseNeedsGeneration,hasPublishedPhaseGeneration} from '../kernel/phase-policy.mjs';
 import {primaryDocumentPublicationRequirements} from '../kernel/publication-intent.mjs';
 import {sequenceAdmission,recordPhaseApprovalState,advanceCompletedPhase,resolvePhaseChangeRequests} from '../kernel/lifecycle-transitions.mjs';
-import {decisionAfter} from '../kernel/workflow-decisions.mjs';
+import {decisionAfter,decisionOutcomeFacts} from '../kernel/workflow-decisions.mjs';
 import {routedApprovalSelection,planRoutedApproval} from '../kernel/routed-approval.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceJson} from '../sda/namespace/values.mjs';
@@ -235,6 +235,8 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
         if(required.size)throw error('This approval needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
           operation:'phase.approve',required:[...required].sort()});
         const policy=checklistAuthority??principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
+        const outcome=policy.reached&&s.routed?decisionOutcomeFacts(workflow,phase):null;
+        packets.publicationApproval(s.proof.published,{reached:policy.reached,reworkTarget:outcome?.kind==='loop'?outcome.target:null});
         if(plan) {
           const original=await retained(plan,s,signal);
           if(original.value.authorityGroup!==policy.authorityGroup||original.value.selfApproval!==policy.selfApproval||original.value.thresholdReached!==policy.reached) {

@@ -44,7 +44,7 @@ export function createNamespacePhaseResources({observer,packets,workId,localRead
       await observer.bytes(document.content,document.content.bytes,signal);
       result.push({kind:'approved-input',phase:id,generation:producer.generation,reference:document.content,
         contract:declarations.filter(item=>(typeof item==='string'?item:item.phase)===id)});
-      for(const evidence of packets.publicationResources(proof.published).filter(row=>['code-delivery','code-inputs'].includes(row.kind))){
+      for(const evidence of packets.publicationResources(proof.published).filter(row=>['code-delivery','code-inputs','conformance'].includes(row.kind))){
         const resources=(w.namespaceDocuments??[]).filter(row=>row.phase===id&&row.generation===producer.generation&&row.role==='file'
           &&row.kind===evidence.kind&&row.status!=='detached'&&row.locality==='project'&&same(row.content,evidence.reference));
         if(resources.length!==1)throw error('The approved Code input has no unique readable evidence document.','ENGINE_STORAGE_CORRUPT',{upstreamPhase:id,kind:evidence.kind});

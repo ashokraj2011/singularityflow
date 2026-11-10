@@ -30,7 +30,7 @@ import { qualityValidationVerdict } from '../kernel/phase-checks.mjs';
 import { readRecord, phaseApprovalSummaryVersion } from '../schema-migrations.mjs';
 import { applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline } from '../work-intervals.mjs';
 import { requiredRepoPath } from '../story-state-validation.mjs';
-import { conformanceVerdictGaps } from '../conformance-verdicts.mjs';
+import { conformanceVerdictGaps } from './node-specification-policy.mjs';
 import { conformanceGapRefusal, upstreamIssueStates, CONFORMANCE_GAP_RULE } from '../upstream-routes.mjs';
 import { conformanceEvidenceReuse } from '../conformance-readiness.mjs';
 import { verifyAgentBriefsForReview } from '../agent-briefs.mjs';

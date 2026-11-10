@@ -31,7 +31,7 @@ import {
   conformanceEvidenceReuse, inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds,
   undisclosedSelfApprovals
 } from './conformance-readiness.mjs';
-import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
+import { conformanceVerdictGaps } from './engine-compatibility/node-specification-policy.mjs';
 import { conformanceGapLine, conformanceGapRefusal, decisionListRoute } from './upstream-routes.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './engine-compatibility/node-source-policy.mjs';

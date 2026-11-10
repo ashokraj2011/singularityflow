@@ -88,7 +88,13 @@ export function readerFields(result) {
   return [...new Set(READER_FIELDS.filter((entry) => entry.matches(result)).flatMap((entry) => entry.fields)
     .filter((field) => result[field] !== undefined && result[field] !== null))];
 }
-const readerLast = (reader) => (left, right) => Number(reader.has(left)) - Number(reader.has(right));
+// Reader fields leave after the rest, and among them in the list's order from its end: the checklist a person answers
+// stays longer than the route phase show names next.
+const readerLast = (reader) => {
+  const order = [...reader];
+  const weight = (key) => (reader.has(key) ? order.length - order.indexOf(key) : 0);
+  return (left, right) => weight(left) - weight(right);
+};
 /** act naming the reader fields it holds, where act reads named fields at all (no `read` means it reads every one). */
 const actReadingFields = (act, reader) => (act && Array.isArray(act.read) && reader.size
   ? { ...act, read: [...new Set([...act.read, ...reader])] } : act);
@@ -1202,6 +1208,12 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     await registerReadFiles(target.root, [indexFile]);
     index = { path: indexFile, bytes: bytes(indexText), lines: indexText.split('\n').length - 1,
       ...(bytes(indexText) > READ_CHUNK_BYTES ? { read: lineRanges(indexText) } : {}) };
+  }
+  // What stays was decided against the widest numbers the file could produce; with the real ones there may be room
+  // again for what a reader reads: put each back, most needed first, while the view still fits.
+  for (const key of [...reader].filter((field) => omitted.includes(field) && textFiles[field].length === 0)) {
+    const tried = new Set([...kept, key]);
+    if (bytes(render(tried, agentOutput, placed, omitted, fields, index)) <= budget) kept.add(key);
   }
   return `${render(kept, agentOutput, placed, omitted, fields, index)}\n`;
 }

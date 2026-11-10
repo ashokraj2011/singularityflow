@@ -109,6 +109,11 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
 
 ## Still required before either phase can be called complete
 
+Multiple-source planning review now retains each original approved specification, its human
+answers and exact policy in a separate versioned envelope. The native evaluator and capture are
+unchanged. Three real stores and installed/shared-only replay pass 227 affected Mac checks with
+the original limits. See [the review record](ENGINE-SDK-NAMESPACE-SOURCE-REVIEW.md#multiple-approved-scope-sources).
+
 Constitution values and normal publication now have one kernel owner and exact namespace
 evidence. Native bytes/errors remain compatible; shared-only independent approval and an offline
 consumer pass. All 323 affected Mac checks and original limits pass. See
@@ -119,7 +124,7 @@ consumer pass. All 323 affected Mac checks and original limits pass. See
   plus live application-review and witness-exception profiles.
 - Upstream return/amend outcomes and forward amendments.
 - Targeted Code repair and multiple Code predecessors/observed-claim reuse.
-- Constitution exceptions/comparison/live application acceptance, multiple-source planning review and document/test risk owners.
+- Constitution exceptions/comparison/live application acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
 - Required grounding, external design, skill/MCP host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through actual evidence ports.

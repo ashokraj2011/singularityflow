@@ -38,8 +38,8 @@ Uploaded supporting documents remain in the explicit device-local store. Their o
 never copied into shared evidence. Another laptop needs matching input bytes before reading,
 recording or revalidating a review that depends on them. Missing input, permission and timeout
 errors retain their identities. Exact source citations in the authored report are retained with
-the report. Multiple approved scope artifacts need their separate planning-review contract; this
-profile refuses that missing owner instead of dropping sources.
+the report. The original single-source profile keeps its original binding. Multiple approved
+scope artifacts now use the separate planning-review contract described below.
 
 Mac qualification includes all three shared backends, genuine independent phase approval,
 custom planning-phase names, retained human answers, local attachment restore, interrupted
@@ -50,5 +50,38 @@ The unchanged 34-check installed-package qualifier runs alone in 33.1 seconds wi
 120/60-second limits. Source validation passes 4,166 checks; schema (6), architecture (92), VS Code
 types, the 2,011-site Git ownership audit and all 13 original bundle ceilings pass. The gateway
 contains 851 of 852 permitted modules. Native guide and next-step CLI/SDK parity also pass.
+
+## Multiple approved scope sources
+
+Planning now reads every preceding approved specification definition through its actual submission,
+publication and independent approval. The context lists separate issued document reads, hashes,
+phase/generation identities and clarification records. It never creates a joined synthetic source
+or substitutes the current document for an older approved generation.
+
+The independent report uses `sflow-source-grounded-multi-scope-review/v1` in its `profile`, as issued
+by the context's `reportContract`. Its binding lists `upstreamSpecifications`. The same pure clause,
+plan-row, citation, reviewer and human-disposition evaluator checks the union of the approved
+definitions. It retains the native prohibition on defining a clause twice. Every actual answer
+must be acknowledged, including the current phase and each approved source's own answer record.
+The binding also hashes the pinned specification policy and logical evidence root; clause limits,
+namespace validation and planned verification follow that actual policy.
+
+A missing clause row is corrected by the reviewer within the existing generation. A stale source,
+missing profile, non-independent reviewer or self-supplied human disposition cannot qualify. Real
+permission and content failures retain their identities. Human decisions bind the exact multi-source
+report hash; splitting the sources does not create duplicate decisions. V4 submission and approval
+retain and replay the original report and all of its accepted source provenance on another host.
+
+The original native 37-case capture, report shape, schema, hashes and clock checkpoint remain
+unchanged. The new profile is selected only for multiple approved sources. The existing offline
+package consumer now also records, submits, independently approves and replays this planning
+profile in separate empty-PATH processes.
+
+The multi-source follow-up passes 227 distinct affected Mac checks, including all three stores,
+three real clarification records, same-generation report repair, exact second-source EACCES,
+native guide/next parity and offline consumers. The unchanged original 34-check package qualifier
+passes alone in 34.0 seconds within its original 120/60-second limits. Source validation (4,180),
+architecture (93), schema (6), VS Code types, the unchanged Git audit and all 13 original bundle
+ceilings pass. No Windows, live providers, real Story or installation changes ran.
 
 The other Phase 5 and 7 owners remain in [the completion ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md).

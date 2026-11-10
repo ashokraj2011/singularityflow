@@ -4,6 +4,7 @@ import {copyFile,mkdir,mkdtemp,writeFile,rm} from 'node:fs/promises';import path
 import {buildEngineSdk} from '../scripts/build-engine-sdk.mjs';import {resolvePlatformProcess} from '../src/platform-process.mjs';
 import {isolatedTestEnvironment} from '../scripts/test-machine-state.mjs';
 import {namespaceSourceReviewFixture,namespaceSourceReviewReport} from './helpers/namespace-source-review-fixture.mjs';
+import {namespaceMultiscopeReviewFixture,namespaceMultiscopeReviewReport} from './helpers/namespace-multiscope-review-fixture.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),name='@singularity-flow/engine-sdk';
 test('installed source review retains exact sources and reaches independently approved shared-only completion',{timeout:120000},async t=>{
   const directory=await mkdtemp(path.join(os.tmpdir(),'sflow-sdk-source-review-'));t.after(()=>rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
@@ -23,7 +24,7 @@ test('installed source review retains exact sources and reaches independently ap
     const hook=registerHooks({resolve(specifier,context,next){if(/\\/(?:git|cli|state)\\.mjs$/u.test(specifier))throw Error('Unexpected installed Git or CLI owner');return next(specifier,context);}}),
       {createNamespaceEngine}=await import('${name}/hosts/namespace-engine'),{createFilesystemNamespaceStore}=await import('${name}/storage/filesystem'),
       {createSqliteContentStore}=await import('${name}/storage/sqlite-content'),selected=JSON.parse(process.argv[2]),binding={kind:'shared'},
-      database=new DatabaseSync(path.join(selected.directory,'content.db')),records=await createFilesystemNamespaceStore({root:path.join(selected.directory,'records'),binding,create:false}),content=createSqliteContentStore({database,binding,create:false});
+      database=new DatabaseSync(path.join(selected.directory,'content.db')),records=await createFilesystemNamespaceStore({root:path.join(selected.directory,'records'),binding,create:false}),content=createSqliteContentStore({database,binding,create:false}),phaseId=selected.input.phaseId;
     try{let agentId=selected.replay?'source-reviewer':'source-reviewer',principalId='source-review-agent';
       const engine=createNamespaceEngine({records,content,scope:selected.scope,workId:selected.workId,authority:selected.authority,
         access:{current:()=>({projectId:selected.scope.projectId,principalId,agentId,actorKind:'human',identity:{name:'Independent reviewer',email:'independent@example.test',login:null},
@@ -32,17 +33,23 @@ test('installed source review retains exact sources and reaches independently ap
       assert.ok(captured.boundOperations.some(row=>row.id==='source-review.record'));assert.ok(captured.unboundOperations.some(row=>row.id==='decisions.record'));
       assert.equal(captured.readinessEstablished,false);assert.equal(captured.authorityGranted,false);
       assert.deepEqual(await engine.run('source-review.record',selected.input),recorded);
-      if(!selected.replay){assert.equal((await engine.run('source-review.context',{phaseId:'intake'})).manifest.status.status,'ready');
-        agentId='analyst';await engine.run('phase.submit',{phaseId:'intake'});agentId=null;principalId='independent-reviewer';
-        const view=await engine.run('phase.review.resources',{phaseId:'intake'});for(const row of view.manifest.resources)await engine.run('document.read',{reference:row.reference});
-        const result=await engine.run('phase.approve',{phaseId:'intake',confirmation:{workId:selected.workId,phase:'intake',generation:1,reviewPacketSha256:view.manifest.reviewBinding.packetSha256}});
-        assert.equal(result.approval.selfApproval,false);assert.equal(result.currentPhase,null);}
+      if(!selected.replay){const context=await engine.run('source-review.context',{phaseId});assert.equal(context.manifest.status.status,'ready');
+        if(selected.expectedNext)assert.equal(context.manifest.binding.upstreamSpecifications.length,2);
+        agentId='analyst';await engine.run('phase.submit',{phaseId});agentId=null;principalId='independent-reviewer';
+        const view=await engine.run('phase.review.resources',{phaseId});for(const row of view.manifest.resources)await engine.run('document.read',{reference:row.reference});
+        const result=await engine.run('phase.approve',{phaseId,confirmation:{workId:selected.workId,phase:phaseId,generation:1,reviewPacketSha256:view.manifest.reviewBinding.packetSha256}});
+        assert.equal(result.approval.selfApproval,false);assert.equal(result.currentPhase,selected.expectedNext??null);}
       process.stdout.write(JSON.stringify(recorded));
     }finally{records.close?.();database.close();hook.deregister();}
   `;
   await writeFile(path.join(consumer,'review.mjs'),script);
   const invoke=replay=>JSON.parse(child(process.execPath,['review.mjs',JSON.stringify({directory:f.directory,scope:f.scope,workId:f.workId,authority:f.authority,at:'2026-11-10T13:00:00.000Z',input,replay})],{cwd:consumer,env:{...env,PATH:''}})),first=invoke(false);
   assert.equal((await f.capture()).workflow.status,'closed');assert.deepEqual(invoke(true),first);
+  const multiple=await namespaceMultiscopeReviewFixture(t),context=await multiple.engine.run('source-review.context',{phaseId:'design'}),
+    multiInput={operationId:'installed-multi-scope-review',phaseId:'design',expectedContext:context.manifest.contextBinding,report:namespaceMultiscopeReviewReport(context.manifest)},
+    invokeMultiple=replay=>JSON.parse(child(process.execPath,['review.mjs',JSON.stringify({directory:multiple.directory,scope:multiple.scope,workId:multiple.inputs.workId,
+      authority:multiple.authority,at:'2026-11-11T13:00:00.000Z',input:multiInput,replay,expectedNext:'build'})],{cwd:consumer,env:{...env,PATH:''}})),multiRecorded=invokeMultiple(false);
+  assert.equal((await multiple.capture()).workflow.currentPhase,'build');assert.deepEqual(invokeMultiple(true),multiRecorded);
   await writeFile(path.join(consumer,'types.mts'),`import type {Engine} from '${name}';declare const engine:Engine;const profile:'sflow-engine-host-capabilities/v1'=engine.capabilities.profile;const granted:false=engine.capabilities.authorityGranted;
     engine.run('source-review.context',{phaseId:'intake'});
     engine.run('source-review.record',{operationId:'review',phaseId:'intake',report:{schemaVersion:1},expectedContext:'sha256:value'});

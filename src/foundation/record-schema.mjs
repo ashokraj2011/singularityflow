@@ -3,6 +3,7 @@ import { SingularityFlowError } from './failures.mjs';
 
 export const CONSTITUTION_RECORD_SCHEMA=Object.freeze({id:'constitution-record',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
 export const SOURCE_GROUNDED_REVIEW_SCHEMA=Object.freeze({id:'source-grounded-review',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
+export const MULTI_SCOPE_REVIEW_SCHEMA=Object.freeze({id:'source-grounded-multi-scope-review',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
 export const TEXT_DIGEST_PROFILE = 'sflow-text-digests/sha256-utf8-v1';
 /** Existing execution-unit v1 ABI bounds, shared by operational hosts and durable decoration. */
 export const EXECUTION_UNIT_LIMITS=Object.freeze({maximumEvents:4096,maximumSessions:1024,maximumOutputBytes:16*1024*1024});

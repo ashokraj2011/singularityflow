@@ -1,6 +1,6 @@
 /** Pure exact-source review rules. Semantic judgments belong to the independent reviewer. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,textDigestCapability,admitRecordSchemaVersion,SOURCE_GROUNDED_REVIEW_SCHEMA} from '../foundation/record-schema.mjs';
+import {canonicalJson,textDigestCapability,admitRecordSchemaVersion,SOURCE_GROUNDED_REVIEW_SCHEMA,MULTI_SCOPE_REVIEW_SCHEMA} from '../foundation/record-schema.mjs';
 import {specificationValuePolicies,specificationClaimPolicies} from './specification-values.mjs';
 import {scopeStatementPolicies} from './scope-statements.mjs';
 import {nonTestVerification} from './verification-policy.mjs';
@@ -9,6 +9,7 @@ export function sourceReviewContinuationEvidence(result){const reportRepair=resu
   artifactRepair=result.findings.some(row=>row.code==='reviewer-blocker');
   return {status:reportRepair&&!artifactRepair?'report-correction-required':result.status,findings:result.findings.map(({code})=>({code})),
     pendingDispositions:reportRepair&&!artifactRepair?[]:result.pendingDispositions.map(({id})=>({id}))};}
+export const MULTI_SCOPE_REVIEW_PROFILE='sflow-source-grounded-multi-scope-review/v1';
 export function sourceGroundedReviewPolicies(pathSyntax,textSyntax,digestPort){
   const digests=textDigestCapability(digestPort),recordSha256=value=>digests.sha256Utf8(canonicalJson(value)),
     {extractClauses}=specificationValuePolicies(digestPort),claims=specificationClaimPolicies(pathSyntax,textSyntax),
@@ -312,15 +313,16 @@ function sameArray(left, right) {
     && left.length === right.length && left.every((entry, index) => entry === right[index]);
 }
 
-function* evaluatePlanningRows(report, context, findings, pendingDispositions) {
+function* evaluatePlanningRows(report, context, findings, pendingDispositions, approvedClauses = null, planPolicy = null) {
   const rows = report.rows;
   if (!Array.isArray(rows) || rows.length > MAX_ROWS) {
     findings.push(finding('rows-invalid', `Planning review needs at most ${MAX_ROWS} clause mapping rows.`));
     return;
   }
-  const clauses = extractClauses(context.upstreamSpec.text, { sourcePath: context.upstreamSpec.path });
+  const clauses = approvedClauses ?? extractClauses(context.upstreamSpec.text, { sourcePath: context.upstreamSpec.path });
   const ids = clauses.map((clause) => clause.id);
-  const planned = yield* claims.derivePlannedClaimMapReplay(context.artifact.text, { clauseIds: ids, clauses });
+  const planned = yield* claims.derivePlannedClaimMapReplay(context.artifact.text, { clauseIds: ids, clauses,
+    ...(planPolicy?{policy:planPolicy,evidenceRoot:context.evidenceRoot??undefined}:{}) });
   const contracts = new Map((planned.claimMap.verificationContracts ?? []).map(contract => [contract.clauseId, contract]));
   const byId = new Map();
   for (const [index, row] of rows.entries()) {
@@ -379,17 +381,50 @@ function* evaluatePlanningRows(report, context, findings, pendingDispositions) {
  * authenticated approval path, never from a field in the reviewer-authored report.
  */
 function* evaluateSourceGroundedReviewReplay(report, context) {
-  const binding = sourceReviewBinding(context);
+  return yield* evaluateReviewReplay(report,context,{binding:sourceReviewBinding(context),schema:SOURCE_GROUNDED_REVIEW_SCHEMA});
+}
+/** Every source keeps its exact native binding. The envelope is a separate opt-in contract. */
+function multiScopeInputs(context){
+  const scopes=context.upstreamSpecifications;
+  if(context.kind!=='planning'||!Array.isArray(scopes)||scopes.length<2||scopes.length>MAX_SOURCES
+    ||scopes.some(row=>!row||typeof row!=='object'||Array.isArray(row))
+    ||new Set(scopes.map(row=>row?.phase)).size!==scopes.length)throw new SingularityFlowError('A multi-scope planning review needs distinct approved specification sources.',{code:'SOURCE_REVIEW_MULTI_SCOPE_INVALID'});
+  const all=context.clarifications??[];
+  if(!Array.isArray(all)||all.length>scopes.length+1||new Set(all.map(row=>row?.id)).size!==all.length
+    ||all.some(row=>row?.phase!==context.phase&&!scopes.some(scope=>scope.phase===row?.phase&&scope.generation===row?.generation)))
+    throw new SingularityFlowError('Multi-scope clarification records must belong to these exact approved generations.',{code:'SOURCE_REVIEW_MULTI_SCOPE_INVALID'});
+  return scopes.map(scope=>{
+    requireId(scope.phase,'Approved scope phase');
+    if(!Number.isSafeInteger(scope.generation)||scope.generation<1)throw new SingularityFlowError('An approved scope needs its exact published generation.',{code:'SOURCE_REVIEW_MULTI_SCOPE_INVALID'});
+    const clarifications=all.filter(row=>row.phase===context.phase||row.phase===scope.phase&&row.generation===scope.generation),
+      binding=sourceReviewBinding({...context,clarifications,upstreamSpec:scope});
+    return {scope,binding};
+  });
+}
+function multiSourceReviewBinding(context){const values=multiScopeInputs(context),{upstreamSpec,clarifications,...base}=values[0].binding,
+    boundClarifications=[...new Map(values.flatMap(row=>row.binding.clarifications??[]).map(row=>[row.id,row])).values()].sort((a,b)=>a.id.localeCompare(b.id));
+  return {...base,profile:MULTI_SCOPE_REVIEW_PROFILE,planPolicySha256:context.specificationPolicy?recordSha256({policy:context.specificationPolicy,evidenceRoot:context.evidenceRoot??null}):null,
+    upstreamSpecifications:values.map(({scope,binding})=>({phase:scope.phase,generation:scope.generation,...binding.upstreamSpec})),
+    ...(boundClarifications.length?{clarifications:boundClarifications}:{})};
+}
+function* evaluateMultiSourceGroundedReviewReplay(report,context){
+  const binding=multiSourceReviewBinding(context),clauses=[];
+  for(const source of context.upstreamSpecifications){const earlier=clauses.map(row=>row.id);
+    clauses.push(...extractClauses(source.text,{sourcePath:source.path,externalClauseIds:earlier,externalClauses:clauses,
+      ...(context.specificationPolicy?{namespace:context.specificationPolicy.namespace,limits:context.specificationPolicy.limits}:{})}));}
+  return yield* evaluateReviewReplay(report,context,{binding,schema:MULTI_SCOPE_REVIEW_SCHEMA,profile:MULTI_SCOPE_REVIEW_PROFILE,clauses,planPolicy:context.specificationPolicy??null});
+}
+function* evaluateReviewReplay(report, context, {binding,schema,profile=null,clauses=null,planPolicy=null}) {
   if (report == null) return { status: 'missing', binding, reportSha256: null,
     findings: [finding('review-missing', 'No independent source-grounded review report exists.')], pendingDispositions: [] };
   const reportSha256 = recordSha256(report);
   const findings = [];
   const pendingDispositions = [];
   let versionReadable = true;
-  try { admitRecordSchemaVersion(SOURCE_GROUNDED_REVIEW_SCHEMA, JSON.parse(JSON.stringify(report))); }
+  try { admitRecordSchemaVersion(schema, JSON.parse(JSON.stringify(report))); }
   catch { versionReadable = false; }
   if (!report || typeof report !== 'object' || Array.isArray(report)
-      || !versionReadable || report.resultType !== 'source-grounded-review'
+      || !versionReadable || profile!==null&&report.profile!==profile || report.resultType !== 'source-grounded-review'
       || report.kind !== context.kind) {
     findings.push(finding('review-contract-invalid', 'The report is not a source-grounded review for this phase.'));
   }
@@ -417,7 +452,7 @@ function* evaluateSourceGroundedReviewReplay(report, context) {
   });
   try {
     if (context.kind === 'specification') evaluateSpecificationRows(report, context, binding, findings, pendingDispositions);
-    else yield* evaluatePlanningRows(report, context, findings, pendingDispositions);
+    else yield* evaluatePlanningRows(report, context, findings, pendingDispositions, clauses,planPolicy);
   } catch (error) {
     findings.push(finding('review-structure-invalid', error.message));
   }
@@ -462,5 +497,5 @@ function* evaluateSourceGroundedReviewReplay(report, context) {
   };
 }
 
-return Object.freeze({sourceReviewBinding,sourceReviewScenarioIds,evaluateSourceGroundedReviewReplay});
+return Object.freeze({sourceReviewBinding,multiSourceReviewBinding,sourceReviewScenarioIds,evaluateSourceGroundedReviewReplay,evaluateMultiSourceGroundedReviewReplay});
 }

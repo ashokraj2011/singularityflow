@@ -7,6 +7,7 @@ import {sourceReviewRequired,sourceReviewKind,scopeStepOf} from '../kernel/phase
 import {standaloneDecisionAdmission} from '../kernel/decision-plan.mjs';
 import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
 import {sourceReviewContinuationEvidence,sourceGroundedReviewPolicies} from '../kernel/source-grounded-review.mjs';
+import {specificationPublicationSources} from '../kernel/specification-publication.mjs';
 import {authoredArtifactText} from '../kernel/artifact-content.mjs';
 import {NODE_TEXT_DIGESTS,NODE_TEXT_VALUE_SYNTAX} from '../records.mjs';
 import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
@@ -25,7 +26,8 @@ export function createNamespaceSourceReviewOwners({observer,scope,workId}){
     packetReader=()=>packets??=createNamespaceSubmissionReader({observer,scope,workId,checks});
   async function text(reference,signal,local=false){const data=local?await namespaceLocalInputBytes(observer,reference,{signal}):await observer.bytes(reference,reference.bytes,signal);
     try{return new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(data);}catch(cause){throw error('The source review requires an actual supported text or visual reader.','SOURCE_REVIEW_SOURCE_UNREADABLE',{reference},cause);}}
-  const replay=(report,context,at)=>{const value=rules.evaluateSourceGroundedReviewReplay(report,context);let step=value.next();while(!step.done)step=value.next(at);return step.value;};
+  const reviewBinding=value=>value.upstreamSpecifications?rules.multiSourceReviewBinding(value):rules.sourceReviewBinding(value);
+  const replay=(report,context,at)=>{const value=(context.upstreamSpecifications?rules.evaluateMultiSourceGroundedReviewReplay:rules.evaluateSourceGroundedReviewReplay)(report,context);let step=value.next();while(!step.done)step=value.next(at);return step.value;};
   async function admitted(snapshot,options={}){
     const rows=snapshot.workflow.namespaceSourceReviews??[],decisions=snapshot.workflow.namespaceSourceReviewDecisions??[],
       links=namespaceDecisionReceipts(snapshot.workflow).filter(row=>[recordOperation,decisionOperation].includes(row.operation));
@@ -62,27 +64,33 @@ export function createNamespaceSourceReviewOwners({observer,scope,workId}){
       clarifications.push({id,phase:answer.phase,generation:answer.generation,path:document.sourceKey,sha256:ref.sha256});
       references.push(ref);resources.push({id,kind:'clarification',reference:ref});}
     addClarification(clarification,'clarification:current-phase');
-    let upstreamSpec=null;
+    let upstreamSpec=null,upstreamSpecifications=null;
     if(kind==='planning'){
-      if(workflow.phaseOrder.filter(id=>sourceReviewKind(workflow,id)==='specification'&&workflow.phases[id].status==='approved').length>1)throw error('Planning review needs its multiple approved scope-source contract.','ENGINE_PORT_UNAVAILABLE',{required:['multi-source-planning-review']});
-      const scopePhase=scopeStepOf(workflow);if(!scopePhase||scopePhase.status!=='approved')throw error('Planning review requires the actual approved scope.','SPEC_APPROVED_INDEX_REQUIRED');
-      const proof=(await packetReader().inspectApprovedMany(snapshot,[scopePhase.id],{signal,policyTraversal}))[0];
-      if(!proof)throw error('Planning review needs the retained original scope approval.','SPEC_APPROVED_INDEX_REQUIRED');
-      upstreamSpec={path:proof.published.artifact.sourceKey,text:authoredArtifactText(await text(proof.published.artifact.content,signal)),originalSha256:proof.published.artifact.content.sha256};
-      references.push(proof.binding.record,proof.value.publication.record,proof.published.artifact.content);
-      resources.push({id:'approved-scope',kind:'approved-input',reference:proof.published.artifact.content});
-      addClarification(packetReader().publicationClarification(proof.published),'clarification:approved-scope');
+      const declared=specificationPublicationSources(workflow,phaseId),scopeIds=declared.length>1?declared:[scopeStepOf(workflow)?.id].filter(Boolean);
+      if(!scopeIds.length||scopeIds.some(id=>workflow.phases[id]?.status!=='approved'))throw error('Planning review requires its actual approved scope sources.','SPEC_APPROVED_INDEX_REQUIRED');
+      const proofs=await packetReader().inspectApprovedMany(snapshot,scopeIds,{signal,policyTraversal}),specifications=[];
+      for(const [index,scopeId]of scopeIds.entries()){
+        const proof=proofs[index];if(!proof)throw error('Planning review needs each retained original scope approval.','SPEC_APPROVED_INDEX_REQUIRED',{phase:scopeId});
+        const specification={path:proof.published.artifact.sourceKey,text:authoredArtifactText(await text(proof.published.artifact.content,signal)),originalSha256:proof.published.artifact.content.sha256};
+        specifications.push({phase:scopeId,generation:proof.value.generation,...specification});
+        references.push(proof.binding.record,proof.value.publication.record,proof.published.artifact.content);
+        resources.push({id:scopeIds.length===1?'approved-scope':'approved-scope:'+scopeId,kind:'approved-input',reference:proof.published.artifact.content});
+        addClarification(packetReader().publicationClarification(proof.published),scopeIds.length===1?'clarification:approved-scope':'clarification:approved-scope:'+scopeId);
+        if(scopeIds.length===1)upstreamSpec=specification;
+      }
+      if(scopeIds.length>1)upstreamSpecifications=specifications;
     }
     const value={kind,workId,phase:phaseId,generation:phase.generation,sources,visualSources,unreadableSources,clarifications,
       artifact:{path:published.artifact.sourceKey,text:authoredArtifactText(await text(published.artifact.content,signal)),originalSha256:published.artifact.content.sha256},
-      ...(upstreamSpec?{upstreamSpec}:{}),authorAgentId:published.agentId,reviewerAgentId:workflow.resolution.sourceReview.reviewerAgent,reviewerReadOnly:true};
+      ...(upstreamSpec?{upstreamSpec}:{}),...(upstreamSpecifications?{upstreamSpecifications,specificationPolicy:workflow.resolution.spec,
+        evidenceRoot:(workflow.resolution.workItemRoot??'singularity/work-items')+'/'+workId+'/evidence'}:{}),authorAgentId:published.agentId,reviewerAgentId:workflow.resolution.sourceReview.reviewerAgent,reviewerReadOnly:true};
     resources.push({id:'published-artifact',kind:'artifact',reference:published.artifact.content});
     for(const resource of resources){const candidates=(workflow.namespaceDocuments??[]).filter(row=>same(row.content,resource.reference)&&row.status!=='detached'),
       selected=candidates.find(row=>row.id===resource.id)??candidates[0];
       if(!selected)throw error('A review source has no exact issued document reader.','ENGINE_STORAGE_CORRUPT',{sourceId:resource.id});
       resource.read={operation:'document.read',inputs:{reference:selected.role==='file'?{kind:'story-document',id:selected.id,workId}:selected.sourceKey}};
     }
-    const identity={profile:'sflow-namespace-source-review-source/v1',publication:binding,binding:rules.sourceReviewBinding(value),authorAgentId:value.authorAgentId,reviewerAgentId:value.reviewerAgentId};
+    const identity={profile:upstreamSpecifications?'sflow-namespace-source-review-source/v2':'sflow-namespace-source-review-source/v1',publication:binding,binding:reviewBinding(value),authorAgentId:value.authorAgentId,reviewerAgentId:value.reviewerAgentId};
     return {value,identity,resources,published,references:[...new Map(references.filter(ref=>ref.namespace==='evidence').map(ref=>[canonicalJson(ref),ref])).values()]};
   }
   function status(source,prior,at){const row=prior.rows.findLast(row=>row.phase===source.value.phase&&row.generation===source.value.generation),
@@ -128,7 +136,11 @@ export function createNamespaceSourceReviewOwners({observer,scope,workId}){
   readers.set(decisionOperation,createNamespaceRecordedMutationReader({observer,scope,workId,operation:decisionOperation,owner:decisionOwner,contract:namespaceDecisionContract}));
   async function inspect(snapshot,phaseId,options={}){const value=await read(snapshot,{phaseId},options);const profile=namespaceSourceReviewRecordProfile('context',{schemaVersion:NAMESPACE_SOURCE_REVIEW_SCHEMAS.context.currentVersion});return {
     schemaVersion:profile.version,profile:profile.profile,workId,phase:phaseId,generation:value.generation,revision:snapshot.revision,
-    binding:rules.sourceReviewBinding(value.value),contextBinding:value.contextBinding,resources:value.resources,
+    binding:value.identity.binding,contextBinding:value.contextBinding,resources:value.resources,
+    ...(value.value.upstreamSpecifications?{reportContract:{schemaVersion:1,profile:value.identity.binding.profile,resultType:'source-grounded-review',kind:'planning',
+      requiredFields:['schemaVersion','profile','resultType','kind','binding','reviewer','sourcesReviewed',
+        ...((value.identity.binding.clarifications??[]).length?['clarificationsReviewed']:[]),'findings','rows'],
+      humanDispositionsAllowed:false,semanticJudgmentRequired:true}}:{}),
     reviewer:{agentId:value.value.reviewerAgentId,readOnly:true,authorAgentId:value.value.authorAgentId},status:value.status};}
   async function acceptance(snapshot,phaseId,options={}){if(!sourceReviewRequired(snapshot.workflow,phaseId))return null;
     const result=await read(snapshot,{phaseId},options);

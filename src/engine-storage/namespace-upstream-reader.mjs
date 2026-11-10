@@ -9,11 +9,14 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespaceRecordedMutationReader} from './namespace-recorded-mutation-reader.mjs';
 import {namespaceDecisionContract} from './namespace-decision-contract.mjs';
+import {createNamespaceUpstreamArtifactReader} from './namespace-upstream-artifact-reader.mjs';
+import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
-export function createNamespaceUpstreamOwners({observer,scope,workId}) {
+export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=null,artifactSelection=null,artifactReports=null}) {
   const owners=new Map(),readers=new Map(),checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),
     publications=createNamespacePublicationReader({observer,scope,workId,checks});
+  const reports=artifactReports??createNamespaceUpstreamArtifactReader({observer,scope,workId,publications,runtime});
   async function admitted(snapshot,{signal,policyTraversal}={}) {
     const references=[];
     for(const [operation,field]of [['upstream.raise','upstreamIssues'],['upstream.decide','upstreamIssueDecisions']]) {
@@ -40,23 +43,38 @@ export function createNamespaceUpstreamOwners({observer,scope,workId}) {
   for(const operation of ['upstream.raise','upstream.decide']) {
     const owner={
       agentPhase:snapshot=>snapshot.workflow.currentPhase,
-      async read(snapshot,request,{signal,policyTraversal}={}) {
+      async read(snapshot,request,{signal,policyTraversal,bound,at}={}) {
         await admitted(snapshot,{signal,policyTraversal});
         const phase=snapshot.workflow.phases[request.phaseId];
         if(!phase)throw error('The upstream owner is not in the pinned Story.','UPSTREAM_ISSUE_INVALID');
         const binding=phase.publicationBindings?.find(row=>row.generation===phase.generation);
         if(!binding)throw error('An upstream issue needs its actual published producer.','ENGINE_PUBLICATION_REQUIRED',{phase:phase.id});
         const publication=await publications.accepted(binding,phase.id,{signal,policyTraversal});
-        return {generation:phase.generation,identity:{profile:'sflow-namespace-upstream-source/v1',producer:binding,
+        const base={generation:phase.generation,identity:{profile:'sflow-namespace-upstream-source/v1',producer:binding,
           issuesSha256:hash(snapshot.workflow.upstreamIssues??[]),decisionsSha256:hash(snapshot.workflow.upstreamIssueDecisions??[])},
           publication,references:[binding.record,publication.artifact.content,...publications.policies.evidence(publication)]};
+        if(operation!=='upstream.raise'||!artifactSelection&&bound?.profile!=='sflow-namespace-upstream-source/v2')return base;
+        const selected=bound?{token:await reports.restore(snapshot,bound.report,{signal,policyTraversal}),batch:bound.batch}:artifactSelection,
+          expected={phase:request.phaseId,about:request.about,problem:request.problem,assumption:request.assumption,impact:request.impact,
+            proposed:request.proposed??'unknown',supersedes:request.supersedes},found=reports.requests(snapshot,selected.token,selected.batch?.at??at).requests.find(row=>{
+              const {source,...fields}=row;return same({...fields,proposed:selected.batch?.proposed??fields.proposed},expected);});
+        if(!found||!selected.batch||typeof selected.batch.operationId!=='string'||!/^[a-f0-9]{64}$/u.test(selected.batch.requestSha256??''))throw error(
+          'The issued discrepancy does not match its original report.');
+        projectEnrollmentTimestamp(selected.batch.at);
+        const evidence=reports.evidence(selected.token);
+        return {...base,identity:{...base.identity,profile:'sflow-namespace-upstream-source/v2',report:reports.identity(selected.token),
+          discrepancy:found.source,batch:selected.batch},references:[...base.references,...evidence.references],pendingEvidence:evidence.pendingEvidence,
+          artifactToken:selected.token,discrepancy:found.source};
       },
+      async fresh(snapshot,_request,source,options){if(source.identity.profile==='sflow-namespace-upstream-source/v2'){
+        const actual=await observer.inspect(options);await reports.fresh(actual.snapshot,source.artifactToken,options);
+      }},
       authority(workflow,request,actor) {
         if(operation==='upstream.raise')return null;
         return requireApprovalAuthority(workflow.resolution.approvalAuthorities,{mode:'required',
           authorities:upstreamIssueAuthorities(workflow,request.phaseId),requiredAuthorities:[],minimum:1},actor.identity).authorityGroup;
       },
-      plan(workflow,request,facts) {
+      plan(workflow,request,facts,source) {
         upstreamOperationAdmission(operation,workflow);const proposed=structuredClone(workflow);let record;
         if(operation==='upstream.raise') {
           if(request.fromArtifact)throw error('Read and name the exact artifact discrepancy before raising it.','ENGINE_PORT_UNAVAILABLE',{
@@ -64,7 +82,7 @@ export function createNamespaceUpstreamOwners({observer,scope,workId}) {
           const authored=request.authored??(facts.actorKind==='human'?'human':'governed-agent');
           if((authored==='human')!==(facts.actorKind==='human'))throw error('The issue authorship differs from its authenticated producer.','ENGINE_ACTOR_CHANGED');
           record=raiseUpstreamIssue(proposed,{phase:request.phaseId,about:request.about,problem:request.problem,assumption:request.assumption,
-            impact:request.impact,proposed:request.proposed??'unknown',source:null,supersedes:request.supersedes,
+            impact:request.impact,proposed:request.proposed??'unknown',source:source?.discrepancy??null,supersedes:request.supersedes,
             raisedBy:facts.actorId,authored,agent:facts.agentId,at:facts.at});
           proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'upstream_issue_raised',phase:workflow.currentPhase,
             detail:record.id+' against '+record.phase+' ('+record.about+'): '+record.problem+(record.supersedes?' It supersedes '+record.supersedes+'.':'')});
@@ -81,5 +99,5 @@ export function createNamespaceUpstreamOwners({observer,scope,workId}) {
     };
     owners.set(operation,owner);readers.set(operation,createNamespaceRecordedMutationReader({observer,scope,workId,operation,owner,contract:namespaceDecisionContract}));
   }
-  return Object.freeze({owners,readers,admitted,decisions});
+  return Object.freeze({owners,readers,admitted,decisions,reports});
 }

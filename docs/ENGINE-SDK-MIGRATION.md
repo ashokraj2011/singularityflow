@@ -78,6 +78,12 @@ The [namespace read-owner delivery](ENGINE-SDK-NAMESPACE-READ-OPERATIONS.md) add
 inspection, ordinary Story queries and approved dependency names. It preserves the installed Git
 paths and leaves the remaining mutation/execution profiles in the completion ledger.
 
+[Artifact-derived upstream filing](ENGINE-SDK-ARTIFACT-UPSTREAM.md) now preserves exact report/owner
+provenance through interrupted batches and shared-only replay. The [generation/input boundary](ENGINE-SDK-GENERATION-INPUTS.md)
+shares actual private preparation across registered operations and keeps Git-shaped fields out of
+the explicit namespace profiles. Native human-witness rules have one pure owner with frozen
+pre-extraction compatibility evidence. The remaining Phase 5/7 owners stay open in the ledger.
+
 The [human conformance and reviewer-return extension](ENGINE-SDK-HUMAN-CONFORMANCE-REWORK.md)
 adds registry operations for exact conformance context and upstream-owner dispositions, plus the
 namespace implementation of `phase.reject`. Human records have their own immutable v1 contract;

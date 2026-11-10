@@ -339,9 +339,11 @@ export function phaseBeginSelection(workflow,inputs) {
     'Requested Story does not match the generation checkout.',{code:'ACTIVE_SUBJECT_MISMATCH',
       details:{expectedWorkId:inputs.workId,actualWorkId:workflow.workItem.id}});
   const existing=phase.generationIntent;
+  const namespaced=existing?.profile==='sflow-namespace-generation-intent/v1';
   return {workId:workflow.workItem.id,phase:phase.id,generation:nextPhaseGeneration(phase),
     retained:existing?.status==='open'&&Number(existing.generation)===nextPhaseGeneration(phase),
-    existing:existing?{id:existing.id??null,sha256:existing.receiptSha256??null,baselineCommit:existing.baseline?.commit??null}:null};
+    existing:existing?namespaced?{profile:existing.profile,id:existing.id??null,sha256:existing.receiptSha256??null,baselineRevision:existing.baselineRevision??null}
+      :{id:existing.id??null,sha256:existing.receiptSha256??null,baselineCommit:existing.baseline?.commit??null}:null};
 }
 
 /** Local receipts expose logical provenance; native staging paths and actor presentation stay private. */
@@ -349,11 +351,14 @@ export function phaseBeginResult(binding,facts) {
   const text=value=>typeof value==='string'&&value.length>0&&value.length<=4096;
   const keys=(value,allowed)=>value&&typeof value==='object'&&!Array.isArray(value)
     &&Object.keys(value).length===allowed.length&&Object.keys(value).every(key=>allowed.includes(key));
+  const namespaced=facts?.intent?.profile==='sflow-namespace-generation-intent/v1',
+    fields=namespaced?['profile','id','sha256','baselineRevision','status']:['id','sha256','baselineCommit','status'],
+    identity=namespaced?['profile','id','sha256','baselineRevision']:['id','sha256','baselineCommit'];
   if(!keys(facts,['workId','phase','generation','intent'])||facts.workId!==binding.workId||facts.phase!==binding.phase
-    ||facts.generation!==binding.generation||!keys(facts.intent,['id','sha256','baselineCommit','status'])
+    ||facts.generation!==binding.generation||!keys(facts.intent,fields)
     ||!text(facts.intent.id)||!/^sha256:[a-f0-9]{64}$/u.test(facts.intent.sha256??'')
-    ||!text(facts.intent.baselineCommit)||facts.intent.status!=='open'
-    ||binding.retained&&['id','sha256','baselineCommit'].some(key=>facts.intent[key]!==binding.existing[key])) {
+    ||!text(facts.intent[namespaced?'baselineRevision':'baselineCommit'])||facts.intent.status!=='open'
+    ||binding.retained&&identity.some(key=>facts.intent[key]!==binding.existing[key])) {
     throw new SingularityFlowError('The generation port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});
   }
   return facts.intent;

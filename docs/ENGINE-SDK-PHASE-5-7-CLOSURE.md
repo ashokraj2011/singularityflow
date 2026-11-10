@@ -53,14 +53,20 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
 - Namespace draft/prepublication inspection, Story status/guide/next and approved workflow inventory.
   [The read-owner record](ENGINE-SDK-NAMESPACE-READ-OPERATIONS.md) documents real evidence and limits.
 - One pure discrepancy parser/filing rule owner with native presence-counted compatibility.
+- Artifact-derived upstream batches with exact owner/report provenance, per-item recovery and
+  shared-only historical replay. See [the delivery record](ENGINE-SDK-ARTIFACT-UPSTREAM.md).
+- Shared human-witness hash/checklist/result rules, preserving captured native records and errors.
+- Namespace generation begin and phase-input preparation share the actual private draft and
+  retained input audit. Portable manifests use explicit content/revision profiles; native Git
+  manifests keep their original fields. Reviewed source adoption/rollover remains separate work.
 - Invocation-local immutable proof reuse, a narrow Auto Plan/inventory read closure, and the
-  unchanged installed-package qualifier passing all 34 checks in 92 seconds on this Mac.
+  unchanged installed-package qualifier passing all 34 checks in 67 seconds on this Mac.
 
 ## Still required before either phase can be called complete
 
 - The remaining native query/rule inventory and parity audit.
 - Namespace plan-row/evidence correction, obligation/witness/evidence/test decisions and decision batches.
-- Artifact-derived upstream issues, return/amend/correction outcomes and forward amendments.
+- Upstream return/amend/correction outcomes and forward amendments.
 - Targeted Code repair and multiple Code predecessors/observed-claim reuse.
 - Artifact sets, constitution/comparison/visual acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.

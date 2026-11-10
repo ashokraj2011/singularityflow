@@ -7,6 +7,7 @@ import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,admitRecordSchemaVersion } 
 import { renderArtifactTemplateText,utf8Bytes } from '../kernel/artifact-content.mjs';
 import { phaseDraftAccess,phasePreparationSelection,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission } from '../kernel/phase-preparation.mjs';
 import { phaseBeginSelection,nextPhaseGeneration } from '../kernel/phase-policy.mjs';
+import {workflowInputsMode} from '../kernel/phase-inputs.mjs';
 import { projectEnrollmentTimestamp } from '../kernel/project-enrollment.mjs';
 import { storyActorValue } from '../kernel/story-creation.mjs';
 import { sourceSnapshot,sourceUnitDescriptor,sourceRelativePath,validateSourceUnit } from '../foundation/source-snapshot.mjs';
@@ -210,6 +211,22 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       updatedAt:at,updatedBy:agent.actor,reason:previous?'Rebind the preserved authored draft.':'Prepare the phase artifact.'};
     if(opening)openingSources.set(value,opening);return value;
   }
+  async function prepareDraft(context,binding,permission,signal){
+      const saved=selected(context),{captured,found}=saved,agent=await authorize(permission,signal);
+      saved.agent=agent;await contract(captured,agent,signal);
+      if(found) {
+        if(found.payload.baseRevision!==captured.snapshot.revision||found.payload.generation!==binding.generation)throw error('The existing private draft uses an earlier Story revision. Review it and explicitly rebind it.','ENGINE_DRAFT_BASIS_CHANGED',{
+          workId,phase:binding.phase,revision:found.revision,confirm:found.body.sha256,operation:'phase.draft.rebase'});
+        await repositoryPlans.guard(captured.snapshot,captured.phase.id,found.payload.sources.map(row=>row.id),{signal});
+        saved.accepted=found;saved.opened=false;await authorize(permission,signal,agent);await unchanged(captured,signal);return;
+      }
+      const value=await makePayload(captured,binding,agent,null,signal);
+      if(value.sources.length)await sourceBindings(captured,signal);
+      await authorize(permission,signal,agent);await unchanged(captured,signal);
+      const parametersSha256=hash(canonicalJson({binding,base:captured.snapshot.revision,configuration:captured.snapshot.configuration}));
+      saved.accepted=await captured.store.save({operationId:'prepare-'+parametersSha256,parametersSha256,expectedRevision:null,payload:value},{signal});
+      saved.opened=binding.codeDeliveryRequired&&!saved.accepted.replayed;
+  }
   const phasePreparation={
     async load(inputs,{signal}={}) {
       if(inputs.workId!==undefined&&inputs.workId!==workId)throw error('Preparation is bound to another Story.','ACTIVE_SUBJECT_MISMATCH');
@@ -217,22 +234,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       const context={workflow:structuredClone(captured.snapshot.workflow),modelEnabled};
       contexts.set(context,{captured,found});return context;
     },
-    async prepare(context,binding,{signal}={}) {
-      const saved=selected(context),{captured,found}=saved,agent=await authorize('phase.prepare',signal);
-      await contract(captured,agent,signal);
-      if(found) {
-        if(found.payload.baseRevision!==captured.snapshot.revision||found.payload.generation!==binding.generation)throw error('The existing private draft uses an earlier Story revision. Review it and explicitly rebind it.','ENGINE_DRAFT_BASIS_CHANGED',{
-          workId,phase:binding.phase,revision:found.revision,confirm:found.body.sha256,operation:'phase.draft.rebase'});
-        await repositoryPlans.guard(captured.snapshot,captured.phase.id,found.payload.sources.map(row=>row.id),{signal});
-        saved.accepted=found;saved.opened=false;await unchanged(captured,signal);return;
-      }
-      const value=await makePayload(captured,binding,agent,null,signal);
-      if(value.sources.length)await sourceBindings(captured,signal);
-      await authorize('phase.prepare',signal,agent);await unchanged(captured,signal);
-      const parametersSha256=hash(canonicalJson({binding,base:captured.snapshot.revision,configuration:captured.snapshot.configuration}));
-      saved.accepted=await captured.store.save({operationId:'prepare-'+parametersSha256,parametersSha256,expectedRevision:null,payload:value},{signal});
-      saved.opened=binding.codeDeliveryRequired&&!saved.accepted.replayed;
-    },
+    async prepare(context,binding,{signal}={}) {return prepareDraft(context,binding,'phase.prepare',signal);},
     async inspect(context,binding,{signal}={}) {
       const saved=selected(context),value=payload(saved.accepted.payload,binding.phase);await unchanged(saved.captured,signal);
       await saved.captured.store.bytes(value.artifact.current,{signal});
@@ -309,7 +311,42 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
           artifact:p.artifact.current,recordedAt:p.updatedAt,principalId:p.updatedBy.principalId,replayed:r.replayed===true};}
     };
   }
-  const ports={phasePreparation,phaseDraftRead,
+  function beginFacts(saved){const p=payload(saved.accepted.payload,saved.captured.phase.id),reference=p.generationIntent?.record??p.inputContext;
+    return {workId,phase:saved.captured.phase.id,generation:p.generation,intent:{profile:'sflow-namespace-generation-intent/v1',
+      id:p.generationIntent?.id??'draft-'+reference.sha256,sha256:'sha256:'+reference.sha256,baselineRevision:p.baseRevision,status:'open'}};}
+  const phaseBegin={
+    async load(input,{signal}={}){if(input.adoptExisting||input.confirm)throw error('Review current source adoption through its explicit generation owner.',
+      'ENGINE_PORT_UNAVAILABLE',{operation:'phase.rollover',required:['namespace-reviewed-source-adoption']});
+      const context=await phasePreparation.load(input,{signal}),saved=selected(context),found=saved.found;
+      if(found&&found.payload.generation===nextPhaseGeneration(saved.captured.phase)&&found.payload.baseRevision===saved.captured.snapshot.revision){
+        const reference=found.payload.generationIntent?.record??found.payload.inputContext;
+        context.workflow.phases[saved.captured.phase.id].generationIntent={profile:'sflow-namespace-generation-intent/v1',status:'open',generation:found.payload.generation,
+          id:found.payload.generationIntent?.id??'draft-'+reference.sha256,receiptSha256:'sha256:'+reference.sha256,baselineRevision:found.payload.baseRevision};}
+      return context;},
+    async verify(context,_binding,_input,{signal}={}){const saved=selected(context),binding=phasePreparationSelection(saved.captured.snapshot.workflow,{phaseId:saved.captured.phase.id},modelEnabled);
+      await prepareDraft(context,binding,'phase.begin',signal);return beginFacts(saved);},
+    async begin(context,_binding,_input,{signal}={}){const saved=selected(context),binding=phasePreparationSelection(saved.captured.snapshot.workflow,{phaseId:saved.captured.phase.id},modelEnabled);
+      await prepareDraft(context,binding,'phase.begin',signal);return beginFacts(saved);}
+  };
+  const phaseInputs={
+    load:phasePreparation.load,
+    async prepare(context,binding,{signal}={}){const saved=selected(context),agent=await authorize('phase.inputs',signal),{captured}=saved;
+      saved.inputAgent=agent;const {approval}=await contract(captured,agent,signal);
+      if(binding.dryRun)saved.inputResources=(await resources(captured,approval.compiled,agent,signal)).records;
+      else{await prepareDraft(context,phasePreparationSelection(captured.snapshot.workflow,{phaseId:binding.phase},modelEnabled),'phase.inputs',signal);
+        const p=payload(saved.accepted.payload,binding.phase),bytes=await captured.store.bytes(p.inputContext,{signal});
+        // Re-retaining the exact immutable audit is idempotent; no shared Story state is written.
+        await captured.store.put(bytes,{signal});saved.inputResources=JSON.parse(utf8(bytes,'Prepared input context')).resources;}
+    },
+    async inspect(context,binding,{signal}={}){const saved=selected(context),{captured}=saved;
+      await authorize('phase.inputs',signal,saved.inputAgent);const compiled=(await observer.approved(captured.snapshot,{signal})).compiled;
+      if(!same((await resources(captured,compiled,saved.inputAgent,signal)).records,saved.inputResources))throw error('Declared phase input bindings changed.','ENGINE_CONTEXT_CHANGED');
+      await unchanged(captured,signal);const p=binding.dryRun?null:payload(saved.accepted.payload,binding.phase);
+      return {profile:'sflow-namespace-phase-inputs/v1',workId,phase:binding.phase,generation:binding.generation,dryRun:binding.dryRun,
+        mode:workflowInputsMode(captured.snapshot.workflow),artifact:p?{key:p.artifact.key,content:p.artifact.current}:null,
+        context:p?.inputContext??null,resources:saved.inputResources,auditRecorded:!binding.dryRun&&binding.auditRequired,generationOpened:!binding.dryRun&&saved.opened};}
+  };
+  const ports={phasePreparation,phaseBegin,phaseInputs,phaseDraftRead,
     phaseDraftWrite:mutationPort('write'),phaseDraftRebase:mutationPort('rebase')};
   function draftCapture(token) {const value=draftCaptures.get(token);if(!value)throw error('Use the issued private draft capture.','ENGINE_INPUT_INVALID');return value;}
   function admission(token) {const value=admissions.get(token);if(!value)throw error('Use the issued private draft admission.','ENGINE_INPUT_INVALID');return value;}
@@ -401,7 +438,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   // Inspection authenticates its own read permission. The private author's identity is data
   // from the original draft, and never grants the current reader that author's write authority.
   async function captureInspectionDraft(phaseId,operation,{signal}={}) {
-    if(!['phase.prepublish','phase.draft-check'].includes(operation))throw error('Use a registered draft inspection.','ENGINE_INPUT_INVALID');
+    if(!['phase.prepublish','phase.draft-check','upstream.raise'].includes(operation))throw error('Use a registered draft inspection.','ENGINE_INPUT_INVALID');
     const principal=await authorize(operation,signal),captured=await canonical(phaseId,signal),found=await inspectPrivate(captured,signal),token=Object.freeze({});
     const approved=await observer.approved(captured.snapshot,{signal}),phase=approved.compiled.workflows[captured.snapshot.workflow.workItem.workType]?.phases.find(item=>item.id===phaseId);
     if(!phase)throw error('The inspected phase is absent from the pinned configuration.','ENGINE_STORAGE_CORRUPT');

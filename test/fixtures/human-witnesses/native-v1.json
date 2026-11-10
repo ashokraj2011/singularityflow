@@ -1,0 +1,2141 @@
+{
+  "profile": "sflow-human-witness-native-v1",
+  "cases": [
+    {
+      "name": "ordinary",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "record": {
+          "id": "WIT-001",
+          "clauseId": "EXAMPLE:AC-001",
+          "slot": "screen",
+          "method": "visual",
+          "file": "evidence/screen.png",
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "contextBinding": "sha256:95b63fb1e256d8e54f26b4c2e40bce1b09c014535b054167ce9111e0227ab119",
+          "target": "example-screen",
+          "checklist": {
+            "states-the-outcome": "yes",
+            "matches-the-criterion": "yes",
+            "current-for-this-change": "yes"
+          },
+          "outcome": "met",
+          "reason": "The reviewer inspected the exact retained result.",
+          "actor": "independent-reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T00:00:00.000Z"
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "witnessRecords": [
+            {
+              "id": "WIT-001",
+              "clauseId": "EXAMPLE:AC-001",
+              "slot": "screen",
+              "method": "visual",
+              "file": "evidence/screen.png",
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "contextBinding": "sha256:95b63fb1e256d8e54f26b4c2e40bce1b09c014535b054167ce9111e0227ab119",
+              "target": "example-screen",
+              "checklist": {
+                "states-the-outcome": "yes",
+                "matches-the-criterion": "yes",
+                "current-for-this-change": "yes"
+              },
+              "outcome": "met",
+              "reason": "The reviewer inspected the exact retained result.",
+              "actor": "independent-reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T00:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "denied",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "no",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "record": {
+          "id": "WIT-001",
+          "clauseId": "EXAMPLE:AC-001",
+          "slot": "screen",
+          "method": "visual",
+          "file": "evidence/screen.png",
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "contextBinding": "sha256:95b63fb1e256d8e54f26b4c2e40bce1b09c014535b054167ce9111e0227ab119",
+          "target": "example-screen",
+          "checklist": {
+            "states-the-outcome": "yes",
+            "matches-the-criterion": "no",
+            "current-for-this-change": "yes"
+          },
+          "outcome": "failed",
+          "reason": "The reviewer inspected the exact retained result.",
+          "actor": "independent-reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T00:00:00.000Z"
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "witnessRecords": [
+            {
+              "id": "WIT-001",
+              "clauseId": "EXAMPLE:AC-001",
+              "slot": "screen",
+              "method": "visual",
+              "file": "evidence/screen.png",
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "contextBinding": "sha256:95b63fb1e256d8e54f26b4c2e40bce1b09c014535b054167ce9111e0227ab119",
+              "target": "example-screen",
+              "checklist": {
+                "states-the-outcome": "yes",
+                "matches-the-criterion": "no",
+                "current-for-this-change": "yes"
+              },
+              "outcome": "failed",
+              "reason": "The reviewer inspected the exact retained result.",
+              "actor": "independent-reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T00:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "no-checklist",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {},
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_INVALID",
+          "message": "Answer every checklist item once with --confirm or --deny: states-the-outcome, matches-the-criterion, current-for-this-change.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown-answer",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes",
+          "extra": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_INVALID",
+          "message": "Answer every checklist item once with --confirm or --deny: states-the-outcome, matches-the-criterion, current-for-this-change; unknown: extra.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "bad-criterion",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "example:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_INVALID",
+          "message": "--criterion must name one acceptance criterion, such as ORDER:AC-001.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "test-slot",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "test",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_INVALID",
+          "message": "EXAMPLE:AC-001's contract has no inspection or visual slot by that name; tests are witnessed by their own runs.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "missing-slot",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": null,
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_INVALID",
+          "message": "EXAMPLE:AC-001's contract has no inspection or visual slot by that name; tests are witnessed by their own runs.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "wrong-file",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "other.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_INVALID",
+          "message": "EXAMPLE:AC-001's retained evidence is evidence/screen.png, not other.png.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "unbound-sha",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "bad",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_EVIDENCE_UNPUBLISHED",
+          "message": "evidence/screen.png is not the image code published for EXAMPLE:AC-001: code published sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa in generation 1 (commit cccccccccccc), and the file now has bad. Nothing was recorded. To witness the published image, restore it with git restore --source=cccccccccccccccccccccccccccccccccccccccc -- evidence/screen.png, then witness it again. To keep the new image instead, code, the step that owns this evidence, must publish it again: code publishes the new image in its next generation, once the Story reaches it again. If a test saves its capture to this path, every run replaces it. A test saves its capture under its runner's output (for example test-results/), never at a retained evidence path, and the image is copied to the evidence path once, when the evidence is produced.",
+          "details": {
+            "workId": "example",
+            "paths": [
+              "evidence/screen.png"
+            ],
+            "upstreamPhases": [
+              "code"
+            ],
+            "retainedEvidence": [
+              {
+                "path": "evidence/screen.png",
+                "clauseId": "EXAMPLE:AC-001",
+                "publishedBy": "code",
+                "generation": 1,
+                "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+                "publishedSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "currentSha256": "bad",
+                "changedDuring": false,
+                "restore": "git restore --source=cccccccccccccccccccccccccccccccccccccccc -- evidence/screen.png"
+              }
+            ],
+            "routes": [],
+            "notes": [
+              "To keep the new image instead, code, the step that owns this evidence, must publish it again: code publishes the new image in its next generation, once the Story reaches it again."
+            ]
+          }
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "short-reason",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "short",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_REASON_REQUIRED",
+          "message": "Say what you inspected in 10 to 1000 characters with --reason.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "large-reason",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_REASON_REQUIRED",
+          "message": "Say what you inspected in 10 to 1000 characters with --reason.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "inspection",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "record",
+          "method": "inspection",
+          "witness": {
+            "path": "evidence/screen.png"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "record": {
+          "id": "WIT-001",
+          "clauseId": "EXAMPLE:AC-001",
+          "slot": "record",
+          "method": "inspection",
+          "file": "evidence/screen.png",
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "contextBinding": "sha256:95b63fb1e256d8e54f26b4c2e40bce1b09c014535b054167ce9111e0227ab119",
+          "checklist": {
+            "states-the-outcome": "yes",
+            "matches-the-criterion": "yes",
+            "current-for-this-change": "yes"
+          },
+          "outcome": "met",
+          "reason": "The reviewer inspected the exact retained result.",
+          "actor": "independent-reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T00:00:00.000Z"
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "witnessRecords": [
+            {
+              "id": "WIT-001",
+              "clauseId": "EXAMPLE:AC-001",
+              "slot": "record",
+              "method": "inspection",
+              "file": "evidence/screen.png",
+              "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "contextBinding": "sha256:95b63fb1e256d8e54f26b4c2e40bce1b09c014535b054167ce9111e0227ab119",
+              "checklist": {
+                "states-the-outcome": "yes",
+                "matches-the-criterion": "yes",
+                "current-for-this-change": "yes"
+              },
+              "outcome": "met",
+              "reason": "The reviewer inspected the exact retained result.",
+              "actor": "independent-reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T00:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "inspection-wrong-file",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "record",
+          "method": "inspection",
+          "witness": {
+            "path": "other"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_RECORD_INVALID",
+          "message": "EXAMPLE:AC-001's slot record inspects other, not evidence/screen.png.",
+          "details": null
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "no-published-evidence",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": []
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_EVIDENCE_UNPUBLISHED",
+          "message": "Nothing has published evidence/screen.png for EXAMPLE:AC-001: no step's delivery records it, so there is no published image to witness yet. The code step that owes it saves it and publishes it with its delivery; witness it after that. Nothing was recorded.",
+          "details": {
+            "workId": "example",
+            "paths": [
+              "evidence/screen.png"
+            ],
+            "retainedEvidence": [],
+            "routes": [],
+            "notes": [],
+            "nextAction": {
+              "argv": [
+                "recover",
+                "example",
+                "--for-agent",
+                "--json"
+              ],
+              "label": "Inspect the current delivery and its publication requirements before attempting a witness again."
+            }
+          }
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "changed-evidence",
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "input": {
+        "clauseId": "EXAMPLE:AC-001",
+        "file": "evidence/screen.png",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "slot": {
+          "slot": "screen",
+          "method": "visual",
+          "witness": {
+            "target": "example-screen"
+          }
+        },
+        "plannedClaim": {
+          "fulfillment": "evidence",
+          "expectedPaths": [
+            "evidence/screen.png"
+          ]
+        },
+        "answers": {
+          "states-the-outcome": "yes",
+          "matches-the-criterion": "yes",
+          "current-for-this-change": "yes"
+        },
+        "reason": "The reviewer inspected the exact retained result.",
+        "actor": "independent-reviewer",
+        "authorityGroup": "reviewers",
+        "at": "2026-11-08T00:00:00.000Z"
+      },
+      "outcome": {
+        "error": {
+          "name": "SingularityFlowError",
+          "code": "WITNESS_EVIDENCE_UNPUBLISHED",
+          "message": "evidence/screen.png is not the image code published for EXAMPLE:AC-001: code published sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff in generation 1 (commit cccccccccccc), and the file now has sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. Nothing was recorded. To witness the published image, restore it with git restore --source=cccccccccccccccccccccccccccccccccccccccc -- evidence/screen.png, then witness it again. To keep the new image instead, code, the step that owns this evidence, must publish it again: code publishes the new image in its next generation, once the Story reaches it again. If a test saves its capture to this path, every run replaces it. A test saves its capture under its runner's output (for example test-results/), never at a retained evidence path, and the image is copied to the evidence path once, when the evidence is produced.",
+          "details": {
+            "workId": "example",
+            "paths": [
+              "evidence/screen.png"
+            ],
+            "upstreamPhases": [
+              "code"
+            ],
+            "retainedEvidence": [
+              {
+                "path": "evidence/screen.png",
+                "clauseId": "EXAMPLE:AC-001",
+                "publishedBy": "code",
+                "generation": 1,
+                "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+                "publishedSha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "currentSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "changedDuring": false,
+                "restore": "git restore --source=cccccccccccccccccccccccccccccccccccccccc -- evidence/screen.png"
+              }
+            ],
+            "routes": [],
+            "notes": [
+              "To keep the new image instead, code, the step that owns this evidence, must publish it again: code publishes the new image in its next generation, once the Story reaches it again."
+            ]
+          }
+        },
+        "workflow": {
+          "workItem": {
+            "id": "example"
+          },
+          "phaseOrder": [
+            "plan",
+            "code"
+          ],
+          "phases": {
+            "plan": {
+              "id": "plan",
+              "claimMaps": {
+                "planned": {
+                  "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            "code": {
+              "id": "code",
+              "generation": 1,
+              "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+              "deliveryEvidence": {
+                "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "fulfillment": [
+                  {
+                    "clauseId": "EXAMPLE:AC-001",
+                    "fulfillment": "evidence",
+                    "paths": [
+                      {
+                        "path": "evidence/screen.png",
+                        "state": "present",
+                        "sha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "contexts": [
+    {
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "options": {
+        "legacy": false
+      },
+      "outcome": "sha256:95b63fb1e256d8e54f26b4c2e40bce1b09c014535b054167ce9111e0227ab119"
+    },
+    {
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 1,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "options": {
+        "legacy": true
+      },
+      "outcome": "sha256:c10b6184645b17a762f7b7c311741de728c83b98a9791513165f04a34736617f"
+    },
+    {
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 2,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "options": {
+        "legacy": false
+      },
+      "outcome": "sha256:59fe9aa2f3c09278695ab9f1f83354c27fe7f525018303c492709f5a033aa7e3"
+    },
+    {
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phaseOrder": [
+          "plan",
+          "code"
+        ],
+        "phases": {
+          "plan": {
+            "id": "plan",
+            "claimMaps": {
+              "planned": {
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          },
+          "code": {
+            "id": "code",
+            "generation": 2,
+            "generationCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "deliveryEvidence": {
+              "sourceTreeSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "testInputSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "fulfillment": [
+                {
+                  "clauseId": "EXAMPLE:AC-001",
+                  "fulfillment": "evidence",
+                  "paths": [
+                    {
+                      "path": "evidence/screen.png",
+                      "state": "present",
+                      "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "options": {
+        "legacy": true
+      },
+      "outcome": "sha256:d030201fc24d811e3a590229ea51db4954704e118d9a076bfcd38b7833725cd2"
+    }
+  ]
+}

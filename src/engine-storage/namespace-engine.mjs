@@ -104,7 +104,7 @@ export function createNamespaceEngine(options={}) {
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...routing,decisionRecord,
     ...lazyPorts(()=>scoped(),{scopeContext:['load','read']}),
-    ...lazyPorts(()=>({upstream:createNamespaceUpstreamPort(common)}),{upstream:['load','resolve','commit','finish']}),
+    ...lazyPorts(()=>({upstream:createNamespaceUpstreamPort(common,runtime)}),{upstream:['load','resolve','commit','finish']}),
     ...lazyPorts(()=>({storyDocument:createNamespaceInputDocumentPort(common)}),{storyDocument:['load','prepare','commit','finish']}),
     ...lazyPorts(()=>createNamespaceConformanceDecisionPorts(common),{conformanceDecision:['load','prepare','commit','finish'],conformanceContext:['load','read']}),
     ...lazyPorts(()=>createNamespaceRejectionPorts(common),{rejection:['load','prepare','commit','finish']}),

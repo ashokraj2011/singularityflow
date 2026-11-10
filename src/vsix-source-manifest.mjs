@@ -124,7 +124,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/kernel/next-plan.mjs',
   'src/kernel/artifact-content.mjs',
   'src/kernel/conformance-report.mjs',
-  'src/kernel/scope-statements.mjs', 'src/kernel/scope-inventory.mjs', 'src/kernel/scope-decisions.mjs', 'src/kernel/applicability.mjs', 'src/kernel/test-recovery.mjs', 'src/kernel/upstream-issues.mjs', 'src/kernel/phase-upstream-discrepancies.mjs', 'src/kernel/story-documents.mjs', 'src/kernel/plan-amendments.mjs', 'src/kernel/obligation-risks.mjs', 'src/engine-compatibility/node-scope-policy.mjs', 'src/engine-compatibility/node-plan-policy.mjs', 'src/engine-compatibility/git-scope-context.mjs',
+  'src/kernel/scope-statements.mjs', 'src/kernel/scope-inventory.mjs', 'src/kernel/scope-decisions.mjs', 'src/kernel/applicability.mjs', 'src/kernel/test-recovery.mjs', 'src/kernel/upstream-issues.mjs', 'src/kernel/phase-upstream-discrepancies.mjs', 'src/kernel/human-witnesses.mjs', 'src/kernel/story-documents.mjs', 'src/kernel/plan-amendments.mjs', 'src/kernel/obligation-risks.mjs', 'src/engine-compatibility/node-scope-policy.mjs', 'src/engine-compatibility/node-plan-policy.mjs', 'src/engine-compatibility/git-scope-context.mjs',
   'src/foundation/traceability-ids.mjs',
   'src/kernel/package.json',
   'src/engine-compatibility/git-nextsteps.mjs',

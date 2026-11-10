@@ -137,7 +137,7 @@ test('only explicit storage adapters consume namespace contracts outside their p
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-submission-contract.mjs',
     'src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-approval-contract.mjs',
     'src/engine-storage/namespace-routing-choice.mjs','src/engine-storage/namespace-routing-choice-contract.mjs',
-    'src/engine-storage/namespace-engine.mjs']);
+    'src/engine-storage/namespace-engine.mjs','src/engine-storage/namespace-upstream-artifact.mjs']);
   const violations = [];
   for (const relative of await sourceFiles('src')) {
     const absolute = path.join(packageRoot, relative);
@@ -885,7 +885,9 @@ test('retained source proof and shared observations cannot execute or write',asy
       './namespace-rejection-reader.mjs','./namespace-routing-receipt-reader.mjs','./namespace-human-decision-contract.mjs','./namespace-routing-choice-contract.mjs','./namespace-approval-contract.mjs'])],
     ['src/engine-storage/namespace-upstream-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/decision-plan.mjs','../kernel/upstream-issues.mjs','../kernel/approval-policy.mjs','./namespace-phase-check-reader.mjs',
-      './namespace-publication-reader.mjs','./namespace-recorded-mutation-reader.mjs','./namespace-decision-contract.mjs'])],
+      './namespace-publication-reader.mjs','./namespace-recorded-mutation-reader.mjs','./namespace-decision-contract.mjs','./namespace-upstream-artifact-reader.mjs','../kernel/project-enrollment.mjs'])],
+    ['src/engine-storage/namespace-upstream-artifact-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs',
+      '../kernel/phase-policy.mjs','../kernel/phase-upstream-discrepancies.mjs','../kernel/upstream-issues.mjs','../records.mjs'])],
     ['src/engine-storage/namespace-conformance.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../sda/namespace/values.mjs',
       '../engine-compatibility/node-specification-policy.mjs','./namespace-upstream-reader.mjs','../kernel/conformance-report.mjs','../kernel/specification-publication.mjs','./namespace-code-inputs.mjs','./namespace-submission-reader.mjs',
       './namespace-phase-check-reader.mjs','./namespace-specification-contract.mjs','./namespace-policy-contract.mjs','./namespace-conformance-decision-reader.mjs','./namespace-candidate-content.mjs'])],
@@ -1980,4 +1982,14 @@ test('read-only Auto Plan and skill-package inventory do not load synthesis or p
   for(const file of readOnly)await visit(file);
   const read=await readFile(path.join(packageRoot,readOnly[0]),'utf8');
   assert.doesNotMatch(read,/\b(?:writeFile|transact|commit|spawn|synthesize|ratify)\s*\(/u);
+});
+
+
+test('human witness records share pure rules while native file and recovery rendering remain in their adapter',async()=>{
+  const owner='src/kernel/human-witnesses.mjs',native='src/verification/witness-records.mjs',
+    graph=await inspectPureModuleGraph({root:packageRoot,entries:[owner],allowed:[...await sourceFiles('src/foundation'),...await sourceFiles('src/kernel')]});
+  assert.deepEqual(graph.problems,[]);
+  const shared=await readFile(path.join(packageRoot,owner),'utf8'),adapter=await readFile(path.join(packageRoot,native),'utf8');
+  assert.doesNotMatch(shared,/git restore|singularity-flow |readFile|generation-publication-store/u);
+  assert.match(adapter,/witnessRecordPolicies/u);assert.doesNotMatch(adapter,/function witnessContextBinding\(|function witnessRecordResults\(|function assertWitnessReviewBinding\(/u);
 });

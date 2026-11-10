@@ -22,6 +22,7 @@ export function phaseInputsAuditRequired(workflow, phase) {
 
 /** Body-free bindings only. Rendering, remote files and human command guidance belong to hosts. */
 export function phaseInputsManifest(binding, facts) {
+  if(facts?.profile==='sflow-namespace-phase-inputs/v1')return namespacePhaseInputsManifest(binding,facts);
   const exact = (value, fields) => value && typeof value === 'object' && !Array.isArray(value)
     && Object.keys(value).length === fields.length && fields.every(key => Object.hasOwn(value, key));
   const text = value => typeof value === 'string' && value.length > 0;
@@ -81,6 +82,33 @@ export function phaseInputsManifest(binding, facts) {
     remoteWarningCount: facts.remoteWarningCount, remoteOutputCount: facts.remoteOutputCount,
     authoringCompleted: false, publicationReadinessInspected: false, finalBindingChecked: false,
     humanReviewRecorded: false, approvalRecorded: false };
+}
+
+/** A portable input observation names content and namespace revisions, never a simulated Git commit. */
+function namespacePhaseInputsManifest(binding,facts){
+  const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key)),
+    digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value),reference=value=>exact(value,['namespace','sha256','bytes'])
+      &&['local','state','config','evidence'].includes(value.namespace)&&digest(value.sha256)&&Number.isSafeInteger(value.bytes)&&value.bytes>=0,
+    bad=()=>{throw new SingularityFlowError('The namespace input port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});};
+  if(!exact(facts,['profile','workId','phase','generation','dryRun','mode','artifact','context','resources','auditRecorded','generationOpened'])
+    ||facts.workId!==binding.workId||facts.phase!==binding.phase||facts.generation!==binding.generation||facts.dryRun!==binding.dryRun
+    ||!['off','record','enforce'].includes(facts.mode)||typeof facts.auditRecorded!=='boolean'||typeof facts.generationOpened!=='boolean'
+    ||facts.auditRecorded!==(!binding.dryRun&&binding.auditRequired)||binding.dryRun&&(facts.generationOpened||facts.artifact!==null||facts.context!==null)
+    ||!binding.dryRun&&(!exact(facts.artifact,['key','content'])||facts.artifact.key!==binding.artifactKey||!reference(facts.artifact.content)
+      ||facts.artifact.content.namespace!=='local'||!reference(facts.context)||facts.context.namespace!=='local')||!Array.isArray(facts.resources))bad();
+  for(const row of facts.resources){
+    if(!row||typeof row!=='object'||!['story-source','approved-input','supporting-document','agent','skill','instruction','constitution'].includes(row.kind)
+      ||!reference(row.reference))bad();
+    if(row.kind==='approved-input'?(typeof row.phase!=='string'||!Number.isSafeInteger(row.generation)||row.generation<1):typeof row.id!=='string')bad();
+    const fields=row.kind==='approved-input'?['kind','phase','generation','reference','contract']
+      :row.kind==='supporting-document'?['kind','id','locality','reference']:['kind','id','reference'];
+    if(!exact(row,fields)||row.kind==='approved-input'&&!Array.isArray(row.contract)
+      ||row.kind==='supporting-document'&&!['project','machine-local'].includes(row.locality))bad();
+  }
+  return {schemaVersion:2,contract:'sflow-phase-input-manifest/v2',profile:facts.profile,workId:binding.workId,phase:binding.phase,
+    generation:binding.generation,dryRun:binding.dryRun,mode:facts.mode,ready:true,artifact:facts.artifact,context:facts.context,
+    auditRecorded:facts.auditRecorded,generationOpened:facts.generationOpened,resources:facts.resources,
+    authoringCompleted:false,publicationReadinessInspected:false,finalBindingChecked:false,humanReviewRecorded:false,approvalRecorded:false};
 }
 
 const CLARIFICATION_MODES=new Set(['off','when-needed','required']);

@@ -86,7 +86,9 @@ function cliJson(cwd, args, env = {}) {
 }
 
 test('one tool answer holds what the CLI\'s agent view holds, for the same host rule', () => {
-  assert.equal(TOOL_ANSWER_MAX_BYTES, DEFAULT_AGENT_OUTPUT_BYTES);
+  // A shell result is cut sooner by older terminals, so the CLI's view is at most 4 KB; a tool answer
+  // keeps the hosts' 8,192-character rule. Either fits in one tool answer.
+  assert.ok(DEFAULT_AGENT_OUTPUT_BYTES <= TOOL_ANSWER_MAX_BYTES);
   // The tool serves the CLI's own bound, from the CLI's own constant.
   assert.equal(EXPLAIN_PREVIEW_BYTES, DOCS_DEFAULT_PREVIEW_BYTES);
 });

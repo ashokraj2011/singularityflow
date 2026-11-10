@@ -34,9 +34,13 @@ export function keptResultView(found, { command = null } = {}) {
   }
   return { schemaVersion: 1, resultType: 'sflow-kept-result', status: found.status,
     ...(found.running ? { running: found.running } : {}), ...(found.interrupted ? { interrupted: found.interrupted } : {}),
-    ...(found.status === 'running' ? { retry: RESULT_LAST_COMMAND } : {}),
+    ...(found.status === 'running' ? { retry: retryFor(command) } : {}),
     ...(found.status === 'none' && command ? { command, ...(safeReadFor(command) ? { safeRead: safeReadFor(command) } : {}) } : {}) };
 }
+
+// The same read again for the same command: without its words, another command's result could answer.
+const retryFor = (command) => (command && /^[A-Za-z0-9][A-Za-z0-9 ._:-]*$/u.test(String(command).trim())
+  ? `singularity-flow result last --wait --command "${String(command).trim()}" --for-agent --json` : RESULT_LAST_COMMAND);
 
 /**
  * The read that says where a command left things, for one whose result was not kept, so nothing runs it again:
@@ -49,6 +53,7 @@ export function safeReadFor(command) {
     const phase = words[2] && !words[2].startsWith('-') ? ` ${words[2]}` : '';
     return `singularity-flow review-source status${phase} --for-agent --json`;
   }
+  if (words[0] === 'session') return 'singularity-flow session current --for-agent --json';
   return 'singularity-flow nextsteps --for-agent --json';
 }
 

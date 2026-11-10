@@ -380,7 +380,12 @@ test('review tool protocol recovers in the same turn; standalone check/stage/ret
   }
   // The host's saved copy of a long result is outside the workspace: the refusal names the agent
   // view to run again instead of telling the agent to use a file tool that cannot open it.
+  // Today's exact form (VS Code 1.145.2 on Copilot runtime 1.0.27, Copilot CLI 1.0.107: `<n>-copilot-tool-output-<uuid>.txt`
+  // under $TMPDIR), and the older `tool-output-*.txt` saves.
   for (const command of [`jq '{status, workId, open: {ready: .open.ready}}' /var/folders/_j/yp8z/T/1792062996841-copilot-tool-output-80389-8c9dd931.txt`,
+    'cat /var/folders/x1/abcd1234efgh5678ijkl90mn0000gn/T/1794301245117-copilot-tool-output-3f2b9c1e-7d4a-4b8e-9a6f-2c1d0e9b8a7f.txt',
+    'tail -n 40 "$TMPDIR/1794301245117-copilot-tool-output-3f2b9c1e-7d4a-4b8e-9a6f-2c1d0e9b8a7f.txt"',
+    'head -c 4000 /tmp/tool-output-1731234567890.txt', 'rg retain "$TMPDIR"/tool-output-ab12cd.txt',
     'Get-Content C:\\Users\\dev\\AppData\\Local\\Temp\\1792-copilot-tool-output-1.txt | ConvertFrom-Json']) {
     const refusal = await shell(command);
     assert.match(refusal.permissionDecisionReason, /PHASE_MUTATION_TOOL_PROTOCOL: that file is the host's saved copy of a long result, outside the workspace/u);

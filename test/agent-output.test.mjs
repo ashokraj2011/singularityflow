@@ -277,7 +277,8 @@ test('a small result keeps every field with act first; a large one is written wh
   t.after(() => rm(root, { recursive: true, force: true }));
   assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
   const small = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'x', status: 'ok', repositoryPath: root }), { cwd: root }));
-  assert.deepEqual(Object.keys(small), ['act', 'resultType', 'status', 'repositoryPath']);
+  // The last field repeats act's next action, for a host that keeps only the tail.
+  assert.deepEqual(Object.keys(small), ['act', 'resultType', 'status', 'repositoryPath', 'next']);
 
   const prose = Array.from({ length: 900 }, (_, index) => `Line ${index} of the composed context.`).join('\n');
   const large = { resultType: 'sflow-phase-entry', status: 'clarification-required', repositoryPath: root, workId: 'W',
@@ -843,8 +844,10 @@ test('an opened session keeps its commit, path and every next action in view, ho
   assert.equal(view.act.story.commit, 'a'.repeat(12));
   assert.equal(view.repositoryPath, root);
   assert.equal(view.open.head, 'a'.repeat(40));
-  assert.deepEqual(view.omittedFields.map((field) => field.field), ['context']);
-  assert.equal(view.nextsteps.actions.length, 12);
+  // At 4 KB the twelve actions move out with the brief; act keeps the first five and the file all twelve.
+  assert.deepEqual(view.omittedFields.map((field) => field.field), ['context', 'nextsteps']);
+  assert.equal(view.act.next.length, 5);
+  assert.equal(completeAgentResult(view).nextsteps.actions.length, 12);
 });
 
 // Measured on a recorded Story, 2026-11-05: 73% of the JSON read was outside the fields each act named,

@@ -23,7 +23,7 @@ export function agentViewRequested(options, { stream = process.stdout, env = pro
  */
 export function interpretsForAgent([command, subcommand] = []) {
   // Output-only here: bounded and kept for `result last`. Context, stage and decide own the flag.
-  if (command === 'review-source' && ['check', 'status', 'submit'].includes(subcommand)) return false;
+  if (command === 'review-source' && ['check', 'status', 'submit', 'decision-context'].includes(subcommand)) return false;
   return ['phase', 'approve', 'nextsteps', 'inputs', 'review-source', 'session', 'app-review'].includes(command);
 }
 

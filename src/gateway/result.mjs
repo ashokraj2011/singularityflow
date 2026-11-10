@@ -47,8 +47,8 @@ export const SFLOW_RESULT_SCHEMA_VERSION = 2;
  * (0.71) writes one over 8,192 characters to a file and gives the model only its path
  * (`chat.agent.largeToolResultsToDisk`, on by default); Copilot CLI (1.0.95–1.0.100, recorded
  * sessions) saves one of 8 KB or more outside the workspace with a short preview, where a skill
- * turn cannot read it. The CLI's agent view is bounded at the same number for the same rule
- * (agent-output.mjs `DEFAULT_AGENT_OUTPUT_BYTES`; a test keeps the two equal). A read whose text is
+ * turn cannot read it. The CLI's agent view, a shell result that older terminals cut sooner, is
+ * bounded lower (agent-output.mjs `DEFAULT_AGENT_OUTPUT_BYTES`, 4 KB; a test keeps it within this one). A read whose text is
  * longer is served in parts (`data.part`) that each fit, and the kernel issues one read handle per
  * further part so the model reads them together.
  */

@@ -72,6 +72,15 @@ export function acceptedRevalidationBindings(workflow, phase, inputRecordSha256)
         || entry.binding?.inputRecordSha256 !== inputRecordSha256) continue;
     bindings.set(entry.binding.producer, { ...entry.binding, amendment: entry.amendment });
   }
+  // A plan kept by an approved intent amendment that carried its rows, signed by its approvers [PHR:REQ-008].
+  const signed = countedRecords(workflow, workflow?.planAmendments).filter((row) => row?.kind === 'plan-row-correction' && row.ownerPhase === phase?.id);
+  for (const amendment of workflow?.intentAmendments ?? []) {
+    if (!['approved', 'revalidated'].includes(amendment?.status) || !signed.some((row) => row.intentAmendment === amendment.id)) continue;
+    for (const entry of amendment.planBindings ?? []) {
+      if (entry?.phase !== phase?.id || Number(entry.generation) !== Number(phase.generation) || entry.binding?.inputRecordSha256 !== inputRecordSha256) continue;
+      bindings.set(entry.binding.producer, { ...entry.binding, amendment: amendment.id });
+    }
+  }
   return bindings;
 }
 

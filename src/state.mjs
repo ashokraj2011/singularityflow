@@ -8687,6 +8687,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   const settles = await differenceAmendmentReport(root, config, workflow, proposal);
   // Rule E8: the approved steps after the scope step whose approvals this amendment cannot touch,
   // checked against everything they decided over before anything below changes it.
+  const planBindings = [];
   const carriedRows = new Map((proposal.planCorrections ?? []).map((entry) =>
     [entry.ownerPhase, new Set(entry.operations.map((operation) => String(operation.clauseId).toUpperCase()))]));
   // Read as the plans' approvals decided over it: the rows this amendment carries are their approvers' own
@@ -8921,7 +8922,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     }
     // Rule E8: an approved step the amendment cites nothing of keeps its approval, as long as every
     // step before it did too; the first one that does not runs again, and so does all after it.
-    if (retaining && !directlyAffected && retentionCandidates.has(phase.id)) {
+    // A plan whose rows this amendment carries reads the amended scope as its approvers signed it, the way a
+    // "still holds" answer binds a step to an amended input [PHR:REQ-008]; one that cannot read it runs again.
+    const planBinding = retaining && !directlyAffected && retentionCandidates.has(phase.id) && carriedRows.has(phase.id)
+      ? await (await import('./amendment-plan-corrections.mjs')).carriedPlanBinding(root, config, workflow, phase, specification.id) : null;
+    if (retaining && !directlyAffected && retentionCandidates.has(phase.id) && (!carriedRows.has(phase.id) || planBinding)) {
+      if (planBinding) planBindings.push(planBinding);
       phase.retention = { rule: 'E8', at, generation: phase.generation, amendment: proposal.id,
         ...retainedByRule('E8', { amendment: proposal.id, approvalAt: phase.approvedAt }) };
       workflow.history.push({ at, actor: key, agent: agent ?? null, event: 'phase_retained', phase: phase.id,
@@ -8976,6 +8982,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     affectedPhases,
     retainedPhases,
     preservedEvidence: [...new Set(preservedEvidence)].sort(),
+    ...(planBindings.length ? { planBindings } : {}),
     // Nothing was reset, so there is no resubmission to acknowledge: each revalidation row is the person's answer.
     acknowledgementRequired: !settles,
     ...(settles ? { settles, revalidate } : {})
@@ -8990,6 +8997,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     acknowledgementRequired: !settles,
     acknowledgedAt: null,
     revalidatedPhases: [],
+    ...(planBindings.length ? { planBindings } : {}),
     // The rows pendingAmendmentRevalidations lists, read against the scope step (forward-amendments.mjs).
     ...(settles ? { producer: specification.id, revalidate } : {})
   });
@@ -9392,8 +9400,9 @@ async function markIntentAmendmentRevalidated(root, config, workflow, phase, at,
   phase.intentAmendmentRevalidation.revalidatedAt = at;
   phase.intentAmendmentRevalidation.revalidatedBy = actor;
   summary.revalidatedPhases = [...new Set([...(summary.revalidatedPhases ?? []), phase.id])];
+  // A step the amendment kept (rule E8) was never reset, so it has nothing to revalidate.
   const required = workflow.phaseOrder.slice(workflow.phaseOrder.indexOf(scopeStepOf(workflow)?.id) + 1)
-    .filter((phaseId) => workflow.phases[phaseId]?.status !== 'skipped');
+    .filter((phaseId) => workflow.phases[phaseId]?.status !== 'skipped' && workflow.phases[phaseId]?.retention?.amendment !== id);
   if (required.every((phaseId) => summary.revalidatedPhases.includes(phaseId))) {
     summary.status = 'revalidated';
     summary.revalidatedAt = at;

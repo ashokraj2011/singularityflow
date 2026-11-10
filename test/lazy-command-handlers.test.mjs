@@ -548,7 +548,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,688,800 (measured 9,688,752, commands/phase-lifecycle.mjs): a code step also runs the repository tests the steps
     // after it choose, resolved when the Story starts (config.mjs +2684), and names them at its test runs (state.mjs +327);
     // the words stay lazy (later-step-tests.mjs) [PHR:REQ-007], item 8. No new eager file.
-    assert.ok(closure.bytes <= 9_688_800, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,691,100 (measured 9,691,089, commands/phase-lifecycle.mjs): a plan an amendment keeps is read as its approval
+    // decided over it, and reads the amended scope as its approvers signed it (forward-amendments.mjs +786, state.mjs +869,
+    // phase-retention.mjs +682) [PHR:REQ-008]. No new eager file.
+    assert.ok(closure.bytes <= 9_691_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -286,3 +286,19 @@ export async function recordCarriedRows(root, config, workflow, proposal, decisi
   if (records.length) decision.planCorrections = records.map((entry) => entry.id);
   return records;
 }
+
+/**
+ * How a plan kept by rule E8 reads the amended scope: the exact producer generation and bytes, bound to the plan's
+ * own input record, as a "still holds" answer binds a step [PHR:REQ-008]. Its approvers signed the rows the amendment
+ * carries for it in their decision on the amendment (forward-amendments.mjs acceptedRevalidationBindings reads it
+ * only beside such a counted row). Null when the plan cannot read the amended scope; it then runs again.
+ */
+export async function carriedPlanBinding(root, config, workflow, phase, producer) {
+  const { collectInputs } = await import('./inputs.mjs');
+  const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id), generation: phase.generation });
+  const amended = inputs.records.find((entry) => entry.phase === producer);
+  if (!amended || amended.status !== 'captured' || !phase.inputContext?.sha256) return null;
+  return { phase: phase.id, generation: Number(phase.generation), binding: { producer, producerGeneration: Number(amended.producerGeneration),
+    producerSha256: amended.sha256, inputRecordSha256: phase.inputContext.sha256 } };
+}

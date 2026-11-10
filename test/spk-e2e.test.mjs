@@ -729,8 +729,11 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     '## Assumptions', '', 'The provider returns a stable attempt identifier.', '',
     '## Out of scope', '', 'Settlement reconciliation is unchanged.', ''
   ].join('\n'));
+  // The plan has rows for both revised clauses: the amendment carries them as they stand, for the plan's
+  // approvers to sign when they decide it, so the plan keeps its approval [PHR:REQ-008].
   const proposed = JSON.parse(sflow(root, ['story', 'intent-amendment', 'propose',
-    '--file', amendmentFile, '--reason', 'Make retry authority explicit.', '--json']).stdout);
+    '--file', amendmentFile, '--reason', 'Make retry authority explicit.',
+    '--keep-row', 'E2E:REQ-001', '--keep-row', 'E2E:REQ-002', '--json']).stdout);
   assert.equal(proposed.proposal.id, 'AMD-001');
   assert.deepEqual(proposed.proposal.diff.revised, ['E2E:REQ-001', 'E2E:REQ-002']);
   assert.equal((await workflowOf(root)).phases.specification.generation, 1,
@@ -768,7 +771,8 @@ test('a Story runs specification through release from a fresh clone', slowLane()
     amendedBriefs.some((brief) => brief.integritySha256 === entry.integritySha256)));
   assert.ok(amendmentApproval.agentBriefSource?.sha256,
     'the amendment authority decision did not bind the managed source used by its projections');
-  assert.equal(amended.currentPhase, 'planning');
+  assert.equal(amended.phases.planning.status, 'approved', 'the plan kept its approval: its approvers signed its rows');
+  assert.equal(amended.currentPhase, 'implementation');
   assert.equal(amended.intentAmendments[0].status, 'approved');
   assert.ok(amended.intentAmendments[0].preservedEvidence.some((entry) => entry.endsWith('/operator-notes.md')),
     'unaffected operator evidence was discarded instead of preserved');
@@ -777,7 +781,7 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.ok(amended.phases.implementation.approvals.every((entry) => entry.invalidatedAt),
     'downstream approvals survived an approved intent change');
 
-  const unacknowledged = sflow(root, ['submit', 'planning', '--skip-checks'], { allowFailure: true });
+  const unacknowledged = sflow(root, ['submit', 'implementation', '--skip-checks'], { allowFailure: true });
   assert.notEqual(unacknowledged.status, 0, 'downstream submission ignored the acknowledgement beat');
   assert.match(unacknowledged.output, /INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED|Acknowledge it before revalidation/);
   sflow(root, ['story', 'intent-amendment', 'acknowledge', 'AMD-001']);
@@ -786,7 +790,6 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   // Re-publish existing evidence through ordinary generation and approval gates. Unaffected bytes
   // stay in place; their preservation label is evidence, not an automatic re-approval.
   sflow(root, ['spec', 'tasks']);
-  await completePhase(root, 'planning');
   sflow(root, ['prepare', 'implementation']);
   // The amended operator-only requirement needs a fresh source/test witness in this generation;
   // merely republishing the prior summary would correctly leave the amended clause partial.
@@ -1007,7 +1010,7 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.equal(complete.changeRequests[0].status, 'resolved', 'the change request was never resolved by the rework');
   assert.equal(complete.intentAmendments[0].status, 'revalidated');
   assert.deepEqual(complete.intentAmendments[0].revalidatedPhases,
-    ['planning', 'implementation', 'convergence', 'verification', 'release']);
+    ['implementation', 'convergence', 'verification', 'release']);
   assert.equal(complete.phases.release.specIndex, undefined,
     'a release/conformance report became a specification authority');
   const terminalGate = sflow(root, ['gate', '--terminal']);

@@ -89,6 +89,13 @@ function retain(workflow, phase, approvals, { at, actor, agent, upstream, rule =
  * clause, since a new clause cites nothing yet and still has to be planned, unless the amendment carries
  * that plan's rows, signed by its approvers (`correctedPlans`) [PHR:REQ-008].
  */
+/** The Story's plan corrections as they stood when `phase` was approved (a list started since was not there then). */
+function asApproved(workflow, phase) {
+  const approvedAt = Date.parse(phase.approvedAt);
+  const kept = (workflow.planAmendments ?? []).filter((entry) => !(Date.parse(entry?.at) > approvedAt));
+  return { ...workflow, planAmendments: kept.length ? kept : undefined };
+}
+
 export async function amendmentRetentionCandidates(root, config, workflow, specification, { addsClauses = false, correctedPlans = new Set() } = {}) {
   const counts = await presenceCountsOf(root, workflow);
   const order = workflow.phaseOrder ?? [];
@@ -103,7 +110,9 @@ export async function amendmentRetentionCandidates(root, config, workflow, speci
       && Number(entry.generation) === Number(phase.generation) && (!counts || counts(entry)));
     if (!approvals.length || approvals.some((entry) => !entry.upstream?.sha256)
         || !approvalRequirementsMet(phase.approvalPolicy, approvals)) break;
-    const upstream = await phaseUpstream(root, config, workflow, phase);
+    // A plan whose rows the amendment carries is read as its approval decided over it: the plan corrections its
+    // approvers recorded since are their own decisions on the plan, not a change behind its approval [PHR:REQ-008].
+    const upstream = await phaseUpstream(root, config, correctedPlans.has(phase.id) ? asApproved(workflow, phase) : workflow, phase);
     if (!upstream || approvals.some((entry) => entry.upstream.sha256 !== upstream.sha256)) break;
     if (!(await artifactsUnchanged(root, phase))) break;
     candidates.set(phase.id, approvals);

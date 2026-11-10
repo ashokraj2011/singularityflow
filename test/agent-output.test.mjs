@@ -981,3 +981,28 @@ test('a saved text counts the lines it has, with or without a last newline', asy
     assert.equal(saved.lines, undefined, 'a long file names ranges, not a count an agent then asks for at once');
   }
 });
+
+test('a long result keeps who and where it is about in the view: repositoryPath, Work ID and step stay when fields move out', async (t) => {
+  // A 4 KB view moved a phase entry's repositoryPath out, so an agent started in the canonical checkout lost the Story
+  // checkout it was told to work in (execution-context "explicit takeover…", 2026-11-10).
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-identity-view-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const filler = (n) => Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`entry${index}`, `${'x'.repeat(n)}${index}`]));
+  const repositoryPath = path.join(root, '.singularity-flow', 'story-worktrees', '.w-identity');
+  // As a phase entry is shaped: the identity first, then many small status fields, and an act that reads large ones.
+  const read = Array.from({ length: 6 }, (_, index) => `detail${index}`);
+  const result = { act: { state: 'ask-person', do: null, read, said: 'Ask the unanswered questions now.' },
+    ready: true, repositoryPath: `${repositoryPath}${'/deeper'.repeat(12)}`, workItemRoot: 'singularity/work-items',
+    workId: 'ID-STORY', phase: 'intake', phaseStatus: 'in_progress', generation: 1,
+    ...Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`status${index}`, { flag: index % 2 === 0, note: `n${index}` }])),
+    ...Object.fromEntries(read.map((key) => [key, filler(12)])),
+    ...Object.fromEntries(Array.from({ length: 8 }, (_, index) => [`more${index}`, filler(60)])) };
+  for (const cwd of [root, os.tmpdir()]) {
+    const output = await boundedAgentOutput(JSON.stringify(result), { cwd });
+    assert.ok(Buffer.byteLength(output) <= DEFAULT_AGENT_OUTPUT_BYTES);
+    const view = JSON.parse(output);
+    assert.ok(view.omittedFields?.length || view.omittedFieldCount, 'the fixture is long enough to move fields out');
+    assert.deepEqual([view.repositoryPath, view.workId, view.phase, view.ready], [result.repositoryPath, 'ID-STORY', 'intake', true], cwd);
+  }
+});

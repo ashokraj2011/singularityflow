@@ -1,6 +1,44 @@
 # Phase responsibility (PHR) — v1: a step is never blocked by an earlier step's output
 
-Status: owner rule and decisions recorded 2026-11-09 ("go with your recommendations"). Being built.
+Status: owner rule and decisions recorded 2026-11-09 ("go with your recommendations"); the one policy below and the
+answers to batch 2's questions recorded 2026-11-10. Being built.
+
+## The one policy (2026-11-10)
+
+The owner, 2026-11-10: "We should always adhere to one policy .. all the issues should be repairable in that phase. One
+phase issue should not cause another phase to stall or go to recover loop."
+
+It takes precedence over everything below where they differ. Each check this spec adds or touches holds to it:
+
+- `[PHR:REQ-006]` **Every refusal a step gets is one that step can repair itself**, with the route to do it, in that
+  step: a command in a structured field (`nextAction`, `recoveryCommand`, `recoveryCommands` or `repairCommand`),
+  never only in prose, and never only a route that sends the work to another step.
+- `[PHR:REQ-007]` **No step is held, or sent backward, because of an earlier step's output.** A check of a step's
+  output runs in that step, before its approval, with the same evaluator and the same inputs as any later reader, so
+  a later step finds nothing new for unchanged inputs.
+- `[PHR:REQ-008]` **A later step that changes the inputs owns the result** (it edits code after approval, or amends a
+  document) and repairs it there. An intent amendment that would leave a separate plan with gaps carries the plan's
+  row corrections itself, signed by the plan's approvers in the same decision; the plan keeps its approval.
+- `[PHR:REQ-009]` **The upstream routes are a safety net**, for drift or a checker bug: `reject --to`, an upstream
+  issue, a revalidation. Nothing relies on reaching them.
+- `[PHR:REQ-010]` **The ratchet holds the policy.** A refusal at a later step that judges an earlier step's output is
+  matched by the identical check (the same evaluator) at the owning step, run before that step's approval
+  (src/gate-parity.mjs, test/phr-ratchet.test.mjs). An upstream route alone does not satisfy it. A code that truly
+  cannot be checked earlier is reported to the owner, never allowance-listed.
+
+The owner's answers to batch 2's questions, 2026-11-10:
+
+1. Finding 11: a criterion's own test that fails, exactly attributed to it, refuses the code step's submission with
+   the same-step repair ("ask it to rectify it"). One no exact identity ties to the criterion warns at submission;
+   approval refuses both.
+2. Finding 12: an inspection or sign-off may be deferred to a later step, by a person's own decision naming that step,
+   only when that step can perform and repair it; that step then holds it as its own check. The dated risk stays.
+3. Finding 13: kept as built.
+4. Finding 15: approving an amendment never reruns the plan (`[PHR:REQ-008]`).
+5. Finding 17: kept, with no opt-out.
+6. Finding 10: kept as built.
+7. G6 to G8: owner-step checks in the step that produces acceptance runs and visual evidence, with the ending's own
+   evaluation; the ending's upstream route stays the fallback.
 
 The owner, 2026-11-09: "no phase should be blocked due to prior ones .. It should be caught in the phase responsible
 and rectify there."

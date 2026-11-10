@@ -17,7 +17,7 @@ import { validatePhaseEntryRequest } from '../src/commands/phase.mjs';
 import { validateAgentEntryRequest } from '../src/agent-entry-options.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
 import { agentPacketPresentation } from '../src/agent-packet-presentation.mjs';
-import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
+import { completeAgentResult, sessionEntryForAgent, withAgentRoutes } from '../src/agent-output.mjs';
 import { librarySkillText } from '../src/skill-library.mjs';
 import { readCopilotStoryFollow, copilotStoryFollowDirectory } from '../src/copilot-story-follow.mjs';
 import { REQUIREMENT_AUTHORING_PROTOCOL } from '../src/requirement-coverage.mjs';
@@ -529,13 +529,13 @@ test('session agent entry retains the verified custom-root binding with no Story
   assert.equal(agent.status, 0, agent.stdout + agent.stderr);
   const packet = completeAgentResult(agent.stdout);
   for (const [key, value] of Object.entries(completeAgentResult(full.stdout))) {
+    // An agent's entry keeps what a turn reads of these two (session-entry-view.test.mjs); --json keeps all of it.
     if (key === 'executionContext') {
       assert.equal(packet[key].contextId, value.contextId, 'the observed execution identity is stable');
-      const left = structuredClone(packet[key]), right = structuredClone(value);
-      left.observation.observedAt = right.observation.observedAt = null;
-      assert.deepEqual(left, right, key);
+      assert.deepEqual(packet[key], sessionEntryForAgent({ executionContext: value }).executionContext, key);
+      assert.deepEqual(packet[key].story.binding, value.story.binding, 'the verified custom-root binding, whole');
     } else if (key === 'taskResume') {
-      assert.deepEqual(packet[key], await withAgentRoutes(value), key);
+      assert.deepEqual(packet[key], sessionEntryForAgent({ taskResume: await withAgentRoutes(value) }).taskResume, key);
     } else assert.deepEqual(packet[key], value, key);
   }
   assert.equal(packet.resultType, 'sflow-session-entry');

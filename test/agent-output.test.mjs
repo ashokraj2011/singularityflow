@@ -835,7 +835,8 @@ test('an opened session keeps its commit, path and every next action in view, ho
   const act = agentAct(result);
   assert.deepEqual(act.story, { workId: 'BIG-1', repositoryPath: root, commit: 'a'.repeat(12), agent: 'developer', phase: 'step-3', localOnly: true });
   assert.equal(act.do, null, 'opening a session is never counted as a loop');
-  assert.equal(act.next.length, 5);
+  // What to do now, and nothing that comes after it: eleven of the twelve are for later (owner, 2026-11-11).
+  assert.equal(act.next.length, 1);
   assert.deepEqual(act.next[0], { timing: 'now', reason: 'Do step 0', copilot: '/sf-code', shell: 'singularity-flow phase prepublish step-0 --json', vscode: null });
 
   // Within the bound, the fields the session skill reports stay in view; only the brief moves out.
@@ -844,9 +845,9 @@ test('an opened session keeps its commit, path and every next action in view, ho
   assert.equal(view.act.story.commit, 'a'.repeat(12));
   assert.equal(view.repositoryPath, root);
   assert.equal(view.open.head, 'a'.repeat(40));
-  // At 4 KB the twelve actions move out with the brief; act keeps the first five and the file all twelve.
+  // At 4 KB the twelve actions move out with the brief; act keeps what to do now and the file all twelve.
   assert.deepEqual(view.omittedFields.map((field) => field.field), ['context', 'nextsteps']);
-  assert.equal(view.act.next.length, 5);
+  assert.equal(view.act.next.length, 1);
   assert.equal(completeAgentResult(view).nextsteps.actions.length, 12);
 });
 

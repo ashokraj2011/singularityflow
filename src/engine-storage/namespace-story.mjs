@@ -13,6 +13,7 @@ import { LIFECYCLE_AUTHORITY_KEY,LIFECYCLE_STATE_MAXIMUM_BYTES,lifecycleRecord }
 import { namespaceStoryRecord,namespaceStoryValue } from './namespace-story-contract.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
+import {namespaceConstitutionObservation,assertNamespaceConstitution} from './namespace-constitution-reader.mjs';
 export {namespaceStoryGenesisKey} from './namespace-story-codec.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -77,6 +78,8 @@ export function createNamespaceStoryPorts({records,content,scope,workId,authorit
   async function body(inputs,approval,actor,at,signal) {
     await source(inputs.source,signal);
     const workflow=initialNamespaceStory(inputs,approval.compiled,actor,at);
+    if(workflow.resolution.constitution?.mode!=='off')assertNamespaceConstitution(await namespaceConstitutionObservation(approval.compiled,workflow,
+      {read:bytes,configuration:approval.configuration,signal}));
     const value=lifecycleRecord('state',{projectId:scope.projectId,authorityId:authority.id,epoch:authority.epoch,workId,
       configuration:approval.configuration.content,workflow});
     const data=Buffer.from(JSON.stringify(value)+'\n');

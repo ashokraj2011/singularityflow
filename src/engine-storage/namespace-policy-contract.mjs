@@ -66,6 +66,16 @@ export function namespaceAssignmentManifest(value,{scope,workId,phaseId}){
     exactObject(value.artifact,['key','content']);evidence(value.artifact.content);evidence(value.report);
   }catch(cause){throw invalid(cause);}return value;
 }
+export function namespaceConstitutionManifest(value,{scope,workId,phaseId}){
+  try{admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.constitution,value);
+    exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','operationId','baseRevision','configuration','draft','actor','agentId','recordedAt','artifact','basis','report']);
+    if(value.format!=='sflow-namespace-constitution-policy/v1'||value.projectId!==scope.projectId||value.workId!==workId||value.phase!==phaseId
+      ||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another constitution identity.');
+    exactObject(value.basis,['revision','head']);lifecycleHead(value.basis.head,scope,workId);
+    if(namespaceRevision(value.baseRevision)===null||namespaceRevision(value.basis.revision)!==value.baseRevision)throw Error('Another constitution basis.');
+    exactObject(value.artifact,['key','content']);evidence(value.artifact.content);evidence(value.report);
+  }catch(cause){throw invalid(cause);}return value;
+}
 export function namespaceConformanceManifest(value,{scope,workId,phaseId}){
   try{const profile=namespaceConformancePolicyProfile('conformance',value);
     exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','operationId','baseRevision','configuration','draft','actor','agentId','recordedAt','artifact','basis','report']);

@@ -27,7 +27,12 @@ const paths=Object.freeze({profile:'sflow-configuration-path-syntax/v2',grammar:
  posixIsAbsolute:path.posix.isAbsolute,posixNormalize:path.posix.normalize,posixBasename:path.posix.basename,posixDirname:path.posix.dirname,posixRelative:path.posix.relative,
  win32IsAbsolute:path.win32.isAbsolute,toPosix:value=>value.split(path.sep).join('/')});
 const hook=registerHooks({resolve(specifier,context,next){if(specifier.startsWith('node:'))throw Error('Pure entry attempted host I/O: '+specifier);return next(specifier,context);}});
-const scope=await import('@singularity-flow/engine-sdk/scope'),recovery=await import('@singularity-flow/engine-sdk/testing/recovery'),plans=await import('@singularity-flow/engine-sdk/plans');
+const scope=await import('@singularity-flow/engine-sdk/scope'),recovery=await import('@singularity-flow/engine-sdk/testing/recovery'),plans=await import('@singularity-flow/engine-sdk/plans'),constitution=await import('@singularity-flow/engine-sdk/constitution');
+const standing=constitution.constitutionValuePolicies(digests,Object.freeze({profile:constitution.CONSTITUTION_SYNTAX_PROFILE,parse:JSON.parse}));
+const parsed=standing.parseConstitution('---\\n{"articles":[{"id":"ART-001","type":"judged","level":"must","evidenceRequired":true}]}\\n---\\n## [ART-001] Observable behavior\\nRetain acceptance evidence.');
+assert.equal(parsed.articles[0].id,'ART-001');assert.equal(standing.citedArticleIds('## Constitution articles\\n[ART-001]')[0],'ART-001');
+assert.equal(constitution.CONSTITUTION_RECORD_SCHEMA.currentVersion,1);
+assert.throws(()=>standing.expiredExceptions([]),error=>Boolean(error.message));
 const statements=scope.scopeStatementPolicies(digests),original=statements.extractNormativeStatements('The converter must reject a negative integer.',{sourceId:'story'});
 assert.equal(original.length,1);assert.match(original[0].statementSha256,/^[a-f0-9]{64}$/u);
 const inventory=scope.scopeInventoryPolicies(digests).buildScopeInventoryValue({workItem:{id:'example'}},{sources:[{
@@ -47,9 +52,15 @@ import {scopeStatementPolicies,scopeInventoryPolicies} from '@singularity-flow/e
 import {testRecoveryPolicies,type TrpGateInput} from '@singularity-flow/engine-sdk/testing/recovery';
 import {createNamespaceEngine} from '@singularity-flow/engine-sdk/hosts/namespace-engine';
 import {planCorrectionPolicies,type PlanCorrectionOperation} from '@singularity-flow/engine-sdk/plans';
+import {constitutionValuePolicies,CONSTITUTION_SYNTAX_PROFILE,type ConstitutionArticle} from '@singularity-flow/engine-sdk/constitution';
 import type {VerificationPathSyntax} from '@singularity-flow/engine-sdk/specifications';
 declare const digests:SpecificationDigests,engine:ReturnType<typeof createNamespaceEngine>;
 declare const paths:VerificationPathSyntax;
+const standing=constitutionValuePolicies(digests,Object.freeze({profile:CONSTITUTION_SYNTAX_PROFILE,parse:JSON.parse}),{pathSeparator:'/'});
+const parsed:ConstitutionArticle[]=standing.parseConstitution('---\\n{}\\n---').articles;void parsed;
+standing.generationPlan('---\\n{}\\n---',{});
+// @ts-expect-error syntax is a versioned primitive, not a policy-readiness assertion
+constitutionValuePolicies(digests,Object.freeze({profile:CONSTITUTION_SYNTAX_PROFILE,ready:true}));
 planCorrectionPolicies(paths,digests).applyPlanCorrections({}, {}, {evidenceRoot:'stories/example/evidence'},[]);
 const row:PlanCorrectionOperation={op:'add-test',clauseId:'W:AC-001',test:'test/value.mjs'};void row;
 await engine.run('plan.correction.context',{operations:[row],reason:'Inspect the actual row correction.'});

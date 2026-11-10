@@ -1,6 +1,7 @@
 /** Pure durable-record format, identity capabilities and version admission. */
 import { SingularityFlowError } from './failures.mjs';
 
+export const CONSTITUTION_RECORD_SCHEMA=Object.freeze({id:'constitution-record',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
 export const SOURCE_GROUNDED_REVIEW_SCHEMA=Object.freeze({id:'source-grounded-review',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
 export const TEXT_DIGEST_PROFILE = 'sflow-text-digests/sha256-utf8-v1';
 /** Existing execution-unit v1 ABI bounds, shared by operational hosts and durable decoration. */
@@ -274,6 +275,7 @@ export const NAMESPACE_PLAN_CORRECTION_SCHEMAS=Object.freeze({record:frozenFamil
 export function namespacePlanCorrectionRecordProfile(kind,value){const family=NAMESPACE_PLAN_CORRECTION_SCHEMAS[kind];
   const {storedVersion}=admitRecordSchemaVersion(family,value);return Object.freeze({version:storedVersion,format:'sflow-'+family.id+'/v'+storedVersion});}
 export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily('namespace-phase-policy-evidence-binding'),
+  constitution:frozenFamily('namespace-constitution-policy'),constitutionReport:frozenFamily('namespace-constitution-policy-report'),
   assignment:frozenFamily('namespace-phase-assignment-policy'),assignmentReport:frozenFamily('namespace-phase-assignment-report'),
   analysis:frozenFamily('namespace-specification-analysis'),
   code:Object.freeze({id:'namespace-code-policy',currentVersion:7,minimumReadableVersion:1,maximumReadableVersion:7,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),

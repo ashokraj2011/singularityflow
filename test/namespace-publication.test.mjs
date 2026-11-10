@@ -150,7 +150,7 @@ test('an edit after the durable candidate is prepared cannot be overwritten by i
 test('required assignment and artifact-set policies cannot be dropped by a generic document publication',async t=>{
   const f=await namespacePreparationFixture(t,{configure:source=>{source.definition.collaboration={assignmentMode:'required'};}});
   await authored(f);const original=await f.head();
-  await assert.rejects(publisher(f).run('phase.publish',input),e=>e.code==='ENGINE_PORT_UNAVAILABLE'&&e.details.required.includes('assignment-record'));
+  await assert.rejects(publisher(f).run('phase.publish',input),e=>e.code==='ENGINE_ASSIGNMENT_REQUIRED'&&e.details.actions[0].operation==='phase.assign');
   assert.deepEqual(await f.head(),original);
   const set=await namespacePreparationFixture(t,{configure:source=>{
     source.definition.artifactSets={'intake-evidence':{primary:'plan.md',members:[

@@ -8,14 +8,14 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'scope', 'plans', 'testing/recovery', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
+const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'scope', 'plans', 'constitution', 'testing/recovery', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal','testing/reports','testing/node','testing/execution','testing/node-test-reporter','hosts/namespace-test-witnesses','hosts/namespace-checks','hosts/namespace-source-inspection','hosts/namespace-source-retention','hosts/namespace-source-baseline','hosts/namespace-delivery-inspection','hosts/namespace-source-control']);
 const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:os', 'node:sqlite', 'node:net', 'node:child_process','node:test/reporters','node:async_hooks']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
   'application-namespace-adapter', 'sqlite-namespace-adapter', 'sqlite-namespace-journal', 'sqlite-native', 'sqlite-content-adapter']);
 
 function allowedSource(relative) {
-  return relative.startsWith('packages/engine-sdk/src/') || /^src\/(foundation|kernel|engine-sdk|engine-storage|sda\/(namespace|content))\//u.test(relative)
+  return relative.startsWith('node_modules/yaml/browser/') || relative.startsWith('packages/engine-sdk/src/') || /^src\/(foundation|kernel|engine-sdk|engine-storage|sda\/(namespace|content))\//u.test(relative)
     || ['src/records.mjs', 'src/document-identity.mjs', 'src/authoring-skills.mjs', 'src/sgos/filesystem-source-unit.mjs',
       'src/sgos/node-execution-unit.mjs','src/sgos/node-execution-values.mjs','src/platform-process-values.mjs',
       'src/sgos/operational-contract.mjs','src/sgos/namespace-operational-store.mjs',
@@ -25,7 +25,7 @@ function allowedSource(relative) {
       'src/engine-compatibility/node-configuration-path.mjs', 'src/engine-compatibility/node-network-syntax.mjs',
       'src/engine-compatibility/node-source-policy.mjs','src/engine-compatibility/node-source-analysis.mjs','src/engine-compatibility/node-specification-policy.mjs','src/engine-compatibility/node-repository-plan.mjs','src/governed-roots.mjs','src/initialization-assets.mjs',
       'src/engine-compatibility/node-scope-policy.mjs','src/engine-compatibility/node-plan-policy.mjs','src/test-recovery-policy.mjs',
-      'src/engine-compatibility/node-namespace-configuration.mjs'].includes(relative)
+      'src/engine-compatibility/node-constitution-policy.mjs','src/engine-compatibility/node-namespace-configuration.mjs'].includes(relative)
     || /^src\/sda\/([^/]+)\.mjs$/u.test(relative) && adapterNames.has(path.posix.basename(relative, '.mjs'));
 }
 
@@ -131,6 +131,7 @@ export async function buildEngineSdk({ outdir = path.join(workspace, 'dist') } =
   const staging = await mkdtemp(path.join(path.dirname(destination), '.engine-sdk-building-'));
   try {
     const result = await build({ absWorkingDir: root,
+      alias:{yaml:path.join(root,'node_modules/yaml/browser/index.js')},
       entryPoints: Object.fromEntries(entryNames.map(name => [name, path.join(workspace, 'src', name + '.mjs')])),
       outdir: staging, bundle: true, splitting: true, format: 'esm', platform: 'node', target: 'node22',
       outExtension: { '.js': '.mjs' }, chunkNames: 'chunks/[name]-[hash]', metafile: true, write: false,
@@ -146,9 +147,15 @@ export async function buildEngineSdk({ outdir = path.join(workspace, 'dist') } =
     }
     await cp(path.join(workspace, 'types'), staging, { recursive: true });
     await writeFile(path.join(staging, 'index.d.mts'), engineDeclarations());
+    const yamlMetadata=JSON.parse(await readFile(path.join(root,'node_modules/yaml/package.json'),'utf8')),
+      yamlLicense=await readFile(path.join(root,'node_modules/yaml/LICENSE'),'utf8');
+    if(yamlMetadata.name!=='yaml'||yamlMetadata.license!=='ISC')throw new Error('The bundled constitution syntax needs its declared YAML dependency and notice.');
+    await mkdir(path.join(staging,'third-party'));await writeFile(path.join(staging,'third-party/yaml-LICENSE'),yamlLicense);
     const outputs = Object.fromEntries(result.outputFiles.map(output => [path.relative(staging, output.path).replaceAll('\\', '/'), {
       bytes: output.contents.length, sha256: createHash('sha256').update(output.contents).digest('hex') }]));
+    outputs['third-party/yaml-LICENSE']={bytes:Buffer.byteLength(yamlLicense),sha256:createHash('sha256').update(yamlLicense).digest('hex')};
     const report = { schemaVersion: 1, package: '@singularity-flow/engine-sdk', contract: ENGINE_CONTRACT,
+      bundledSyntax:{name:yamlMetadata.name,version:yamlMetadata.version,profile:'sflow-constitution-yaml-syntax/v1',license:'third-party/yaml-LICENSE'},
       operations: ENGINE_OPERATIONS.map(({ id, version, inputFields, requiredFields, port, stages }) => ({ id, version, inputFields,
         ...(requiredFields ? { requiredFields } : {}), port, stages })),
       sources: Object.keys(result.metafile.inputs).sort(), outputs };

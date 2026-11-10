@@ -4,9 +4,10 @@ import {canonicalJson,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
-import {namespaceAnalysisManifest,namespaceAssignmentManifest,PHASE_ASSIGNMENT_EVIDENCE,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE} from './namespace-policy-contract.mjs';
+import {namespaceAnalysisManifest,namespaceConstitutionManifest,namespaceAssignmentManifest,PHASE_ASSIGNMENT_EVIDENCE,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE} from './namespace-policy-contract.mjs';
 import {clarificationRecord,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
 import {namespaceArtifactSetManifest,ARTIFACT_SET_EVIDENCE} from './namespace-artifact-set-reader.mjs';
+import {CONSTITUTION_POLICY_EVIDENCE} from './namespace-constitution-reader.mjs';
 import {artifactBytesAreText} from '../kernel/artifact-content.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 export function createNamespacePublicationPolicyWriter({observer,content,scope,workId,reader}) {
@@ -76,5 +77,12 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     namespaceAssignmentManifest(manifest,{scope,workId,phaseId:publication.phase});
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:PHASE_ASSIGNMENT_EVIDENCE,record:await save(manifest,signal)}),report};
   }
-  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment});
+  async function retainConstitution(publication,{snapshot,head,signal}={}){
+    const value=await reader.constitutionCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),manifest={
+      schemaVersion:NAMESPACE_PHASE_POLICY_SCHEMAS.constitution.currentVersion,format:'sflow-namespace-constitution-policy/v1',...namespaceSpecificationIdentity(publication),
+      recordedAt:publication.publishedAt,artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
+    namespaceConstitutionManifest(manifest,{scope,workId,phaseId:publication.phase});
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CONSTITUTION_POLICY_EVIDENCE,record:await save(manifest,signal)}),report};
+  }
+  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment,retainConstitution});
 }

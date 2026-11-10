@@ -21,7 +21,7 @@ const error=(message,code,details=null)=>new SingularityFlowError(message,{code,
 const repairable=new Set(['ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
   'ENGINE_SOURCE_EVIDENCE_REQUIRED','ENGINE_SOURCE_BASELINE_REQUIRED','CODE_DELIVERY_TEST_COVERAGE_INCOMPLETE',
   'CODE_TEST_WITNESS_INCOMPLETE','SPEC_PLANNED_TEST_BINDING_REQUIRED','SPEC_PLANNED_ALLOCATION_INVALID',
-  'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE','ENGINE_ASSIGNMENT_REQUIRED']);
+  'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE','ENGINE_ASSIGNMENT_REQUIRED','CONSTITUTION_POLICY_REQUIRED']);
 const finding=(row,phase)=>({code:row.code??'artifact.authoring.incomplete',sourceCode:row.sourceCode??null,category:row.category??null,
   message:row.message??'',phaseId:row.phaseId??phase,path:row.path??null,line:row.line??null,clauseId:row.clauseId??null,
   upstreamDecisionComplete:false,coverageReviewRequired:false,riskEligible:false});
@@ -84,7 +84,7 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
           inputs=codeInputPublicationPolicy(workflow,phase),conformance=conformancePublicationPolicy(workflow,phase),bundle=artifactSets.declaration(definition,workflow,phase),assignment=phaseAssignmentRequired(workflow,definition),
           available=[...(spec?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysis?['specification-analysis']:[]),
             ...(clarification.mode!=='off'?['clarification-record']:[]),...(code?CODE_PUBLICATION_OWNERS:[]),
-            ...(inputs?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformance?CONFORMANCE_PUBLICATION_OWNERS:[]),...(bundle?['artifact-set']:[]),...(assignment?['assignment-record']:[]),'check-execution'];
+            ...(inputs?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformance?CONFORMANCE_PUBLICATION_OWNERS:[]),...(bundle?['artifact-set']:[]),...(assignment?['assignment-record']:[]),...(workflow.resolution.constitution?.mode!=='off'?['constitution-policy']:[]),'check-execution'];
         if(prepublish){const pending=primaryDocumentPublicationRequirements(workflow,phase,{definition}).filter(owner=>!available.includes(owner));
           if(pending.length)throw error('Bind the actual required policy/execution owners before publication inspection.','ENGINE_PORT_UNAVAILABLE',{
             operation,phase:phase.id,required:pending});}
@@ -94,6 +94,8 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             artifact:{key:p.artifact.key,sourceKey:(definition.workItemRoot??'singularity/work-items')+'/'+workId+'/'+p.artifact.key,
               kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content,fingerprint},inputs:facts.resources};
         if(spec)await attempt(()=>publications.specifications.derive(candidate,snapshot,{signal,artifactBytes:data}));
+        if(workflow.resolution.constitution?.mode!=='off'){const observed=await attempt(()=>publications.policies.constitutionCandidate(candidate,snapshot,{signal,artifactBytes:data}));
+          for(const message of observed?.report.warnings??[])advisories.push({code:'constitution.policy.advisory',category:'constitution-policy',message,requiredBefore:null,ownerPhase:phase.id,clauseId:null,issueRefs:[],status:'advisory'});}
         if(assignment)await attempt(()=>publications.policies.assignmentCandidate(candidate,snapshot,{signal}));
         if(bundle){const members=[];for(const member of p.members??[])members.push({path:member.path,data:await runtime.inspectionMemberBytes(token,member.path,{signal})});
           await attempt(()=>publications.policies.artifactSetCandidate(candidate,snapshot,{signal,artifactBytes:data,members}));}

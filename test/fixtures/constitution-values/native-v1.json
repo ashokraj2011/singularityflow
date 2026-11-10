@@ -1,0 +1,1867 @@
+{
+  "capturedAtCommit": "29475288f",
+  "platform": "darwin",
+  "pathSeparator": "/",
+  "cases": [
+    {
+      "name": "valid-generated",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5",
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->",
+              "valid": true
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120",
+              "title": "Changes can be reversed",
+              "prose": "Document the rollback, responsible team and expected duration.",
+              "valid": true
+            }
+          ],
+          "findings": []
+        }
+      }
+    },
+    {
+      "name": "missing-generated-block",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": null,
+              "rendererVersion": 1,
+              "articleSha256": null,
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.",
+              "valid": false
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": null,
+              "title": "Changes can be reversed",
+              "prose": "Document the rollback, responsible team and expected duration.",
+              "valid": true
+            }
+          ],
+          "findings": [
+            {
+              "id": "ART-001",
+              "kind": "missing-generated-block",
+              "message": "ART-001 is enforced and has no generated block; run singularity-flow constitution generate"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "hand-edited",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and incorrectly rewrites this binding.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5",
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and incorrectly rewrites this binding.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->",
+              "valid": false
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120",
+              "title": "Changes can be reversed",
+              "prose": "Document the rollback, responsible team and expected duration.",
+              "valid": true
+            }
+          ],
+          "findings": [
+            {
+              "id": "ART-001",
+              "kind": "hand-edited",
+              "message": "ART-001 was edited after generation; its recorded hash no longer matches its text. Regenerate it instead of editing it."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "stale-policy",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 2
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5",
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->",
+              "valid": false
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120",
+              "title": "Changes can be reversed",
+              "prose": "Document the rollback, responsible team and expected duration.",
+              "valid": true
+            }
+          ],
+          "findings": [
+            {
+              "id": "ART-001",
+              "kind": "stale-policy",
+              "message": "ART-001 restates `phases.intake.approval.minimum`, whose approved value has changed since the article was generated"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unresolved-policy",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": []
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5",
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->",
+              "valid": false
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120",
+              "title": "Changes can be reversed",
+              "prose": "Document the rollback, responsible team and expected duration.",
+              "valid": true
+            }
+          ],
+          "findings": [
+            {
+              "id": "ART-001",
+              "kind": "stale-policy",
+              "message": "ART-001 restates `phases.intake.approval.minimum`, whose approved value has changed since the article was generated"
+            },
+            {
+              "id": "ART-001",
+              "kind": "unresolved-policy",
+              "message": "ART-001 references `phases.intake.approval.minimum`, which does not resolve in the approved configuration"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "judged-prose-changed",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and a different duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5",
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->",
+              "valid": true
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120",
+              "title": "Changes can be reversed",
+              "prose": "Document the rollback, responsible team and a different duration.",
+              "valid": false
+            }
+          ],
+          "findings": [
+            {
+              "id": "ART-002",
+              "kind": "judged-prose-changed",
+              "message": "ART-002 is a judged article whose prose changed after approval. Withdraw it and allocate a new ID instead."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "withdrawn-enforced",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    status: withdrawn\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": []
+          }
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "YAMLParseError",
+        "message": "Map keys must be unique at line 7, column 5:\n\n    policy: phases.intake.approval.minimum\n    status: active\n    ^\n",
+        "code": "DUPLICATE_KEY",
+        "details": null
+      }
+    },
+    {
+      "name": "missing-anchor",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [OTHER-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5",
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->",
+              "valid": true
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120",
+              "title": null,
+              "prose": "",
+              "valid": false
+            }
+          ],
+          "findings": [
+            {
+              "id": "ART-002",
+              "kind": "missing-anchor",
+              "message": "ART-002 is declared in front matter with no [ART-002] section in the body"
+            },
+            {
+              "id": "OTHER-002",
+              "kind": "undeclared-anchor",
+              "message": "the body contains a [OTHER-002] section that front matter does not declare"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "undeclared-anchor",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n\n## [ART-099] Additional article\nUnregistered prose.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5",
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->",
+              "valid": true
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120",
+              "title": "Changes can be reversed",
+              "prose": "Document the rollback, responsible team and expected duration.",
+              "valid": true
+            }
+          ],
+          "findings": [
+            {
+              "id": "ART-099",
+              "kind": "undeclared-anchor",
+              "message": "the body contains a [ART-099] section that front matter does not declare"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "empty-article",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n## [ART-002] Changes can be reversed\n\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": null,
+              "rendererVersion": 1,
+              "articleSha256": null,
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.",
+              "valid": false
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": null,
+              "title": "Changes can be reversed",
+              "prose": "",
+              "valid": true
+            }
+          ],
+          "findings": [
+            {
+              "id": "ART-001",
+              "kind": "missing-generated-block",
+              "message": "ART-001 is enforced and has no generated block; run singularity-flow constitution generate"
+            },
+            {
+              "id": "ART-002",
+              "kind": "empty-article",
+              "message": "ART-002 has an anchor and no readable text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "duplicate-id",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n  - id: ART-001\n    type: judged\n    level: must\n    evidenceRequired: true\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "Constitution declares article ART-001 more than once.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-kind",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n  - id: ART-002\n    type: suggested\n    level: must\n    evidenceRequired: true\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "Constitution article ART-002 type must be enforced or judged.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-level",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n  - id: ART-002\n    type: judged\n    level: optional\n    evidenceRequired: true\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "Constitution article ART-002 is judged and needs level must or should.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "missing-evidence-flag",
+      "input": {
+        "method": "parse",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n  - id: ART-002\n    type: judged\n    level: must\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "Constitution article ART-002 is judged and needs evidenceRequired: true or false.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "missing-frontmatter",
+      "input": {
+        "method": "parse",
+        "markdown": "# Constitution",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "The constitution needs YAML front matter listing its articles.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "malformed-yaml",
+      "input": {
+        "method": "parse",
+        "markdown": "---\narticles: [\n---\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "YAMLParseError",
+        "message": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 1, column 12:\n\narticles: [\n           ^\n",
+        "code": "BAD_INDENT",
+        "details": null
+      }
+    },
+    {
+      "name": "no-articles",
+      "input": {
+        "method": "parse",
+        "markdown": "---\nname: Standing rules\n---\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          }
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "Constitution front matter must declare an `articles` array.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "example-refused",
+      "input": {
+        "method": "parse",
+        "markdown": "---\nexample: true\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          },
+          "allowExample": false
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "This constitution is still marked `example: true`. Replace the sample articles with your own and remove that line before the kernel will hold a Story to it.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "example-readable",
+      "input": {
+        "method": "parse",
+        "markdown": "---\nexample: true\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "options": {
+          "resolution": {
+            "phases": [
+              {
+                "id": "intake",
+                "approval": {
+                  "minimum": 1,
+                  "authorities": [
+                    "reviewers"
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "mode": "enforce"
+            }
+          },
+          "allowExample": true
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5",
+              "title": "Review threshold",
+              "prose": "Preserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->",
+              "valid": true
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120",
+              "title": "Changes can be reversed",
+              "prose": "Document the rollback, responsible team and expected duration.",
+              "valid": true
+            }
+          ],
+          "findings": []
+        }
+      }
+    },
+    {
+      "name": "first-generation",
+      "input": {
+        "method": "generate",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "resolution": {
+          "phases": [
+            {
+              "id": "intake",
+              "approval": {
+                "minimum": 1,
+                "authorities": [
+                  "reviewers"
+                ]
+              }
+            }
+          ],
+          "spec": {
+            "mode": "enforce"
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+          "regenerated": [
+            "ART-001"
+          ],
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unchanged-generation",
+      "input": {
+        "method": "generate",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "resolution": {
+          "phases": [
+            {
+              "id": "intake",
+              "approval": {
+                "minimum": 1,
+                "authorities": [
+                  "reviewers"
+                ]
+              }
+            }
+          ],
+          "spec": {
+            "mode": "enforce"
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+          "regenerated": [],
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "changed-machine-policy",
+      "input": {
+        "method": "generate",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "resolution": {
+          "phases": [
+            {
+              "id": "intake",
+              "approval": {
+                "minimum": 2
+              }
+            }
+          ],
+          "spec": {
+            "mode": "enforce"
+          }
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3\n    rendererVersion: 1\n    articleSha256: 325a2f2648070bb5dbbd35d828a3bd7183c28391867139a161a8d9457622f8b5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 2\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+          "regenerated": [
+            "ART-001"
+          ],
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+              "rendererVersion": 1,
+              "articleSha256": "325a2f2648070bb5dbbd35d828a3bd7183c28391867139a161a8d9457622f8b5"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "historical-withdrawn",
+      "input": {
+        "method": "generate",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    status: withdrawn\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "resolution": {
+          "phases": []
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "YAMLParseError",
+        "message": "Map keys must be unique at line 7, column 5:\n\n    policy: phases.intake.approval.minimum\n    status: active\n    ^\n",
+        "code": "DUPLICATE_KEY",
+        "details": null
+      }
+    },
+    {
+      "name": "index:singularity/constitution.md",
+      "input": {
+        "method": "index",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "resolution": {
+          "phases": [
+            {
+              "id": "intake",
+              "approval": {
+                "minimum": 1,
+                "authorities": [
+                  "reviewers"
+                ]
+              }
+            }
+          ],
+          "spec": {
+            "mode": "enforce"
+          }
+        },
+        "path": "singularity/constitution.md",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "configurationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "constitution-index",
+          "derived": true,
+          "authority": "The approved constitution.md is the authority; this index is a recomputable projection of it.",
+          "source": "singularity/constitution.md",
+          "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "configurationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "rendererVersion": 1,
+          "policyResolutionSha256": "1c52887feac6c6e489c2ec7e2eb66aaac76180dbeb1d3ba41f701ba7546241f9",
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "title": "Review threshold",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "title": "Changes can be reversed",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120"
+            }
+          ],
+          "indexSha256": "e8cbc639b57f70bb0cc9421baf4f701b73ff9919536967865246dd722342d09a"
+        }
+      }
+    },
+    {
+      "name": "index:standing\\constitution.md",
+      "input": {
+        "method": "index",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "resolution": {
+          "phases": [
+            {
+              "id": "intake",
+              "approval": {
+                "minimum": 1,
+                "authorities": [
+                  "reviewers"
+                ]
+              }
+            }
+          ],
+          "spec": {
+            "mode": "enforce"
+          }
+        },
+        "path": "standing\\constitution.md",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "configurationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "constitution-index",
+          "derived": true,
+          "authority": "The approved constitution.md is the authority; this index is a recomputable projection of it.",
+          "source": "standing\\constitution.md",
+          "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "configurationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "rendererVersion": 1,
+          "policyResolutionSha256": "1c52887feac6c6e489c2ec7e2eb66aaac76180dbeb1d3ba41f701ba7546241f9",
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active",
+              "title": "Review threshold",
+              "policy": "phases.intake.approval.minimum",
+              "policyValueSha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+              "rendererVersion": 1,
+              "articleSha256": "2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "title": "Changes can be reversed",
+              "level": "must",
+              "evidenceRequired": true,
+              "articleSha256": "2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120"
+            }
+          ],
+          "indexSha256": "a2263c15779398e17bccec0d1947c40653dd210c069d02b545f913ba58b4ca48"
+        }
+      }
+    },
+    {
+      "name": "pin:singularity/constitution.md",
+      "input": {
+        "method": "pin",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "resolution": {
+          "phases": [
+            {
+              "id": "intake",
+              "approval": {
+                "minimum": 1,
+                "authorities": [
+                  "reviewers"
+                ]
+              }
+            }
+          ],
+          "spec": {
+            "mode": "enforce"
+          }
+        },
+        "path": "singularity/constitution.md",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "configurationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "path": "singularity/constitution.md",
+          "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "indexSha256": "e8cbc639b57f70bb0cc9421baf4f701b73ff9919536967865246dd722342d09a",
+          "configurationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "policyResolutionSha256": "1c52887feac6c6e489c2ec7e2eb66aaac76180dbeb1d3ba41f701ba7546241f9",
+          "rendererVersion": 1,
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pin:standing\\constitution.md",
+      "input": {
+        "method": "pin",
+        "markdown": "---\n# Retain the approved header comment.\narticles:\n  - id: ART-001\n    type: enforced\n    policy: phases.intake.approval.minimum\n    status: active\n    policyValueSha256: 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865\n    rendererVersion: 1\n    articleSha256: 2b93e1c6aca09919b20a50d27188cdb1e015ed350b05247493e38e73371693d5\n  - id: ART-002\n    type: judged\n    level: must\n    evidenceRequired: true\n    status: active\n    articleSha256: 2ef05c200ffe9c776ae33d7035b767e4570c41e1aa7a12fe4a1cf868dbd1a120\n---\n# Constitution\n\n## [ART-001] Review threshold\nPreserve the explanation around this generated block.\n\n<!-- singularity-flow:constitution:generated ART-001 -->\nThis article is generated from the approved configuration and restates what the kernel enforces.\n\n- Policy: `phases.intake.approval.minimum`\n- Effective value: 1\n\nChanging this rule means changing the policy through the configuration-authority workflow. Editing\nthe text here changes nothing the kernel does, so the kernel refuses to read a hand-edited copy.\n<!-- singularity-flow:constitution:generated:end ART-001 -->\n\n\n## [ART-002] Changes can be reversed\nDocument the rollback, responsible team and expected duration.\n",
+        "resolution": {
+          "phases": [
+            {
+              "id": "intake",
+              "approval": {
+                "minimum": 1,
+                "authorities": [
+                  "reviewers"
+                ]
+              }
+            }
+          ],
+          "spec": {
+            "mode": "enforce"
+          }
+        },
+        "path": "standing\\constitution.md",
+        "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "configurationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "path": "standing\\constitution.md",
+          "fileSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "indexSha256": "a2263c15779398e17bccec0d1947c40653dd210c069d02b545f913ba58b4ca48",
+          "configurationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "policyResolutionSha256": "1c52887feac6c6e489c2ec7e2eb66aaac76180dbeb1d3ba41f701ba7546241f9",
+          "rendererVersion": 1,
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "citations:known",
+      "input": {
+        "method": "citations",
+        "pin": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true
+            },
+            {
+              "id": "ART-003",
+              "type": "judged",
+              "status": "withdrawn",
+              "level": "should",
+              "evidenceRequired": false
+            }
+          ]
+        },
+        "markdown": "## Constitution articles\n[ART-001], [ART-002]\n",
+        "options": {
+          "label": "Current phase"
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "cited": [
+            "ART-001",
+            "ART-002"
+          ],
+          "errors": [],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "name": "citations:unknown",
+      "input": {
+        "method": "citations",
+        "pin": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true
+            },
+            {
+              "id": "ART-003",
+              "type": "judged",
+              "status": "withdrawn",
+              "level": "should",
+              "evidenceRequired": false
+            }
+          ]
+        },
+        "markdown": "## Constitution articles\n[ART-999]\n",
+        "options": {
+          "label": "Current phase"
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "cited": [
+            "ART-999"
+          ],
+          "errors": [
+            "Current phase cites constitution article ART-999, which the pinned constitution does not contain. Every ID-shaped token under ## Constitution articles counts as a citation (such as ISO-8601 or JIRA-1234); keep only the article IDs there."
+          ],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "name": "citations:withdrawn",
+      "input": {
+        "method": "citations",
+        "pin": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true
+            },
+            {
+              "id": "ART-003",
+              "type": "judged",
+              "status": "withdrawn",
+              "level": "should",
+              "evidenceRequired": false
+            }
+          ]
+        },
+        "markdown": "## Constitution articles\n[ART-003]\n",
+        "options": {
+          "label": "Current phase"
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "cited": [
+            "ART-003"
+          ],
+          "errors": [],
+          "warnings": [
+            "Current phase cites ART-003, which was withdrawn."
+          ]
+        }
+      }
+    },
+    {
+      "name": "citations:no-pin",
+      "input": {
+        "method": "citations",
+        "pin": null,
+        "markdown": "## Constitution articles\n[ART-001]\n",
+        "options": {
+          "label": "Current phase"
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "cited": [
+            "ART-001"
+          ],
+          "errors": [
+            "Current phase cites constitution article(s) ART-001 but this Story pinned no constitution. Every ID-shaped token (letters, a hyphen, three or more digits, such as ISO-8601 or JIRA-1234) under ## Constitution articles counts as a citation: write 'None' there with no IDs."
+          ],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "name": "citations:qualified-clause",
+      "input": {
+        "method": "citations",
+        "pin": null,
+        "markdown": "## Constitution articles\n[SPEC:REQ-001]\n",
+        "options": {
+          "label": "Current phase"
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "cited": [],
+          "errors": [],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "name": "citations:mentions-outside",
+      "input": {
+        "method": "citations",
+        "pin": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true
+            },
+            {
+              "id": "ART-003",
+              "type": "judged",
+              "status": "withdrawn",
+              "level": "should",
+              "evidenceRequired": false
+            }
+          ]
+        },
+        "markdown": "# Discussion\nART-999\n",
+        "options": {
+          "label": "Current phase"
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "cited": [],
+          "errors": [],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "name": "required-evidence-union",
+      "input": {
+        "method": "required",
+        "pin": {
+          "articles": [
+            {
+              "id": "ART-001",
+              "type": "enforced",
+              "status": "active"
+            },
+            {
+              "id": "ART-002",
+              "type": "judged",
+              "status": "active",
+              "level": "must",
+              "evidenceRequired": true
+            },
+            {
+              "id": "ART-003",
+              "type": "judged",
+              "status": "withdrawn",
+              "level": "should",
+              "evidenceRequired": false
+            }
+          ]
+        },
+        "ids": [
+          "ART-001",
+          "ART-003"
+        ]
+      },
+      "outcome": {
+        "status": "returned",
+        "value": [
+          "ART-001",
+          "ART-002"
+        ]
+      }
+    },
+    {
+      "name": "required-without-pin",
+      "input": {
+        "method": "required",
+        "pin": null,
+        "ids": [
+          "ART-001"
+        ]
+      },
+      "outcome": {
+        "status": "returned",
+        "value": []
+      }
+    },
+    {
+      "name": "bound-exception",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "workId": "EXAMPLE",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "constitution-exception",
+          "articleId": "ART-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "expiresAt": null,
+          "binding": {
+            "workId": "EXAMPLE",
+            "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "exceptionSha256": "310ebd9a753718e481f4c0e21b2d439f29a98908e7c9b4c7f317080b9083e2b5"
+        }
+      }
+    },
+    {
+      "name": "expiring-exception",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "workId": "EXAMPLE",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "expiresAt": "2026-11-12T01:00:00.000Z"
+        }
+      },
+      "outcome": {
+        "status": "returned",
+        "value": {
+          "schemaVersion": 1,
+          "resultType": "constitution-exception",
+          "articleId": "ART-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "expiresAt": "2026-11-12T01:00:00.000Z",
+          "binding": {
+            "workId": "EXAMPLE",
+            "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "exceptionSha256": "6026408b58e9a710f13c1c5ee794d0d7ea904bd74a735c94d445fbcf043eca10"
+        }
+      }
+    },
+    {
+      "name": "exception-missing-articleId",
+      "input": {
+        "method": "exception",
+        "value": {
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "workId": "EXAMPLE",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "A constitution exception needs 'articleId'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "exception-missing-reason",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "workId": "EXAMPLE",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "A constitution exception needs 'reason'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "exception-missing-scope",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "reason": "The human accepted the exact documented exception.",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "workId": "EXAMPLE",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "A constitution exception needs 'scope'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "exception-missing-actor",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "workId": "EXAMPLE",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "A constitution exception needs 'actor'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "exception-missing-authority",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "at": "2026-11-11T01:00:00.000Z",
+          "workId": "EXAMPLE",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "A constitution exception needs 'authority'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "exception-missing-at",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "workId": "EXAMPLE",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "A constitution exception needs 'at'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "exception-missing-workId",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "sourceCommit": "cccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "A constitution exception needs 'workId'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "exception-missing-sourceCommit",
+      "input": {
+        "method": "exception",
+        "value": {
+          "articleId": "art-002",
+          "reason": "The human accepted the exact documented exception.",
+          "scope": "Current release only",
+          "actor": {
+            "email": "reviewer@example.test"
+          },
+          "authority": "reviewers",
+          "at": "2026-11-11T01:00:00.000Z",
+          "workId": "EXAMPLE"
+        }
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "A constitution exception needs 'sourceCommit'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "expired-at-original-observation",
+      "input": {
+        "method": "expired",
+        "values": [
+          {
+            "id": "old",
+            "expiresAt": "2026-11-10T01:00:00.000Z"
+          },
+          {
+            "id": "current",
+            "expiresAt": "2026-11-12T01:00:00.000Z"
+          },
+          {
+            "id": "unbounded",
+            "expiresAt": null
+          }
+        ],
+        "at": "2026-11-11T01:00:00.000Z"
+      },
+      "outcome": {
+        "status": "returned",
+        "value": [
+          {
+            "id": "old",
+            "expiresAt": "2026-11-10T01:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "expiry-needs-explicit-time",
+      "input": {
+        "method": "expired",
+        "values": [],
+        "at": null
+      },
+      "outcome": {
+        "status": "threw",
+        "name": "SingularityFlowError",
+        "message": "Deciding whether an exception expired needs an observation time from the caller.",
+        "code": null,
+        "details": null
+      }
+    }
+  ]
+}

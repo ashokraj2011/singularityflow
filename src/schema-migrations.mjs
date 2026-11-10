@@ -1,4 +1,4 @@
-import {SOURCE_GROUNDED_REVIEW_SCHEMA} from './foundation/record-schema.mjs';
+import {CONSTITUTION_RECORD_SCHEMA,SOURCE_GROUNDED_REVIEW_SCHEMA} from './foundation/record-schema.mjs';
 /**
  * Pure, in-memory schema migration for durable records.
  *
@@ -3418,7 +3418,7 @@ const families = [
     steps: [migration(1, 2, vscodeResetMarkerV1ToV2)],
     paths: [/^\$local\/vscode-fresh-reset-pending\.json$/]
   }),
-  family({ id: 'constitution-record', currentVersion: 1, immutable: true }),
+  family(CONSTITUTION_RECORD_SCHEMA),
   family({
     id: 'convergence-record', currentVersion: 6,
     steps: [

@@ -9,6 +9,11 @@ Embed the versioned engine in a Node host such as a build runner or application.
 an ESM workspace preview. It has no installation hooks, global Node replacement, CLI discovery,
 provider invocation or runtime npm dependencies. It is not published to a registry by this build.
 
+The `constitution` export supplies pure standing-rule values with explicit syntax and digest
+primitives. Namespace hosts retain the approved constitution and exact artifact citations in a
+versioned publication report; semantic judgment remains the genuine human phase approval.
+The offline package includes its locked YAML syntax implementation and ISC notice.
+
 From the SFlow source checkout:
 
 ```sh

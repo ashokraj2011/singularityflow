@@ -173,10 +173,10 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         const clarificationPolicy=resolvedClarificationPolicy(observed.definition,snapshot.workflow,phase);
         const codePolicy=codePublicationPolicy(snapshot.workflow,phase);
         const codeInputsPolicy=codeInputPublicationPolicy(snapshot.workflow,phase),conformancePolicy=conformancePublicationPolicy(snapshot.workflow,phase);
-        const assignmentRequired=phaseAssignmentRequired(snapshot.workflow,observed.definition);
+        const assignmentRequired=phaseAssignmentRequired(snapshot.workflow,observed.definition),constitutionRequired=snapshot.workflow.resolution.constitution?.mode!=='off';
         const artifactSet=artifactSets.declaration(observed.definition,snapshot.workflow,phase);
         const available=[...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
-          ...(clarificationPolicy.mode!=='off'?['clarification-record']:[]),...(codePolicy?CODE_PUBLICATION_OWNERS:[]),...(codeInputsPolicy?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformancePolicy?CONFORMANCE_PUBLICATION_OWNERS:[]),...(artifactSet?['artifact-set']:[]),...(assignmentRequired?['assignment-record']:[])];
+          ...(clarificationPolicy.mode!=='off'?['clarification-record']:[]),...(codePolicy?CODE_PUBLICATION_OWNERS:[]),...(codeInputsPolicy?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformancePolicy?CONFORMANCE_PUBLICATION_OWNERS:[]),...(artifactSet?['artifact-set']:[]),...(assignmentRequired?['assignment-record']:[]),...(constitutionRequired?['constitution-policy']:[])];
         const pending=required.filter(item=>!available.includes(item));
         if(pending.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
           operation:'phase.publish',phase:s.phaseId,required:pending});
@@ -201,8 +201,8 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
             actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
             artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
-          let specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null;
-          if(specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired) {
+          let specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null;
+          if(specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
             const head=await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal);
             if(head.version!==snapshot.revision)throw error('The Story changed before specification retention.','ENGINE_CONTEXT_CHANGED');
             if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
@@ -213,11 +213,12 @@ export function createNamespacePublicationPort(options={},runtime=null) {
                 'Code source evidence changed while preparing publication. Reinspect its retained candidate.','ENGINE_CONTEXT_CHANGED');}
             if(codeInputsPolicy)codeInputs=await policyWriter.retainCodeInputs({...base,checks:s.checkEvidence??null},{snapshot,head:head.value,signal});
             if(conformancePolicy)conformance=await policyWriter.retainConformance({...base,checks:s.checkEvidence??null},{snapshot,head:head.value,signal});
+            if(constitutionRequired)constitution=await policyWriter.retainConstitution(base,{snapshot,head:head.value,signal});
             if(assignmentRequired)assignment=await policyWriter.retainAssignment(base,{snapshot,head:head.value,signal});
             if(artifactSet){const members=[];for(const member of observed.payload.members??[])members.push({path:member.path,data:await runtime.artifactMemberBytes(admission,member.path,{signal})});
               bundle=await policyWriter.retainArtifactSet(base,{snapshot,head:head.value,signal,members});}
           }
-          const policyEvidence=[...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[])];
+          const policyEvidence=[...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
           const record=namespacePublicationRecord(base,{checks:s.checkEvidence??null,specifications,policyEvidence:policyEvidence.length?policyEvidence:null});
           namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,
@@ -248,6 +249,9 @@ export function createNamespacePublicationPort(options={},runtime=null) {
           if(analysis)snapshot.workflow.namespaceDocuments.push({id:'ANALYSIS-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-analysis-gen'+generation+'.json',
             role:'file',name:'Specification analysis',kind:'specification-analysis',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:analysis.report});
+          if(constitution)snapshot.workflow.namespaceDocuments.push({id:'CONSTITUTION-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
+            sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-constitution-gen'+generation+'.json',
+            role:'file',name:'Pinned constitution and citations',kind:'constitution-policy',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:constitution.report});
           if(assignment)snapshot.workflow.namespaceDocuments.push({id:'ASSIGNMENT-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-assignment-gen'+generation+'.json',
             role:'file',name:'Phase coordination',kind:'phase-assignment',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:assignment.report});

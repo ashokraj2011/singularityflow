@@ -643,7 +643,7 @@ test('Story genesis composes only explicit storage, access and clock ports; obse
     '../kernel/story-creation.mjs','../kernel/project-enrollment.mjs','../sda/namespace/contract.mjs',
     '../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/namespace/journal-contract.mjs',
     '../sda/content/contract.mjs','./namespace-configuration-reader.mjs','./namespace-lifecycle-reader.mjs',
-    './namespace-lifecycle-contract.mjs','./namespace-story-contract.mjs','./namespace-read-contract.mjs','./namespace-reader.mjs','./namespace-story-codec.mjs']);
+    './namespace-lifecycle-contract.mjs','./namespace-story-contract.mjs','./namespace-read-contract.mjs','./namespace-reader.mjs','./namespace-story-codec.mjs','./namespace-constitution-reader.mjs']);
   const ast=ts.createSourceFile(owner,await readFile(path.join(packageRoot,owner),'utf8'),ts.ScriptTarget.Latest,true);
   const visit=node=>{
     if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
@@ -984,9 +984,9 @@ test('specification analysis shares pure rules; policy verification is read-only
   const reader='src/engine-storage/namespace-policy-reader.mjs',writer='src/engine-storage/namespace-policy-retention.mjs',
     contract='src/engine-storage/namespace-policy-contract.mjs';
   const allowed=new Map([
-    [reader,new Set(['./namespace-assignment-reader.mjs','../kernel/phase-policy.mjs','./namespace-witness-reader.mjs','./namespace-artifact-set-reader.mjs','node:crypto','./namespace-clarification-reader.mjs','../kernel/clarification-responses.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-analysis.mjs',
+    [reader,new Set(['./namespace-constitution-reader.mjs','./namespace-assignment-reader.mjs','../kernel/phase-policy.mjs','./namespace-witness-reader.mjs','./namespace-artifact-set-reader.mjs','node:crypto','./namespace-clarification-reader.mjs','../kernel/clarification-responses.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-analysis.mjs',
       '../engine-compatibility/node-specification-policy.mjs','./namespace-specification-contract.mjs','./namespace-policy-contract.mjs','./namespace-code-policy.mjs','./namespace-code-inputs.mjs','./namespace-conformance.mjs','./namespace-publication-reader.mjs','./namespace-candidate-content.mjs'])],
-    [writer,new Set(['./namespace-artifact-set-reader.mjs','../kernel/artifact-content.mjs','./namespace-clarification-reader.mjs','node:crypto','../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/content/contract.mjs',
+    [writer,new Set(['./namespace-constitution-reader.mjs','./namespace-artifact-set-reader.mjs','../kernel/artifact-content.mjs','./namespace-clarification-reader.mjs','node:crypto','../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/content/contract.mjs',
       './namespace-specification-contract.mjs','./namespace-policy-contract.mjs'])]
   ]);
   for(const [file,imports]of allowed) {
@@ -2048,4 +2048,19 @@ test('source review shares pure citation rules and retains evidence only through
   const replay=await readFile(path.join(packageRoot,'src/engine-storage/namespace-recorded-mutation-reader.mjs'),'utf8');
   assert.match(replay,/operation==='source-review\.record'\)return phaseSourceReviewerAdmission/u);
   assert.match(replay,/const facts=phaseAgentMutationFacts/u,'every other decision retains its normal read-only role prohibition');
+});
+
+test('constitution policy values remain pure while native YAML formatting, file access and CLI hints stay in their adapter',async()=>{
+  const owner='src/kernel/constitution.mjs',graph=await inspectPureModuleGraph({root:packageRoot,entries:[owner,'src/kernel/constitution-publication.mjs'],
+    allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});
+  assert.deepEqual(graph.problems,[]);
+  const pure=await readFile(path.join(packageRoot,owner),'utf8'),native=await readFile(path.join(packageRoot,'src/constitution.mjs'),'utf8');
+  assert.doesNotMatch(pure,/node:|from ['"]yaml|singularity-flow constitution |readFile|writeFile|Date\.now|new Date\(\)/u);
+  assert.match(native,/constitutionValuePolicies/u);assert.match(native,/renderDataPreservingFormatting/u);assert.match(native,/readFile/u);
+  assert.doesNotMatch(native,/function articleHash|function validateCitations|function requiredArticles|function buildConstitutionException/u);
+  assert.match(await readFile(path.join(packageRoot,'src/schema-migrations.mjs'),'utf8'),/family\(CONSTITUTION_RECORD_SCHEMA\)/u);
+  const reader=await readFile(path.join(packageRoot,'src/engine-storage/namespace-constitution-reader.mjs'),'utf8');
+  assert.match(reader,/constitutionPublicationPolicies/u);assert.doesNotMatch(reader,/node:fs|child_process|Date\.now|new Date\(\)|\.transact\(|\.put\(/u);
+  const binding=await readFile(path.join(packageRoot,'src/engine-compatibility/node-constitution-policy.mjs'),'utf8');
+  assert.match(binding,/from 'yaml'/u);assert.doesNotMatch(binding,/node:fs|child_process|state\.mjs|commands\//u);
 });

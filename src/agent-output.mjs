@@ -90,6 +90,34 @@ export function readerFields(result) {
 }
 // Reader fields leave after the rest, and among them in the list's order from its end: the checklist a person answers
 // stays longer than the route phase show names next.
+/**
+ * The session entry every Story skill turn runs first fits whole (owner decision, 2026-11-10). From its execution
+ * context a turn reads which context it is and the Story's binding and pin: skills read
+ * `executionContext.story.binding` (its baseRef, /sf-regression-investigate); the guard and the hooks bind from their
+ * own turn record, never from this view. From `taskResume` the skills' output contract reads the operation, its spent
+ * budgets and its exact next step, as a route. The rest stays in the kept result (`result last`) and in `--json`.
+ */
+export const SESSION_ENTRY_VIEW = Object.freeze({
+  executionContext: Object.freeze(['contextId', 'story']),
+  story: Object.freeze(['id', 'phase', 'status', 'binding', 'configurationPin']),
+  taskResume: Object.freeze(['operationId', 'role', 'generation', 'state', 'complete', 'resumed', 'inputChanged', 'authority', 'error',
+    'nextAction', 'handoff', 'checkpoints', 'remaining', 'continuationBudget', 'repairConsumed', 'repairConditions']),
+  route: Object.freeze(['command', 'copilotCommand', 'modelFreeCommand'])
+});
+const picked = (value, fields) => (value && typeof value === 'object' && !Array.isArray(value)
+  ? Object.fromEntries(fields.filter((field) => value[field] !== undefined).map((field) => [field, value[field]])) : value);
+/** The session entry as a skill turn reads it: SESSION_ENTRY_VIEW's fields of its execution context and task resume. */
+export function sessionEntryForAgent(result) {
+  const context = result.executionContext;
+  const resume = result.taskResume;
+  return { ...result,
+    ...(context && typeof context === 'object' ? { executionContext: { ...picked(context, SESSION_ENTRY_VIEW.executionContext),
+      ...(context.story ? { story: picked(context.story, SESSION_ENTRY_VIEW.story) } : {}) } } : {}),
+    ...(resume && typeof resume === 'object' ? { taskResume: { ...picked(resume, SESSION_ENTRY_VIEW.taskResume),
+      ...(resume.nextAction ? { nextAction: picked(resume.nextAction, SESSION_ENTRY_VIEW.route) } : {}),
+      ...(resume.handoff ? { handoff: picked(resume.handoff, SESSION_ENTRY_VIEW.route) } : {}) } } : {}) };
+}
+
 const readerLast = (reader) => {
   const order = [...reader];
   const weight = (key) => (reader.has(key) ? order.length - order.indexOf(key) : 0);
@@ -1012,6 +1040,7 @@ export async function boundedAgentOutput(text, options = {}) {
       return bytes(text) <= budget ? text : literalEnvelope(text, { budget, literal: Array.isArray(result) ? 'json-array' : 'not-json', unkept: error });
     }
     const { agentJson } = await import('./agent-packet-presentation.mjs');
+    if (result.resultType === 'sflow-session-entry') result = sessionEntryForAgent(result);
     const derived = result.act ?? agentAct(result);
     const rest = Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act'));
     const routed = await withAgentRoutes(derived ? { act: derived, ...rest } : result);
@@ -1040,6 +1069,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     delete result.pending;
   } else delete result.sheet;
   if (result.data && typeof result.data === 'object') delete result.data.sheet;
+  if (result.resultType === 'sflow-session-entry') result = sessionEntryForAgent(result);
   const { agentJson } = await import('./agent-packet-presentation.mjs');
   // The repository is resolved only when it is needed (a counted result or one to write), so the
   // small reads every skill turn makes cost no extra Git process.

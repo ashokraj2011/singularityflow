@@ -31,6 +31,8 @@ const Operation = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('add-row'), clauseId: clause, claim: z.record(z.string(), z.unknown()) }),
   // A row for a clause an intent amendment removed from the specification [PHR:REQ-002, finding 15].
   z.strictObject({ op: z.literal('remove-row'), clauseId: clause, previousClaimSha256: sha }),
+  // The row still holds for a clause an intent amendment revised, as the plan's approvers signed [PHR:REQ-008].
+  z.strictObject({ op: z.literal('keep-row'), clauseId: clause, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('set-fulfillment'), clauseId: clause, fulfillment: fulfillmentKind, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('add-test'), clauseId: clause, test: portablePath, previousClaimSha256: sha }),
   z.strictObject({ op: z.literal('remove-test'), clauseId: clause, test: portablePath, previousClaimSha256: sha }),
@@ -55,8 +57,9 @@ export const PlanRowCorrectionSchema = z.strictObject({
   // SF Guard: the person's presence signature, or the exception it went ahead under (person-records.mjs).
   presence: z.record(z.string(), z.unknown()).optional(),
 }).refine((value) => (value.reviewAssurance === 'intent-amendment-decision'
-  ? Boolean(value.intentAmendment) && value.authorizationId === null && value.operations.every((operation) => ['add-row', 'remove-row'].includes(operation.op))
-  : !value.intentAmendment && value.authorizationId !== null), { message: 'a correction is reviewed in a terminal, or carried by an intent amendment' });
+  ? Boolean(value.intentAmendment) && value.authorizationId === null
+  : !value.intentAmendment && value.authorizationId !== null && value.operations.every((operation) => operation.op !== 'keep-row')),
+{ message: 'a correction is reviewed in a terminal, or carried by an intent amendment, which alone keeps a row as it is' });
 
 function invalid(message, details = undefined) {
   throw new SingularityFlowError(message, { code: 'PLAN_ROW_CORRECTION_INTEGRITY', ...(details ? { details } : {}) });
@@ -100,6 +103,8 @@ function applyOperation(result, operation, { check }) {
     if (result.verificationContracts) result.verificationContracts = result.verificationContracts.filter((entry) => entry.clauseId !== id);
     return;
   }
+  // Bound to the row as it was signed; it changes nothing.
+  if (operation.op === 'keep-row') return;
   if (operation.op === 'set-fulfillment') {
     check((claim.fulfillment ?? null) !== operation.fulfillment, `${id} is already planned as ${operation.fulfillment}.`, { clauseId: id });
     claim.fulfillment = operation.fulfillment;
@@ -182,7 +187,7 @@ export function planCorrectionAuthorities(workflow, ownerPhase) {
  */
 export function recordPlanRowCorrection(workflow, {
   ownerRecord, ownerMapSha256, operations = [], activeClauseIds = [], normalizeRow, validate = () => {},
-  reason, actor, authorityGroup, identityAssurance = null, authorizationId, at, upstreamIssue = null
+  reason, actor, authorityGroup, identityAssurance = null, authorizationId, at, upstreamIssue = null, intentAmendment = null
 }) {
   if (!ownerRecord || ownerRecord.kind !== 'planned') refused('A plan correction needs the approved plan it corrects.');
   if (!operations.length || operations.length > MAX_OPERATIONS) {
@@ -199,7 +204,10 @@ export function recordPlanRowCorrection(workflow, {
     }
     if (input.op !== 'remove-row' && !active.has(clauseId)) refused(`${clauseId || 'That clause'} is not an approved clause of this Story.`, { clauseId });
     let operation;
-    if (input.op === 'remove-row') {
+    if (input.op === 'keep-row') {
+      if (!intentAmendment) refused(`--keep-row says ${clauseId}'s row still holds for its revised wording, which an intent amendment carries; correct the row instead.`, { clauseId });
+      operation = { op: 'keep-row', clauseId };
+    } else if (input.op === 'remove-row') {
       operation = { op: 'remove-row', clauseId };
     } else if (input.op === 'add-row') {
       const raw = {
@@ -246,8 +254,11 @@ export function recordPlanRowCorrection(workflow, {
   const correction = {
     id: `PRC-${String(sequence).padStart(3, '0')}`, kind: 'plan-row-correction',
     ownerPhase: ownerRecord.phase, ownerGeneration: Number(ownerRecord.generation), ownerMapSha256,
-    operations: recorded, reason: text, actor, authorityGroup, identityAssurance, authorizationId,
-    reviewAssurance: 'live-terminal-exact-plan-review', at, upstreamIssue
+    operations: recorded, reason: text, actor, authorityGroup, identityAssurance,
+    // The rows an intent amendment carries are checked here exactly as decision plan's (amendment-plan-corrections.mjs).
+    ...(intentAmendment ? { authorizationId: null, reviewAssurance: 'intent-amendment-decision', intentAmendment }
+      : { authorizationId, reviewAssurance: 'live-terminal-exact-plan-review' }),
+    at, upstreamIssue
   };
   const checked = PlanRowCorrectionSchema.safeParse(correction);
   if (!checked.success) {

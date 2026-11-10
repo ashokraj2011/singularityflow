@@ -18,7 +18,9 @@ It takes precedence over everything below where they differ. Each check this spe
   a later step finds nothing new for unchanged inputs.
 - `[PHR:REQ-008]` **A later step that changes the inputs owns the result** (it edits code after approval, or amends a
   document) and repairs it there. An intent amendment that would leave a separate plan with gaps carries the plan's
-  row corrections itself, signed by the plan's approvers in the same decision; the plan keeps its approval.
+  row corrections itself, signed by the plan's approvers in the same decision; the plan keeps its approval. So does
+  one that revises a clause the plan has a row for: it carries that row as it stands (`--keep-row`) or updated, and
+  the signed row keeps the plan's evidence of that clause current across the scope revision (owner, 2026-11-10).
 - `[PHR:REQ-009]` **The upstream routes are a safety net**, for drift or a checker bug: `reject --to`, an upstream
   issue, a revalidation. Nothing relies on reaching them.
 - `[PHR:REQ-010]` **The ratchet holds the policy.** A refusal at a later step that judges an earlier step's output is

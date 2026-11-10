@@ -257,9 +257,8 @@ test('[PHR:REQ-008] owner decision 4: the rows an intent amendment carries are i
   assert.deepEqual(planRowCorrections(workflow).map((entry) => entry.id), ['PRC-001']);
   workflow.intentAmendments[0].status = 'rejected';
   assert.equal(applyPlanCorrections(record, workflow).claims[AC3], undefined, 'a rejected amendment carries nothing');
-  // An amendment carries only rows it adds or removes; any other correction is decision plan's, reviewed in a terminal.
-  assert.throws(() => sign({ operations: [{ op: 'add-test', clauseId: AC1, test: 'test/more.test.mjs', previousClaimSha256: recordSha256(record.claims[AC1]) }] }),
-    { code: 'PLAN_ROW_CORRECTION_INVALID' });
+  // A carried record names its amendment and no terminal authorization; a terminal-reviewed one the reverse.
+  assert.throws(() => sign({ operations: [{ op: 'not-a-row-change', clauseId: AC1 }] }), { code: 'PLAN_ROW_CORRECTION_INVALID' });
   assert.throws(() => correct(subject().workflow, record, [{ op: 'add-test', clauseId: AC1, test: 'test/more.test.mjs' }], { authorizationId: null }),
     { code: 'PLAN_ROW_CORRECTION_INVALID' }, 'a terminal-reviewed correction keeps its authorization');
 });
@@ -272,4 +271,22 @@ test('[PHR:REQ-008] several new rows each name their tests with --test <clause>=
     { code: 'PLAN_ROW_CORRECTION_INVALID' }, 'a test for a row this command does not add');
   // One row keeps its plain --test, as before.
   assert.deepEqual(planCorrectionOperations({ 'add-row': `${AC3}=src/b.mjs`, test: 'test/b.test.mjs' })[0].tests, ['test/b.test.mjs']);
+});
+
+test('[PHR:REQ-008] owner decision 4: a revised clause\'s row is kept as it stands only by an intent amendment, bound to that row', () => {
+  const { record, workflow } = subject();
+  const keep = [{ op: 'keep-row', clauseId: AC1 }];
+  // decision plan cannot say a row still holds: only the amendment that revised the clause carries that.
+  assert.throws(() => correct(structuredClone(workflow), record, keep), (error) => error.code === 'PLAN_ROW_CORRECTION_INVALID' && /--keep-row/u.test(error.message));
+  const carried = correct(structuredClone(workflow), record, keep, { authorizationId: null, intentAmendment: 'AMD-002' });
+  assert.deepEqual([carried.reviewAssurance, carried.intentAmendment, carried.authorizationId], ['intent-amendment-decision', 'AMD-002', null]);
+  assert.deepEqual(carried.operations, [{ op: 'keep-row', clauseId: AC1, previousClaimSha256: recordSha256(record.claims[AC1]) }]);
+  workflow.planAmendments = [carried];
+  workflow.intentAmendments = [{ id: 'AMD-002', status: 'approved' }];
+  assert.deepEqual(applyPlanCorrections(record, workflow).claims[AC1], record.claims[AC1], 'the row stands as it is');
+  // A row that changed after the amendment was signed is not the row it kept.
+  const changed = structuredClone(record);
+  changed.claims[AC1].tests = ['test/other.test.mjs'];
+  assert.throws(() => applyPlanCorrections(changed, workflow), { code: 'PLAN_ROW_CORRECTION_INTEGRITY' });
+  assert.deepEqual(planCorrectionOperations({ 'keep-row': AC1 }), [{ op: 'keep-row', clauseId: AC1 }]);
 });

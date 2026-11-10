@@ -451,3 +451,21 @@ test('[PHR:REQ-006] owner decision 3: a failed visual comparison holds the visua
   assert.equal(activeVisualRisk(story, { ...failed, differingPixels: 13 }), null);
   assert.equal(activeVisualRisk(story, failed, { at: new Date(Date.now() + 30 * 86_400_000).toISOString() }), null);
 });
+
+test('[PHR:REQ-008] owner decision 4: a plan row an approved amendment carried keeps the plan\'s evidence of that clause current', async () => {
+  const { scopeStaleness } = await import('../src/scope/revisions.mjs');
+  const { amendmentRowCarriers } = await import('../src/scope/carried-evidence.mjs');
+  const AC = 'ROW-1:AC-001';
+  const story = (status) => ({ workItem: { id: 'ROW-1' }, phaseOrder: ['specification', 'planning'],
+    phases: { planning: { id: 'planning', approvalPolicy: { authorities: ['planners'] } } },
+    scopeRevisions: [{ revision: 2, changes: { added: [], revised: [AC], removed: [] }, origin: { kind: 'intent-amendment', id: 'AMD-001', phase: 'specification', generation: 2 },
+      dependentGenerations: { planning: 1 } }],
+    intentAmendments: [{ id: 'AMD-001', status }],
+    planAmendments: [{ kind: 'plan-row-correction', id: 'PRC-001', ownerPhase: 'planning', ownerGeneration: 1, intentAmendment: 'AMD-001',
+      operations: [{ op: 'keep-row', clauseId: AC }], actor: 'planner@example.test', authorityGroup: 'planners', at: '2026-11-10T00:00:00Z' }] });
+  const read = (workflow) => scopeStaleness(workflow, [{ id: AC }], { rowCarriers: amendmentRowCarriers(workflow) });
+  assert.equal(read(story('approved')).staleBy(AC, 'planning', 1), null, 'the plan\'s approvers signed its row under the revision');
+  assert.equal(read(story('approved')).carriedBy(AC, 'planning', 1)[0]?.amendment, 'AMD-001');
+  assert.equal(read(story('proposed')).staleBy(AC, 'planning', 1)?.revision, 2, 'an amendment not yet approved carries nothing');
+  assert.equal(read(story('approved')).staleBy(AC, 'implementation', 1), null, 'nothing for a step the revision did not record');
+});

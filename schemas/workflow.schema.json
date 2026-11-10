@@ -1139,6 +1139,8 @@
                   "properties": { "op": { "const": "add-row" }, "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\\d{3}$" }, "claim": { "type": "object" } } },
                 { "type": "object", "required": ["op", "clauseId", "previousClaimSha256"], "additionalProperties": false,
                   "properties": { "op": { "const": "remove-row" }, "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\\d{3}$" }, "previousClaimSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+                { "type": "object", "required": ["op", "clauseId", "previousClaimSha256"], "additionalProperties": false,
+                  "properties": { "op": { "const": "keep-row" }, "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\\d{3}$" }, "previousClaimSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
                 { "type": "object", "required": ["op", "clauseId", "test", "previousClaimSha256"], "additionalProperties": false,
                   "properties": { "op": { "const": "add-test" }, "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\\d{3}$" }, "test": { "type": "string", "minLength": 1, "maxLength": 512 }, "previousClaimSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
                 { "type": "object", "required": ["op", "clauseId", "path", "previousClaimSha256"], "additionalProperties": false,

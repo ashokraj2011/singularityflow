@@ -18,6 +18,7 @@ import { planCorrectionOperations } from './commands/plan-correction.mjs';
 import { upheldIntentRows } from './phase-finding-dispute.mjs';
 import { ownerStepChecks, scopeStepOf } from './phase-roles.mjs';
 import { planClauseGaps } from './plan-clause-gaps.mjs';
+import { staleClausesOf } from './scope/revisions.mjs';
 import { applyPlanCorrections, PlanRowCorrectionSchema, planCorrectionAuthorities, recordPlanRowCorrection } from './plan-row-corrections.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { countedRecords } from './presence/counted.mjs';
@@ -27,7 +28,10 @@ import { workDir, workDirRelative } from './story-paths.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { validatePlannedVerification } from './verification/intent.mjs';
 
-const CARRIED = Object.freeze(['add-row', 'remove-row']);
+// A row for a clause the amendment adds, or removes; and, for a clause it revises that the plan has a row for, that
+// row as it stands (keep-row) or updated with the decision plan corrections [PHR:REQ-008].
+const ROW_UPDATES = Object.freeze(['keep-row', 'set-fulfillment', 'add-test', 'remove-test', 'replace-test', 'remove-location', 'replace-location']);
+const CARRIED = Object.freeze(['add-row', 'remove-row', ...ROW_UPDATES]);
 const upper = (value) => String(value ?? '').toUpperCase();
 
 function refused(message, details = undefined) {
@@ -40,20 +44,23 @@ function proposeCommand(workflow, file, flags) {
     `--file ${file ? JSON.stringify(file) : '<FILE>'}`, '--reason "<why the specification changes>"', ...flags].join(' ');
 }
 
-/** The decision plan flags that plan `unplanned` and remove `removed`: one --test per new row. */
-function rowFlags(unplanned, removed) {
+/** The flags that plan `unplanned`, remove `removed` and keep `revised` as they stand: one --test per new row. */
+function rowFlags(unplanned, removed, revised = []) {
   const added = [...new Set(unplanned)];
   return [...added.map((id) => `--add-row ${id}=<PATH>`),
     ...(added.length === 1 ? ['--test <TEST>'] : added.map((id) => `--test ${id}=<TEST>`)),
-    ...[...new Set(removed)].map((id) => `--remove-row ${id}`)];
+    ...[...new Set(removed)].map((id) => `--remove-row ${id}`),
+    ...[...new Set(revised)].map((id) => `--keep-row ${id}`)];
 }
+
+const flagsOf = (gaps) => rowFlags(gaps.flatMap((gap) => gap.unplanned), gaps.flatMap((gap) => gap.removed), gaps.flatMap((gap) => gap.revised ?? []));
 
 /**
  * The rows a proposal carries for each separate approved plan it would part from, checked exactly as
  * decision plan checks them but against the amended clauses, and the gaps it still leaves. Only for a
  * Story that pinned the owner-step checks; one started before keeps its policy and carries nothing.
  */
-export async function carriedPlanCorrections(root, config, workflow, { afterClauses, options, proposalId, reason, file = null }) {
+export async function carriedPlanCorrections(root, config, workflow, { afterClauses, diff = null, options, proposalId, reason, file = null }) {
   const operations = planCorrectionOperations(options);
   if (!ownerStepChecks(workflow)) {
     if (operations.length) {
@@ -64,7 +71,7 @@ export async function carriedPlanCorrections(root, config, workflow, { afterClau
   }
   const misplaced = operations.find((operation) => !CARRIED.includes(operation.op));
   if (misplaced) {
-    refused(`An amendment carries only the rows a separate plan lacks for a clause it adds, or holds for one it removes; ${misplaced.op} ${misplaced.clauseId} is a correction for decision plan once it is approved.`,
+    refused(`An amendment carries only a separate plan's rows for the clauses it adds, removes or revises; ${misplaced.op} ${misplaced.clauseId} is a correction for decision plan.`,
       { recoveryCommand: proposeCommand(workflow, file, []) });
   }
   const scope = scopeStepOf(workflow);
@@ -78,6 +85,8 @@ export async function carriedPlanCorrections(root, config, workflow, { afterClau
   // The clauses the Story holds once the amendment is approved: the proposed scope's and every other document's.
   const clauses = [...(records.indexes ?? []).filter((index) => index.phase !== scope?.id).flatMap((index) => index.clauses ?? []), ...afterClauses];
   const clauseIds = [...new Set(clauses.map((clause) => upper(clause.id)))];
+  // What the amendment makes stale, as its scope revision will: each clause it adds or revises, and each one that depends on one.
+  const stale = staleClausesOf({ changes: { added: diff?.added ?? [], revised: diff?.revised ?? [] } }, clauses);
   const normalizeRow = (clauseId, raw) => normalizeClaimMap({ claims: { [clauseId]: raw } }, { kind: 'planned', clauseIds, policy }).claims[clauseId];
   const used = new Set();
   const corrections = [];
@@ -87,15 +96,20 @@ export async function carriedPlanCorrections(root, config, workflow, { afterClau
     const ownerRecord = (records.planned ?? []).find((record) => !record.amendment && record.phase === id);
     if (!ownerRecord) continue;
     const gap = planClauseGaps(workflow, id, ownerRecord.claims, clauseIds);
+    // A revised clause the plan has a row for: the plan's approvers say how that row stands under the new wording
+    // (owner-step checks level 2; a Story pinned before keeps its policy, and the plan runs again as before).
+    const revised = ownerStepChecks(workflow, 2) ? Object.keys(ownerRecord.claims ?? {}).map(upper).filter((clause) => stale.has(clause)).sort() : [];
+    const targets = (operation) => (operation.op === 'add-row' ? gap.unplanned : operation.op === 'remove-row' ? gap.removed : revised);
     const mine = operations.filter((operation, index) => {
-      const hit = (operation.op === 'add-row' ? gap.unplanned : gap.removed).includes(upper(operation.clauseId));
+      const hit = targets(operation).includes(upper(operation.clauseId));
       if (hit) used.add(index);
       return hit;
     });
-    const carried = new Set(mine.map((operation) => `${operation.op}:${upper(operation.clauseId)}`));
+    const carried = new Set(mine.map((operation) => `${ROW_UPDATES.includes(operation.op) ? 'update' : operation.op}:${upper(operation.clauseId)}`));
     const left = { phase: id, unplanned: gap.unplanned.filter((clause) => !carried.has(`add-row:${clause}`)),
-      removed: gap.removed.filter((clause) => !carried.has(`remove-row:${clause}`)) };
-    if (left.unplanned.length || left.removed.length) uncovered.push(left);
+      removed: gap.removed.filter((clause) => !carried.has(`remove-row:${clause}`)),
+      revised: revised.filter((clause) => !carried.has(`update:${clause}`)) };
+    if (left.unplanned.length || left.removed.length || left.revised.length) uncovered.push(left);
     if (!mine.length) continue;
     // Rows the plan's approvers upheld against the approved intent stay upheld through the correction [PHR:REQ-003].
     const ownerText = await readFile(path.join(root, requiredRepoPath(config, workflow, owner)), 'utf8').catch(() => null);
@@ -104,15 +118,15 @@ export async function carriedPlanCorrections(root, config, workflow, { afterClau
       ownerRecord, ownerMapSha256: owner.claimMaps.planned.sha256, operations: mine, activeClauseIds: clauseIds, normalizeRow,
       validate: (plan) => validatePlannedVerification(plan.claims, plan.verificationContracts ?? [], clauses, { upheld }),
       reason: amendmentReason(proposalId, reason), actor: 'preview', authorityGroup: 'preview',
-      authorizationId: '00000000-0000-4000-8000-000000000000', at: nowIso()
+      authorizationId: null, at: nowIso(), intentAmendment: proposalId
     });
     corrections.push({ ownerPhase: id, ownerGeneration: Number(owner.generation), ownerMapSha256: owner.claimMaps.planned.sha256,
       operations: correction.operations });
   }
   const stray = operations.filter((_, index) => !used.has(index));
   if (stray.length) {
-    refused(`${stray.map((operation) => `${operation.op} ${upper(operation.clauseId)}`).join(', ')}: no separate approved plan lacks that row for a clause this amendment adds, or holds it for one it removes.`,
-      { recoveryCommand: proposeCommand(workflow, file, rowFlags(uncovered.flatMap((gap) => gap.unplanned), uncovered.flatMap((gap) => gap.removed))) });
+    refused(`${stray.map((operation) => `${operation.op} ${upper(operation.clauseId)}`).join(', ')}: no separate approved plan has that row to carry for a clause this amendment adds, removes or revises.`,
+      { recoveryCommand: proposeCommand(workflow, file, flagsOf(uncovered)) });
   }
   return { corrections, uncovered };
 }
@@ -124,11 +138,11 @@ export function amendmentReason(proposalId, reason) {
 
 /** A proposal that would leave a separate plan with a gap, refused where it is made with the rows to carry. */
 export function uncorrectedPlanRefusal(workflow, uncovered, { file = null } = {}) {
-  const unplanned = uncovered.flatMap((gap) => gap.unplanned);
-  const removed = uncovered.flatMap((gap) => gap.removed);
   const parts = uncovered.map((gap) => `${gap.phase} ${[gap.unplanned.length ? `has no row for ${gap.unplanned.join(', ')}` : null,
-    gap.removed.length ? `still has rows for ${gap.removed.join(', ')}, which it removes` : null].filter(Boolean).join(' and ')}`);
-  const command = proposeCommand(workflow, file, rowFlags(unplanned, removed));
+    gap.removed.length ? `still has rows for ${gap.removed.join(', ')}, which it removes` : null,
+    (gap.revised ?? []).length ? `has rows for ${gap.revised.join(', ')}, which it revises (keep each with --keep-row, or update it with a decision plan correction)` : null]
+    .filter(Boolean).join(' and ')}`);
+  const command = proposeCommand(workflow, file, flagsOf(uncovered));
   return new SingularityFlowError(`This amendment would leave the approved plan apart from the clauses it holds: ${parts.join('; ')}. `
     + 'The amendment carries those rows, so the plan keeps its approval and its approvers sign them when they decide it. '
     + 'Propose it again with each row (the decision plan flags). Nothing was proposed.', {
@@ -205,7 +219,7 @@ export async function amendmentPlanReadiness(root, config, workflow, proposal, c
 /** The carried rows no longer fit a plan: rejected and proposed again against the plan as it is now. */
 export function stalePlanCorrectionRefusal(workflow, proposal, { stale, uncovered }) {
   const reject = `singularity-flow story intent-amendment decide ${proposal.id} --decision reject --confirm ${proposal.id} --work-id ${workflow.workItem.id} --reason "<why>"`;
-  const again = proposeCommand(workflow, null, rowFlags(uncovered.flatMap((gap) => gap.unplanned), uncovered.flatMap((gap) => gap.removed)));
+  const again = proposeCommand(workflow, null, flagsOf(uncovered));
   const parts = [...stale.map((entry) => entry.reason),
     ...uncovered.map((gap) => `${gap.phase} would still part from the amended clauses (${[...gap.unplanned, ...gap.removed].join(', ')})`)];
   return new SingularityFlowError(`${proposal.id}'s plan rows no longer fit the approved plan: ${parts.join('; ')}. `

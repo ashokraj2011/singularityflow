@@ -691,7 +691,7 @@ function intentAmendmentItem(workflow, context, amendment) {
   const decide = (decision) => `singularity-flow story intent-amendment decide ${amendment.id} --decision ${decision} --confirm ${amendment.id} --work-id ${workId}`;
   // The rows it carries for a separate plan: that plan's approvers sign them by deciding it, and the plan keeps its approval [PHR:REQ-008].
   const plans = (amendment.planCorrections ?? []).map((entry) => entry.ownerPhase);
-  const carries = plans.length ? ` It carries the rows ${listWords(plans.map((id) => stepName(workflow, id)))} needs for the clauses it adds or removes: `
+  const carries = plans.length ? ` It carries the rows ${listWords(plans.map((id) => stepName(workflow, id)))} needs for the clauses it adds, removes or revises: `
     + `an approver of ${listWords(plans.map((id) => stepName(workflow, id)))} signs them by deciding it, and ${plans.length === 1 ? 'that plan keeps its' : 'those plans keep their'} approval.` : '';
   return stepItem(workflow, context, {
     kind: 'intent-amendment', title: `Decide intent amendment ${amendment.id}`,

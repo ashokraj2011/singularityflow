@@ -65,6 +65,8 @@ export function planCorrectionOperations(options) {
       ...(byRow ? { tests: named.filter((match) => match[1].toUpperCase() === clauseId.toUpperCase()).map((match) => match[2]) } : {}) })),
     // A row for a clause the specification no longer holds, after an intent amendment [PHR:REQ-002].
     ...optionStrings(options, 'remove-row').map((entry) => ({ op: 'remove-row', clauseId: String(entry).trim() })),
+    // A row that still holds for the wording an intent amendment revised; only an amendment carries it [PHR:REQ-008].
+    ...optionStrings(options, 'keep-row').map((entry) => ({ op: 'keep-row', clauseId: String(entry).trim() })),
     // Before tests and paths, so they correct the row as the new fulfillment reads it.
     ...optionStrings(options, 'set-fulfillment').map((entry) => {
       const [clauseId, fulfillment] = pair(entry, '--set-fulfillment', '=', 'fulfillment');

@@ -32,6 +32,28 @@ export function revalidationCarriers(workflow) {
 }
 
 /**
+ * The plan rows an approved intent amendment carried, by amendment, plan, plan generation and clause [PHR:REQ-008]:
+ * the plan's approvers signed each one in their decision on the amendment, so the plan's evidence of that clause
+ * holds across the amendment's scope revision, as a "still holds" answer does for a whole step. A row it removed
+ * carries nothing.
+ */
+export function amendmentRowCarriers(workflow) {
+  const approved = new Set((workflow?.intentAmendments ?? []).filter((entry) => ['approved', 'revalidated'].includes(entry?.status)).map((entry) => entry.id));
+  const carriers = new Map();
+  for (const entry of countedRecords(workflow, workflow?.planAmendments)) {
+    if (entry?.kind !== 'plan-row-correction' || !approved.has(entry.intentAmendment)) continue;
+    const policy = workflow?.phases?.[entry.ownerPhase]?.approvalPolicy ?? {};
+    if (![...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])].includes(entry.authorityGroup)) continue;
+    for (const operation of entry.operations ?? []) {
+      if (operation.op === 'remove-row') continue;
+      carriers.set(`${entry.intentAmendment}\u0000${entry.ownerPhase}\u0000${Number(entry.ownerGeneration)}\u0000${String(operation.clauseId).toUpperCase()}`,
+        { amendment: entry.intentAmendment, actor: entry.actor, authorityGroup: entry.authorityGroup, at: entry.at, record: entry.id });
+    }
+  }
+  return carriers;
+}
+
+/**
  * Who said it still holds, as a person reads it: the name a v2 answer keeps beside its actor key, else
  * the key itself (a v1 answer, written before names were kept, has none).
  */

@@ -16,7 +16,7 @@ import { countedApprovals } from '../presence/counted.mjs';
 import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, plannedProductSourcePaths, testOnlyClaimEvidence } from '../specifications.mjs';
-import { revalidationCarriers, revalidatorName } from '../scope/carried-evidence.mjs';
+import { amendmentRowCarriers, revalidationCarriers, revalidatorName } from '../scope/carried-evidence.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';
 import { scopeDecisionArgv, scopeDecisionCommandLine } from '../scope/extract.mjs';
 import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
@@ -272,7 +272,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   };
   const plannedFrom = provenance(records.planned ?? []);
   const observedFrom = provenance(records.observed ?? []);
-  const staleness = scopeStaleness(workflow, clauses, { carriers: revalidationCarriers(workflow) });
+  const staleness = scopeStaleness(workflow, clauses, { carriers: revalidationCarriers(workflow), rowCarriers: amendmentRowCarriers(workflow) });
   const atGeneration = (ids) => ids.map((phaseId) => ({ phaseId, generation: phases[phaseId]?.generation ?? 0 }));
   const submittedCode = codePhaseIds.length > 0 && codePhaseIds.every((id) =>
     phaseFinished(phases[id]) || deliveries.some((delivery) => delivery.phaseId === id && delivery.receipt?.status === 'ready'));

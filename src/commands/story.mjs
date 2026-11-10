@@ -2133,7 +2133,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
   const id = `AMD-${String(index).padStart(3, '0')}`;
   const planRows = await import('../amendment-plan-corrections.mjs');
   const { corrections: planCorrections, uncovered } = await planRows.carriedPlanCorrections(root, config, workflow,
-    { afterClauses, options, proposalId: id, reason, file: candidate });
+    { afterClauses, diff, options, proposalId: id, reason, file: candidate });
   if (uncovered.length) throw planRows.uncorrectedPlanRefusal(workflow, uncovered, { file: candidate });
   const requiredClauses = intentAmendmentClauses(diff, optionStrings(options, 'clause'));
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
@@ -2208,7 +2208,8 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     acknowledgementRequired: false,
     ...(planCorrections.length ? { planCorrections: planCorrections.map((entry) => ({ ownerPhase: entry.ownerPhase,
       addsRows: entry.operations.filter((operation) => operation.op === 'add-row').map((operation) => operation.clauseId),
-      removesRows: entry.operations.filter((operation) => operation.op === 'remove-row').map((operation) => operation.clauseId) })) } : {}),
+      removesRows: entry.operations.filter((operation) => operation.op === 'remove-row').map((operation) => operation.clauseId),
+      keepsRows: [...new Set(entry.operations.filter((operation) => !['add-row', 'remove-row'].includes(operation.op)).map((operation) => operation.clauseId))] })) } : {}),
     ...(departure ? { departure } : {})
   };
   const beforeWorkflow = structuredClone(workflow);
@@ -2451,7 +2452,7 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; commit ${result.publication.sha.slice(0, 8)}.`);
     for (const carried of result.proposal.planCorrections ?? []) {
-      console.log(`It carries ${carried.ownerPhase}'s rows (${carried.operations.map((operation) => `${operation.op === 'add-row' ? 'adds' : 'removes'} ${operation.clauseId}`).join(', ')}): `
+      console.log(`It carries ${carried.ownerPhase}'s rows (${carried.operations.map((operation) => `${operation.op === 'add-row' ? 'adds' : operation.op === 'remove-row' ? 'removes' : operation.op === 'keep-row' ? 'keeps' : 'updates'} ${operation.clauseId}`).join(', ')}): `
         + `an approver of ${carried.ownerPhase} signs them by deciding it, and ${carried.ownerPhase} keeps its approval.`);
     }
     printCommandRoutes(

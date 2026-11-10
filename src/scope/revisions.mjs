@@ -95,7 +95,7 @@ export function staleClausesOf(revision, clauses = []) {
  * amendment and the scope generation it made, for that step at that generation. Without `carriers`
  * nothing is carried.
  */
-export function scopeStaleness(workflow, clauses = [], { carriers = new Map() } = {}) {
+export function scopeStaleness(workflow, clauses = [], { carriers = new Map(), rowCarriers = new Map() } = {}) {
   const revisions = (workflow?.scopeRevisions ?? []).filter((revision) => revision.changes)
     .map((revision) => ({ revision, stale: staleClausesOf(revision, clauses) }));
   const carrierOf = (revision, phaseId, generation) => {
@@ -104,6 +104,9 @@ export function scopeStaleness(workflow, clauses = [], { carriers = new Map() } 
     const answer = carriers.get(`${origin.id}\u0000${phaseId}\u0000${Number(generation)}`);
     return answer && answer.binding.producer === origin.phase && Number(answer.binding.producerGeneration) === Number(origin.generation) ? answer : null;
   };
+  // A plan's row the amendment itself carried for this clause, signed by the plan's approvers (scope/carried-evidence.mjs) [PHR:REQ-008].
+  const rowCarrierOf = (revision, phaseId, generation, clauseId) => (revision.origin?.kind === 'intent-amendment'
+    ? rowCarriers.get(`${revision.origin.id}\u0000${phaseId}\u0000${Number(generation)}\u0000${clauseId}`) ?? null : null);
   const walk = (clauseId, phaseId, generation) => {
     const id = String(clauseId).toUpperCase();
     const carried = [];
@@ -113,7 +116,7 @@ export function scopeStaleness(workflow, clauses = [], { carriers = new Map() } 
       const { revision, stale } = revisions[index];
       if (!stale.has(id) || !Object.hasOwn(revision.dependentGenerations ?? {}, phaseId)) continue;
       if (Number(generation ?? 0) > Number(revision.dependentGenerations[phaseId])) continue;
-      const answer = carrierOf(revision, phaseId, generation);
+      const answer = carrierOf(revision, phaseId, generation) ?? rowCarrierOf(revision, phaseId, generation, id);
       if (!answer) return { revision, carried };
       carried.push({ revision: revision.revision, amendment: answer.amendment, phase: phaseId, generation: Number(generation),
         actor: answer.actor ?? null, actorName: answer.actorName ?? null, authorityGroup: answer.authorityGroup, at: answer.at ?? null });

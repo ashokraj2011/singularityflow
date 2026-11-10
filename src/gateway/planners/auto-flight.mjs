@@ -1,6 +1,6 @@
 /** Read-only AUT v2 projections for hosts. Mutations remain ordinary CLI/kernel operations. */
 import { listAutoFlights, projectAutoFlightReport } from '../../auto/auto-flight-store.mjs';
-import { readAutoPlan } from '../../auto/auto-plan.mjs';
+import { readAutoPlan } from '../../auto/auto-plan-read.mjs';
 import { buildAutoPlanPacket } from '../../auto/auto-plan-packet.mjs';
 import {
   autoFlightProductProjection, findAutoFlightForStory

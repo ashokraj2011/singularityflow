@@ -14,7 +14,7 @@ import { createNamespacePreparationEngine } from '../../src/engine-storage/names
 import { createFilesystemSourceUnit } from '../../src/sgos/filesystem-source-unit.mjs';
 import { createNamespaceSourceEngine } from '../../src/engine-storage/namespace-source.mjs';
 
-export async function namespacePreparationFixture(t,{backend='filesystem',code=false,configure=null}={}) {
+export async function namespacePreparationFixture(t,{backend='filesystem',code=false,configure=null,storyText}={}) {
   const f=await namespaceStoryFixture(t,{backend});
   let inputs=f.inputs;
   if(code||configure) {
@@ -32,6 +32,7 @@ export async function namespacePreparationFixture(t,{backend='filesystem',code=f
       confirm:reference.sha256,expectedRevision:f.approval.revision});
     inputs={...inputs,configurationId:operationId};
   }
+  if(storyText!==undefined)inputs={...inputs,source:(await f.content.put(f.scope,'state',Buffer.from(storyText))).reference};
   const story=await f.engine.run('story.create',inputs);
   const privateDirectory=await mkdtemp(path.join(os.tmpdir(),'sflow-private-preparation-')),binding={kind:'machine-local',deviceId:'test-device'};
   const journal=backend==='application'?await openSqliteNamespaceJournal({filename:path.join(privateDirectory,'records.db'),binding,create:true,limits:namespaceLimits()}):null;

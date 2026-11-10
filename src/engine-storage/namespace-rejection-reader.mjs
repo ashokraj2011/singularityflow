@@ -10,8 +10,8 @@ import {createNamespaceHumanDecisionReader} from './namespace-human-decision-rea
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceRejectionOwner({observer,scope,workId}){
   const checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
-  async function read(snapshot,request,{signal}={}){
-    const phase=snapshot.workflow.phases[request.phaseId],proof=await packets.inspect(snapshot,request.phaseId,{signal});
+  async function read(snapshot,request,{signal,policyTraversal}={}){
+    const phase=snapshot.workflow.phases[request.phaseId],proof=await packets.inspect(snapshot,request.phaseId,{signal,policyTraversal});
     if(!phase||!proof)throw error('Submit the exact publication before a reviewer returns it.','PHASE_SUBMISSION_REQUIRED');
     const approved=await observer.approved(snapshot,{signal}),required=new Set(primaryDocumentPublicationRequirements(snapshot.workflow,phase,{definition:approved.compiled.definition}));
     for(const owner of packets.publicationOwners(proof.published))required.delete(owner);

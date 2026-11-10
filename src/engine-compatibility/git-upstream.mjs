@@ -17,6 +17,8 @@ const detached=value=>JSON.parse(JSON.stringify(value));
 export function createGitUpstreamPort({root,onContext=()=>{}}) {
   return {
     async load(input) {
+      if(input.operationId!=null)refused('Explicit namespace decision IDs require their namespace record owner.','ENGINE_PORT_UNAVAILABLE',{
+        required:['namespace-decision-idempotency']});
       // The installed upstream route resolves accepted Story execution; it never changes checkout.
       const accepted=await loadAcceptedStoryExecution(root,input.workId??undefined);
       const context={root,config:accepted.definition,workflow:accepted.workflow,

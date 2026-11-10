@@ -133,7 +133,10 @@ function contentEntryManifest(binding,inspection,composition,clarification,plan,
   if(composition&&(composition.sha256!==inspection.facts.contextIdentity.sha256||composition.bytes!==inspection.facts.contextIdentity.bytes))bad();
   const {facts}=inspection;
   const inputs={workId:binding.workId,phaseId:binding.phase};
-  const action=plan.status==='retained-generation'?{operation:'phase.review',inputs}
+  const missing=facts.documents.missing,withDocuments=facts.documents.localDocumentCount>0;
+  const action=plan.status==='documents-required'&&missing.length?{operation:'document.read',inputs:{workId:binding.workId,reference:missing[0].id},
+    prerequisites:['upload-matching-original-on-this-device','reenter-phase-after-local-upload']}
+    :plan.status==='retained-generation'?{operation:'phase.review',inputs}
     :plan.status==='clarification-required'?{operation:'clarification.record',inputs:{...inputs,contextSha256:clarification.contextSha256,agentId:binding.authorAgentId,
       ...(clarification.record?{replace:true}:{})},prerequisites:['human-responses','authenticated-phase-authority',...(clarification.record?['review-existing-answers','reason']:[])]}
     :plan.status==='preparation-required'?{operation:'phase.prepare',inputs,prerequisites:['machine-local-working-store','phase.prepare-permission']}
@@ -141,7 +144,8 @@ function contentEntryManifest(binding,inspection,composition,clarification,plan,
     :plan.status==='authoring-entry'?{operation:'phase.draft.write',inputs:{...inputs,expectedRevision:facts.draft.revision},prerequisites:['authored-content-reference','operation-id','reason']}
     :plan.status==='author-permission-required'?{operation:'phase.enter',inputs,prerequisites:['phase.draft.write-permission']}
     :{operation:'phase.enter',inputs,prerequisites:inspection.admission.blockers.map(item=>item.code)};
-  return {schemaVersion:2,contract:CONTENT_PHASE_ENTRY_PROFILE,purpose:'phase-authoring',projectId:binding.projectId,workId:binding.workId,phase:binding.phase,
+  return {schemaVersion:withDocuments?3:2,contract:withDocuments?'sflow-phase-entry-manifest/v3':CONTENT_PHASE_ENTRY_PROFILE,
+    ...(withDocuments?{documents:structuredClone(facts.documents)}:{}),purpose:'phase-authoring',projectId:binding.projectId,workId:binding.workId,phase:binding.phase,
     publishedGeneration:binding.generation,inspectionGeneration:binding.inspectionGeneration,prospectiveGeneration:binding.nextGeneration,
     agentId:binding.agentId,authorAgentId:binding.authorAgentId,configuration:facts.configuration,revision:binding.revision,budgets:facts.budgets,resources:facts.resources,
     context:{...facts.contextIdentity,representation:'resource-manifest',delivered:Boolean(composition)},readsVerified:false,

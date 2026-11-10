@@ -58,7 +58,7 @@ test('Code policy reports replay rather than trusting revised verdicts, schemas,
     changed=structuredClone(p.report);
   changed.repositories[0].observed.claims['STORY-1:REQ-001'].paths=['src/other.js'];
   for(const [report,code]of [[changed,'ENGINE_STORAGE_CORRUPT'],[{...p.report,preflight:{}},'ENGINE_STORAGE_CORRUPT'],
-    [{...p.report,schemaVersion:3},'ENGINE_STORAGE_UNSUPPORTED'],[{...p.report,ready:true},'ENGINE_STORAGE_CORRUPT']]){
+    [{...p.report,schemaVersion:7},'ENGINE_STORAGE_UNSUPPORTED'],[{...p.report,schemaVersion:3},'ENGINE_STORAGE_CORRUPT'],[{...p.report,ready:true},'ENGINE_STORAGE_CORRUPT']]){
     const manifest={...p.manifest,report:await save(report)},policy={...p.policy,record:await save(manifest)},
       value={...p.value,policyEvidence:[policy]},binding={...p.binding,record:await save(value)};
     await assert.rejects(reader.read(binding,'build'),{code});

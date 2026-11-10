@@ -11,59 +11,19 @@
  * Both lists are append-only: an issue is never edited, and its decision is a separate record, so
  * each raise or decision is one appended entry. Pure: no I/O.
  */
-import { z } from 'zod';
-import {upstreamDispositionFacts} from './kernel/decision-plan.mjs';
+import {z} from 'zod';
+import {upstreamRecordShapes} from './kernel/upstream-issues.mjs';
 import { discrepancyItemSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates } from './upstream-routes.mjs';
-import { SingularityFlowError } from './util.mjs';
 
 // The pure state read lives with the routes, which every lifecycle command already loads, so the
 // conformance gate can ask it without loading this module's schemas [owner decision 2026-10-19].
 export { decidableUpstreamStep, upstreamIssueAuthorities, upstreamIssueStates };
 export { discrepancyItemSha256 };
 
-export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'dismiss']);
-export const UPSTREAM_ISSUE_PROPOSALS = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'unknown']);
-/** The longest problem an issue records; a longer recorded item is refused, never cut. */
-export const UPSTREAM_ISSUE_PROBLEM_MAXIMUM = 1000;
-const text = (minimum, maximum) => z.string().trim().min(minimum).max(maximum);
-const optionalText = z.string().trim().min(1).max(1000).nullable();
-
-export const UpstreamIssueSchema = z.strictObject({
-  id: z.string().regex(/^UPI-\d{3,}$/u),
-  phase: z.string().min(1),
-  raisedIn: z.strictObject({ phase: z.string().min(1).nullable(), status: z.string().min(1).nullable(), generation: z.number().int().nonnegative().nullable() }),
-  about: text(1, 200), problem: text(20, UPSTREAM_ISSUE_PROBLEM_MAXIMUM), assumption: optionalText, impact: optionalText,
-  proposed: z.enum(UPSTREAM_ISSUE_PROPOSALS),
-  producerGeneration: z.number().int().nonnegative(),
-  producerArtifacts: z.array(z.strictObject({ path: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable() })).max(50),
-  source: z.strictObject({ path: z.string().min(1).max(512), itemSha256: z.string().regex(/^[a-f0-9]{64}$/u) }).nullable(),
-  // Optional and written only when set: the open issue this one replaces (a wrong owning step).
-  supersedes: z.string().regex(/^UPI-\d{3,}$/u).optional(),
-  raisedBy: z.string().min(1), authored: z.enum(['human', 'governed-agent']), agent: z.string().min(1).nullable(),
-  at: z.string().datetime()
-});
-
-export const UpstreamIssueDecisionSchema = z.strictObject({
-  issue: z.string().regex(/^UPI-\d{3,}$/u),
-  outcome: z.enum(UPSTREAM_ISSUE_OUTCOMES),
-  reason: text(20, 1000),
-  link: z.string().regex(/^(?:PRC-\d{3,}|CR-\d{3,}|FAM-\d{3,})$/u).nullable(),
-  expiresAt: z.string().datetime().nullable(),
-  actor: z.string().min(1), authorityGroup: z.string().min(1), identityAssurance: z.string().nullable(),
-  at: z.string().datetime(),
-  // SF Guard: the person's presence signature, or the exception it went ahead under (person-records.mjs).
-  presence: z.record(z.string(), z.unknown()).optional(),
-});
-
-function refused(message, code = 'UPSTREAM_ISSUE_INVALID', details = undefined) {
-  throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
-}
-
-function order(workflow) {
-  return workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
-}
+export {UPSTREAM_ISSUE_OUTCOMES,UPSTREAM_ISSUE_PROPOSALS,UPSTREAM_ISSUE_PROBLEM_MAXIMUM} from './kernel/upstream-issues.mjs';
+import {UPSTREAM_ISSUE_PROPOSALS,UPSTREAM_ISSUE_PROBLEM_MAXIMUM,raiseUpstreamIssue as raiseObservedIssue,decideUpstreamIssue as decideObservedIssue} from './kernel/upstream-issues.mjs';
 
 // Story-qualified clause IDs (`W:REQ-001`) and bare ones; record IDs (UPI, CR, PRC, FAM) are not clauses.
 const CLAUSE_IDS = /\b(?:[A-Z0-9][A-Z0-9._-]{0,63}:)?[A-Z]{2,4}-\d{3}\b/gu;
@@ -138,59 +98,8 @@ export function discrepancyIssueRequests(workflow, entries) {
 }
 
 /** Record one issue against an earlier phase that has run. */
-export function raiseUpstreamIssue(workflow, {
-  phase, about, problem, assumption = null, impact = null, proposed = 'unknown', raisedBy, authored = 'human',
-  agent = null, source = null, supersedes = null, at
-}) {
-  const current = workflow.currentPhase ?? null;
-  const ids = order(workflow);
-  const target = workflow.phases?.[phase];
-  if (!target) refused(`${phase || 'That phase'} is not a step of this Story.`);
-  // A Story that finished has no current phase; an issue then is about any step before its end.
-  const limit = current ? ids.indexOf(current) : ids.length;
-  if (ids.indexOf(phase) < 0 || ids.indexOf(phase) >= limit) {
-    refused(`An upstream issue is about an earlier step; ${phase} is not before ${current ?? 'the end of the Story'}.`, 'UPSTREAM_ISSUE_NOT_EARLIER');
-  }
-  if (!(Number(target.generation) > 0) || target.status === 'not_started') {
-    refused(`${phase} has not produced anything yet, so there is nothing upstream to raise.`, 'UPSTREAM_ISSUE_NOT_EARLIER');
-  }
-  if (!upstreamIssueAuthorities(workflow, phase).length) {
-    const instead = decidableUpstreamStep(workflow, phase);
-    refused(`${phase} has no approval group, so nobody could decide an issue about it and the Story could not finish while it was open. `
-      + (instead ? `Raise it against ${instead}, the nearest earlier step whose approvers can decide it.`
-        : 'No earlier step has approvers either: describe the problem in this step\'s own document for its reviewers.'),
-    'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE', { phase, ...(instead ? { decidableStep: instead } : {}) });
-  }
-  if (supersedes != null) {
-    // The replaced issue keeps its history; only its own step's approvers close it (as dismiss).
-    const prior = upstreamIssueStates(workflow, at).find((entry) => entry.issue.id === supersedes);
-    if (!prior) refused(`${supersedes || 'That issue'} is not an upstream issue of this Story, so there is nothing to supersede.`, 'UPSTREAM_ISSUE_SUPERSEDE_INVALID');
-    if (prior.status === 'decided') {
-      refused(`${supersedes} is already decided (${prior.decision.outcome}); raise the new issue without --supersedes.`, 'UPSTREAM_ISSUE_SUPERSEDE_INVALID');
-    }
-    if (prior.supersededBy) refused(`${supersedes} is already superseded by ${prior.supersededBy}.`, 'UPSTREAM_ISSUE_SUPERSEDE_INVALID');
-  }
-  workflow.upstreamIssues ??= [];
-  const issue = {
-    id: `UPI-${String(workflow.upstreamIssues.length + 1).padStart(3, '0')}`,
-    phase,
-    raisedIn: { phase: current, status: current ? workflow.phases?.[current]?.status ?? null : null,
-      generation: current ? Number(workflow.phases?.[current]?.generation ?? 0) : null },
-    about: String(about ?? '').trim(), problem: String(problem ?? '').trim(),
-    assumption: assumption == null || !String(assumption).trim() ? null : String(assumption).trim(),
-    impact: impact == null || !String(impact).trim() ? null : String(impact).trim(),
-    proposed, producerGeneration: Number(target.generation),
-    producerArtifacts: (target.artifacts ?? []).slice(0, 50).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
-    source, ...(supersedes != null ? { supersedes } : {}), raisedBy, authored, agent, at
-  };
-  const checked = UpstreamIssueSchema.safeParse(issue);
-  if (!checked.success) {
-    const field = checked.error.issues[0]?.path?.join('.') ?? 'issue';
-    refused(`The upstream issue is not well formed (${field}): ${checked.error.issues[0]?.message ?? 'invalid'}. `
-      + `Name --about (1-200 characters) and --problem (20-${UPSTREAM_ISSUE_PROBLEM_MAXIMUM} characters).`);
-  }
-  workflow.upstreamIssues.push(checked.data);
-  return checked.data;
+export function raiseUpstreamIssue(workflow,input) {
+  return raiseObservedIssue(workflow,input,{issueDecisions:countedRecords(workflow,workflow.upstreamIssueDecisions)});
 }
 
 /** Issues completion still waits for: undecided, or an accepted risk that expired. A superseded issue is not one. */
@@ -217,41 +126,23 @@ export function upstreamIssueTerminalBlockers(workflow, now = new Date().toISOSt
  * Validate and record a decision. `return` is recorded by the caller together with the rework it
  * performs (its link is the change request); `amend` arrives with forward amendment.
  */
-export function decideUpstreamIssue(workflow, {
-  issue: issueId, outcome, reason, link = null, expiresAt = null, actor, authorityGroup, identityAssurance = null, at
-}) {
-  const state = upstreamIssueStates(workflow, at).find((entry) => entry.issue.id === issueId);
-  if (!state) refused(`${issueId || 'That issue'} is not an upstream issue of this Story.`, 'UPSTREAM_ISSUE_NOT_FOUND');
-  if (state.status === 'decided') {
-    refused(`${issueId} is already decided (${state.decision.outcome}).`, 'UPSTREAM_ISSUE_DECIDED');
-  }
-  if (!UPSTREAM_ISSUE_OUTCOMES.includes(outcome)) refused(`--outcome must be one of ${UPSTREAM_ISSUE_OUTCOMES.join(', ')}.`);
-  if (outcome === 'amend') {
-    // The issue is resolved by the approved forward amendment of the same step [UIF-M3].
-    const amendment = (workflow.forwardAmendments ?? []).find((entry) => entry.id === link);
-    const approved = countedRecords(workflow, workflow.forwardAmendmentDecisions).findLast((entry) => entry.amendment === link);
-    if (!amendment || approved?.decision !== 'approved') refused(`Name the approved forward amendment that resolves ${issueId} with --link FAM-NNN.`);
-    if (amendment.phase !== state.issue.phase) refused(`${link} amends ${amendment.phase}, but ${issueId} is about ${state.issue.phase}.`);
-  } else if (outcome === 'plan-correction') {
-    const correction = countedRecords(workflow, workflow.planAmendments).find((entry) => entry?.kind === 'plan-row-correction' && entry.id === link);
-    if (!correction) refused(`Name the plan correction that resolves ${issueId} with --link PRC-NNN.`);
-    if (correction.ownerPhase !== state.issue.phase) {
-      refused(`${link} corrects ${correction.ownerPhase}, but ${issueId} is about ${state.issue.phase}.`);
-    }
-    if (correction.upstreamIssue && correction.upstreamIssue !== issueId) {
-      refused(`${link} was recorded for ${correction.upstreamIssue}, not ${issueId}.`);
-    }
-  } else if (outcome === 'return') {
-    if (!/^CR-\d{3,}$/u.test(link ?? '')) refused('A return records the change request it opened.');
-  } else if (link) {
-    refused(`--link is used only with --outcome plan-correction or amend.`);
-  }
-  const {expiresAt: expiry} = upstreamDispositionFacts({outcome,reason,expiresAt,at});
-  const decision = { issue: issueId, outcome, reason: String(reason ?? '').trim(), link: link ?? null, expiresAt: expiry,
-    actor, authorityGroup, identityAssurance, at };
-  const checked = UpstreamIssueDecisionSchema.safeParse(decision);
-  if (!checked.success) refused('Say why in 20 to 1000 characters with --reason.', 'UPSTREAM_ISSUE_REASON_REQUIRED');
-  workflow.upstreamIssueDecisions ??= [];
-  workflow.upstreamIssueDecisions.push(checked.data);
-  return checked.data;
+export function decideUpstreamIssue(workflow,input) {
+  return decideObservedIssue(workflow,input,{issueDecisions:countedRecords(workflow,workflow.upstreamIssueDecisions),
+    amendmentDecisions:countedRecords(workflow,workflow.forwardAmendmentDecisions),planAmendments:countedRecords(workflow,workflow.planAmendments)});
 }
+
+const UPSTREAM_RECORD_SHAPES=upstreamRecordShapes();
+// Compatibility schema APIs are compiled from the same pure structural declarations.
+function schema(rule){
+  let value;
+  if(rule.kind==='string'){value=z.string();if(rule.trim)value=value.trim();if(rule.minimum!=null)value=value.min(rule.minimum);if(rule.maximum!=null)value=value.max(rule.maximum);if(rule.pattern)value=value.regex(new RegExp(rule.pattern,'u'));}
+  else if(rule.kind==='datetime')value=z.string().datetime();
+  else if(rule.kind==='enum')value=z.enum(rule.values);
+  else if(rule.kind==='integer')value=z.number().int().nonnegative();
+  else if(rule.kind==='array')value=z.array(schema(rule.item)).max(rule.maximum);
+  else if(rule.kind==='record')value=z.record(z.string(),z.unknown());
+  else value=z.strictObject(Object.fromEntries(Object.entries(rule.fields).map(([key,field])=>[key,schema(field)])));
+  if(rule.nullable)value=value.nullable();if(rule.optional)value=value.optional();return value;
+}
+export const UpstreamIssueSchema=schema(UPSTREAM_RECORD_SHAPES.issue);
+export const UpstreamIssueDecisionSchema=schema(UPSTREAM_RECORD_SHAPES.decision);

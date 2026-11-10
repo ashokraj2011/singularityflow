@@ -6,14 +6,16 @@
  * and every source that could not be read is listed as unreadable.
  */
 import { repoRoot } from '../git.mjs';
-import { loadEvidenceGraph } from '../evidence/graph.mjs';
+import { createGitQueryEngine } from '../engine-compatibility/git-query.mjs';
 import { action, because, commandResult, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, SingularityFlowError } from '../util.mjs';
 
 export async function run(_argv, { positionals, options }) {
   const root = repoRoot();
-  const graph = await loadEvidenceGraph(root, { workId: positionals[2] ?? null, scopePreview: true });
+  const binding=createGitQueryEngine({root});
+  await binding.engine.run('scope.context',positionals[2]?{workId:positionals[2]}:{});
+  const graph=binding.presentation().graph;
   // While the step defining the scope is open, its own draft or submitted clauses link statements,
   // as decision scope reads them; approved evidence and the final check still read graph.scope.
   const preview = graph.scopePreview?.previewed && graph.scopePreview.inventory ? graph.scopePreview.inventory : null;

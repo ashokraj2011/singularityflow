@@ -163,3 +163,13 @@ test('a malformed port result cannot become a successful SDK receipt and keeps t
     && actual.enginePublication.sha==='a'.repeat(40));
   assert.equal(failed.calls.includes('commit'),true);
 });
+
+test('post-publication diagnostics cannot replace a real provider error with a frozen or reserved property failure',async()=>{
+  for(const original of [Object.freeze(Object.assign(new Error('Immutable actual provider failure.'),{code:'EIO'})),
+    Object.defineProperty(new Error('Reserved original publication diagnostic.'),'enginePublication',{
+      get(){return 'provider-owned';},set(){throw new Error('A diagnostic setter cannot mask the provider failure.');},configurable:false})]){
+    const f=fixture({hook(stage){if(stage==='finish')throw original;}});
+    await assert.rejects(f.engine.run('phase.publish',{phaseId:'team-spec',authored:'governed-agent'}),error=>error===original);
+    assert.equal(f.calls.includes('commit'),true);
+  }
+});

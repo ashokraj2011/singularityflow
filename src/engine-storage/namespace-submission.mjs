@@ -1,6 +1,7 @@
 /** Shared-record submission of an actual published document. No private draft or Git discovery. */
 import {createHash} from 'node:crypto';
 import {createEngine} from '../engine-sdk/index.mjs';
+import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,NAMESPACE_SUBMISSION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
@@ -222,7 +223,8 @@ export function createNamespaceSubmissionPorts({records,content,scope,workId,aut
 }
 
 export function createNamespaceSubmissionEngine({records,content,scope,workId,authority,access,clock,localContent=null,notice=()=>{}}={}) {
+  const readSession=createNamespaceReadSession({records,content});({records,content}=readSession);
   scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent,notice};
   const ports=createNamespaceSubmissionPorts(options);
-  return createEngine({ports:{...createNamespaceReadPorts(options),...ports}});
+  return createEngine({ports:{invocation:{run:readSession.run},...createNamespaceReadPorts(options),...ports}});
 }

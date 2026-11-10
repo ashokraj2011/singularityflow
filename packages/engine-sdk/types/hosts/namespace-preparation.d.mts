@@ -8,7 +8,7 @@ export interface NamespacePreparationAccess { current(request: { readonly projec
   readonly operation: PreparationOperation; readonly signal?: AbortSignal | null }):
   (NamespaceStoryAccessFacts & { readonly agentId: string | null }) | Promise<NamespaceStoryAccessFacts & { readonly agentId: string | null }> }
 export declare function createNamespacePreparationEngine(options: { readonly records: NamespaceStore; readonly content: ContentStore;
-  readonly localRecords: NamespaceStore; readonly localContent: ContentStore; readonly scope: NamespaceScope;
+  readonly localRecords: NamespaceStore; readonly localContent: ContentStore; readonly inputContent?:ContentStore; readonly scope: NamespaceScope;
   readonly workId: string; readonly authority: { readonly id: string; readonly epoch: number };
   readonly access: NamespacePreparationAccess; readonly clock: { now(): string | Promise<string> };
   readonly sources?: readonly SourceUnit[]; readonly modelEnabled?: boolean }): Engine;

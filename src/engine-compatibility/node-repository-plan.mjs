@@ -8,3 +8,4 @@ export const repositoryPlanValue=/* @__PURE__ */ (()=>values.repositoryPlanValue
 export const repositoryPlanProjection=/* @__PURE__ */ (()=>values.repositoryPlanProjection)();
 export const assertRepositoryPlanSources=/* @__PURE__ */ (()=>values.assertRepositoryPlanSources)();
 export const repositoryPlanTestLocation=/* @__PURE__ */ (()=>values.repositoryPlanTestLocation)();
+export const repositoryPlanAmendmentProjection=/* @__PURE__ */ (()=>values.repositoryPlanAmendmentProjection)();

@@ -1227,7 +1227,7 @@ export function validateAutoFlightReportRecord(value, { expectedFlightId = null 
 
 async function currentPlanSnapshot(root, state) {
   try {
-    const { readAutoPlan } = await import('./auto-plan.mjs');
+    const { readAutoPlan } = await import('./auto-plan-read.mjs');
     return await readAutoPlan(root, state.planId);
   } catch (error) {
     // A governed final report remains reconstructible after disposable local Plan storage has been

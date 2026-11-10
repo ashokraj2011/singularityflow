@@ -32,6 +32,7 @@ import {phaseSourceInspectionInput,phaseDeliveryInspectionInput,phaseSourceInspe
 import {sourceBaselineRetentionInput,sourceBaselineRetentionResult,phaseSourceControlRetentionResult} from '../kernel/source-changes.mjs';
 import {testWitnessInspectionManifest} from '../kernel/verification-witnesses.mjs';
 import {clarificationOperationInput} from '../kernel/clarification-responses.mjs';
+import {storyDocumentRequest} from '../kernel/story-documents.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -80,7 +81,7 @@ const UPSTREAM_OPERATIONS=Object.freeze([
   ['forward-amendment.decide',['amendmentId','decision','reason','confirmation'],'amendment-decision',true],
   ['forward-amendment.revalidate',['phaseId','amendmentId','outcome','reason'],'amendment-revalidation',true]
 ].map(([id,fields,effect,humanDecision])=>({id,version:1,effect,humanDecision,requestFields:Object.freeze(fields),
-  inputFields:Object.freeze(['workId',...fields]),port:'upstream',stages:Object.freeze(['load','resolve','commit','finish']),
+  inputFields:Object.freeze(['workId',...(id==='upstream.list'?[]:['operationId']),...fields]),port:'upstream',stages:Object.freeze(['load','resolve','commit','finish']),
   ...(id==='forward-amendment.decide'?{confirmation:'exact-amendment-id'}:{}),validate:'singleDecisionInput',execute:'upstreamOperation'})));
 const definitions = [
   { id: 'phase.publish', version: 1, effect: 'publication',
@@ -108,7 +109,7 @@ const definitions = [
     requestFields:CORRECTION_FIELDS,inputFields:Object.freeze(['workId','fetch',...CORRECTION_FIELDS]),port:'planCorrection',
     stages:Object.freeze(['load','prepare','review','authorize','commit','finish']),validate:'singleDecisionInput',execute:'correctPlan'})),
   ...SINGLE_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',humanDecision:true,
-    inputFields:Object.freeze(['workId','fetch',...operation.requestFields]),port:'decisionRecord',
+    inputFields:Object.freeze(['workId','fetch',...(operation.id==='decision.choose'?[]:['operationId']),...operation.requestFields]),port:'decisionRecord',
     stages:Object.freeze(['load','prepare','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'})),
   ...TEST_DECISIONS.map(operation=>({...operation,version:1,effect:'decision-record',
     humanDecision:operation.id!=='test-command.request',authority:operation.id==='test-command.request'?'requester':'reviewer',
@@ -124,6 +125,12 @@ const definitions = [
     stages:Object.freeze(['load','prepare','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'},
   {id:'decision.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'decisionContext',
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectDecisionContext'},
+  {id:'scope.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'scopeContext',
+    stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectScopeContext'},
+  ...['story.document.attach','story.document.detach'].map(id=>({id,version:1,effect:'input-document',humanDecision:false,port:'storyDocument',
+    inputFields:Object.freeze(['operationId','workId','documentId','reason',...(id.endsWith('attach')?['name','mimeType','encoding','content']:[])]),
+    requiredFields:Object.freeze(['operationId','workId','documentId','reason',...(id.endsWith('attach')?['name','mimeType','encoding','content']:[])]),
+    stages:Object.freeze(['load','prepare','commit','finish']),validate:'storyDocumentInput',execute:'recordStoryDocument'})),
   {id:'story.guide',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyGuide',
     stages:Object.freeze(['load']),validate:'storyGuideInput',execute:'inspectStoryGuide'},
   {id:'story.next',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyNext',
@@ -583,6 +590,56 @@ async function inspectConformanceContext(port,inputs,signal) {
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
 }
 
+async function inspectScopeContext(port,inputs,signal) {
+  notCancelled(signal);const context=await port.load(inputs,{signal});notCancelled(signal);
+  const id=context?.workflow?.workItem?.id;
+  if(typeof id!=='string'||!id||context?.subject?.kind!=='story'||context.subject.id!==id||inputs.workId!=null&&inputs.workId!==id)throw new SingularityFlowError(
+    'The scope port returned another bound Story.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  const observed=await port.read(context,{signal});notCancelled(signal);let facts;
+  try{facts=data(observed);}catch(cause){throw new SingularityFlowError('The scope port returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  const fields=['workId','revision','inventory','knownClauseIds','authorities','completenessReview'],inventory=facts?.inventory;
+  if(!facts||Object.keys(facts).length!==fields.length||!fields.every(key=>Object.hasOwn(facts,key))||facts.workId!==id
+    ||typeof facts.revision!=='string'||!facts.revision||inventory?.schema!=='scope-inventory/v1'||inventory.workId!==id
+    ||!/^sha256:[a-f0-9]{64}$/u.test(inventory.inventorySha256??'')||!/^sha256:[a-f0-9]{64}$/u.test(inventory.sourceSetSha256??'')
+    ||!Array.isArray(inventory.items)||!Array.isArray(inventory.sources)||!Number.isSafeInteger(inventory.summary?.unresolved)||inventory.summary.unresolved<0
+    ||inventory.structurallyComplete!==(inventory.summary.unresolved===0)||!Array.isArray(facts.knownClauseIds)||facts.knownClauseIds.some(value=>typeof value!=='string')
+    ||!Array.isArray(facts.authorities)||facts.authorities.some(value=>typeof value!=='string')
+    ||facts.completenessReview!==null&&(typeof facts.completenessReview!=='object'||Array.isArray(facts.completenessReview)))throw new SingularityFlowError(
+      'The scope context has an invalid inventory or Story binding.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'scope.context',status:'ready',subject:{kind:'story',id},manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+}
+
+function storyDocumentInput(value,operation) {
+  const input=data(value);
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key))
+    ||operation.requiredFields.some(key=>!Object.hasOwn(input,key))||typeof input.operationId!=='string'||!input.operationId
+    ||typeof input.workId!=='string'||!input.workId)invalid('Use an exact input-document operation, Story and document identity.');
+  storyDocumentRequest(operation.id,input);return input;
+}
+async function recordStoryDocument(port,inputs,signal,operation) {
+  let pendingStage='load',committed=null;const completedStages=[];
+  try {
+    notCancelled(signal);const context=await port.load(inputs,{signal,operation});completedStages.push('load');notCancelled(signal);
+    if(context?.subject?.kind!=='story'||context.subject.id!==inputs.workId||context.workflow?.workItem?.id!==inputs.workId)throw new SingularityFlowError(
+      'The document owner returned another Story.',{code:'ENGINE_PORT_RESULT_INVALID'});
+    pendingStage='prepare';const intent=await port.prepare(context,inputs,{signal,operation});completedStages.push('prepare');notCancelled(signal);
+    pendingStage='commit';committed=await port.commit(context,intent,{signal,operation});completedStages.push('commit');pendingStage='finish';
+    const result=data(await port.finish(context,intent,committed,{operation}));completedStages.push('finish');
+    if(!result||Object.keys(result).length!==5||result.workId!==inputs.workId||result.document?.id!==inputs.documentId
+      ||result.document.kind!=='input-document'||result.document.locality!=='machine-local'||result.document.content?.namespace!=='local'
+      ||result.document.status!==(operation.id.endsWith('attach')?'active':'detached')||typeof result.revision!=='string'||!result.revision
+      ||result.currentPhase!==context.workflow.currentPhase||result.pushed!==false)throw new SingularityFlowError(
+        'The document mutation returned another local-input binding.',{code:'ENGINE_PORT_RESULT_INVALID'});
+    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,status:'recorded',subject:{kind:'story',id:inputs.workId},...result,
+      effects:{committed:true,pushed:false,uploadedContent:false,applicationChanged:false,approvalRecorded:false,storyAdvanced:false}});
+  }catch(error){
+    attachDiagnostic(error,'engineStoryDocument',{operation:operation.id,operationId:inputs.operationId,workId:inputs.workId,documentId:inputs.documentId,
+      completedStages,pendingStage,accepted:committed,metadataMayBeAccepted:completedStages.includes('commit')||pendingStage==='commit',
+      uploadedContent:false,applicationChanged:false,approvalRecorded:false,storyAdvanced:false});throw error;
+  }
+}
+
 async function reject(port, inputs, signal) {
   notCancelled(signal);
   const context = await port.load(inputs, { signal }); notCancelled(signal);
@@ -596,13 +653,13 @@ async function reject(port, inputs, signal) {
   const committed = await port.commit(context, prepared, { signal });
   try { return data(phaseRejectionResult(binding, data(await port.finish(context, prepared, committed)))); }
   catch (error) {
-    if (error && typeof error === 'object' && Object.isExtensible(error)) error.enginePublication = committed;
+    attachDiagnostic(error,'enginePublication',committed,{raw:true});
     throw error;
   }
 }
 
-function attachDiagnostic(error,key,value) {
-  try{if(error&&typeof error==='object'&&Object.isExtensible(error))error[key]=data(value);}
+function attachDiagnostic(error,key,value,{raw=false}={}) {
+  try{if(error&&typeof error==='object'&&Object.isExtensible(error))error[key]=raw?value:data(value);}
   catch{ /* Optional diagnostics cannot replace a native refusal. */ }
 }
 
@@ -1058,7 +1115,7 @@ async function publish(port, inputs, signal) {
     return publicationResult(context, await port.finish(context, prepared, committed), 'published');
   } catch (error) {
     // Preserve the actual error, while retaining the accepted commit for an inspecting host.
-    if (error && typeof error === 'object' && Object.isExtensible(error)) error.enginePublication = committed;
+    attachDiagnostic(error,'enginePublication',committed,{raw:true});
     throw error;
   }
 }
@@ -1105,7 +1162,7 @@ async function submit(port, inputs, signal, operation) {
   try {
     return submissionResult(context, await port.finish(context, prepared, committed), operation, false);
   } catch (error) {
-    if (error && typeof error === 'object' && Object.isExtensible(error)) error.enginePublication = committed;
+    attachDiagnostic(error,'enginePublication',committed,{raw:true});
     throw error;
   }
 }
@@ -1143,7 +1200,7 @@ async function approve(port,inputs,signal) {
   try {
     return approvalResult(context,await port.finish(context,prepared,committed),binding);
   } catch(error) {
-    if(error && typeof error==='object' && Object.isExtensible(error))error.enginePublication=committed;
+    attachDiagnostic(error,'enginePublication',committed,{raw:true});
     throw error;
   }
 }
@@ -1216,7 +1273,7 @@ async function recordDecisions(port, inputs, signal) {
     return decisionResult(packet, facts, accepted, plan.refused);
   }
   catch (error) {
-    if (error && typeof error === 'object' && Object.isExtensible(error)) error.engineDecisionEffects = outcome;
+    attachDiagnostic(error,'engineDecisionEffects',outcome,{raw:true});
     throw error;
   }
 }
@@ -1283,7 +1340,7 @@ async function recordSingleDecision(port, inputs, signal, operation) {
   try {
     return singleDecisionResult(resultBinding,await port.finish(context,intent,committed,{operation:descriptor}),operation);
   } catch(error) {
-    if(error&&typeof error==='object'&&Object.isExtensible(error))error.enginePublication=committed;
+    attachDiagnostic(error,'enginePublication',committed,{raw:true});
     throw error;
   }
 }
@@ -1387,8 +1444,7 @@ async function upstreamOperation(port,inputs,signal,operation) {
       publications:accepted.map(({revision,pushed})=>({revision,pushed})),records:accepted.map(({record})=>record),
       actorId:plan.actorId,unowned:plan.unowned,revalidate:final.revalidate,refreshed:final.refreshed});
   } catch(error) {
-    if(error&&typeof error==='object'&&Object.isExtensible(error))error.engineUpstreamEffects={
-      operation:id,workId:binding.workId,accepted,pending,remaining:plan.requests.slice(index)};
+    attachDiagnostic(error,'engineUpstreamEffects',{operation:id,workId:binding.workId,accepted,pending,remaining:plan.requests.slice(index)},{raw:true});
     throw error;
   }
 }
@@ -1459,7 +1515,7 @@ async function correctPlan(port,inputs,signal,operation) {
     return Object.freeze({...base,status:'recorded',revision:facts.revision,effects:Object.freeze({committed:true,pushed:facts.pushed}),
       recordKind:'plan-row-correction',record:facts.record,actorId:facts.actorId,authorityGroup:facts.authorityGroup});
   } catch(error) {
-    if(error&&typeof error==='object'&&Object.isExtensible(error))error.enginePublication=committed;
+    attachDiagnostic(error,'enginePublication',committed,{raw:true});
     throw error;
   }
 }
@@ -1534,9 +1590,7 @@ async function advanceConvergence(port,inputs,signal,operation,{executeOperation
     return receipt;
   } catch(error) {
     open=false;
-    if(error&&typeof error==='object'&&Object.isExtensible(error)&&review) {
-      error.engineAdvancement=Object.freeze({operation:operation.id,review,submission});
-    }
+    if(review)attachDiagnostic(error,'engineAdvancement',Object.freeze({operation:operation.id,review,submission}),{raw:true});
     throw error;
   }
 }
@@ -1589,7 +1643,7 @@ export function createEngine(options = {}) {
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
     preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
-    recordSingleDecision, inspectConformanceContext, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,
+    recordSingleDecision, recordStoryDocument, storyDocumentInput, inspectConformanceContext, inspectScopeContext, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,
     storyStatusInput, submissionInput, submit, upstreamOperation, workflowAssetsInput
   });
 }

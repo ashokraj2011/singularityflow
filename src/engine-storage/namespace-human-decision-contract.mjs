@@ -57,3 +57,6 @@ export function namespaceHumanDecisionReceipts(workflow){
     return values;
   }catch(cause){throw new SingularityFlowError('The human decision receipt inventory is invalid.',{cause,code:'ENGINE_STORAGE_CORRUPT'});}
 }
+
+export const namespaceHumanDecisionContract=Object.freeze({receiptField:'namespaceHumanDecisionReceipts',value:namespaceHumanDecisionValue,
+  make:namespaceHumanDecisionRecord,receipt:namespaceHumanDecisionReceipt,receipts:namespaceHumanDecisionReceipts});

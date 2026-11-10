@@ -3,7 +3,7 @@ import { mkdir, open, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { gitCommonDir, gitDir } from './git.mjs';
 import { assertModelInvocationAllowed } from './operation-context.mjs';
-import { modelProvider, modelProviderIds, modelProviderSession } from './model-provider-registry.mjs';
+import { modelProvider, modelProviderSession } from './model-provider-registry.mjs';
 import { COPILOT_MINIMUM_AI_CREDITS } from './model-limits.mjs';
 import { resolveModelPromptTransport } from './model-provider-capability.mjs';
 import {
@@ -26,7 +26,7 @@ import {
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
 /** Read-only source inventory, not installed-host qualification or permission to invoke a model. */
-export function registeredModelProviderIds() { return modelProviderIds(); }
+export {registeredModelProviderIds} from './model-limits.mjs';
 
 function auditKeyPath(root) {
   return path.join(gitCommonDir(root), 'singularity-flow', 'keys', 'model-observation.key');

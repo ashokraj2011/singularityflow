@@ -1,4 +1,5 @@
 /** Shared auto-policy rules. No host discovery, execution, transport or persistence. */
+import {canonicalJson,textDigestCapability} from '../foundation/record-schema.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 
 export const AUTO_ELIGIBILITY = Object.freeze(['disabled', 'plan-only', 'bounded']);
@@ -459,3 +460,9 @@ export const AUTO_STOP_KINDS = Object.freeze([
 export const AUTO_AUTHORING_TOOLS = Object.freeze([
   'read_file', 'search', 'edit_file', 'create_file'
 ]);
+
+/** A Plan identity is a value; reading or ratifying one remains a host operation. */
+export function autoPlanValuePolicies(digests){
+  const hashing=textDigestCapability(digests);
+  return Object.freeze({autoPlanHash(plan){const copy=structuredClone(plan);delete copy.planSha256;return 'sha256:'+hashing.sha256Utf8(canonicalJson(copy));}});
+}

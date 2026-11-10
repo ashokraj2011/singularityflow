@@ -245,12 +245,16 @@ export interface RepositoryClaimProjection {readonly id:string;readonly claims:R
 export interface RepositoryPlan {readonly schemaVersion:1;readonly format:typeof REPOSITORY_PLAN_PROFILE;
   readonly roots:readonly RepositoryPlanRoot[];readonly repositories:readonly RepositoryClaimProjection[]}
 export interface RepositoryPlanContext {readonly definition?:Readonly<Record<string,unknown>>;readonly workflow?:Readonly<Record<string,unknown>>}
+export interface PlanAccountingRecord extends CoverageMetadata {readonly kind:'planned';readonly amendment:true;
+  readonly claims:Readonly<Record<string,never>>;readonly accountedPaths:Readonly<Record<string,readonly string[]>>;
+  readonly supportingFiles?:readonly string[];readonly supportingFileDetails?:readonly SpecificationSupportingFile[]}
 export interface RepositoryPlanValues {readonly profile:typeof REPOSITORY_PLAN_VALUES_PROFILE;
   deriveRepositoryPlan(markdown:string,planned:PlannedSpecificationClaimMap,context?:RepositoryPlanContext):RepositoryPlan|null;
   repositoryPlanValue(value:unknown):RepositoryPlan;
   repositoryPlanProjection(value:RepositoryPlan,repositoryId:string):RepositoryClaimProjection;
   assertRepositoryPlanSources(value:RepositoryPlan|null,phaseId:string,repositories:readonly string[]):void;
-  repositoryPlanTestLocation(value:RepositoryPlan,path:string,context?:RepositoryPlanContext):{repositoryId:string;path:string}|null}
+  repositoryPlanTestLocation(value:RepositoryPlan,path:string,context?:RepositoryPlanContext):{repositoryId:string;path:string}|null;
+  repositoryPlanAmendmentProjection(value:RepositoryPlan,record:PlanAccountingRecord|null,repositoryId:string,context?:RepositoryPlanContext):PlanAccountingRecord|null}
 export declare function repositoryPlanPolicies(paths:VerificationPathSyntax,roots:readonly string[]):Readonly<RepositoryPlanValues>;
 /** Actual declaration/run values; these functions confer no lifecycle or human authority. */
 export type TestWitnessOutcome='inconclusive'|'missing'|'ambiguous'|'failed'|'unverified-skipped'|'flaky'|'passed';

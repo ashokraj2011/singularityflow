@@ -1,5 +1,5 @@
 /** Shared conformance table and disclosure values. No storage, clock, command or model access. */
-import { clauseMentionPattern, normalizeQualifiedClauseId } from '../foundation/traceability-ids.mjs';
+import { clauseMentionPattern, normalizeQualifiedClauseId, qualifiedClauseMatches } from '../foundation/traceability-ids.mjs';
 import {parseMarkdownStructure,authoredArtifactText} from './artifact-content.mjs';
 import {textDigestCapability} from '../foundation/record-schema.mjs';
 import {shown} from './draft-diagnostics.mjs';
@@ -417,8 +417,27 @@ export function inspectQualifiedConformanceReport(markdown, clauseIds) {
 /** Native digest primitives stay with the host; issue association keeps its original byte identity. */
 export function conformanceVerdictPolicies(digests){
   const hash=textDigestCapability(digests).sha256Utf8;
-  return Object.freeze({conformanceVerdictGaps:(markdown,options)=>conformanceVerdictGaps(markdown,{...options,
-    discrepancyDigest:(phaseId,text)=>hash(`${phaseId}\n${String(text).replace(/\s+/gu,' ').trim()}`)})});
+  const discrepancyDigest=(phaseId,text)=>hash(`${phaseId}\n${String(text).replace(/\s+/gu,' ').trim()}`);
+  return Object.freeze({conformanceVerdictGaps:(markdown,options)=>conformanceVerdictGaps(markdown,{...options,discrepancyDigest}),
+    linkedConformanceEvidence:(markdown,options)=>{
+      const result=evaluateConformanceEvidence(markdown,options),workflow=options.workflow;
+      const visible=visibleTableLines(markdown),positioned=result.gaps.map(gap=>({...gap,line:result.rows.find(row=>row.clauseId===gap.clauseId)?.line??null}));
+      for(const gap of positioned)for(const id of (visible[(gap.line??0)-1]??'').match(/(?<![\w:-])UPI-\d{3,}(?![\w-])/gu)??[])if(!(workflow.upstreamIssues??[]).some(row=>row.id===id))result.findings.push({
+        code:'conformance.upstream-issue-unknown',clauseId:gap.clauseId,line:gap.line,message:id+' has no retained issue in this Story.'});
+      result.gaps=linkReportIssues(markdown,workflow,options.phaseId,positioned,discrepancyDigest).map(({line,...gap})=>{
+        if(!gap.issueRefs?.length)return gap;
+        const issues=gap.issueRefs.map(id=>(workflow.upstreamIssues??[]).find(row=>row.id===id));
+        const {issueRefs,...unlinked}=gap,filed=linkReportIssues(markdown,workflow,options.phaseId,[{...unlinked,line:null}],discrepancyDigest)[0];
+        for(const issue of issues.filter(Boolean)){
+          const named=qualifiedClauseMatches([issue.about,issue.problem,issue.impact].filter(Boolean).join(' ')).map(normalizeQualifiedClauseId);
+          if(!named.includes(gap.clauseId)&&!filed.issueRefs?.includes(issue.id))result.findings.push({code:'conformance.upstream-clause-unbound',clauseId:gap.clauseId,line:null,
+            message:issue.id+' does not bind this clause or an exact filed discrepancy covering it. Keep unrelated decisions separate.'});
+        }
+        for(const issue of issues)if(!issue||!workflow.phaseOrder.slice(0,workflow.phaseOrder.indexOf(options.phaseId)).includes(issue.phase))result.findings.push({
+          code:'conformance.upstream-owner-invalid',clauseId:gap.clauseId,line:gap.line??null,message:'The conformance row must name an actual earlier producer issue.'});
+        return {...gap,owners:[...new Set(issues.filter(Boolean).map(row=>row.phase))]};
+      });return result;
+    }});
 }
 
 /** New retained conformance profile: a matched label requires actual observed delivery facts. */

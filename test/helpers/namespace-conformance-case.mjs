@@ -20,7 +20,7 @@ export async function namespaceConformanceCase(t,backend){
   assert.ok(resource);assert.deepEqual(JSON.parse((await f.engine.run('document.read',{reference:resource.reference})).document.content.text),p.report);
   const observer=createNamespaceStoryObserver(f.common),checks=createNamespacePhaseCheckReader({...f.common,observer}),reader=createNamespacePublicationReader({observer,checks,scope:f.scope,workId:f.inputs.workId}),
     save=async value=>(await f.content.put(f.scope,'evidence',Buffer.from(canonicalJson(value)))).reference,changed=structuredClone(p.report);changed.rows[0].evidence[0].verdict='missing';
-  for(const [report,code]of [[changed,'ENGINE_STORAGE_CORRUPT'],[{...p.report,schemaVersion:2},'ENGINE_STORAGE_UNSUPPORTED']]){
+  for(const [report,code]of [[changed,'ENGINE_STORAGE_CORRUPT'],[{...p.report,schemaVersion:2},'ENGINE_STORAGE_UNSUPPORTED'],[{...p.report,schemaVersion:3},'ENGINE_STORAGE_UNSUPPORTED']]){
     const manifest={...p.manifest,report:await save(report)},value={...p.value,policyEvidence:[{...p.policy,record:await save(manifest)}]};
     await assert.rejects(reader.read({...p.binding,record:await save(value)},'release'),{code});
   }

@@ -3,14 +3,17 @@ import {canonicalJson} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {approvedInputPhases,resolvedPhaseInputs,workflowInputsMode} from '../kernel/phase-inputs.mjs';
 import {pinnedTestEvidenceSource} from '../kernel/phase-policy.mjs';
+import {createNamespaceInputDocumentOwners} from './namespace-input-documents-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function utf8(data,label) {try {const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(data);if(text.includes('\0'))throw Error('NUL');return text;}
   catch(cause){throw error(`${label} must be UTF-8 text without NUL bytes.`,'ENGINE_ARTIFACT_ENCODING_INVALID',null,cause);}}
 /** Constructing this reader performs no reads. The caller provides exact approved proofs. */
 export function createNamespacePhaseResources({observer,packets,workId,localRead}) {
+  const inputs=createNamespaceInputDocumentOwners({observer,scope:observer.evidenceReads.scope,workId});
   async function resources(captured,approved,agent,signal) {
     const w=captured.snapshot.workflow,phase=captured.phase,result=[];
+    await inputs.admitted(captured.snapshot,{signal});
     const source=w.workItem.source?.content;
     if(!source)throw error('The Story has no retained source.','ENGINE_STORAGE_CONTENT_MISSING');
     utf8(await observer.bytes(source,source.bytes,signal),'Story source');result.push({kind:'story-source',id:'story-source',reference:source});

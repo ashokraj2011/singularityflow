@@ -9,9 +9,10 @@ import {namespaceCodeDeliveryPreflightReplay,codeDeliveryCandidateScope,isExecut
   isDocumentationPath,applicationPathContext,discoverAcceptanceWitnessesReplay,commandForTestFileReplay} from '../engine-compatibility/node-source-policy.mjs';
 import {candidateSpecificationCoverageReplay,requiredAcceptanceFromPlan,mergedVerificationContracts} from '../engine-compatibility/node-specification-policy.mjs';
 import {implementationBindingsReplay,scanSourceClauseTags,scanJavaScriptDeclarations} from '../engine-compatibility/node-source-analysis.mjs';
-import {repositoryPlanProjection} from '../engine-compatibility/node-repository-plan.mjs';
+import {repositoryPlanProjection,repositoryPlanAmendmentProjection,repositoryPlanTestLocation} from '../engine-compatibility/node-repository-plan.mjs';
 import {createNamespaceCodeSourceReader} from './namespace-code-source.mjs';
 import {namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
+import {createNamespaceInitialCodeHistoryReader} from './namespace-code-initial-history.mjs';
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
@@ -35,14 +36,14 @@ function codePreflightReader(options,requireCurrentIndices){
     files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices});
   async function inspect(snapshot,phaseId,identity,{signal,binding=null,policyTraversal}={}){
     const workflow=snapshot.workflow,phase=workflow.phases[phaseId],definition=(await observer.approved(snapshot,{signal})).compiled.definition;
-    if(!phase.generation&&workflow.changeRequests?.length)required('namespace-code-history');
     if(workflow.phaseOrder.slice(0,workflow.phaseOrder.indexOf(phaseId)).some(id=>phaseRequiresCodeDelivery(workflow.phases[id])&&workflow.phases[id].generation>0))required('namespace-observed-claims');
     if(workflow.resolution.testRecovery?.enabled)required('test-recovery');
     if(!requireCurrentIndices&&!binding)throw failure('Replay the exact accepted publication source binding.','ENGINE_INPUT_INVALID');
     const retained=binding?await changes.accepted({operationId:binding.source.operationId,workId,phaseId},{signal}):await changes.inspectDraft(identity,{signal});
     if(!retained)throw failure('Retain this exact authored generation before code publication.','ENGINE_SOURCE_EVIDENCE_REQUIRED',{operation:'phase.source.retain',workId,phaseId});
     if(retained.plan.basis.headVersion!==snapshot.revision||!same(retained.plan.basis.configuration,snapshot.configuration)||!same(retained.workflow,workflow))throw failure('Code source evidence belongs to another lifecycle basis.','ENGINE_CONTEXT_CHANGED');
-    const history=retained.plan.generation>1?await createNamespaceCodeHistoryReader({observer,scope,workId}).inspect(snapshot,phaseId,retained,{signal,policyTraversal}):null;
+    const history=retained.plan.generation>1?await createNamespaceCodeHistoryReader({observer,scope,workId}).inspect(snapshot,phaseId,retained,{signal,policyTraversal})
+      :await createNamespaceInitialCodeHistoryReader({observer,scope,workId}).inspect(snapshot,phaseId,{signal,policyTraversal});
     if((retained.plan.generation===1)!==(phase.generation===0))throw failure('The Code generation has no matching predecessor.','ENGINE_CODE_REWORK_REQUIRED');
     if(binding&&!same(retained.binding,binding.source))throw failure('The retained Code result names another accepted source archive.','ENGINE_STORAGE_CORRUPT');
     let original=binding?await baseline.accepted({operationId:binding.baseline.operationId,workId,sourceBindingId:retained.plan.sourceBinding.operationId},{signal})
@@ -59,7 +60,8 @@ function codePreflightReader(options,requireCurrentIndices){
       const id=source.repository.id,context=await files.capture(retained,original,id,{signal}),sourceBasis=context.sourceBasis,
         projection=plan.repositoryPlan?repositoryPlanProjection(plan.repositoryPlan,id):null,
         planned=projection?{...plan.planned,claims:projection.claims,supportingFiles:projection.supportingFiles,supportingFileDetails:projection.supportingFileDetails}:plan.planned,
-        records={indexes:plan.active.indexes,planned:[planned],observed:[],acceptance:[]},
+        amendments=projection?plan.records.filter(row=>row.amendment).map(row=>repositoryPlanAmendmentProjection(plan.repositoryPlan,row,id,{workflow,definition})).filter(Boolean):[],
+        records={indexes:plan.active.indexes,planned:projection?[planned,...amendments]:plan.records,observed:[],acceptance:[]},
         obligations=Object.entries(planned.claims).filter(([,claim])=>plannedClaimAllocatedTo(claim,phaseId)).map(([clauseId,claim])=>({clauseId,...claim})),
         scope=codeDeliveryCandidateScope(records.planned,workflow,phase),nativeEntries=files.changes(context,{signal}).map(entry=>({
           status:entry.status==='D'?'deleted':entry.status==='A'?'added':'modified',oldPath:entry.oldPath,newPath:entry.newPath,untracked:false,
@@ -72,6 +74,15 @@ function codePreflightReader(options,requireCurrentIndices){
       const readBytes=(path,maximumBytes=16*1024*1024)=>files.bytes(context,path,{signal,maximumBytes}),
         text=async(path,maximumBytes)=>{const value=await readBytes(path,maximumBytes);if(value===null)return null;
           try{return new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(value);}catch(cause){throw new SingularityFlowError('Read actual UTF-8 source before deriving Code bindings.',{code:'ENGINE_SOURCE_DIFF_TEXT_REQUIRED',cause});}};
+      const accounted=new Map();for(const amendment of plan.amendments)for(const change of amendment.changes){
+        accounted.set(change.path,{change,amendment:amendment.id,sha256:amendment.contentHashes?.[change.path]??null});}
+      for(const [global,expected]of accounted){if(!expected.sha256)continue;
+        const location=plan.repositoryPlan?repositoryPlanTestLocation(plan.repositoryPlan,global,{workflow,definition}):{repositoryId:id,path:global};
+        if(location?.repositoryId!==id)continue;const bytes=await readBytes(location.path);
+        if(bytes===null||hash(bytes)!==expected.sha256)throw failure('A file changed after its human plan accounting. Review the current bytes before accepting it again.',
+          'PLAN_AMENDMENT_CONTENT_CHANGED',{workId,phase:phaseId,path:global,amendment:expected.amendment,
+            actions:[{operation:'decision.plan',inputs:{workId,changes:[expected.change]}}],requiredInputs:['operationId','reason']});
+      }
       async function discover(request){
         return replay(discoverAcceptanceWitnessesReplay(phase,request),async item=>{
           if(item.kind==='witness-test-commands')return phase.qualityCommands??[];
@@ -141,7 +152,7 @@ function codePreflightReader(options,requireCurrentIndices){
     for(const binding of [control?.binding.index,...(control?.plan.origins??[]).flatMap(row=>[row.origin,row.baseline]).map(value=>value.index)])if(binding){
       const current=await observer.record('evidence',binding.key,false,signal);if(current?.version!==binding.version)throw failure('Code origin evidence changed during preflight.','ENGINE_CONTEXT_CHANGED');
     }
-    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history}),...(history?{history}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
+    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history,plan:plan.proof}),...(history?{history}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
       index:{key:original.indexKey,version:original.indexVersion}},plan:plan.proof,repositories};
   }
   return Object.freeze({inspect});

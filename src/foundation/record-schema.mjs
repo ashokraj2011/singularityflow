@@ -180,8 +180,11 @@ export const NAMESPACE_DRAFT_SCHEMAS = Object.freeze({
   operation: frozenFamily('namespace-phase-draft-operation')
 });
 export const NAMESPACE_PREPARATION_SCHEMAS = Object.freeze({
-  context: frozenFamily('namespace-preparation-context'), generation: frozenFamily('namespace-source-generation')
+  context: frozenFamily('namespace-preparation-context'), generation:Object.freeze({id:'namespace-source-generation',currentVersion:2,
+    minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})
 });
+export function namespaceGenerationProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PREPARATION_SCHEMAS.generation,value);
+  return Object.freeze({version:storedVersion,continuation:storedVersion===2,format:'sflow-namespace-source-generation/v'+storedVersion});}
 export const NAMESPACE_PHASE_CHECK_SCHEMAS = /* @__PURE__ */ Object.freeze({
   plan: /* @__PURE__ */ frozenFamily('namespace-phase-check-plan'),
   intent: /* @__PURE__ */ frozenFamily('namespace-phase-check-intent'),
@@ -256,20 +259,31 @@ export const SPECIFICATION_ANALYSIS_REPORT_SCHEMA=frozenFamily('specification-qu
 export const NAMESPACE_HUMAN_DECISION_SCHEMA=frozenFamily('namespace-human-decision');
 export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily('namespace-phase-policy-evidence-binding'),
   analysis:frozenFamily('namespace-specification-analysis'),
-  code:Object.freeze({id:'namespace-code-policy',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
-  codeReport:Object.freeze({id:'namespace-code-policy-report',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  code:Object.freeze({id:'namespace-code-policy',currentVersion:6,minimumReadableVersion:1,maximumReadableVersion:6,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  codeReport:Object.freeze({id:'namespace-code-policy-report',currentVersion:6,minimumReadableVersion:1,maximumReadableVersion:6,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   codeInputs:frozenFamily('namespace-code-input-policy'),codeInputReport:frozenFamily('namespace-code-input-policy-report'),
-  conformance:frozenFamily('namespace-conformance-policy'),conformanceReport:frozenFamily('namespace-conformance-policy-report')});
+  conformance:Object.freeze({id:'namespace-conformance-policy',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  conformanceReport:Object.freeze({id:'namespace-conformance-policy-report',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})});
+/** Frozen opt-in conformance meanings; installed migration families remain unchanged. */
+export function namespaceConformancePolicyProfile(kind,value){
+  if(!['conformance','conformanceReport'].includes(kind))throw new SingularityFlowError('Unknown conformance policy record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],value);
+  return Object.freeze({version:storedVersion,issueLinks:storedVersion===2,kind:'conformance/v'+storedVersion,
+    format:'sflow-namespace-conformance-policy'+(kind==='conformanceReport'?'-report':'')+'/v'+storedVersion});
+}
 export function namespaceCodePolicyProfile(kind,value){
   if(!['code','codeReport'].includes(kind))throw new SingularityFlowError('Unknown Code policy record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],value);
-  return {version:storedVersion,rework:storedVersion>=2,kind:'code-delivery/v'+storedVersion,format:'sflow-namespace-code-policy'+(kind==='codeReport'?'-report':'')+'/v'+storedVersion};
+  return {version:storedVersion,rework:storedVersion>=2,...(storedVersion===6?{optionalHistory:true}:{}),kind:'code-delivery/v'+storedVersion,format:'sflow-namespace-code-policy'+(kind==='codeReport'?'-report':'')+'/v'+storedVersion};
 }
 /** Authenticated configured loops retain v2 bytes; explicit reviewer returns use a new v3 proof. */
 export function namespaceCodePreflightVersion(preflight){
+  if(preflight.plan?.amendments?.length)return 6;
   if(!preflight.history)return 1;
   if(preflight.history.profile==='sflow-namespace-code-history/v1')return 2;
   if(preflight.history.profile==='sflow-namespace-code-history/v2')return 3;
+  if(preflight.history.profile==='sflow-namespace-code-history/v3')return 4;
+  if(preflight.history.profile==='sflow-namespace-code-history/v4')return 5;
   throw new SingularityFlowError('Unknown Code history profile.',{code:'ENGINE_STORAGE_UNSUPPORTED'});
 }
 /** Manifest and report versions are selected together by the immutable record contract. */
@@ -318,6 +332,7 @@ export function namespaceApprovalArtifactSetProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.artifactSet,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-primary-approval-artifact-set/v${storedVersion}`,policyChecklist:storedVersion>1});
 }
+export const NAMESPACE_DECISION_SCHEMA=frozenFamily('namespace-recorded-decision');
 export const NAMESPACE_ROUTING_CHOICE_SCHEMAS=Object.freeze({
   record:frozenFamily('namespace-routing-choice'),receipt:frozenFamily('namespace-routing-choice-receipt')
 });

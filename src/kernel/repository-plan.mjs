@@ -131,5 +131,18 @@ export function repositoryPlanPolicies(pathSyntax,applicationRoots){
   function repositoryPlanTestLocation(value,path,{definition={},workflow={}}={}){
     repositoryPlanValue(value);return locate(path,value.roots,applicationPathContext(definition,workflow.resolution??workflow));
   }
-  return Object.freeze({profile:REPOSITORY_PLAN_VALUES_PROFILE,deriveRepositoryPlan,repositoryPlanValue,repositoryPlanProjection,assertRepositoryPlanSources,repositoryPlanTestLocation});
+  /** A reviewed additive accounting record keeps each path in its original repository. */
+  function repositoryPlanAmendmentProjection(value,record,repositoryId,options={}){
+    repositoryPlanProjection(value,repositoryId);
+    if(!record)return null;
+    if(record.kind!=='planned'||record.amendment!==true||!plain(record.claims)||Object.keys(record.claims).length)fail('Repository accounting projects only additive reviewed plan records.');
+    if(!plain(record.accountedPaths)||Object.values(record.accountedPaths).some(paths=>!Array.isArray(paths))
+      ||!Array.isArray(record.supportingFileDetails??[]))fail('Repository accounting needs exact path lists and supporting-file details.');
+    const local=path=>{const location=repositoryPlanTestLocation(value,path,options);return location?.repositoryId===repositoryId?location.path:null;},
+      accountedPaths=Object.fromEntries(Object.entries(record.accountedPaths??{}).map(([id,paths])=>[id,paths.map(local).filter(Boolean)]).filter(([,paths])=>paths.length)),
+      details=(record.supportingFileDetails??[]).map(row=>({...row,path:local(row.path)})).filter(row=>row.path);
+    if(!Object.keys(accountedPaths).length&&!details.length)return null;
+    return {...record,accountedPaths,supportingFiles:details.map(row=>row.path),supportingFileDetails:details};
+  }
+  return Object.freeze({profile:REPOSITORY_PLAN_VALUES_PROFILE,deriveRepositoryPlan,repositoryPlanValue,repositoryPlanProjection,assertRepositoryPlanSources,repositoryPlanTestLocation,repositoryPlanAmendmentProjection});
 }

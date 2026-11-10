@@ -6,6 +6,7 @@ import {conformanceDecisionAuthority,planConformanceDecision,conformanceDecision
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceHumanDecisionReader} from './namespace-human-decision-reader.mjs';
+import {createNamespaceUpstreamOwners} from './namespace-upstream-reader.mjs';
 import {namespaceHumanDecisionReceipts} from './namespace-human-decision-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
@@ -13,10 +14,10 @@ export function createNamespaceConformanceDecisionOwner({observer,scope,workId})
   let publications;
   const reader=()=>publications??=createNamespacePublicationReader({observer,scope,workId,
     checks:createNamespacePhaseCheckReader({...observer.evidenceReads,observer})});
-  async function read(snapshot,request,{signal}={}){
+  async function read(snapshot,request,{signal,policyTraversal}={}){
     const phase=snapshot.workflow.phases[request.phaseId],binding=phase?.publicationBindings?.find(row=>row.generation===phase.generation);
     if(!binding)throw error('Publish the exact conformance generation before deciding its gaps.','PHASE_PUBLICATION_REQUIRED');
-    const publication=await reader().accepted(binding,request.phaseId,{signal}),proof=reader().policies.conformanceEvidence(publication);
+    const publication=await reader().accepted(binding,request.phaseId,{signal,policyTraversal}),proof=reader().policies.conformanceEvidence(publication);
     if(!proof)throw error('This publication has no retained conformance report.','ENGINE_PORT_UNAVAILABLE',{required:['retained-conformance-policy']});
     const identity={publication:binding,policy:proof.binding,report:proof.manifest.report},generation=publication.generation,
       expected=hash({projectId:scope.projectId,workId,phase:request.phaseId,generation,configuration:publication.configuration,...identity});
@@ -25,11 +26,11 @@ export function createNamespaceConformanceDecisionOwner({observer,scope,workId})
   }
   const owner={read,authority:conformanceDecisionAuthority,plan:planConformanceDecision};
   const decisions=createNamespaceHumanDecisionReader({observer,scope,workId,operation:'conformance.decide',owner});
-  async function retained(snapshot,source,{signal,at}={}){
+  async function retained(snapshot,source,{signal,at,policyTraversal}={}){
     const latest=new Map();
     for(const link of namespaceHumanDecisionReceipts(snapshot.workflow).filter(row=>row.operation==='conformance.decide'
       &&row.phase===source.publication.phase&&row.generation===source.generation)){
-      const proof=await decisions.accepted(link,{signal}),value=proof.value;
+      const proof=await decisions.accepted(link,{signal,policyTraversal}),value=proof.value;
       if(value.request.expected!==source.expected||!same(value.source,source.identity))throw error('The decision names another retained conformance binding.','ENGINE_STORAGE_CORRUPT');
       const key=canonicalJson([value.request.clauseId,value.request.ownerPhase]),previous=latest.get(key);
       if(previous&&conformanceDecisionActive(previous.value,value.recordedAt))throw error('This conformance gap has duplicate active decisions.','ENGINE_STORAGE_CORRUPT');
@@ -37,15 +38,32 @@ export function createNamespaceConformanceDecisionOwner({observer,scope,workId})
     }
     return [...latest.values()].map(proof=>({...proof,active:conformanceDecisionActive(proof.value,at)}));
   }
-  owner.assertNew=async(snapshot,request,source,{signal,at})=>{
+  owner.assertNew=async(snapshot,request,source,{signal,at,policyTraversal})=>{
+    const gap=source.gaps.find(row=>row.clauseId===request.clauseId),issues=(gap?.issueRefs??[]).filter(id=>
+      source.proof.report.upstream?.some(row=>row.id===id&&row.phase===request.ownerPhase));
+    if(issues.length)throw error('Decide the retained upstream issue once; this gap uses that same disposition.','ENGINE_CONFORMANCE_UPSTREAM_ISSUE_REQUIRED',{
+      issueIds:issues,ownerPhase:request.ownerPhase,actions:issues.map(issueId=>({operation:'upstream.decide',inputs:{workId,issueId},requiredInputs:['operationId','outcome','reason']}))});
     for(const link of namespaceHumanDecisionReceipts(snapshot.workflow).filter(row=>row.operation==='conformance.decide'&&row.phase===request.phaseId&&row.generation===source.generation)){
       const value=await decisions.decode(link.record,{signal});
       if(value.request.clauseId!==request.clauseId||value.request.ownerPhase!==request.ownerPhase)continue;
-      const previous=await decisions.accepted(link,{signal});
+      const previous=await decisions.accepted(link,{signal,policyTraversal});
       if(previous.value.request.expected!==source.expected)throw error('The decision has another original report.','ENGINE_STORAGE_CORRUPT');
       if(conformanceDecisionActive(previous.value,at))throw error('This exact gap already has an active human disposition. Use the retained receipt.','ENGINE_CONFORMANCE_ALREADY_DECIDED',{
         operationId:previous.value.operationId,outcome:previous.value.request.outcome});
     }
   };
-  return Object.freeze({owner,decisions,retained});
+  async function linked(snapshot,source,{signal,at,policyTraversal}={}){
+    const expected=source.proof.report.upstream??[];if(!expected.length)return [];
+    const owned=createNamespaceUpstreamOwners({observer,scope,workId}),proofs=await owned.decisions(snapshot,{signal,policyTraversal}),result=[];
+    for(const issue of expected){
+      if(!same(issue,(snapshot.workflow.upstreamIssues??[]).find(row=>row.id===issue.id)))throw error('The conformance issue changed its retained producer binding.','ENGINE_STORAGE_CORRUPT');
+      const proof=proofs.find(row=>row.value.request.issueId===issue.id);if(!proof)continue;
+      const record=proof.value.outcome.record;if(!['accept-risk','dismiss'].includes(record.outcome))continue;
+      for(const gap of source.gaps.filter(row=>row.issueRefs?.includes(issue.id)))result.push({clauseId:gap.clauseId,ownerPhase:issue.phase,issueId:issue.id,
+        operationId:proof.value.operationId,outcome:record.outcome,expiresAt:record.expiresAt,active:record.outcome==='dismiss'||Date.parse(record.expiresAt)>Date.parse(at),
+        record:proof.reference,actorId:proof.value.actor.principalId,authorityGroup:proof.value.authorityGroup,recordedAt:proof.value.recordedAt,reason:record.reason,
+        references:[proof.reference,...proof.source.references]});
+    }return result;
+  }
+  return Object.freeze({owner,decisions,retained,linked});
 }

@@ -1,6 +1,7 @@
 /** Explicit human approval over shared retained records; no private checkout, Git or provider. */
 import {createHash} from 'node:crypto';
 import {createEngine} from '../engine-sdk/index.mjs';
+import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,NAMESPACE_APPROVAL_SCHEMAS,namespaceApprovalRoutingProfile} from '../foundation/record-schema.mjs';
 import {phaseAccessIdentity,phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
@@ -312,7 +313,8 @@ export function createNamespaceApprovalPorts({records,content,scope,workId,autho
 }
 
 export function createNamespaceApprovalEngine({records,content,scope,workId,authority,access,clock,localContent=null}={}) {
+  const readSession=createNamespaceReadSession({records,content});({records,content}=readSession);
   scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent};
   const ports=createNamespaceApprovalPorts(options);
-  return createEngine({ports:{...createNamespaceReadPorts(options),...ports}});
+  return createEngine({ports:{invocation:{run:readSession.run},...createNamespaceReadPorts(options),...ports}});
 }

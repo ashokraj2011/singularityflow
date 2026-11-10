@@ -8,7 +8,7 @@ import {openNativeSqliteDatabase} from '../../src/sda/sqlite-native.mjs';
 import {createSqliteContentStore} from '../../src/sda/sqlite-content-adapter.mjs';
 import {createNamespaceEngine} from '../../src/engine-storage/namespace-engine.mjs';
 import {createNamespaceLifecycleObserver} from '../../src/engine-storage/namespace-lifecycle-reader.mjs';
-export async function namespaceEngineFixture(t,{backend='filesystem',working=true,configure=null}={}) {
+export async function namespaceEngineFixture(t,{backend='filesystem',working=true,configure=null,storyText='# Request\n\nRetain an observable reviewed document.\n'}={}) {
   const f=await namespaceConfigurationFixture(t,{backend,enroll:false}),workId='composed-story';
   const source=structuredClone(f.source);
   source.definition.approvalAuthorities={reviewers:{members:[{email:'reviewer@example.test'}]}};
@@ -42,7 +42,7 @@ export async function namespaceEngineFixture(t,{backend='filesystem',working=tru
     const reference=await f.store(source),configurationInput={operationId:'approve-composed',source:reference,expectedRevision:null,
       confirm:reference.sha256,reason:'The human reviewed the complete workflow package.'};
     const configured=await engine.run('configuration.approve',configurationInput);
-    const retained=(await f.content.put(f.scope,'state',Buffer.from('# Request\n\nRetain an observable reviewed document.\n'))).reference;
+    const retained=(await f.content.put(f.scope,'state',Buffer.from(storyText))).reference;
     const creationInput={operationId:'create-composed',workId,title:'Composed Story',workTypeId:'simple',configurationId:'approve-composed',source:retained};
     const created=await engine.run('story.create',creationInput);
     return {enrolled,configured,created,configurationInput,creationInput};

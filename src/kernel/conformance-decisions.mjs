@@ -38,7 +38,7 @@ export function planNamespaceRejection(workflow,request,facts,source) {
   if(request.confirm!==source.reviewPacket.sha256)fail('Confirm the exact submitted review packet before returning it.','ENGINE_APPROVAL_CONFIRMATION_STALE');
   const {targetId}=rejectionTarget(workflow,phase,request.target);assertRejectionComment(phase,request.reason,false);
   const proposed=structuredClone(workflow),target=proposed.phases[targetId];
-  if(!target||target.generation<1)fail('An initial Code generation needs its own preparation owner.','ENGINE_PORT_UNAVAILABLE',{required:['initial-generation-return']});
+  if(!target)fail('Return to a phase in this pinned workflow.','LIFECYCLE_TRANSITION_INVALID');
   const changeRequest={schemaVersion:1,id:'CR-'+String((proposed.changeRequests??[]).length+1).padStart(3,'0'),status:'open',
     sourcePhase:phase.id,sourceGeneration:phase.generation,targetPhase:targetId,clauseIds:[],comment:request.reason,
     requestedAt:facts.at,requestedBy:facts.actorId,agent:facts.agentId,channel:'engine-sdk',authorityGroup:facts.authorityGroup,

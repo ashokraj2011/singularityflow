@@ -36,3 +36,9 @@ test('reviewer return reopens exactly the configured range without changing gene
   assert.equal(result.outcome.changeRequest.reviewPacketSha256,packet);
   assert.throws(()=>planNamespaceRejection(w,{phaseId:'release',target:'build',reason:request.reason,confirm:expected},facts,source),{code:'ENGINE_APPROVAL_CONFIRMATION_STALE'});
 });
+test('an authorized return to an unstarted phase preserves generation zero for its first actual preparation',()=>{
+  const w=workflow();Object.assign(w.phases.build,{status:'skipped',generation:0});const before=structuredClone(w),
+    result=planNamespaceRejection(w,{phaseId:'release',target:'build',reason:request.reason,confirm:packet},facts,source);
+  assert.deepEqual(w,before);assert.equal(result.workflow.currentPhase,'build');assert.equal(result.workflow.phases.build.generation,0);
+  assert.equal(result.workflow.phases.build.reworkRevalidation.generation,0);assert.equal(result.workflow.phases.build.status,'in_progress');
+});

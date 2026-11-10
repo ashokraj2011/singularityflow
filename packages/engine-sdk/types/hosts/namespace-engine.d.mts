@@ -1,12 +1,11 @@
-import type {Engine} from '../index.mjs';
+import type {Engine,EngineOperation} from '../index.mjs';
 import type {NamespaceStore,NamespaceScope} from '../namespace.mjs';
 import type {ContentStore} from '../content.mjs';
 import type {SourceUnit,SourceContentReader} from '../source.mjs';
 import type {SourceControlReader} from '../source-control.mjs';
 import type {NamespaceStoryAccessFacts} from './namespace-story.mjs';
 import type {NamespaceChecksBindings} from './namespace-checks.mjs';
-export type NamespaceAccessOperation='project.enroll'|'configuration.approve'|'story.create'|'source.bind'|'source.baseline.retain'|
-  'clarification.status'|'clarification.record'|'phase.enter'|'phase.context.read'|'phase.prepare'|'phase.draft.read'|'phase.draft.write'|'phase.draft.rebase'|'phase.publish'|'phase.submit'|'phase.approve'|'decision.choose'|'phase.checks.run'|'phase.source.inspect'|'phase.source.retain';
+export type NamespaceAccessOperation=EngineOperation;
 export interface NamespaceEngineAccess {
   current(request:{readonly projectId:string;readonly workId?:string;readonly operation:NamespaceAccessOperation;readonly signal?:AbortSignal|null}):
     (NamespaceStoryAccessFacts&{readonly agentId:string|null})|Promise<NamespaceStoryAccessFacts&{readonly agentId:string|null}>;

@@ -5,7 +5,7 @@ import {canonicalJson,admitRecordSchemaVersion,SPECIFICATION_ANALYSIS_REPORT_SCH
 import {specificationAnalysisPublicationPolicy} from '../kernel/specification-analysis.mjs';
 import {specificationGateValue,evaluateApprovalChecklist} from '../engine-compatibility/node-specification-policy.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
-import {namespaceAnalysisManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE,CONFORMANCE_EVIDENCE,isCodePolicyEvidence} from './namespace-policy-contract.mjs';
+import {namespaceAnalysisManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE,isConformanceEvidence,isCodePolicyEvidence} from './namespace-policy-contract.mjs';
 import {createNamespaceConformanceReader} from './namespace-conformance.mjs';
 import {createNamespaceCodePolicyReader,withCodePolicyTraversal,verifyCodePolicyInTraversal} from './namespace-code-policy.mjs';
 import {createNamespaceCodeInputReader} from './namespace-code-inputs.mjs';
@@ -92,7 +92,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     const values=[];
     for(const binding of publication.policyEvidence) {
       namespacePolicyEvidenceBinding(binding);
-      if(binding.kind===CONFORMANCE_EVIDENCE){values.push(await conformanceReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
+      if(isConformanceEvidence(binding.kind)){values.push(await conformanceReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
       if(isCodePolicyEvidence(binding.kind)){values.push(await verifyCodePolicyInTraversal(codeReader(),observer,publication,binding,{signal,policyTraversal:token}));continue;}
       if(binding.kind===CODE_INPUT_EVIDENCE){values.push(await inputReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
       if(binding.kind===CLARIFICATION_EVIDENCE){values.push(await verifyClarification(publication,binding,signal));continue;}
@@ -118,16 +118,16 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   }
   function proofs(publication) {const found=verified.get(publication);return found&&found.identity===canonicalJson(publication)
     &&found.values.every(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().proof(publication)===value
-      :value.binding.kind===CONFORMANCE_EVIDENCE?conformanceReader().proof(publication)===value:value.binding.kind!==CODE_INPUT_EVIDENCE||inputReader().proof(publication)===value)?found.values:[];}
-  function owners(publication) {return proofs(publication).flatMap(value=>(isCodePolicyEvidence(value.binding.kind)||[CODE_INPUT_EVIDENCE,CONFORMANCE_EVIDENCE].includes(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
-  function evidence(publication) {return proofs(publication).flatMap(value=>value.binding.kind===CONFORMANCE_EVIDENCE?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):value.binding.kind===CODE_INPUT_EVIDENCE?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
+      :isConformanceEvidence(value.binding.kind)?conformanceReader().proof(publication)===value:value.binding.kind!==CODE_INPUT_EVIDENCE||inputReader().proof(publication)===value)?found.values:[];}
+  function owners(publication) {return proofs(publication).flatMap(value=>(isCodePolicyEvidence(value.binding.kind)||value.binding.kind===CODE_INPUT_EVIDENCE||isConformanceEvidence(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
+  function evidence(publication) {return proofs(publication).flatMap(value=>isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):value.binding.kind===CODE_INPUT_EVIDENCE?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
     ?[value.binding.record,...(value.response?[value.response.reference]:[])]:[value.binding.record,value.manifest.report,...(value.manifest.previous?[value.manifest.previous.record]:[])]).map(value=>({...value}));}
-  function resources(publication) {return proofs(publication).map(value=>({kind:value.binding.kind===CONFORMANCE_EVIDENCE?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':value.binding.kind===CODE_INPUT_EVIDENCE?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
+  function resources(publication) {return proofs(publication).map(value=>({kind:isConformanceEvidence(value.binding.kind)?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':value.binding.kind===CODE_INPUT_EVIDENCE?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
     reference:{...(value.binding.kind===CLARIFICATION_EVIDENCE?value.response?.reference??value.binding.record:value.manifest.report)}}));}
   function readBindings(publication) {return proofs(publication).flatMap(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().readBindings(value):value.binding.kind===CLARIFICATION_EVIDENCE?[{...value.manifest.observed}]:[]);}
   function codeEvidence(publication){const value=proofs(publication).find(row=>isCodePolicyEvidence(row.binding.kind));
     return value?structuredClone({binding:value.binding,manifest:value.manifest,report:value.report,sources:value.source.plan.sources}):null;}
-  function conformanceEvidence(publication){const value=proofs(publication).find(row=>row.binding.kind===CONFORMANCE_EVIDENCE);return value?structuredClone(value):null;}
+  function conformanceEvidence(publication){const value=proofs(publication).find(row=>isConformanceEvidence(row.binding.kind));return value?structuredClone(value):null;}
   function verifyPlan(publication,plan) {
     if(!publication.policyEvidence)return;
     const values=proofs(publication);
@@ -143,9 +143,9 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   }
   return Object.freeze({candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
     codeInputCandidate:(...args)=>inputReader().candidate(...args),conformanceCandidate:(...args)=>conformanceReader().candidate(...args),
-    freshInputSources:(publication,...args)=>proofs(publication).some(value=>value.binding.kind===CONFORMANCE_EVIDENCE)
+    freshInputSources:(publication,...args)=>proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))
       ?conformanceReader().freshSources(publication,...args):inputReader().freshSources(publication,...args),
-    requiresDisposition:(publication,options)=>publication.policyEvidence?.some(value=>value.kind===CONFORMANCE_EVIDENCE)===true&&proofs(publication).some(value=>value.binding.kind===CONFORMANCE_EVIDENCE)&&conformanceReader().requiresDisposition(publication,options),
-    assertApproval:async(publication,options)=>proofs(publication).some(value=>value.binding.kind===CONFORMANCE_EVIDENCE)?conformanceReader().assertApproval(publication,options):[],
+    requiresDisposition:(publication,options)=>publication.policyEvidence?.some(value=>isConformanceEvidence(value.kind))===true&&proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))&&conformanceReader().requiresDisposition(publication,options),
+    assertApproval:async(publication,options)=>proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))?conformanceReader().assertApproval(publication,options):[],
     freshCodeSources:(...args)=>codeReader().freshSources(...args),codeEvidence,conformanceEvidence,verify,owners,evidence,resources,readBindings,verifyPlan,checklist});
 }

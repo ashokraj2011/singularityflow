@@ -26,7 +26,7 @@ export async function namespaceReleaseFixture(t,{backend='filesystem',loop=false
       content:await f.upload(text),reason:'Complete the exact generation without overstating inherited evidence.'});
   }
   async function published(phaseId){const snapshot=await f.capture(),binding=snapshot.workflow.phases[phaseId].publicationBindings.find(row=>row.generation===snapshot.workflow.phases[phaseId].generation),
-    value=await f.json(binding.record),policy=value.policyEvidence.find(row=>phaseId==='build'?row.kind.startsWith('code-delivery/'):row.kind==='conformance/v1'),
+    value=await f.json(binding.record),policy=value.policyEvidence.find(row=>phaseId==='build'?row.kind.startsWith('code-delivery/'):row.kind.startsWith('conformance/')),
     manifest=await f.json(policy.record);return {snapshot,binding,value,policy,manifest,report:await f.json(manifest.report)};}
   return {...f,engine,write,published};
 }

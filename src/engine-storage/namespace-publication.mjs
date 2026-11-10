@@ -1,6 +1,7 @@
 /** Explicit namespace publication composition. Installed Git hosts never select this writer. */
 import {createHash} from 'node:crypto';
 import {createEngine} from '../engine-sdk/index.mjs';
+import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {validateSourceUnit} from '../foundation/source-snapshot.mjs';
@@ -290,10 +291,12 @@ export function createNamespacePublicationPort(options={},runtime=null) {
 }
 
 export function createNamespacePublicationEngine(options={}) {
+  const readSession=createNamespaceReadSession({records:options?.records,content:options?.content});
+  options={...options,records:readSession.records,content:readSession.content};
   const {records,content,localRecords,localContent,access,clock,sources=[],modelEnabled=true,notice=()=>{},
     scope:givenScope,workId:givenWorkId,authority:givenAuthority}=options;
   const scope=namespaceScope(givenScope),workId=namespaceIdentifier(givenWorkId,'Story ID'),authority=Object.freeze(structuredClone(givenAuthority));
   const bound={records,content,localRecords,localContent,scope,workId,authority,access,clock,sources,modelEnabled,notice};
   const runtime=createNamespacePreparationRuntime(bound);
-  return createEngine({ports:{...createNamespaceReadPorts(bound),...runtime.ports,publication:createNamespacePublicationPort(bound,runtime)}});
+  return createEngine({ports:{invocation:{run:readSession.run},...createNamespaceReadPorts(bound),...runtime.ports,publication:createNamespacePublicationPort(bound,runtime)}});
 }

@@ -75,5 +75,6 @@ export const specificationGateValue=/* @__PURE__ */ (()=>analysis.specificationG
 
 import {conformanceVerdictPolicies} from '../kernel/conformance-report.mjs';
 const conformance=/* @__PURE__ */ conformanceVerdictPolicies(NODE_TEXT_DIGESTS);
+export const linkedConformanceEvidence=/* @__PURE__ */ (()=>conformance.linkedConformanceEvidence)();
 export const conformanceVerdictGaps=/* @__PURE__ */ (()=>conformance.conformanceVerdictGaps)();
 export { conformanceTableRows, unreadConformanceTables, missingQualifiedConformanceRows, duplicateQualifiedConformanceRows, blockingConformanceVerdicts, contradictedConformanceVerdicts, mentionsWhole, undisclosedSelfApprovals, inspectSelfApprovalDisclosures, selfApprovalDisclosureLines, withSelfApprovalDisclosures, inspectConformanceReportContract, inspectQualifiedConformanceReport } from '../kernel/conformance-report.mjs';

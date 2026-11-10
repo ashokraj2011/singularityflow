@@ -1,3 +1,5 @@
+import {NODE_TEXT_DIGESTS} from '../records.mjs';
+import {autoPlanValuePolicies} from '../kernel/auto-policy.mjs';
 /** Deterministic AUT v2 Plan validation and human-ratification packet projections. */
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
@@ -75,3 +77,6 @@ export function buildAutoPlanPacket(plan, validation = buildAutoPlanValidation(p
     budgets: structuredClone(plan.execution?.ceilings ?? {})
   }, 'packetSha256');
 }
+
+const planValues=/* @__PURE__ */ autoPlanValuePolicies(NODE_TEXT_DIGESTS);
+export const autoPlanHash=/* @__PURE__ */ (()=>planValues.autoPlanHash)();

@@ -1,9 +1,10 @@
+import {COPILOT_CLI_PROVIDER_ID} from './model-limits.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { invokeCopilotCli, openCopilotSession } from './model-providers/copilot-cli.mjs';
 
-const providers = Object.freeze({ 'copilot-cli': invokeCopilotCli });
+const providers = Object.freeze({ [COPILOT_CLI_PROVIDER_ID]: invokeCopilotCli });
 // Providers that can keep one session open for several prompts (see createModelSession).
-const sessions = Object.freeze({ 'copilot-cli': openCopilotSession });
+const sessions = Object.freeze({ [COPILOT_CLI_PROVIDER_ID]: openCopilotSession });
 
 export function modelProvider(id) {
   const provider = providers[id];

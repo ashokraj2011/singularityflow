@@ -1,0 +1,191 @@
+/** Append-only upstream rules over admitted observations. No discovery, presence registry or wall clock. */
+import {SingularityFlowError} from '../foundation/failures.mjs';
+import {upstreamDispositionFacts} from './decision-plan.mjs';
+export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'dismiss']);
+export const UPSTREAM_ISSUE_PROPOSALS = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'unknown']);
+/** The longest problem an issue records; a longer recorded item is refused, never cut. */
+export const UPSTREAM_ISSUE_PROBLEM_MAXIMUM = 1000;
+// The structural contract is data so native Zod APIs and the standalone parser share one shape.
+const string=(minimum=1,maximum=null,trim=false)=>({kind:'string',minimum,maximum,trim});
+const nullable=value=>({...value,nullable:true}),optional=value=>({...value,optional:true});
+const regex=pattern=>({...string(),pattern}),enumeration=values=>({kind:'enum',values});
+const integer={kind:'integer',minimum:0},datetime={kind:'datetime'},object=fields=>({kind:'object',fields});
+export function upstreamRecordShapes(){
+const issueFields={
+  id:regex('^UPI-\\d{3,}$'),phase:string(),
+  raisedIn:object({phase:nullable(string()),status:nullable(string()),generation:nullable(integer)}),
+  about:string(1,200,true),problem:string(20,UPSTREAM_ISSUE_PROBLEM_MAXIMUM,true),
+  assumption:nullable(string(1,1000,true)),impact:nullable(string(1,1000,true)),proposed:enumeration(UPSTREAM_ISSUE_PROPOSALS),
+  producerGeneration:integer,producerArtifacts:{kind:'array',maximum:50,item:object({path:string(),sha256:nullable(regex('^[a-f0-9]{64}$'))})},
+  source:nullable(object({path:string(1,512),itemSha256:regex('^[a-f0-9]{64}$')})),supersedes:optional(regex('^UPI-\\d{3,}$')),
+  raisedBy:string(),authored:enumeration(['human','governed-agent']),agent:nullable(string()),at:datetime
+};
+const decisionFields={issue:regex('^UPI-\\d{3,}$'),outcome:enumeration(UPSTREAM_ISSUE_OUTCOMES),reason:string(20,1000,true),
+  link:nullable(regex('^(?:PRC-\\d{3,}|CR-\\d{3,}|FAM-\\d{3,})$')),expiresAt:nullable(datetime),actor:string(),authorityGroup:string(),
+  identityAssurance:nullable(string(0)),at:datetime,presence:optional({kind:'record'})};
+function freeze(value){if(value&&typeof value==='object'){for(const entry of Object.values(value))freeze(entry);Object.freeze(value);}return value;}
+return freeze({issue:object(issueFields),decision:object(decisionFields)});
+}
+function parseRecord(shape,input){
+  const issues=[];
+  function visit(rule,value,path){
+    const issue=message=>{issues.push({path,message});return value;};
+    if(value===undefined&&rule.optional)return value;
+    if(value===null&&rule.nullable)return null;
+    if(rule.kind==='string'||rule.kind==='datetime'){
+      if(typeof value!=='string')return issue('Invalid input: expected string, received '+(value===null?'null':typeof value));
+      const text=rule.trim?value.trim():value;
+      if(rule.minimum!=null&&text.length<rule.minimum)return issue('Too small: expected string to have >='+rule.minimum+' characters');
+      if(rule.maximum!=null&&text.length>rule.maximum)return issue('Too big: expected string to have <='+rule.maximum+' characters');
+      if(rule.pattern&&!new RegExp(rule.pattern,'u').test(text))return issue('Invalid string: must match pattern /'+rule.pattern+'/u');
+      if(rule.kind==='datetime'&&(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(text)||!Number.isFinite(Date.parse(text))||new Date(text).toISOString().slice(0,10)!==text.slice(0,10)))return issue('Invalid ISO datetime');
+      return text;
+    }
+    if(rule.kind==='integer'){if(!Number.isSafeInteger(value)||value<rule.minimum)return issue('Invalid input: expected nonnegative integer');return value;}
+    if(rule.kind==='enum'){if(!rule.values.includes(value))return issue('Invalid option: expected one of '+rule.values.map(item=>'"'+item+'"').join('|'));return value;}
+    if(rule.kind==='array'){if(!Array.isArray(value))return issue('Invalid input: expected array');if(value.length>rule.maximum)return issue('Too big: expected array to have <='+rule.maximum+' items');return value.map((item,index)=>visit(rule.item,item,[...path,index]));}
+    if(!value||typeof value!=='object'||Array.isArray(value))return issue('Invalid input: expected object');
+    if(rule.kind==='record')return {...value};
+    const result={};for(const [key,field]of Object.entries(rule.fields)){const parsed=visit(field,value[key],[...path,key]);if(parsed!==undefined||Object.hasOwn(value,key))result[key]=parsed;}
+    const unknown=Object.keys(value).filter(key=>!Object.hasOwn(rule.fields,key));if(unknown.length)issue('Unrecognized keys: '+unknown.join(', '));
+    return result;
+  }
+  const data=visit(shape,input,[]);return issues.length?{success:false,error:{issues}}:{success:true,data};
+}
+const issueCodec=Object.freeze({safeParse:value=>parseRecord(upstreamRecordShapes().issue,value)}),
+  decisionCodec=Object.freeze({safeParse:value=>parseRecord(upstreamRecordShapes().decision,value)});
+
+
+function refused(message, code = 'UPSTREAM_ISSUE_INVALID', details = undefined) {
+  throw new SingularityFlowError(message, {code, ...(details ? {details} : {})});
+}
+function order(workflow) {return workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});}
+
+export function upstreamIssueAuthorities(workflow, phaseId) {
+  const policy = workflow?.phases?.[phaseId]?.approvalPolicy ?? {};
+  return [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort();
+}
+
+/**
+ * The step an issue about `phaseId` can be decided at: `phaseId` when it has approvers, else the
+ * nearest step before it that has run and has approvers, else null. An issue raised against a step
+ * with no approval group could never be decided, and the Story could never finish while it was open
+ * (quick-fix implement, poc-lite steps; 2026-10-27 blocker audit).
+ */
+export function decidableUpstreamStep(workflow, phaseId) {
+  const ids = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
+  for (let index = ids.indexOf(phaseId); index >= 0; index -= 1) {
+    const candidate = workflow.phases?.[ids[index]];
+    if (upstreamIssueAuthorities(workflow, ids[index]).length && Number(candidate?.generation) > 0 && candidate.status !== 'not_started') return ids[index];
+  }
+  return null;
+}
+
+export function upstreamIssueStates(workflow, now, observedDecisions = workflow?.upstreamIssueDecisions ?? []) {
+  const decisions = observedDecisions;
+  const replacements = new Map();
+  for (const issue of workflow?.upstreamIssues ?? []) {
+    if (issue?.supersedes && !replacements.has(issue.supersedes)) replacements.set(issue.supersedes, issue.id);
+  }
+  return (workflow?.upstreamIssues ?? []).map((issue) => {
+    const decision = decisions.findLast((entry) => entry?.issue === issue.id) ?? null;
+    const expired = decision?.outcome === 'accept-risk' && decision.expiresAt && Date.parse(decision.expiresAt) <= Date.parse(now);
+    const supersededBy = replacements.get(issue.id) ?? null;
+    const status = decision && !expired ? 'decided' : supersededBy ? 'superseded' : !decision ? 'open' : 'expired';
+    return { issue, decision, status, supersededBy };
+  });
+}
+
+export function raiseUpstreamIssue(workflow, {
+  phase, about, problem, assumption = null, impact = null, proposed = 'unknown', raisedBy, authored = 'human',
+  agent = null, source = null, supersedes = null, at
+}, records = {}) {
+  const current = workflow.currentPhase ?? null;
+  const ids = order(workflow);
+  const target = workflow.phases?.[phase];
+  if (!target) refused(`${phase || 'That phase'} is not a step of this Story.`);
+  // A Story that finished has no current phase; an issue then is about any step before its end.
+  const limit = current ? ids.indexOf(current) : ids.length;
+  if (ids.indexOf(phase) < 0 || ids.indexOf(phase) >= limit) {
+    refused(`An upstream issue is about an earlier step; ${phase} is not before ${current ?? 'the end of the Story'}.`, 'UPSTREAM_ISSUE_NOT_EARLIER');
+  }
+  if (!(Number(target.generation) > 0) || target.status === 'not_started') {
+    refused(`${phase} has not produced anything yet, so there is nothing upstream to raise.`, 'UPSTREAM_ISSUE_NOT_EARLIER');
+  }
+  if (!upstreamIssueAuthorities(workflow, phase).length) {
+    const instead = decidableUpstreamStep(workflow, phase);
+    refused(`${phase} has no approval group, so nobody could decide an issue about it and the Story could not finish while it was open. `
+      + (instead ? `Raise it against ${instead}, the nearest earlier step whose approvers can decide it.`
+        : 'No earlier step has approvers either: describe the problem in this step\'s own document for its reviewers.'),
+    'UPSTREAM_ISSUE_AUTHORITY_UNAVAILABLE', { phase, ...(instead ? { decidableStep: instead } : {}) });
+  }
+  if (supersedes != null) {
+    // The replaced issue keeps its history; only its own step's approvers close it (as dismiss).
+    const prior = upstreamIssueStates(workflow, at, records.issueDecisions).find((entry) => entry.issue.id === supersedes);
+    if (!prior) refused(`${supersedes || 'That issue'} is not an upstream issue of this Story, so there is nothing to supersede.`, 'UPSTREAM_ISSUE_SUPERSEDE_INVALID');
+    if (prior.status === 'decided') {
+      refused(`${supersedes} is already decided (${prior.decision.outcome}); raise the new issue without --supersedes.`, 'UPSTREAM_ISSUE_SUPERSEDE_INVALID');
+    }
+    if (prior.supersededBy) refused(`${supersedes} is already superseded by ${prior.supersededBy}.`, 'UPSTREAM_ISSUE_SUPERSEDE_INVALID');
+  }
+  workflow.upstreamIssues ??= [];
+  const issue = {
+    id: `UPI-${String(workflow.upstreamIssues.length + 1).padStart(3, '0')}`,
+    phase,
+    raisedIn: { phase: current, status: current ? workflow.phases?.[current]?.status ?? null : null,
+      generation: current ? Number(workflow.phases?.[current]?.generation ?? 0) : null },
+    about: String(about ?? '').trim(), problem: String(problem ?? '').trim(),
+    assumption: assumption == null || !String(assumption).trim() ? null : String(assumption).trim(),
+    impact: impact == null || !String(impact).trim() ? null : String(impact).trim(),
+    proposed, producerGeneration: Number(target.generation),
+    producerArtifacts: (target.artifacts ?? []).slice(0, 50).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
+    source, ...(supersedes != null ? { supersedes } : {}), raisedBy, authored, agent, at
+  };
+  const checked = issueCodec.safeParse(issue);
+  if (!checked.success) {
+    const field = checked.error.issues[0]?.path?.join('.') ?? 'issue';
+    refused(`The upstream issue is not well formed (${field}): ${checked.error.issues[0]?.message ?? 'invalid'}. `
+      + `Name --about (1-200 characters) and --problem (20-${UPSTREAM_ISSUE_PROBLEM_MAXIMUM} characters).`);
+  }
+  workflow.upstreamIssues.push(checked.data);
+  return checked.data;
+}
+
+export function decideUpstreamIssue(workflow, {
+  issue: issueId, outcome, reason, link = null, expiresAt = null, actor, authorityGroup, identityAssurance = null, at
+}, records = {}) {
+  const state = upstreamIssueStates(workflow, at, records.issueDecisions).find((entry) => entry.issue.id === issueId);
+  if (!state) refused(`${issueId || 'That issue'} is not an upstream issue of this Story.`, 'UPSTREAM_ISSUE_NOT_FOUND');
+  if (state.status === 'decided') {
+    refused(`${issueId} is already decided (${state.decision.outcome}).`, 'UPSTREAM_ISSUE_DECIDED');
+  }
+  if (!UPSTREAM_ISSUE_OUTCOMES.includes(outcome)) refused(`--outcome must be one of ${UPSTREAM_ISSUE_OUTCOMES.join(', ')}.`);
+  if (outcome === 'amend') {
+    // The issue is resolved by the approved forward amendment of the same step [UIF-M3].
+    const amendment = (workflow.forwardAmendments ?? []).find((entry) => entry.id === link);
+    const approved = (records.amendmentDecisions ?? workflow.forwardAmendmentDecisions ?? []).findLast((entry) => entry.amendment === link);
+    if (!amendment || approved?.decision !== 'approved') refused(`Name the approved forward amendment that resolves ${issueId} with --link FAM-NNN.`);
+    if (amendment.phase !== state.issue.phase) refused(`${link} amends ${amendment.phase}, but ${issueId} is about ${state.issue.phase}.`);
+  } else if (outcome === 'plan-correction') {
+    const correction = (records.planAmendments ?? workflow.planAmendments ?? []).find((entry) => entry?.kind === 'plan-row-correction' && entry.id === link);
+    if (!correction) refused(`Name the plan correction that resolves ${issueId} with --link PRC-NNN.`);
+    if (correction.ownerPhase !== state.issue.phase) {
+      refused(`${link} corrects ${correction.ownerPhase}, but ${issueId} is about ${state.issue.phase}.`);
+    }
+    if (correction.upstreamIssue && correction.upstreamIssue !== issueId) {
+      refused(`${link} was recorded for ${correction.upstreamIssue}, not ${issueId}.`);
+    }
+  } else if (outcome === 'return') {
+    if (!/^CR-\d{3,}$/u.test(link ?? '')) refused('A return records the change request it opened.');
+  } else if (link) {
+    refused(`--link is used only with --outcome plan-correction or amend.`);
+  }
+  const {expiresAt: expiry} = upstreamDispositionFacts({outcome,reason,expiresAt,at});
+  const decision = { issue: issueId, outcome, reason: String(reason ?? '').trim(), link: link ?? null, expiresAt: expiry,
+    actor, authorityGroup, identityAssurance, at };
+  const checked = decisionCodec.safeParse(decision);
+  if (!checked.success) refused('Say why in 20 to 1000 characters with --reason.', 'UPSTREAM_ISSUE_REASON_REQUIRED');
+  workflow.upstreamIssueDecisions ??= [];
+  workflow.upstreamIssueDecisions.push(checked.data);
+  return checked.data;
+}

@@ -5,6 +5,7 @@ import {decisionAfter,decisionOutcomeFacts,pendingDecisionPayload,resolveDecisio
 import {decisionContextSelection} from './decision-plan.mjs';
 import {primaryDocumentPublicationRequirements} from './publication-intent.mjs';
 import {skillPhaseHostRequirement} from './phase-admission.mjs';
+import {requireApprovalAuthority} from './approval-policy.mjs';
 import {nextPhaseAfterSkillAmendment,advanceCompletedPhase,recordPhaseApprovalState,reopenPhaseRange,
   resolvePhaseChangeRequests} from './lifecycle-transitions.mjs';
 const same=(left,right)=>canonicalJson(left)===canonicalJson(right);
@@ -109,13 +110,20 @@ export function planRoutingChoice(workflow,request,{at,actorId,agentId=null,auth
 }
 
 /** Initial document-only hosts must not route around unimplemented delivery or final Story policies. */
-export function routingChoiceRequirements(workflow,phase,{definition={}}={}) {
+export function routingChoiceAuthority(workflow,actor) {
+  return requireApprovalAuthority(workflow.resolution.approvalAuthorities,
+    {mode:'required',authorities:workflow.pendingDecision.by,requiredAuthorities:[],minimum:1},actor.identity).authorityGroup;
+}
+
+export function routingChoiceRequirements(workflow,phase,{definition={},fulfilled=[],reviewedPhases=[],outcome=null}={}) {
   const required=new Set(primaryDocumentPublicationRequirements(workflow,phase,{definition}));
   if(skillPhaseHostRequirement(workflow,phase))required.add('qualified-skill-host');
   if(workflow.resolution.presence)required.add('person-presence');
   if(workflow.phaseOrder.some(id=>{
     const roles=workflow.resolution.obligationGraph?.nodes?.find(node=>node.id===id)?.responsibilities;
+    if(reviewedPhases.includes(id)||outcome?.kind==='loop'&&workflow.phaseOrder.indexOf(id)>workflow.phaseOrder.indexOf(phase.id))return false;
     return !Array.isArray(roles)||roles.length!==1||roles[0]!=='review';
   }))required.add('routing-delivery-obligations');
+  for(const owner of fulfilled)required.delete(owner);
   return Object.freeze([...required].sort());
 }

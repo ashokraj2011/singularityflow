@@ -8,6 +8,7 @@ import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
 import {createNamespaceLifecycleReceiptReader} from './namespace-lifecycle-receipt-reader.mjs';
+import {memoNamespaceStoryOrigin} from './namespace-read-session.mjs';
 import {namespaceStoryValue} from './namespace-story-contract.mjs';
 import {LIFECYCLE_AUTHORITY_KEY,lifecycleAuthority} from './namespace-lifecycle-contract.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:namespaceIdentityJson(a)===namespaceIdentityJson(b);
@@ -37,6 +38,9 @@ export function createNamespaceStoryObserver({records,content,scope,workId,autho
       'The immutable creation record has another receipt revision.','ENGINE_STORAGE_CORRUPT',{workId,namespace,key});
   }
   async function original(signal) {
+    return memoNamespaceStoryOrigin(records,content,namespaceIdentityJson({scope,workId,authority,recordId,contentId}),()=>originalObservation(signal),{signal});
+  }
+  async function originalObservation(signal) {
     cancelled(signal);
     const genesisRecord=await base.record('state',codec.genesisKey,true,signal);
     const genesis=stored('genesis',genesisRecord.value);

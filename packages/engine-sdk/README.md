@@ -49,6 +49,37 @@ authoring and review resource handles, including on another device.
 It does not cover every application workflow or acceptance contract. Additional production policy
 owners and installed-project migration remain required work.
 
+The namespace Engine also records authenticated scope/completeness/applicability decisions and
+additive plan accounting. Read `scope.context` to obtain actual statement IDs and known clauses,
+including the current private specification. Mutations such as `decision.scope` and `decision.plan`
+require an explicit `operationId`; an identical retry returns its original receipt, while another
+request under that ID is refused. The original human authority is verified from pinned configuration.
+Plan accounting retains the reviewed source hashes. Continuing an already-open Code generation
+after that decision uses an explicit `phase.draft.rebase` digest confirmation; source archives,
+fresh tests and publication still have their own operations and final checks.
+
+Use `story.document.attach` and `story.document.detach` for local supporting documents and images:
+
+```js
+const uploaded = await localContent.put({ projectId }, 'local', imageBytes);
+await engine.run('story.document.attach', {
+  operationId: 'attach-design-image', workId, documentId: 'design-image',
+  name: 'design.png', mimeType: 'image/png', encoding: 'binary',
+  content: uploaded.reference, reason: 'Attach the user-provided design input to this Story.'
+});
+```
+
+Only metadata and integrity references enter shared Story state. All-phase read manifests identify
+missing originals on another device and provide their exact re-upload bindings. Detachment preserves
+earlier receipts and the local bytes. The optional `scope` and `testing/recovery` exports provide
+pure value rules; they do not execute repair loops, accept risks or record human approval.
+
+`upstream.raise`, `upstream.list` and accept-risk/dismiss through `upstream.decide` retain their
+original producer and owner. Conformance v2 associates a partial row with that exact issue; one
+genuine upstream decision covers its linked rows without a duplicate conformance decision. Other
+upstream outcomes and the remaining runtime recovery/policy owners remain explicit prerequisites.
+See `docs/ENGINE-SDK-NAMESPACE-DECISIONS-AND-RECOVERY.md` in the source repository for the contracts.
+
 `phase.enter` also provides a content-reference authoring manifest over actual namespace inputs,
 including pinned agent/skill/instruction dependencies and accepted human clarifications. Read its
 exact resources through `phase.context.read` with the returned context digest and resource handle;

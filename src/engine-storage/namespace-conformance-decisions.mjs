@@ -28,7 +28,9 @@ export function createNamespaceConformanceDecisionPorts(options){
     async read(context,{signal}={}){
       const s=contexts.get(context);if(!s)throw error('Use the issued conformance context.','ENGINE_INPUT_INVALID');
       const source=await owned.owner.read(s.snapshot,{phaseId:s.phaseId},{signal}),at=await clock.now(),retained=await owned.retained(s.snapshot,source,{signal,at});
+      const linked=await owned.linked(s.snapshot,source,{signal,at});
       const current=s.snapshot.workflow.status==='in_progress'&&s.snapshot.workflow.currentPhase===s.phaseId;
+      if((await observer.inspect({signal})).snapshot.revision!==s.snapshot.revision)throw error('The conformance decision context changed.','ENGINE_CONTEXT_CHANGED');
       return {phase:s.phaseId,generation:source.generation,expected:source.expected,publication:source.identity.publication,report:source.identity.report,
         gaps:source.gaps.map(gap=>({...gap,owners:gap.owners.map(owner=>{
           const retainedDecision=retained.find(row=>row.value.request.clauseId===gap.clauseId&&row.value.request.ownerPhase===owner),
@@ -36,6 +38,13 @@ export function createNamespaceConformanceDecisionPorts(options){
               expiresAt:retainedDecision.value.outcome.expiresAt,active:retainedDecision.active,record:retainedDecision.reference,
               actorId:retainedDecision.value.actor.principalId,authorityGroup:retainedDecision.value.authorityGroup,
               recordedAt:retainedDecision.value.recordedAt,reason:retainedDecision.value.outcome.reason}:null;
+          const issueIds=(gap.issueRefs??[]).filter(id=>source.proof.report.upstream?.some(row=>row.id===id&&row.phase===owner)),
+            linkedDecisions=linked.filter(row=>row.clauseId===gap.clauseId&&row.ownerPhase===owner),
+            linkedActive=issueIds.length>0&&issueIds.every(id=>linkedDecisions.some(row=>row.issueId===id&&row.active));
+          if(issueIds.length)return {phase:owner,authorities:[...(s.snapshot.workflow.phases[owner]?.approvalPolicy.authorities??[])],
+            issueRefs:issueIds,decision:linkedActive?(({references,...value})=>value)(linkedDecisions[0]):null,
+            decisions:linkedDecisions.map(({references,...value})=>value),choices:current?issueIds.filter(id=>!linkedDecisions.some(row=>row.issueId===id&&row.active)).flatMap(issueId=>
+              ['accept-risk','dismiss'].map(outcome=>({operation:'upstream.decide',inputs:{workId,issueId,outcome},requiredInputs:outcome==='accept-risk'?['operationId','reason','expires']:['operationId','reason']}))):[]};
           return {phase:owner,authorities:[...(s.snapshot.workflow.phases[owner]?.approvalPolicy.authorities??[])],decision,
             choices:current&&!decision?.active?['accept-risk','dismiss'].map(outcome=>({operation:'conformance.decide',
               inputs:{workId,phaseId:s.phaseId,expected:source.expected,clauseId:gap.clauseId,ownerPhase:owner,outcome},

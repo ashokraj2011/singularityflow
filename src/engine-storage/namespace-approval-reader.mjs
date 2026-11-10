@@ -48,7 +48,7 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
       const original=approvalCandidate?.operationId===value.operationId?approvalCandidate.snapshot:null,
         accepted=original?null:await observer.accepted(value.operationId,{signal}),
         snapshot=original??{workflow:accepted.basisState.workflow,configuration:accepted.plan.basis.head.configuration,revision:accepted.plan.basis.headVersion};
-      dispositionEvidence=await policies.assertApproval(proof.published,{...disposition,snapshot,at:value.recordedAt,signal});
+      dispositionEvidence=await policies.assertApproval(proof.published,{...disposition,snapshot,at:value.recordedAt,signal,policyTraversal});
     }
     const checklist=policies.checklist(proof.published,value.actor,set.policyChecklist?.result.decisions??[]);
     if(!same(checklist,set.policyChecklist??null))throw corrupt('The human checklist differs from its pinned policy, actor or retained publication.');

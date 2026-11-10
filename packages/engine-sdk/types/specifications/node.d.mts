@@ -49,5 +49,6 @@ export declare const repositoryPlanValue:import('../specifications.mjs').Reposit
 export declare const repositoryPlanProjection:import('../specifications.mjs').RepositoryPlanValues['repositoryPlanProjection'];
 export declare const assertRepositoryPlanSources:import('../specifications.mjs').RepositoryPlanValues['assertRepositoryPlanSources'];
 export declare const repositoryPlanTestLocation:import('../specifications.mjs').RepositoryPlanValues['repositoryPlanTestLocation'];
+export declare const repositoryPlanAmendmentProjection:import('../specifications.mjs').RepositoryPlanValues['repositoryPlanAmendmentProjection'];
 export declare const discoverAcceptanceWitnessesReplay:import('../specifications.mjs').AcceptanceWitnessValues['discoverAcceptanceWitnessesReplay'];
 export declare const commandForTestFileReplay:import('../specifications.mjs').AcceptanceWitnessValues['commandForTestFileReplay'];

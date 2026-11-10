@@ -81,25 +81,8 @@ export function upstreamRouteSummary(entry) {
 }
 
 /** The earlier phase's approval groups decide; a later phase's reviewers cannot rule on it. */
-export function upstreamIssueAuthorities(workflow, phaseId) {
-  const policy = workflow?.phases?.[phaseId]?.approvalPolicy ?? {};
-  return [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort();
-}
-
-/**
- * The step an issue about `phaseId` can be decided at: `phaseId` when it has approvers, else the
- * nearest step before it that has run and has approvers, else null. An issue raised against a step
- * with no approval group could never be decided, and the Story could never finish while it was open
- * (quick-fix implement, poc-lite steps; 2026-10-27 blocker audit).
- */
-export function decidableUpstreamStep(workflow, phaseId) {
-  const ids = workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {});
-  for (let index = ids.indexOf(phaseId); index >= 0; index -= 1) {
-    const candidate = workflow.phases?.[ids[index]];
-    if (upstreamIssueAuthorities(workflow, ids[index]).length && Number(candidate?.generation) > 0 && candidate.status !== 'not_started') return ids[index];
-  }
-  return null;
-}
+export {upstreamIssueAuthorities,decidableUpstreamStep} from './kernel/upstream-issues.mjs';
+import {upstreamIssueAuthorities,decidableUpstreamStep,upstreamIssueStates as observedUpstreamIssueStates} from './kernel/upstream-issues.mjs';
 
 /**
  * The step whose approvers may reopen a closed Story: its final step when that step has approvers,
@@ -140,19 +123,8 @@ export const OPEN_UPSTREAM_ISSUE_STATUSES = Object.freeze(['open', 'expired']);
  * standing decision closed it: it stays in the record and the history, owes nothing, and blocks
  * nothing; its replacement carries the obligation. Its approvers may still dismiss it explicitly.
  */
-export function upstreamIssueStates(workflow, now = new Date().toISOString()) {
-  const decisions = countedRecords(workflow, workflow?.upstreamIssueDecisions);
-  const replacements = new Map();
-  for (const issue of workflow?.upstreamIssues ?? []) {
-    if (issue?.supersedes && !replacements.has(issue.supersedes)) replacements.set(issue.supersedes, issue.id);
-  }
-  return (workflow?.upstreamIssues ?? []).map((issue) => {
-    const decision = decisions.findLast((entry) => entry?.issue === issue.id) ?? null;
-    const expired = decision?.outcome === 'accept-risk' && decision.expiresAt && Date.parse(decision.expiresAt) <= Date.parse(now);
-    const supersededBy = replacements.get(issue.id) ?? null;
-    const status = decision && !expired ? 'decided' : supersededBy ? 'superseded' : !decision ? 'open' : 'expired';
-    return { issue, decision, status, supersededBy };
-  });
+export function upstreamIssueStates(workflow,now=new Date().toISOString()) {
+  return observedUpstreamIssueStates(workflow,now,countedRecords(workflow,workflow?.upstreamIssueDecisions));
 }
 
 /**

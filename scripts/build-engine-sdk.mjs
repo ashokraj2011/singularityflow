@@ -8,9 +8,9 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
+const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'scope', 'testing/recovery', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal','testing/reports','testing/node','testing/execution','testing/node-test-reporter','hosts/namespace-test-witnesses','hosts/namespace-checks','hosts/namespace-source-inspection','hosts/namespace-source-retention','hosts/namespace-source-baseline','hosts/namespace-delivery-inspection','hosts/namespace-source-control']);
-const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:os', 'node:sqlite', 'node:net', 'node:child_process','node:test/reporters']);
+const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:os', 'node:sqlite', 'node:net', 'node:child_process','node:test/reporters','node:async_hooks']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
   'application-namespace-adapter', 'sqlite-namespace-adapter', 'sqlite-namespace-journal', 'sqlite-native', 'sqlite-content-adapter']);
 
@@ -24,11 +24,13 @@ function allowedSource(relative) {
       'src/verification/test-report-reader.mjs','src/verification/node-test-reporter.mjs','src/test-runners.mjs',
       'src/engine-compatibility/node-configuration-path.mjs', 'src/engine-compatibility/node-network-syntax.mjs',
       'src/engine-compatibility/node-source-policy.mjs','src/engine-compatibility/node-source-analysis.mjs','src/engine-compatibility/node-specification-policy.mjs','src/engine-compatibility/node-repository-plan.mjs','src/governed-roots.mjs','src/initialization-assets.mjs',
+      'src/engine-compatibility/node-scope-policy.mjs','src/engine-compatibility/node-plan-policy.mjs','src/test-recovery-policy.mjs',
       'src/engine-compatibility/node-namespace-configuration.mjs'].includes(relative)
     || /^src\/sda\/([^/]+)\.mjs$/u.test(relative) && adapterNames.has(path.posix.basename(relative, '.mjs'));
 }
 
 function inputType(operation, field) {
+  if(operation.id.startsWith('story.document.')&&field==='content')return 'ContentReference';
   if(operation.id==='phase.context.read')return ['maximumBytes','offset'].includes(field)?'number':field==='representation'?"'text' | 'base64' | 'metadata'":'string';
   if(operation.id.startsWith('clarification.')&&field==='agentId')return 'string | null';
   if(operation.id==='clarification.status')return 'string';

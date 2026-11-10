@@ -1,6 +1,7 @@
 /** Namespace phase preparation and private authoring over explicit ports. No checkout discovery. */
 import { createHash } from 'node:crypto';
 import { createEngine } from '../engine-sdk/index.mjs';
+import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
 import { renderArtifactTemplateText,utf8Bytes } from '../kernel/artifact-content.mjs';
@@ -20,6 +21,8 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import { createNamespaceReadPorts } from './namespace-reader.mjs';
 import {createNamespaceRepositoryPlanReader} from './namespace-repository-plan.mjs';
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
+import {createNamespaceLocalContentReader} from './namespace-local-content-reader.mjs';
+import {namespaceGenerationValue,namespaceGenerationOriginalBasis,verifyNamespaceGenerationContinuation} from './namespace-generation-reader.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -33,9 +36,10 @@ function privateSchema(kind,value) {
 }
 
 /** Internal composition seam. Public hosts expose registered operations, never these capabilities. */
-export function createNamespacePreparationRuntime({records,content,localRecords,localContent,scope,workId,authority,access,clock,
+export function createNamespacePreparationRuntime({records,content,localRecords,localContent,inputContent=localContent,scope,workId,authority,access,clock,
   sources=[],modelEnabled=true}={}) {
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
+  const readInput=createNamespaceLocalContentReader({content:inputContent,scope});
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
   const packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
@@ -53,7 +57,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     ...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,localRecords[name].bind(localRecords)]))});
   const privateContent=Object.freeze({descriptor:structuredClone(localContent.descriptor),
     ...Object.fromEntries(CONTENT_STORE_METHODS.map(name=>[name,localContent[name].bind(localContent)]))});
-  const contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap(),draftCaptures=new WeakMap(),admissions=new WeakMap(),sourceReads=new WeakMap(),entryReads=new WeakMap();
+  const contexts=new WeakMap(),preparations=new WeakMap(),outcomes=new WeakMap(),draftCaptures=new WeakMap(),admissions=new WeakMap(),sourceReads=new WeakMap(),entryReads=new WeakMap(),openingSources=new WeakMap();
   const store=phaseId=>createNamespaceDraftStore({records:privateRecords,content:privateContent,scope,workId,phaseId});
   const selected=context=>{const value=contexts.get(context);if(!value)throw error('Use the issued preparation context.','ENGINE_INPUT_INVALID');return value;};
   async function authorize(operation,signal,expected=null) {
@@ -111,6 +115,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     const currentBytes=same(p.artifact.initial,p.artifact.current)?initialBytes:await captured.store.bytes(p.artifact.current,{signal});
     const contextBytes=await captured.store.bytes(p.inputContext,{signal});
     const intentBytes=p.generationIntent?await captured.store.bytes(p.generationIntent.record,{signal}):null;
+    let generation=null;
     try {
       const context=JSON.parse(utf8(contextBytes,'Private input context'));
       privateSchema('context',context);
@@ -120,13 +125,13 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       for(const resource of context.resources)contentReference(resource.reference);
       if(intentBytes) {
         const intent=JSON.parse(utf8(intentBytes,'Private generation intent'));
-        privateSchema('generation',intent);
-        exactObject(intent,['schemaVersion','format','workId','phase','generation','baseRevision','configuration','actor','agentId','createdAt','sources','inputContext']);
-        if(intent.format!=='sflow-namespace-source-generation/v1'||intent.workId!==workId||intent.phase!==captured.phase.id
-          ||['generation','baseRevision','configuration','actor','agentId','createdAt','sources','inputContext'].some(key=>!same(intent[key],p[key])))throw Error('Another generation intent.');
+        namespaceGenerationValue(intent,{workId,phaseId:captured.phase.id});
+        if(['generation','baseRevision','configuration','actor','agentId','createdAt','sources','inputContext'].some(key=>!same(intent[key],p[key])))throw Error('Another generation intent.');
+        generation=intent;
       }
     }catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
       throw error('The retained private input context or generation intent has another binding.','ENGINE_STORAGE_CORRUPT',{workId,phase:captured.phase.id},cause);}
+    if(generation)await verifyNamespaceGenerationContinuation(generation,{observer,workId,phaseId:captured.phase.id,signal});
     return {...found,payload:p,currentBytes,initialBytes,generationBytes:intentBytes};
   }
   async function contract(captured,agent,signal) {
@@ -140,16 +145,19 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     return {approval,phase:configuredPhase};
   }
   async function resources(captured,approved,agent,signal) {
-    const reader=createNamespacePhaseResources({observer,packets,workId,localRead:(reference,options)=>captured.store.bytes(reference,options)});
+    const reader=createNamespacePhaseResources({observer,packets,workId,localRead:readInput});
     const result=await reader.read(captured,approved,agent,signal);
     return {records:result,rendered:result.filter(item=>item.kind==='approved-input')
       .map(item=>`- ${item.phase}, generation ${item.generation}: sha256:${item.reference.sha256}`).join('\n\n')};
   }
-  async function sourceBindings(captured,signal) {
+  async function sourceBindings(captured,signal,{previous=null}={}) {
     const w=captured.snapshot.workflow,repositories=w.sourceBindings?.current?.repositories;
     await repositoryPlans.guard(captured.snapshot,captured.phase.id,Array.isArray(repositories)?repositories.map(row=>row.id):[],{signal});
     if(!Array.isArray(repositories)||!repositories.length)throw error('Bind actual repository sources before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE');
-    const predecessor=captured.phase.generation>0?await createNamespaceCodeHistoryReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):null;
+    const continuing=previous?.payload.generation===captured.phase.generation+1&&same(previous.payload.configuration,captured.snapshot.configuration)
+      &&same(previous.payload.sources,repositories)&&previous.generationBytes!==null,
+      predecessor=!continuing&&captured.phase.generation>0?await createNamespaceCodeHistoryReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):null,
+      observedRows=[];
     for(const repository of repositories) {
       const unit=units.get(repository.id);if(!unit)throw error('Configure the bound source unit before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repository.id});
       if(!same(unit.descriptor,repository.descriptor))throw error('The source unit differs from its accepted binding. Rebind the actual checkout before generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repository.id});
@@ -163,9 +171,10 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       const observed=await unit.capture({signal});sourceSnapshot(observed.snapshot,unit.descriptor);
       const revision='sha256:'+hash(canonicalJson(observed.snapshot));
       if(observed.revision!==revision)throw error('The source unit returned another digest.','ENGINE_PORT_RESULT_INVALID');
-      if(!same(retained.entries,observed.snapshot.entries)||!same(retained.selection,observed.snapshot.selection))throw error('Source bytes changed after their accepted binding.','ENGINE_SOURCE_CHANGED',{repositoryId:repository.id});
+      if(!continuing&&(!same(retained.entries,observed.snapshot.entries)||!same(retained.selection,observed.snapshot.selection)))throw error('Source bytes changed after their accepted binding.','ENGINE_SOURCE_CHANGED',{repositoryId:repository.id});
+      observedRows.push({repositoryId:repository.id,revision});
     }
-    return structuredClone(repositories);
+    return {repositories:structuredClone(repositories),continuing,observedRows};
   }
   async function makePayload(captured,binding,agent,previous,signal) {
     if(binding.mode==='deterministic-convergence')throw error('Convergence preparation requires its retained deterministic projection.','CONVERGENCE_PROJECTION_REQUIRED');
@@ -182,18 +191,24 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       id:workId,title:w.workItem.title,workType:w.workItem.workType,inputs:inputs.rendered})),{signal});
     const artifact={key:binding.artifactKey,initial,current:previous?.payload.artifact.current??initial};
     if(typeof artifact.key!=='string'||!artifact.key)throw error('This phase needs its configured artifact contract.','ENGINE_ARTIFACT_CONTRACT_REQUIRED');
-    const sources=binding.codeDeliveryRequired?await sourceBindings(captured,signal):[];
+    const opening=binding.codeDeliveryRequired?await sourceBindings(captured,signal,{previous}):null,sources=opening?.repositories??[];
     let generationIntent=null;
     if(binding.codeDeliveryRequired) {
-      const intent={schemaVersion:1,format:'sflow-namespace-source-generation/v1',workId,phase:phase.id,generation:binding.generation,
-        baseRevision:captured.snapshot.revision,configuration:captured.snapshot.configuration,actor:agent.actor,agentId:agent.agentId,createdAt:at,sources,inputContext};
+      const continuation=opening.continuing?{basis:await namespaceGenerationOriginalBasis(captured,previous.payload,{observer,workId,signal}),
+        draft:{reference:previous.body,value:JSON.parse(utf8(await captured.store.bytes(previous.body,{signal}),'Original private draft'))},
+        intent:{reference:previous.payload.generationIntent.record,value:JSON.parse(utf8(previous.generationBytes,'Original generation intent'))}}:null;
+      const intent={schemaVersion:continuation?2:1,format:'sflow-namespace-source-generation/v'+(continuation?2:1),workId,phase:phase.id,generation:binding.generation,
+        baseRevision:captured.snapshot.revision,configuration:captured.snapshot.configuration,actor:agent.actor,agentId:agent.agentId,createdAt:at,sources,inputContext,
+        ...(continuation?{continuation}:{})};
+      namespaceGenerationValue(intent,{workId,phaseId:phase.id});await verifyNamespaceGenerationContinuation(intent,{observer,workId,phaseId:phase.id,signal});
       const record=await captured.store.put(Buffer.from(canonicalJson(intent)),{signal});
       generationIntent={id:'generation-'+record.sha256,generation:binding.generation,record};
     }
-    return {format:'sflow-namespace-prepared-phase/v1',generation:binding.generation,baseRevision:captured.snapshot.revision,
+    const value={format:'sflow-namespace-prepared-phase/v1',generation:binding.generation,baseRevision:captured.snapshot.revision,
       authorityVersion:captured.basis.authorityVersion,configuration:captured.snapshot.configuration,actor:agent.actor,agentId:agent.agentId,createdAt:at,
       template:{key,reference:template.body},artifact,inputContext,sources,generationIntent,previousDraft:previous?.body??null,
       updatedAt:at,updatedBy:agent.actor,reason:previous?'Rebind the preserved authored draft.':'Prepare the phase artifact.'};
+    if(opening)openingSources.set(value,opening);return value;
   }
   const phasePreparation={
     async load(inputs,{signal}={}) {
@@ -279,7 +294,11 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       async commit(context,token,{signal}={}) {
         const s=contextValue(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this private draft operation\'s preparation.','ENGINE_INPUT_INVALID');
         const accepted=await s.store.inspect(s.input.operationId,s.parametersSha256,{signal});if(accepted)return outcome(context,accepted);
-        if(kind==='rebase'&&p.value.sources.length)await sourceBindings(p.captured,signal);
+        if(kind==='rebase'&&p.value.sources.length){const opening=openingSources.get(p.value);
+          if(opening?.continuing){for(const row of opening.observedRows){const unit=units.get(row.repositoryId),actual=await unit.capture({signal});sourceSnapshot(actual.snapshot,unit.descriptor);
+            if(actual.revision!=='sha256:'+hash(canonicalJson(actual.snapshot)))throw error('The source unit returned another digest.','ENGINE_PORT_RESULT_INVALID');
+            if(actual.revision!==row.revision)throw error('Source changed during Code continuation; preserve the draft and review it again.','ENGINE_SOURCE_CHANGED',{repositoryId:row.repositoryId});}}
+          else await sourceBindings(p.captured,signal);}
         await authorize(permission,signal,p.agent);await unchanged(p.captured,signal);
         const result=await s.store.save({operationId:s.input.operationId,parametersSha256:s.parametersSha256,expectedRevision:p.found.revision,payload:p.value},{signal});
         return outcome(context,result);
@@ -384,8 +403,10 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
 }
 
 export function createNamespacePreparationEngine(options) {
+  const readSession=createNamespaceReadSession({records:options?.records,content:options?.content});
+  options={...options,records:readSession.records,content:readSession.content};
   const {records,content,localRecords,localContent,scope,workId,authority,access,clock,sources=[],modelEnabled=true}=options===undefined?{}:options;
   const bound={records,content,localRecords,localContent,scope:namespaceScope(scope),workId,authority,access,clock,sources,modelEnabled};
   const runtime=createNamespacePreparationRuntime(bound);
-  return createEngine({ports:{...createNamespaceReadPorts(bound),...runtime.ports}});
+  return createEngine({ports:{invocation:{run:readSession.run},...createNamespaceReadPorts(bound),...runtime.ports}});
 }

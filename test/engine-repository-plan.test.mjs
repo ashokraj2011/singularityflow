@@ -1,6 +1,6 @@
 /** New repository identity is explicit; legacy paths never guess their repository. */
 import test from 'node:test';import assert from 'node:assert/strict';
-import {deriveRepositoryPlan,repositoryPlanValue,repositoryPlanProjection,assertRepositoryPlanSources,repositoryPlanTestLocation} from '../src/engine-compatibility/node-repository-plan.mjs';
+import {deriveRepositoryPlan,repositoryPlanValue,repositoryPlanProjection,assertRepositoryPlanSources,repositoryPlanTestLocation,repositoryPlanAmendmentProjection} from '../src/engine-compatibility/node-repository-plan.mjs';
 const declarations='\n## Repository roots\n\n| Repository | Plan root |\n| --- | --- |\n| app | `frontend` |\n| service | `backend` |\n';
 const claim=(expectedPaths,tests,extra={})=>({expectedPaths,tests,testDisposition:'applicable',testReason:null,deviation:null,...extra});
 const planned={schemaVersion:2,kind:'planned',recordedAt:'2026-11-10T00:00:00.000Z',claims:{
@@ -79,4 +79,15 @@ test('a logical root cannot erase the private namespace of a globally protected 
       input={...planned,claims:{'STORY:REQ-001':claim([prefix+'/'+local],[])},supportingFiles:[],supportingFileDetails:[]};
     assert.throws(()=>deriveRepositoryPlan(markdown,input),{code:'SPEC_REPOSITORY_PLAN_INVALID'});
   }
+});
+test('additive accounting projects exact paths without moving another repository or importing ordinary claims',()=>{
+  const p=deriveRepositoryPlan(declarations,planned),record={kind:'planned',amendment:true,claims:{},
+    accountedPaths:{'STORY:REQ-001':['frontend/src/setup.js','backend/src/setup.js']},supportingFileDetails:[
+      {path:'backend/package.json',class:'build-configuration',reason:'Declare the real runner.'}]};
+  assert.deepEqual(repositoryPlanAmendmentProjection(p,record,'app').accountedPaths,{'STORY:REQ-001':['src/setup.js']});
+  assert.deepEqual(repositoryPlanAmendmentProjection(p,record,'app').supportingFiles,[]);
+  assert.deepEqual(repositoryPlanAmendmentProjection(p,record,'service').supportingFiles,['package.json']);
+  assert.throws(()=>repositoryPlanAmendmentProjection(p,planned,'app'),{code:'SPEC_REPOSITORY_PLAN_INVALID'});
+  assert.throws(()=>repositoryPlanAmendmentProjection(p,{...record,accountedPaths:{'STORY:REQ-001':'not-a-list'}},'app'),{code:'SPEC_REPOSITORY_PLAN_INVALID'});
+  assert.equal(repositoryPlanAmendmentProjection(p,null,'app'),null);
 });

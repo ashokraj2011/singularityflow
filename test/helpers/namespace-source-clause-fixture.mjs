@@ -11,13 +11,13 @@ export const converterSource='// @clause:STORY-1:REQ-001 Converts the selected i
   +'// @clause:STORY-1:AC-001 Returns FF for the approved 255 example.\nexport const convert=value=>value.toString(16).toUpperCase();\n';
 export async function namespaceSourceClauseFixture(t,{backend='filesystem',configure=()=>{},source=converterSource,baselineSource='export const convert=value=>String(value);\n',
   retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1',lineOrigins=false,originalSource=baselineSource,retainOrigins=true,plan=planText,
-  baselineTestSource='// Original test source.\n',testSource=null}={}) {
+  beforeCode=null,beforePrepare=null,afterPrepare=null,baselineTestSource='// Original test source.\n',testSource=null}={}) {
   const f=await namespaceSpecificationFixture(t,{backend,configure:definition=>{
     definition.definition.spec.namespace=namespace;
     definition.definition.codeDelivery={traceability:{sourceBindings:'enforce'}};configure(definition);
   }}),replace=text=>text.replaceAll('STORY-1:',namespace+':');
   await f.author('intake',replace(specificationText));await f.approve('intake');
-  await f.author('design',replace(plan));await f.approve('design');
+  await f.author('design',replace(plan));if(beforeCode)await beforeCode(f,replace(plan));else await f.approve('design');
   f.control.permissions.push('source.baseline.retain','phase.source.retain','phase.source.inspect');
   const sources=[],sourceReaders=[],roots=[],gitBindings=[],binary=lineOrigins?await pinnedLocalGit():null;
   for(let index=0;index<repositories;index++) {
@@ -42,7 +42,9 @@ export async function namespaceSourceClauseFixture(t,{backend='filesystem',confi
     await engine.run('source.bind',{operationId:sourceBindingId,workId:f.inputs.workId,expectedRevision:(await f.head()).record.version,repositories:sources.map(unit=>unit.descriptor.repositoryId),reason:'Bind the real later-generation baseline while preserving the first Story origin.'});
     if(retainBaseline)await engine.run('source.baseline.retain',{operationId:'clause-generation-bytes',workId:f.inputs.workId,sourceBindingId});
   }
+  if(beforePrepare)await beforePrepare(f,engine,roots);
   await engine.run('phase.prepare',{phaseId:'build'});
+  if(afterPrepare)await afterPrepare(f,engine,roots);
   for(const root of roots) {
     if(source===null)await rm(path.join(root,'src/converter.js'));else await writeFile(path.join(root,'src/converter.js'),replace(source));
     await writeFile(path.join(root,'test/converter.test.js'),testSource===null?"// @ac:"+namespace+":AC-001\n// An authored regression is not executed evidence.\n":replace(testSource));

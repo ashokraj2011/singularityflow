@@ -4,8 +4,7 @@ import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {phaseAccessIdentity,phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
-import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
-import {routingChoiceSelection,planRoutingChoice,routingChoiceRequirements} from '../kernel/routed-approval.mjs';
+import {routingChoiceSelection,planRoutingChoice,routingChoiceAuthority} from '../kernel/routed-approval.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
@@ -13,8 +12,7 @@ import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCommitter} from './namespace-lifecycle-commit.mjs';
 import {commitNamespaceOperation,prepareNamespaceOperation} from './namespace-commit-coordination.mjs';
-import {createNamespaceRoutingChoiceReader} from './namespace-routing-choice-reader.mjs';
-import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
+import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceRoutingChoiceValue,namespaceRoutingChoiceRecord,namespaceRoutingChoiceReceipt,namespaceRoutingChoiceReceipts,
@@ -29,8 +27,8 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
-  const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
-  const questions=createNamespaceRoutingChoiceReader({observer,scope,workId,checks});
+  const receiptReader=createNamespaceRoutingReceiptReader({observer,scope,workId});
+  const questions={read:receiptReader.question};
   if(typeof access?.current!=='function'||typeof clock?.now!=='function')throw error('A human choice needs explicit access and clock ports.','ENGINE_INPUT_INVALID');
   const current=access.current.bind(access),now=clock.now.bind(clock),put=content.put.bind(content),contexts=new WeakMap();
   function selected(context){const state=contexts.get(context);if(!state)throw error('Use the issued routing context.','ENGINE_INPUT_INVALID');return state;}
@@ -56,8 +54,7 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
     if(fresh.snapshot.revision!==snapshot.revision)throw error('The Story changed during the human choice. Review the current question.','ENGINE_CONTEXT_CHANGED');
   }
   function humanAuthority(workflow,reviewer) {
-    return requireApprovalAuthority(workflow.resolution.approvalAuthorities,
-      {mode:'required',authorities:workflow.pendingDecision.by,requiredAuthorities:[],minimum:1},reviewer.actor.identity).authorityGroup;
+    return routingChoiceAuthority(workflow,reviewer.actor);
   }
   function checkedPlan(plan,s) {
     if(plan&&(plan.operation!=='decision.choose'||plan.inputsSha256!==s.requestSha256))throw error('This choice ID has another retained intent.','ENGINE_OPERATION_ID_REUSED');
@@ -70,36 +67,20 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
     return namespaceRoutingChoiceValue(value,{projectId:scope.projectId,workId});
   }
   function proposed(workflow,value,reference) {
-    const planned=planRoutingChoice(workflow,value.request,{at:value.recordedAt,actorId:value.actor.principalId,
-      agentId:value.agentId,authorityGroup:value.authorityGroup});
-    if(!same(planned.outcome,value.outcome)||planned.workflow.currentPhase!==value.currentPhase)throw error('The choice changed its original pinned transition.','ENGINE_STORAGE_CORRUPT');
-    planned.workflow.namespaceRoutingChoiceReceipts=[...structuredClone(namespaceRoutingChoiceReceipts(workflow,{projectId:scope.projectId,workId})),namespaceRoutingChoiceReceipt(value,reference)];
-    return planned.workflow;
+    return receiptReader.proposed(workflow,value,reference);
   }
   function evidence(value,reference,proof) {
-    return [reference,value.question.approval,proof.binding.record,proof.value.publication.record,proof.published.artifact.content];
+    return receiptReader.evidence(value,reference,proof);
   }
   async function retained(plan,s,signal) {
     checkedPlan(plan,s);
     const body=await observer.state(await observer.bytes(plan.state,plan.state.bytes,signal),plan.basis.head,{signal});
     const links=namespaceRoutingChoiceReceipts(body.workflow,{projectId:scope.projectId,workId}).filter(item=>item.operationId===s.operationId);
     if(links.length!==1||s.receiptReference&&!same(links[0].record,s.receiptReference))throw error('The choice lost its original receipt link.','ENGINE_STORAGE_CORRUPT');
-    const link=links[0],value=await decode(link.record,signal);
-    const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
-    const snapshot={workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion};
-    const source=await questions.read(snapshot,{signal});
-    if(!source||value.operationId!==s.operationId||value.requestSha256!==s.requestSha256||!same(value.request,s.request)
-      ||value.requestSha256!==hash(canonicalJson({workId,request:value.request}))||value.baseRevision!==plan.basis.headVersion
-      ||value.phase!==source.selected.phase||value.generation!==source.approved.value.generation
-      ||!same(value.configuration,plan.basis.head.configuration)||!same(value.question.approval,source.approved.binding.record)
-      ||!same(value.actor,s.reviewer.actor)||value.agentId!==s.reviewer.agentId
-      ||!same(link,namespaceRoutingChoiceReceipt(value,link.record))
-      ||!evidence(value,link.record,source.proof).every(ref=>plan.evidence.some(item=>same(item,ref))))throw error(
+    const link=links[0],{value}=await receiptReader.verify(plan,link.record,{signal});
+    if(value.operationId!==s.operationId||value.requestSha256!==s.requestSha256||!same(value.request,s.request)
+      ||!same(value.actor,s.reviewer.actor)||value.agentId!==s.reviewer.agentId)throw error(
       'The retained choice differs from its original actor, question, intent or evidence.','ENGINE_STORAGE_CORRUPT');
-    try {
-      if(value.authorityGroup!==humanAuthority(original.workflow,s.reviewer)||!same(proposed(original.workflow,value,link.record),body.workflow))throw Error('The original choice transition differs.');
-    }catch(cause){if(['ENGINE_STORAGE_CORRUPT','ENGINE_STORAGE_UNSUPPORTED'].includes(cause.code))throw cause;
-      throw error('The retained choice no longer proves its original human transition.','ENGINE_STORAGE_CORRUPT',null,cause);}
     return {value,reference:link.record};
   }
   async function save(value,signal) {
@@ -150,7 +131,7 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
         if(!source)throw error('The Story is not waiting for a decision.','DECISION_NOT_PENDING');
         const choice=routingChoiceSelection(workflow,s.request),authorityGroup=humanAuthority(workflow,s.reviewer);
         if(!same(approved.configuration,snapshot.configuration))throw error('The choice has another configuration pin.','ENGINE_STORAGE_CORRUPT');
-        const required=routingChoiceRequirements(workflow,phase,{definition:approved.compiled.definition});
+        const qualified=await receiptReader.requirements(snapshot,source,choice,{signal}),required=qualified.required;
         if(required.length)throw error('This choice needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
           operation:'decision.choose',required});
         if(plan) {await retained(plan,s,signal);s.plan=plan;}
@@ -168,7 +149,8 @@ export function createNamespaceRoutingChoicePorts({records,content,scope,workId,
             configuration:snapshot.configuration.content,workflow:proposal});
           await authorize(signal,s.reviewer);await unchanged(snapshot,signal);
           try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'decision.choose',inputsSha256:s.requestSha256,
-            state:Buffer.from(canonicalJson(body)),evidence:evidence(value,reference,source.proof)},{signal});}
+            state:Buffer.from(canonicalJson(body)),evidence:[...new Map([...evidence(value,reference,source.proof),...qualified.references]
+              .map(ref=>[canonicalJson(ref),ref])).values()]},{signal});}
           catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
             const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;await retained(competing,s,signal);}
           s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);

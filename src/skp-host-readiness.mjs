@@ -4,7 +4,7 @@
  * executable for SKP. No native process, identity lookup, permission ceremony or receipt issuer is
  * invoked here. In particular, caller-written evidence cannot turn this report into permission.
  */
-import { registeredModelProviderIds } from './model-runner.mjs';
+import { registeredModelProviderIds } from './model-limits.mjs';
 import { SKP_HOST_DIMENSIONS } from './skp-host-admission.mjs';
 
 function freeze(value) {

@@ -17,6 +17,11 @@ import {createNamespaceSubmissionPorts} from './namespace-submission.mjs';
 import {createNamespaceApprovalPorts} from './namespace-approval.mjs';
 import {createNamespaceRejectionPorts} from './namespace-rejection.mjs';
 import {createNamespaceConformanceDecisionPorts} from './namespace-conformance-decisions.mjs';
+import {createNamespaceReadSession} from './namespace-read-session.mjs';
+import {createNamespaceScopeDecisionPorts,NAMESPACE_SCOPE_DECISION_OPERATIONS} from './namespace-scope-decisions.mjs';
+import {createNamespacePlanDecisionPort} from './namespace-plan-decisions.mjs';
+import {createNamespaceUpstreamPort} from './namespace-upstream.mjs';
+import {createNamespaceInputDocumentPort} from './namespace-input-documents.mjs';
 import {createNamespaceRoutingChoicePorts} from './namespace-routing-choice.mjs';
 import {createNamespacePhaseChecksPort} from './namespace-phase-checks.mjs';
 import {createNamespaceSourceInspectionPort} from './namespace-source-inspection.mjs';
@@ -49,7 +54,8 @@ export function createNamespaceEngine(options={}) {
   if(!Number.isSafeInteger(authority.epoch)||authority.epoch<1||typeof options.access?.current!=='function'
     ||typeof options.clock?.now!=='function'||options.modelEnabled!==undefined&&typeof options.modelEnabled!=='boolean'
     ||options.notice!==undefined&&typeof options.notice!=='function')invalid('An Engine needs an explicit authority, access, clock and optional execution capabilities.');
-  const records=captured(options.records,validateNamespaceStore,NAMESPACE_STORE_METHODS),content=captured(options.content,validateContentStore,CONTENT_STORE_METHODS);
+  const readSession=createNamespaceReadSession({records:captured(options.records,validateNamespaceStore,NAMESPACE_STORE_METHODS),
+    content:captured(options.content,validateContentStore,CONTENT_STORE_METHODS)}),{records,content}=readSession;
   const access=Object.freeze({current:options.access.current.bind(options.access)}),clock=Object.freeze({now:options.clock.now.bind(options.clock)});
   let working=null;
   if(options.working!=null) {
@@ -69,7 +75,13 @@ export function createNamespaceEngine(options={}) {
   const sourceControlReaders=Object.freeze((options.sourceControlReaders??[]).map(reader=>Object.freeze({descriptor:validateSourceControlReader(reader),capture:reader.capture.bind(reader)})));
   const common={records,content,scope,workId,authority,access,clock,localContent,sources,
     modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,sourceReaders,sourceControlReaders};
-  const runtime=working?createNamespacePreparationRuntime({...common,localRecords:working.records,localContent:working.content}):null;
+  const runtime=working?createNamespacePreparationRuntime({...common,inputContent:localContent,localRecords:working.records,localContent:working.content}):null;
+  const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planDecision;
+  const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord=Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
+    const operation=parameters.at(-1)?.operation?.id,port=operation==='decision.plan'?(planDecision??=createNamespacePlanDecisionPort(common))
+      :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
+    return port[stage](...parameters);
+  }]));
   const ports={...createNamespaceReadPorts(common,{authority}),
     ...(authority.epoch===1?createNamespaceProjectPorts(common):{}),
     ...createNamespaceConfigurationPorts(common),...createNamespaceStoryPorts(common),
@@ -81,9 +93,12 @@ export function createNamespaceEngine(options={}) {
     phaseDeliveryInspection:createNamespaceDeliveryInspectionPort(common,runtime),
     phaseTestWitnessInspection:createNamespaceTestWitnessInspectionPort(common,runtime),
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
-    ...createNamespaceApprovalPorts(common),...createNamespaceRoutingChoicePorts(common),
+    ...createNamespaceApprovalPorts(common),...routing,decisionRecord,
+    ...lazyPorts(()=>scoped(),{scopeContext:['load','read']}),
+    ...lazyPorts(()=>({upstream:createNamespaceUpstreamPort(common)}),{upstream:['load','resolve','commit','finish']}),
+    ...lazyPorts(()=>({storyDocument:createNamespaceInputDocumentPort(common)}),{storyDocument:['load','prepare','commit','finish']}),
     ...lazyPorts(()=>createNamespaceConformanceDecisionPorts(common),{conformanceDecision:['load','prepare','commit','finish'],conformanceContext:['load','read']}),
     ...lazyPorts(()=>createNamespaceRejectionPorts(common),{rejection:['load','prepare','commit','finish']}),
     ...(options.checks?{phaseChecks:createNamespacePhaseChecksPort(common,runtime)}:{})};
-  return createEngine({ports});
+  return createEngine({ports:{...ports,invocation:{run:readSession.run}}});
 }

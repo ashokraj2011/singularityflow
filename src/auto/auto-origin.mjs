@@ -6,7 +6,7 @@ import { recordSha256 } from '../records.mjs';
 import { canonicalJson } from '../foundation/record-schema.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { nowIso, posix, SingularityFlowError, writeAtomic } from '../util.mjs';
-import { autoPlanHash } from './auto-plan.mjs';
+import { autoPlanHash } from './auto-plan-packet.mjs';
 import {
   AUTO_PLAN_CONFIRMATION_PROTOCOL, buildAutoPlanPacket
 } from './auto-plan-packet.mjs';

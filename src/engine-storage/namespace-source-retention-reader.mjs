@@ -1,7 +1,7 @@
 /** Verify accepted changed-source content without a filesystem, executor or private working store. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,admitRecordSchemaVersion} from '../foundation/record-schema.mjs';
+import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,sourceContentReaderDescriptor} from '../foundation/source-snapshot.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import {sourceSnapshotChanges} from '../kernel/source-changes.mjs';
@@ -17,6 +17,7 @@ import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
 import {verifySourceFileChunks} from './namespace-source-content-reader.mjs';
 import {createNamespaceSourceObservations} from './namespace-source-observations.mjs';
+import {namespaceGenerationValue,verifyNamespaceGenerationContinuation} from './namespace-generation-reader.mjs';
 import {createNamespaceSourceRetentionCodec,sourceRetentionValue,sourceRetentionRecord,sourceRetentionBinding,
   NAMESPACE_SOURCE_RETENTION_PROFILE,SOURCE_RETENTION_MAXIMUM_CHUNKS} from './namespace-source-retention-contract.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -70,15 +71,14 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
     if(plan.actor.agentId!==null)namespaceIdentifier(plan.actor.agentId,'Author agent');
     exactObject(plan.generationIntent,['id','reference']);
     const generation=await json(plan.generationIntent.reference,null,signal);
-    try{admitRecordSchemaVersion(NAMESPACE_PREPARATION_SCHEMAS.generation,generation);
-      exactObject(generation,['schemaVersion','format','workId','phase','generation','baseRevision','configuration','actor','agentId','createdAt','sources','inputContext']);
-      if(generation.format!=='sflow-namespace-source-generation/v1'||generation.workId!==workId||generation.phase!==input.phaseId
-        ||generation.generation!==plan.generation||generation.baseRevision!==plan.basis.headVersion||!same(generation.configuration,plan.basis.configuration)
+    try{namespaceGenerationValue(generation,{workId,phaseId:input.phaseId});
+      if(generation.generation!==plan.generation||generation.baseRevision!==plan.basis.headVersion||!same(generation.configuration,plan.basis.configuration)
         ||contentReference(plan.generationIntent.reference).namespace!=='runtime'
         ||plan.generationIntent.id!=='generation-'+plan.generationIntent.reference.sha256||contentReference(generation.inputContext).namespace!=='local')throw Error('Another generation.');
       projectEnrollmentTimestamp(generation.createdAt);
       storyActorValue(generation.actor);if(generation.agentId!==null)namespaceIdentifier(generation.agentId,'Generation author agent');
-    }catch(cause){throw error('The source intent lost its exact generation binding.',['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',cause);}
+    }catch(cause){throw error('The source intent lost its exact generation binding.',['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED','ENGINE_STORAGE_UNSUPPORTED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',cause);}
+    await verifyNamespaceGenerationContinuation(generation,{observer,workId,phaseId:input.phaseId,signal});
     exactObject(plan.sourceBinding,['operationId']);const selected=workflow.sourceBindings?.current;
     if(!selected||selected.operationId!==plan.sourceBinding.operationId||plan.sources.length!==selected.repositories.length
       ||!same(generation.sources,selected.repositories))throw error('The retained generation changed its selected repositories.');

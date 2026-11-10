@@ -11,6 +11,8 @@ import {namespaceApprovalReceipt,namespaceApprovalReceipts,namespaceApprovalDeci
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {namespaceHumanDecisionReceipts} from './namespace-human-decision-contract.mjs';
 import {createNamespaceRejectionReader} from './namespace-rejection-reader.mjs';
+import {namespaceRoutingChoiceReceipts} from './namespace-routing-choice-contract.mjs';
+import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-reader.mjs';
 import {createNamespaceSourceRetentionReader} from './namespace-source-retention-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceCodeHistoryReader({observer,scope,workId}){
@@ -42,11 +44,21 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
       route={binding,value,accepted,before,selected,proof};break;
     }
     if(!route){
+      const choices=createNamespaceRoutingReceiptReader({observer:scoped,scope,workId});
+      for(const link of namespaceRoutingChoiceReceipts(workflow,{projectId:scope.projectId,workId}).filter(row=>row.phase===request.sourcePhase&&row.generation===request.sourceGeneration).reverse()){
+        const value=await choices.decode(link.record,{signal});
+        if(value.outcome.kind!=='loop'||value.outcome.target!==phaseId||value.recordedAt!==request.requestedAt)continue;
+        const proof=await choices.accepted(link,{signal,policyTraversal});
+        route={kind:'choice',binding:{operationId:link.operationId,record:link.record},value,accepted:proof.accepted,
+          selected:{outcome:value.outcome},proof:proof.source.proof};break;
+      }
+    }
+    if(!route){
       const returns=createNamespaceRejectionReader({observer:scoped,scope,workId});
       for(const link of namespaceHumanDecisionReceipts(workflow).filter(row=>row.operation==='phase.reject'&&row.phase===request.sourcePhase&&row.generation===request.sourceGeneration).reverse()){
         const value=await returns.decode(link.record,{signal});
         if(value.request.target!==phaseId||value.recordedAt!==request.requestedAt)continue;
-        const proof=await returns.accepted(link,{signal});
+        const proof=await returns.accepted(link,{signal,policyTraversal});
         route={kind:'rejection',binding:{operationId:link.operationId,record:link.record},value,accepted:proof.accepted,proof};break;
       }
     }
@@ -83,9 +95,10 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
         for(const path of [...new Set([...a.keys(),...b.keys()])].sort())if(!same(a.get(path)??null,b.get(path)??null))changes.push({path,before:a.get(path)??null,after:b.get(path)??null});
         repositories.push({id:source.repository.id,previous:earlier.observed,current:source.observed,changes});
       }
-      if(!repositories.some(row=>row.changes.length))throw error('An unchanged Code successor needs its explicit revalidation owner.','ENGINE_PORT_UNAVAILABLE',{required:['namespace-code-revalidation']});
-      return {profile:kind==='rejection'?'sflow-namespace-code-history/v2':'sflow-namespace-code-history/v1',predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
-        return:{[kind==='rejection'?'rejection':'approval']:binding,request:structuredClone(request)},repositories};
+      const changed=repositories.some(row=>row.changes.length),extended=kind==='choice'||!changed;
+      return {profile:extended?'sflow-namespace-code-history/v3':kind==='rejection'?'sflow-namespace-code-history/v2':'sflow-namespace-code-history/v1',
+        ...(extended?{mode:changed?'changed':'revalidated'}:{}),predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
+        return:{[kind==='choice'?'choice':kind==='rejection'?'rejection':'approval']:binding,request:structuredClone(request)},repositories};
     });
   }
   return Object.freeze({inspect,opening});

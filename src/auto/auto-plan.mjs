@@ -1,3 +1,7 @@
+import {readAutoPlan,validatePlanId,planFile} from './auto-plan-read.mjs';
+export {readAutoPlan} from './auto-plan-read.mjs';
+import {autoPlanHash} from './auto-plan-packet.mjs';
+export {autoPlanHash} from './auto-plan-packet.mjs';
 /**
  * AUT v1 Plan synthesis and exact-hash ratification.
  *
@@ -44,7 +48,6 @@ import {
 import { readAutoPrivateRecord, writeAutoPrivateRecord } from './auto-private-store.mjs';
 import { assertAutoRequirementSourceCurrent } from './auto-entry-modes.mjs';
 
-const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const PLAN_HASH = /^sha256:[a-f0-9]{64}$/;
 const MAX_REQUIREMENT_BYTES = 64 * 1024;
 
@@ -53,7 +56,6 @@ function sha256(value) {
 }
 
 function localRoot(root) { return path.join(gitCommonDir(root), 'singularity-flow'); }
-function planFile(root, planId) { return path.join(localRoot(root), 'auto-plans', `${planId}.json`); }
 function authorizationFile(root, planId) { return path.join(localRoot(root), 'auto-authorizations', `${planId}.json`); }
 const AUTO_CLAIM_LEASE_MS = 10 * 60 * 1000;
 
@@ -100,11 +102,6 @@ async function claimedEffects(root, plan, authorization) {
   };
 }
 
-function validatePlanId(value) {
-  const id = String(value ?? '').trim();
-  if (!PLAN_ID.test(id)) throw new SingularityFlowError(`Invalid Auto Plan ID '${id}'.`, { code: 'AUTO_PLAN_NOT_FOUND' });
-  return id;
-}
 
 function normalizedRequirement(value) {
   const text = String(value ?? '').trim();
@@ -434,11 +431,6 @@ async function readVerifiedAutoAuthorization(root, planIdValue, {
   return stored;
 }
 
-export function autoPlanHash(plan) {
-  const copy = structuredClone(plan);
-  delete copy.planSha256;
-  return `sha256:${recordSha256(copy)}`;
-}
 
 /** Build and persist a Plan from an untrusted proposal. This function never starts governed work. */
 async function createAutoPlanInScope(root, requirementValue, proposalValue, options = {}) {
@@ -735,65 +727,6 @@ export async function createAutoPlan(root, requirementValue, proposalValue, opti
   }, { preferAuthority: true });
 }
 
-export async function readAutoPlan(root, planIdValue) {
-  const planId = validatePlanId(planIdValue);
-  const raw = await readAutoPrivateRecord(root, planFile(root, planId), 'plan', { optional: true });
-  if (raw == null) {
-    throw new SingularityFlowError(`Auto Plan '${planId}' is not available in this repository.`, {
-      code: 'AUTO_PLAN_NOT_FOUND'
-    });
-  }
-  let loaded;
-  try {
-    loaded = readRecord('auto-plan', raw);
-  } catch (error) {
-    if (error?.code !== 'SCHEMA_VERSION_ARCHIVED') throw error;
-    const storedVersion = error.details?.storedVersion ?? null;
-    throw new SingularityFlowError(
-      `Auto Plan '${planId}' uses retired schema version ${storedVersion ?? 'unknown'} and cannot authorize execution.`,
-      {
-        code: 'AUTO_PLAN_LEGACY_UNSUPPORTED',
-        details: {
-          storedVersion,
-          nextAction: 'Create and review a new Auto Plan; packet-v2 confirmation is required.'
-        },
-        cause: error
-      }
-    );
-  }
-  const plan = loaded.record;
-  if (loaded.storedVersion < currentSchemaVersion('auto-plan')
-      || plan.legacyCompatibility != null) {
-    throw new SingularityFlowError(
-      `Auto Plan '${planId}' uses compatibility schema version ${loaded.storedVersion} and cannot authorize a new flight.`,
-      {
-        code: 'AUTO_PLAN_LEGACY_UNSUPPORTED',
-        details: {
-          storedVersion: loaded.storedVersion,
-          nextAction: 'Create and review a new Auto Plan; packet-v2 confirmation is required.'
-        }
-      }
-    );
-  }
-  if (plan.kind !== 'auto-plan' || plan.mode !== 'auto'
-      || plan.confirmation?.protocol !== AUTO_PLAN_CONFIRMATION_PROTOCOL
-      || plan.planId !== planId || plan.planSha256 !== autoPlanHash(plan)) {
-    throw new SingularityFlowError(`Auto Plan '${planId}' failed its integrity check.`, { code: 'AUTO_PLAN_CORRUPT' });
-  }
-  // Recheck every persisted transport before rendering or executing the Plan. This protects
-  // upgraded repositories as well as records copied from another machine.
-  try {
-    if (plan.bindings?.repository) assertCredentialFreeRemote(plan.bindings.repository);
-    for (const repository of plan.repositories ?? []) {
-      if (repository.remoteUrl) assertCredentialFreeRemote(repository.remoteUrl);
-    }
-  } catch (error) {
-    throw new SingularityFlowError(`Auto Plan '${planId}' contains an unsafe repository authority.`, {
-      code: 'AUTO_PLAN_REMOTE_UNSAFE', cause: error
-    });
-  }
-  return plan;
-}
 
 async function revalidateAutoPlanInScope(root, plan) {
   const changed = [];

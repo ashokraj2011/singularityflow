@@ -11,8 +11,8 @@ export const planText='# Delivery plan\n\n## Agent brief\n\nImplement the approv
   +'| STORY-1:AC-001 | `src/converter.js` | `test/converter.test.js` |\n';
 const independent={name:'Independent reviewer',email:'independent@example.test',login:null};
 
-export async function namespaceSpecificationFixture(t,{backend='filesystem',configure=()=>{}}={}) {
-  const f=await namespacePreparationFixture(t,{backend,configure:source=>{
+export async function namespaceSpecificationFixture(t,{backend='filesystem',configure=()=>{},storyText}={}) {
+  const f=await namespacePreparationFixture(t,{backend,storyText,configure:source=>{
     source.definition.spec={mode:'enforce',namespace:'STORY-1',coverage:'enforce',acceptance:'presence'};
     const intake=source.definition.phases.intake;
     intake.artifact.kind='requirements';intake.specificationQuality={mode:'off'};

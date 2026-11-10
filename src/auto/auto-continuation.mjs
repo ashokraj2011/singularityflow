@@ -7,7 +7,7 @@ import {
   assertCredentialFreeRemote, configuredRemoteIdentity, remoteFingerprint
 } from '../git-remote-diagnostics.mjs';
 import { readVerifiedAcceptedAutoBinding } from './auto-origin.mjs';
-import { readAutoPlan } from './auto-plan.mjs';
+import { readAutoPlan } from './auto-plan-read.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 
 function contained(parent, child) {

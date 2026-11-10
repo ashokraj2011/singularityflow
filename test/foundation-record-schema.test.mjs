@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch } from '../src/foundation/record-schema.mjs';
+import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceConformancePolicyProfile } from '../src/foundation/record-schema.mjs';
 import { NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS,
   admitNamespaceStorageSchema, admitSqliteNamespaceSchema } from '../src/sda/namespace/storage-schemas.mjs';
 import { readRecord, schemaFamily } from '../src/schema-migrations.mjs';
@@ -52,21 +52,32 @@ test('content and namespace read projections share registered schema metadata wi
 });
 
 
-test('Code version profiles retain immutable v1 meaning while admitting configured-loop v2 and reviewed-return v3',()=>{
+test('Code profiles preserve original versions and separately admit reviewed additive plan evidence v6',()=>{
   for(const kind of ['code','codeReport']){
     const family=NAMESPACE_PHASE_POLICY_SCHEMAS[kind];assert.equal(Object.isFrozen(family),true);
     assert.throws(()=>schemaFamily(family.id),{code:'SCHEMA_FAMILY_UNKNOWN'},'opt-in SDK families do not change the installed native registry');
-    for(const version of [1,2,3]){
+    for(const version of [1,2,3,4,5,6]){
       const original={schemaVersion:version,data:'original'},profile=namespaceCodePolicyProfile(kind,original);
       assert.equal(profile.version,version);assert.equal(profile.rework,version>=2);
       assert.equal(profile.format,'sflow-namespace-code-policy'+(kind==='codeReport'?'-report':'')+'/v'+version);
       assert.deepEqual(admitRecordSchemaVersion(family,original),{record:original,storedVersion:version});
       assert.equal(admitRecordSchemaVersion(family,original).record,original);
     }
-    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:7}),{code:'SCHEMA_VERSION_FUTURE'});
   }
-  for(const version of [1,2,3])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
+  for(const version of [1,2,3,4,5,6])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:1},{schemaVersion:2}),false);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:2},{schemaVersion:1}),false);
   assert.throws(()=>namespaceCodePolicyProfile('unregistered',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});
+});
+
+test('conformance association v2 is separate while v1 remains readable without migration or record changes',()=>{
+  for(const kind of ['conformance','conformanceReport'])for(const version of [1,2]){
+    const record={schemaVersion:version,payload:'original'},profile=namespaceConformancePolicyProfile(kind,record);
+    assert.equal(profile.version,version);assert.equal(profile.issueLinks,version===2);assert.equal(profile.kind,'conformance/v'+version);
+    assert.equal(profile.format,'sflow-namespace-conformance-policy'+(kind==='conformanceReport'?'-report':'')+'/v'+version);
+    assert.equal(admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],record).record,record);
+  }
+  assert.throws(()=>namespaceConformancePolicyProfile('conformance',{schemaVersion:3}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespaceConformancePolicyProfile('unknown',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});
 });

@@ -67,6 +67,13 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [namespace decisions and recovery delivery](ENGINE-SDK-NAMESPACE-DECISIONS-AND-RECOVERY.md)
+adds exact scope and local-input operations, upstream-owned conformance decisions and authenticated
+Code returns. Its unchanged installed-package qualifier now passes all 34 checks in 92 seconds
+on this Mac within the existing limits. Earlier deadline failures below are historical evidence.
+[The active completion ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md) keeps the remaining Phase 5/7
+owners explicit; neither phase is claimed complete.
+
 The [human conformance and reviewer-return extension](ENGINE-SDK-HUMAN-CONFORMANCE-REWORK.md)
 adds registry operations for exact conformance context and upstream-owner dispositions, plus the
 namespace implementation of `phase.reject`. Human records have their own immutable v1 contract;
@@ -77,7 +84,7 @@ owners are separate from mutation adapters. Native Git behavior and installed au
 unchanged. Phases 5, 7, 8 and 9 still have their remaining production coverage and cutover gates.
 Current Mac functional checks cover exact owner decisions, expiry/renewal, reviewer returns,
 retained original evidence and all three backends' lost-reply recovery. The unchanged aggregate
-SDK package qualifier currently misses its existing deadline for both this feature and a separately
+SDK package qualifier at that delivery missed its existing deadline for both this feature and a separately
 archived `0491270f9` baseline on this Mac; its earlier 118-second pass is not a current qualification.
 The 120/60-second limits remain unchanged, and final distribution/performance qualification stays
 open. All 44 installed operation-checkpoint cases passed across four real journeys, including

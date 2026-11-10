@@ -1,0 +1,127 @@
+/** Pure normative-statement rules. Node binding and command rendering belong to adapters. */
+import {textDigestCapability} from '../foundation/record-schema.mjs';
+export const DECIDABLE_SCOPE_DISPOSITIONS = Object.freeze(['included', 'existing', 'excluded', 'deferred', 'informative', 'duplicate', 'superseded']);
+export const CLAUSE_LINKED_DISPOSITIONS = Object.freeze(['included', 'existing']);
+
+export function scopeStatementPolicies(port) {
+  const digests=textDigestCapability(port);
+const STRONG_MODAL = /\b(?:must(?:\s+not)?|shall(?:\s+not)?|(?:is|are)\s+required\s+to|cannot\s+be\s+allowed)\b/iu;
+const SCENARIO = /^\s*(?:given|when|then)\b/iu;
+const NORMATIVE_HEADING = /\b(?:requirements?|acceptance\s+criteria|constraints?|must\s+haves?)\b/iu;
+const ANCHOR = /\[[A-Z0-9][A-Z0-9_-]*:[A-Z]+-\d+\]/gu;
+const HAS_ANCHOR = /\[[A-Z0-9][A-Z0-9_-]*:[A-Z]+-\d+\]/u;
+
+/** The comparable form of a statement: anchors, markup and case removed, whitespace collapsed. */
+function normalizeStatement(text) {
+  return String(text ?? '')
+    .replace(ANCHOR, ' ')
+    .replace(/[`*_>#|]/gu, ' ')
+    .replace(/^\s*(?:[-+]|\d+[.)])\s+/u, '')
+    .replace(/\[\s?[xX ]?\s?\]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replace(/^[\u2014\u2013-]+\s*/u, '')
+    .replace(/[.;:,!]+$/u, '')
+    .toLocaleLowerCase('en-US');
+}
+
+/** A statement's identity: the SHA-256 of its normalized form. */
+function statementSha256(text) {
+  return digests.sha256Utf8(normalizeStatement(text));
+}
+
+/** The inventory item ID of a statement from one source. */
+function scopeItemId(sourceId, text) {
+  return `SRI-${digests.sha256Utf8(`${sourceId}\u0000${normalizeStatement(text)}`).slice(0, 12)}`;
+}
+
+/** Explicit source links inside an authored clause; not a disposition, test result or approval. */
+function clauseScopeItems(text) {
+  return [...new Set([...String(text ?? '').matchAll(/\[scope:(SRI-[0-9a-f]{12})\]/gu)].map(match => match[1]))];
+}
+
+/** Dispositions a person records with `decision scope`. */
+/** Dispositions that must name the clauses that carry the statement. */
+
+function sentences(text) {
+  return String(text).split(/(?<=[.!?])\s+(?=[A-Z0-9"'(])/u).map((entry) => entry.trim()).filter(Boolean);
+}
+
+/**
+ * The normative statements in one Markdown or plain-text source, with the line each starts on.
+ * Fenced code, HTML comments and table separators are skipped.
+ */
+function extractNormativeStatements(text, { sourceId }) {
+  const found = [];
+  const lines = String(text ?? '').split(/\r?\n/u);
+  let fenced = false;
+  let comment = false;
+  let normativeSection = false;
+  const add = (statement, line, signal) => {
+    const normalized = normalizeStatement(statement);
+    if (normalized.length < 3) return;
+    found.push({ sourceId, line, text: statement.replace(/\s+/gu, ' ').trim(), statementSha256: statementSha256(statement), signal });
+  };
+  lines.forEach((raw, index) => {
+    const line = index + 1;
+    const trimmed = raw.trim();
+    if (/^(?:```|~~~)/u.test(trimmed)) { fenced = !fenced; return; }
+    if (fenced) return;
+    if (comment) { if (trimmed.includes('-->')) comment = false; return; }
+    if (trimmed.startsWith('<!--')) { if (!trimmed.includes('-->')) comment = true; return; }
+    const heading = /^#{1,6}\s+(.+)$/u.exec(trimmed);
+    if (heading) { normativeSection = NORMATIVE_HEADING.test(heading[1]); return; }
+    if (!trimmed) return;
+    if (/^\|?\s*:?-{3,}/u.test(trimmed)) return;
+    const listItem = /^(?:[-+*]|\d+[.)])\s+(.+)$/u.exec(trimmed);
+    const tableRow = trimmed.startsWith('|') ? trimmed.replace(/^\||\|$/gu, '').split('|').map((cell) => cell.trim()).filter(Boolean).join(' — ') : null;
+    if (normativeSection && (listItem || tableRow)) {
+      // A header row of a table names its columns; it states nothing.
+      if (tableRow && /^\|?\s*(?:clause|id|criterion|requirement)\b/iu.test(trimmed) && !HAS_ANCHOR.test(trimmed)) return;
+      add(listItem ? listItem[1] : tableRow, line, 'structured');
+      return;
+    }
+    if (SCENARIO.test(trimmed)) { add(trimmed, line, 'scenario'); return; }
+    for (const sentence of sentences(listItem ? listItem[1] : trimmed)) {
+      if (STRONG_MODAL.test(sentence)) add(sentence, line, 'modal');
+    }
+  });
+  // One statement is one item, however often a source repeats it.
+  const seen = new Set();
+  return found.filter((entry) => (seen.has(entry.statementSha256) ? false : seen.add(entry.statementSha256)));
+}
+
+/**
+ * The normative statements in a Story's pinned source record: every acceptance criterion,
+ * requirement and constraint entry is a requirement by structure, and any other field contributes
+ * its strong-modal sentences.
+ */
+function storySourceStatements(source, { sourceId = 'story' } = {}) {
+  const found = [];
+  const entries = (value) => (Array.isArray(value) ? value : value ? [value] : []).map((entry) => (typeof entry === 'string' ? entry : entry?.text ?? entry?.description ?? '')).filter(Boolean);
+  for (const [field, signal] of [['acceptanceCriteria', 'structured'], ['requirements', 'structured'], ['constraints', 'structured']]) {
+    for (const entry of entries(source?.[field])) {
+      found.push({ sourceId, line: null, field, text: String(entry).replace(/\s+/gu, ' ').trim(), statementSha256: statementSha256(entry), signal });
+    }
+  }
+  // An attached specification slice (SPEC-SPA v1.3 §6.3): each sliced clause is a requirement of its own.
+  for (const slice of Array.isArray(source?.specification) ? source.specification : []) {
+    for (const clause of Array.isArray(slice?.clauses) ? slice.clauses : []) {
+      const entry = `${clause?.anchor ?? ''} ${clause?.text ?? ''}`;
+      found.push({ sourceId, line: null, field: 'specification', text: entry.replace(/\s+/gu, ' ').trim(), statementSha256: statementSha256(entry), signal: 'structured' });
+    }
+  }
+  for (const field of ['description', 'desiredOutcome', 'notes']) {
+    for (const entry of entries(source?.[field])) {
+      for (const statement of extractNormativeStatements(entry, { sourceId }).filter((item) => item.signal !== 'structured')) {
+        found.push({ ...statement, line: null, field });
+      }
+    }
+  }
+  const seen = new Set();
+  return found.filter((entry) => normalizeStatement(entry.text).length >= 3
+    && (seen.has(entry.statementSha256) ? false : seen.add(entry.statementSha256)));
+}
+
+return Object.freeze({normalizeStatement,statementSha256,scopeItemId,clauseScopeItems,extractNormativeStatements,storySourceStatements});
+}

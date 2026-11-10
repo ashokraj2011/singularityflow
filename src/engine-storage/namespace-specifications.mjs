@@ -9,6 +9,7 @@ import {commandCovering} from '../engine-compatibility/node-source-policy.mjs';
 import {deriveRepositoryPlan,repositoryPlanValue,repositoryPlanTestLocation} from '../engine-compatibility/node-repository-plan.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {namespaceSpecificationManifest,namespaceSpecificationIdentity as identity} from './namespace-specification-contract.mjs';
+import {createNamespacePlanDecisionOwners} from './namespace-plan-decisions-reader.mjs';
 
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -104,7 +105,7 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
     return {values:derive(publication,snapshot.workflow,previous.indices,data),inputs:previous.inputs};
   }
   /** Resolve the original human-approved plan and definitions, never caller-supplied claim maps. */
-  async function sourcePlan(snapshot,phaseId,{signal}={}) {
+  async function sourcePlan(snapshot,phaseId,{signal,includeAmendments=true}={}) {
     const ownerId=snapshot.workflow.resolution?.plannedClaims?.owners?.[phaseId];
     if(!snapshot.workflow.phases?.[ownerId])throw error(`Code phase '${phaseId}' has no reviewed planning owner for source clause bindings.`,
       'SPEC_PLANNED_CLAIM_MAP_REQUIRED');
@@ -129,7 +130,9 @@ export function createNamespaceSpecificationReader({observer,scope,workId,checks
       }
     }
     // Copy the completed input list: the owner can precede another definition in custom workflows.
-    return {active:{indexes},planned,repositoryPlan,proof:{...planProof,indices:[...indices]}};
+    const amendments=includeAmendments?await createNamespacePlanDecisionOwners({observer,scope,workId}).projection(snapshot,{signal}):null;
+    return {active:{indexes},planned,records:[planned,...(amendments?.record?[amendments.record]:[])],amendments:amendments?.rows??[],repositoryPlan,
+      proof:{...planProof,indices:[...indices],...(amendments?.receipts.length?{amendments:amendments.receipts}:{})}};
   }
   async function verifyOne(publication,signal,specificationTraversal) {
     const manifest=namespaceSpecificationManifest(await json(publication.specifications.record,signal),{scope,workId,phaseId:publication.phase});

@@ -63,7 +63,7 @@ test('Code profiles preserve original versions and separately admit reviewed add
       assert.deepEqual(admitRecordSchemaVersion(family,original),{record:original,storedVersion:version});
       assert.equal(admitRecordSchemaVersion(family,original).record,original);
     }
-    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:8}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:10}),{code:'SCHEMA_VERSION_FUTURE'});
   }
   for(const version of [1,2,3,4,5,6])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:1},{schemaVersion:2}),false);
@@ -71,6 +71,12 @@ test('Code profiles preserve original versions and separately admit reviewed add
   assert.throws(()=>namespaceCodePolicyProfile('unregistered',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});
   for(const kind of ['code','codeReport']){const profile=namespaceCodePolicyProfile(kind,{schemaVersion:7});
     assert.equal(profile.humanAcceptance,true);assert.equal(profile.optionalHistory,true);assert.equal(profile.kind,'code-delivery/v7');}
+  for(const kind of ['code','codeReport'])for(const version of [8,9]){
+    const record={schemaVersion:version,data:'original'},profile=namespaceCodePolicyProfile(kind,record);
+    assert.equal(profile.kind,'code-delivery/v'+version);assert.equal(profile.optionalHistory,true);
+    assert.equal(profile.humanAcceptance===true,version===9);
+    assert.equal(admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],record).record,record);
+  }
 });
 test('private member and witness context wire versions are admitted by one pure owner',()=>{
   const old={format:'sflow-namespace-prepared-phase/v1',data:'original'},copy=structuredClone(old);

@@ -62,6 +62,6 @@ export function createNamespaceUpstreamPort(options,runtime=null) {
       const accepted=await state.port.commit(context,state.prepared,{signal});state.result=await state.port.finish(context,state.prepared,accepted);return state.result;
     },
     async finish(context,request,options) {if(states.get(context)?.artifact)return artifact.finish(context,request,options);
-      return {workId,currentPhase:context.workflow.currentPhase,revalidate:[],refreshed:null};}
+      return {workId,currentPhase:states.get(context)?.result?.record?.changeRequest?.targetPhase??context.workflow.currentPhase,revalidate:[],refreshed:null};}
   };
 }

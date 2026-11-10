@@ -3,6 +3,8 @@ import {textDigestCapability} from '../foundation/record-schema.mjs';
 /** Append-only upstream rules over admitted observations. No discovery, presence registry or wall clock. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {upstreamDispositionFacts} from './decision-plan.mjs';
+import {reopenPhaseRange} from './lifecycle-transitions.mjs';
+export const NAMESPACE_UPSTREAM_RETURN_PROFILE='sflow-namespace-upstream-return/v1';
 export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'dismiss']);
 export const UPSTREAM_ISSUE_PROPOSALS = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'unknown']);
 /** The longest problem an issue records; a longer recorded item is refused, never cut. */
@@ -164,6 +166,30 @@ export function decideUpstreamIssue(workflow, {
   workflow.upstreamIssueDecisions ??= [];
   workflow.upstreamIssueDecisions.push(checked.data);
   return checked.data;
+}
+
+/** Explicit namespace return over already authenticated issue/producer facts. No synthetic review packet. */
+export function planNamespaceUpstreamReturn(workflow,request,facts,source){
+  const issue=source.issue,current=workflow.phases?.[workflow.currentPhase],order=workflow.phaseOrder??[];
+  if(workflow.status!=='in_progress'||!issue||issue.id!==request.issueId||request.phaseId!==issue.phase
+    ||!current||!['in_progress','awaiting_approval'].includes(current.status)||order.indexOf(issue.phase)<0
+    ||order.indexOf(issue.phase)>order.indexOf(current.id))refused('An upstream return needs its current open phase and actual earlier producer.','UPSTREAM_ISSUE_RETURN_UNAVAILABLE');
+  const proposed=structuredClone(workflow),id='CR-'+String((workflow.changeRequests??[]).length+1).padStart(3,'0');
+  if(request.link!==null&&request.link!==undefined)refused('A new upstream return records the change request it opens; do not supply another return.','UPSTREAM_ISSUE_INVALID');
+  const decision=decideUpstreamIssue(proposed,{issue:request.issueId,outcome:'return',reason:request.reason,link:id,
+    expiresAt:request.expires,actor:facts.actorId,authorityGroup:facts.authorityGroup,identityAssurance:null,at:facts.at}),
+    changeRequest={schemaVersion:1,profile:NAMESPACE_UPSTREAM_RETURN_PROFILE,id,status:'open',sourcePhase:current.id,sourceGeneration:current.generation,
+      targetPhase:issue.phase,clauseIds:[],comment:request.reason,requestedAt:facts.at,requestedBy:facts.actorId,agent:facts.agentId,
+      channel:'engine-sdk',authorityGroup:facts.authorityGroup,identityAssurance:null,
+      sourceArtifactSha256:(current.artifacts??[]).map(row=>({path:row.path,sha256:row.sha256??null})),reviewPacketSha256:null,
+      upstreamIssue:{id:issue.id,producer:source.issueProducer},resolution:null};
+  reopenPhaseRange(proposed,{targetId:issue.phase,at:facts.at,actor:facts.actorId,reason:request.reason});
+  proposed.changeRequests??=[];proposed.changeRequests.push(changeRequest);
+  proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'phase_rejected',phase:current.id,
+    detail:changeRequest.id+' returns '+issue.id+' to '+issue.phase+': '+request.reason});
+  proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'upstream_issue_decided',phase:issue.phase,
+    detail:decision.issue+': return ('+id+'). '+decision.reason});
+  return {workflow:proposed,outcome:{currentPhase:issue.phase,record:{...decision,changeRequest}}};
 }
 
 /** Recorded artifact ownership and deduplication share the native byte identity. */

@@ -12,19 +12,24 @@ import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-r
 import {namespaceHumanDecisionReceipts} from './namespace-human-decision-contract.mjs';
 import {namespaceRoutingChoiceReceipts} from './namespace-routing-choice-contract.mjs';
 import {namespaceApprovalReceipts,namespaceApprovalReceipt,namespaceApprovalDecision} from './namespace-approval-contract.mjs';
+import {createNamespaceUpstreamReturnReader} from './namespace-upstream-return-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),
   corrupt=()=>{throw new SingularityFlowError('Initial Code history must replay its real return and original human reapproval.',{code:'ENGINE_STORAGE_CORRUPT'});};
 function genesis(request){const {status,resolution,resolvedAt,resolvedBy,...value}=request;return value;}
 export function createNamespaceInitialCodeHistoryReader({observer,scope,workId}){
   async function inspect(snapshot,phaseId,{signal,policyTraversal}={}){
     if(snapshot.workflow.phases[phaseId]?.generation!==0)throw new SingularityFlowError('Initial history belongs to the first Code generation.',{code:'ENGINE_INPUT_INVALID'});
+    return inspectReturns(snapshot,phaseId,{signal,policyTraversal});
+  }
+  async function inspectReturns(snapshot,phaseId,{signal,policyTraversal}={}){
     const requests=snapshot.workflow.changeRequests??[];if(!requests.length)return null;
     if(requests.length>64)throw new SingularityFlowError('Initial Code history exceeds its bounded replay inventory.',{code:'ENGINE_STORAGE_LIMIT'});
+    if(new Set(requests.map(row=>row.id)).size!==requests.length)corrupt();
     return observer.withReadScope(async scoped=>{
       const checks=createNamespacePhaseCheckReader({...scoped.evidenceReads,observer:scoped}),
         packets=createNamespaceSubmissionReader({observer:scoped,scope,workId,checks}),votes=createNamespaceApprovalReader({observer:scoped,scope,workId,checks}),
         rejections=createNamespaceRejectionReader({observer:scoped,scope,workId}),choices=createNamespaceRoutingReceiptReader({observer:scoped,scope,workId}),
-        workflow=snapshot.workflow,returns=[];
+        workflow=snapshot.workflow,returns=[],upstream=createNamespaceUpstreamReturnReader({observer:scoped,scope,workId});
       async function originalVote(link){
         const binding=link.record?{schemaVersion:1,format:'sflow-namespace-phase-approval-binding/v1',generation:link.generation,record:link.record}:link.namespaceVote,
           phase=link.phase,value=await votes.decode(binding,phase,{signal}),accepted=await scoped.accepted(value.operationId,{signal}),head=accepted.plan.basis.head,
@@ -39,8 +44,8 @@ export function createNamespaceInitialCodeHistoryReader({observer,scope,workId})
       }
       for(const request of requests){
         if(signal?.aborted)throw new SingularityFlowError('Initial Code history was cancelled.',{code:'ENGINE_OPERATION_CANCELLED'});
-        let origin=null;
-        for(const link of namespaceHumanDecisionReceipts(workflow).filter(row=>row.operation==='phase.reject'&&row.phase===request.sourcePhase&&row.generation===request.sourceGeneration)){
+        let origin=await upstream.accepted(snapshot,request,{signal,policyTraversal});
+        if(!origin)for(const link of namespaceHumanDecisionReceipts(workflow).filter(row=>row.operation==='phase.reject'&&row.phase===request.sourcePhase&&row.generation===request.sourceGeneration)){
           const value=await rejections.decode(link.record,{signal});if(value.recordedAt!==request.requestedAt||value.request.target!==request.targetPhase)continue;
           const proof=await rejections.accepted(link,{signal,policyTraversal});
           if(!same(genesis(proof.value.outcome.changeRequest),genesis(request)))continue;
@@ -90,8 +95,8 @@ export function createNamespaceInitialCodeHistoryReader({observer,scope,workId})
         returns.push({request:structuredClone(request),kind:origin.kind,binding:origin.binding,resolution,
           references:[...new Map(references.map(row=>[canonicalJson(row),row])).values()]});
       }
-      return {profile:'sflow-namespace-code-history/v4',mode:'initial',returns};
+      return {profile:returns.some(row=>row.kind==='upstream')?'sflow-namespace-code-history/v6':'sflow-namespace-code-history/v4',mode:'initial',returns};
     });
   }
-  return Object.freeze({inspect});
+  return Object.freeze({inspect,inspectAffected:inspectReturns});
 }

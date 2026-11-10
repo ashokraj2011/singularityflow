@@ -4,14 +4,14 @@ import {createHash} from 'node:crypto';import {DatabaseSync} from 'node:sqlite';
 import {createFilesystemNamespaceStore} from '@sdk-name@/storage/filesystem';
 import {createSqliteContentStore} from '@sdk-name@/storage/sqlite-content';
 const guard=registerHooks({resolve(specifier,context,next){if(/\/(?:git|cli|state)\.mjs$/u.test(specifier))throw Error('Unexpected native authority: '+specifier);return next(specifier,context);}});
-const {createNamespaceEngine}=await import('@sdk-name@/hosts/namespace-engine'),stage=process.argv[2],profile=process.argv[3],rework=profile==='rework',humanReturn=profile==='human-return',partial=profile==='partial-decisions',repair=rework||humanReturn,fresh=stage==='setup',mutating=!stage.startsWith('replay'),
+const {createNamespaceEngine}=await import('@sdk-name@/hosts/namespace-engine'),stage=process.argv[2],profile=process.argv[3],rework=profile==='rework',humanReturn=profile==='human-return',upstreamReturn=profile==='upstream-return',partial=profile==='partial-decisions',repair=rework||humanReturn||upstreamReturn,fresh=stage==='setup',mutating=!stage.startsWith('replay'),
   scope={projectId:'installed-code-inputs'},workId='converter',authority={id:'application-authority',epoch:1},shared={kind:'shared'},
   records=await createFilesystemNamespaceStore({root:path.resolve('records'),binding:shared,create:fresh}),database=new DatabaseSync('content.db'),
   content=createSqliteContentStore({database,binding:shared,create:fresh}),root=path.resolve('source');
-let localRecords,localDatabase,principalId='author',agentId=['review','finish','draft-partial','return','publish-final','submit-final','approve-final'].includes(stage)?'verifier':'analyst',person={name:'Author',email:'author@example.test'},starts=0,edits=0;
+let localRecords,localDatabase,principalId='author',agentId=['review','finish','draft-partial','return','upstream-return','publish-final','submit-final','approve-final'].includes(stage)?'verifier':'analyst',person={name:'Author',email:'author@example.test'},starts=0,edits=0;
 const begun=performance.now(),progress=label=>process.stderr.write(stage+' '+label+': '+Math.round(performance.now()-begun)+' ms\n'),
-  access={current(){if(!mutating&&!humanReturn&&!partial)throw Error('Replay cannot authorize another operation.');return {projectId:scope.projectId,principalId,actorKind:'human',identity:person,agentId,
-    permissions:!mutating?[]:['conformance.context','conformance.decide','phase.reject','project.enroll','configuration.approve','story.create','source.bind','source.baseline.retain','phase.enter','phase.context.read','phase.prepare','phase.draft.read',
+  access={current(){if(!mutating&&!humanReturn&&!partial&&!upstreamReturn)throw Error('Replay cannot authorize another operation.');return {projectId:scope.projectId,principalId,actorKind:'human',identity:person,agentId,
+    permissions:!mutating?[]:['conformance.context','conformance.decide','phase.reject','upstream.raise','upstream.decide','project.enroll','configuration.approve','story.create','source.bind','source.baseline.retain','phase.enter','phase.context.read','phase.prepare','phase.draft.read',
       'phase.draft.write','phase.draft.rebase','phase.source.retain','phase.checks.run','phase.publish','phase.submit','phase.approve']};}},
   clock={now(){if(!mutating)throw Error('Replay cannot restamp an accepted record.');return '2026-11-10T05:00:00.000Z';}},common={records,content,scope,workId,authority,access,clock},
   json=async ref=>JSON.parse(Buffer.from((await content.read(scope,ref)).data)),publish=phaseId=>({phaseId,authored:'governed-agent',channel:'copilot-host'}),
@@ -88,6 +88,15 @@ try{
     await engine.run('phase.publish',publish('build'));await approve('build');assert.equal(starts,1);progress('original Code approved');
   }else if(stage==='draft-partial'){
     await write('validate',conformance('partial'));await engine.run('phase.publish',publish('validate'));assert.equal(starts,0);progress('partial report retained');
+  }else if(stage==='upstream-return'){
+    await engine.run('upstream.raise',{operationId:'raise-original-Code-gap',phaseId:'build',about:'the executable boundary regression',
+      problem:'The approved converter needs another concrete boundary regression retained with fresh execution.',proposed:'return',authored:'human'});
+    principalId='independent-reviewer';person={name:'Reviewer',email:'reviewer@example.test'};agentId=null;
+    const request={operationId:'return-original-Code-gap',issueId:'UPI-001',outcome:'return',
+      reason:'Repair the original converter with its additional boundary regression and fresh test execution.'},result=await engine.run('upstream.decide',request);
+    assert.equal(result.currentPhase,'build');assert.equal(result.records[0].changeRequest.sourceGeneration,0);
+    assert.equal(result.records[0].changeRequest.reviewPacketSha256,null);await writeFile('human-return.json',JSON.stringify({request,result}));
+    progress('original upstream owner return retained');
   }else if(stage==='return'){
     await engine.run('phase.submit',{phaseId:'validate'});const {manifest}=await engine.run('phase.review',{phaseId:'validate'});
     principalId='independent-reviewer';person={name:'Reviewer',email:'reviewer@example.test'};agentId=null;
@@ -113,7 +122,7 @@ try{
   }else if(stage==='repair-publish'||stage==='repair-approve'){
     if(stage==='repair-publish')await engine.run('phase.publish',publish('build'));
     if(!humanReturn||stage==='repair-approve'){await approve('build');const p=await publication('build',2);
-    assert.equal(p.policy.kind,humanReturn?'code-delivery/v3':'code-delivery/v2');assert.equal(p.manifest.schemaVersion,humanReturn?3:2);assert.equal(p.report.preflight.history.predecessor.publication.generation,1);
+    assert.equal(p.policy.kind,upstreamReturn?'code-delivery/v8':humanReturn?'code-delivery/v3':'code-delivery/v2');assert.equal(p.manifest.schemaVersion,upstreamReturn?8:humanReturn?3:2);assert.equal(p.report.preflight.history.predecessor.publication.generation,1);
     assert.deepEqual(p.report.preflight.history.repositories[0].changes.map(row=>row.path),['test/converter.test.js']);
     assert.equal(await readFile(path.join(root,'src/converter.js'),'utf8'),sourceFile);assert.equal(starts,0);progress('successor Code approved');}
   }else if(stage==='publish-final'){
@@ -123,12 +132,13 @@ try{
   }else if(stage==='approve-final'){
     await approveSubmitted('validate');progress('conformance approved');
   }else if(stage==='finish'){
-    const p=await publication('validate',repair?2:1);
+    const p=await publication('validate',rework||humanReturn?2:1);
     assert.equal(p.value.checks,null);assert.equal(p.report.gaps.length,partial?2:0);assert.ok(p.report.rows.at(-1).evidence.every(row=>row.witnesses.every(witness=>typeof witness.id==='string'&&witness.id)));assert.equal(p.report.inputs.inputs[0].tests[0].tests.passed,repair?2:1);assert.equal(starts,0);
     output={publication:p.binding,report:p.report};await writeFile('publication.json',JSON.stringify(output));await rm(root,{recursive:true,force:true});progress('conformance approved');
   }else if(stage==='replay-return'||stage==='replay-decisions'){
     principalId='independent-reviewer';person={name:'Reviewer',email:'reviewer@example.test'};agentId=null;
     if(humanReturn){const saved=JSON.parse(await readFile('human-return.json','utf8'));assert.deepEqual(await engine.run('phase.reject',saved.request),saved.result);}
+    if(upstreamReturn){const saved=JSON.parse(await readFile('human-return.json','utf8'));assert.deepEqual(await engine.run('upstream.decide',saved.request),saved.result);}
     if(partial)for(const saved of JSON.parse(await readFile('human-decisions.json','utf8')))assert.deepEqual(await engine.run('conformance.decide',saved.request),saved.result);
   }else if(stage==='replay-build'||stage==='replay-validate'){
     assert.equal((await engine.run('phase.publish',publish(stage==='replay-build'?'build':'validate'))).status,'retained');

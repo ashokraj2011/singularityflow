@@ -122,7 +122,7 @@ consumer pass. All 323 affected Mac checks and original limits pass. See
 - The remaining native query/rule inventory and parity audit.
 - Namespace evidence correction, late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
   plus live application-review and witness-exception profiles.
-- Upstream return/amend outcomes and forward amendments.
+- Upstream amend outcomes and forward amendments.
 - Targeted Code repair and multiple Code predecessors/observed-claim reuse.
 - Constitution exceptions/comparison/live application acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
@@ -130,3 +130,10 @@ consumer pass. All 323 affected Mac checks and original limits pass. See
   assurance, signing, integration and automated-execution owners through actual evidence ports.
 - Final qualification of those profiles and their cross-agent application journeys. Phases 8 and
   9 remain separate and unchanged.
+
+Upstream returns now preserve the actual producer, owner receipt and replacement approvals through
+first Code, direct Code return and earlier-input revalidation. Fresh execution and candidate-bound
+visual review remain required. The [return delivery record](ENGINE-SDK-UPSTREAM-RETURNS.md)
+documents the separate histories and original native compatibility. All 247 affected Mac checks,
+including the unchanged installed qualifier and every original limit, pass. Neither Phase 5 nor
+Phase 7 is complete while the owners above remain open.

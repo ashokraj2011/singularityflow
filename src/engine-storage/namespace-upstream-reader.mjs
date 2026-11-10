@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,NAMESPACE_UPSTREAM_PLAN_CORRECTION_PROFILE} from '../foundation/record-schema.mjs';
 import {upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
-import {raiseUpstreamIssue,decideUpstreamIssue,upstreamIssueStates,upstreamIssueAuthorities} from '../kernel/upstream-issues.mjs';
+import {raiseUpstreamIssue,decideUpstreamIssue,upstreamIssueStates,upstreamIssueAuthorities,planNamespaceUpstreamReturn,NAMESPACE_UPSTREAM_RETURN_PROFILE} from '../kernel/upstream-issues.mjs';
 import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
@@ -37,7 +37,8 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
     const results=[];
     for(const link of namespaceDecisionContract.receipts(snapshot.workflow).filter(row=>row.operation==='upstream.decide')){
       const proof=await readers.get('upstream.decide').accepted(link,{signal,policyTraversal});
-      if(!same(proof.value.outcome.record,(snapshot.workflow.upstreamIssueDecisions??[]).findLast(row=>row.issue===proof.value.request.issueId)))continue;
+      const {changeRequest,...decision}=proof.value.outcome.record;
+      if(!same(changeRequest&&proof.value.source.profile===NAMESPACE_UPSTREAM_RETURN_PROFILE?decision:proof.value.outcome.record,(snapshot.workflow.upstreamIssueDecisions??[]).findLast(row=>row.issue===proof.value.request.issueId)))continue;
       results.push(proof);
     }
     return results;
@@ -46,7 +47,7 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
     const owner={
       agentPhase:snapshot=>snapshot.workflow.currentPhase,
       async read(snapshot,request,{signal,policyTraversal,bound,at}={}) {
-        await admitted(snapshot,{signal,policyTraversal});
+        const admittedReferences=await admitted(snapshot,{signal,policyTraversal});
         const phase=snapshot.workflow.phases[request.phaseId];
         if(!phase)throw error('The upstream owner is not in the pinned Story.','UPSTREAM_ISSUE_INVALID');
         const binding=phase.publicationBindings?.find(row=>row.generation===phase.generation);
@@ -55,6 +56,19 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
         const base={generation:phase.generation,identity:{profile:'sflow-namespace-upstream-source/v1',producer:binding,
           issuesSha256:hash(snapshot.workflow.upstreamIssues??[]),decisionsSha256:hash(snapshot.workflow.upstreamIssueDecisions??[])},
           publication,references:[binding.record,publication.artifact.content,...publications.policies.evidence(publication)]};
+        if(operation==='upstream.decide'&&request.outcome==='return'){
+          const required=[...(snapshot.workflow.resolution.presence?['person-presence']:[]),
+            ...(snapshot.workflow.resolution.testRecovery?.enabled||Object.keys(snapshot.workflow.repairBudgets??{}).length?['test-repair-budget']:[])];
+          if(required.length)throw error('This upstream return requires its actual additional authority owners.','ENGINE_PORT_UNAVAILABLE',{required});
+          const issue=snapshot.workflow.upstreamIssues.find(row=>row.id===request.issueId);
+          if(!issue)throw error('The upstream issue is not in this Story.','UPSTREAM_ISSUE_NOT_FOUND');
+          const producer=phase.publicationBindings?.find(row=>row.generation===issue.producerGeneration);
+          if(!producer)throw error('The original upstream producer has no retained publication.');
+          const original=await publications.accepted(producer,issue.phase,{signal,policyTraversal}),artifacts=publications.artifacts(original);
+          if(!issue.producerArtifacts.every(row=>artifacts.some(item=>item.path===row.path&&item.sha256===row.sha256)))throw error('The issue differs from its original producer artifacts.');
+          return {...base,issue,issueProducer:producer,identity:{...base.identity,profile:NAMESPACE_UPSTREAM_RETURN_PROFILE,
+            issueProducer:producer,issueSha256:hash(issue)},references:[...base.references,...admittedReferences,producer.record,original.artifact.content,...publications.policies.evidence(original)]};
+        }
         if(operation==='upstream.decide'&&request.outcome==='plan-correction'){
           const corrections=await plans().projection(snapshot,{signal,policyTraversal});
           return {...base,identity:{...base.identity,profile:NAMESPACE_UPSTREAM_PLAN_CORRECTION_PROFILE,
@@ -95,7 +109,8 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
           proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'upstream_issue_raised',phase:workflow.currentPhase,
             detail:record.id+' against '+record.phase+' ('+record.about+'): '+record.problem+(record.supersedes?' It supersedes '+record.supersedes+'.':'')});
         } else {
-          if(['return','amend'].includes(request.outcome))throw error('This outcome needs its accepted repair or amendment owner.','ENGINE_PORT_UNAVAILABLE',{
+          if(request.outcome==='return')return planNamespaceUpstreamReturn(workflow,request,facts,source);
+          if(request.outcome==='amend')throw error('This outcome needs its accepted repair or amendment owner.','ENGINE_PORT_UNAVAILABLE',{
             required:['namespace-upstream-'+request.outcome],operation:request.outcome==='return'?'phase.reject':'forward-amendment.propose',workId});
           record=decideUpstreamIssue(proposed,{issue:request.issueId,outcome:request.outcome,reason:request.reason,link:request.link,
             expiresAt:request.expires,actor:facts.actorId,authorityGroup:facts.authorityGroup,identityAssurance:null,at:facts.at},

@@ -31,6 +31,11 @@ export declare const deriveObservedClaimMapReplay:SpecificationClaimValues['deri
 export declare const validatePlannedEvidenceTypes:SpecificationClaimValues['validatePlannedEvidenceTypes'];
 export declare const planSupportingFiles:SpecificationClaimValues['planSupportingFiles'];
 export declare const testOnlyClaimEvidence:SpecificationClaimValues['testOnlyClaimEvidence'];
+export declare const mergeObservedClaimRecords:SpecificationClaimValues['mergeObservedClaimRecords'];
+export declare const evaluateSpecCoverageReplay:SpecificationClaimValues['evaluateSpecCoverageReplay'];
+export declare const evaluateSpecAcceptance:SpecificationClaimValues['evaluateSpecAcceptance'];
+export declare const candidateSpecificationCoverageReplay:SpecificationClaimValues['candidateSpecificationCoverageReplay'];
+export {codeCoverageEnforcement,plannedClaimsForObservedPhase,selectActiveSpecRecords} from '../specifications.mjs';
 export declare const STARTER_CHECKLIST:SpecificationChecklist;
 export declare const policyHash:SpecificationAnalysisValues['policyHash'];
 export declare const witnessedClauseReviewFields:SpecificationAnalysisValues['witnessedClauseReviewFields'];

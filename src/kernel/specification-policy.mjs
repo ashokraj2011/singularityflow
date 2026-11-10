@@ -445,3 +445,40 @@ export function resolvedSpecificationQualityPolicy(definition, workflow, phase) 
     resolved?.specificationQuality ?? phase.specificationQuality ?? definition.phases?.[phase.id]?.specificationQuality ?? {}
   );
 }
+
+/** Recorded coverage stays advisory until the qualified ending; enforced coverage refuses at code. */
+export function codeCoverageEnforcement(policy) {
+  if (policy?.coverage === 'enforce') return 'enforce';
+  if (policy?.coverage === 'record' && (policy.conformanceRows ?? 'qualified') === 'qualified') return 'qualified-ending';
+  return null;
+}
+
+/** Only the bound planning owner's obligations can account for this phase. */
+export function plannedClaimsForObservedPhase(workflow, phaseId, planned = []) {
+  const policy = workflow?.resolution?.plannedClaims;
+  const owner = policy?.owners?.[phaseId];
+  const owned = policy?.mode === 'required'
+    ? (owner ? planned.filter((record) => record.phase === owner) : []) : planned;
+  return mergePlannedClaimRecords(owned);
+}
+
+/** Historical generations and other Stories never enter current coverage or acceptance. */
+export function selectActiveSpecRecords(records, workflow) {
+  const workId = workflow?.workItem?.id ?? null;
+  const active = (record) => {
+    const phase = workflow?.phases?.[record?.phase];
+    return Boolean(
+      record
+      && record.workId === workId
+      && phase
+      && Number(record.generation) === Number(phase.generation)
+    );
+  };
+  return {
+    indexes: (records.indexes ?? []).filter(record=>active(record)
+      &&phaseDefinesSpecificationClaims(workflow,workflow.phases[record.phase],record.phase)).sort(recordOrder),
+    planned: (records.planned ?? []).filter(active).sort(recordOrder),
+    observed: (records.observed ?? []).filter(active).sort(recordOrder),
+    acceptance: (records.acceptance ?? []).filter(active).sort(recordOrder)
+  };
+}

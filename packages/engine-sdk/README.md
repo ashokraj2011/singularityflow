@@ -101,6 +101,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   never claim semantic completeness, passing tests or human approval. Shared source-comment,
   clause-tag and JavaScript test-declaration values preserve native logical IDs, declaration
   hashes, limits and association gaps; they require no checkout or execution provider.
+  The claim factory also combines observed delivery, evaluates coverage and legacy acceptance,
+  and replays candidate completeness over explicit original record, timestamp and optional
+  source/commit observations. Native public outcomes remain unchanged. These predicates never
+  select a checkout, certify per-test execution, retain evidence or grant publication authority.
+  See `docs/ENGINE-SDK-SPECIFICATION-COVERAGE.md` in the source repository.
   Implementation-binding replays request exact source/region observations and preserve native
   explanation/digest rules. Documentation/polyglot observations remain heuristic; reviewer-choice
   values do not authenticate a person or record approval. See `docs/ENGINE-SDK-IMPLEMENTATION-BINDINGS.md`.

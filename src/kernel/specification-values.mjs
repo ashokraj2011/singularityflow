@@ -4,11 +4,12 @@ import {canonicalJson,textDigestCapability,textValueSyntax,TEXT_DIGEST_PROFILE,S
 import {GOVERNED_CLAUSE_TYPES,GOVERNED_CLAUSE_TYPE_PATTERN,qualifiedClauseIds} from '../foundation/traceability-ids.mjs';
 import {DEFAULT_SPECIFICATION_LIMITS as DEFAULT_LIMITS,normalizeSpecPolicy} from './configuration-policy.mjs';
 import {authoredArtifactText} from './artifact-content.mjs';
-import {parseVerificationIntent,validatePlannedVerification,verificationContractPolicies} from './verification-policy.mjs';
+import {parseVerificationIntent,validatePlannedVerification,verificationContractPolicies,nonTestVerification} from './verification-policy.mjs';
 import {collectDraftDiagnostic,draftDiagnosticSummary,inspectDraftValue,pathDefect,shown} from './draft-diagnostics.mjs';
 import {configurationPathSyntax} from './configuration-path-policies.mjs';
-import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,plannedClaimPathPolicies} from './source-path-policies.mjs';
-import {SOURCE_CHANGING_FULFILLMENT} from './specification-policy.mjs';
+import {configurationFilePolicies,sourceBoundaryPolicies,supportingChangePolicies,plannedClaimPathPolicies,applicationPathPolicies} from './source-path-policies.mjs';
+import {SOURCE_CHANGING_FULFILLMENT,recordOrder,sortedUnique,mergePlannedClaimRecords,accountedAmendmentPaths,codeCoverageEnforcement} from './specification-policy.mjs';
+import {phaseRequiresCodeDelivery} from './phase-policy.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const NAMESPACE = '[A-Za-z0-9][A-Za-z0-9._-]{0,63}';
@@ -333,11 +334,13 @@ export function specificationClaimPolicies(pathSyntax,utf8) {
 const {path,posix}=configurationPathSyntax(pathSyntax);
 const text=textValueSyntax(utf8),{byteLengthUtf8}=text;
 const digest=Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:text.sha256Utf8});
-const {normalizeVerificationContracts,parseVerificationContracts,validateRetainedEvidenceDeclarations}=verificationContractPolicies(pathSyntax,digest);
+const {normalizeVerificationContracts,parseVerificationContracts,validateRetainedEvidenceDeclarations,mergedVerificationContracts}=verificationContractPolicies(pathSyntax,digest);
 const {isConfigurationPath}=configurationFilePolicies(pathSyntax);
 const {isTestAutomationPath}=sourceBoundaryPolicies(pathSyntax);
 const {SUPPORTING_CHANGE_CLASSES,classifySupportingChange}=supportingChangePolicies(pathSyntax);
-const {plannedImplementationPaths}=plannedClaimPathPolicies(pathSyntax);
+const {plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles}=plannedClaimPathPolicies(pathSyntax);
+const {isApplicationPath}=applicationPathPolicies([]);
+const sha256=text.sha256Utf8;
 const VERDICTS=new Set(['matched','partial','missing','deviated','unplanned']);
 function* inspectClaimReplay(diagnostics,read,location={}) {
   try{return {valid:true,value:yield* read()};}
@@ -1034,5 +1037,270 @@ function* deriveObservedClaimMapReplay(plannedMap, delivery = {}, { clauseIds = 
         plannedClaims: planned.claims });
 }
 
-return Object.freeze({normalizeClaimMapReplay,inspectPlannedClaimMapReplay,derivePlannedClaimMapReplay,deriveObservedClaimMapReplay,validatePlannedEvidenceTypes,planSupportingFiles,testOnlyClaimEvidence});
+const coverageRequest=(kind,fields)=>Object.freeze({kind,...fields});
+function* coverageBoolean(request){const value=yield request;if(typeof value!=='boolean')throw new SingularityFlowError(
+  'Supply the requested evidence observation, not a readiness verdict.',{code:'ENGINE_PORT_RESULT_INVALID'});return value;}
+
+
+/** Cumulative evidence cannot erase earlier delivery or satisfy another owner's allocated obligation. */
+function mergeObservedClaimRecords(maps = [], plannedClaims = {}, { workflow = null } = {}) {
+  const grouped = new Map();
+  for (const map of [...maps].sort(recordOrder)) {
+    for (const [id, claim] of Object.entries(map?.claims ?? {})) {
+      const current = grouped.get(id) ?? {
+        observedPaths: [], testResults: [], commits: [], verdicts: [], deviation: null
+      };
+      current.observedPaths.push(...(claim.observedPaths ?? []));
+      current.testResults.push(...(claim.testResults ?? []));
+      current.commits.push(...(claim.commits ?? []));
+      current.verdicts.push(claim.verdict ?? 'missing');
+      if (claim.deviation != null) current.deviation = claim.deviation;
+      grouped.set(id, current);
+    }
+  }
+  return Object.fromEntries([...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([id, value]) => {
+    const observedPaths = sortedUnique(value.observedPaths);
+    const testResults = sortedUnique(value.testResults);
+    const plan = plannedClaims[id] ?? null;
+    let verdict;
+    if (value.verdicts.includes('deviated')) verdict = 'deviated';
+    else if (value.verdicts.includes('unplanned')) verdict = 'unplanned';
+    else if (plan?.obligations?.length) {
+      // Evaluate each planning owner's obligation against only its allocated Code steps. One
+      // test-only stage cannot erase, or satisfy, another stage's product-source obligation.
+      const outcomes = plan.obligations.map((obligation) => {
+        const ownedSteps = Object.entries(workflow?.resolution?.plannedClaims?.owners ?? {})
+          .filter(([, owner]) => owner === obligation.owner).map(([step]) => step);
+        const steps = obligation.steps?.length ? obligation.steps : ownedSteps;
+        const selected = maps.filter((map) => !steps.length || steps.includes(map.phase));
+        return mergeObservedClaimRecords(selected, { [id]: obligation })[id]?.verdict ?? 'missing';
+      });
+      verdict = outcomes.every((outcome) => outcome === 'matched') ? 'matched'
+        : outcomes.some((outcome) => outcome !== 'missing') ? 'partial' : 'missing';
+    } else if (plan?.fulfillment && !SOURCE_CHANGING_FULFILLMENT.includes(plan.fulfillment)) {
+      // Implemented by its own fulfillment, not by source and tests together: existing, removed,
+      // document and configuration work by their paths, test-only work by its tests [E2G-010].
+      const evidence = plan.fulfillment === 'test-only' ? testResults : observedPaths;
+      const expected = plan.fulfillment === 'test-only' ? plan.tests ?? [] : plan.expectedPaths ?? [];
+      verdict = evidence.length && expected.every((candidate) => evidence.includes(candidate)) ? 'matched'
+        : evidence.length ? 'partial' : 'missing';
+    } else if (plan) {
+      const expectedPaths = plannedImplementationPaths(plan);
+      const sourceComplete = expectedPaths.length > 0
+        && expectedPaths.every((candidate) => observedPaths.includes(candidate));
+      const testsComplete = !(plan.tests ?? []).length
+        || plan.tests.every((candidate) => testResults.includes(candidate));
+      const acceptanceTestOnly = /:AC-\d{3}$/.test(id) && !observedPaths.length && testResults.length;
+      verdict = observedPaths.length
+        ? (sourceComplete && testsComplete ? 'matched' : 'partial')
+        : acceptanceTestOnly
+          ? (!(plan.expectedPaths ?? []).length && testsComplete ? 'matched' : 'partial')
+          // Preserve an invalid producer verdict when it has no source path. Convergence and
+          // terminal coverage must expose that stale binding; normalizing it to `missing` here
+          // would erase the stronger integrity defect from the fact set.
+          : value.verdicts.includes('matched')
+            ? 'matched'
+            : value.verdicts.includes('partial')
+              ? 'partial'
+              : 'missing';
+    } else if (value.verdicts.includes('matched')) verdict = 'matched';
+    else if (value.verdicts.includes('partial')) verdict = 'partial';
+    else verdict = 'missing';
+    return [id, {
+      observedPaths,
+      testResults,
+      commits: sortedUnique(value.commits),
+      verdict,
+      deviation: value.deviation
+    }];
+  }));
+}
+
+function pathExcluded(candidate, excludes) {
+  return excludes.some((prefix) => candidate === prefix || candidate.startsWith(`${prefix.replace(/\/$/, '')}/`));
+}
+
+function exactPlannedTestEvidence(id, plannedClaims, observedClaims) {
+  const plannedTests = plannedClaims[id]?.tests ?? [];
+  const observedTests = new Set(observedClaims[id]?.testResults ?? []);
+  return plannedTests.length > 0 && plannedTests.every((candidate) => observedTests.has(candidate));
+}
+
+/** Full native coverage over explicit optional source/commit observations. This admits no lifecycle write. */
+function* evaluateSpecCoverageReplay({ indexes = [], planned = [], observed = [] }, changedPaths = [], policy = {}, { verifyEvidence = false, workflow = null } = {}) {
+  const normalized = normalizeSpecPolicy(policy);
+  const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
+  const plannedClaims = mergePlannedClaimRecords(planned);
+  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims, { workflow });
+  const activePaths = [...new Set(changedPaths.map(posix))].filter((candidate) => !pathExcluded(candidate, normalized.excludes)).sort();
+  const claimedPaths = new Set(Object.entries(observedClaims).flatMap(([id, claim]) => [
+    ...(claim.observedPaths ?? []),
+    ...(claim.testResults ?? []).filter((candidate) => (plannedClaims[id]?.tests ?? []).includes(candidate))
+  ]));
+  // A path a plan amendment added to a row is accounted for by that amendment [E2G-012].
+  for (const candidate of accountedAmendmentPaths(planned)) claimedPaths.add(candidate);
+  const unimplemented = [...clauses.keys()].filter((id) => {
+    const claim = observedClaims[id];
+    if (!claim) return true;
+    if (plannedClaims[id]?.fulfillment === 'test-only'
+        && !testOnlyClaimEvidence(id, plannedClaims[id], claim)) return true;
+    if (testOnlyClaimEvidence(id, plannedClaims[id], claim) && claim.verdict !== 'deviated'
+        && (!plannedClaims[id]?.obligations?.length || claim.verdict === 'matched')) return false;
+    return ['missing', 'partial'].includes(claim.verdict);
+  }).sort();
+  // Covered only because their planned test files were delivered: no source change and, until
+  // test-case results are joined, no proof the tests ran for them. Reported so no label overstates it.
+  const testPresenceOnly = [...clauses.keys()].filter((id) => observedClaims[id]
+    && !(observedClaims[id].observedPaths ?? []).length
+    && testOnlyClaimEvidence(id, plannedClaims[id], observedClaims[id])).sort();
+  // A file the plan lists under Supporting files may change without a clause claiming it.
+  const supporting = new Set(plannedSupportingFiles(planned));
+  const supportingChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate) && supporting.has(candidate));
+  const unclaimedChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate) && !supporting.has(candidate));
+  const withdrawnButClaimed = Object.keys(observedClaims).filter((id) => !clauses.has(id)).sort();
+  const invalidEvidence = [];
+  for (const [id, claim] of Object.entries(observedClaims)) {
+    // A test-only obligation is delivered by its tests, and a removal by the absence of its paths,
+    // which receipt replay proves [E2G-010].
+    const fulfillment = plannedClaims[id]?.fulfillment ?? null;
+    if (fulfillment === 'test-only' && ['matched', 'partial', 'deviated'].includes(claim.verdict)
+        && !testOnlyClaimEvidence(id, plannedClaims[id], claim, { complete: claim.verdict === 'matched' })) {
+      invalidEvidence.push(`${id} has verdict ${claim.verdict} without exact planned test-only evidence`);
+    }
+    if (['matched', 'partial', 'deviated'].includes(claim.verdict)
+        && !(claim.observedPaths ?? []).length
+        && fulfillment !== 'test-only'
+        && !testOnlyClaimEvidence(id, plannedClaims[id], claim)) {
+      invalidEvidence.push(`${id} has verdict ${claim.verdict} without source-path evidence`);
+    }
+    if (verifyEvidence) {
+      for (const candidate of fulfillment === 'removed' ? [] : claim.observedPaths ?? []) {
+        // An exact, governed source deletion is still observable code evidence. Its path appears
+        // in the committed change set but no longer exists in the worktree; receipt replay owns
+        // proving that deletion. Absence without a changed-path witness remains invalid.
+        if (!(yield* coverageBoolean(coverageRequest('specification-coverage-path',{path:candidate}))) && !activePaths.includes(candidate)) {
+          invalidEvidence.push(`${id} references missing source evidence ${candidate}`);
+        }
+      }
+      for (const candidate of claim.testResults ?? []) {
+        if (!(yield* coverageBoolean(coverageRequest('specification-coverage-path',{path:candidate})))) invalidEvidence.push(`${id} references missing test evidence ${candidate}`);
+      }
+      for (const commit of claim.commits ?? []) {
+        const resolved = yield* coverageBoolean(coverageRequest('specification-coverage-commit',{commit}));
+        if (!resolved) invalidEvidence.push(`${id} references unreachable commit ${commit}`);
+      }
+    }
+  }
+  const result = {
+    schemaVersion: 1, // schema-transient: computed coverage result, never persisted
+    mode: normalized.coverage,
+    totals: {
+      clauses: clauses.size,
+      planned: Object.keys(plannedClaims).length,
+      observed: Object.keys(observedClaims).length,
+      changedPaths: activePaths.length
+    },
+    unimplemented,
+    testPresenceOnly,
+    unclaimedChangedPaths,
+    supportingChangedPaths,
+    withdrawnButClaimed,
+    invalidEvidence: [...new Set(invalidEvidence)].sort(),
+    complete: !unimplemented.length && !unclaimedChangedPaths.length && !withdrawnButClaimed.length && !invalidEvidence.length
+  };
+  result.severity = result.complete || normalized.coverage === 'off' ? 'pass' : normalized.coverage === 'enforce' ? 'error' : 'warning';
+  return result;
+}
+
+function evaluateSpecAcceptance({ indexes = [], planned = [], observed = [], acceptance = [] }, policy = {}, expected = {}) {
+  const normalized = normalizeSpecPolicy(policy);
+  const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
+  const plannedClaims = mergePlannedClaimRecords(planned);
+  const verificationContracts = mergedVerificationContracts(planned);
+  const nonTestProof = id => plannedClaims[id]?.testDisposition === 'non-test'
+    && nonTestVerification(id, plannedClaims[id], verificationContracts, clauses.get(id)?.verification);
+  const testExemption = id => plannedClaims[id]?.testDisposition === 'not-applicable'
+    && plannedClaims[id]?.testReason && !clauses.get(id)?.verification?.methods.includes('test');
+  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims);
+  const candidates = [...acceptance].sort(recordOrder);
+  const latestRun = candidates.at(-1) ?? null;
+  const missingPlannedTests = normalized.acceptance === 'off'
+    ? []
+    : [...clauses.keys()].filter((id) => {
+      const claim = plannedClaims[id];
+      return !(claim?.tests ?? []).length
+        && !testExemption(id)
+        && !nonTestProof(id);
+    }).sort();
+  const missingObservedTests = normalized.acceptance !== 'verify'
+    ? []
+    : [...clauses.keys()].filter((id) => {
+      return !exactPlannedTestEvidence(id, plannedClaims, observedClaims)
+        && !testExemption(id)
+        && !nonTestProof(id);
+    }).sort();
+  const failedCommands = normalized.acceptance !== 'verify' || !latestRun
+    ? []
+    : (latestRun.commands ?? []).filter((entry) => entry.status !== 'passed').map((entry) => entry.id);
+  const missingRun = normalized.acceptance === 'verify' && !latestRun;
+  const staleRunReasons = [];
+  if (latestRun) {
+    const storedHash = latestRun.recordSha256;
+    const withoutHash = { ...latestRun };
+    delete withoutHash.recordSha256;
+    if (!storedHash || storedHash !== sha256(canonicalJson(withoutHash))) staleRunReasons.push('acceptance record hash is missing or invalid');
+    if (latestRun.status !== 'passed') staleRunReasons.push('latest acceptance run did not pass');
+    if (latestRun.sourceChangedDuringRun) staleRunReasons.push('repository source changed while acceptance commands were running');
+    if (expected.workId && latestRun.workId !== expected.workId) staleRunReasons.push(`acceptance run belongs to ${latestRun.workId ?? 'no work item'}`);
+    if (expected.phase && latestRun.phase !== expected.phase) staleRunReasons.push(`acceptance run belongs to phase ${latestRun.phase ?? 'unknown'}`);
+    if (expected.generation != null && Number(latestRun.generation) !== Number(expected.generation)) staleRunReasons.push(`acceptance run belongs to generation ${latestRun.generation ?? 'unknown'}`);
+    if (expected.sourceTreeSha256 && latestRun.sourceTreeSha256 !== expected.sourceTreeSha256) staleRunReasons.push('source tree changed after the acceptance run');
+    if (expected.commandSetSha256 && latestRun.commandSetSha256 !== expected.commandSetSha256) staleRunReasons.push('configured acceptance commands changed after the run');
+  }
+  const complete = normalized.acceptance === 'off'
+    || (!missingPlannedTests.length && !missingObservedTests.length && !failedCommands.length && !missingRun && !staleRunReasons.length);
+  return {
+    schemaVersion: 1, // schema-transient: computed acceptance result, never persisted
+    mode: normalized.acceptance,
+    complete,
+    missingPlannedTests,
+    missingObservedTests,
+    failedCommands,
+    missingRun,
+    staleRunReasons,
+    latestRunAt: latestRun?.completedAt ?? null
+  };
+}
+
+/** Candidate rules consume original record observations; errors, human decisions and prose stay with the host. */
+function* candidateSpecificationCoverageReplay(config,workflow,phase,delivery,{pathContext}={}) {
+  const policy=normalizeSpecPolicy(workflow.resolution?.spec??config.spec??{}),enforcement=codeCoverageEnforcement(policy);
+  if(!enforcement||workflow.resolution?.plannedClaims?.mode!=='required')return null;
+  if(!pathContext||Object.keys(pathContext).length!==3||typeof pathContext.caseInsensitivePaths!=='boolean'
+    ||!['governedRoots','governedPaths'].every(key=>Array.isArray(pathContext[key])&&pathContext[key].every(value=>typeof value==='string')))throw new SingularityFlowError(
+    'Candidate coverage needs its explicitly selected application path context.',{code:'ENGINE_INPUT_INVALID'});
+  const codePhases=workflow.phaseOrder.filter(id=>phaseRequiresCodeDelivery(workflow.phases[id])),final=codePhases.at(-1)===phase.id,
+    records=yield coverageRequest('candidate-coverage-records',{policy,options:{requireCommitted:false,throughPhase:final?null:phase.id,excludeObservedPhase:phase.id}});
+  if(!records||Object.keys(records).length!==4||!['indexes','planned','observed','acceptance'].every(key=>Array.isArray(records[key])))throw new SingularityFlowError(
+    'Candidate coverage needs its actual specification records.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  const owner=workflow.resolution.plannedClaims.owners[phase.id],planned=mergePlannedClaimRecords(records.planned.filter(record=>record.phase===owner)),
+    allocated=Object.fromEntries(Object.entries(planned).filter(([,claim])=>!claim.steps?.length||claim.steps.includes(phase.id))),
+    observed=yield* deriveObservedClaimMapReplay(allocated,{...delivery,fulfillment:{obligations:delivery.fulfillment??[]},
+      traceability:{bindings:delivery.acceptanceCriteria?.bindings??[],sourceBindings:delivery.sourceBindings?.bindings??[]}},
+      {policy,requireSourceBindings:workflow.resolution?.codeDelivery?.traceability?.sourceBindings==='enforce'}),
+    changed=[...new Set(delivery.changeSet.entries.flatMap(entry=>[entry.oldPath,entry.newPath]).filter(Boolean))].filter(candidate=>isApplicationPath(candidate,pathContext)),
+    coverage=yield* evaluateSpecCoverageReplay({...records,observed:[...records.observed.filter(record=>record.phase!==phase.id),{...observed,phase:phase.id}]},changed,policy,{workflow}),
+    open=coverage.unimplemented.filter(id=>final||allocated[id]),claimGaps=open.map(clauseId=>{
+      const plan=allocated[clauseId],claim=observed.claims[clauseId],expected=plan&&(!plan.fulfillment||['new','modified'].includes(plan.fulfillment))?plannedProductSourcePaths(plan):plan?.expectedPaths??[],
+        missingSourcePaths=expected.filter(candidate=>!isConfigurationPath(candidate)&&!(claim?.observedPaths??[]).includes(candidate)),
+        missingConfigurationPaths=(plan?.expectedPaths??[]).filter(candidate=>isConfigurationPath(candidate)&&!(claim?.observedPaths??[]).includes(candidate)),
+        sourcePaths=new Set([...(delivery.sourcePaths??[]),...(delivery.deletedSourcePaths??[])]);
+      return {clauseId,verdict:claim?.verdict??'missing',missingSourcePaths:missingSourcePaths.filter(candidate=>!sourcePaths.has(candidate)),
+        missingSourceBindings:missingSourcePaths.filter(candidate=>sourcePaths.has(candidate)),missingTestPaths:(plan?.tests??[]).filter(candidate=>!(claim?.testResults??[]).includes(candidate)),missingConfigurationPaths};
+    }),incomplete=Boolean(open.length||final&&coverage.invalidEvidence.length);
+  return {profile:'sflow-candidate-specification-coverage/v1',status:incomplete?(enforcement==='enforce'?'correction-required':'advisory'):'ready',
+    enforcement,final,owner,coverage,open,claimGaps};
+}
+
+return Object.freeze({normalizeClaimMapReplay,inspectPlannedClaimMapReplay,derivePlannedClaimMapReplay,deriveObservedClaimMapReplay,validatePlannedEvidenceTypes,planSupportingFiles,testOnlyClaimEvidence,mergeObservedClaimRecords,evaluateSpecCoverageReplay,evaluateSpecAcceptance,candidateSpecificationCoverageReplay});
 }

@@ -10,12 +10,13 @@ import { applicationPathContext, isApplicationChangeEntry, isApplicationPath } f
 import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { codeCoverageEnforcement, deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles, plannedProductSourcePaths } from './specifications.mjs';
+import { loadBoundActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from './specifications.mjs';
+import {candidateSpecificationCoverageReplay} from './engine-compatibility/node-specification-policy.mjs';
+import {SPECIFICATION_CLAIM_TIMESTAMP_REQUEST} from './kernel/specification-values.mjs';
 import { normalizeSpecPolicy } from "./kernel/configuration-policy.mjs";
-import { isConfigurationPath } from './engine-compatibility/node-source-policy.mjs';
 import { workDir } from './story-paths.mjs';
 import { issueNamesClause, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueStates } from './upstream-routes.mjs';
-import { posix, SingularityFlowError } from './util.mjs';
+import { posix, SingularityFlowError, nowIso } from './util.mjs';
 
 /**
  * The open upstream issues that name a clause still without delivery, and whether they name all of
@@ -47,43 +48,14 @@ export async function assertCandidateSpecificationCoverage(root, config, workflo
 }
 
 export async function assertStrictCandidateSpecificationCoverage(root, config, workflow, phase, delivery) {
-  const policy = normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
-  const enforcement = codeCoverageEnforcement(policy);
-  if (!enforcement || workflow.resolution?.plannedClaims?.mode !== 'required') return null;
-  const codePhases = workflow.phaseOrder.filter((id) => phaseRequiresCodeDelivery(workflow.phases[id]));
-  const final = codePhases.at(-1) === phase.id;
-  const records = await loadBoundActiveSpecRecords(root, workDir(root, config, workflow.workItem.id), workflow, policy,
-    { requireCommitted: false, throughPhase: final ? null : phase.id, excludeObservedPhase: phase.id });
-  const owner = workflow.resolution.plannedClaims.owners[phase.id];
-  const planned = mergePlannedClaimRecords(records.planned.filter((record) => record.phase === owner));
-  const allocated = Object.fromEntries(Object.entries(planned)
-    .filter(([, claim]) => !claim.steps?.length || claim.steps.includes(phase.id)));
-  const observed = deriveObservedClaimMap(allocated, {
-    ...delivery, fulfillment: { obligations: delivery.fulfillment ?? [] },
-    traceability: { bindings: delivery.acceptanceCriteria?.bindings ?? [], sourceBindings: delivery.sourceBindings?.bindings ?? [] }
-  }, { policy, requireSourceBindings: workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce' });
-  const changed = [...new Set(delivery.changeSet.entries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))]
-    .filter((candidate) => isApplicationPath(candidate, applicationPathContext(config, workflow)));
-  const coverage = evaluateSpecCoverage({ ...records, observed: [
-    ...records.observed.filter((record) => record.phase !== phase.id), { ...observed, phase: phase.id }
-  ] }, changed, policy, { workflow });
-  const open = coverage.unimplemented.filter((id) => final || allocated[id]);
-  const claimGaps = open.map(clauseId => {
-    const plan = allocated[clauseId];
-    const claim = observed.claims[clauseId];
-    const expected = plan && (!plan.fulfillment || ['new', 'modified'].includes(plan.fulfillment))
-      ? plannedProductSourcePaths(plan) : plan?.expectedPaths ?? [];
-    const missingSourcePaths = expected.filter(candidate => !isConfigurationPath(candidate)
-      && !(claim?.observedPaths ?? []).includes(candidate));
-    const missingConfigurationPaths = (plan?.expectedPaths ?? []).filter(candidate =>
-      isConfigurationPath(candidate) && !(claim?.observedPaths ?? []).includes(candidate));
-    const sourcePaths = new Set([...(delivery.sourcePaths ?? []), ...(delivery.deletedSourcePaths ?? [])]);
-    return { clauseId, verdict: claim?.verdict ?? 'missing',
-      missingSourcePaths: missingSourcePaths.filter(candidate => !sourcePaths.has(candidate)),
-      missingSourceBindings: missingSourcePaths.filter(candidate => sourcePaths.has(candidate)),
-      missingTestPaths: (plan?.tests ?? []).filter(candidate => !(claim?.testResults ?? []).includes(candidate)),
-      missingConfigurationPaths };
-  });
+  const replay=candidateSpecificationCoverageReplay(config,workflow,phase,delivery,{pathContext:applicationPathContext(config,workflow)});let step=replay.next();
+  while(!step.done){let reply;try{const request=step.value;
+    if(request===SPECIFICATION_CLAIM_TIMESTAMP_REQUEST)reply=nowIso();
+    else if(request.kind==='candidate-coverage-records')reply=await loadBoundActiveSpecRecords(root,workDir(root,config,workflow.workItem.id),workflow,request.policy,request.options);
+    else throw new SingularityFlowError('Unsupported candidate coverage observation.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  }catch(error){step=replay.throw(error);continue;}step=replay.next(reply);}
+  if(step.value===null)return null;
+  const {coverage,open,claimGaps,owner}=step.value;
   const gapText = claimGaps.map(gap => `${gap.clauseId} (${[
     ...(gap.missingSourcePaths.length ? [`source paths: ${gap.missingSourcePaths.join(', ')}`] : []),
     ...(gap.missingSourceBindings.length ? [`source bindings: ${gap.missingSourceBindings.join(', ')}`] : []),
@@ -91,14 +63,14 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
     ...(gap.missingConfigurationPaths.length ? [`configuration paths: ${gap.missingConfigurationPaths.join(', ')}`] : [])
   ].join('; ') || gap.verdict})`).join('; ');
   // Recorded coverage is told, not refused: the ending refuses only what is still open then.
-  if ((open.length || (final && coverage.invalidEvidence.length)) && enforcement !== 'enforce') {
+  if (step.value.status === 'advisory') {
     return { ...coverage, advisory: [`Planned delivery is incomplete: ${gapText || coverage.invalidEvidence.join('; ')}. This Story's ending refuses an unimplemented clause; deliver it in this step or a later one.`] };
   }
   const upstreamDecision = upstreamDecisionFor(workflow, open);
   const waitingText = upstreamDecision ? ` ${upstreamDecision.issues.map((entry) => `${entry.id} (raised against ${entry.phase}) names ${entry.clauses.join(', ')}`).join('; ')}: `
     + `${upstreamDecision.complete ? 'every clause listed here waits' : 'those clauses wait only'} on that decision by ${[...new Set(upstreamDecision.issues.map((entry) => entry.phase))].join(' and ')}'s approvers, not on this step's code`
     + `${upstreamDecision.complete ? '; they decide it in the decision list (singularity-flow decisions ' + workflow.workItem.id + ').' : '; deliver the others.'}` : '';
-  if (open.length || (final && coverage.invalidEvidence.length)) throw new SingularityFlowError(
+  if (step.value.status === 'correction-required') throw new SingularityFlowError(
     `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}.${waitingText} `
     + 'Inspect these exact source/test obligations while this generation is editable. Add a binding only where the approved behavior is actually implemented; an incorrect location needs a reviewed plan correction. Preserve application code and approved maps. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.',
     { code: 'SPEC_COVERAGE_INCOMPLETE', details: { workId: workflow.workItem.id, phase: phase.id,

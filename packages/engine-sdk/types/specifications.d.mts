@@ -199,7 +199,41 @@ export interface SpecificationClaimValues {
   planSupportingFiles(markdown:string):SpecificationSupportingFile[];
   testOnlyClaimEvidence(id:string,plan:VerificationClaim|null,claim:{readonly observedPaths?:readonly string[];readonly testResults?:readonly string[]}|null,
     options?:{readonly complete?:boolean}):boolean;
+  mergeObservedClaimRecords(maps?:readonly ObservedCoverageRecord[],planned?:Readonly<Record<string,CoveragePlannedClaim>>,
+    options?:{readonly workflow?:Readonly<Record<string,unknown>>|null}):Readonly<Record<string,ObservedSpecificationClaim>>;
+  evaluateSpecCoverageReplay(records:SpecificationCoverageRecords,changedPaths?:readonly string[],policy?:Readonly<Record<string,unknown>>,
+    options?:{readonly verifyEvidence?:boolean;readonly workflow?:Readonly<Record<string,unknown>>|null}):Generator<CoverageEvidenceRequest,SpecificationCoverageResult,boolean>;
+  evaluateSpecAcceptance(records:SpecificationCoverageRecords,policy?:Readonly<Record<string,unknown>>,expected?:{
+    readonly workId?:string;readonly phase?:string;readonly generation?:number;readonly sourceTreeSha256?:string;readonly commandSetSha256?:string}):SpecificationAcceptanceResult;
+  candidateSpecificationCoverageReplay(config:Readonly<Record<string,unknown>>,workflow:Readonly<Record<string,unknown>>,phase:Readonly<Record<string,unknown>>,delivery:Readonly<Record<string,unknown>>,
+    options:{readonly pathContext:SourceOriginPathContext}):Generator<CandidateCoverageRecordRequest|ClaimTimestampRequest,CandidateSpecificationCoverage|null,Required<SpecificationCoverageRecords>|string>;
 }
+export interface CoverageMetadata {readonly schemaVersion?:number;readonly kind?:string;readonly workId?:string;readonly phase?:string;readonly generation?:number;
+  readonly recordedAt?:string;readonly completedAt?:string;readonly source?:{readonly path?:string;readonly sha256?:string;readonly bytes?:number}}
+export interface CoveragePlannedClaim extends Partial<PlannedSpecificationClaim> {readonly obligations?:readonly (CoveragePlannedClaim&{readonly owner?:string|null})[]}
+export interface PlannedCoverageRecord extends CoverageMetadata {readonly claims:Readonly<Record<string,CoveragePlannedClaim>>;
+  readonly supportingFiles?:readonly string[];readonly amendment?:boolean;readonly accountedPaths?:Readonly<Record<string,readonly string[]>>;
+  readonly verificationContracts?:readonly VerificationContract[]}
+export interface ObservedCoverageRecord extends CoverageMetadata {readonly claims:Readonly<Record<string,Partial<ObservedSpecificationClaim>>>}
+export interface CoverageAcceptanceRecord extends CoverageMetadata {readonly recordSha256?:string;readonly status?:string;readonly sourceChangedDuringRun?:boolean;
+  readonly sourceTreeSha256?:string;readonly commandSetSha256?:string;readonly commands?:readonly {readonly id:string;readonly status:string}[]}
+export interface SpecificationCoverageRecords {readonly indexes?:readonly (CoverageMetadata&{readonly clauses?:readonly {readonly id:string;readonly verification?:ClauseVerification}[]})[];
+  readonly planned?:readonly PlannedCoverageRecord[];readonly observed?:readonly ObservedCoverageRecord[];readonly acceptance?:readonly CoverageAcceptanceRecord[]}
+export interface SpecificationCoverageResult {readonly schemaVersion:1;readonly mode:string;readonly totals:{readonly clauses:number;readonly planned:number;readonly observed:number;readonly changedPaths:number};
+  readonly unimplemented:readonly string[];readonly testPresenceOnly:readonly string[];readonly unclaimedChangedPaths:readonly string[];readonly supportingChangedPaths:readonly string[];
+  readonly withdrawnButClaimed:readonly string[];readonly invalidEvidence:readonly string[];readonly complete:boolean;readonly severity:'pass'|'warning'|'error'}
+export type CoverageEvidenceRequest={readonly kind:'specification-coverage-path';readonly path:string}|{readonly kind:'specification-coverage-commit';readonly commit:string};
+export interface SpecificationAcceptanceResult {readonly schemaVersion:1;readonly mode:string;readonly complete:boolean;readonly missingPlannedTests:readonly string[];
+  readonly missingObservedTests:readonly string[];readonly failedCommands:readonly string[];readonly missingRun:boolean;readonly staleRunReasons:readonly string[];readonly latestRunAt:string|null}
+export interface CandidateCoverageRecordRequest {readonly kind:'candidate-coverage-records';readonly policy:Readonly<Record<string,unknown>>;
+  readonly options:{readonly requireCommitted:false;readonly throughPhase:string|null;readonly excludeObservedPhase:string}}
+export interface CandidateSpecificationCoverage {readonly profile:'sflow-candidate-specification-coverage/v1';readonly status:'ready'|'advisory'|'correction-required';
+  readonly enforcement:'enforce'|'qualified-ending';readonly final:boolean;readonly owner:string;readonly coverage:SpecificationCoverageResult;readonly open:readonly string[];
+  readonly claimGaps:readonly {readonly clauseId:string;readonly verdict:string;readonly missingSourcePaths:readonly string[];readonly missingSourceBindings:readonly string[];
+    readonly missingTestPaths:readonly string[];readonly missingConfigurationPaths:readonly string[]}[]}
+export declare function codeCoverageEnforcement(policy?:Readonly<Record<string,unknown>>):'enforce'|'qualified-ending'|null;
+export declare function plannedClaimsForObservedPhase(workflow:Readonly<Record<string,unknown>>|null,phaseId:string,planned?:readonly PlannedCoverageRecord[]):Readonly<Record<string,CoveragePlannedClaim>>;
+export declare function selectActiveSpecRecords(records:SpecificationCoverageRecords,workflow?:Readonly<Record<string,unknown>>|null):Required<SpecificationCoverageRecords>;
 export declare function specificationClaimPolicies(paths:VerificationPathSyntax,values:SpecificationTextValues):Readonly<SpecificationClaimValues>;
 /** Logical views only. Original accepted plan/publication proof remains a namespace owner. */
 export declare const REPOSITORY_PLAN_PROFILE:'sflow-repository-plan/v1';

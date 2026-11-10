@@ -369,6 +369,13 @@ test evidence does not combine global verification contracts or discharge public
 The full application-delivery, cross-agent execution, installed cutover and final qualification
 requirements remain open.
 
+The [shared specification coverage owner](ENGINE-SDK-SPECIFICATION-COVERAGE.md) moves cumulative
+observed claims, active selection, code-phase allocation, coverage and legacy acceptance out of
+native record readers. Publication's candidate check consumes the same pure replay while the
+host retains actual bound-file reads, its late clock, risk decisions and command presentation.
+Application publication, complete cross-agent execution, authority migration and final
+qualification still keep Phases 5, 7, 8 and 9 open.
+
 The [immutable routing-input delivery](ENGINE-SDK-NAMESPACE-ROUTING-INPUTS.md) adds versioned
 submission records for pinned own/reused decision inputs while preserving decision-free v1 bytes.
 Shared proof readers verify source packets and actual human approval thresholds. This establishes

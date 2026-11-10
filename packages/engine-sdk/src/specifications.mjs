@@ -14,5 +14,6 @@ export {implementationBindingPolicies,sourceTagOriginPolicies,SOURCE_TAG_ORIGIN_
 export {codeDocumentationPolicies,publicDeclarations,changedDeclarations} from '../../../src/kernel/code-documentation.mjs';
 export {polyglotPathPolicies,POLYGLOT_STRUCTURAL_LANGUAGES,maskPolyglotNonCode,extractPolyglotSymbols,extractPolyglotImports} from '../../../src/kernel/polyglot-lexical.mjs';
 export {repositoryPlanPolicies,REPOSITORY_PLAN_PROFILE,REPOSITORY_PLAN_VALUES_PROFILE} from '../../../src/kernel/repository-plan.mjs';
+export {codeCoverageEnforcement,plannedClaimsForObservedPhase,selectActiveSpecRecords} from '../../../src/kernel/specification-policy.mjs';
 export {WITNESS_OUTCOMES,joinDeclaration,witnessResult,witnessLabel,aggregateWitnesses,criterionResults,
   IDENTITY_ASSURANCE,EXECUTION_ASSURANCE,combinedAssurance,acceptanceWitnessPolicies} from '../../../src/kernel/verification-witnesses.mjs';

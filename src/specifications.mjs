@@ -1,16 +1,16 @@
+import {codeCoverageEnforcement,plannedClaimsForObservedPhase,mergeObservedClaimRecords,selectActiveSpecRecords,evaluateSpecAcceptance,evaluateSpecCoverageReplay} from './engine-compatibility/node-specification-policy.mjs';
+export {codeCoverageEnforcement,plannedClaimsForObservedPhase,mergeObservedClaimRecords,selectActiveSpecRecords,evaluateSpecAcceptance} from './engine-compatibility/node-specification-policy.mjs';
 import {SPECIFICATION_CLAIM_TIMESTAMP_REQUEST} from './kernel/specification-values.mjs';
 import {normalizeClaimMapReplay,inspectPlannedClaimMapReplay,derivePlannedClaimMapReplay,deriveObservedClaimMapReplay} from './engine-compatibility/node-specification-policy.mjs';
 export {FULFILLMENT_TYPES} from './kernel/specification-values.mjs';
-import {testOnlyClaimEvidence} from './engine-compatibility/node-specification-policy.mjs';
 export {validatePlannedEvidenceTypes,planSupportingFiles,testOnlyClaimEvidence} from './engine-compatibility/node-specification-policy.mjs';
 import {canonicalJson,canonicalize} from './foundation/record-schema.mjs';
 export {canonicalJson} from './foundation/record-schema.mjs';
 export {ignoredRanges,isIgnored,clauseReferences,plannedClaimSource} from './kernel/specification-values.mjs';
 import {extractClauses,specificationIndexRecord} from './engine-compatibility/node-specification-policy.mjs';
 export {extractClauses} from './engine-compatibility/node-specification-policy.mjs';
-import {plannedImplementationPaths,plannedSupportingFiles} from './engine-compatibility/node-source-policy.mjs';
 export {plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles} from './engine-compatibility/node-source-policy.mjs';
-import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole,phaseDefinesSpecificationClaims,predecessorSpecClauses } from './kernel/specification-policy.mjs';
+import { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole,predecessorSpecClauses } from './kernel/specification-policy.mjs';
 export { isSpecificationDefinitionPhase, skillPhasePrimaryOutputRole, SPECIFICATION_DEFINITION_KINDS } from './kernel/specification-policy.mjs';
 import { normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
 export { normalizeSpecPolicy } from './kernel/configuration-policy.mjs';
@@ -27,9 +27,7 @@ import {
   applicationPathContext, isApplicationChangePath, isApplicationPath
 } from './engine-compatibility/node-source-policy.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
-import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
-import {mergedVerificationContracts} from './engine-compatibility/node-specification-policy.mjs';
-import {nonTestVerification} from './kernel/verification-policy.mjs';
+import { planAmendmentRecord } from './plan-amendments.mjs';
 import { verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
 import { applyPlanCorrections } from './plan-row-corrections.mjs';
 
@@ -39,19 +37,6 @@ function sha256(value) {
 
 function sameDigest(left, right) {
   return String(left ?? '').replace(/^sha256:/, '') === String(right ?? '').replace(/^sha256:/, '');
-}
-
-/**
- * How code steps answer for clause coverage. Enforced coverage refuses there. Recorded coverage on
- * a Story whose conformance report has qualified rows is told there what its ending will refuse (an
- * unimplemented, withdrawn or invalidly evidenced clause; an unclaimed path only warns there), as a
- * warning: an incomplete generation is legitimate while a convergence review or a later step can
- * still deliver it, and the code step is where its owner can see it [gate parity].
- */
-export function codeCoverageEnforcement(policy) {
-  if (policy?.coverage === 'enforce') return 'enforce';
-  if (policy?.coverage === 'record' && (policy.conformanceRows ?? 'qualified') === 'qualified') return 'qualified-ending';
-  return null;
 }
 
 export async function buildSpecIndex(root, artifact, {
@@ -77,7 +62,7 @@ export async function buildSpecIndex(root, artifact, {
   return index;
 }
 /** Fulfillment types that change product source, so the delivery carries the clause in that source. */
-import {SOURCE_CHANGING_FULFILLMENT,recordOrder,sortedUnique,mergePlannedClaimRecords} from './kernel/specification-policy.mjs';
+import {recordOrder,mergePlannedClaimRecords} from './kernel/specification-policy.mjs';
 export {SOURCE_CHANGING_FULFILLMENT,mergePlannedClaimRecords} from './kernel/specification-policy.mjs';
 
 /** Native compatibility clock adapter. All validation/order and candidate values belong to the kernel. */
@@ -298,128 +283,6 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
 
 
 
-/** Merge planned evidence cumulatively across multiple code intervals. */
-/**
- * Every supporting file the planned claim maps list, once each — limited to paths of a supporting
- * class, so a plan written before the classes existed, or a hand-written map, cannot exempt
- * application source, tests or migrations from requirement accounting.
- */
-
-
-
-
-/** A code step can use only its bound plan owner's fulfillment, never another step's plan. */
-export function plannedClaimsForObservedPhase(workflow, phaseId, planned = []) {
-  const policy = workflow?.resolution?.plannedClaims;
-  const owner = policy?.owners?.[phaseId];
-  const owned = policy?.mode === 'required'
-    ? (owner ? planned.filter((record) => record.phase === owner) : []) : planned;
-  return mergePlannedClaimRecords(owned);
-}
-
-/**
- * Merge observed evidence cumulatively instead of letting a later interval's empty/missing result
- * erase an earlier exact match. Completeness is recomputed against the cumulative planned paths and
- * tests, so two partial implementation intervals can together form one matched claim.
- */
-export function mergeObservedClaimRecords(maps = [], plannedClaims = {}, { workflow = null } = {}) {
-  const grouped = new Map();
-  for (const map of [...maps].sort(recordOrder)) {
-    for (const [id, claim] of Object.entries(map?.claims ?? {})) {
-      const current = grouped.get(id) ?? {
-        observedPaths: [], testResults: [], commits: [], verdicts: [], deviation: null
-      };
-      current.observedPaths.push(...(claim.observedPaths ?? []));
-      current.testResults.push(...(claim.testResults ?? []));
-      current.commits.push(...(claim.commits ?? []));
-      current.verdicts.push(claim.verdict ?? 'missing');
-      if (claim.deviation != null) current.deviation = claim.deviation;
-      grouped.set(id, current);
-    }
-  }
-  return Object.fromEntries([...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([id, value]) => {
-    const observedPaths = sortedUnique(value.observedPaths);
-    const testResults = sortedUnique(value.testResults);
-    const plan = plannedClaims[id] ?? null;
-    let verdict;
-    if (value.verdicts.includes('deviated')) verdict = 'deviated';
-    else if (value.verdicts.includes('unplanned')) verdict = 'unplanned';
-    else if (plan?.obligations?.length) {
-      // Evaluate each planning owner's obligation against only its allocated Code steps. One
-      // test-only stage cannot erase, or satisfy, another stage's product-source obligation.
-      const outcomes = plan.obligations.map((obligation) => {
-        const ownedSteps = Object.entries(workflow?.resolution?.plannedClaims?.owners ?? {})
-          .filter(([, owner]) => owner === obligation.owner).map(([step]) => step);
-        const steps = obligation.steps?.length ? obligation.steps : ownedSteps;
-        const selected = maps.filter((map) => !steps.length || steps.includes(map.phase));
-        return mergeObservedClaimRecords(selected, { [id]: obligation })[id]?.verdict ?? 'missing';
-      });
-      verdict = outcomes.every((outcome) => outcome === 'matched') ? 'matched'
-        : outcomes.some((outcome) => outcome !== 'missing') ? 'partial' : 'missing';
-    } else if (plan?.fulfillment && !SOURCE_CHANGING_FULFILLMENT.includes(plan.fulfillment)) {
-      // Implemented by its own fulfillment, not by source and tests together: existing, removed,
-      // document and configuration work by their paths, test-only work by its tests [E2G-010].
-      const evidence = plan.fulfillment === 'test-only' ? testResults : observedPaths;
-      const expected = plan.fulfillment === 'test-only' ? plan.tests ?? [] : plan.expectedPaths ?? [];
-      verdict = evidence.length && expected.every((candidate) => evidence.includes(candidate)) ? 'matched'
-        : evidence.length ? 'partial' : 'missing';
-    } else if (plan) {
-      const expectedPaths = plannedImplementationPaths(plan);
-      const sourceComplete = expectedPaths.length > 0
-        && expectedPaths.every((candidate) => observedPaths.includes(candidate));
-      const testsComplete = !(plan.tests ?? []).length
-        || plan.tests.every((candidate) => testResults.includes(candidate));
-      const acceptanceTestOnly = /:AC-\d{3}$/.test(id) && !observedPaths.length && testResults.length;
-      verdict = observedPaths.length
-        ? (sourceComplete && testsComplete ? 'matched' : 'partial')
-        : acceptanceTestOnly
-          ? (!(plan.expectedPaths ?? []).length && testsComplete ? 'matched' : 'partial')
-          // Preserve an invalid producer verdict when it has no source path. Convergence and
-          // terminal coverage must expose that stale binding; normalizing it to `missing` here
-          // would erase the stronger integrity defect from the fact set.
-          : value.verdicts.includes('matched')
-            ? 'matched'
-            : value.verdicts.includes('partial')
-              ? 'partial'
-              : 'missing';
-    } else if (value.verdicts.includes('matched')) verdict = 'matched';
-    else if (value.verdicts.includes('partial')) verdict = 'partial';
-    else verdict = 'missing';
-    return [id, {
-      observedPaths,
-      testResults,
-      commits: sortedUnique(value.commits),
-      verdict,
-      deviation: value.deviation
-    }];
-  }));
-}
-
-/**
- * Select only records that belong to the current generation of the current
- * Story. Historical files remain in Git for audit, but must never participate
- * in a live governance decision.
- */
-export function selectActiveSpecRecords(records, workflow) {
-  const workId = workflow?.workItem?.id ?? null;
-  const active = (record) => {
-    const phase = workflow?.phases?.[record?.phase];
-    return Boolean(
-      record
-      && record.workId === workId
-      && phase
-      && Number(record.generation) === Number(phase.generation)
-    );
-  };
-  return {
-    indexes: (records.indexes ?? []).filter(record=>active(record)
-      &&phaseDefinesSpecificationClaims(workflow,workflow.phases[record.phase],record.phase)).sort(recordOrder),
-    planned: (records.planned ?? []).filter(active).sort(recordOrder),
-    observed: (records.observed ?? []).filter(active).sort(recordOrder),
-    acceptance: (records.acceptance ?? []).filter(active).sort(recordOrder)
-  };
-}
-
 export async function loadActiveSpecRecords(itemDirectory, workflow) {
   return withAmendmentRecord(selectActiveSpecRecords(await loadSpecRecords(itemDirectory), workflow), workflow);
 }
@@ -521,161 +384,26 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
 
 export {predecessorSpecClauses} from './kernel/specification-policy.mjs';
 
-function pathExcluded(candidate, excludes) {
-  return excludes.some((prefix) => candidate === prefix || candidate.startsWith(`${prefix.replace(/\/$/, '')}/`));
-}
+
 
 // Test association is independent of fulfillment; source-changing rows also need their tests.
-function exactPlannedTestEvidence(id, plannedClaims, observedClaims) {
-  const plannedTests = plannedClaims[id]?.tests ?? [];
-  const observedTests = new Set(observedClaims[id]?.testResults ?? []);
-  return plannedTests.length > 0 && plannedTests.every((candidate) => observedTests.has(candidate));
+
+
+export function evaluateSpecCoverage(records,changedPaths=[],policy={}, {root=null,workflow=null}={}) {
+  const replay=evaluateSpecCoverageReplay(records,changedPaths,policy,{workflow,verifyEvidence:Boolean(root)});let step=replay.next();
+  while(!step.done){let reply;try{const request=step.value;
+    if(request.kind==='specification-coverage-path')reply=existsSync(path.join(root,request.path));
+    else if(request.kind==='specification-coverage-commit'){
+      const commit=request.commit;
+      const resolved = run('git', ['cat-file', '-e', `${commit}^{commit}`], { cwd: root, allowFailure: true });
+      reply=resolved.status===0;
+    }
+    else throw new SingularityFlowError('Unsupported specification coverage observation.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  }catch(error){step=replay.throw(error);continue;}step=replay.next(reply);}
+  return step.value;
 }
 
-export function evaluateSpecCoverage({ indexes = [], planned = [], observed = [] }, changedPaths = [], policy = {}, { root = null, workflow = null } = {}) {
-  const normalized = normalizeSpecPolicy(policy);
-  const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
-  const plannedClaims = mergePlannedClaimRecords(planned);
-  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims, { workflow });
-  const activePaths = [...new Set(changedPaths.map(posix))].filter((candidate) => !pathExcluded(candidate, normalized.excludes)).sort();
-  const claimedPaths = new Set(Object.entries(observedClaims).flatMap(([id, claim]) => [
-    ...(claim.observedPaths ?? []),
-    ...(claim.testResults ?? []).filter((candidate) => (plannedClaims[id]?.tests ?? []).includes(candidate))
-  ]));
-  // A path a plan amendment added to a row is accounted for by that amendment [E2G-012].
-  for (const candidate of accountedAmendmentPaths(planned)) claimedPaths.add(candidate);
-  const unimplemented = [...clauses.keys()].filter((id) => {
-    const claim = observedClaims[id];
-    if (!claim) return true;
-    if (plannedClaims[id]?.fulfillment === 'test-only'
-        && !testOnlyClaimEvidence(id, plannedClaims[id], claim)) return true;
-    if (testOnlyClaimEvidence(id, plannedClaims[id], claim) && claim.verdict !== 'deviated'
-        && (!plannedClaims[id]?.obligations?.length || claim.verdict === 'matched')) return false;
-    return ['missing', 'partial'].includes(claim.verdict);
-  }).sort();
-  // Covered only because their planned test files were delivered: no source change and, until
-  // test-case results are joined, no proof the tests ran for them. Reported so no label overstates it.
-  const testPresenceOnly = [...clauses.keys()].filter((id) => observedClaims[id]
-    && !(observedClaims[id].observedPaths ?? []).length
-    && testOnlyClaimEvidence(id, plannedClaims[id], observedClaims[id])).sort();
-  // A file the plan lists under Supporting files may change without a clause claiming it.
-  const supporting = new Set(plannedSupportingFiles(planned));
-  const supportingChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate) && supporting.has(candidate));
-  const unclaimedChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate) && !supporting.has(candidate));
-  const withdrawnButClaimed = Object.keys(observedClaims).filter((id) => !clauses.has(id)).sort();
-  const invalidEvidence = [];
-  for (const [id, claim] of Object.entries(observedClaims)) {
-    // A test-only obligation is delivered by its tests, and a removal by the absence of its paths,
-    // which receipt replay proves [E2G-010].
-    const fulfillment = plannedClaims[id]?.fulfillment ?? null;
-    if (fulfillment === 'test-only' && ['matched', 'partial', 'deviated'].includes(claim.verdict)
-        && !testOnlyClaimEvidence(id, plannedClaims[id], claim, { complete: claim.verdict === 'matched' })) {
-      invalidEvidence.push(`${id} has verdict ${claim.verdict} without exact planned test-only evidence`);
-    }
-    if (['matched', 'partial', 'deviated'].includes(claim.verdict)
-        && !(claim.observedPaths ?? []).length
-        && fulfillment !== 'test-only'
-        && !testOnlyClaimEvidence(id, plannedClaims[id], claim)) {
-      invalidEvidence.push(`${id} has verdict ${claim.verdict} without source-path evidence`);
-    }
-    if (root) {
-      for (const candidate of fulfillment === 'removed' ? [] : claim.observedPaths ?? []) {
-        // An exact, governed source deletion is still observable code evidence. Its path appears
-        // in the committed change set but no longer exists in the worktree; receipt replay owns
-        // proving that deletion. Absence without a changed-path witness remains invalid.
-        if (!existsSync(path.join(root, candidate)) && !activePaths.includes(candidate)) {
-          invalidEvidence.push(`${id} references missing source evidence ${candidate}`);
-        }
-      }
-      for (const candidate of claim.testResults ?? []) {
-        if (!existsSync(path.join(root, candidate))) invalidEvidence.push(`${id} references missing test evidence ${candidate}`);
-      }
-      for (const commit of claim.commits ?? []) {
-        const resolved = run('git', ['cat-file', '-e', `${commit}^{commit}`], { cwd: root, allowFailure: true });
-        if (resolved.status !== 0) invalidEvidence.push(`${id} references unreachable commit ${commit}`);
-      }
-    }
-  }
-  const result = {
-    schemaVersion: 1, // schema-transient: computed coverage result, never persisted
-    mode: normalized.coverage,
-    totals: {
-      clauses: clauses.size,
-      planned: Object.keys(plannedClaims).length,
-      observed: Object.keys(observedClaims).length,
-      changedPaths: activePaths.length
-    },
-    unimplemented,
-    testPresenceOnly,
-    unclaimedChangedPaths,
-    supportingChangedPaths,
-    withdrawnButClaimed,
-    invalidEvidence: [...new Set(invalidEvidence)].sort(),
-    complete: !unimplemented.length && !unclaimedChangedPaths.length && !withdrawnButClaimed.length && !invalidEvidence.length
-  };
-  result.severity = result.complete || normalized.coverage === 'off' ? 'pass' : normalized.coverage === 'enforce' ? 'error' : 'warning';
-  return result;
-}
 
-export function evaluateSpecAcceptance({ indexes = [], planned = [], observed = [], acceptance = [] }, policy = {}, expected = {}) {
-  const normalized = normalizeSpecPolicy(policy);
-  const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
-  const plannedClaims = mergePlannedClaimRecords(planned);
-  const verificationContracts = mergedVerificationContracts(planned);
-  const nonTestProof = id => plannedClaims[id]?.testDisposition === 'non-test'
-    && nonTestVerification(id, plannedClaims[id], verificationContracts, clauses.get(id)?.verification);
-  const testExemption = id => plannedClaims[id]?.testDisposition === 'not-applicable'
-    && plannedClaims[id]?.testReason && !clauses.get(id)?.verification?.methods.includes('test');
-  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims);
-  const candidates = [...acceptance].sort(recordOrder);
-  const latestRun = candidates.at(-1) ?? null;
-  const missingPlannedTests = normalized.acceptance === 'off'
-    ? []
-    : [...clauses.keys()].filter((id) => {
-      const claim = plannedClaims[id];
-      return !(claim?.tests ?? []).length
-        && !testExemption(id)
-        && !nonTestProof(id);
-    }).sort();
-  const missingObservedTests = normalized.acceptance !== 'verify'
-    ? []
-    : [...clauses.keys()].filter((id) => {
-      return !exactPlannedTestEvidence(id, plannedClaims, observedClaims)
-        && !testExemption(id)
-        && !nonTestProof(id);
-    }).sort();
-  const failedCommands = normalized.acceptance !== 'verify' || !latestRun
-    ? []
-    : (latestRun.commands ?? []).filter((entry) => entry.status !== 'passed').map((entry) => entry.id);
-  const missingRun = normalized.acceptance === 'verify' && !latestRun;
-  const staleRunReasons = [];
-  if (latestRun) {
-    const storedHash = latestRun.recordSha256;
-    const withoutHash = { ...latestRun };
-    delete withoutHash.recordSha256;
-    if (!storedHash || storedHash !== sha256(canonicalJson(withoutHash))) staleRunReasons.push('acceptance record hash is missing or invalid');
-    if (latestRun.status !== 'passed') staleRunReasons.push('latest acceptance run did not pass');
-    if (latestRun.sourceChangedDuringRun) staleRunReasons.push('repository source changed while acceptance commands were running');
-    if (expected.workId && latestRun.workId !== expected.workId) staleRunReasons.push(`acceptance run belongs to ${latestRun.workId ?? 'no work item'}`);
-    if (expected.phase && latestRun.phase !== expected.phase) staleRunReasons.push(`acceptance run belongs to phase ${latestRun.phase ?? 'unknown'}`);
-    if (expected.generation != null && Number(latestRun.generation) !== Number(expected.generation)) staleRunReasons.push(`acceptance run belongs to generation ${latestRun.generation ?? 'unknown'}`);
-    if (expected.sourceTreeSha256 && latestRun.sourceTreeSha256 !== expected.sourceTreeSha256) staleRunReasons.push('source tree changed after the acceptance run');
-    if (expected.commandSetSha256 && latestRun.commandSetSha256 !== expected.commandSetSha256) staleRunReasons.push('configured acceptance commands changed after the run');
-  }
-  const complete = normalized.acceptance === 'off'
-    || (!missingPlannedTests.length && !missingObservedTests.length && !failedCommands.length && !missingRun && !staleRunReasons.length);
-  return {
-    schemaVersion: 1, // schema-transient: computed acceptance result, never persisted
-    mode: normalized.acceptance,
-    complete,
-    missingPlannedTests,
-    missingObservedTests,
-    failedCommands,
-    missingRun,
-    staleRunReasons,
-    latestRunAt: latestRun?.completedAt ?? null
-  };
-}
 
 export async function runSpecAcceptance(root, policy = {}, {
   commandIds = [], workId = null, phase = null, generation = null, outputPath = null, write = true,

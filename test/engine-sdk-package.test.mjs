@@ -1201,6 +1201,12 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       .replace("'__ORIGIN_ORACLE__'",JSON.stringify(JSON.stringify(oracle)));
     await run('source-tag-origin-values.mjs',source);
   });
+  await t.test('installed coverage values preserve native outcomes with infrastructure denied and an empty PATH',async()=>{
+    const oracle=JSON.parse(await readFile(new URL('./fixtures/specification-coverage/native-v1.json',import.meta.url),'utf8')),
+      source=(await readFile(new URL('./helpers/installed-specification-coverage.mjs',import.meta.url),'utf8')).replaceAll('@sdk-name@',packageName)
+        .replace("'__COVERAGE_ORACLE__'",JSON.stringify(JSON.stringify(oracle)));
+    await run('specification-coverage-values.mjs',source);
+  });
   await t.test('installed declarations resolve with NodeNext and reject wrong operations, fields and types', async () => {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
@@ -1296,6 +1302,26 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const specIndex:SpecificationIndex=specValues.specificationIndexRecord({source:{path:'spec.md',sha256:'a'.repeat(64),bytes:32},clauses:specClauses});
       const specContracts:VerificationContract[]=parseVerificationContracts('');
       parseVerificationIntent('',specClauses);
+      import {specificationClaimPolicies,codeCoverageEnforcement,selectActiveSpecRecords} from '${packageName}/specifications';
+      import type {SpecificationTextValues,SpecificationCoverageRecords,SpecificationCoverageResult,CandidateSpecificationCoverage} from '${packageName}/specifications';
+      declare const coveragePrimitives:SpecificationTextValues;
+      const coverageValues=specificationClaimPolicies(bindingPaths,coveragePrimitives);
+      const coverageRun=coverageValues.evaluateSpecCoverageReplay({indexes:[],planned:[],observed:[]},[],{coverage:'enforce'},{verifyEvidence:true});
+      const coverageStep=coverageRun.next();if(!coverageStep.done)coverageRun.next(false);
+      const canonicalCoverageRecords:SpecificationCoverageRecords={indexes:[{schemaVersion:1,workId:'VALUE',phase:'scope',generation:1,clauses:[{id:'VALUE:REQ-001'}]}],
+        planned:[{schemaVersion:2,kind:'planned',recordedAt:'2026-01-01T00:00:00.000Z',claims:{'VALUE:REQ-001':{fulfillment:'new',expectedPaths:['src/value.js'],tests:['test/value.test.js']}}}],
+        observed:[{schemaVersion:2,kind:'observed',claims:{'VALUE:REQ-001':{verdict:'matched',observedPaths:['src/value.js'],testResults:['test/value.test.js'],commits:[],deviation:null}}}]};
+      coverageValues.evaluateSpecCoverageReplay(canonicalCoverageRecords);
+      const coverageMode:'enforce'|'qualified-ending'|null=codeCoverageEnforcement({coverage:'enforce'});
+      selectActiveSpecRecords({indexes:[]},{workItem:{id:'VALUE'}});
+      // @ts-expect-error Coverage consumes exact existence observations, never a readiness verdict.
+      coverageRun.next({ready:true});
+      // @ts-expect-error Pure coverage never discovers a physical checkout.
+      coverageValues.evaluateSpecCoverageReplay({},[],{},{root:'/checkout'});
+      const candidateCoverage=coverageValues.candidateSpecificationCoverageReplay({}, {}, {}, {changeSet:{entries:[]}},
+        {pathContext:{caseInsensitivePaths:false,governedRoots:[],governedPaths:[]}});
+      // @ts-expect-error Candidate observations require complete original record sets.
+      candidateCoverage.next({ready:true});
       const claimReplay:Generator<ClaimTimestampRequest,SpecificationClaimMap,string>=normalizeClaimMapReplay({claims:{}},{kind:'planned'});
       const claimStep=claimReplay.next();
       if(!claimStep.done)claimReplay.next('2026-02-03T04:05:06.789Z');

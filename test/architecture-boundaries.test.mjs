@@ -458,6 +458,23 @@ test('specification and verification compatibility facades share kernel values a
   }
 });
 
+test('coverage, active records and candidate completeness have one kernel owner and native code only serves observations and presentation',async()=>{
+  const source=await readFile(path.join(packageRoot,'src/specifications.mjs'),'utf8'),ast=ts.createSourceFile('native',source,ts.ScriptTarget.Latest,true);
+  for(const name of ['codeCoverageEnforcement','plannedClaimsForObservedPhase','mergeObservedClaimRecords','selectActiveSpecRecords','evaluateSpecAcceptance'])
+    assert.equal(ast.statements.some(node=>ts.isFunctionDeclaration(node)&&node.name?.text===name),false,name+' must have one kernel owner');
+  const inspect=ast.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='evaluateSpecCoverage').body.getText(ast);
+  assert.equal((inspect.match(/evaluateSpecCoverageReplay\(/gu)??[]).length,1);
+  assert.doesNotMatch(inspect,/mergePlannedClaimRecords\(|mergeObservedClaimRecords\(|claimedPaths|unimplemented|invalidEvidence/u);
+  const preview='src/spec-coverage-preview.mjs',native=ts.createSourceFile(preview,await readFile(path.join(packageRoot,preview),'utf8'),ts.ScriptTarget.Latest,true),
+    body=native.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='assertStrictCandidateSpecificationCoverage').body.getText(native);
+  assert.equal((body.match(/candidateSpecificationCoverageReplay\(/gu)??[]).length,1);
+  for(const rule of ['deriveObservedClaimMap','evaluateSpecCoverage','mergePlannedClaimRecords','plannedProductSourcePaths','phaseRequiresCodeDelivery'])assert.equal(body.includes(rule+'('),false,rule);
+  assert.match(body,/loadBoundActiveSpecRecords\(/u);assert.match(body,/request===SPECIFICATION_CLAIM_TIMESTAMP_REQUEST/u);
+  assert.match(body,/step\.value\.status === 'correction-required'/u);
+  const owner='src/kernel/specification-values.mjs',graph=await inspectPureModuleGraph({root:packageRoot,entries:[owner],allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});
+  assert.deepEqual(graph.problems,[]);
+});
+
 test('claim normalization has a shared value owner and native code only services its late clock',async()=>{
   const file='src/specifications.mjs',text=await readFile(path.join(packageRoot,file),'utf8');
   const ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);

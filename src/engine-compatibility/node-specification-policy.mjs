@@ -28,6 +28,11 @@ export const deriveObservedClaimMapReplay=/* @__PURE__ */ (()=>claims.deriveObse
 export const validatePlannedEvidenceTypes=/* @__PURE__ */ (()=>claims.validatePlannedEvidenceTypes)();
 export const planSupportingFiles=/* @__PURE__ */ (()=>claims.planSupportingFiles)();
 export const testOnlyClaimEvidence=/* @__PURE__ */ (()=>claims.testOnlyClaimEvidence)();
+export const mergeObservedClaimRecords=/* @__PURE__ */ (()=>claims.mergeObservedClaimRecords)();
+export const evaluateSpecCoverageReplay=/* @__PURE__ */ (()=>claims.evaluateSpecCoverageReplay)();
+export const evaluateSpecAcceptance=/* @__PURE__ */ (()=>claims.evaluateSpecAcceptance)();
+export const candidateSpecificationCoverageReplay=/* @__PURE__ */ (()=>claims.candidateSpecificationCoverageReplay)();
+export {codeCoverageEnforcement,plannedClaimsForObservedPhase,selectActiveSpecRecords} from '../kernel/specification-policy.mjs';
 
 const profiles=/* @__PURE__ */ verificationExecutionProfiles(NODE_CONFIGURATION_PATH_SYNTAX);
 export const profileForCommand=/* @__PURE__ */ (()=>profiles.profileForCommand)();

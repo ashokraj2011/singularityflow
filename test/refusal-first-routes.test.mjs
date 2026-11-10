@@ -25,15 +25,20 @@ test('session open with no repository leads to selecting one', async (t) => {
   assert.equal(refusal.remediationPlan.steps[0].skill, '/sf-session');
 });
 
-test('a source-review step with the agent flag gets the same command without it, and its reads take the flag', async (t) => {
+test('a source-review write step with the agent flag gets the same command without it; submit and its reads take the flag', async (t) => {
   const repo = await repository(t, { implementCommands: false });
   await startQuickFix(repo);
   const run = (...args) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd: repo.root, env: repo.env, encoding: 'utf8', timeout: childTimeout(60_000) });
-  const refused = run('review-source', 'submit', 'implement', '--report-file', '/tmp/report.json', '--for-agent', '--json');
+  // Submit takes it as an output-only flag, so a retained review's long result is bounded and kept for `result last`
+  // [review-submit fix]: whatever refuses it here, it is never the flag.
+  const submitted = JSON.parse(run('review-source', 'submit', 'implement', '--report-file', '/tmp/report.json', '--for-agent', '--json').stdout);
+  assert.notEqual(submitted.error?.code, 'REVIEW_SOURCE_OPTIONS_INVALID', JSON.stringify(submitted.error));
+  // Stage still owns its options: the flag is refused and the route is the same command without it.
+  const refused = run('review-source', 'stage', 'implement', '--report-file', '/tmp/report.json', '--for-agent', '--json');
   const plan = JSON.parse(refused.stdout);
   assert.equal(plan.error.code, 'REVIEW_SOURCE_OPTIONS_INVALID');
-  assert.match(plan.error.message, /run review-source submit without it/u);
-  assert.equal(plan.remediationPlan.steps[0].command, 'singularity-flow review-source submit implement --report-file /tmp/report.json');
+  assert.match(plan.error.message, /run review-source stage without it/u);
+  assert.equal(plan.remediationPlan.steps[0].command, 'singularity-flow review-source stage implement --report-file /tmp/report.json');
   const status = run('review-source', 'status', 'implement', '--for-agent', '--json');
   assert.equal(status.status, 0, status.stdout + status.stderr);
   assert.notEqual(JSON.parse(status.stdout).error?.code, 'REVIEW_SOURCE_OPTIONS_INVALID');

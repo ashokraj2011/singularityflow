@@ -22,9 +22,7 @@ export function agentViewRequested(options, { stream = process.stdout, env = pro
  * options: appeal, environment, sgos and others refuse an option they do not know.
  */
 export function interpretsForAgent([command, subcommand] = []) {
-  // These read-only operations need bounded output in Copilot's non-TTY shell. Context still
-  // owns its strict entry protocol; stage/submit/decide keep their existing authority boundaries.
-  // Submit too: its retained result is long, so an agent reads it bounded and kept for `result last`.
+  // Output-only here: bounded and kept for `result last`. Context, stage and decide own the flag.
   if (command === 'review-source' && ['check', 'status', 'submit'].includes(subcommand)) return false;
   return ['phase', 'approve', 'nextsteps', 'inputs', 'review-source', 'session', 'app-review'].includes(command);
 }

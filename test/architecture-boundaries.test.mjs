@@ -874,6 +874,8 @@ test('implementation regions and reviewer choices have pure owners while the nat
 
 test('retained source proof and shared observations cannot execute or write',async()=>{
   const allowedByFile=new Map([
+    ['src/engine-storage/namespace-source-patches.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs','../foundation/source-snapshot.mjs','../kernel/source-text-diff.mjs','./namespace-source-content-reader.mjs'])],
+    ['src/engine-storage/namespace-implementation-regions.mjs',new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../engine-compatibility/node-source-analysis.mjs','./namespace-source-content-reader.mjs','./namespace-source-patches.mjs'])],
     ['src/engine-storage/namespace-test-witnesses.mjs',new Set(['../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/phase-policy.mjs','../kernel/specification-policy.mjs','../kernel/publication-intent.mjs','../kernel/verification-witnesses.mjs','../kernel/verification-policy.mjs',
       '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-repository-plan.mjs','../engine-compatibility/node-source-analysis.mjs',
@@ -890,7 +892,7 @@ test('retained source proof and shared observations cannot execute or write',asy
     ['src/engine-storage/namespace-delivery-inspection.mjs',new Set(['../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/source-changes.mjs','../kernel/phase-policy.mjs','../kernel/publication-intent.mjs','../engine-compatibility/node-source-policy.mjs',
       '../sda/namespace/values.mjs','./namespace-story-reader.mjs','./namespace-preparation.mjs','./namespace-source-observations.mjs',
-      './namespace-source-baseline-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-source-analysis.mjs','./namespace-source-clauses.mjs','./namespace-source-control-reader.mjs'])],
+      './namespace-source-baseline-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-source-analysis.mjs','./namespace-source-clauses.mjs','./namespace-source-control-reader.mjs','./namespace-implementation-regions.mjs'])],
     ['src/engine-storage/namespace-source-clauses.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs',
       '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-source-analysis.mjs','../engine-compatibility/node-repository-plan.mjs','../kernel/source-changes.mjs',
       './namespace-specifications.mjs','./namespace-source-content-reader.mjs'])],

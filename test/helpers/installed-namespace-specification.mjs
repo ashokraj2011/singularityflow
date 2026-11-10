@@ -110,11 +110,16 @@ try {
   for(const row of delivery.clauses.repositories)assert.deepEqual(row.totals,{required:2,bindings:2,missing:0});
   if(qualified){assert.equal(delivery.clauses.profile,'sflow-planned-source-clause-observations/v2');assert.ok(delivery.clauses.plan.repositoryPlan);}
   assert.equal(delivery.applicationAcceptanceEstablished,false);assert.ok(delivery.requiredPolicyOwners.includes('code-delivery'));
+  const implementation=(await code.run('phase.delivery.inspect',{phaseId:'build',includeImplementation:true})).manifest;
+  assert.equal(implementation.schemaVersion,5);assert.equal(implementation.implementation.status,'observed');
+  assert.equal(implementation.implementation.totals.bindings,2*repositories.length);assert.equal(implementation.implementation.totals.problems,0);
+  assert.deepEqual(implementation.implementation.repositories.map(row=>row.id),repositories);
+  assert.equal(implementation.applicationAcceptanceEstablished,false);assert.ok(implementation.requiredPolicyOwners.includes('code-delivery'));
   if(fresh) {
     await assert.rejects(code.run('phase.publish',{phaseId:'build',authored:'governed-agent',channel:'copilot-host'}),error=>
       error.code==='ENGINE_PORT_UNAVAILABLE'&&error.details.required.includes('code-delivery'));
-    expected.push({phase:'build',clauses:delivery.clauses});await writeFile(file('specification-publications.json'),JSON.stringify(expected));
-  }else assert.deepEqual(delivery.clauses,expected.at(-1).clauses);
+    expected.push({phase:'build',clauses:delivery.clauses,implementation:implementation.implementation});await writeFile(file('specification-publications.json'),JSON.stringify(expected));
+  }else {assert.deepEqual(delivery.clauses,expected.at(-1).clauses);assert.deepEqual(implementation.implementation,expected.at(-1).implementation);}
   for(const root of roots)await rm(root,{recursive:true,force:true});
   process.stdout.write(JSON.stringify(expected));
 }finally{database.close();privateDatabase.close();hook.deregister();}

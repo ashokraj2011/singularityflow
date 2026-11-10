@@ -34,7 +34,7 @@ function inputType(operation, field) {
   if(operation.id==='clarification.status')return 'string';
   if(operation.id==='clarification.record')return field==='responses'?'readonly JsonValue[]':field==='replace'?'boolean':'string';
   if(['source.baseline.retain','phase.source.retain','phase.source-control.retain'].includes(operation.id))return 'string';
-  if(['phase.source.inspect','phase.delivery.inspect','phase.test-witnesses.inspect'].includes(operation.id))return field==='maximumEntries'?'number':'string';
+  if(['phase.source.inspect','phase.delivery.inspect','phase.test-witnesses.inspect'].includes(operation.id))return field==='maximumEntries'?'number':field==='includeImplementation'?'boolean':'string';
   if(operation.id==='phase.draft.read')return field==='maximumBytes'?'number':'string';
   if(['phase.draft.write','phase.draft.rebase'].includes(operation.id))return field==='content'?'ContentReference':'string';
   if (operation.id === 'source.bind') return field === 'repositories' ? 'readonly string[]' : 'string';

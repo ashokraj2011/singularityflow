@@ -27,7 +27,7 @@ import {storyCreationInput,storyCreationBinding,storyCreationResult} from '../ke
 import {sourceBindingInput,sourceBindingScope,sourceBindingResult} from '../kernel/source-binding.mjs';
 import {phaseDraftReadInput,phaseDraftMutationInput,phaseDraftReadManifest,phaseDraftMutationResult} from '../kernel/phase-preparation.mjs';
 import {phaseChecksInput as checkedPhaseChecksInput,phaseChecksResult} from '../kernel/phase-checks.mjs';
-import {phaseSourceInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult,phaseDeliveryInspectionManifest} from '../kernel/source-changes.mjs';
+import {phaseSourceInspectionInput,phaseDeliveryInspectionInput,phaseSourceInspectionManifest,phaseSourceRetentionInput,phaseSourceRetentionResult,phaseDeliveryInspectionManifest,DELIVERY_INSPECTION_PROFILE_V5} from '../kernel/source-changes.mjs';
 import {sourceBaselineRetentionInput,sourceBaselineRetentionResult,phaseSourceControlRetentionResult} from '../kernel/source-changes.mjs';
 import {testWitnessInspectionManifest} from '../kernel/verification-witnesses.mjs';
 import {clarificationOperationInput} from '../kernel/clarification-responses.mjs';
@@ -180,8 +180,8 @@ const definitions = [
     inputFields:Object.freeze(['workId','phaseId','maximumEntries']),port:'phaseSourceInspection',
     stages:Object.freeze(['load','inspect']),validate:'sourceInspectionInput',execute:'inspectPhaseSources'},
   {id:'phase.delivery.inspect',version:1,effect:'read',humanDecision:false,authority:'phase.source.inspect',
-    inputFields:Object.freeze(['workId','phaseId','maximumEntries']),port:'phaseDeliveryInspection',
-    stages:Object.freeze(['load','inspect']),validate:'sourceInspectionInput',execute:'inspectPhaseSources'},
+    inputFields:Object.freeze(['workId','phaseId','maximumEntries','includeImplementation']),port:'phaseDeliveryInspection',
+    stages:Object.freeze(['load','inspect']),validate:'deliveryInspectionInput',execute:'inspectPhaseSources'},
   {id:'phase.test-witnesses.inspect',version:1,effect:'read',humanDecision:false,authority:'phase.source.inspect',
     inputFields:Object.freeze(['workId','phaseId','maximumEntries']),port:'phaseTestWitnessInspection',
     stages:Object.freeze(['load','inspect']),validate:'sourceInspectionInput',execute:'inspectPhaseSources'},
@@ -244,6 +244,7 @@ function draftReadInput(value){return phaseDraftReadInput(data(value));}
 function draftMutationInput(value,operation){return phaseDraftMutationInput(data(value),operation);}
 function phaseChecksInput(value){return checkedPhaseChecksInput(data(value));}
 function sourceInspectionInput(value){return phaseSourceInspectionInput(data(value));}
+function deliveryInspectionInput(value){return phaseDeliveryInspectionInput(data(value));}
 function sourceRetentionInput(value){return phaseSourceRetentionInput(data(value));}
 function baselineRetentionInput(value){return sourceBaselineRetentionInput(data(value));}
 async function retainPhaseSources(port,input,signal,operation) {
@@ -262,6 +263,8 @@ async function inspectPhaseSources(port,input,signal,operation) {
     throw new SingularityFlowError('The source inspector returned another Story or phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
   }
   const facts=data(await port.inspect(context,input,{signal}));notCancelled(signal);
+  if(operation.id==='phase.delivery.inspect'&&input.includeImplementation===true&&facts.profile!==DELIVERY_INSPECTION_PROFILE_V5)throw new SingularityFlowError(
+    'This delivery reader does not provide exact implementation-region observations.',{code:'ENGINE_PORT_UNAVAILABLE',details:{required:['implementation-region-reader']}});
   const manifest=operation.id==='phase.delivery.inspect'?phaseDeliveryInspectionManifest:operation.id==='phase.test-witnesses.inspect'?testWitnessInspectionManifest:phaseSourceInspectionManifest;
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,subject:context.subject,phase:context.phase,
     manifest:manifest(context.subject.id,context.phase,facts,input.maximumEntries),
@@ -1552,7 +1555,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
+    sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

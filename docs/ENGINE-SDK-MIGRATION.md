@@ -67,6 +67,13 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [archived implementation-region delivery](ENGINE-SDK-ARCHIVED-REGIONS.md) reconstructs exact
+changed-line evidence from accepted original/current source archives and drives the existing shared
+binding rules. `phase.delivery.inspect` exposes it through an explicit v5 option; default v1–v4
+manifests and native Git behavior remain unchanged. This closes a source-region prerequisite,
+not full application publication. Phases 5, 7, 8 and 9 remain open for the remaining native policy
+and query extraction, application delivery, cross-agent execution, migration and final qualification.
+
 The [portable source-line origin delivery](ENGINE-SDK-PORTABLE-SOURCE-ORIGINS.md) connects the shared
 origin rules to actual original/generation byte archives, separately versioned v2 observations
 and conditional evidence receipts. Shared-namespace clause inspection uses that exact accepted

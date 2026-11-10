@@ -126,6 +126,9 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `changes`: shared change-record ordering, entry identities and digest/integrity checks through
   explicitly bound SHA-256 and UTF-8 primitives. It preserves supplied logical data; source-control
   execution, wire decoding and accepted provenance remain adapter/lifecycle responsibilities.
+  `sourceTextHunks(before, after)` compares explicit text under fixed work, text and trace bounds.
+  It returns exact zero-context line coordinates; exceeding a bound raises an explicit error.
+  It never discovers a checkout or substitutes a whole-file diff.
 - `sources/filesystem`: read-only observations of explicitly selected physical checkouts.
 - `source-control`: pure, versioned candidate-observation contracts, separate from source content
   and evidence acceptance. `sources/git` binds actual local Git observations to an explicit checkout,
@@ -187,6 +190,11 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
   It checks current file matches, reports missing or stale evidence and gives registered recovery
   actions. Reading starts no test or application process and records no approval. Native code,
   claims, constitution and artifact-set publication policies retain their separate owners.
+  Passing `includeImplementation: true` explicitly requests the v5 manifest, which reconstructs
+  implementation regions from accepted original/current source archives and the approved plan.
+  A host without that reader refuses the request. Default v1–v4 profiles are unchanged. Bounded
+  previews retain full counts and a binding digest; missing archives and unsupported comparisons
+  retain explicit recovery owners. See `docs/ENGINE-SDK-ARCHIVED-REGIONS.md` in the source repository.
 - `hosts/namespace-preparation`: prepare actual pinned templates and read/save/rebind private phase
   drafts using separately device-bound local ports, without changing canonical phase state.
 - `hosts/namespace-publication`: publish primary authored documents using the conditional namespace

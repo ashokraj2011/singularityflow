@@ -4,7 +4,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceSnapshotChanges} from '../kernel/source-changes.mjs';
 import {phaseRequiresCodeDelivery} from '../kernel/phase-policy.mjs';
-import {DELIVERY_INSPECTION_PROFILE_V3,DELIVERY_INSPECTION_PROFILE_V4,PLANNED_SOURCE_CLAUSES_PROFILE_V2} from '../kernel/source-changes.mjs';
+import {DELIVERY_INSPECTION_PROFILE_V3,DELIVERY_INSPECTION_PROFILE_V4,DELIVERY_INSPECTION_PROFILE_V5,PLANNED_SOURCE_CLAUSES_PROFILE_V2} from '../kernel/source-changes.mjs';
 import {primaryDocumentPublicationRequirements} from '../kernel/publication-intent.mjs';
 import {inspectSourceChanges,sourceBaselineInventory,deliveryPathCohorts,isExecutableTestSourceCandidate,uncoveredTestDeliveryPaths,testCoverageDeliveryPaths} from '../engine-compatibility/node-source-policy.mjs';
 import {namespaceScope,namespaceIdentifier} from '../sda/namespace/values.mjs';
@@ -17,6 +17,7 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespaceSourceAnalysisReader} from './namespace-source-analysis.mjs';
 import {createNamespaceSourceClauseReader} from './namespace-source-clauses.mjs';
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
+import {createNamespaceImplementationRegionReader} from './namespace-implementation-regions.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code='ENGINE_INPUT_INVALID',details=null)=>new SingularityFlowError(message,{code,details});
 function cancelled(signal){if(signal?.aborted)throw error('Delivery inspection was cancelled before its next read.','ENGINE_OPERATION_CANCELLED');}
@@ -27,6 +28,7 @@ export function createNamespaceDeliveryInspectionPort(options={},runtime=null){
   const baseline=createNamespaceSourceBaselineReader({...options,scope,workId}),changed=createNamespaceSourceRetentionReader({...options,scope,workId}),checks=createNamespacePhaseCheckReader({...options,scope,workId,observer});
   const analysis=createNamespaceSourceAnalysisReader({observer,retention:changed});
   const controlReader=createNamespaceSourceControlReader({...options,scope,workId}),clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changed,baseline,checks,controlReader});
+  const implementation=createNamespaceImplementationRegionReader({observer,retention:changed,baseline});
   async function indexFresh(binding,signal){if(!binding)return;const value=await observer.record('evidence',binding.index.key,false,signal);
     if(value.version!==binding.index.version)throw error('Retained delivery evidence changed during inspection.','ENGINE_CONTEXT_CHANGED',{operation:'phase.delivery.inspect',workId});}
   return {
@@ -41,6 +43,7 @@ export function createNamespaceDeliveryInspectionPort(options={},runtime=null){
       const f=s.facts,w=f.workflow,p=f.draft?.payload,phase=w.phases[f.phase],draft=p?{generation:p.generation,revision:f.draft.revision,bodySha256:f.draft.bodySha256,baseRevision:p.baseRevision}:null;
       const result={profile:DELIVERY_INSPECTION_PROFILE_V3,analysis:null,clauses:null,workId,phase:f.phase,status:'missing-draft',revision:f.revision,authorityVersion:f.authorityVersion,configuration:f.configuration,draft,
         sourceBinding:null,evidence:{baseline:null,changes:null,checks:null},repositories:[],tests:{status:'not-configured',checks:[]},requiredPolicyOwners:[]};
+      if(input.includeImplementation){result.profile=DELIVERY_INSPECTION_PROFILE_V5;result.implementation=null;}
       if(p&&p.baseRevision!==f.revision)result.status='stale-draft';
       else if(p&&!phaseRequiresCodeDelivery(phase))result.status='not-code-generation';
       else if(p){
@@ -76,8 +79,10 @@ export function createNamespaceDeliveryInspectionPort(options={},runtime=null){
             safety:{protectedChanges:classified.protectedChanges,boundaryViolations:classified.boundaryViolations},
             coverage:{required:w.resolution.codeDelivery?.tests?.requireAffectedModuleCoverage!==false,affectedPaths:affected.length,uncoveredPaths:uncovered.length,changedExecutableTests:testPaths.length,pathCount:order.length,paths:rows,truncated:rows.length<order.length}});
         }
-        result.clauses=clauses.preview(await clauses.inspect(captured.snapshot,f.phase,retained,original,{signal,control}),{maximumEntries:input.maximumEntries});
-        if(result.clauses.profile===PLANNED_SOURCE_CLAUSES_PROFILE_V2)result.profile=DELIVERY_INSPECTION_PROFILE_V4;
+        const clauseFacts=await clauses.inspect(captured.snapshot,f.phase,retained,original,{signal,control});result.clauses=clauses.preview(clauseFacts,{maximumEntries:input.maximumEntries});
+        if(input.includeImplementation){result.implementation=implementation.preview(await implementation.inspect(retained,original,clauseFacts,{signal}),{maximumEntries:input.maximumEntries});
+          result.requiredPolicyOwners=[...new Set([...result.requiredPolicyOwners,...result.implementation.requiredPolicyOwners])].sort();}
+        else if(result.clauses.profile===PLANNED_SOURCE_CLAUSES_PROFILE_V2)result.profile=DELIVERY_INSPECTION_PROFILE_V4;
         await sources.fresh(observed,signal);for(const binding of [...Object.values(result.evidence),control?.binding])await indexFresh(binding,signal);
         for(const row of control?.plan.origins??[])for(const proof of [row.origin,row.baseline])await indexFresh(proof,signal);result.status='observed';
       }

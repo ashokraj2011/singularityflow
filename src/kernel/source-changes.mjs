@@ -16,6 +16,7 @@ const count=value=>Number.isSafeInteger(value)&&value>=0;
 export const DELIVERY_INSPECTION_PROFILE_V2='sflow-delivery-evidence-inspection/v2';
 export const DELIVERY_INSPECTION_PROFILE_V3='sflow-delivery-evidence-inspection/v3';
 export const DELIVERY_INSPECTION_PROFILE_V4='sflow-delivery-evidence-inspection/v4';
+export const DELIVERY_INSPECTION_PROFILE_V5='sflow-delivery-evidence-inspection/v5';
 export const SOURCE_ANALYSIS_PROFILE='sflow-retained-source-analysis/v1';
 export const PLANNED_SOURCE_CLAUSES_PROFILE='sflow-planned-source-clause-observations/v1';
 export const PLANNED_SOURCE_CLAUSES_PROFILE_V2='sflow-planned-source-clause-observations/v2';
@@ -27,6 +28,11 @@ export function phaseSourceInspectionInput(input) {
     fail('Source inspection needs a valid Story, phase and bounded entry budget.');
   }
   return {...input,maximumEntries:input.maximumEntries??200};
+}
+export function phaseDeliveryInspectionInput(input){
+  if(!plain(input)||input.includeImplementation!==undefined&&typeof input.includeImplementation!=='boolean')fail('Implementation inspection must be an explicit boolean option.');
+  const {includeImplementation,...rest}=input,value=phaseSourceInspectionInput(rest);
+  return includeImplementation===undefined?value:{...value,includeImplementation};
 }
 export function phaseSourceRetentionInput(input) {
   if(!exact(input,['operationId','workId','phaseId'])||Object.values(input).some(value=>!id(value)))fail('Source retention needs an exact operation ID, Story and phase.');
@@ -198,9 +204,9 @@ export function sourceBaselineRetentionResult(input,facts) {
 /** Bounded observed source/test evidence. No publication, requirement or acceptance verdict. */
 export function phaseDeliveryInspectionManifest(workId,phaseId,facts,maximumEntries) {
   const bad=()=>fail('The delivery inspector returned another or unbounded evidence binding.','ENGINE_PORT_RESULT_INVALID');
-  const v4=facts?.profile===DELIVERY_INSPECTION_PROFILE_V4,v3=facts?.profile===DELIVERY_INSPECTION_PROFILE_V3||v4,v2=facts?.profile===DELIVERY_INSPECTION_PROFILE_V2||v3;
+  const v5=facts?.profile===DELIVERY_INSPECTION_PROFILE_V5,v4=facts?.profile===DELIVERY_INSPECTION_PROFILE_V4,v3=facts?.profile===DELIVERY_INSPECTION_PROFILE_V3||v4||v5,v2=facts?.profile===DELIVERY_INSPECTION_PROFILE_V2||v3;
   if(facts?.profile!==undefined&&!v2)fail('The delivery-inspection profile needs its matching reader.','ENGINE_STORAGE_UNSUPPORTED');
-  if(!exact(facts,['workId','phase','status','revision','authorityVersion','configuration','draft','sourceBinding','evidence','repositories','tests','requiredPolicyOwners',...(v2?['profile','analysis']:[]),...(v3?['clauses']:[])])
+  if(!exact(facts,['workId','phase','status','revision','authorityVersion','configuration','draft','sourceBinding','evidence','repositories','tests','requiredPolicyOwners',...(v2?['profile','analysis']:[]),...(v3?['clauses']:[]),...(v5?['implementation']:[])])
     ||facts.workId!==workId||facts.phase!==phaseId||!['missing-draft','stale-draft','not-code-generation','observed'].includes(facts.status)
     ||!revision(facts.revision)||!revision(facts.authorityVersion)||!exact(facts.configuration,['key','content'])
     ||typeof facts.configuration.key!=='string'||!exact(facts.configuration.content,['namespace','sha256','bytes'])
@@ -253,15 +259,17 @@ export function phaseDeliveryInspectionManifest(workId,phaseId,facts,maximumEntr
   }else if(facts.sourceBinding!==null||facts.repositories.length||Object.values(facts.evidence).some(Boolean))bad();
   if(v2)validateSourceAnalysisPreview(facts,maximumEntries,bad);
   if(v3)validateSourceClausePreview(facts,maximumEntries,bad);
+  if(v5)validateImplementationPreview(facts,maximumEntries,bad);
   if(v3&&facts.clauses?.requiredPolicyOwners.includes('source-tag-origin'))action('phase.source-control.retain',{workId,phaseId},['operationId'],
     ['origin-bound-source-control-reader','original-source-bytes-available']);
-  return {schemaVersion:v4?4:v3?3:v2?2:1,contract:v4?DELIVERY_INSPECTION_PROFILE_V4:v3?DELIVERY_INSPECTION_PROFILE_V3:v2?DELIVERY_INSPECTION_PROFILE_V2:'sflow-delivery-evidence-inspection/v1',...facts,actions,
+  if(v5&&facts.implementation?.totals?.problems)action('phase.prepare',{workId,phaseId},[],['repair-observed-implementation-bindings']);
+  return {schemaVersion:v5?5:v4?4:v3?3:v2?2:1,contract:v5?DELIVERY_INSPECTION_PROFILE_V5:v4?DELIVERY_INSPECTION_PROFILE_V4:v3?DELIVERY_INSPECTION_PROFILE_V3:v2?DELIVERY_INSPECTION_PROFILE_V2:'sflow-delivery-evidence-inspection/v1',...facts,actions,
     observationsOnly:true,publicationReadinessInspected:false,applicationAcceptanceEstablished:false};
 }
 
 /** A plan binding is an observation of approved evidence; it never grants publication or approval. */
 function validateSourceClausePreview(facts,maximumEntries,bad) {
-  const value=facts.clauses,v2=facts.profile===DELIVERY_INSPECTION_PROFILE_V4;
+  const value=facts.clauses,v2=facts.profile===DELIVERY_INSPECTION_PROFILE_V4||facts.profile===DELIVERY_INSPECTION_PROFILE_V5&&value?.profile===PLANNED_SOURCE_CLAUSES_PROFILE_V2;
   if(facts.status!=='observed'){if(value!==null)bad();return;}
   const reference=ref=>exact(ref,['namespace','sha256','bytes'])&&ref.namespace==='evidence'&&sha(ref.sha256)&&count(ref.bytes),
     owners=rows=>Array.isArray(rows)&&rows.length<=128&&new Set(rows).size===rows.length&&rows.every(id),
@@ -308,6 +316,59 @@ function validateSourceClausePreview(facts,maximumEntries,bad) {
     if(bound>totals.bindings||missing>totals.missing||!repository.truncated&&(bound!==totals.bindings||missing!==totals.missing))bad();
   }
   if(displayed>maximumEntries||bytes>65536)bad();
+}
+
+/** Exact region metadata is still an observation, not publication or acceptance admission. */
+function validateImplementationPreview(facts,maximumEntries,bad){
+  const value=facts.implementation;if(facts.status!=='observed'){if(value!==null)bad();return;}
+  const keys=['bindings','regions','hunks','symbols','problems'],counts=v=>exact(v,keys)&&Object.values(v).every(count),
+    reference=v=>exact(v,['namespace','sha256','bytes'])&&v.namespace==='evidence'&&sha(v.sha256)&&count(v.bytes);
+  if(!exact(value,['profile','status','baselineRecord','retentionRecord','totals','repositories','requiredPolicyOwners'])
+    ||value.profile!=='sflow-implementation-region-observations/v1'||!['off','missing-source-evidence','missing-baseline','pending-owner','observed'].includes(value.status)
+    ||!Array.isArray(value.repositories)||value.repositories.length>32||!Array.isArray(value.requiredPolicyOwners)||value.requiredPolicyOwners.length>128
+    ||new Set(value.requiredPolicyOwners).size!==value.requiredPolicyOwners.length||!value.requiredPolicyOwners.every(id))bad();
+  if(['off','missing-source-evidence','missing-baseline'].includes(value.status)){
+    if(value.baselineRecord!==null||value.retentionRecord!==null||value.totals!==null||value.repositories.length||value.requiredPolicyOwners.length)bad();
+    if(value.status==='off'&&facts.clauses.status!=='off'&&(facts.clauses.status!=='observed'||facts.clauses.repositories.some(row=>row.totals?.required))
+      ||value.status==='missing-source-evidence'&&(facts.evidence.changes!==null||facts.clauses.status!=='missing-source-evidence')
+      ||value.status==='missing-baseline'&&(facts.evidence.baseline!==null||facts.clauses.status!=='observed'))bad();return;
+  }
+  if(value.status==='pending-owner'&&!value.repositories.length){if(value.baselineRecord!==null||value.retentionRecord!==null||value.totals!==null||!value.requiredPolicyOwners.length
+    ||facts.clauses.status!=='pending-owner'||canonicalJson(value.requiredPolicyOwners)!==canonicalJson(facts.clauses.requiredPolicyOwners))bad();return;}
+  if(!reference(value.baselineRecord)||!reference(value.retentionRecord)||!facts.evidence.baseline||!facts.evidence.changes
+    ||canonicalJson(value.baselineRecord)!==canonicalJson(facts.evidence.baseline.record.content)
+    ||canonicalJson(value.retentionRecord)!==canonicalJson(facts.evidence.changes.record.content)||!value.repositories.length||facts.clauses.status!=='observed'
+    ||(value.status==='observed'?(!counts(value.totals)||value.requiredPolicyOwners.length):value.totals!==null||!value.requiredPolicyOwners.length))bad();
+  const sums=Object.fromEntries(keys.map(key=>[key,0])),seen=new Set();let displayed=0,bytes=0;
+  for(const row of value.repositories){
+    if(!exact(row,['id','status','bindingsSha256','totals','bindings','truncated','limitation'])||!facts.repositories.some(source=>source.id===row.id)||seen.has(row.id)
+      ||!['observed','pending-owner'].includes(row.status)||!Array.isArray(row.bindings)||typeof row.truncated!=='boolean')bad();seen.add(row.id);
+    if(row.status==='pending-owner'){
+      if(value.status!=='pending-owner'||row.bindingsSha256!==null||row.totals!==null||row.bindings.length||row.truncated
+        ||!exact(row.limitation,['code','limit','maximum','observed'])||!['ENGINE_SOURCE_DIFF_LIMIT','ENGINE_SOURCE_DIFF_TEXT_REQUIRED'].includes(row.limitation.code)
+        ||row.limitation.limit!==null&&typeof row.limitation.limit!=='string'||['maximum','observed'].some(key=>row.limitation[key]!==null&&!count(row.limitation[key])))bad();continue;
+    }
+    if(!/^sha256:[a-f0-9]{64}$/u.test(row.bindingsSha256??'')||!counts(row.totals)||row.bindings.length>row.totals.bindings||row.limitation!==null)bad();
+    const clauses=new Set(),observed={bindings:row.bindings.length,regions:0,hunks:0,symbols:0};let truncated=row.bindings.length<row.totals.bindings;
+    for(const binding of row.bindings){
+      if(!exact(binding,['clauseId','explanation','regionCount','regions','truncated'])||normalizeQualifiedClauseId(binding.clauseId)!==binding.clauseId||clauses.has(binding.clauseId)
+        ||!count(binding.regionCount)||!Array.isArray(binding.regions)||binding.regions.length>64||binding.regions.length>binding.regionCount
+        ||binding.truncated!==(binding.regions.length<binding.regionCount))bad();clauses.add(binding.clauseId);
+      const e=binding.explanation;if(e!==null){if(!exact(e,['text','path','line'])||typeof e.text!=='string'||e.text.length>300||!count(e.line)||e.line<1)bad();sourceRelativePath(e.path);}
+      const paths=new Set();for(const region of binding.regions){if(!exact(region,['path','change','hunks','symbols','symbolAssurance'])||!['added','modified','deleted','renamed'].includes(region.change)
+          ||!count(region.hunks)||!count(region.symbols)||!['heuristic','unsupported-language'].includes(region.symbolAssurance)||paths.has(region.path))bad();
+        sourceRelativePath(region.path);paths.add(region.path);observed.hunks+=region.hunks;observed.symbols+=region.symbols;}
+      observed.regions+=binding.regionCount;truncated||=binding.truncated;displayed++;bytes+=new TextEncoder().encode(canonicalJson(binding)).byteLength;
+    }
+    if(row.truncated!==truncated||Object.entries(observed).some(([key,count])=>count>row.totals[key])
+      ||!truncated&&Object.entries(observed).some(([key,count])=>count!==row.totals[key]))bad();
+    for(const key of keys)sums[key]+=row.totals[key];
+  }
+  const expected=facts.clauses.repositories.filter(row=>row.totals?.required).map(row=>row.id);
+  if(displayed>maximumEntries||bytes>65536||expected.length!==seen.size||expected.some(id=>!seen.has(id))
+    ||value.status==='observed'&&keys.some(key=>sums[key]!==value.totals[key])
+    ||value.status==='pending-owner'&&(!value.repositories.some(row=>row.status==='pending-owner')
+      ||value.requiredPolicyOwners.length!==1||value.requiredPolicyOwners[0]!=='implementation-region-analysis'))bad();
 }
 
 /** Bounded syntax associations only. Exact declarations are distinct from executed witnesses. */

@@ -78,6 +78,9 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const sdk = await import('${packageName}');
       assert.equal(sdk.ENGINE_CONTRACT, 'sflow-engine/v1');
       const changes=await import('${packageName}/changes');
+      assert.equal(changes.SOURCE_TEXT_DIFF_PROFILE,'sflow-source-text-hunks/v1');
+      assert.deepEqual(changes.sourceTextHunks('one\\ntwo\\n','one\\nchanged\\n').hunks,[{beforeStart:2,beforeLines:1,afterStart:2,afterLines:1}]);
+      assert.throws(()=>changes.sourceTextHunks('old','new',{maximumWork:1}),{code:'ENGINE_SOURCE_DIFF_LIMIT'});
       const sourceControl=await import('${packageName}/source-control');
       assert.equal(sourceControl.SOURCE_CONTROL_READER_CONTRACT,'sflow-source-control-reader/v1');
       assert.equal(sourceControl.SOURCE_CONTROL_LIMITS.maximumDurationMs,300000);
@@ -1211,8 +1214,12 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
     const source = `
       import { createEngine, ENGINE_HELPERS, SingularityFlowError } from '${packageName}';
       import type { EngineInputs, EngineOperation, EngineResult } from '${packageName}';
-      import {createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES} from '${packageName}/changes';
-      import type {RepositoryChangeSetCodec} from '${packageName}/changes';
+      import {createRepositoryChangeSetCodec,REPOSITORY_CHANGE_SET_VALUES,sourceTextHunks,SOURCE_TEXT_DIFF_PROFILE} from '${packageName}/changes';
+      import type {RepositoryChangeSetCodec,SourceTextDiff,SourceTextHunk} from '${packageName}/changes';
+      const diff:SourceTextDiff=sourceTextHunks('before','after',{maximumWork:100});
+      const hunk:SourceTextHunk|undefined=diff.hunks[0];const diffProfile:typeof SOURCE_TEXT_DIFF_PROFILE=diff.profile;
+      // @ts-expect-error Text comparison cannot discover a checkout or accept a readiness callback.
+      sourceTextHunks('before','after',{root:'/checkout',ready:()=>true});
       import {specificationValuePolicies,TEXT_DIGEST_PROFILE,parseVerificationIntent} from '${packageName}/specifications';
       import {javascriptDeclarationPolicies,scanSourceClauseTags} from '${packageName}/specifications';
       import {implementationBindingPolicies,reviewBindings,codeDocumentationPolicies,publicDeclarations} from '${packageName}/specifications';
@@ -1450,6 +1457,11 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       const deliveryInspectFactory:typeof createNamespaceDeliveryInspectionEngine=createNamespaceDeliveryInspectionEngine;
       createNamespaceDeliveryInspectionEngine({...phaseCheckOptions,localRecords:runtimeMetadata,localContent:runtimeContent}).run('phase.delivery.inspect',{phaseId:'review',maximumEntries:25});
       createNamespaceEngine(phaseCheckOptions).run('phase.delivery.inspect',{phaseId:'review'});
+      createNamespaceEngine(phaseCheckOptions).run('phase.delivery.inspect',{phaseId:'review',includeImplementation:true});
+      // @ts-expect-error Implementation-region inspection is an explicit boolean capability request.
+      createNamespaceEngine(phaseCheckOptions).run('phase.delivery.inspect',{phaseId:'review',includeImplementation:'yes'});
+      // @ts-expect-error Source inventory does not implicitly acquire implementation-region inspection.
+      createNamespaceEngine(phaseCheckOptions).run('phase.source.inspect',{phaseId:'review',includeImplementation:true});
       createNamespaceEngine(phaseCheckOptions).run('phase.source-control.retain',{operationId:'retain-origin',workId:'example',phaseId:'review'});
       createNamespaceSourceControlEngine({...phaseCheckOptions,localRecords:runtimeMetadata,localContent:runtimeContent,sourceControlReaders:[]});
       // @ts-expect-error Required source/control retention identities cannot be null.

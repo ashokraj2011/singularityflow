@@ -268,3 +268,52 @@ function discrepancyIssueRequests(workflow, entries, {states = upstreamIssueStat
 
   return Object.freeze({discrepancyIssueFields,discrepancyIssueRequests,discrepancyItemSha256});
 }
+
+/** Forward-amendment queries over already admitted person records; hosts own presence and command text. */
+/** Where the next proposal's bytes are saved: the Story's own record, never the step's artifact. */
+export function nextForwardAmendmentProposal(itemRelative, workflow, artifactRelative) {
+  const id = `FAM-${String((workflow?.forwardAmendments ?? []).length + 1).padStart(3, '0')}`;
+  return { id, proposedPath: `${itemRelative}/context/amendments/${id}-${String(artifactRelative).split('/').at(-1)}` };
+}
+
+/** The latest decision on a proposal, or null while it waits. */
+export function forwardAmendmentDecision(workflow, amendmentId, decisions = workflow?.forwardAmendmentDecisions ?? []) {
+  return decisions.findLast((entry) => entry?.amendment === amendmentId) ?? null;
+}
+
+/** Proposals nobody has decided yet. */
+export function pendingForwardAmendments(workflow, decisions = workflow?.forwardAmendmentDecisions ?? []) {
+  return (workflow?.forwardAmendments ?? []).filter((proposal) => !forwardAmendmentDecision(workflow, proposal.id, decisions));
+}
+
+/**
+ * Each step an approved amendment listed for revalidation that has no revalidation yet and still
+ * stands at the generation it was approved with. A step sent back for rework reads its inputs again
+ * in its next generation, so nothing is owed for it any more.
+ */
+export function pendingAmendmentRevalidations(workflow, {decisions = workflow?.forwardAmendmentDecisions ?? [], revalidations = workflow?.amendmentRevalidations ?? []} = {}) {
+  const decided = new Set(revalidations.map((entry) => `${entry.amendment}\u0000${entry.phase}`));
+  return decisions
+    .filter((entry) => entry?.decision === 'approved')
+    .flatMap((entry) => (entry.revalidate ?? [])
+      .filter((item) => workflow.phases?.[item.phase]?.status === 'approved'
+        && Number(workflow.phases[item.phase].generation) === Number(item.generation)
+        && !decided.has(`${entry.amendment}\u0000${item.phase}`))
+      .map((item) => ({ amendment: entry.amendment, phase: item.phase, generation: item.generation, producer: entry.phase })));
+}
+
+/**
+ * Producers whose amended generation this step was revalidated against, keyed by producer, for the
+ * step's current generation and exact input record. A later amendment of the same producer needs
+ * its own revalidation, because the binding names the producer's generation and bytes.
+ */
+export function acceptedRevalidationBindings(workflow, phase, inputRecordSha256, revalidations = workflow?.amendmentRevalidations ?? []) {
+  const bindings = new Map();
+  for (const entry of revalidations) {
+    if (entry?.phase !== phase?.id || entry.outcome !== 'unchanged'
+        || Number(entry.generation) !== Number(phase.generation)
+        || entry.binding?.inputRecordSha256 !== inputRecordSha256) continue;
+    bindings.set(entry.binding.producer, { ...entry.binding, amendment: entry.amendment });
+  }
+  return bindings;
+}

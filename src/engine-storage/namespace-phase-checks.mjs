@@ -19,6 +19,7 @@ import {createNamespacePreparationRuntime} from './namespace-preparation.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {phaseCheckRecord,NAMESPACE_PHASE_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
 export {NAMESPACE_PHASE_CHECK_PROFILE};
+import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 export {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -78,7 +79,8 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
         if(!same(s.plan.draft,runtime.draftIdentity(draft))||s.plan.basis.headVersion!==facts.revision)throw error('The authored draft changed; preserve this intent and select a new check operation.','ENGINE_CONTEXT_CHANGED');
         await fresh(s,signal);
       }else{
-        const commands=(phase.qualityCommands??[]).map(normalizeExternalCommand),repositories=captured.snapshot.workflow.sourceBindings?.current?.repositories;
+        const commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(captured.snapshot,phase.id,{signal}),
+          commands=commandProof.commands,repositories=captured.snapshot.workflow.sourceBindings?.current?.repositories;
         if(!commands.length)throw error('The pinned phase has no configured checks.','ENGINE_CHECKS_NOT_CONFIGURED');
         const required=[];for(const command of commands){
           if(!command.argv||command.command)required.push('structured-argv');if(command.kind!=='test'||!command.result)required.push('structured-test-result');
@@ -108,7 +110,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
               executionUnitManifestSha256:manifest.manifestSha256});steps.push({...selection,manifest,contract});}}
         if(steps.length>1024)throw error('The check set exceeds its bounded execution profile.','ENGINE_STORAGE_LIMIT');
         const actor={actor:facts.actor,agentId:facts.agentId};
-        s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,binding:codec.binding,input:s.input,parametersSha256:s.parameters,
+        s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,...(commandProof.identity.receipts.length?{testCommands:commandProof.identity}:{}),binding:codec.binding,input:s.input,parametersSha256:s.parameters,
           generation:facts.payload.generation,draft:runtime.draftIdentity(draft),artifact:facts.payload.artifact.current,actor,
           basis:{authorityVersion:captured.basis.authorityVersion,headVersion:captured.basis.headVersion,configurationVersion:captured.basis.configurationVersion,
             configuration:captured.snapshot.configuration,head:captured.basis.head},

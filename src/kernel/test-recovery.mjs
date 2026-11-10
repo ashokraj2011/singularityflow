@@ -1,5 +1,6 @@
 /** Shared TRP schemas, record identity and gate evaluation over explicit evidence/authority verifiers. */
 import {canonicalJson,textDigestCapability} from '../foundation/record-schema.mjs';
+import {SingularityFlowError} from '../foundation/failures.mjs';
 import {TRP_RISK_CATEGORIES} from './configuration-path-policies.mjs';
 export {TRP_RISK_CATEGORIES} from './configuration-path-policies.mjs';
 export function testRecoveryPolicies(port) {
@@ -629,4 +630,139 @@ function evaluateTestRecoveryGate({
 }
 
 return Object.freeze({TRP_EVALUATOR_VERSION,TRP_INTEGRITY_CATEGORIES,TRP_STALE_CATEGORY,TRP_SCHEMAS,TRP_RECORD_KINDS,TRP_POLICY_SCHEMA,trpDigest,trpEnvironmentDigest,trpRecordDigest,sealTrpRecord,validateTrpRecord,trpIssueIdentity,evaluateTestRecoveryGate});
+}
+
+/** Shared Story-command rules over exact admitted decisions; host review commands remain outside the kernel. */
+export function storyTestCommandPolicies(port) {
+const recordSha256=value=>textDigestCapability(port).sha256Utf8(canonicalJson(value));
+const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID', details = undefined) => {
+  throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
+};
+const REQUEST_ID = /^TCD-[0-9]{3,}$/u;
+const OPEN_STEP = new Set(['not_started', 'in_progress', 'awaiting_approval']);
+
+function reasonText(value, minimum, option) {
+  const text = String(value ?? '').trim();
+  if (text.length < minimum || text.length > 1000) fail(`Say why in ${minimum} to 1000 characters with ${option}.`);
+  return text;
+}
+
+
+/** One change before and after in words: `package.json scripts.test: before "vitest run", after "vitest run src"`. */
+function pinDiffWords(entry) {
+  const name = entry.field === 'definition' ? `${entry.path}${entry.selector ? ` ${entry.selector}` : ''}` : entry.field;
+  const quoted = (value) => `"${String(value).replaceAll('\n', ' / ')}"`;
+  if (entry.field === 'definition' && !entry.known) return `${name} ${entry.change}; the text it was pinned with is not in this Story's history, so compare it with the base commit`;
+  if (entry.before == null && entry.after == null) return `${name} ${entry.change}`;
+  if (entry.before == null) return `${name}: added ${quoted(entry.after)}`;
+  if (entry.after == null) return `${name}: removed ${quoted(entry.before)}`;
+  return `${name}: before ${quoted(entry.before)}, after ${quoted(entry.after)}`;
+}
+
+/** A request by its ID, and whether a person accepted or revoked it. */
+function storyTestCommandState(workflow, id, observed = workflow?.testCommandDecisions ?? []) {
+  const request = observed.find((entry) => entry.id === id) ?? null;
+  if (!request) return null;
+  const accepted = observed.find((entry) => entry.accepts === id) ?? null;
+  const revoked = observed.find((entry) => entry.revokes === id) ?? null;
+  return { request, accepted, revoked, state: revoked ? 'revoked' : accepted ? 'accepted' : 'requested' };
+}
+
+/** Requests of a step that wait for a person who approves it. */
+function pendingStoryTestCommands(workflow, phaseId, observed = workflow?.testCommandDecisions ?? []) {
+  return observed.filter((entry) => entry.id && entry.phase === phaseId
+    && storyTestCommandState(workflow, entry.id, observed).state === 'requested');
+}
+
+/** Repeating the same request is not another human decision; prose/actor/time do not change its scope. */
+function matchingPendingTestCommand(workflow, { phaseId, command, repin = null }, observed = workflow?.testCommandDecisions ?? []) {
+  return pendingStoryTestCommands(workflow, phaseId, observed).find(entry => repin
+    ? entry.command.id === command.id && canonicalJson(entry.repin ?? null) === canonicalJson(repin)
+    : !entry.repin && canonicalJson(entry.command) === canonicalJson(command)) ?? null;
+}
+
+/**
+ * The commands a step runs because a person accepted them, each bound to its request. The latest
+ * acceptance of a command ID wins; a pending request never displaces an accepted command.
+ */
+function activeStoryTestCommands(workflow, phaseId, observed = workflow?.testCommandDecisions ?? []) {
+  const latest = new Map();
+  for (const entry of observed) {
+    if (!entry.accepts || entry.phase !== phaseId) continue;
+    const { request, state } = storyTestCommandState(workflow, entry.accepts, observed);
+    if (state === 'accepted' && !request.repin) latest.set(request.command.id, request);
+  }
+  return [...latest.values()].map((request) => ({
+    ...structuredClone(request.command), storyDecision: { id: request.id, sha256: `sha256:${recordSha256(request)}` }
+  }));
+}
+
+function refreshStep(workflow, phaseId, observed) {
+  const active = activeStoryTestCommands(workflow, phaseId, observed);
+  if (active.length) workflow.phases[phaseId].storyTestCommands = active;
+  else delete workflow.phases[phaseId].storyTestCommands;
+}
+
+/** Every step's accepted commands are exactly its active decisions; anything else was not decided. */
+function assertStoryTestCommands(workflow, observed = workflow?.testCommandDecisions ?? []) {
+  for (const [phaseId, phase] of Object.entries(workflow?.phases ?? {})) {
+    if (canonicalJson(phase.storyTestCommands ?? []) !== canonicalJson(activeStoryTestCommands(workflow, phaseId, observed))) {
+      fail(`Step ${phaseId}'s Story-only test commands differ from its recorded decisions.`, 'TEST_COMMAND_DECISION_STATE_INVALID', { phase: phaseId });
+    }
+  }
+}
+
+function openStep(workflow, phaseId) {
+  const phase = workflow?.phases?.[phaseId];
+  if (!phase) fail(`This Story has no step ${phaseId}.`);
+  if (!OPEN_STEP.has(phase.status)) fail(`Step ${phaseId} is ${phase.status}; a Story-only test command is decided before the step is approved.`, 'TEST_COMMAND_DECISION_CLOSED');
+  if (phase.status === 'awaiting_approval') fail('Return this phase for changes before changing its approved test command review.', 'TEST_COMMAND_DECISION_DURING_REVIEW', {phase:phaseId});
+  return phase;
+}
+
+/** Record a request for `command` (already normalized and checked by the caller). */
+function recordStoryTestCommandRequest(workflow, { phaseId, command, repin = null, reason, actor, at }, observed = workflow?.testCommandDecisions ?? []) {
+  openStep(workflow, phaseId);
+  if (!command?.id || command.kind !== 'test') fail('A Story-only test command is one structured kind: test command.');
+  const reasonValue = reasonText(reason, 15, '--reason');
+  const existing = matchingPendingTestCommand(workflow, { phaseId, command, repin }, observed);
+  if (existing) return existing;
+  workflow.testCommandDecisions ??= [];
+  const request = {
+    id: `TCD-${String(observed.filter((entry) => entry.id).length + 1).padStart(3, '0')}`,
+    phase: phaseId, command: structuredClone(command), ...(repin ? { repin: structuredClone(repin) } : {}),
+    reason: reasonValue, requestedBy: actor, at
+  };
+  workflow.testCommandDecisions.push(request);
+  return request;
+}
+
+/**
+ * Record a person's acceptance or revocation of request `id`; the caller checked that they are in
+ * one of the step's approval groups. `selfApproval: false` refuses accepting one's own request.
+ */
+function recordStoryTestCommandDecision(workflow, { id, outcome, reason = '', actor, authorityGroup, identityAssurance = null, at, selfApproval = true }, observed = workflow?.testCommandDecisions ?? []) {
+  if (!REQUEST_ID.test(String(id ?? ''))) fail('Name the request as TCD-001.');
+  const found = storyTestCommandState(workflow, id, observed);
+  if (!found) fail(`This Story has no test command request ${id}.`, 'TEST_COMMAND_DECISION_UNKNOWN');
+  openStep(workflow, found.request.phase);
+  if (outcome === 'accept') {
+    if (found.state !== 'requested') fail(`${id} is already ${found.state}.`, 'TEST_COMMAND_DECISION_CLOSED');
+    if (!selfApproval && found.request.requestedBy === actor) {
+      fail(`${id} was requested by ${actor}; the step's approval policy needs someone else to accept it.`, 'TEST_COMMAND_SELF_ACCEPTANCE');
+    }
+  } else if (outcome === 'revoke') {
+    if (found.state === 'revoked') fail(`${id} is already revoked.`, 'TEST_COMMAND_DECISION_CLOSED');
+  } else fail('A request is accepted or revoked.');
+  const record = {
+    [outcome === 'accept' ? 'accepts' : 'revokes']: id, phase: found.request.phase,
+    reason: outcome === 'revoke' ? reasonText(reason, 15, '--reason') : String(reason ?? '').trim(),
+    actor, authorityGroup, identityAssurance, at
+  };
+  workflow.testCommandDecisions.push(record);
+  refreshStep(workflow, found.request.phase, observed.includes(record)?observed:[...observed,record]);
+  return record;
+}
+
+return Object.freeze({pinDiffWords,storyTestCommandState,pendingStoryTestCommands,matchingPendingTestCommand,activeStoryTestCommands,assertStoryTestCommands,recordStoryTestCommandRequest,recordStoryTestCommandDecision});
 }

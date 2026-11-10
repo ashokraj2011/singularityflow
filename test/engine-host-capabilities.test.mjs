@@ -26,8 +26,8 @@ test('operation selections cannot contain unknown IDs, duplicates or operations 
 test('namespace composition exposes its real operation owners without opening the stores',async t=>{
   const f=await namespaceEngineFixture(t,{working:false}),engine=f.make({records:{...f.records,read:forbidden,transact:forbidden},content:{...f.content,read:forbidden,put:forbidden}}),
     bound=new Set(engine.capabilities.boundOperations.map(row=>row.id));
-  for(const id of ['constitution.exception.context','decision.constitution-exception','source-review.context','source-review.record','phase.assign','decision.scope','decision.plan','plan.correction.record','decision.witness','upstream.raise'])assert.ok(bound.has(id),id);
-  for(const id of ['decision.risk','decision.witness-exception','test-command.decide','decisions.record','forward-amendment.propose','forward-amendment.decide','forward-amendment.revalidate','phase.checks'])assert.equal(bound.has(id),false,id);
+  for(const id of ['constitution.exception.context','decision.constitution-exception','source-review.context','source-review.record','phase.assign','decision.scope','decision.plan','plan.correction.record','decision.witness','upstream.raise','test-command.context','test-command.request','test-command.decide'])assert.ok(bound.has(id),id);
+  for(const id of ['decision.risk','decision.witness-exception','decisions.record','forward-amendment.propose','forward-amendment.decide','forward-amendment.revalidate','phase.checks'])assert.equal(bound.has(id),false,id);
   assert.equal(engine.capabilities.boundOperations.length+engine.capabilities.unboundOperations.length,ENGINE_OPERATIONS.length);
 });
 

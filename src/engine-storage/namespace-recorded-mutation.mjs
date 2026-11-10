@@ -117,7 +117,7 @@ export function createNamespaceRecordedMutationPort(options,{operation,request,o
       if(!plan)throw error('The human mutation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
       const proof=await retained(plan,s),revision=accepted.receipt.records.find(row=>row.namespace==='state'&&row.key===namespaceLifecycleStoryKey(workId))?.version;
       if(!revision)throw error('The accepted human decision has no Story revision.','ENGINE_STORAGE_CORRUPT');
-      return finish(proof.value,revision);
+      return finish(proof.value,revision,Object.freeze({replayed:Boolean(s.replay||s.accepted)}));
     }
   };
 }

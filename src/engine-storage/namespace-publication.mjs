@@ -23,6 +23,7 @@ import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-reader.mjs';
 import {namespacePublicationValue,namespacePublicationRecord,NAMESPACE_PUBLICATION_PROFILE,NAMESPACE_CHECKED_PUBLICATION_PROFILE,NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE,NAMESPACE_POLICY_PUBLICATION_PROFILE} from './namespace-publication-contract.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
+import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {createNamespaceSpecificationWriter} from './namespace-specification-retention.mjs';
@@ -118,7 +119,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
       if(s.missing)throw s.missing;
       const observed=await observer.inspect({signal}),publishedPhase=observed.snapshot.workflow.phases[s.phaseId];
       const clarificationMode=resolvedClarificationPolicy({},observed.snapshot.workflow,publishedPhase).mode;
-      if(publishedPhase?.qualityCommands?.length||clarificationMode!=='off'||codePublicationPolicy(observed.snapshot.workflow,publishedPhase)){
+      if(publishedPhase?.qualityCommands?.length||observed.snapshot.workflow.testCommandDecisions?.length||clarificationMode!=='off'||codePublicationPolicy(observed.snapshot.workflow,publishedPhase)){
         const binding=publishedPhase.publicationBindings?.find(item=>item.generation===publishedPhase.generation);
         if(binding){const publication=await readPublication(binding,s,signal);
           if(publication.draft.sha256===s.identity.bodySha256&&publication.requestSha256===s.requestSha256){
@@ -140,12 +141,13 @@ export function createNamespacePublicationPort(options={},runtime=null) {
     async prepare(context,_input,intent,{signal}={}) {
       const s=selected(context);if(runtime===null)throw workingRequired(s.phaseId);
       const current=s.snapshot??await committer.capture({signal}),currentPhase=current.workflow.phases[s.phaseId],
-        clarificationMode=resolvedClarificationPolicy({},current.workflow,currentPhase).mode;
-      if(currentPhase?.qualityCommands?.length||clarificationMode!=='off'||codePublicationPolicy(current.workflow,currentPhase)){
+        clarificationMode=resolvedClarificationPolicy({},current.workflow,currentPhase).mode,
+        commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(current,s.phaseId,{signal});
+      if(commandProof.commands.length||clarificationMode!=='off'||codePublicationPolicy(current.workflow,currentPhase)){
         s.snapshot=current;
         s.admission=await runtime.admitDraft(s.draft,'phase.publish',{signal});
         const observed=runtime.draftFacts(s.admission);
-        if(currentPhase.qualityCommands?.length)s.checkEvidence=await checks.forDraft({phaseId:s.phaseId,generation:observed.payload.generation,baseRevision:observed.revision,
+        if(commandProof.commands.length)s.checkEvidence=await checks.forDraft({phaseId:s.phaseId,generation:observed.payload.generation,baseRevision:observed.revision,
           draft:s.identity,artifact:observed.payload.artifact.current,configuration:s.snapshot.configuration},{signal});
         if(clarificationMode!=='off') {
           const candidate=await publicationReader.policies.clarificationCandidate({phase:s.phaseId,generation:observed.payload.generation,

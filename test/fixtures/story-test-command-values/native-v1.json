@@ -1,0 +1,1025 @@
+{
+  "capturedAtCommit": "86b080e29",
+  "cases": [
+    {
+      "name": "request",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "record": {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        },
+        "testCommandDecisions": [
+          {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "record": {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "record": {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        },
+        "testCommandDecisions": [
+          {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "accept",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "op": "decide",
+          "input": {
+            "id": "TCD-001",
+            "outcome": "accept",
+            "reason": "Approve this exact selected check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "selfApproval": true,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "record": {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "record": {
+            "accepts": "TCD-001",
+            "phase": "build",
+            "reason": "Approve this exact selected check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "storyTestCommands": [
+              {
+                "id": "unit",
+                "kind": "test",
+                "argv": [
+                  "node",
+                  "--test"
+                ],
+                "workingDirectory": ".",
+                "affectedRoots": [
+                  "src"
+                ],
+                "modelPolicy": "never",
+                "result": {
+                  "adapter": "node-test-v1",
+                  "path": "stdout"
+                },
+                "storyDecision": {
+                  "id": "TCD-001",
+                  "sha256": "sha256:8686b80e1942d19241f55d2062eb5ca19e64944f43d9dced04f85b25f6e9b500"
+                }
+              }
+            ]
+          }
+        },
+        "testCommandDecisions": [
+          {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          },
+          {
+            "accepts": "TCD-001",
+            "phase": "build",
+            "reason": "Approve this exact selected check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "revoke",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "op": "decide",
+          "input": {
+            "id": "TCD-001",
+            "outcome": "accept",
+            "reason": "Approve this exact check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "op": "decide",
+          "input": {
+            "id": "TCD-001",
+            "outcome": "revoke",
+            "reason": "Approve this exact selected check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "selfApproval": true,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "record": {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "record": {
+            "accepts": "TCD-001",
+            "phase": "build",
+            "reason": "Approve this exact check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "record": {
+            "revokes": "TCD-001",
+            "phase": "build",
+            "reason": "Approve this exact selected check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        },
+        "testCommandDecisions": [
+          {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          },
+          {
+            "accepts": "TCD-001",
+            "phase": "build",
+            "reason": "Approve this exact check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "at": "2026-11-11T00:00:00.000Z"
+          },
+          {
+            "revokes": "TCD-001",
+            "phase": "build",
+            "reason": "Approve this exact selected check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "identityAssurance": null,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "decide",
+          "input": {
+            "id": "TCD-009",
+            "outcome": "accept",
+            "reason": "Approve this exact selected check.",
+            "actor": "reviewer",
+            "authorityGroup": "reviewers",
+            "selfApproval": true,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "error": {
+            "name": "SingularityFlowError",
+            "code": "TEST_COMMAND_DECISION_UNKNOWN",
+            "message": "This Story has no test command request TCD-009.",
+            "details": null
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      }
+    },
+    {
+      "name": "self",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "op": "decide",
+          "input": {
+            "id": "TCD-001",
+            "outcome": "accept",
+            "reason": "Approve this exact selected check.",
+            "actor": "author",
+            "authorityGroup": "reviewers",
+            "selfApproval": false,
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "record": {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        },
+        {
+          "error": {
+            "name": "SingularityFlowError",
+            "code": "TEST_COMMAND_SELF_ACCEPTANCE",
+            "message": "TCD-001 was requested by author; the step's approval policy needs someone else to accept it.",
+            "details": null
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        },
+        "testCommandDecisions": [
+          {
+            "id": "TCD-001",
+            "phase": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "requestedBy": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "review",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "awaiting_approval"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "error": {
+            "name": "SingularityFlowError",
+            "code": "TEST_COMMAND_DECISION_DURING_REVIEW",
+            "message": "build is awaiting approval, and a test command decided now would change what its submitted review ran, so its approval would need a fresh submission. An approver returns build for changes first (/sf-reject); the command is then decided before it is submitted again. For later Stories, propose it with /sf-test-setup.",
+            "details": {
+              "workId": "example",
+              "phase": "build",
+              "nextAction": {
+                "command": "singularity-flow reject build --work-id example --fetch --reason <REASON>",
+                "label": "Return build for changes first."
+              }
+            }
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "awaiting_approval"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "approved"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "error": {
+            "name": "SingularityFlowError",
+            "code": "TEST_COMMAND_DECISION_CLOSED",
+            "message": "Step build is approved; a Story-only test command is decided before the step is approved.",
+            "details": null
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "approved"
+          }
+        }
+      }
+    },
+    {
+      "name": "short-reason",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "unit",
+              "kind": "test",
+              "argv": [
+                "node",
+                "--test"
+              ],
+              "workingDirectory": ".",
+              "affectedRoots": [
+                "src"
+              ],
+              "modelPolicy": "never",
+              "result": {
+                "adapter": "node-test-v1",
+                "path": "stdout"
+              }
+            },
+            "reason": "no",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "error": {
+            "name": "SingularityFlowError",
+            "code": "TEST_COMMAND_DECISION_INVALID",
+            "message": "Say why in 15 to 1000 characters with --reason.",
+            "details": null
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      }
+    },
+    {
+      "name": "invalid-command",
+      "initial": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "request",
+          "input": {
+            "phaseId": "build",
+            "command": {
+              "id": "x",
+              "kind": "lint"
+            },
+            "reason": "Use the actual structured test command.",
+            "actor": "author",
+            "at": "2026-11-11T00:00:00.000Z"
+          }
+        }
+      ],
+      "results": [
+        {
+          "error": {
+            "name": "SingularityFlowError",
+            "code": "TEST_COMMAND_DECISION_INVALID",
+            "message": "A Story-only test command is one structured kind: test command.",
+            "details": null
+          }
+        }
+      ],
+      "workflow": {
+        "workItem": {
+          "id": "example"
+        },
+        "phases": {
+          "build": {
+            "id": "build",
+            "status": "in_progress"
+          }
+        }
+      }
+    }
+  ]
+}

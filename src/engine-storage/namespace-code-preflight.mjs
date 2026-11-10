@@ -21,6 +21,7 @@ import {createNamespaceSourceBaselineReader} from './namespace-source-baseline-r
 import {createNamespaceSourceClauseReader} from './namespace-source-clauses.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
+import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceOutputRetentionReader} from './namespace-output-retention-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=data=>createHash('sha256').update(data).digest('hex');
 const failure=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
@@ -36,7 +37,8 @@ function codePreflightReader(options,requireCurrentIndices){
     clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changes,baseline,checks,controlReader}),
     files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices}),outputsReader=createNamespaceOutputRetentionReader({...options,observer,sourceReader:changes});
   async function inspect(snapshot,phaseId,identity,{signal,binding=null,policyTraversal}={}){
-    const workflow=snapshot.workflow,phase=workflow.phases[phaseId],definition=(await observer.approved(snapshot,{signal})).compiled.definition;
+    const workflow=snapshot.workflow,commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(snapshot,phaseId,{signal,policyTraversal}),
+      phase={...workflow.phases[phaseId],qualityCommands:commandProof.commands},definition=(await observer.approved(snapshot,{signal})).compiled.definition;
     if(workflow.resolution.testRecovery?.enabled)required('test-recovery');
     if(!requireCurrentIndices&&!binding)throw failure('Replay the exact accepted publication source binding.','ENGINE_INPUT_INVALID');
     const retained=binding?await changes.accepted({operationId:binding.source.operationId,workId,phaseId},{signal}):await changes.inspectDraft(identity,{signal});
@@ -101,7 +103,7 @@ function codePreflightReader(options,requireCurrentIndices){
       }
       async function discover(request){
         return replay(discoverAcceptanceWitnessesReplay(phase,request),async item=>{
-          if(item.kind==='witness-test-commands')return phase.qualityCommands??[];
+          if(item.kind==='witness-test-commands')return commandProof.commands;
           if(item.kind==='witness-command-for-file')return replay(commandForTestFileReplay(item.commands,item.file),async item=>(await text(item.file,1048576))??'');
           if(item.kind!=='witness-declarations')required(item.kind);
           const framework={'node-test-v1':'node:test','jest-static-v2':'jest','vitest-static-v2':'vitest','playwright-json-v1':'playwright'}[item.profile];

@@ -20,6 +20,7 @@ import {createNamespaceSourceObservations} from './namespace-source-observations
 import {createNamespaceSourceBaselineReader} from './namespace-source-baseline-reader.mjs';
 import {createNamespaceSourceRetentionReader} from './namespace-source-retention-reader.mjs';
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
+import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {verifySourceFileChunks} from './namespace-source-content-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),compact=value=>value?{operationId:value.operationId??value.plan.input.operationId,record:value.record,index:value.binding?.index??{key:value.indexKey,version:value.indexVersion}}:null;
@@ -48,7 +49,8 @@ export function createNamespaceTestWitnessInspectionPort(options={},runtime=null
       else if(p&&!phaseRequiresCodeDelivery(phase))result.status='not-code-generation';
       else if(p){
         const captured=await observer.capture({signal});if(captured.snapshot.revision!==f.revision||captured.basis.authorityVersion!==f.authorityVersion)throw error('The Story changed before witness inspection.','ENGINE_CONTEXT_CHANGED');
-        const definition=(await observer.approved(captured.snapshot,{signal})).compiled.definition;
+        const commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(captured.snapshot,f.phase,{signal}),
+          definition=(await observer.approved(captured.snapshot,{signal})).compiled.definition;
         result.requiredPolicyOwners=[...primaryDocumentPublicationRequirements(w,phase,{definition})];
         if(w.resolution?.plannedClaims?.mode!=='required'){result.status='pending-owner';result.requiredPolicyOwners.push('approved-planned-witnesses');}
         else{
@@ -110,7 +112,7 @@ export function createNamespaceTestWitnessInspectionPort(options={},runtime=null
                 const last=Math.max(0,...tags.filter(tag=>tag.testSource===testSource&&tag.clauseId===clauseId&&tag.line<=line).map(tag=>tag.line));return !added.has(tagKey(testSource,last));};
               const replay=discoverAcceptanceWitnessesReplay(phase,{testPaths,requiredAcIds:[...new Set(planned.filter(row=>row.slot.role==='primary').map(row=>row.clauseId))],bindings,othersTag});let step=replay.next();
               while(!step.done){cancelled(signal);let reply;const request=step.value;
-                if(request.kind==='witness-test-commands')reply=phase.qualityCommands??[];
+                if(request.kind==='witness-test-commands')reply=commandProof.commands;
                 else if(request.kind==='witness-command-for-file'){const choice=commandForTestFileReplay(request.commands,request.file);let next=choice.next();
                   while(!next.done)next=choice.next((await bytes(next.value.file))?.toString('utf8')??'');reply=next.value;}
                 else if(request.kind==='witness-declarations'){

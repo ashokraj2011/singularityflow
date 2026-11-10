@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -134,6 +134,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectDecisionContext'},
   {id:'scope.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'scopeContext',
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectScopeContext'},
+  {id:'test-command.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testCommandContext',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestCommandContext'},
   {id:'source-review.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'sourceReviewContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectSourceReviewContext'},
   {id:'witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','clauseId','slotName','file']),
@@ -699,6 +701,25 @@ function planCorrectionContextInput(value,operation){const input=data(value);if(
   ||input.operations.some(row=>!row||typeof row!=='object'||Array.isArray(row))||typeof input.reason!=='string'
   ||['workId','ownerPhase','upstreamIssue'].some(key=>input[key]!=null&&typeof input[key]!=='string'))throw new SingularityFlowError(
   'Name a bounded correction and its review reason.',{code:'ENGINE_INPUT_INVALID'});return input;}
+async function inspectTestCommandContext(port,input,signal){
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const binding=data({subject:context?.subject??null,workId:context?.workflow?.workItem?.id??null,phase:context?.phase?.id??null,declaredPhase:context?.workflow?.phases?.[context?.phase?.id]?.id??null});
+  if(binding.subject?.kind!=='story'||typeof binding.workId!=='string'||binding.subject.id!==binding.workId||typeof binding.phase!=='string'||binding.declaredPhase!==binding.phase
+    ||input.workId!=null&&input.workId!==binding.workId||input.phaseId!=null&&input.phaseId!==binding.phase)throw new SingularityFlowError(
+      'The command context did not bind the requested Story and phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  const facts=data(await port.read(context,{signal}));notCancelled(signal);
+  let profile;try{profile=namespaceStoryCommandRecordProfile('context',facts);}catch{ /* Reject another transport/profile. */ }
+  const fields=['schemaVersion','format','workId','phase','revision','commands','requests','authorities'];
+  if(!facts||!profile||Object.keys(facts).length!==fields.length||!fields.every(key=>Object.hasOwn(facts,key))
+    ||facts.format!==profile.format||facts.workId!==binding.workId||facts.phase!==binding.phase
+    ||typeof facts.revision!=='string'||!facts.revision||facts.revision.length>2048||!Array.isArray(facts.commands)||!Array.isArray(facts.requests)||!Array.isArray(facts.authorities)
+    ||facts.commands.some(row=>!row||!row.command?.id||!/^sha256:[a-f0-9]{64}$/u.test(row.sha256??''))
+    ||facts.requests.some(row=>!row||!/^TCD-\d{3,}$/u.test(row.id??'')||row.id!==row.request?.id||!['requested','accepted','revoked'].includes(row.state)||row.request?.phase!==binding.phase
+      ||row.state!==(row.revoked?'revoked':row.accepted?'accepted':'requested')||row.accepted&&row.accepted.accepts!==row.id||row.revoked&&row.revoked.revokes!==row.id)
+    ||facts.authorities.some(row=>typeof row!=='string'||!row))throw new SingularityFlowError('The command context has another Story, phase or exact command.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-command.context',subject:binding.subject,manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+}
 async function inspectPlanCorrectionContext(port,input,signal){notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   const current=context.workflow?.phases?.[context.workflow.currentPhase],
     bound=data({subject:context.subject,phase:context.workflow?.currentPhase,inspectionGeneration:current?phaseInspectionGeneration(context.workflow,current):null,
@@ -1766,7 +1787,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    inspectSourceReviewContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
+    inspectTestCommandContext,inspectSourceReviewContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

@@ -448,3 +448,8 @@ not yet provide portable lifecycle ports for a complete Story. Existing Git life
 authority is unchanged; this package neither migrates an installed project nor automatically
 selects a namespace store. Full cross-agent Story execution, verified authority cutover and final
 distribution/performance qualification remain migration gates.
+
+The namespace host also provides `test-command.context`, `test-command.request` and
+`test-command.decide`. [Story-command contracts](../../docs/ENGINE-SDK-NAMESPACE-TEST-COMMANDS.md)
+describe exact command hashes, the namespace request wrapper, original human authority and
+execution through explicitly bound SGOS checks. Accepted commands do not establish passing tests.

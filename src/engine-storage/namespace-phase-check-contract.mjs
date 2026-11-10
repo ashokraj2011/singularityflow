@@ -1,6 +1,6 @@
 /** Phase-check metadata identities and conditional acceptance. Explicit text hashing; no I/O. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {NAMESPACE_PHASE_CHECK_SCHEMAS,admitRecordSchemaVersion,textDigestCapability} from '../foundation/record-schema.mjs';
+import {NAMESPACE_PHASE_CHECK_SCHEMAS,namespacePhaseCheckPlanProfile,admitRecordSchemaVersion,textDigestCapability} from '../foundation/record-schema.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceIdentityJson,namespaceRevision,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {namespaceTransaction,namespaceTransactionIdentity} from '../sda/namespace/transaction.mjs';
@@ -19,10 +19,11 @@ const fields=Object.freeze({
   intent:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content'],
   manifest:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content','previousIndexVersion']
 });
-export function phaseCheckRecord(kind,fields){return {schemaVersion:1,format:formats[kind],...fields};}
+export function phaseCheckRecord(kind,fields){const version=kind==='plan'&&fields.testCommands?2:1;return {schemaVersion:version,format:version===1?formats[kind]:'sflow-namespace-phase-check-plan/v2',...fields};}
 export function phaseCheckRecordValue(kind,value) {
   try{admitRecordSchemaVersion(NAMESPACE_PHASE_CHECK_SCHEMAS[kind],value);
-    if(value.format!==formats[kind])throw Error('Another format.');exactObject(value,['schemaVersion','format',...fields[kind]]);
+    const amended=kind==='plan'&&namespacePhaseCheckPlanProfile(value).commands;
+    if(value.format!==(amended?'sflow-namespace-phase-check-plan/v2':formats[kind]))throw Error('Another format.');exactObject(value,['schemaVersion','format',...fields[kind],...(amended?['testCommands']:[])]);
   }catch(cause){throw error('The phase-check record has another version or format.',
     ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}
   return value;

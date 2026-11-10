@@ -167,3 +167,16 @@ Publication races preserve the original intent and can select the replacement wi
 SQLite replay and genuine invocation-local proof reuse remain in their respective storage/read owners.
 See [the retained-output delivery](ENGINE-SDK-FRESH-OUTPUTS.md) for compatibility and qualification.
 The other owners above remain open; this does not complete either phase.
+
+Story-command context, requests, human acceptance/revocation and actual execution now have namespace
+owners. A separate request wrapper and check-plan v2 preserve original configuration and native
+records. Code publication, test-witness discovery, independent approval and shared-only replay use
+the actual accepted command inventory. Shared forward-amendment query values retain their captured
+native results; mutation/publication owners remain separate. See
+[the Story-command record](ENGINE-SDK-NAMESPACE-TEST-COMMANDS.md). Test-recovery agreements, evidence
+risks, bounded repairs and the other owners above still keep both phases open.
+
+The Story-command delivery passes 421 distinct affected Mac checks, including 79 native parity
+checks, 94 architecture checks and the unchanged 34-check installed qualifier in 42.4 seconds.
+Source validation passes 4,231 checks; VS Code types, the unchanged Git audit and all 13 original
+bundle ceilings pass. Native records, authority and configured-only check-plan v1 remain unchanged.

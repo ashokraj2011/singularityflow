@@ -1,0 +1,710 @@
+{
+  "capturedAtCommit": "bebe76dc7",
+  "cases": [
+    {
+      "name": "empty",
+      "workflow": {},
+      "observed": {
+        "decisions": [],
+        "revalidations": []
+      },
+      "outcome": {
+        "next": {
+          "id": "FAM-001",
+          "proposedPath": "stories/example-story/context/amendments/FAM-001-notes.md"
+        },
+        "decision": null,
+        "pending": [],
+        "owed": [],
+        "bindings": [],
+        "terminal": []
+      }
+    },
+    {
+      "name": "pending",
+      "workflow": {
+        "workItem": {
+          "id": "example-story"
+        },
+        "phases": {
+          "notes": {
+            "id": "notes",
+            "status": "approved",
+            "generation": 1
+          },
+          "review": {
+            "id": "review",
+            "status": "approved",
+            "generation": 2
+          }
+        },
+        "forwardAmendments": [
+          {
+            "id": "FAM-001",
+            "phase": "notes"
+          },
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "forwardAmendmentDecisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "amendmentRevalidations": []
+      },
+      "observed": {
+        "decisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "revalidations": []
+      },
+      "outcome": {
+        "next": {
+          "id": "FAM-003",
+          "proposedPath": "stories/example-story/context/amendments/FAM-003-notes.md"
+        },
+        "decision": {
+          "amendment": "FAM-001",
+          "phase": "notes",
+          "decision": "approved",
+          "revalidate": [
+            {
+              "phase": "review",
+              "generation": 2
+            }
+          ]
+        },
+        "pending": [
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "owed": [
+          {
+            "amendment": "FAM-001",
+            "phase": "review",
+            "generation": 2,
+            "producer": "notes"
+          }
+        ],
+        "bindings": [],
+        "terminal": [
+          {
+            "code": "FORWARD_AMENDMENT_PENDING",
+            "message": "FAM-002 proposes a corrected review; review's approvers have not decided it.",
+            "command": "singularity-flow upstream-issue decide-amendment FAM-002 --work-id example-story --decision approve|reject --reason \"<why>\" --confirm FAM-002"
+          },
+          {
+            "code": "AMENDMENT_REVALIDATION_REQUIRED",
+            "message": "review read notes before FAM-001 amended it; review's approvers have not revalidated it.",
+            "command": "singularity-flow upstream-issue revalidate review --work-id example-story --amendment FAM-001 --outcome unchanged|return --reason \"<why>\""
+          }
+        ]
+      }
+    },
+    {
+      "name": "rejected",
+      "workflow": {
+        "workItem": {
+          "id": "example-story"
+        },
+        "phases": {
+          "notes": {
+            "id": "notes",
+            "status": "approved",
+            "generation": 1
+          },
+          "review": {
+            "id": "review",
+            "status": "approved",
+            "generation": 2
+          }
+        },
+        "forwardAmendments": [
+          {
+            "id": "FAM-001",
+            "phase": "notes"
+          },
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "forwardAmendmentDecisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "rejected"
+          }
+        ],
+        "amendmentRevalidations": []
+      },
+      "observed": {
+        "decisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "rejected"
+          }
+        ],
+        "revalidations": []
+      },
+      "outcome": {
+        "next": {
+          "id": "FAM-003",
+          "proposedPath": "stories/example-story/context/amendments/FAM-003-notes.md"
+        },
+        "decision": {
+          "amendment": "FAM-001",
+          "phase": "notes",
+          "decision": "rejected"
+        },
+        "pending": [
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "owed": [],
+        "bindings": [],
+        "terminal": [
+          {
+            "code": "FORWARD_AMENDMENT_PENDING",
+            "message": "FAM-002 proposes a corrected review; review's approvers have not decided it.",
+            "command": "singularity-flow upstream-issue decide-amendment FAM-002 --work-id example-story --decision approve|reject --reason \"<why>\" --confirm FAM-002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolved",
+      "workflow": {
+        "workItem": {
+          "id": "example-story"
+        },
+        "phases": {
+          "notes": {
+            "id": "notes",
+            "status": "approved",
+            "generation": 1
+          },
+          "review": {
+            "id": "review",
+            "status": "approved",
+            "generation": 2
+          }
+        },
+        "forwardAmendments": [
+          {
+            "id": "FAM-001",
+            "phase": "notes"
+          },
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "forwardAmendmentDecisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "amendmentRevalidations": [
+          {
+            "amendment": "FAM-001",
+            "phase": "review",
+            "generation": 2,
+            "outcome": "unchanged",
+            "binding": {
+              "producer": "notes",
+              "producerGeneration": 2,
+              "producerSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "inputRecordSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        ]
+      },
+      "observed": {
+        "decisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "revalidations": [
+          {
+            "amendment": "FAM-001",
+            "phase": "review",
+            "generation": 2,
+            "outcome": "unchanged",
+            "binding": {
+              "producer": "notes",
+              "producerGeneration": 2,
+              "producerSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "inputRecordSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        ]
+      },
+      "outcome": {
+        "next": {
+          "id": "FAM-003",
+          "proposedPath": "stories/example-story/context/amendments/FAM-003-notes.md"
+        },
+        "decision": {
+          "amendment": "FAM-001",
+          "phase": "notes",
+          "decision": "approved",
+          "revalidate": [
+            {
+              "phase": "review",
+              "generation": 2
+            }
+          ]
+        },
+        "pending": [
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "owed": [],
+        "bindings": [
+          [
+            "notes",
+            {
+              "producer": "notes",
+              "producerGeneration": 2,
+              "producerSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "inputRecordSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "amendment": "FAM-001"
+            }
+          ]
+        ],
+        "terminal": [
+          {
+            "code": "FORWARD_AMENDMENT_PENDING",
+            "message": "FAM-002 proposes a corrected review; review's approvers have not decided it.",
+            "command": "singularity-flow upstream-issue decide-amendment FAM-002 --work-id example-story --decision approve|reject --reason \"<why>\" --confirm FAM-002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "returned",
+      "workflow": {
+        "workItem": {
+          "id": "example-story"
+        },
+        "phases": {
+          "notes": {
+            "id": "notes",
+            "status": "approved",
+            "generation": 1
+          },
+          "review": {
+            "id": "review",
+            "status": "in_progress",
+            "generation": 2
+          }
+        },
+        "forwardAmendments": [
+          {
+            "id": "FAM-001",
+            "phase": "notes"
+          },
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "forwardAmendmentDecisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "amendmentRevalidations": []
+      },
+      "observed": {
+        "decisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "revalidations": []
+      },
+      "outcome": {
+        "next": {
+          "id": "FAM-003",
+          "proposedPath": "stories/example-story/context/amendments/FAM-003-notes.md"
+        },
+        "decision": {
+          "amendment": "FAM-001",
+          "phase": "notes",
+          "decision": "approved",
+          "revalidate": [
+            {
+              "phase": "review",
+              "generation": 2
+            }
+          ]
+        },
+        "pending": [
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "owed": [],
+        "bindings": [],
+        "terminal": [
+          {
+            "code": "FORWARD_AMENDMENT_PENDING",
+            "message": "FAM-002 proposes a corrected review; review's approvers have not decided it.",
+            "command": "singularity-flow upstream-issue decide-amendment FAM-002 --work-id example-story --decision approve|reject --reason \"<why>\" --confirm FAM-002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "successor",
+      "workflow": {
+        "workItem": {
+          "id": "example-story"
+        },
+        "phases": {
+          "notes": {
+            "id": "notes",
+            "status": "approved",
+            "generation": 1
+          },
+          "review": {
+            "id": "review",
+            "status": "approved",
+            "generation": 3
+          }
+        },
+        "forwardAmendments": [
+          {
+            "id": "FAM-001",
+            "phase": "notes"
+          },
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "forwardAmendmentDecisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "amendmentRevalidations": []
+      },
+      "observed": {
+        "decisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "revalidations": []
+      },
+      "outcome": {
+        "next": {
+          "id": "FAM-003",
+          "proposedPath": "stories/example-story/context/amendments/FAM-003-notes.md"
+        },
+        "decision": {
+          "amendment": "FAM-001",
+          "phase": "notes",
+          "decision": "approved",
+          "revalidate": [
+            {
+              "phase": "review",
+              "generation": 2
+            }
+          ]
+        },
+        "pending": [
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "owed": [],
+        "bindings": [],
+        "terminal": [
+          {
+            "code": "FORWARD_AMENDMENT_PENDING",
+            "message": "FAM-002 proposes a corrected review; review's approvers have not decided it.",
+            "command": "singularity-flow upstream-issue decide-amendment FAM-002 --work-id example-story --decision approve|reject --reason \"<why>\" --confirm FAM-002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "presence-false",
+      "accepted": false,
+      "workflow": {
+        "workItem": {
+          "id": "example-story"
+        },
+        "phases": {
+          "notes": {
+            "id": "notes",
+            "status": "approved",
+            "generation": 1
+          },
+          "review": {
+            "id": "review",
+            "status": "approved",
+            "generation": 2
+          }
+        },
+        "forwardAmendments": [
+          {
+            "id": "FAM-001",
+            "phase": "notes"
+          },
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "forwardAmendmentDecisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "amendmentRevalidations": [],
+        "resolution": {
+          "presence": {
+            "status": "required"
+          }
+        }
+      },
+      "observed": {
+        "decisions": [],
+        "revalidations": []
+      },
+      "outcome": {
+        "next": {
+          "id": "FAM-003",
+          "proposedPath": "stories/example-story/context/amendments/FAM-003-notes.md"
+        },
+        "decision": null,
+        "pending": [
+          {
+            "id": "FAM-001",
+            "phase": "notes"
+          },
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "owed": [],
+        "bindings": [],
+        "terminal": [
+          {
+            "code": "FORWARD_AMENDMENT_PENDING",
+            "message": "FAM-001 proposes a corrected notes; notes's approvers have not decided it.",
+            "command": "singularity-flow upstream-issue decide-amendment FAM-001 --work-id example-story --decision approve|reject --reason \"<why>\" --confirm FAM-001"
+          },
+          {
+            "code": "FORWARD_AMENDMENT_PENDING",
+            "message": "FAM-002 proposes a corrected review; review's approvers have not decided it.",
+            "command": "singularity-flow upstream-issue decide-amendment FAM-002 --work-id example-story --decision approve|reject --reason \"<why>\" --confirm FAM-002"
+          }
+        ]
+      }
+    },
+    {
+      "name": "presence-true",
+      "accepted": true,
+      "workflow": {
+        "workItem": {
+          "id": "example-story"
+        },
+        "phases": {
+          "notes": {
+            "id": "notes",
+            "status": "approved",
+            "generation": 1
+          },
+          "review": {
+            "id": "review",
+            "status": "approved",
+            "generation": 2
+          }
+        },
+        "forwardAmendments": [
+          {
+            "id": "FAM-001",
+            "phase": "notes"
+          },
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "forwardAmendmentDecisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "amendmentRevalidations": [],
+        "resolution": {
+          "presence": {
+            "status": "required"
+          }
+        }
+      },
+      "observed": {
+        "decisions": [
+          {
+            "amendment": "FAM-001",
+            "phase": "notes",
+            "decision": "approved",
+            "revalidate": [
+              {
+                "phase": "review",
+                "generation": 2
+              }
+            ]
+          }
+        ],
+        "revalidations": []
+      },
+      "outcome": {
+        "next": {
+          "id": "FAM-003",
+          "proposedPath": "stories/example-story/context/amendments/FAM-003-notes.md"
+        },
+        "decision": {
+          "amendment": "FAM-001",
+          "phase": "notes",
+          "decision": "approved",
+          "revalidate": [
+            {
+              "phase": "review",
+              "generation": 2
+            }
+          ]
+        },
+        "pending": [
+          {
+            "id": "FAM-002",
+            "phase": "review"
+          }
+        ],
+        "owed": [
+          {
+            "amendment": "FAM-001",
+            "phase": "review",
+            "generation": 2,
+            "producer": "notes"
+          }
+        ],
+        "bindings": [],
+        "terminal": [
+          {
+            "code": "FORWARD_AMENDMENT_PENDING",
+            "message": "FAM-002 proposes a corrected review; review's approvers have not decided it.",
+            "command": "singularity-flow upstream-issue decide-amendment FAM-002 --work-id example-story --decision approve|reject --reason \"<why>\" --confirm FAM-002"
+          },
+          {
+            "code": "AMENDMENT_REVALIDATION_REQUIRED",
+            "message": "review read notes before FAM-001 amended it; review's approvers have not revalidated it.",
+            "command": "singularity-flow upstream-issue revalidate review --work-id example-story --amendment FAM-001 --outcome unchanged|return --reason \"<why>\""
+          }
+        ]
+      }
+    }
+  ]
+}

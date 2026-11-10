@@ -38,6 +38,7 @@ import {createNamespacePhaseInspectionPorts} from './namespace-phase-inspection.
 import {createNamespaceStoryQueryPorts} from './namespace-story-queries.mjs';
 import {createNamespaceWorkflowAssetsPort} from './namespace-workflow-assets.mjs';
 import {createNamespaceWitnessPorts} from './namespace-witness-decisions.mjs';
+import {createNamespaceTestCommandPorts} from './namespace-test-commands.mjs';
 import {createNamespaceAssignmentPort} from './namespace-assignment.mjs';
 import {createNamespaceConstitutionExceptionPorts} from './namespace-constitution-exceptions.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
@@ -114,7 +115,7 @@ export function createNamespaceEngine(options={}) {
     sourceBaselineRetention:createNamespaceSourceBaselinePort(common),
     phaseDeliveryInspection:createNamespaceDeliveryInspectionPort(common,runtime),
     phaseTestWitnessInspection:createNamespaceTestWitnessInspectionPort(common,runtime),
-    publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
+    ...lazyPorts(()=>createNamespaceTestCommandPorts(common),{testCommandContext:['load','read']}),testDecisionRecord:{operations:['test-command.request','test-command.decide'],...lazyPorts(()=>createNamespaceTestCommandPorts(common),{testDecisionRecord:['load','prepare','resolve','commit','finish']}).testDecisionRecord},publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...routing,decisionRecord,
     ...lazyPorts(()=>scoped(),{scopeContext:['load','read']}),
     ...Object.fromEntries(Object.entries(lazyPorts(()=>({upstream:createNamespaceUpstreamPort(common,runtime)}),{upstream:['load','resolve','commit','finish']})).map(([name,port])=>[name,{...port,operations:['upstream.list','upstream.raise','upstream.decide']}])),

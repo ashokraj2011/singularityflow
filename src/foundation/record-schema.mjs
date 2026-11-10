@@ -200,13 +200,24 @@ export function namespaceWitnessContextProfile(value){const {storedVersion}=admi
 export function namespaceGenerationProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PREPARATION_SCHEMAS.generation,value);
   return Object.freeze({version:storedVersion,continuation:storedVersion===2,...(storedVersion===3?{predecessors:true}:{}),format:'sflow-namespace-source-generation/v'+storedVersion});}
 export const NAMESPACE_PHASE_CHECK_SCHEMAS = /* @__PURE__ */ Object.freeze({
-  plan: /* @__PURE__ */ frozenFamily('namespace-phase-check-plan'),
+  plan: /* @__PURE__ */ Object.freeze({id:'namespace-phase-check-plan',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   intent: /* @__PURE__ */ frozenFamily('namespace-phase-check-intent'),
   result: /* @__PURE__ */ frozenFamily('namespace-phase-check-result'),
   manifest: /* @__PURE__ */ frozenFamily('namespace-phase-check-manifest'),
   index: /* @__PURE__ */ frozenFamily('namespace-phase-check-index'),
   binding: /* @__PURE__ */ frozenFamily('namespace-phase-check-binding')
 });
+export function namespacePhaseCheckPlanProfile(value){
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_CHECK_SCHEMAS.plan,value);
+  return Object.freeze({version:storedVersion,format:'sflow-namespace-phase-check-plan/v'+storedVersion,commands:storedVersion===2});
+}
+export const NAMESPACE_STORY_COMMAND_SCHEMAS=Object.freeze({context:frozenFamily('namespace-test-command-context'),replacement:frozenFamily('namespace-command-replacement')});
+export function namespaceStoryCommandRecordProfile(kind,value){
+  const family=NAMESPACE_STORY_COMMAND_SCHEMAS[kind];
+  if(!family)throw new SingularityFlowError('Unknown Story-command record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(family,value);
+  return Object.freeze({version:storedVersion,format:'sflow-'+family.id+'/v'+storedVersion});
+}
 export const NAMESPACE_SOURCE_RETENTION_SCHEMAS = /* @__PURE__ */ Object.freeze({
   plan: /* @__PURE__ */ frozenFamily('namespace-source-retention-plan'),
   intent: /* @__PURE__ */ frozenFamily('namespace-source-retention-intent'),

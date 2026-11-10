@@ -1,7 +1,7 @@
 /** Read accepted local check proof without loading a process executor or discovering a checkout. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson} from '../foundation/record-schema.mjs';
+import {canonicalJson,namespacePhaseCheckPlanProfile} from '../foundation/record-schema.mjs';
 import {NODE_CHECK_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
@@ -13,6 +13,7 @@ import {validateAgentTaskContract,validateExecutionUnitManifest,sha256 as digest
 import {namespaceScope,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
+import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
 import {createNamespacePhaseCheckCodec,phaseCheckRecord,phaseCheckRecordValue,phaseCheckEvidenceBinding,NAMESPACE_PHASE_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
@@ -46,7 +47,10 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     if(!same(head,plan.basis.head)||basis.receipt.records.find(item=>item.key===lifecycle.headKey)?.version!==plan.basis.headVersion
       ||basis.plan.basis.configurationVersion!==plan.basis.configurationVersion||!same(head.configuration,plan.basis.configuration))
       throw error('The check intent has no matching accepted lifecycle basis.','ENGINE_STORAGE_CORRUPT');
-    const phase=basis.state.workflow.phases[plan.input.phaseId],commands=(phase?.qualityCommands??[]).map(normalizeExternalCommand);
+    const phase=basis.state.workflow.phases[plan.input.phaseId],snapshot={workflow:basis.state.workflow,configuration:plan.basis.configuration,revision:plan.basis.headVersion},
+      selected=namespacePhaseCheckPlanProfile(plan).commands?await createNamespaceTestCommandOwners({observer,scope,workId}).commands(snapshot,plan.input.phaseId,{signal}):null,
+      commands=selected?.commands??(phase?.qualityCommands??[]).map(normalizeExternalCommand);
+    if(selected&&!same(selected.identity,plan.testCommands)||!selected&&(basis.state.workflow.testCommandDecisions??[]).length)throw error('The check plan has another acknowledged command inventory.','ENGINE_STORAGE_CORRUPT');
     const repositories=basis.state.workflow.sourceBindings?.current?.repositories??[];
     if(commands.length*repositories.length!==plan.steps.length||plan.sources.length!==repositories.length
       ||plan.sources.some((item,index)=>item.id!==repositories[index].id||!same(item.descriptor,repositories[index].descriptor)))

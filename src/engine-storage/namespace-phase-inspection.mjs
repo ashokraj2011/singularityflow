@@ -12,6 +12,7 @@ import {specificationAnalysisPublicationPolicy} from '../kernel/specification-an
 import {resolvedClarificationPolicy} from '../kernel/clarification-responses.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
+import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {namespaceArtifactSetPolicies} from '../kernel/namespace-artifact-sets.mjs';
 import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
@@ -41,9 +42,10 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
   async function inspect(context,binding,{signal}={}){
     const selected=contexts.get(context);if(!selected)throw error('Use the issued phase inspection.','ENGINE_INPUT_INVALID');
     const {snapshot,principal,operation}=selected,workflow=snapshot.workflow,phase=workflow.phases[binding.phase],
-      approved=await observer.approved(snapshot,{signal}),definition=approved.compiled.definition,prepublish=operation==='phase.prepublish';
+      approved=await observer.approved(snapshot,{signal}),definition=approved.compiled.definition,prepublish=operation==='phase.prepublish',
+      commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(snapshot,phase.id,{signal});
     let token=null,producer=effectivePhasePublicationProducer(phase,{modelEnabled}),fingerprint=null,inspectionStage='authoring',known=true,
-      requiredTests=phase.qualityCommands?.length?'not-inspected':'not-required';
+      requiredTests=commandProof.commands.length?'not-inspected':'not-required';
     const findings=[],advisories=[],fresh=[];
     async function attempt(readCandidate){try{return await readCandidate();}catch(cause){
       if(!repairable.has(cause.code))throw cause;
@@ -106,11 +108,11 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             category:'specification-analysis',message:typeof row==='string'?row:row.message??'',requiredBefore:null,ownerPhase:phase.id,clauseId:null,issueRefs:[],status:'advisory'})));}
         if(prepublish){
           let tested=null;
-          if(phase.qualityCommands?.length)tested=await attempt(()=>checks.forDraft({phaseId:phase.id,generation:p.generation,baseRevision:snapshot.revision,
+          if(commandProof.commands.length)tested=await attempt(()=>checks.forDraft({phaseId:phase.id,generation:p.generation,baseRevision:snapshot.revision,
             draft:{workId,phase:phase.id,revision:draft.revision,bodySha256:draft.bodySha256},artifact:p.artifact.current,configuration:snapshot.configuration},{signal}));
           candidate.checks=tested;
           if(tested){requiredTests='retained-passing';fresh.push(()=>checks.freshSources(tested,phase.id,sources,{signal}));}
-          else if(phase.qualityCommands?.length)requiredTests='evidence-required';
+          else if(commandProof.commands.length)requiredTests='evidence-required';
           if(code){const result=await attempt(()=>publications.policies.codeCandidate(candidate,snapshot,{signal}));
             if(result)fresh.push(()=>publications.policies.freshCodeCandidate(result,candidate,sources,{signal}));}
           if(inputs){const result=await attempt(()=>publications.policies.codeInputCandidate(candidate,snapshot,{signal}));

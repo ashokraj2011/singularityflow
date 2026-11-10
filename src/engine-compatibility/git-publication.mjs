@@ -382,7 +382,7 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
   let decisionRecordOwner;
   const recordInteraction=typeof decisionRecordInteraction?.prepare==='function'
     ? Object.freeze({prepare:decisionRecordInteraction.prepare.bind(decisionRecordInteraction)}) : null;
-  const decisionRecord={};
+  const decisionRecord={operations:Object.freeze(['decision.scope','decision.completeness','decision.applicability','decision.risk','decision.plan','decision.choose','decision.witness','decision.witness-exception'])};
   for(const stage of ENGINE_OPERATIONS.find(operation=>operation.port==='decisionRecord').stages) {
     decisionRecord[stage]=async(...args)=>{
       decisionRecordOwner ??= import('./git-decision-record.mjs')

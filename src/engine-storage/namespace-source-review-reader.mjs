@@ -102,7 +102,7 @@ export function createNamespaceSourceReviewOwners({observer,scope,workId}){
       if(request.expectedContext!==source.contextBinding)throw error('The exact review candidate changed. Read its current context.','SOURCE_REVIEW_BINDING_CHANGED',{
         actions:[{operation:'source-review.context',inputs:{workId,phaseId:request.phaseId}}]});
       const evaluation=replay(request.report,source.value,facts.at);
-      if(evaluation.status==='stale'||evaluation.findings.some(row=>['reviewer-not-independent','review-contract-invalid','review-self-disposition'].includes(row.code)))throw error(
+      if(['missing','stale'].includes(evaluation.status)||evaluation.findings.some(row=>['reviewer-not-independent','review-contract-invalid','review-self-disposition'].includes(row.code)))throw error(
         'The report does not describe the exact independent review contract.','SOURCE_REVIEW_REPORT_INVALID',{evaluation});
       if(source.prior.rows.some(row=>row.phase===request.phaseId&&row.generation===source.generation&&row.reportSha256===evaluation.reportSha256))throw error('This exact report is already retained.','SOURCE_REVIEW_ALREADY_RECORDED');
       const proposed=structuredClone(workflow),record={phase:request.phaseId,generation:source.generation,report:structuredClone(request.report),reportSha256:evaluation.reportSha256,reportContent:source.reportContent,

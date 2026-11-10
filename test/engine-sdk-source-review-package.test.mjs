@@ -28,7 +28,9 @@ test('installed source review retains exact sources and reaches independently ap
       const engine=createNamespaceEngine({records,content,scope:selected.scope,workId:selected.workId,authority:selected.authority,
         access:{current:()=>({projectId:selected.scope.projectId,principalId,agentId,actorKind:'human',identity:{name:'Independent reviewer',email:'independent@example.test',login:null},
           permissions:['source-review.context','source-review.record','phase.submit','phase.approve']})},clock:{now(){if(selected.replay)throw Error('Replay retains the actual original review time.');return selected.at;}}}),
-        recorded=await engine.run('source-review.record',selected.input);
+        captured=engine.capabilities,recorded=await engine.run('source-review.record',selected.input);
+      assert.ok(captured.boundOperations.some(row=>row.id==='source-review.record'));assert.ok(captured.unboundOperations.some(row=>row.id==='decisions.record'));
+      assert.equal(captured.readinessEstablished,false);assert.equal(captured.authorityGranted,false);
       assert.deepEqual(await engine.run('source-review.record',selected.input),recorded);
       if(!selected.replay){assert.equal((await engine.run('source-review.context',{phaseId:'intake'})).manifest.status.status,'ready');
         agentId='analyst';await engine.run('phase.submit',{phaseId:'intake'});agentId=null;principalId='independent-reviewer';
@@ -41,7 +43,7 @@ test('installed source review retains exact sources and reaches independently ap
   await writeFile(path.join(consumer,'review.mjs'),script);
   const invoke=replay=>JSON.parse(child(process.execPath,['review.mjs',JSON.stringify({directory:f.directory,scope:f.scope,workId:f.workId,authority:f.authority,at:'2026-11-10T13:00:00.000Z',input,replay})],{cwd:consumer,env:{...env,PATH:''}})),first=invoke(false);
   assert.equal((await f.capture()).workflow.status,'closed');assert.deepEqual(invoke(true),first);
-  await writeFile(path.join(consumer,'types.mts'),`import type {Engine} from '${name}';declare const engine:Engine;
+  await writeFile(path.join(consumer,'types.mts'),`import type {Engine} from '${name}';declare const engine:Engine;const profile:'sflow-engine-host-capabilities/v1'=engine.capabilities.profile;const granted:false=engine.capabilities.authorityGranted;
     engine.run('source-review.context',{phaseId:'intake'});
     engine.run('source-review.record',{operationId:'review',phaseId:'intake',report:{schemaVersion:1},expectedContext:'sha256:value'});
     // @ts-expect-error The actual independent report is required.

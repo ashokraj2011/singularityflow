@@ -1126,6 +1126,7 @@ function singleDecisionInput(value, operation, {requestOnly=false,intent=false}=
   const input=data(value), fields=intent ? operation.intentFields : requestOnly ? operation.requestFields : operation.inputFields;
   if (!input || typeof input!=='object' || Array.isArray(input)
     || Object.keys(input).some(key=>!fields.includes(key))) invalid('Unknown standalone decision input field.');
+  if(!requestOnly&&!intent&&(operation.requiredFields??[]).some(key=>!Object.hasOwn(input,key)||input[key]==null))invalid('Supply every required field for this standalone operation.');
   for (const [key,value] of Object.entries(input)) {
     if (value==null) continue;
     if (['fetch','notApplicable','open','fromArtifact'].includes(key)) {if(typeof value!=='boolean')invalid(`Decision ${key} must be a boolean.`);}
@@ -1668,7 +1669,7 @@ async function advanceConvergence(port,inputs,signal,operation,{executeOperation
 
 function createEngineRuntime({ ports } = {}, implementations) {
   if (!ports || typeof ports !== 'object') invalid('Engine construction requires explicit trusted ports.');
-  const bound = new Map();
+  const bound = new Map(),selections=new Map();
   for (const name of new Set(ENGINE_OPERATIONS.map(operation => operation.port))) {
     const supplied = ports[name];
     if (supplied === undefined) continue;
@@ -1676,6 +1677,10 @@ function createEngineRuntime({ ports } = {}, implementations) {
     if (!supplied || stages.some(stage => typeof supplied[stage] !== 'function')) {
       invalid(`The ${name} port must implement every declared operation stage.`);
     }
+    if(supplied.operations!==undefined){const selected=data(supplied.operations);
+      if(!Array.isArray(selected)||!selected.length||selected.length>ENGINE_OPERATIONS.length||new Set(selected).size!==selected.length
+        ||selected.some(id=>typeof id!=='string'||registry.get(id)?.port!==name))invalid('A host operation selection must name distinct operations from its own port.');
+      selections.set(name,new Set(selected));}
     bound.set(name, Object.freeze(Object.fromEntries([
       ...stages.map(stage => [stage, supplied[stage].bind(supplied)]),
       ...(typeof supplied.notice === 'function' ? [['notice', supplied.notice.bind(supplied)]] : [])
@@ -1693,12 +1698,19 @@ function createEngineRuntime({ ports } = {}, implementations) {
       'No port implements this engine operation in the current host.', { code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:definition.port} });
     const input = implementations[definition.validate](inputs, definition);
     const port = bound.get(definition.port);
-    if (!port) throw new SingularityFlowError('No port implements this engine operation in the current host.', {
-      code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:definition.port}
+    if (!port||selections.has(definition.port)&&!selections.get(definition.port).has(operation)) throw new SingularityFlowError('No port implements this engine operation in the current host.', {
+      code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:definition.port,...(port?{required:[operation]}:{})}
     });
     return invoke(() => implementations[definition.execute](port, input, signal, definition, {executeOperation:execute}));
   };
-  return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS, run: execute,
+  let capabilities;
+  const wired=row=>{const definition=registry.get(row.id);return bound.has(row.port)&&implementations[definition.validate]&&implementations[definition.execute]
+    &&(!selections.has(row.port)||selections.get(row.port).has(row.id));};
+  const inspectCapabilities=()=>capabilities??=Object.freeze({schemaVersion:1,profile:'sflow-engine-host-capabilities/v1',contract:ENGINE_CONTRACT,
+    boundOperations:Object.freeze(ENGINE_OPERATIONS.filter(wired).map(row=>Object.freeze({id:row.id,port:row.port}))),
+    unboundOperations:Object.freeze(ENGINE_OPERATIONS.filter(row=>!wired(row)).map(row=>Object.freeze({id:row.id,port:row.port}))),
+    authorityGranted:false,readinessEstablished:false});
+  return Object.freeze({ contract: ENGINE_CONTRACT, operations: ENGINE_OPERATIONS, get capabilities(){return inspectCapabilities();},run: execute,
     ...Object.fromEntries(Object.entries(ENGINE_HELPERS).map(([helper, operation]) =>
       [helper, { [helper]: (inputs, options) => execute(operation, inputs, options) }[helper]])) });
 }

@@ -92,9 +92,12 @@ ${Object.entries(ENGINE_HELPERS).map(([helper, operation]) => `  ${helper}: ${JS
 }>;
 /** Trusted construction-time ports, not operation inputs. Implementations must enforce their declared binding and authority. */
 export type EngineStage = (...parameters: unknown[]) => unknown;
-export type EnginePort = Readonly<Record<string, EngineStage>>;
+export type EnginePort = Readonly<Record<string, EngineStage | readonly EngineOperation[] | undefined>>;
+export interface EngineHostCapabilities {readonly schemaVersion:1;readonly profile:"sflow-engine-host-capabilities/v1";readonly contract:typeof ENGINE_CONTRACT;
+  readonly boundOperations:readonly {readonly id:EngineOperation;readonly port:string}[];readonly unboundOperations:readonly {readonly id:EngineOperation;readonly port:string}[];
+  readonly authorityGranted:false;readonly readinessEstablished:false;}
 export interface Engine {
-  readonly contract: typeof ENGINE_CONTRACT; readonly operations: typeof ENGINE_OPERATIONS;
+  readonly contract: typeof ENGINE_CONTRACT; readonly operations: typeof ENGINE_OPERATIONS; readonly capabilities:EngineHostCapabilities;
   run<O extends EngineOperation>(operation: O, ...args: {} extends EngineInputs[O]
     ? [inputs?: EngineInputs[O], options?: EngineOptions]
     : [inputs: EngineInputs[O], options?: EngineOptions]): Promise<EngineResult<O>>;

@@ -101,6 +101,12 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
   and an offline installed consumer pass 288 affected Mac checks. See
   [the source-review record](ENGINE-SDK-NAMESPACE-SOURCE-REVIEW.md).
 
+- The 76-operation vocabulary now has a separate, immutable host-binding manifest. It identifies
+  actual connected and unbound operations without reading a Story or claiming readiness/authority.
+  Namespace and native Git composition declare their distinct decision owners; required new inputs
+  fail before effects. Offline SDK/types, real native parity and 192 affected Mac checks pass with
+  every original bound unchanged. See [the host-binding record](ENGINE-SDK-HOST-CAPABILITIES.md).
+
 ## Still required before either phase can be called complete
 
 - The remaining native query/rule inventory and parity audit.

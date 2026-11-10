@@ -85,14 +85,15 @@ export function createNamespaceEngine(options={}) {
   const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planPorts,witnessPorts,assignmentPort,sourceReviewPorts;
   const sourceReviews=()=>sourceReviewPorts??=createNamespaceSourceReviewPorts(common);
   const witnesses=()=>witnessPorts??=createNamespaceWitnessPorts(common),plans=()=>planPorts??=createNamespacePlanDecisionPorts(common);
-  const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord=Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
+  const decisionOperations=Object.freeze(['phase.assign','source-review.record','source-review.decide','decision.choose','decision.plan','plan.correction.record','decision.witness',...NAMESPACE_SCOPE_DECISION_OPERATIONS]);
+  const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord={operations:decisionOperations,...Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
     const operation=parameters.at(-1)?.operation?.id;
-    if(!['source-review.record','source-review.decide'].includes(operation)&&operation!=='phase.assign'&&operation!=='decision.choose'&&operation!=='decision.plan'&&operation!=='plan.correction.record'&&operation!=='decision.witness'&&!NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation))throw new SingularityFlowError(
+    if(!decisionOperations.includes(operation))throw new SingularityFlowError(
       'This decision needs its declared namespace evidence and authority owner.',{code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:'decisionRecord',required:[operation]}});
     const port=operation==='source-review.record'?sourceReviews().record:operation==='source-review.decide'?sourceReviews().decide:operation==='phase.assign'?(assignmentPort??=createNamespaceAssignmentPort(common)):operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
       :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
     return port[stage](...parameters);
-  }]));
+  }]))};
   const ports={...lazyPorts(()=>sourceReviews(),{sourceReviewContext:['load','read']}),...createNamespaceReadPorts(common,{authority}),
     planCorrectionContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>plans().correctionContext[stage](...args)])),
     witnessContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>witnesses().witnessContext[stage](...args)])),
@@ -111,7 +112,7 @@ export function createNamespaceEngine(options={}) {
     publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...routing,decisionRecord,
     ...lazyPorts(()=>scoped(),{scopeContext:['load','read']}),
-    ...lazyPorts(()=>({upstream:createNamespaceUpstreamPort(common,runtime)}),{upstream:['load','resolve','commit','finish']}),
+    ...Object.fromEntries(Object.entries(lazyPorts(()=>({upstream:createNamespaceUpstreamPort(common,runtime)}),{upstream:['load','resolve','commit','finish']})).map(([name,port])=>[name,{...port,operations:['upstream.list','upstream.raise','upstream.decide']}])),
     ...lazyPorts(()=>({storyDocument:createNamespaceInputDocumentPort(common)}),{storyDocument:['load','prepare','commit','finish']}),
     ...lazyPorts(()=>createNamespaceConformanceDecisionPorts(common),{conformanceDecision:['load','prepare','commit','finish'],conformanceContext:['load','read']}),
     ...lazyPorts(()=>createNamespaceRejectionPorts(common),{rejection:['load','prepare','commit','finish']}),

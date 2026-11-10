@@ -5278,7 +5278,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const key = createHash('sha256').update(repository).digest('hex').slice(0, 32);
     if (told.includes(key)) return;
     void context.globalState.update(plainChatToldKey, [...told, key].slice(-200));
-    void vscode.window.showInformationMessage('Singularity Flow keeps each Copilot prompt in this repository, redacted: in the Story\'s "Asked for" '
+    void showCompactInformationMessage('Singularity Flow keeps each Copilot prompt in this repository, redacted: in the Story\'s "Asked for" '
       + 'in a Story checkout, otherwise in this clone\'s own log (Singularity Flow: Show Kept Copilot Prompts). A prompt that holds what looks like a secret is refused, '
       + 'and a plain chat\'s changes follow the capability\'s "Changes in plain chats" setting. /sf-pause turns this off on this machine.');
   }));

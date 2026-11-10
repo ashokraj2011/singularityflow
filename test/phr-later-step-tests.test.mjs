@@ -20,7 +20,7 @@ const run = (id, level, argv) => ({ id, kind: 'test', level, argv, workingDirect
 test('[PHR:REQ-007] item 8: Implementation runs the test Verification chose, and Verification only confirms it on the same code', slowLane({ timeout: 600_000 }), async (t) => {
   const story = await storyAtVerification(t, W, { configure: (configuration) => {
     configuration.tests = [run('value-unit', 'unit', ['node', '--test', 'test/value.test.mjs']),
-      run('value-integration', 'integration', ['node', '--test', 'test/'])];
+      run('value-integration', 'integration', ['node', '--test', './test/value.test.mjs'])];
     configuration.phases.implementation.testLevels = ['unit'];
     const overrides = configuration.workTypes['spec-driven-standard'].phaseOverrides ??= {};
     overrides.verification = { ...(overrides.verification ?? {}), testIds: ['value-integration'] };

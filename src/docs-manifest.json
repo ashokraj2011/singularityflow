@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "428d4a1daab379e9064ef7a6b05c9d367ef93a07",
+  "sourceCommit": "71fff2752208825b6a60d2315f9d5c43276277e2",
   "topicCount": 92,
-  "contentSha256": "87cbd71b66a12cf092e3cfe623b4038948b731a9b96d971aa4ac4738514ad94d",
+  "contentSha256": "e1129579b9b79c3c10796bc09519a0114aa2c6f621f1fb24582f0789cf190b0b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -96,8 +96,8 @@
     {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 28,
-      "sha256": "153520efdb3c626f12c605de03ea9731df39400c53533c0f2126adaccca85437",
+      "version": 29,
+      "sha256": "5fde62cb7cc02ab30c8791fa706926f7ced89daa53dbc10af705246252770682",
       "routingSha256": "6874a23d15e217eb6dd79f5fbdd5ca670345c6cce3d0cbd1ca82ccfaf8d94049",
       "file": "capability-management.md"
     },
@@ -432,8 +432,8 @@
     {
       "id": "plain-chat-routing",
       "title": "Plain chats in a repository that uses SFlow",
-      "version": 2,
-      "sha256": "d9a403a5bfa1e0f1fdb6b1686df1d6deabb8fcbcee12a0668cdcc230a199be68",
+      "version": 3,
+      "sha256": "af2983fe6dd8d42822e44b12e709316ef351a9e1c847650a5ce0fbc830c19aba",
       "routingSha256": "2216ec82c46ba1de4270b9576bdbc0237d8cc73f5cfb83a9bae47f65e7861deb",
       "file": "plain-chat-routing.md"
     },

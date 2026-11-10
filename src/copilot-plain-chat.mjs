@@ -2,7 +2,8 @@
  * Plain-chat routing in a repository that uses SFlow (docs/SPEC-PCR-PLAIN-CHAT-ROUTING-v1.md, P1 and P2).
  *
  *   notePrompt              the prompt hook's part: every prompt kept, redacted [PCR:REQ-002]; one that holds what
- *                           looks like a secret is blocked where the host reads the answer, Copilot CLI [PCR:REQ-003]
+ *                           looks like a secret is blocked (Copilot CLI and VS Code), and VS Code's chat, which keeps
+ *                           the blocked prompt, stays blocked until a new chat [PCR:REQ-003]
  *   secretInPromptDenial    every tool call of a turn whose prompt held one is refused, for the host that sent it on
  *   plainChatChangeGuard    a plain chat's change is refused with the line to type, recorded, or let through, as the
  *                           capability that owns the path says (`policy.plainChatEdits`) [PCR:REQ-010 to REQ-013]
@@ -133,20 +134,45 @@ async function promptWords(prompt, skill) {
   return redactedWords(`/${skill}${typed ? ` ${typed}` : ''}`);
 }
 
-function blockReason(kind) {
+/**
+ * Whether the host keeps a blocked prompt in its chat and sends it with the next one: VS Code's own chat, whose prompt
+ * hook names its event. In a real run (2026-11-10) VS Code blocked the prompt, kept it in the chat, and the next
+ * prompt there reached the model with the blocked one in its history [PCR:REQ-003].
+ */
+function keepsBlockedPrompt(payload) {
+  return payload?.hook_event_name === 'UserPromptSubmit';
+}
+
+const PAUSE_SKILLS = Object.freeze(['sf-pause', 'sflow-pause']);
+
+function blockReason(kind, payload) {
+  if (keepsBlockedPrompt(payload)) {
+    return `SECRET_IN_PROMPT: this prompt held what looks like a ${kind} and was not sent. VS Code keeps it in this chat and would send `
+      + 'it with your next message, so this chat sends nothing more: start a new chat and send the prompt there without it. '
+      + 'SFlow kept only the redacted form; this chat\'s own history still holds what was typed. If it is no secret, /sf-pause turns this check off.';
+  }
   return `SECRET_IN_PROMPT: this prompt held what looks like a ${kind} and was not sent. Remove it and send it again. `
     + 'SFlow kept only the redacted form; Copilot CLI\'s own session log still holds what was typed. If it is no secret, /sf-pause turns this check off.';
+}
+
+function heldReason(kind) {
+  return `SECRET_IN_PROMPT: an earlier prompt in this chat held what looks like a ${kind}, and VS Code sends it with every message `
+    + 'here, so this one was not sent. Start a new chat and send it there. If that was no secret, /sf-pause turns this check off.';
 }
 
 /**
  * The prompt hook's part, for every prompt [PCR:REQ-002]: the session's copy is replaced, and in a repository that
  * uses SFlow the prompt is kept in the clone's log, and a plain one in the Story's "Asked for" too, marked plain
  * chat. A subagent's task is no person's prompt and is not kept. Returns the block a secret earns, or null.
+ * Where the host keeps a blocked prompt in its chat (VS Code), the chat stays blocked until a new one, except for
+ * /sf-pause, the person's own way out when it was no secret.
  */
 export async function notePrompt(payload, { skill = null, now = Date.now() } = {}) {
   const { subagentPayload, typedArguments } = await import('./asked-for.mjs');
   // A subagent's task shares its session: the person's own copy, and any secret it marks, stay.
   if (subagentPayload(payload)) return null;
+  const earlier = keepsBlockedPrompt(payload) ? (await readSessionCopy(payload))?.held ?? null : null;
+  const held = earlier && !PAUSE_SKILLS.includes(skill) ? earlier : null;
   await writeSessionCopy(payload, null);
   if (typeof payload.prompt !== 'string') return null;
   const repository = sflowRepositoryAt(typeof payload.cwd === 'string' ? payload.cwd : process.cwd());
@@ -159,20 +185,27 @@ export async function notePrompt(payload, { skill = null, now = Date.now() } = {
   const story = await checkoutStory(repository).catch(() => null);
   const turnId = randomUUID();
   const at = new Date(now).toISOString();
-  await writeSessionCopy(payload, { turnId, at, plain: !skill, skill, ...(words ?? { text: '' }), secret, root: repository.root, story, changed: false });
+  // What this chat now holds: its own secret where the host keeps a blocked prompt, else the earlier one, which a
+  // /sf-pause turn keeps too: only the pause it asks for, which clears this copy, ends it.
+  const holds = secret && keepsBlockedPrompt(payload) ? secret : earlier;
+  await writeSessionCopy(payload, { turnId, at, plain: !skill, skill, ...(words ?? { text: '' }), secret, ...(holds ? { held: holds } : {}),
+    root: repository.root, story, changed: false });
   await notePromptLog(repository.common, { session: sessionKey(payload)?.slice(0, 16) ?? null, turn: turnId,
     kind: skill ? 'skill' : 'plain', skill, text: words?.text ?? '', ...(words?.truncated ? { truncated: true } : {}),
-    repository: repository.root, workId: story?.workId ?? null, phase: story?.phase ?? null, ...(secret ? { secret } : {}) }, { at: now }).catch(() => {});
-  if (!skill && story && !story.typedFocusOff && words?.text && !secret) {
+    repository: repository.root, workId: story?.workId ?? null, phase: story?.phase ?? null, ...(secret ? { secret } : {}),
+    ...(held && !secret ? { held } : {}) }, { at: now }).catch(() => {});
+  if (!skill && story && !story.typedFocusOff && words?.text && !secret && !held) {
     await (await import('./asked-for.mjs')).noteAskedFor(story.gitDir, { workId: story.workId, phase: story.phase, generation: story.generation,
       text: words.text, truncated: words.truncated === true, skill: null, turnId, at, plainChat: true }).catch(() => {});
   }
-  if (secret) return { decision: 'block', reason: blockReason(secret) };
+  if (secret) return { decision: 'block', reason: blockReason(secret, payload) };
+  if (held) return { decision: 'block', reason: heldReason(held) };
   return skill ? null : { additionalContext: await routeLine(story, repository) };
 }
 
 /**
- * The one line of context a plain prompt gets where a host reads it, Copilot CLI [PCR:REQ-040]: where the work stands
+ * The one line of context a plain prompt gets, read by Copilot CLI and VS Code's own chat (a real run, 2026-11-10)
+ * [PCR:REQ-040, REQ-041]: where the work stands
  * and the line the person types to change it. It names the route; it never asks the agent to run a skill or a command.
  */
 async function routeLine(story, repository) {
@@ -185,8 +218,8 @@ async function routeLine(story, repository) {
 }
 
 /**
- * A turn whose prompt held what looks like a secret runs nothing [PCR:REQ-003]. Copilot CLI blocked that prompt
- * before any model call; VS Code sent it on, so its turn's tool calls are refused until the next prompt.
+ * A turn whose prompt held what looks like a secret runs nothing [PCR:REQ-003]. Copilot CLI and VS Code block that
+ * prompt before any model call; a host that sends it on anyway has its turn's tool calls refused until the next prompt.
  */
 export async function secretInPromptDenial(payload) {
   const copy = await readSessionCopy(payload);

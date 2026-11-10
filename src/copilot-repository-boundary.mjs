@@ -187,7 +187,7 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
   const noted = await notePlainChatPrompt(payload, { skill, paused: mode.paused, now });
   if (noted?.decision === 'block') {
-    // The prompt never reaches the model (Copilot CLI): no turn of it, and none left from before.
+    // The prompt never reaches the model (Copilot CLI and VS Code): no turn of it, and none left from before.
     await removeRecord(file);
     await removeMutationRecord(file);
     return noted;

@@ -1115,6 +1115,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
         isAbsolute:path.isAbsolute,normalize:path.normalize,parse:path.parse,posixIsAbsolute:path.posix.isAbsolute,posixNormalize:path.posix.normalize,
         posixBasename:path.posix.basename,posixDirname:path.posix.dirname,posixRelative:path.posix.relative,win32IsAbsolute:path.win32.isAbsolute,toPosix:value=>value.split(path.sep).join('/')});
       const claimRules=pure.specificationClaimPolicies(paths,Object.freeze({profile:pure.TEXT_VALUE_SYNTAX_PROFILE,byteLengthUtf8:value=>Buffer.byteLength(value),sha256Utf8:digest.sha256Utf8}));
+      const allocationContracts=pure.verificationContractPolicies(paths,digest);
+      assert.deepEqual(allocationContracts.requiredAcceptanceFromPlan(['STORY:AC-001','STORY:AC-002'],{'STORY:AC-001':{tests:['test/app.js'],steps:['other']},'STORY:AC-002':{tests:['test/here.js']}},new Map(),'code'),['STORY:AC-002']);
       const repositories=pure.repositoryPlanPolicies(paths,['singularity/work-items']),qualified=repositories.deriveRepositoryPlan(
         '## Repository roots\\n\\n| Repository | Plan root |\\n| --- | --- |\\n| app | frontend |\\n| service | backend |',
         {claims:{'STORY:REQ-001':{expectedPaths:['frontend/src/app.js','backend/src/app.js'],tests:[]}},supportingFiles:[]});
@@ -1222,7 +1224,7 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       sourceTextHunks('before','after',{root:'/checkout',ready:()=>true});
       import {specificationValuePolicies,TEXT_DIGEST_PROFILE,parseVerificationIntent} from '${packageName}/specifications';
       import {javascriptDeclarationPolicies,scanSourceClauseTags} from '${packageName}/specifications';
-      import {implementationBindingPolicies,reviewBindings,codeDocumentationPolicies,publicDeclarations} from '${packageName}/specifications';
+      import {implementationBindingPolicies,reviewBindings,codeDocumentationPolicies,publicDeclarations,verificationContractPolicies} from '${packageName}/specifications';
       import {sourceTagOriginPolicies,SOURCE_TAG_ORIGIN_VALUES_PROFILE} from '${packageName}/specifications';
       import {repositoryPlanPolicies,REPOSITORY_PLAN_PROFILE} from '${packageName}/specifications';
       import {joinDeclaration,witnessResult,acceptanceWitnessPolicies} from '${packageName}/specifications';
@@ -1274,6 +1276,8 @@ test('the headless SDK tarball installs and runs outside the source checkout', {
       // @ts-expect-error Added-line facts require exact current line locations.
       const badDelta:SourceOriginLineDelta={path:'src/app.js',side:'added',line:null,text:'// tag'};
       const bindingValues=implementationBindingPolicies(bindingPaths,Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64)}));
+      const requiredTags:string[]=verificationContractPolicies(bindingPaths,Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:(_text:string)=>'a'.repeat(64)}))
+        .requiredAcceptanceFromPlan(['VALUE:AC-001'],{'VALUE:AC-001':{tests:['test/app.js'],steps:['code']}},new Map(),'code');
       const bindingReplay:Generator<ImplementationBindingRequest,ImplementationBindingResult,import('${packageName}/specifications').ImplementationDiffPreview|string|null>
         =bindingValues.implementationBindingsReplay({changeSet:{entries:[]},required:[],tags:[]});
       const bindingStep=bindingReplay.next();if(!bindingStep.done&&bindingStep.value.kind==='implementation-source'){

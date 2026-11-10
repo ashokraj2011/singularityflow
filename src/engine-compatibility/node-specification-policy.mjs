@@ -12,6 +12,7 @@ export const normalizeVerificationContracts=/* @__PURE__ */ (()=>contracts.norma
 export const mergedVerificationContracts=/* @__PURE__ */ (()=>contracts.mergedVerificationContracts)();
 export const effectiveContract=/* @__PURE__ */ (()=>contracts.effectiveContract)();
 export const contractRequiresTestTag=/* @__PURE__ */ (()=>contracts.contractRequiresTestTag)();
+export const requiredAcceptanceFromPlan=/* @__PURE__ */ (()=>contracts.requiredAcceptanceFromPlan)();
 export const testSlotFor=/* @__PURE__ */ (()=>contracts.testSlotFor)();
 export const contractSha256=/* @__PURE__ */ (()=>contracts.contractSha256)();
 export const witnessMappingCore=/* @__PURE__ */ (()=>contracts.witnessMappingCore)();

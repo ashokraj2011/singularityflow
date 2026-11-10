@@ -11,7 +11,7 @@ export const converterSource='// @clause:STORY-1:REQ-001 Converts the selected i
   +'// @clause:STORY-1:AC-001 Returns FF for the approved 255 example.\nexport const convert=value=>value.toString(16).toUpperCase();\n';
 export async function namespaceSourceClauseFixture(t,{backend='filesystem',configure=()=>{},source=converterSource,baselineSource='export const convert=value=>String(value);\n',
   retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1',lineOrigins=false,originalSource=baselineSource,retainOrigins=true,plan=planText,
-  baselineTestSource='// Original test source.\n'}={}) {
+  baselineTestSource='// Original test source.\n',testSource=null}={}) {
   const f=await namespaceSpecificationFixture(t,{backend,configure:definition=>{
     definition.definition.spec.namespace=namespace;
     definition.definition.codeDelivery={traceability:{sourceBindings:'enforce'}};configure(definition);
@@ -45,7 +45,7 @@ export async function namespaceSourceClauseFixture(t,{backend='filesystem',confi
   await engine.run('phase.prepare',{phaseId:'build'});
   for(const root of roots) {
     if(source===null)await rm(path.join(root,'src/converter.js'));else await writeFile(path.join(root,'src/converter.js'),replace(source));
-    await writeFile(path.join(root,'test/converter.test.js'),"// @ac:"+namespace+":AC-001\n// An authored regression is not executed evidence.\n");
+    await writeFile(path.join(root,'test/converter.test.js'),testSource===null?"// @ac:"+namespace+":AC-001\n// An authored regression is not executed evidence.\n":replace(testSource));
   }
   const retain=(operationId='clause-current-bytes')=>engine.run('phase.source.retain',{operationId,workId:f.inputs.workId,phaseId:'build'});
   if(retainChanges)await retain();

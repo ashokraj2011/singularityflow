@@ -697,7 +697,7 @@ test('namespace policy proof is read-only, versioned, and independent of Story c
   }
   const rule='src/kernel/story-policy.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[rule],allowed:[rule,...await sourceFiles('src/foundation')]});
   assert.deepEqual(pure.problems,[]);
-  const owners=new Set([reader,'src/engine-storage/namespace-phase-entry.mjs','src/engine-storage/namespace-clarifications.mjs','src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-delivery-inspection.mjs','src/engine-storage/namespace-test-witnesses.mjs',
+  const owners=new Set([reader,'src/engine-storage/namespace-code-preflight.mjs','src/engine-storage/namespace-phase-entry.mjs','src/engine-storage/namespace-clarifications.mjs','src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-delivery-inspection.mjs','src/engine-storage/namespace-test-witnesses.mjs',
     'src/engine-storage/namespace-preparation.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-source-inspection.mjs','src/engine-storage/namespace-source-retention-reader.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-reader.mjs',
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-routing-choice.mjs']);
   for(const file of await sourceFiles('src')) {
@@ -874,6 +874,10 @@ test('implementation regions and reviewer choices have pure owners while the nat
 
 test('retained source proof and shared observations cannot execute or write',async()=>{
   const allowedByFile=new Map([
+    ['src/engine-storage/namespace-code-preflight.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-policy.mjs','../kernel/specification-values.mjs','../kernel/phase-policy.mjs',
+      '../engine-compatibility/node-source-policy.mjs','../engine-compatibility/node-specification-policy.mjs','../engine-compatibility/node-source-analysis.mjs','../engine-compatibility/node-repository-plan.mjs',
+      './namespace-code-source.mjs','./namespace-story-reader.mjs','./namespace-specifications.mjs','./namespace-source-retention-reader.mjs','./namespace-source-baseline-reader.mjs','./namespace-source-clauses.mjs','./namespace-phase-check-reader.mjs','./namespace-source-control-reader.mjs'])],
+    ['src/engine-storage/namespace-code-source.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs','../foundation/source-snapshot.mjs','../kernel/code-delivery-evidence.mjs','./namespace-source-patches.mjs','./namespace-source-content-reader.mjs'])],
     ['src/engine-storage/namespace-source-patches.mjs',new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs','../foundation/source-snapshot.mjs','../kernel/source-text-diff.mjs','./namespace-source-content-reader.mjs'])],
     ['src/engine-storage/namespace-implementation-regions.mjs',new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../engine-compatibility/node-source-analysis.mjs','./namespace-source-content-reader.mjs','./namespace-source-patches.mjs'])],
     ['src/engine-storage/namespace-test-witnesses.mjs',new Set(['../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',

@@ -119,7 +119,7 @@ export interface VerificationSlot { readonly slot:string;readonly method:Verific
 export interface VerificationContract { readonly clauseId:string;readonly combination:'all'|'any';readonly reason?:string;
   readonly slots:readonly VerificationSlot[];readonly stated?:boolean }
 export interface VerificationClaim {readonly tests?:readonly string[];readonly expectedPaths?:readonly string[];readonly testDisposition?:string;
-  readonly fulfillment?:string;readonly verificationCriterion?:string}
+  readonly fulfillment?:string;readonly verificationCriterion?:string;readonly steps?:readonly string[]}
 export interface DraftDiagnostic {readonly code:string;readonly message:string;readonly line:number|null;readonly clauseId:string|null;
   readonly field:string|null;readonly details:Readonly<Record<string,unknown>>}
 export interface VerificationContracts {
@@ -131,6 +131,7 @@ export interface VerificationContracts {
   mergedVerificationContracts(records?:readonly {readonly verificationContracts?:readonly VerificationContract[]}[]):Map<string,VerificationContract>;
   effectiveContract(clauseId:string,contracts:ReadonlyMap<string,VerificationContract>,claim?:VerificationClaim|null):VerificationContract|null;
   contractRequiresTestTag(contract:VerificationContract|null):boolean;
+  requiredAcceptanceFromPlan(clauseIds:readonly string[],claims:Readonly<Record<string,VerificationClaim>>,contracts:ReadonlyMap<string,VerificationContract>,phaseId:string):string[];
   testSlotFor(contract:VerificationContract|null,witness:{readonly testSource:string}):VerificationSlot|null;
   contractSha256(contract:VerificationContract|null):string|null;
   witnessMappingCore(witness:Readonly<Record<string,unknown>>,binding:{readonly clauseBodySha256:string;readonly contract:VerificationContract|null}):Record<string,unknown>;

@@ -18,7 +18,7 @@ const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verificati
 import { phaseRequiresCodeDelivery, storyTestScope } from './code-delivery-policy.mjs';
 import {pinnedTestEvidenceSource, reviewCodeSource, reviewMayReturnToCode, reviewRepairTarget, reviewOwnRepairBoundary,codeDeliveryRepairRoute} from './kernel/phase-policy.mjs';
 export {reviewCodeSource,reviewMayReturnToCode,reviewRepairTarget,reviewOwnRepairBoundary} from './kernel/phase-policy.mjs';
-import {specificationCriteria, namespaceOf, tagKey,unknownCriterionTags,plannedClaimAllocatedTo as allocatedTo} from './kernel/specification-policy.mjs';
+import {specificationCriteria, namespaceOf, tagKey,unknownCriterionTags,plannedClaimAllocatedTo as allocatedTo,acceptanceTagBindings} from './kernel/specification-policy.mjs';
 export {specificationCriteria,unknownCriterionTags} from './kernel/specification-policy.mjs';
 import {unchangedClauseTagsNote,otherStoryTagsNote} from './kernel/code-delivery-evidence.mjs';
 export {unchangedClauseTagsNote,otherStoryTagsNote} from './kernel/code-delivery-evidence.mjs';
@@ -50,7 +50,7 @@ import { normalizeQualifiedClauseId } from './foundation/traceability-ids.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
 import { codeCandidateScope, outsideEveryCandidate, unreconciledCandidatePaths } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
-import {contractRequiresTestTag,effectiveContract,mergedVerificationContracts} from './engine-compatibility/node-specification-policy.mjs';
+import {requiredAcceptanceFromPlan,mergedVerificationContracts} from './engine-compatibility/node-specification-policy.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 import { implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
@@ -300,16 +300,10 @@ export async function acceptanceIds(root, config, workflow, phase) {
     // A criterion the plan allocates to other code steps is owed by those steps only; with no
     // allocation every code step owes it [E2G-009, §12 #5].
     const planned = mergePlannedClaimRecords(records.planned ?? []);
-    const owedHere = (id) => {
-      const steps = (planned[id] ?? planned[String(id).toUpperCase()])?.steps ?? [];
-      return !steps.length || steps.includes(phase.id);
-    };
     // Only a criterion a test must verify needs an @ac tag [E2G-013]: one verified by inspection or
     // visual evidence, or whose tests the plan reviewed as not applicable, needs none.
     const contracts = mergedVerificationContracts(records.planned ?? []);
-    const tested = (id) => contractRequiresTestTag(effectiveContract(String(id).toUpperCase(), contracts,
-      planned[id] ?? planned[String(id).toUpperCase()] ?? null));
-    return [...new Set(indexed.filter(owedHere).filter(tested))].sort();
+    return requiredAcceptanceFromPlan(indexed,planned,contracts,phase.id);
   }
   // Compatibility for workflows created before specification indexes existed. New records always
   // preserve the namespace; a legacy bare suffix is normalized only when a configured namespace
@@ -344,7 +338,6 @@ export async function acceptanceIds(root, config, workflow, phase) {
  * the module's adapter (discoverAcceptanceWitnesses).
  */
 export async function taggedAcceptanceIds(root, testPaths) {
-  const sources = new Map();
   const locations = [];
   for (const relative of testPaths) {
     const secured = await secureRepositoryPath(root, relative, {
@@ -353,19 +346,10 @@ export async function taggedAcceptanceIds(root, testPaths) {
     if (!secured.exists) continue;
     const text = await readFile(secured.absolute, 'utf8');
     for (const item of scanSourceClauseTags(text, { sourcePath: relative }).filter((entry) => entry.tag === 'ac')) {
-      if (!sources.has(item.clauseId)) sources.set(item.clauseId, new Set());
-      sources.get(item.clauseId).add(relative);
       locations.push({ clauseId: item.clauseId, testSource: relative, line: item.line });
     }
   }
-  const bindings = [...sources.entries()].flatMap(([clauseId, files]) =>
-    [...files].map((testSource) => ({ clauseId, testSource, bindingAssurance: 'namespace-qualified' })));
-  return {
-    ids: [...sources.keys()].sort(), inferred: [], ambiguous: [],
-    bindings: bindings.sort((left, right) => left.clauseId.localeCompare(right.clauseId) || left.testSource.localeCompare(right.testSource)),
-    // Each tag's own line, so a refusal can say exactly what to correct. Never part of the receipt.
-    locations: locations.sort((left, right) => left.testSource.localeCompare(right.testSource) || left.line - right.line)
-  };
+  return acceptanceTagBindings(locations);
 }
 
 /**

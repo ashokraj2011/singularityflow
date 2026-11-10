@@ -319,6 +319,12 @@ function effectiveContract(clauseId, contracts, plannedClaim = null) {
 function contractRequiresTestTag(contract) {
   return Boolean(contract?.slots?.some((entry) => entry.method === 'test' && entry.role === 'primary'));
 }
+function requiredAcceptanceFromPlan(clauseIds,planned,contracts,phaseId){
+  return [...new Set(clauseIds.filter(id=>{
+    const claim=planned[id]??planned[String(id).toUpperCase()],steps=claim?.steps??[];
+    return (!steps.length||steps.includes(phaseId))&&contractRequiresTestTag(effectiveContract(String(id).toUpperCase(),contracts,claim??null));
+  }))].sort();
+}
 
 function testSlotFor(contract, witness) {
   const tests = (contract?.slots ?? []).filter((entry) => entry.method === 'test');
@@ -352,7 +358,7 @@ function witnessMappingSha256(core) {
   return digest(core);
 }
 
-return Object.freeze({proseVerificationDeclarations,validateRetainedEvidenceDeclarations,parseVerificationContracts,normalizeVerificationContracts,mergedVerificationContracts,effectiveContract,contractRequiresTestTag,testSlotFor,contractSha256,witnessMappingCore,witnessMappingSha256});
+return Object.freeze({proseVerificationDeclarations,validateRetainedEvidenceDeclarations,parseVerificationContracts,normalizeVerificationContracts,mergedVerificationContracts,effectiveContract,contractRequiresTestTag,requiredAcceptanceFromPlan,testSlotFor,contractSha256,witnessMappingCore,witnessMappingSha256});
 }
 
 

@@ -12,6 +12,18 @@ import {createTestReportCodec} from './test-report-codec.mjs';
 
 export const EXPLANATION_LIMITS = Object.freeze({ minimum: 10, maximum: 300 });
 export const SOURCE_TAG_ORIGIN_VALUES_PROFILE='sflow-source-tag-origin-values/v1';
+export const CODE_SOURCE_BASIS_PROFILE='sflow-code-source-basis/v1';
+/** An explicit namespace observation identity. Its host must authenticate the retained proof. */
+export function codeSourceBasis(value,workflow,phase){
+  const keys=['profile','workId','phase','generation','repositoryId','sourceBindingId','generationIntentId','baselineRevision','currentRevision'];
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==keys.length
+    ||Object.keys(value).some(key=>!keys.includes(key)||!Object.hasOwn(Object.getOwnPropertyDescriptor(value,key),'value'))
+    ||value.profile!==CODE_SOURCE_BASIS_PROFILE||value.workId!==workflow.workItem.id||value.phase!==phase.id
+    ||value.generation!==nextPhaseGeneration(phase)||!['repositoryId','sourceBindingId','generationIntentId'].every(key=>typeof value[key]==='string'&&value[key].length>0&&value[key].length<=512)
+    ||!['baselineRevision','currentRevision'].every(key=>/^sha256:[a-f0-9]{64}$/u.test(value[key]??'')))throw new SingularityFlowError(
+      'Code preflight needs its exact versioned retained-source basis.',{code:'ENGINE_SOURCE_BASIS_INVALID'});
+  return Object.freeze({...value});
+}
 const TRAILING_COMMENT = /\s*(?:\*\/(?:\s*\})?|-->|#\}|%\})\s*$/u;
 
 /** Source-control references and line changes are explicit facts, never discovered repositories. */
@@ -896,11 +908,25 @@ function* codeDeliveryPreflightReplay(config, workflow, phase, { strictCoverage 
   yield request('verify-work-interval', {});
   const baselineCommit = phase.generationIntent?.baseline?.commit
     ?? workflow.workIntervals.current.sourceBaseCommit;
+  return yield* codeCandidatePreflightReplay(config,workflow,phase,{strictCoverage,ignoreDisputes,requireReconciled,baselineCommit,sourceBasis:null});
+}
+
+/** Namespace source identity has its own contract; no revision is presented as a Git commit. */
+function* namespaceCodeDeliveryPreflightReplay(config,workflow,phase,{sourceBasis:given,strictCoverage=false,ignoreDisputes=false,requireReconciled=true}={}){
+  if(!phaseRequiresCodeDelivery(phase))return null;
+  const sourceBasis=codeSourceBasis(given,workflow,phase);
+  if(phase.writeScope!=='source-and-artifact')throw new SingularityFlowError('The code phase does not permit application edits.',{code:'CODE_DELIVERY_SCOPE_INVALID'});
+  yield request('verify-source-generation',{sourceBasis});
+  return yield* codeCandidatePreflightReplay(config,workflow,phase,{strictCoverage,ignoreDisputes,requireReconciled,baselineCommit:null,sourceBasis});
+}
+
+function* codeCandidatePreflightReplay(config,workflow,phase,{strictCoverage,ignoreDisputes,requireReconciled,baselineCommit,sourceBasis}){
   const changeSet = yield request('working-change-set', {
     baseCommit: baselineCommit,
+    ...(sourceBasis?{sourceBasis}:{}),
     subject: {
       workId: workflow.workItem.id, phase: phase.id, generation: nextPhaseGeneration(phase),
-      generationIntentId: phase.generationIntent?.id ?? null
+      generationIntentId: sourceBasis?.generationIntentId??phase.generationIntent?.id??null
     }
   });
   const guards = [...new Set([
@@ -952,6 +978,7 @@ function* codeDeliveryPreflightReplay(config, workflow, phase, { strictCoverage 
     [entry.oldPath, entry.newPath].filter(Boolean)));
   const priorGenerationCommit = phase.generationIntent?.baseline?.previousGenerationCommit ?? null;
   const documentationOnlyCorrection = Number(phase.generation ?? 0) > 0
+    && (sourceBasis===null||baselineCommit!==null)
     && priorGenerationCommit === baselineCommit
     && applicationEntries.length > 0
     && applicationEntries.every((entry) => [entry.oldPath, entry.newPath]
@@ -1155,7 +1182,9 @@ function* codeDeliveryPreflightReplay(config, workflow, phase, { strictCoverage 
   }
   // The step's approvers may accept these exact problems for this exact candidate as a disputed
   // finding [recoverable-findings M2]; anything else, or any change, still refuses.
-  const candidateSha256 = errors.length ? codeDeliveryCandidateSha256(applicationEntries) : null;
+  const candidateSha256 = errors.length ? sourceBasis
+    ? 'sha256:'+receiptDigest({profile:'sflow-namespace-code-candidate/v1',sourceBasis,entries:applicationEntries})
+    : codeDeliveryCandidateSha256(applicationEntries) : null;
   const findings = errors.length ? identities.map((identity) => canonicalFinding(identity)) : [];
   const acceptedDispute = errors.length && !unknownCriteria.length && !ignoreDisputes
     ? (yield request('accepted-dispute', {problems: errors, findings, candidateSha256})).active : null;
@@ -1166,7 +1195,8 @@ function* codeDeliveryPreflightReplay(config, workflow, phase, { strictCoverage 
   const delivery = {
     requirement: 'source-and-tests',
     baselineCommit,
-    generationIntentId: phase.generationIntent?.id ?? null,
+    ...(sourceBasis?{sourceBasis}:{}),
+    generationIntentId: sourceBasis?.generationIntentId??phase.generationIntent?.id??null,
     changeSet,
     changeClassification: classifyDeliveryChanges(changeSet, {
       generatedRoots: workflow.resolution?.ast?.generatedRoots ?? config.ast?.generatedRoots ?? [],
@@ -1225,7 +1255,7 @@ function* codeDeliveryPreflightReplay(config, workflow, phase, { strictCoverage 
   }
   return delivery;
 }
-  return Object.freeze({codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,plannedSourceClauseBindingsReplay,safeEvidencePath,bindingsDigest,cornerCaseMatrixDigest,prepareTestReportReader,plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles,changesProductSource,codeDeliveryCandidateScope,plannedCodeStepPaths,canonicalFinding,canonicalFindingId,codeDeliveryCandidateSha256});
+  return Object.freeze({codeDeliveryReceiptReplay,codeDeliveryPreflightReplay,namespaceCodeDeliveryPreflightReplay,plannedSourceClauseBindingsReplay,safeEvidencePath,bindingsDigest,cornerCaseMatrixDigest,prepareTestReportReader,plannedImplementationPaths,plannedProductSourcePaths,plannedSupportingFiles,changesProductSource,codeDeliveryCandidateScope,plannedCodeStepPaths,canonicalFinding,canonicalFindingId,codeDeliveryCandidateSha256});
 }
 
 /** Where a missing clause's tag already is, in a planned file this generation does not change. */

@@ -67,6 +67,12 @@ rules. New namespace contracts and compatibility adapters must not silently modi
 
 ## Delivery phases
 
+The [namespace Code preflight bridge](ENGINE-SDK-NAMESPACE-CODE-PREFLIGHT.md) supplies accepted
+original/current source facts and approved claims to the existing shared candidate rules. Git
+and namespace sources use separate observation identities and preserve native Git outputs. This
+internal admission component still needs conditional Code evidence acceptance and its remaining
+execution/policy owners before application publication is complete. Phases 5, 7, 8 and 9 stay open.
+
 The [archived implementation-region delivery](ENGINE-SDK-ARCHIVED-REGIONS.md) reconstructs exact
 changed-line evidence from accepted original/current source archives and drives the existing shared
 binding rules. `phase.delivery.inspect` exposes it through an explicit v5 option; default v1–v4

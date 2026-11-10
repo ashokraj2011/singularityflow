@@ -204,6 +204,14 @@ export function isSpecificationDefinitionPhase(phase) {
   return kind == null || SPECIFICATION_DEFINITION_KIND_SET.has(kind);
 }
 
+/** Stable bindings over actual scanned occurrences. No source reads or inferred criteria. */
+export function acceptanceTagBindings(occurrences){
+  const sources=new Map(),locations=[];
+  for(const {clauseId,testSource,line}of occurrences){if(!sources.has(clauseId))sources.set(clauseId,new Set());sources.get(clauseId).add(testSource);locations.push({clauseId,testSource,line});}
+  return {ids:[...sources.keys()].sort(),inferred:[],ambiguous:[],bindings:[...sources.entries()].flatMap(([clauseId,files])=>[...files].map(testSource=>({clauseId,testSource,bindingAssurance:'namespace-qualified'})))
+    .sort((a,b)=>a.clauseId.localeCompare(b.clauseId)||a.testSource.localeCompare(b.testSource)),locations:locations.sort((a,b)=>a.testSource.localeCompare(b.testSource)||a.line-b.line)};
+}
+
 /** taggedAcceptanceIds' result without the tag lines in `excluded`, which bind nothing here. */
 export function withoutTags(tags, excluded) {
   const drop = new Set(excluded);

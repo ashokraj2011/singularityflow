@@ -54,7 +54,7 @@ test('workflow metadata is bounded and binds exact original phase contracts; lar
   assert.equal(view.catalogView.more, true);
   assert.ok(view.catalogView.shown > 0 && view.catalogView.shown <= 20);
   if (view.catalogView.detailLevel === 'identity') assert.equal(view.data[0].phaseCount, 1);
-  else assert.deepEqual(view.data[0].phases, ['check']);
+  else if (view.catalogView.detailLevel === 'scope') assert.deepEqual(view.data[0].phases, ['check']);
   assert.equal(view.data[0].status, 'pending-review', 'a candidate is never shown as active');
   assert.deepEqual(JSON.parse(await readFile(view.agentOutput.path, 'utf8')).data, result.data);
 });
@@ -74,7 +74,8 @@ test('identity-first fallback lists every name before rich partial scope metadat
     phases: Array.from({ length: 6 }, (_, j) => ({ id: `phase-${j}`, approval: { authorities: ['reviewers'] } })) }));
   const workflowView = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'sflow-utility-entry',
     operation: 'workflow list', data: workflows }), { cwd: f.repository }));
-  assert.equal(workflowView.catalogView.detailLevel, 'identity');
+  // At 4 KB twenty workflows keep every name, without their other identity fields.
+  assert.equal(workflowView.catalogView.detailLevel, 'names');
   assert.equal(workflowView.catalogView.more, false);
   assert.deepEqual(workflowView.data.map(row => row.id), workflows.map(row => row.id));
   assert.deepEqual(completeAgentResult(workflowView).data, workflows);

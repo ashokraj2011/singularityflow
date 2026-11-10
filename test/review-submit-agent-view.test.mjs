@@ -53,3 +53,44 @@ test('`result last --command` answers none, with the safe read, rather than anot
   assert.equal(agentAct(view).do.shell, view.safeRead);
   assert.equal(keptResultView({ status: 'none' }, { command: 'choices answer R-1 phase-confirmation specification' }).safeRead, 'singularity-flow nextsteps --for-agent --json');
 });
+
+/**
+ * Every SFlow route an agent view or refusal plan can hand an agent with --json, and whether it gets
+ * --for-agent (bounded, act first, kept for `result last`). Those that do not, and why:
+ * - review-source context/stage/decide: strict entry or write protocols that refuse the flag
+ *   (agent-entry-options.mjs); stage and decide print short results.
+ * - session other than current/open: sessionAgentEntryGuard keeps agent entry to the read-only form;
+ *   loosening it is not this fix's to do.
+ * - an exact `--confirm` replay: the person confirmed that exact command, run as given.
+ * A cut result of any of them is never replayed: `result last --command` answers none with the safe read.
+ */
+const ROUTES = {
+  'singularity-flow review-source check planning --report-file r.json --json': true,
+  'singularity-flow review-source submit planning --report-file r.json --json': true,
+  'singularity-flow review-source status planning --json': true,
+  'singularity-flow review-source decision-context planning --work-id W-1 --finding F-1 --reason <TEXT> --json': true,
+  'singularity-flow review-source stage planning --report-file r.json --json': false,
+  'singularity-flow review-source decide planning --work-id W-1 --finding F-1 --decision accept --reason R --json': false,
+  'singularity-flow choices answer R-1 phase-confirmation planning --json': true,
+  'singularity-flow choices begin approve W-1 --fetch --json': true,
+  'singularity-flow nextsteps W-1 --json': true,
+  'singularity-flow approve planning --work-id W-1 --json': true,
+  'singularity-flow approve planning --work-id W-1 --confirm abc123 --json': false,
+  'singularity-flow session current --json': true,
+  'singularity-flow session candidates --json': false,
+  'singularity-flow session attach W-1 --json': false,
+  'singularity-flow result last --wait --command "review-source submit" --json': true,
+  'singularity-flow phase prepublish planning --work-id W-1 --json': true
+};
+
+test('the inventory of routes an agent is handed: which return the bounded agent view, and the safe read for the rest', async () => {
+  const routed = await withAgentRoutes(Object.keys(ROUTES));
+  const actual = Object.fromEntries(Object.keys(ROUTES).map((route, index) => [route, routed[index].includes(' --for-agent --json')]));
+  assert.deepEqual(actual, ROUTES);
+  for (const route of Object.keys(ROUTES).filter((key) => !ROUTES[key])) {
+    const words = route.replace(/^singularity-flow /u, '').split(' ').slice(0, 2).join(' ');
+    const read = keptResultView({ status: 'none' }, { command: words }).safeRead;
+    assert.match(read, / --for-agent --json$/u, route);
+    assert.ok(!read.includes(words), `${route}: the safe read is never the command itself`);
+  }
+});

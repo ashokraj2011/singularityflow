@@ -128,10 +128,11 @@ export async function lastAgentResult({ cwd = process.cwd(), env = process.env, 
   const markers = () => entries(path.join(directory, 'running'), RUNNING_SCHEMA);
   const wanted = (entry) => !command || entry.command === `singularity-flow ${command}`.trim()
     || entry.command.startsWith(`singularity-flow ${String(command).trim()} `);
-  let active = markers().filter(({ value }) => runningNow(value, clock()));
+  // Only the named command's run is waited for: another command still running is not its result.
+  let active = markers().filter(({ value }) => runningNow(value, clock()) && wanted(value));
   while (active.length && clock() < deadline) {
     await sleep(Math.min(500, Math.max(1, deadline - clock())));
-    active = markers().filter(({ value }) => runningNow(value, clock()));
+    active = markers().filter(({ value }) => runningNow(value, clock()) && wanted(value));
   }
   if (active.length) return { status: 'running', running: active.map(({ value }) => brief(value)) };
   const kept = entries(path.join(directory, 'kept'), KEPT_RESULT_SCHEMA).sort((a, b) => (a.file < b.file ? 1 : -1)).map(({ value }) => value);

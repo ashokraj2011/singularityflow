@@ -6,7 +6,7 @@ const preview = value => typeof value === 'string' && value.length > 240 ? value
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
 
 /** Closed to list catalogs only: never summarize selected instructions, reviews or decisions. */
-export function catalogAgentView(result, limit = 20, { identityOnly = false } = {}) {
+export function catalogAgentView(result, limit = 20, { identityOnly = false, namesOnly = false } = {}) {
   if (!result || result.error || result.errors?.length) return null;
   const utility = result.resultType === 'sflow-utility-entry';
   const data = utility ? result.data : result;
@@ -22,6 +22,8 @@ export function catalogAgentView(result, limit = 20, { identityOnly = false } = 
       || (kind === 'workflow' && (!Array.isArray(item.phases)
         || item.phases.some(phase => typeof phase !== 'string' && typeof phase?.id !== 'string'))))) return null;
   const summaries = rows.slice(0, limit).map((item, index) => {
+    // Every name before fewer rows: a list-names task still answers from a 4 KB view (agent-output.mjs).
+    if (namesOnly) return { ...pick(item, ['id', 'label', 'status']), detailField: `${field}[${index}]` };
     const metadata = identityOnly
       ? kind === 'skill'
         ? pick(item, ['id', 'label', 'path', 'loading', 'instructionRefs', 'tags'])
@@ -37,7 +39,7 @@ export function catalogAgentView(result, limit = 20, { identityOnly = false } = 
   });
   const projected = kind === 'skill' ? { ...data, skills: summaries } : summaries;
   return { ...(utility ? { ...result, data: projected } : projected), catalogView: {
-    kind, metadataOnly: true, detailLevel: identityOnly ? 'identity' : 'scope',
+    kind, metadataOnly: true, detailLevel: namesOnly ? 'names' : identityOnly ? 'identity' : 'scope',
     ...(kind === 'workflow' && rows.some(row => row.catalogProjection) ? { readiness: 'not-assessed',
       sourceBindings: [...new Map(rows.filter(row => row.catalogProjection).map(row =>
         [JSON.stringify(row.catalogProjection), row.catalogProjection])).values()] } : {}),

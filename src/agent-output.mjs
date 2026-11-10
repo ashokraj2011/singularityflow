@@ -38,7 +38,10 @@ import { parseArgs, writeAtomic } from './util.mjs';
 // for a line that does not exist and the read was refused (real source reviews, 2026-11-06).
 const lineCount = (text) => text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
 
-export const DEFAULT_AGENT_OUTPUT_BYTES = 7_500;
+// Older hosts cut sooner, and keep the head, the head and tail, or the tail alone (VS Code 1.126, older
+// terminals; owner requirement 2026-11-10): an agent view is at most 4 KB, `act`'s state and its one
+// command lead it (the first 400 bytes) and `next` repeats them as its last line (leadingAct, nextOf).
+export const DEFAULT_AGENT_OUTPUT_BYTES = 4_000;
 // An agent read a 40 KB overflow file in three slices on average, up to eight: one model call per
 // slice, each re-sending the whole conversation (22% of all calls in recorded sessions, 2026-10-18
 // to 10-21). So the fields a view leaves out are written first and together, and named as at most
@@ -70,6 +73,41 @@ const oneLine = (text, limit = 400) => {
   const value = String(text ?? '').replace(/\s+/gu, ' ').trim();
   return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 };
+
+// An agent runs a shell route that returns its own view; one without --json, or with a value still to
+// fill (`--reason <TEXT>`), is the skill's to run, so the Copilot route leads.
+const agentRunnable = (shell) => typeof shell === 'string' && / --json(?=\s|$)/u.test(shell) && !/<[A-Z][A-Z0-9_-]*>/u.test(shell);
+const leadRoute = (route) => (route?.shell && (agentRunnable(route.shell) || !route?.copilot) ? 'shell' : route?.copilot ? 'copilot' : null);
+
+/** `act` with its state first and, in `do`, the command an agent runs before anything else. */
+export function leadingAct(act) {
+  if (!act || typeof act !== 'object' || Array.isArray(act)) return act;
+  const { state, do: route, ...rest } = act;
+  const lead = leadRoute(route);
+  const second = lead === 'copilot' ? 'shell' : 'copilot';
+  const command = route && typeof route === 'object' && !Array.isArray(route) && lead
+    ? { [lead]: route[lead], ...(Object.hasOwn(route, second) ? { [second]: route[second] } : {}), ...route }
+    : route;
+  return { ...(state !== undefined ? { state } : {}), ...(route !== undefined ? { do: command } : {}), ...rest };
+}
+
+// A person's step is shown to them, never run; a confirmation is asked for first.
+const PERSON_STATES = new Set(['confirm-in-terminal', 'ask-person']);
+/** The view's last line: the same one next action as `act`, for a host that keeps only the tail. */
+export function nextOf(act, result = {}) {
+  if (!act || typeof act !== 'object' || Array.isArray(act)) return {};
+  const lead = leadRoute(act.do);
+  const command = lead ? act.do[lead] : null;
+  const state = String(act.state ?? 'read');
+  const line = !command ? `${state}: ${oneLine(act.said ?? 'read act at the top of this result', 300)}`
+    : PERSON_STATES.has(state) ? `${state}: show the person ${command}; never run it`
+      : act.ask || state === 'confirm' ? `${state}: ask the person in this chat, and only on an explicit yes run ${command}`
+        : lead === 'copilot' ? `${state}: ${command}` : `${state}: run ${command}`;
+  return { [Object.hasOwn(result ?? {}, 'next') ? 'actNext' : 'next']: line.replace(/\s+/gu, ' ') };
+}
+
+/** The view ends on its `next` line, closing brace included, so a tail cut keeps it whole. */
+const endingOnNext = (text) => /\n"(?:next|actNext)":"[^\n]*"\n\}\n?$/u.test(text) ? text.replace(/\n\}(\n?)$/u, '}$1') : text;
 
 export function agentOutputBudget(env = process.env) {
   const configured = Number.parseInt(env.SINGULARITY_FLOW_AGENT_OUTPUT_BYTES ?? '', 10);
@@ -389,7 +427,7 @@ export function agentAct(result) {
   if (result.resultType === 'source-review-status' && result.reportSha256 && Array.isArray(result.continuation?.actions) && result.continuation.actions.length) {
     const [next] = result.continuation.actions;
     return withRoute({ state: 'next', do: null, read: ['status', 'findings', 'pendingDispositions', 'continuation'],
-      said: oneLine(`The review is retained (${result.status}). ${next.reason ?? ''} Never retain or submit this review again.`) }, next);
+      said: oneLine(`The review is retained (${result.status}). ${next.reason ?? ''} Never run review-source submit for it again.`) }, next);
   }
   if (result.resultType === 'source-review-check') {
     if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,
@@ -832,7 +870,7 @@ function unretainedView(act, ordered, budget, agentJson, unkept = null) {
       : { instruction: 'No repository was found from here to keep the full result; the omitted fields are not shown. Run the command from the Story checkout to read them.' }) };
   const render = (kept) => agentJson({ ...(act ? { act: { ...act, complete: false } } : {}), agentOutput,
     ...omittedList(keys.filter((key) => !kept.has(key)).map((key) => ({ field: key, bytes: size[key] })), null),
-    ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])) });
+    ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])), ...nextOf(act, ordered) });
   const kept = new Set(keys);
   // The fields act reads stay longest; otherwise the largest go first.
   const order = (left, right) => Number(reads.has(left)) - Number(reads.has(right)) || size[right] - size[left];
@@ -840,7 +878,7 @@ function unretainedView(act, ordered, budget, agentJson, unkept = null) {
   const rendered = render(kept);
   if (bytes(rendered) <= budget) return `${rendered}\n`;
   // Nothing else fits: what is missing, by name and count only.
-  return `${agentJson({ act: { state: act?.state ?? 'read', said: null, do: null, complete: false }, agentOutput, omittedFieldCount: keys.length })}\n`;
+  return `${agentJson({ act: { state: act?.state ?? 'read', do: act?.do ?? null, said: null, complete: false }, agentOutput, omittedFieldCount: keys.length, ...nextOf(act, ordered) })}\n`;
 }
 
 /** The lines of `text` that fit `limit` bytes, whole lines only. */
@@ -894,7 +932,7 @@ async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null 
  * The view then keeps what fits, names what it does not show, and stderr says why.
  */
 export async function boundedAgentOutput(text, options = {}) {
-  try { return await keptAgentOutput(text, options); }
+  try { return endingOnNext(await keptAgentOutput(text, options)); }
   catch (error) {
     warnUnkept(error);
     const budget = options.budget ?? agentOutputBudget();
@@ -904,9 +942,11 @@ export async function boundedAgentOutput(text, options = {}) {
       return bytes(text) <= budget ? text : literalEnvelope(text, { budget, literal: Array.isArray(result) ? 'json-array' : 'not-json', unkept: error });
     }
     const { agentJson } = await import('./agent-packet-presentation.mjs');
-    const act = result.act ?? agentAct(result);
+    const derived = result.act ?? agentAct(result);
     const rest = Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act'));
-    return unretainedView(act, act ? { act, ...rest } : result, budget, agentJson, error);
+    const routed = await withAgentRoutes(derived ? { act: derived, ...rest } : result);
+    const ordered = derived ? { ...routed, act: leadingAct(routed.act) } : routed;
+    return endingOnNext(unretainedView(derived ? ordered.act : derived, ordered, budget, agentJson, error));
   }
 }
 
@@ -946,7 +986,11 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   const presented = async (paths) => {
     const act = observed && !result.paused && paths ? { ...observed, paths: CLI_PATH_REFERENCE } : observed;
     const ordered = await withAgentRoutes(act ? { act, ...rest } : result);
-    return { act, ordered, whole: agentJson(ordered) };
+    // The view's act is the routed one: a bounded view renders act on its own, and its routes
+    // without --for-agent printed a retained review whole, past the host's cut (2026-11-10).
+    if (!act) return { act, ordered, whole: agentJson(ordered) };
+    const led = { ...ordered, act: leadingAct(ordered.act) };
+    return { act: led.act, ordered: led, whole: agentJson({ ...led, ...nextOf(led.act, result) }) };
   };
   let { act, ordered, whole } = await presented(returnsAgentPaths(result));
   const { catalogAgentView } = await import('./agent-catalog-presentation.mjs');
@@ -986,8 +1030,8 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     const agentOutput = describe(await write(full), catalogInstruction);
     // Prefer every identity to a richer partial list: a list-names task must not expand the
     // complete catalog just because descriptions and attachment detail used the inline budget.
-    for (const [limit, identityOnly] of [[20, false], [20, true], [10, true], [5, true], [1, true]]) {
-      const view = { ...catalogAgentView(ordered, limit, { identityOnly }), agentOutput };
+    for (const [limit, identityOnly, namesOnly] of [[20, false], [20, true], [20, true, true], [10, true], [5, true], [1, true]]) {
+      const view = { ...catalogAgentView(ordered, limit, { identityOnly, namesOnly }), agentOutput, ...nextOf(act, result) };
       const rendered = agentJson(view);
       if (bytes(rendered) <= budget) return `${rendered}\n`;
     }
@@ -1028,7 +1072,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
   };
   const render = (kept, agentOutput, references, order = keys, values = ordered, index = null) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
     ...omittedList(order.filter((key) => !kept.has(key)).map((key) => references[key]), index ?? INDEX_PLACEHOLDER),
-    ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, values[key]])) });
+    ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, values[key]])), ...nextOf(act, result) });
   // Keep every field without a long text, then move fields out until the view fits: larger ones
   // before small ones, and within each, the material before the packet's read order before what
   // `act` itself reads. Ids, status and the fields `act` names stay longest.
@@ -1051,6 +1095,15 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     read: Array.from({ length: READ_PLAN_CHUNKS }, () => ({ lines: [widest, widest], bytes: 9_999_999 })) };
   const provisionalReferences = reference(Object.fromEntries(keys.map((key) => [key, [widest, widest]])));
   while (bytes(render(kept, provisional, provisionalReferences)) > budget && kept.size) kept.delete([...kept].sort(removalOrder)[0]);
+  // An act longer than the view (a prepublish correction's fix list, 1.8 KB) keeps the fixes that fit
+  // and counts the rest; every finding stays in the file.
+  const MORE = /^\+(\d+) more in findings$/u;
+  while (Array.isArray(act?.fix) && act.fix.filter((line) => !MORE.test(line)).length > 1
+      && bytes(render(kept, provisional, provisionalReferences)) > budget) {
+    const shown = act.fix.filter((line) => !MORE.test(line));
+    const more = Number(act.fix.find((line) => MORE.test(line))?.match(MORE)[1] ?? 0) + 1;
+    act = { ...act, fix: [...shown.slice(0, -1), `+${more} more in findings`] };
+  }
   // The fields left out come first in the file, in the order they are read, so a few ranges hold them.
   const omitted = keys.filter((key) => !kept.has(key))
     .map((key, index) => ({ key, index })).sort((left, right) => tier(left.key) - tier(right.key) || left.index - right.index).map(({ key }) => key);

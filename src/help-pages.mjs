@@ -1773,7 +1773,7 @@ const PAGES = Object.freeze({
       ['--json', 'The kept result as JSON, marked with keptResult.']
     ],
     examples: [
-      ['singularity-flow result last --wait --for-agent --json', 'What an agent runs when a result came back cut off.'],
+      ['singularity-flow result last --wait --command "review-source submit" --for-agent --json', 'What an agent runs when that command\'s result came back cut off: its own result, never another command\'s.'],
       ['singularity-flow result last --command "phase prepublish"', 'The newest prepublish result of this checkout.']
     ],
     seeAlso: ['phase', 'nextsteps']

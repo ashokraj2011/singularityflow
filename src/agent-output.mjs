@@ -338,7 +338,10 @@ export function agentAct(result) {
       // No `do`: opening a session again is never a loop to count.
       const open = result.open ?? {};
       const actions = Array.isArray(result.nextsteps?.actions) ? result.nextsteps.actions : result.nextsteps?.data?.actions ?? [];
-      const next = actions.map((entry) => routes(entry) && { timing: entry.timing ?? null, ...routes(entry) }).filter(Boolean).slice(0, 5);
+      // What to do now, the primary first, and the optional ones, labelled; what follows the step's own route is not
+      // a next action yet (owner, 2026-11-11).
+      const next = actions.filter((entry) => ['now', 'optional', undefined, null].includes(entry?.timing))
+        .map((entry) => routes(entry) && { timing: entry.timing ?? null, ...routes(entry) }).filter(Boolean).slice(0, 5);
       return { state: 'next', do: null,
         story: { workId: result.workId ?? open.workId ?? null, repositoryPath: result.repositoryPath ?? open.repositoryPath ?? null,
           commit: typeof open.head === 'string' ? open.head.slice(0, 12) : null, agent: open.agent ?? result.session?.activeAgent ?? null,

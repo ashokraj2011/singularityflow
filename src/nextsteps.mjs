@@ -250,9 +250,10 @@ export function workflowNextSteps(workflow, {
   // Before the last step is published the same decisions are named, after its authoring: the
   // person who records them is rarely its author, and submission would otherwise be the first to say.
   const undecidedAfterAuthoring = endsHere && !submitsTheEnd ? applicabilityActions(workflow, phase, 'then') : [];
+  // One primary action: the step's own route. Its later stages (publish, review, submit) are 'then' (owner, 2026-11-11).
   let immediate = workflowGuide(workflow, { sourceReviewEvidence, authoringProgress }).nextActions.map((item, index) => action(
     item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
-      : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
+      : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : index > 0 ? 'then' : 'now',
     item.skill,
     item.command,
     item.reason, item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {}
@@ -313,7 +314,13 @@ export function workflowNextSteps(workflow, {
         )
       : entry);
   }
-  const actions = [...prerequisites.map(copilotAction), ...undecided, ...immediate];
+  // The step's own route leads; only a prerequisite that blocks it ('now': a required assignment, resume or agent
+  // activation) comes first. An optional one follows it, and `prepare` composes the phase prompt itself, so
+  // composing is never a step of its own before it (owner, 2026-11-11: "most appropriate next step here is sf-phase").
+  const preparesFirst = immediate[0]?.command?.startsWith(`singularity-flow prepare ${phase.id}`) === true;
+  const shownPrerequisites = prerequisites.filter((entry) => !(preparesFirst && entry.route === 'grounding-composition'));
+  const actions = [...shownPrerequisites.filter((entry) => entry.timing === 'now').map(copilotAction), ...undecided, ...immediate,
+    ...shownPrerequisites.filter((entry) => entry.timing !== 'now').map(copilotAction)];
   const applicationReview = !needsGeneration && applicationReviewOffer(workflow, phase);
   if (applicationReview) actions.push(action('alternative', applicationReview.copilotCommand, applicationReview.command, applicationReview.reason));
   if (needsGeneration && !modelMode.enabled) {
@@ -359,7 +366,12 @@ export function workflowNextSteps(workflow, {
   const preparesThisPhase = actions.some((entry) => entry.timing === 'now'
     && entry.command?.split(' ').slice(0, 3).join(' ') === `singularity-flow prepare ${phase.id}`);
   if (needsGeneration && !preparesThisPhase && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== nextPhaseGeneration(phase)) {
-    actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
+    // Opening a code generation does not need them first, and the step's own skill composes them at its entry: after
+    // the step's own route they are its next stage, not a step before it (owner, 2026-11-11).
+    const own = actions.findIndex((entry) => entry.timing === 'now' && entry.authoringStage);
+    const inputs = action(own < 0 ? 'now' : 'then', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.');
+    if (own < 0) actions.unshift(inputs);
+    else actions.splice(own + 1, 0, inputs);
   }
   if (needsGeneration && convergenceProjectionRequired) {
     actions.push(action(
@@ -466,7 +478,10 @@ export function nextStepsText(snapshot) {
     'Conversation reset is a Copilot chat action; the listed Shell actions remain valid.', '');
   // Every action names its three entry points in the contract order: Copilot, Shell, then the
   // model-free VS Code route. The reason leads; no surface is presented as the secondary product.
+  // Each run of actions with one timing is headed by what it is: the next one, optional ones, what follows.
+  const heading = { now: 'Next:', optional: 'Optional:', then: 'Then:', alternative: 'Or:' };
   snapshot.actions.forEach((item, index) => {
+    if (heading[item.timing] && snapshot.actions[index - 1]?.timing !== item.timing) lines.push(heading[item.timing]);
     lines.push(`${index + 1}. ${item.timing.toUpperCase()}${item.copilotTiming === 'after-context-boundary' ? ' (Copilot: after conversation boundary)' : ''} — ${item.reason}`);
     const guidance = safeCommandGuidance(item);
     if (guidance) lines.push(...commandRouteLines(guidance, '   '));

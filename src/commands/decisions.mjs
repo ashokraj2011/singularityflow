@@ -549,9 +549,12 @@ async function record(root, options, workId, io) {
       for (const entry of unchanged) console.log(`Nothing changed for ${entry.item}, ${entry.words}.`);
       for (const entry of drafted) console.log(`Drafted ${entry.item} at ${entry.path}; nothing was recorded. ${entry.next.words}\n  ${entry.next.command}`);
       if (after) console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
+      if (after && !after.items.length && after.next?.command) console.log(`Next: ${after.next.title}\n  ${after.next.copilotCommand ?? after.next.command}`);
     }
+    // With nothing left on the list, the Story's own next step: never an answer with nothing to do (owner, 2026-11-10).
     const next = after?.items.length ? [{ id: 'decision-list', label: after.headline, command: `singularity-flow decisions ${workflow.workItem.id}`,
-      skill: '/sf-decide', rank: 'NOW', kind: 'workflow' }] : [];
+      skill: '/sf-decide', rank: 'NOW', kind: 'workflow' }]
+      : after?.next?.command ? [{ id: 'story-next', label: after.next.title, command: after.next.command, skill: after.next.skill ?? null, rank: 'NOW', kind: 'workflow' }] : [];
     emitCommandResult(commandResult({
       operation: { id: 'decisions.record', classification: 'mutation' },
       subject: { kind: 'story', id: workflow.workItem.id },

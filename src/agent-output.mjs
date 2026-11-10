@@ -458,6 +458,10 @@ export function agentAct(result) {
     if (list.next?.notYet) return withRoute({ state: 'next', do: null, said: oneLine(`${list.next.title}: ${list.next.notYet} Nothing here can be recorded yet.`) }, { command: list.next.command, copilotCommand: list.next.copilotCommand });
     if (list.items?.length) return { state: 'ask-person', do: null, read: [`${at}items`, `${at}record`],
       said: 'Show each item\'s title and why; ask the person to pick one of its options (recommended first) and any date or reason, offering its default. Never choose for them. action.humanReview opens native #sflowWitnessReview with workId, criterion and slot only; the person supplies its checklist and reason there. If that tool is unavailable, give the exact human Shell command; do not send a witness back to /sf-decide. Recorded plan accounting is separate from pending visual sign-off.' };
+    // Nothing left to decide: the Story's next step, never an ending with nothing to do (owner, 2026-11-10).
+    if (list.next?.kind === 'story-next' && list.next.command) return withRoute({ state: 'next', do: null,
+      said: oneLine(`${list.headline} Nothing is left to decide here; the Story goes on with its next step.`) },
+    { command: list.next.command, copilotCommand: list.next.copilotCommand, reason: list.next.title });
     return { state: 'read', do: null, said: oneLine(list.headline) };
   }
   const action = genericAction(result);

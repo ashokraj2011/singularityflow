@@ -66,6 +66,13 @@ test('a change the person asks for after Code is published opens generation 2 in
   assert.ok(commands.some((command) => /^singularity-flow submit implementation/u.test(command)), JSON.stringify(commands));
   assert.ok(commands.includes('singularity-flow phase rollover implementation --reason "<what to change>" --json'), JSON.stringify(commands));
 
+  // A /sf-decide turn with nothing to decide ends on the Story's next step, never on nothing to do.
+  const decide = json(cli('decisions', WORK, '--for-agent', '--json'));
+  assert.equal(decide.data.status, 'nothing-to-decide');
+  assert.equal(decide.act.state, 'next');
+  assert.deepEqual([decide.act.do.copilot, decide.act.do.shell], ['/sf-submit', 'singularity-flow submit implementation']);
+  assert.match(decide.actNext, /^next: \/sf-submit/u);
+
   // The person types /sf-code with what to change; the prompt hook keeps the words for generation 2.
   const hook = { cwd: await realpath(root), sessionId: 'redraft', prompt: `/sf-code ${TYPED}` };
   await recordRepositoryBoundaryTurn(hook, { captureMutation: (payload, record) => captureMutationTurn(payload, record, { resolveRoot: async () => hook.cwd }) });

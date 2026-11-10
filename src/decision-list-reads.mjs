@@ -433,7 +433,22 @@ export async function readPendingList(root, config, workflow, { phaseId = null, 
   const actor = offline && !process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? identity(root, { offline: true }) : actionActor(root);
   const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
   const packet = decisionPacket(workflow, facts, { authorities, actor, at, requestedPhase, card });
-  return { ...packet, sheet: await sheetOf(root, workflow, packet, { approvalCheck: facts.approvalCheck, authorities, actor, card }) };
+  const storyNext = packet.items?.length ? null : await storyNextStep(workflow);
+  return { ...packet, ...(storyNext ? { next: storyNext } : {}),
+    sheet: await sheetOf(root, workflow, packet, { approvalCheck: facts.approvalCheck, authorities, actor, card }) };
+}
+
+/**
+ * An empty list ends on the Story's next step, the first one the guide (and so next steps) gives: a
+ * /sf-decide turn that ended on "nothing to decide" left the person with no next action (owner, 2026-11-10).
+ */
+async function storyNextStep(workflow) {
+  try {
+    const { workflowGuide } = await import('./guide.mjs');
+    const action = workflowGuide(workflow).nextActions.find((entry) => !entry.optional && entry.command);
+    return action ? { kind: 'story-next', title: action.reason ?? 'The Story\'s next step.', command: action.command,
+      copilotCommand: action.copilotCommand ?? null, skill: action.skill ?? null } : null;
+  } catch { return null; }
 }
 
 /** The step sheet beside the list; the list stands whatever happens here. */

@@ -96,7 +96,7 @@ export async function run({ positionals, options }) {
     after.next = { ...after.next, instruction: `${after.next.instruction} Also say, as written: ${published.value.qualityFindings.words}` };
   }
   console.log(JSON.stringify({ publishIfReady: {
-    published: true, ...after,
+    published: true, ...(published.value?.applicationStart ? { applicationStart: published.value.applicationStart } : {}), ...after,
     ...(published.value?.applicationReview ? { applicationReview: published.value.applicationReview } : {}),
     ...(published.value?.qualityFindings ? { qualityFindings: published.value.qualityFindings } : {}),
     output: published.stdout.trim().split('\n').slice(-40).join('\n'),

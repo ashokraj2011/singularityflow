@@ -99,7 +99,9 @@ export function nextOf(act, result = {}) {
   const lead = leadRoute(act.do);
   const command = lead ? act.do[lead] : null;
   const state = String(act.state ?? 'read');
-  const line = !command ? `${state}: ${oneLine(act.said ?? 'read act at the top of this result', 300)}`
+  const choices = Array.isArray(act.ask?.choices) && act.ask.question ? act.ask.choices.map((choice) => choice?.label).filter(Boolean) : [];
+  const line = !command && choices.length ? `${state}: ask the person: ${oneLine(act.ask.question, 300)} (${choices.join(' / ')})`
+    : !command ? `${state}: ${oneLine(act.said ?? 'read act at the top of this result', 300)}`
     : PERSON_STATES.has(state) ? `${state}: show the person ${command}; never run it`
       : act.ask || state === 'confirm' ? `${state}: ask the person in this chat, and only on an explicit yes run ${command}`
         : lead === 'copilot' ? `${state}: ${command}` : `${state}: run ${command}`;
@@ -333,9 +335,17 @@ export function agentAct(result) {
     said: 'Review the exact changed paths. Keep intended Story edits through scope accounting and the returned same-phase correction/successor; preserve unrelated edits using the person’s hash-confirmed private-copy route. Do not commit submitted edits by hand, discard files or claim readiness because requiresRecovery is false. No approval is recorded.' };
   const codeOffer = result.publishIfReady?.published ? result.publishIfReady.outcomeReview
     : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
+  // Published with its tests passing: ask once whether to start the application (application-start-offer.mjs).
+  const start = result.publishIfReady?.published ? result.publishIfReady.applicationStart : codeOffer ? result.applicationStart : null;
+  if (codeOffer && start?.declared) return { state: 'ask-person',
+    ask: { kind: 'choice', question: start.question, choices: start.choices.map(({ id, label, copilotCommand = null, command = null, routes: onward = null }) => ({ id, label,
+      ...(copilotCommand || command ? { copilot: copilotCommand, shell: command } : {}), ...(onward ? { routes: onward } : {}) })),
+    how: 'Ask the person now and only once. Never start the application yourself: on Start, hand off to /sf-run-app start; on Not now, give the step\'s next routes.' },
+    do: null, read: result.publishIfReady?.published ? ['publishIfReady.applicationStart', 'publishIfReady.outcomeReview'] : ['applicationStart', 'outcomeReview'],
+    said: 'Code published and its tests pass. Ask the person whether to start the application to try it now; the outcome review stays available.' };
   if (codeOffer) return withRoute({
     state: 'next', do: null, read: result.publishIfReady?.published ? ['publishIfReady.outcomeReview', 'publishIfReady.afterReview'] : ['outcomeReview', ...(result.applicationReview ? ['applicationReview'] : [])],
-    said: 'Code published. Read the returned outcome once, then ask its validation.question with the returned choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. A summary without that question is not the human handoff. Opening the review starts no app and records no acceptance or approval.'
+    said: `${start?.words ? `${start.words} ` : ''}Code published. Read the returned outcome once, then ask its validation.question with the returned choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. A summary without that question is not the human handoff. Opening the review starts no app and records no acceptance or approval.`
   }, { ...codeOffer, command: codeOffer.agentCommand ?? codeOffer.command });
   if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
     state: 'await-human', do: null, read: ['data.outcome'],

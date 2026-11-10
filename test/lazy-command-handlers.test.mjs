@@ -554,7 +554,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,691,600 (measured 9,691,563, commands/phase-lifecycle.mjs): a published code step offers its next generation for a
     // change the person asks for (guide.mjs, phase-authoring-summary.mjs, phase-lifecycle.mjs); the rollover itself stays
     // lazy (requested-successor.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_691_600, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,692,100 (measured 9,692,073, commands/phase-lifecycle.mjs): after Code publishes with its tests passing, its
+    // agent view asks once whether to start the application (agent-output.mjs +1,406, phase-lifecycle.mjs +510); the
+    // question itself is built lazily (application-start-offer.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_692_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

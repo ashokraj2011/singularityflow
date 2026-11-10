@@ -13,6 +13,9 @@ import test from 'node:test';
 import { approvedSpecificationStory, implementationPlan, CLI } from './helpers/submitted-planning-story.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
+import { agentAct, boundedAgentOutput } from '../src/agent-output.mjs';
+import { resolveCapabilityApplication } from '../src/capability-application-context.mjs';
+import { saveLocalApplicationProfile } from '../src/local-application-profile.mjs';
 
 const WORK = 'REDRAFT-1';
 const ASKED = 'when I enter anything in f(x)= the screen size keeps changing';
@@ -20,7 +23,7 @@ const ASKED = 'when I enter anything in f(x)= the screen size keeps changing';
 const TYPED = `implementation ${ASKED}`;
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
-async function publishedCodeStory(t) {
+async function publishedCodeStory(t, { application = null } = {}) {
   const story = await approvedSpecificationStory(t, WORK);
   const { root, cli, item } = story;
   const write = async (relative, text) => { await mkdir(path.dirname(path.join(root, relative)), { recursive: true }); await writeFile(path.join(root, relative), text); };
@@ -39,8 +42,12 @@ async function publishedCodeStory(t) {
     '- `src/value.mjs` exports the approved value.', '', '## Tests and operational notes', '', '`test/value.test.mjs` verifies the value.', ''].join('\n'));
   await writeFile(path.join(item, 'artifacts/implementation/operator-notes.md'), ['# Operator notes', '', 'Nothing changes for an operator.', ''].join('\n'));
   cli('artifact', 'scan', '--phase', 'implementation');
-  cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
-  return { ...story, write, code };
+  if (application) {
+    const context = await resolveCapabilityApplication(root, { subjectPath: '' });
+    await saveLocalApplicationProfile(root, context, { start: [application], tests: [] });
+  }
+  const published = cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json').stdout;
+  return { ...story, write, code, published };
 }
 
 const json = (result) => JSON.parse(result.stdout);
@@ -53,6 +60,13 @@ test('a change the person asks for after Code is published opens generation 2 in
   assert.equal(before.phases.implementation.generation, 1);
   assert.equal(before.phases.implementation.generationIntent.status, 'consumed');
   const publishedHead = git('rev-parse', 'HEAD');
+  // No application is declared here: nothing to start, said in one line with the route that declares one.
+  const publication = JSON.parse(story.published);
+  assert.equal(publication.applicationStart.declared, false);
+  assert.match(publication.applicationStart.words, /declares no application to start; \/sf-run-app suggest/u);
+  const noApp = agentAct(publication);
+  assert.equal(noApp.ask, undefined);
+  assert.match(noApp.said, /declares no application to start/u);
 
   // Nothing asked for yet: rollover says how to ask, and Code is offered both ways after publication.
   const unasked = run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'implementation', '--json'], { allowFailure: true });
@@ -125,3 +139,29 @@ test('a change the person asks for after Code is published opens generation 2 in
   assert.equal(JSON.parse(git('show', `${publishedHead}:singularity/work-items/${WORK}/workflow.json`)).phases.implementation.generationIntent.status, 'consumed');
 });
 
+test('after Code is published with its tests passing, the person is asked once whether to start the application', async (t) => {
+  const application = { id: 'web', argv: ['node', 'server.mjs', '4599'], url: 'http://127.0.0.1:4599/', ready: { http: '/', timeoutMs: 5000 } };
+  const story = await publishedCodeStory(t, { application });
+  const { root, cli } = story;
+  const publication = JSON.parse(story.published);
+  assert.equal(publication.applicationStart.declared, true);
+  assert.deepEqual(publication.applicationStart.choices.map((choice) => choice.id), ['start', 'not-now']);
+  assert.equal(publication.applicationStart.choices[0].copilotCommand, '/sf-run-app start');
+  // Not now: the step goes on, submit first, then its next generation for a change.
+  assert.deepEqual(publication.applicationStart.choices[1].routes.map((route) => route.command),
+    ['singularity-flow submit implementation', 'singularity-flow phase rollover implementation --reason "<what to change>" --json']);
+  // The agent view asks it first, in the first 400 bytes, and its last line names it.
+  const view = await boundedAgentOutput(story.published, { cwd: root });
+  const asked = JSON.parse(view);
+  assert.equal(asked.act.state, 'ask-person');
+  assert.deepEqual(asked.act.ask.choices.map((choice) => choice.label), ['Start the application', 'Not now']);
+  assert.match(Buffer.from(view).subarray(0, 400).toString('utf8'), /"ask":\{"kind":"choice","question":"[^"]*Start the application to try it now\?/u);
+  assert.match(view.trimEnd().split('\n').at(-1), /^"next":"ask-person: ask the person: .*\(Start the application \/ Not now\)"\}$/u);
+  // Asked once: a later read goes on with the step and does not ask again.
+  const later = JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout);
+  assert.equal(later.act.ask, undefined);
+  assert.equal(later.act.state, 'next');
+  // Nothing started the application: that is the person's choice.
+  const status = JSON.parse(cli('app', 'status', '--json').stdout);
+  assert.equal(JSON.stringify(status).includes('"started":true'), false, JSON.stringify(status).slice(0, 400));
+});

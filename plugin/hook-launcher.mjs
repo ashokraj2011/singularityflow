@@ -58,6 +58,14 @@ function packageFor(candidate) {
   } catch { return null; }
 }
 
+// A chat whose folder was removed (a Story checkout cleaned up under it) leaves this process in a directory that no
+// longer exists: process.cwd() throws, every candidate read as unavailable, and the runtime-unavailable marker then
+// denied every tool (session mining N6, 2026-11-11). Work from the home folder, as a GUI host does; the payload still
+// names the chat's folder.
+try { process.cwd(); } catch {
+  for (const directory of [os.homedir(), os.tmpdir()]) { try { process.chdir(directory); break; } catch { /* the next */ } }
+}
+
 try {
   if (!actions.has(action)) console.log('{}');
   else {

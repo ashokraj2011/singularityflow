@@ -171,7 +171,9 @@ export const RESULT_MESSAGES = Object.freeze({
   'work.blocked.publication-pending': M('A publication is unfinished'),
   'work.blocked.publication-marker-unreadable': M('The publication recovery marker cannot be read', 'Repair the marker before attempting lifecycle changes.'),
   'work.blocked.approvals-outstanding': M('Approvals are outstanding'),
-  'work.blocked.required-artifact-missing': M('A required artifact is missing'),
+  // Read as "blocked", an agent answered "there's no next phase to advance to yet" where the step simply had its
+  // document still to write (Story anu-bin verification, 2026-11-11). It is the step's own work, said as a fact.
+  'work.blocked.required-artifact-missing': M('This step\'s document is not written yet', 'Writing it is this step\'s own work (/sf-phase; /sf-code for a code step); nothing else holds the step.'),
   'work.blocked.unrecognised': M('Blocked by {blocker}', 'This build has no name for that blocker.'),
 
   // ---- Readiness gates. The label is the gate as a reader meets it, not the internal name.

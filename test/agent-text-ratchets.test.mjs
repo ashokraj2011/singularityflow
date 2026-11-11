@@ -306,3 +306,11 @@ test('every example a review schema description gives is a value that schema acc
     if (values) assert.ok(values.includes(example), trail);
   }
 });
+
+test('a step whose document is still to write is named as its own work, not as a block with no way on', async () => {
+  // "It's blocked because a required artifact is missing, so there's no next phase to advance to yet" (Story anu-bin).
+  const { RESULT_MESSAGES } = await import('../src/gateway/messages.mjs');
+  const entry = RESULT_MESSAGES['work.blocked.required-artifact-missing'];
+  assert.doesNotMatch(entry.label, /missing/u);
+  assert.match(`${entry.label} ${entry.detail}`, /not written yet[^]*this step's own work \(\/sf-phase; \/sf-code for a code step\)/u);
+});

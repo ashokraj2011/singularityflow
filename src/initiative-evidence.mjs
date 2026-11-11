@@ -28,7 +28,7 @@ import { harvestInitiativeKnowledge } from './knowledge.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
-import { stripTemplateGuidance } from './template-guidance.mjs';
+import { stripTemplateGuidance } from './markdown-structure.mjs';
 import {
   artifactPlaceholderFindings, authoredArtifactFingerprint
 } from './publication-preflight.mjs';

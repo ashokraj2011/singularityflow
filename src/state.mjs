@@ -287,7 +287,7 @@ import {
   validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
 import { artifactBytesAreText, artifactTextCheckoutMatches } from './artifact-review-read.mjs';
-import { stripTemplateGuidance } from './template-guidance.mjs';
+import { stripTemplateGuidance } from './markdown-structure.mjs';
 import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
 } from './convergence-context.mjs';

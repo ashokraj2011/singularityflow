@@ -19,59 +19,20 @@
  * kernel reader already skips comments (src/markdown-structure.mjs): a section holding only guidance
  * is empty, a clause anchor inside guidance is no clause, and no conformance check counts it.
  *
- * Publication removes it (stripTemplateGuidance), so the published document, which a reviewer, an
+ * Publication removes it (stripTemplateGuidance, in src/markdown-structure.mjs), so the published document, which a reviewer, an
  * approver and every later step read, never carries it. An author who deletes guidance changes
  * nothing. A template's other lines (TODO placeholders, `<placeholder>` slots, tables, lists) are the
  * author's to replace and are never guidance.
  */
-import { parseMarkdownStructure } from './markdown-structure.mjs';
+import { TEMPLATE_GUIDANCE_COMMENT, TEMPLATE_GUIDANCE_MARKER } from './markdown-structure.mjs';
 
-export const TEMPLATE_GUIDANCE_MARKER = 'sflow:guidance';
-const GUIDANCE_COMMENT = /^<!--[ \t]*sflow:guidance(?=[\s]|-->)/u;
+// Reading and removing guidance live beside the comment parser every reader already loads, so the
+// publication and review paths gain no module; this module is the writer.
+export { TEMPLATE_GUIDANCE_MARKER, stripTemplateGuidance, templateGuidanceComments } from './markdown-structure.mjs';
+
+const GUIDANCE_COMMENT = TEMPLATE_GUIDANCE_COMMENT;
 // Comments the kernel writes or reads (metadata, inputs, verdict summary, managed blocks): never guidance.
 const MANAGED_COMMENT = /^<!--[ \t]*(?:singularity-flow:|sflow:|sflow-|managed-by:)/u;
-
-/** Each closed guidance comment in `text`, as `{ start, end, line }` offsets; comments in code are not comments. */
-export function templateGuidanceComments(text) {
-  const source = String(text ?? '');
-  return parseMarkdownStructure(source).comments
-    .filter((comment) => comment.closed && GUIDANCE_COMMENT.test(source.slice(comment.start, comment.end)));
-}
-
-/**
- * The text without its guidance. A guidance comment alone on its lines takes those lines with it,
- * and the blank line it leaves between two paragraphs; one inside a line leaves the rest of the line.
- * Everything else, the author's own comments included, keeps its exact bytes.
- */
-export function stripTemplateGuidance(text) {
-  const source = String(text ?? '');
-  const comments = templateGuidanceComments(source);
-  if (!comments.length) return { text: source, removed: 0 };
-  let output = '';
-  let cursor = 0;
-  for (const comment of comments) {
-    if (comment.start < cursor) continue;
-    const lineStart = source.lastIndexOf('\n', comment.start - 1) + 1;
-    const newline = source.indexOf('\n', comment.end);
-    const lineEnd = newline < 0 ? source.length : newline + 1;
-    const wholeLines = lineStart >= cursor
-      && !source.slice(lineStart, comment.start).trim()
-      && !source.slice(comment.end, lineEnd).trim();
-    if (!wholeLines) {
-      output += source.slice(cursor, comment.start);
-      cursor = comment.end + (/[ \t]$/u.test(output) && /^[ \t]/u.test(source.slice(comment.end)) ? 1 : 0);
-      continue;
-    }
-    output += source.slice(cursor, lineStart);
-    cursor = lineEnd;
-    // The blank line between the paragraphs around it is enough: drop the second one.
-    const blankBefore = output === '' || /(?:^|\n)[ \t]*\r?\n$/u.test(output);
-    const blankAfter = /^[ \t]*\r?\n/u.exec(source.slice(cursor));
-    if (blankBefore && blankAfter) cursor += blankAfter[0].length;
-  }
-  output += source.slice(cursor);
-  return { text: output, removed: comments.length };
-}
 
 // -------------------------------------------------------------------------------------------------
 // Writing guidance in the marked, one-line form

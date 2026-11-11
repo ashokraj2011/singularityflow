@@ -3,8 +3,7 @@ export { reviewArtifactIdentityDecision, reviewArtifactBytesStable, authoredArti
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
-import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
-import { stripTemplateGuidance } from './template-guidance.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure, stripTemplateGuidance } from './markdown-structure.mjs';
 import { qualifiedClauseMatches } from './traceability-ids.mjs';
 export { inspectManagedArtifactMetadata };
 

@@ -1,5 +1,6 @@
 import { recap } from './narration/recap.mjs';
 import { witnessMappingReview } from './witness-review-read.mjs';
+import { witnessNames } from './witness-names.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -195,7 +196,7 @@ function constitutionRendering(bundle) {
   if (!constitution) return [];
   const lines = [
     '## Constitution', '',
-    `Pinned: \`${constitution.path}\` (\`${constitution.fileSha256.slice(0, 12)}\`), index \`${constitution.indexSha256.slice(0, 12)}\``,
+    `Pinned: \`${constitution.path}\``,
     `Cited by this artifact: ${constitution.cited.length ? constitution.cited.join(', ') : 'none'}`,
     ''
   ];
@@ -221,9 +222,9 @@ function constitutionRendering(bundle) {
  * What exactly is being approved. `[SPK:CON-045]` `[SPK:REQ-111]`
  *
  * A reviewer approving "the specification" is in fact approving a bundle, and until the members are
- * listed with their hashes there is no way for them to know how many documents that is. The bundle
- * hash is printed because it is what the approval will record: an approval of this list, not of a
- * file name.
+ * listed there is no way for them to know how many documents that is. The approval records the
+ * bundle's digest (the bundle's JSON keeps it); a person reads its members, never a hash (owner,
+ * 2026-11-11).
  *
  * The reopen block is the durable disclosure. Publication warns on the terminal of whoever ran it;
  * the person who has to decide whether an unasked-for change is acceptable is reading this.
@@ -233,11 +234,11 @@ function artifactSetSection(bundle) {
   if (!set) return [];
   const lines = [
     `## Artifact set — \`${set.setId}\``, '',
-    `Approval binds this complete bundle, not a single member: \`${set.bundleSha256.slice(0, 16)}\``, ''
+    `Approval binds this complete bundle of ${set.members.length} member${set.members.length === 1 ? '' : 's'}, not a single member.`, ''
   ];
   for (const member of set.members) {
     const state = member.exists
-      ? `\`${member.sha256.slice(0, 12)}\`${member.directory ? ` · ${member.files} file(s)` : ''}`
+      ? `present${member.directory ? ` · ${member.files} file(s)` : ''}`
       : '**missing**';
     lines.push(`- \`${member.member}\` — ${member.role}${member.authority === 'advisory' ? ' _(advisory, never evidence)_' : ''} · ${state}`);
   }
@@ -275,7 +276,7 @@ function specificationQualitySection(bundle) {
     if (quality.approvalChecklist === 'off') {
       lines.push(`- Policy: **${quality.mode}** · approval checklist: off`);
     } else {
-      lines.push(`- Policy: **${quality.mode}** · checklist \`${quality.checklist.id}\` v${quality.checklist.version} (\`${quality.checklistSha256.slice(0, 12)}\`)`);
+      lines.push(`- Policy: **${quality.mode}** · checklist \`${quality.checklist.id}\` v${quality.checklist.version}`);
       if (quality.exceptionAuthority) lines.push(`- Exceptions require: **${quality.exceptionAuthority}**`);
       lines.push('', '### Articles to decide', '');
       for (const article of quality.checklist.articles) lines.push(`- **${article.title}** (\`${article.id}\`) — ${article.question}`);
@@ -320,14 +321,14 @@ function witnessMappingSection(bundle) {
   if (!review?.mappings?.length) return [];
   const lines = [
     '## Witness adequacy review', '',
-    '> A test that passes proves only what it asserts. Approving this step accepts each test below as adequate for its criterion: its setup and inputs, its action, its assertions, its negative and boundary cases, and its relationship to the implementation. Record an exception or rule a test out with --witness-mapping.', ''
+    '> A test that passes proves only what it asserts. Approving this step accepts each test below as adequate for its criterion: its setup and inputs, its action, its assertions, its negative and boundary cases, and its relationship to the implementation. Record an exception or rule a test out with --witness-mapping <witness>=..., the witness named as below.', ''
   ];
+  // A person reads each witness by name, never its digests (owner, 2026-11-11); the bundle's JSON keeps them.
+  const names = witnessNames(review.mappings);
   for (const mapping of review.mappings) {
-    lines.push(`### \`${mapping.clauseId}\` → ${mapping.test ?? `\`${mapping.logicalTestId}\``}`, '',
-      `- Mapping: \`${mapping.mappingSha256}\``,
+    lines.push(`### \`${names.get(mapping.mappingSha256) ?? mapping.clauseId}\` → ${mapping.test ?? `\`${mapping.sourcePath}\``}`, '',
       `- Test: \`${mapping.sourcePath}\`${mapping.slot ? ` (slot ${mapping.slot})` : ''}`,
-      `- Declaration: \`${mapping.sourceDeclarationSha256}\``,
-      `- Clause bytes: **${mapping.clauseStatus}** · \`${mapping.clauseBodySha256}\``,
+      `- Clause bytes: **${mapping.clauseStatus}**`,
       `- Behavior: ${mapping.clauseFields?.behavior ?? '_unavailable_'}`,
       `- Observable: ${mapping.clauseFields?.observable ?? '_unavailable_'}`,
       '', mapping.clauseText ?? '_Exact clause text is stale or unavailable._', '');
@@ -339,19 +340,17 @@ export function reviewMarkdown(bundle) {
   const lines = [`# Review bundle — ${bundle.workItem.id} / ${bundle.phase.label}`, '', `- Status: **${bundle.phase.status}**`, `- Generation: **${bundle.phase.generation}**`, `- Branch: \`${bundle.branch}\``, `- Generated: ${bundle.generatedAt}`, ''];
   if (bundle.selfApprovalWarning) lines.push('> ⚠ This phase contains self-approval. It is not independent review.', '');
   lines.push('## Authorship', '', `- Producer: **${bundle.phase.authorship?.producer ?? 'legacy-unspecified'}**`, `- Channel: **${bundle.phase.authorship?.channel ?? 'legacy'}**`, `- Kernel model invoked: **${bundle.phase.authorship?.kernelModel?.invoked === true ? 'yes' : bundle.phase.authorship?.kernelModel?.invoked === false ? 'no' : 'unknown'}**`, '');
-  lines.push('## Required artifact', '', bundle.artifact ? `- [${bundle.artifact.path}](../../../../${bundle.artifact.path}) — \`${bundle.artifact.sha256}\`` : '_Not generated._', '');
+  lines.push('## Required artifact', '', bundle.artifact ? `- [${bundle.artifact.path}](../../../../${bundle.artifact.path})` : '_Not generated._', '');
   if (bundle.artifact) lines.push('### Artifact content', '', bundle.artifact.content, '');
   lines.push('## Downstream agent briefs', '');
   if (!bundle.agentBriefs?.length) lines.push('_No approved-summary projections are configured for this phase._', '');
   else for (const brief of bundle.agentBriefs) {
     lines.push(`### Consumer: \`${brief.consumerPhase}\``, '',
-      `- Status: **${brief.status}**`,
-      `- Source SHA-256: \`${brief.sourceSha256}\``,
-      `- Integrity SHA-256: \`${brief.integritySha256}\``, '');
+      `- Status: **${brief.status}**`, '');
     if (brief.content) lines.push(brief.content, '');
     else lines.push('_This consumer is configured to fall back to the complete approved artifact._', '');
   }
-  lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.sha256 ? ` @ \`${item.sha256.slice(0, 12)}\`` : ''}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');
+  lines.push('## Approved input provenance', '', ...(bundle.inputs.length ? bundle.inputs.map((item) => `- ${item.phase}: ${item.status}${item.optional ? ' (optional)' : ''}`) : ['_No phase inputs._']), '');
   lines.push('## Checks and approvals', '', ...(bundle.checks.length ? bundle.checks.map((item) => `- ${item.status ?? 'recorded'} — ${item.command ?? item.name ?? JSON.stringify(item)}`) : ['- No quality-command results recorded.']), ...(bundle.approvals.length ? bundle.approvals.map((item) => `- ${item.decision} by ${item.actor} via ${item.authorityGroup ?? 'unrecorded authority'} (${item.identityAssurance ?? 'unknown assurance'}); agent ${item.agent ?? 'unavailable'}${item.selfApproval ? ' ⚠ self-approval' : ''}`) : ['- No decisions recorded.']), '');
   lines.push(
     ...constitutionRendering(bundle),
@@ -360,7 +359,6 @@ export function reviewMarkdown(bundle) {
     ...witnessMappingSection(bundle)
   );
   if (bundle.evidenceConsistency) lines.push('## Evidence consistency', '',
-    `Projection: ${bundle.evidenceConsistency.projectionSha256}`, '',
     ...bundle.evidenceConsistency.summary.map((line) => `- ${line}`), '');
   if (bundle.narrative) lines.push('## How this Story got here', '', '```text', bundle.narrative, '```', '');
   lines.push('## Source change summary', '', '```text', bundle.changeSummary || 'No source changes.', '```', '', '## Supporting evidence', '', ...(bundle.documents.length ? bundle.documents.map((item) => `- ${item.id} — ${item.label} (${item.path ?? item.url})`) : ['_No supporting evidence._']), '');

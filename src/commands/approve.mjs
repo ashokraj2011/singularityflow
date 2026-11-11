@@ -1,6 +1,7 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { stdin as processInput, stdout as processOutput } from 'node:process';
 import { optionBoolean, SingularityFlowError, optionString, optionStrings } from '../util.mjs';
+import { WITNESS_NAME } from '../witness-names.mjs';
 import { decisionWorkflow } from './shared/decision-workflow.mjs';
 import { printPhaseReview } from './shared/print-phase-review.mjs';
 // Human document rendering is not part of the compact agent approval path.
@@ -57,15 +58,16 @@ export function witnessMappingDecisions(options) {
   let expiryIndex = 0;
   const decisions = mappings.map((entry) => {
     const separator = String(entry).indexOf('=');
+    // A witness is named as the review shows it (its criterion, `#n` among several); its digest still works [no hashes shown].
     const mappingSha256 = separator === -1 ? '' : String(entry).slice(0, separator).trim();
     // An exception names the adequacy facets the test falls short on: exception:assertions,boundaries.
     const [decision, facets = ''] = (separator === -1 ? '' : String(entry).slice(separator + 1).trim()).split(':');
     const inadequate = facets.split(',').map((facet) => facet.trim()).filter(Boolean);
-    if (!/^sha256:[a-f0-9]{64}$/.test(mappingSha256)
+    if (!(/^sha256:[a-f0-9]{64}$/.test(mappingSha256) || WITNESS_NAME.test(mappingSha256))
         || !['satisfied', 'exception', 'not-applicable'].includes(decision)
         || (decision === 'exception') !== (inadequate.length > 0)) {
       throw new SingularityFlowError(
-        `--witness-mapping must be <sha256>=satisfied, <sha256>=exception:<facet>[,<facet>] (facets: setup, action, assertions, boundaries, implementation) or <sha256>=not-applicable; got '${entry}'.`
+        `--witness-mapping must be <witness>=satisfied, <witness>=exception:<facet>[,<facet>] (facets: setup, action, assertions, boundaries, implementation) or <witness>=not-applicable, the witness named as the review shows it (its criterion, such as PAY-1:AC-001); got '${entry}'.`
       );
     }
     const needsReason = decision !== 'satisfied';
@@ -104,7 +106,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   const reviewed = terminalReviewBinding(workflow, phase);
   const confirmedByCommand = asking && Boolean(requestedPhase) && await terminalReviewShown(root, reviewed, session.actor);
   if (confirmedByCommand && !forAgent) {
-    console.log(`Approving the ${phase.label ?? phase.id} review you read in this terminal (generation ${phase.generation}, packet ${reviewed.reviewPacketSha256.slice(0, 19)}…).`);
+    console.log(`Approving the ${phase.label ?? phase.id} review you read in this terminal (generation ${phase.generation}).`);
   } else if (!forAgent) {
     // Approval itself names any commit that blocks it, in its refusal; the advisory would only repeat it.
     printPhaseReview(await phaseReview(root, config, workflow, phase, { includeApprovalCheck: false }), { showArtifact: optionBoolean(options, 'show-artifact') });
@@ -127,7 +129,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
   console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
   console.log(`Agent: ${session.agent} (prompt/audit context only)`);
-  console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
+  console.log(`Artifacts: ${phase.artifacts.map((item) => item.path).join(', ')}`);
   console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
   console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})${presenceLabel(presenceModule, workflow, item)}`).join(', ') || 'none'}`);
@@ -143,9 +145,16 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   const who = { actor: session.actor, agent: session.agent };
   let decisions = null;
   let prompt = null;
+  let confirmDecisions = false;
   if (optionStrings(options, 'choose').length || options.decisions !== undefined) {
     const { approvalDecisionFlags, prepareApprovalDecisions } = await import('../approval-decisions.mjs');
-    decisions = await prepareApprovalDecisions(root, config, workflow, phase, await approvalDecisionFlags(options), who);
+    const flags = await approvalDecisionFlags(options);
+    // Choices typed with the approval in a person's own terminal: bound to the list this process reads, shown below
+    // and confirmed by the typed phase, as the interactive prompt is, so a person never copies a digest [no hashes shown].
+    const packet = !flags.digest && asking && !forAgent && processInput.isTTY && processOutput.isTTY
+      ? await (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId: phase.id }) : null;
+    confirmDecisions = Boolean(packet);
+    decisions = await prepareApprovalDecisions(root, config, workflow, phase, packet ? { ...flags, digest: packet.packetSha256, packet } : flags, who);
   } else if (asking && !forAgent && processInput.isTTY && processOutput.isTTY) {
     ({ decisions, prompt } = await askApprovalDecisions(root, config, workflow, phase, who));
   }
@@ -155,7 +164,7 @@ export async function approveCommand(positionals, options, dependencies = {}) {
   }
   try {
     // Decisions answered after the command was typed are confirmed by the typed phase, like the review.
-    if (asking && (!confirmedByCommand || prompt)) {
+    if (asking && (!confirmedByCommand || prompt || confirmDecisions)) {
       const typed = prompt
         ? (await prompt.ask(`Type ${phase.id} to approve ${phase.label} and record these decisions: `))?.trim() === phase.id
         : await confirm(phase);
@@ -280,8 +289,8 @@ export async function approveCommand(positionals, options, dependencies = {}) {
     return activateWorkItemSession(root, accepted.config, accepted.workflow);
   });
   if (!forAgent) console.log(publication.pushed
-    ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
-    : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+    ? `Approval decision committed and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
+    : `Approval decision committed locally; push is disabled by git.publish: off.`);
   if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; agent ${result.approval.agent}.${presenceLabel(presenceModule, workflow, result.approval)}`);
   if (!forAgent && result.decisions) console.log(`Recorded in the same commit: ${result.decisions.map((entry) => `${entry.item} ${entry.record}`).join(', ')}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);

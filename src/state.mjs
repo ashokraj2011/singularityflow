@@ -7271,8 +7271,9 @@ export async function evaluateApproval(root, config, workflow, {
         const stale = submittedWitnessMappings.find((mapping) =>
           currentClauses.get(mapping.clauseId) !== mapping.clauseBodySha256);
         if (stale) {
+          const { namedWitnessText } = await import('./witness-names.mjs');
           throw new SingularityFlowError(
-            `Witness mapping '${stale.mappingSha256}' no longer matches the active bytes for clause '${stale.clauseId}'. Re-submit the phase after reconciling the specification evidence.`,
+            `Witness ${namedWitnessText(stale.mappingSha256, submittedWitnessMappings)} no longer matches the active bytes for clause '${stale.clauseId}'. Re-submit the phase after reconciling the specification evidence.`,
             { code: 'WEL_WITNESS_MAPPING_STALE' }
           );
         }
@@ -7281,15 +7282,17 @@ export async function evaluateApproval(root, config, workflow, {
     await stage('witness-review', async () => {
       // Approving accepts every submitted witness as adequate unless the reviewer decided otherwise; an
       // earlier decision on an identical witness carries forward [E2G-014].
+      // A witness named as the review shows it is the submitted mapping that name stands for [no hashes shown].
+      const { namedWitnessText, resolveWitnessNames } = await import('./witness-names.mjs');
       const witnessReview = evaluateWitnessMappingReview({
         mappings: submittedWitnessMappings,
-        decisions: witnessMappings,
+        decisions: resolveWitnessNames(witnessMappings, submittedWitnessMappings),
         prior: [...(phase.approvals ?? [])].reverse().flatMap((entry) => entry.witnessMappings ?? [])
       });
       if (!witnessReview.valid) {
         throw new SingularityFlowError(
-          `Phase ${phase.id} witness review is invalid:\n- ${witnessReview.errors.join('\n- ')}\n`
-          + `Decide a witness with --witness-mapping <sha256>=exception:<facet>[,<facet>] (with --witness-mapping-reason and --witness-mapping-expires) or <sha256>=not-applicable (with --witness-mapping-reason); every other witness is accepted as adequate.`,
+          `Phase ${phase.id} witness review is invalid:\n- ${witnessReview.errors.map((error) => namedWitnessText(error, submittedWitnessMappings)).join('\n- ')}\n`
+          + `Decide a witness with --witness-mapping <witness>=exception:<facet>[,<facet>] (with --witness-mapping-reason and --witness-mapping-expires) or <witness>=not-applicable (with --witness-mapping-reason), the witness named as the review shows it; every other witness is accepted as adequate.`,
           { code: 'WEL_WITNESS_MAPPING_UNREVIEWED' }
         );
       }

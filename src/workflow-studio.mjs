@@ -2185,9 +2185,15 @@ class StudioCandidate {
     this.summary.push(`User-defined agent ${label}: its folder replaced (${files.length} file${files.length === 1 ? '' : 's'}${removed ? `, ${removed} removed` : ''}); its step and workflow are unchanged, and running Stories keep the folder they started with.`);
   }
 
-  updateAgent({ id, label, description, tools, views, instructions }) {
+  updateAgent({ id, label, description, tools, views, instructions, phases }) {
     const agent = this.touch(this.requireAgent(requireId(id, 'An agent ID')));
     if (label != null) agent.label = requireLabel(label, 'The agent');
+    if (phases != null) {
+      // The steps it may draft (sflow-phases); it stops drafting by default any step it no longer lists.
+      if (!Array.isArray(phases) || !phases.length) throw new SingularityFlowError(`${agent.label} lists at least one step it may draft.`, { code: 'STUDIO_AGENT_INVALID' });
+      agent.phases = [...new Set(phases.map((phase) => requireId(phase, 'A step ID')))];
+      agent.defaultFor = agent.defaultFor.filter((phase) => agent.phases.includes(phase));
+    }
     if (description != null) agent.description = String(description).replace(/\s+/g, ' ').trim() || agent.description;
     if (tools != null) agent.tools = [...new Set(tools.map(String).filter(Boolean))];
     if (views != null) agent.views = [...new Set(views.map(String).filter(Boolean))];

@@ -419,7 +419,7 @@ for (const ent of entries) {
               sigCtx({ sig: 'json', code: (body.trimEnd().endsWith('}') ? 'INVALID_JSON_BODY' : 'CUT_OFF_JSON') + (composed ? ' (model-composed pipe/chain)' : ' (plain SFlow command)'), line, ts, tool: name, call: short(c.summary), detail: `${body.length} chars; tail: ${short(body.slice(-80), 80)}` });
             }
           }
-          if (/"agentOutput"\s*:\s*\{\s*"complete"\s*:\s*false/.test(body)) sigCtx({ sig: 'json', code: 'SFLOW_BOUNDED_RESULT', line, ts, tool: name, call: short(c.summary), info: true });
+          if (/"agentOutput"\s*:\s*\{\s*(?:"complete"\s*:\s*false|"view"\s*:\s*"(?:bounded|preview|detail-unavailable)")/.test(body)) sigCtx({ sig: 'json', code: 'SFLOW_BOUNDED_RESULT', line, ts, tool: name, call: short(c.summary), info: true });
         }
         // ---- signature 5: JSON / size problems in any tool result
         const sourceView = /^(view|read_file|grep|rg|glob|grep_search|file_search)$/i.test(name);

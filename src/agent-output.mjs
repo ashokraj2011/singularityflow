@@ -983,7 +983,9 @@ function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   const reader = new Set(readerFields(ordered));
   const act = actReadingFields(given, reader);
   const reads = new Set((act?.read ?? []).map((field) => String(field).split('.')[0]));
-  const agentOutput = { complete: false, retained: false, state: 'detail-unavailable', bytes: bytes(agentJson(ordered)),
+  // What this display is, never what the work is: `complete: false` beside act read as "the draft is incomplete", and
+  // `retained: false` and a second `state` as the review not retained (Story cplus, agent-text audit, 2026-11-11).
+  const agentOutput = { view: 'detail-unavailable', fullResult: 'not-kept', bytes: bytes(agentJson(ordered)),
     ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_RESULT }
       : { instruction: 'No repository was found from here to keep the full result; the omitted fields are not shown. Run the command from the Story checkout to read them.' }) };
   const render = (kept) => agentJson({ ...(act ? { act } : {}), agentOutput,
@@ -1043,10 +1045,10 @@ async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null 
     await registerReadFiles(target.root, [file]);
     await prune(target.directory, path.basename(file, '.txt'), now);
     const relative = path.relative(target.root, file).split(path.sep).join('/');
-    agentOutput = { complete: false, literal, path: file, relativePath: relative, bytes: bytes(text), lines: text.split('\n').length - 1,
+    agentOutput = { view: 'preview', literal, path: file, relativePath: relative, bytes: bytes(text), lines: text.split('\n').length - 1,
       sha256: sha256(text), read: lineRanges(text), instruction: 'Literal output kept whole: request every agentOutput.read line range together in one response; nothing was truncated.' };
   } else {
-    agentOutput = { complete: false, literal, retained: false, state: 'detail-unavailable', bytes: bytes(text),
+    agentOutput = { view: 'detail-unavailable', literal, fullResult: 'not-kept', bytes: bytes(text),
       ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_LITERAL }
         : { instruction: 'No repository was found from here to keep this output; only the preview is shown. Run the command from the Story checkout to read all of it.' }) };
   }
@@ -1156,7 +1158,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     await prune(target.directory, base, now);
     return fullText;
   };
-  const describe = (fullText, instruction) => ({ complete: false, path: file,
+  const describe = (fullText, instruction) => ({ view: 'bounded', path: file,
     ...(relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? { relativePath: relative.split(path.sep).join('/') } : {}),
     bytes: bytes(fullText), lines: fullText.split('\n').length - 1, sha256: sha256(fullText), instruction });
   // Each instruction is one sentence under 200 bytes; the skills' output contract states the rule in
@@ -1333,7 +1335,9 @@ const isTextReference = (value) => value && typeof value === 'object' && !Array.
 /** The complete result behind a bounded view, with every long text read back; any other result as is. */
 export function completeAgentResult(output) {
   const view = typeof output === 'string' ? JSON.parse(output) : output;
-  if (view?.agentOutput?.complete !== false || typeof view.agentOutput.path !== 'string') return view;
+  // `complete: false` named a bounded view before 2026-11-11; a result kept then reads the same.
+  const shown = view?.agentOutput?.view;
+  if (!(['bounded', 'preview'].includes(shown) || view?.agentOutput?.complete === false) || typeof view.agentOutput.path !== 'string') return view;
   const inline = (value) => isTextReference(value) ? readFileSync(value.textFile, 'utf8')
     : Array.isArray(value) ? value.map(inline)
       : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, child]) => [key, inline(child)])) : value;

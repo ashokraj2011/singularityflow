@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { agentAct, LOOP_THRESHOLD, observeAgentLoop } from '../src/agent-output.mjs';
+import { agentAct, boundedAgentOutput, LOOP_THRESHOLD, observeAgentLoop } from '../src/agent-output.mjs';
 import { clarificationCheckpoint } from '../src/clarifications.mjs';
 import { CLARIFICATION_RESPONSE_FORMAT } from '../src/phase-staging-paths.mjs';
 import { reviewSubagentHandoff } from '../src/review-subagent.mjs';
@@ -137,5 +137,47 @@ test('no app-start text offers only the governed proposal: each one says the loc
       const window = text.slice(text.indexOf(line), text.indexOf(line) + line.length + 400);
       assert.match(window, /this checkout only|save-local|saved on this checkout/u, `${file}: ${line.trim()}`);
     }
+  }
+});
+
+// The keys act may carry. A new one is a decision a reviewer sees here, never a flag that slips in beside `said`.
+const ACT_KEYS = new Set(['state', 'do', 'read', 'said', 'ask', 'strategy', 'story', 'next', 'fix', 'loop', 'paths']);
+// Words that read as the work's own state when they sit beside act (Story cplus, 2026-11-11).
+const WORK_STATE_WORDS = /^(?:complete|completed|done|finished|incomplete|retained|ready|state|blocked|failed|truncated)$/u;
+const booleans = (value, trail = 'act') => (typeof value === 'boolean' ? [trail]
+  : Array.isArray(value) ? value.flatMap((child, index) => booleans(child, `${trail}[${index}]`))
+    : value && typeof value === 'object' ? Object.entries(value).flatMap(([key, child]) => booleans(child, `${trail}.${key}`)) : []);
+
+test('act carries only its own keys and no true/false flag, and the display block beside it names no work state', async (t) => {
+  const corpus = [published(), published({ start: declared }), published({ review: false, start: declared }), published({ review: false, start: undeclared }),
+    { resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'intake', authoringProgress: { stage: 'resume-draft' }, taskCompletion: { complete: false } },
+    { resultType: 'sflow-phase-entry', status: 'clarification-required', taskCompletion: { complete: false, state: 'blocked' } },
+    { resultType: 'sflow-phase-prepublish', status: 'ready', phase: 'intake', commands: { publish: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' } },
+    { resultType: 'sflow-phase-prepublish', status: 'correction-required', findings: [{ code: 'X', message: 'Fix it.' }] },
+    { resultType: 'sflow-kept-result', status: 'running', running: [{ command: 'singularity-flow phase prepublish intake' }], retry: 'singularity-flow result last --wait --for-agent --json' },
+    { resultType: 'sflow-kept-result', status: 'interrupted', interrupted: { command: 'singularity-flow phase prepublish intake' } },
+    { resultType: 'sflow-submission-readiness', classification: 'convergence-advance-required', nextCommand: 'singularity-flow story advance --work-id W' },
+    { resultType: 'source-review-check', retentionReady: true, repair: {}, findings: [] },
+    { error: { code: 'X', message: 'Refused.' }, remediationPlan: { steps: [{ command: 'singularity-flow recover W --json', label: 'Recover.' }] } }];
+  for (const result of corpus) {
+    const act = agentAct(result);
+    const where = JSON.stringify(result).slice(0, 120);
+    assert.deepEqual(Object.keys(act).filter((key) => !ACT_KEYS.has(key)), [], where);
+    assert.deepEqual(booleans(act), [], where);
+  }
+  // The bounded views: kept in a checkout, a literal preview, and with nowhere to keep the rest.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-text-view-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const large = { resultType: 'sflow-phase-entry', status: 'clarification-required', workId: 'W', phase: 'intake', ready: true,
+    clarification: { checkpoint: { stage: 'derive-questions' } }, context: { text: 'x'.repeat(20_000) }, notes: 'y'.repeat(9_000) };
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-text-outside-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  for (const [text, cwd] of [[JSON.stringify(large), root], [JSON.stringify([large, large]), root], [JSON.stringify(large), outside]]) {
+    const view = JSON.parse(await boundedAgentOutput(text, { cwd }));
+    assert.deepEqual(Object.keys(view).slice(0, 2), ['act', 'agentOutput']);
+    assert.deepEqual(Object.keys(view.agentOutput).filter((key) => WORK_STATE_WORDS.test(key)), [], JSON.stringify(view.agentOutput).slice(0, 200));
+    assert.deepEqual(booleans(view.agentOutput, 'agentOutput'), []);
+    assert.ok(['bounded', 'preview', 'detail-unavailable'].includes(view.agentOutput.view), view.agentOutput.view);
   }
 });

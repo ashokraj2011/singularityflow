@@ -321,11 +321,13 @@ test('[PHR:REQ-001] a plan that falls short of the approved intent names the cla
   assert.ok(plan.steps.some((entry) => entry.id === 'correct-draft'), 'the planner\'s own correction stays');
   assert.equal(withClauseIntentOwner(refusal({ clauseId: ac, cause: 'plan-row' }), workflow, 'planning', indexes).details.upstreamPhase, undefined);
 
-  // At prepublish: routed to the specification's correction, the draft repair beside it, and the decision list once an issue names it.
+  // At prepublish: the plan's own correction first, in this step (owner policy 2026-11-10; Story cplus
+  // stopped when the specification's route led), that step's correction after it, and the decision list once an issue names it.
   const finding = { code: 'specification.planned-test-invalid', category: 'planning-table', path: 'plan.md', message: 'unmet',
     details: { clauseId: req, cause: 'intent-not-met', sourceCode: 'SPEC_VERIFICATION_INTENT_INVALID', ownerPhase: 'specification', upstreamPhase: 'specification', repairScope: 'current-draft' } };
-  const choices = phaseResolutionChoices(workflow, workflow.phases.planning, finding).choices;
-  assert.deepEqual(choices.slice(0, 2).map((entry) => [entry.kind, entry.owner]), [['upstream-owner', 'specification-approval-authority'], ['author-correction', 'planning']]);
+  const resolved = phaseResolutionChoices(workflow, workflow.phases.planning, finding);
+  assert.deepEqual(resolved.choices.slice(0, 2).map((entry) => [entry.kind, entry.owner]), [['author-correction', 'planning'], ['upstream-owner', 'specification-approval-authority']]);
+  assert.equal(resolved.status, 'needs-correction');
   const waiting = phaseResolutionChoices(workflow, workflow.phases.planning, { ...finding, details: { ...finding.details, upstreamIssues: ['UPI-001'],
     nextAction: { command: 'singularity-flow decisions W-2 --json', skill: '/sf-decide', label: "specification's approvers decide UPI-001 in the decision list." } } }).choices[0];
   assert.deepEqual([waiting.kind, waiting.command], ['upstream-decision', 'singularity-flow decisions W-2 --json']);

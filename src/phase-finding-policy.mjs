@@ -20,6 +20,12 @@ export function findingOwnedByPhase(workflow, phase, finding) {
   return !affected || affected === phase.id;
 }
 
+/** An unmet-intent plan row: this step corrects it first, the earlier step's route is the safety net (owner policy 2026-11-10); an open issue naming it leads instead. */
+export function planCorrectsFirst(finding) {
+  return finding?.details?.cause === 'intent-not-met' && finding.details?.repairScope === 'current-draft'
+    && !finding.details?.upstreamIssues?.length && !finding.details?.nextAction;
+}
+
 export { phaseCorrectionTargets };
 
 /** Runtime overlay also applies to older pinned Stories; it does not rewrite their policy bytes. */

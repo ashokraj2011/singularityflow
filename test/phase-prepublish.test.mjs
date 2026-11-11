@@ -600,6 +600,44 @@ test('prepublish checks every approved clause against the planning table without
   assert.equal(await readFile(seedPath, 'utf8'), seededBytes);
 });
 
+test('a plan short of the approved intent is corrected in this turn first; the earlier step\'s route follows it (Story cplus, 2026-11-11)', async t => {
+  const item = await fixture(t);
+  const REQ = 'PRE-1:REQ-001';
+  item.phase.id = 'custom-design';
+  item.workflow.currentPhase = 'custom-design';
+  item.session.phaseId = 'custom-design';
+  item.workflow.phaseOrder = ['requirements', 'custom-design', 'custom-code'];
+  item.workflow.resolution.spec = { mode: 'record', namespace: 'PRE-1', acceptance: 'presence' };
+  item.workflow.resolution.plannedClaims = {
+    mode: 'required', clausePhases: ['requirements'], owners: { 'custom-code': 'custom-design' }
+  };
+  item.workflow.phases = {
+    requirements: { id: 'requirements', status: 'approved', generation: 1,
+      requiredArtifact: { path: 'artifacts/requirements/spec.md', kind: 'requirements' } },
+    'custom-design': item.phase, 'custom-code': { id: 'custom-code', generationPolicy: { task: 'code' } }
+  };
+  const spec = 'singularity/work-items/PRE-1/artifacts/requirements/spec.md';
+  await mkdir(path.join(item.root, path.dirname(spec)), { recursive: true });
+  await writeFile(path.join(item.root, spec), `# Requirements\n\n[${REQ}]\nShow the result in binary.\n\n## Verification intent\n\n| Clause | Methods | Criterion |\n|---|---|---|\n| \`${REQ}\` | test | - |\n`);
+  await buildSpecIndex(item.root, spec, { workId: 'PRE-1', phase: 'requirements', generation: 1,
+    outputPath: 'singularity/work-items/PRE-1/context/spec-indexes/requirements-gen1.json',
+    policy: item.workflow.resolution.spec });
+  await writeFile(item.absolute, ['# Plan', '', '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    `| [${REQ}] | \`src/App.jsx\` | not-applicable: a reviewer reads the page | modified |`, ''].join('\n'));
+  const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  const unmet = result.findings.find((finding) => finding.details?.cause === 'intent-not-met');
+  assert.ok(unmet, JSON.stringify(result.findings.map((finding) => finding.message)));
+  assert.equal(unmet.details.upstreamPhase, 'requirements');
+  // The plan's own correction, this turn: not a hand-off to the earlier step's approvers.
+  assert.equal(result.correction.sameTurn, true, JSON.stringify(result.correction));
+  assert.equal(result.correction.class, 'agent-authoring');
+  assert.equal(result.commands.next, 'singularity-flow phase show custom-design --show-artifact');
+  const issue = result.resolution.issues.find((entry) => entry.findingIdentity?.code === 'SPEC_VERIFICATION_INTENT_INVALID' || entry.canonicalCode === 'SPEC_VERIFICATION_INTENT_INVALID');
+  assert.equal(issue.status, 'needs-correction');
+  assert.deepEqual(issue.choices.slice(0, 2).map((choice) => choice.owner), ['custom-design', 'requirements-approval-authority'],
+    'the earlier step\'s route stays, as the safety net after the plan\'s own correction');
+});
+
 test('any configured planning owner gets a hash-bound evidence repair before approval, not a late code gate', async t => {
   const item = await fixture(t);
   const AC = 'PRE-1:AC-001';

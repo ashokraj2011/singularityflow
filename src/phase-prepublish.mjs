@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { findingOwnedByPhase } from './phase-finding-policy.mjs';
+import { findingOwnedByPhase, planCorrectsFirst } from './phase-finding-policy.mjs';
 
 import {
   catalogArtifactSet, resolvedArtifactSet, unpublishableRequiredArtifactSetMembers
@@ -293,9 +293,13 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     command: `singularity-flow clarification status ${phase.id} --json`, skill: null,
     detail: 'Get a reviewed answer for each unresolved marker, record it as a clarification, then update the specification and recheck.'
   });
+  const upstream = (blocker) => blocker.details?.upstreamPhase && blocker.details.upstreamPhase !== phase.id;
+  // A plan that may be what is wrong keeps its own correction; it leads when it may correct every earlier-step finding (Story cplus).
+  const ownRepair = blockers.some((blocker) => blocker.category !== 'clarification' && (!upstream(blocker) || blocker.details?.repairScope === 'current-draft'));
+  const ownFirst = ownRepair && blockers.filter(upstream).every(planCorrectsFirst);
+  if (ownFirst) actions.push(repair);
   // What an earlier step owns goes to that step's correction, never to this draft [PHR:REQ-003]: the
   // decision list when an open issue already names it, else that step's own correction for it.
-  const upstream = (blocker) => blocker.details?.upstreamPhase && blocker.details.upstreamPhase !== phase.id;
   for (const owner of new Set(blockers.filter(upstream).map((blocker) => blocker.details.upstreamPhase))) {
     const owned = blockers.filter((blocker) => upstream(blocker) && blocker.details.upstreamPhase === owner);
     const waiting = owned.find((blocker) => blocker.details.nextAction)?.details.nextAction;
@@ -305,8 +309,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     else if (named ?? legal) actions.push({ command: (named ?? legal).command, skill: (named ?? legal).skill,
       detail: `${(named ?? legal).label} ${phase.id} cannot correct ${owner}'s output in its own draft.` });
   }
-  // A plan that may itself be what is wrong keeps its own correction beside the earlier step's.
-  if (blockers.some((blocker) => blocker.category !== 'clarification' && (!upstream(blocker) || blocker.details?.repairScope === 'current-draft'))) actions.push(repair);
+  if (ownRepair && !ownFirst) actions.push(repair);
   return { blockers, actions, evidenceRepair, planningContract };
 }
 
@@ -630,7 +633,7 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
   const repairBlockers = [...blockers, ...repairRecoveryBlockers]
     .filter(entry => entry.code !== 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED');
   const authoringRepairOnly = repairBlockers.length > 0
-    && repairBlockers.every((entry) => findingOwnedByPhase(workflow, phase, entry)
+    && repairBlockers.every((entry) => (findingOwnedByPhase(workflow, phase, entry) || planCorrectsFirst(entry))
       && phaseFindingPolicy(entry).repairableByProducer);
   const ownedRecoveryRepair = !retained && lifecycleReady && !hardBlocker
     && !repairDependencies.length && authoringRepairOnly && agentOwnsRepair;
@@ -675,7 +678,7 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
     && !retained && lifecycleReady && !hardBlocker && !repairDependencies.length && agentOwnsRepair
     && (ownedRecoveryRepair || draft.correction.sameTurn);
   const sameTurnCorrection = !retained && lifecycleReady && !ready && !hardBlocker && !repairDependencies.length
-    && [...findings.values()].every(entry => findingOwnedByPhase(workflow, phase, entry))
+    && [...findings.values()].every(entry => findingOwnedByPhase(workflow, phase, entry) || planCorrectsFirst(entry))
     && ![...findings.values()].some(entry => phaseFindingPolicy(entry).classification === 'integrity-or-authority')
     && (draft.status !== 'ready' ? draft.correction.sameTurn
       : (briefOnly || authoringRepairOnly) && agentOwnsRepair);

@@ -562,7 +562,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // level 2]. The review is read only where it gates submission and approval, so state.mjs loads it from the CLI
     // source and the evaluator, its contract and the new document and code checks leave the eager graph
     // (source-review-lifecycle.mjs, source-grounded-review.mjs, source-review-contract.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_587_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,587,900 (measured 9,587,867, commands/phase-lifecycle.mjs): a plan row short of the approved intent is the plan's own
+    // correction first, the earlier step's route after it (phase-finding-policy.mjs planCorrectsFirst, phase-prepublish.mjs,
+    // phase-resolution.mjs) [Story cplus, 2026-11-11]. No new eager file.
+    assert.ok(closure.bytes <= 9_587_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -4,7 +4,7 @@ import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-deliv
 import { submitRoute } from './submit-route.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
+import { planCorrectsFirst, repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
@@ -102,7 +102,8 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     'Inspect the exact preserved state. No automatic commit, discard, approval or retry.');
   const basePolicy = phaseFindingPolicy(finding);
   const foreignApproved = affectedPhase && affectedPhase.id !== phase.id && affectedPhase.status === 'approved';
-  const policy = foreignApproved && basePolicy.repairableByProducer
+  const planFirst = planCorrectsFirst(finding);
+  const policy = foreignApproved && basePolicy.repairableByProducer && !planFirst
     ? Object.freeze({ ...basePolicy, classification: 'upstream-owner', repair: 'review-approved-input', repairableByProducer: false })
     : basePolicy;
   const preserve = route('preserve-checkpoint', phase.id,
@@ -320,7 +321,8 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       '--evidence-file', '<PATH>', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
     'When every listed item is delivered and the finding still returns unchanged, the check is misreading the work: stop repairing and prepare a dispute with the evidence (test output, the test file). One of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate; it is recorded as an exception, never a pass, and tests still run.',
     '/sf-appeal') : null;
-  const choices = [resolution, ...gapRoutes, ...(dispute ? [dispute] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
+  const lead = planFirst && gapRoutes[0]?.kind === 'author-correction' ? gapRoutes[0] : resolution;
+  const choices = [lead, ...[resolution, ...gapRoutes].filter((choice) => choice !== lead), ...(dispute ? [dispute] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
   if (!foreignApproved && isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
       '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
@@ -340,8 +342,8 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     detectedPhase: phase.id, affectedPhase: affectedPhase?.id ?? finding.details?.upstreamPhase ?? phase.id,
     // What the finding means, its usual causes, the fix, and who else can act.
     documentation: findingDocumentation(finding),
-    status: resolution.kind.endsWith('owner') || resolution.kind === 'owner-escalation'
-      ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment', 'current-phase-correction', 'decide-upstream-issue'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
+    status: lead.kind.endsWith('owner') || lead.kind === 'owner-escalation'
+      ? 'needs-owner' : lead.kind.includes('risk') || lead.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment', 'current-phase-correction', 'decide-upstream-issue'].includes(lead.kind) ? 'needs-human' : 'needs-correction',
     choices: admitted, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
 }
 

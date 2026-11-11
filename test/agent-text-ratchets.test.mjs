@@ -186,7 +186,7 @@ test('/sf-run-app frees a held port the way the refusal names, and never kills a
   // "Never kill any other process" overrode the person's own "kill the app on 5173 and start this one" (session mining N2).
   const { readFile } = await import('node:fs/promises');
   const skill = await readFile(new URL('../plugin/skills/sflow-run-app/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /`APP_PORT_IN_USE` names the port's holder: an SFlow run \(any checkout\) stops by its `details\.nextAction` once the person confirms; another process only the person stops, one they named, in their own terminal \(`kill <pid>` from `details\.holder`\)\. Never kill a process yourself\./u);
+  assert.match(skill, /`APP_PORT_IN_USE` names the port's holder: an SFlow run \(any checkout\) ends by its `details\.nextAction` once the person confirms; another process only the person ends, one they named, in their own terminal \(`kill <pid>` from `details\.holder`\)\. Never kill a process yourself\./u);
 });
 
 test('every skill line that starts a long-running command says how to wait for it', async () => {
@@ -312,5 +312,8 @@ test('a step whose document is still to write is named as its own work, not as a
   const { RESULT_MESSAGES } = await import('../src/gateway/messages.mjs');
   const entry = RESULT_MESSAGES['work.blocked.required-artifact-missing'];
   assert.doesNotMatch(entry.label, /missing/u);
-  assert.match(`${entry.label} ${entry.detail}`, /not written yet[^]*this step's own work \(\/sf-phase; \/sf-code for a code step\)/u);
+  assert.equal(entry.label, 'This step\'s document is not written yet');
+  // The readiness gate pairs it with its way on: continue this work, producing the artifact.
+  const { RESULT_MESSAGES: all } = await import('../src/gateway/messages.mjs');
+  assert.equal(all['readiness.produce-the-artifact'].label, 'Produce the artifact');
 });

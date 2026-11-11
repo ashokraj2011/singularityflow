@@ -278,6 +278,12 @@ In a repository that uses SFlow (any branch, Story or not), with hooks on:
   - two launchers, `.github/hooks/sflow-hook.sh` and `.ps1`.
 
   Onboarding writes them, and `doctor` repairs them, as a reviewed change like any other.
+
+  (2026-11-12) No agent changes `.github/hooks/**`, whatever `protectedPaths` or `policy.plainChatEdits` say: an
+  edit tool in any SFlow turn or plain chat is refused, and a shell write the turn's guard sees stops the turn. The
+  refusal names the person's route: they edit the files in their own terminal, or run `singularity-flow doctor
+  --repair-hooks` there, then review and commit. SFlow's own init and `doctor --repair-hooks` (now a mutation, so a
+  live turn's shell baseline moves past it) still write them in their own process; plugin install writes none.
 - `[PCR:REQ-031]` **Nothing runs twice, and the plugin is the guard that needs no trust.**
   - Plugin hooks run in untrusted folders, and repository hooks do not. So where the SFlow plugin is installed, it
     does the work, and the repository launchers answer `{}`. SFlow's installation leaves a marker they read without

@@ -4,6 +4,7 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from './code-delivery-policy.mjs';
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
+import { isCopilotHooksPath } from './governed-roots.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
@@ -234,7 +235,9 @@ export function mutationPathDecision(contract, target, cwd = contract.repository
     const value = contract.ownership.caseInsensitivePaths ? prefix.toLowerCase() : prefix;
     return compared === value.replace(/\/$/u, '') || compared.startsWith(`${value.replace(/\/$/u, '')}/`);
   };
-  if (!relative || /^(?:\.git)(?:\/|$)/iu.test(relative) || contract.deny.protectedPaths.some(matches)) return { allowed: false, reason: 'protected-path', path: relative };
+  // Git's own files and SFlow's Copilot hooks are never an agent's to change, whatever the repository protects.
+  if (!relative || /^(?:\.git)(?:\/|$)/iu.test(relative) || isCopilotHooksPath(relative)
+      || contract.deny.protectedPaths.some(matches)) return { allowed: false, reason: 'protected-path', path: relative };
   if (contract.allow.artifacts.some(matches)) return { allowed: true, path: relative };
   if (!isApplicationPath(relative, contract.ownership)) return { allowed: false, reason: 'kernel-owned-state', path: relative };
   if (!contract.allow.application) return { allowed: false, reason: 'application-edits-not-allowed', path: relative };

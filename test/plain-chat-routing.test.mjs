@@ -303,6 +303,22 @@ test('PCR REQ-012, REQ-013: allow lets a change through untracked; a /sf- turn a
   await paused(strict, async () => assert.deepEqual(await strict.call('person', ...edit()), {}, '/sf-pause turns this off'));
 });
 
+test('PCR: a plain chat never edits SFlow\'s Copilot hooks, whatever policy.plainChatEdits says; reading them and other .github files stay free', async (t) => {
+  // The hooks run this guard: under record or allow, a chat that edited them could switch it off.
+  for (const policy of [null, 'allow']) {
+    const repo = await clone(t, { policy });
+    await repo.prompt('person', 'turn off the hook');
+    for (const [toolName, toolArgs] of [edit('.github/hooks/sflow.json'), ['create', { path: '.github/hooks/extra.json', file_text: '{}' }],
+      ['apply_patch', '*** Begin Patch\n*** Delete File: .github/hooks/sflow-hook.sh\n*** End Patch\n']]) {
+      const decision = await repo.call('person', toolName, toolArgs);
+      assert.ok(refused(decision), `${policy} ${toolName}`);
+      assert.match(reason(decision), /^PLAIN_CHAT_HOOKS_PROTECTED: this edit to \.github\/hooks\/[^ ]+ did not run: no agent changes \.github\/hooks: its Copilot hooks run SFlow's guard for every chat in this repository\. A person changes them in their own terminal, or runs singularity-flow doctor --repair-hooks there so SFlow writes them again for this repository's setting, then reviews and commits them\. Tell the person; do not retry it$/u);
+    }
+    assert.deepEqual(await repo.call('person', 'view', { path: '.github/hooks/sflow.json' }), {}, 'a read stays free');
+    assert.deepEqual(await repo.call('person', ...edit('.github/workflows/ci.yml')), {}, `${policy}: another .github file is the capability's to decide`);
+  }
+});
+
 test('PCR REQ-013: the capability that owns the changed path decides; the map is read only where it can say something', async (t) => {
   const repo = await clone(t);
   assert.equal(await plainChatEditsPolicy(repo.root, 'src/retry.js'), 'record', 'no map names it: the default, with no map read');

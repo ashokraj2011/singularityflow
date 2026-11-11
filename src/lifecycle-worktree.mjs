@@ -56,7 +56,8 @@ export async function withSetAsideRoute(error, root, config, workflow) {
     const action = plan.actions.find((entry) => entry.id === 'set-aside-worktree');
     if (action?.command) error.details = { ...error.details, setAside: { command: action.command, paths: action.paths } };
   } catch { /* The refusal stands on its own words. */ }
-  return error;
+  // The current code step's own files changed after its publication lead with its in-step repair (N7).
+  return (await import('./changes-after-publication.mjs')).withChangesAfterPublicationRoutes(error, root, config, workflow);
 }
 
 export function assertLifecycleWorktreeClean(root, config = null, workflow = null, { workId = null } = {}) {

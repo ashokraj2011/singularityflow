@@ -137,12 +137,17 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
   }
 }
 
-export async function generationRecovery(root, workflow, phase, generationDigest) {
+/**
+ * `unboundChanges`: also a published draft whose bytes still match while application files changed after it
+ * outside every plan (they never enter its digest): `phase rollover` starts the next draft with them (N7).
+ */
+export async function generationRecovery(root, workflow, phase, generationDigest, { unboundChanges = false } = {}) {
   if (!phaseRequiresCodeDelivery(phase)
       || phase.generationIntent?.status !== 'consumed'
       || Number(phase.generationIntent.generation) !== Number(phase.generation)) return null;
   const digest = await generationDigest(root, phase);
-  if (digest === phase.generationIntent.publication?.resultDigest) return null;
+  const unchanged = digest === phase.generationIntent.publication?.resultDigest;
+  if (unchanged && !unboundChanges) return null;
 
   let command = null;
   let mode = 'guided';
@@ -182,6 +187,8 @@ export async function generationRecovery(root, workflow, phase, generationDigest
       mode = 'manual';
     }
   }
+  // Nothing changed after all: no successor to offer.
+  if (unchanged && !changeSetDigest) return null;
   const rolloverConfirmation = changeSetDigest ?? digest;
   const submitted = phase.status === 'awaiting_approval';
   if (mode !== 'manual') {

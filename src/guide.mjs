@@ -36,10 +36,13 @@ export function requestedSuccessorEligible(workflow, phase) {
  * change (their typed words are kept), so its preview comes first; otherwise it follows submission.
  * `phase rollover` is /sf-recover's command (command-skills.mjs); in a Code turn the agent runs its shell route.
  */
-export function requestedSuccessorAction(workflow, phase, { requested = false } = {}) {
+export function requestedSuccessorAction(workflow, phase, { requested = false, changedPaths = [] } = {}) {
   if (!requestedSuccessorEligible(workflow, phase)) return null;
   const next = Math.max(Number(phase.generation ?? 0), Number(phase.generationHighWatermark ?? 0)) + 1;
   const kept = `Generation ${phase.generation}, its evidence and its test results stay as published; nothing changes until the person confirms.`;
+  // Files changed after publication (changes-after-publication.mjs): the next generation starts with them, or the person sets them aside (N7).
+  if (changedPaths.length) return copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
+    reason: `${changedPaths.slice(0, 5).join(', ')}${changedPaths.length > 5 ? ` and ${changedPaths.length - 5} more` : ''} changed after generation ${phase.generation} was published: preview starting generation ${next} of ${phase.id} that includes the change, then ask the person to confirm it, or to set the change aside. ${kept}` });
   if (requested) return copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
     reason: `The person asked for a change: preview starting generation ${next} of ${phase.id} for it, then ask them to confirm. ${kept}` });
   return { ...copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`,
@@ -53,14 +56,16 @@ export function requestedSuccessorAction(workflow, phase, { requested = false } 
  * it, so a skill's closing handoff is the engine's own next action instead of text it hard-codes.
  */
 export function phaseHandoff(workflow, phase, {
-  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path), sourceReviewEvidence = null, requestedChange = false
+  hasDocuments = phase.generation > 0 && Boolean(phase.requiredArtifact?.path), sourceReviewEvidence = null, requestedChange = false,
+  changedPaths = []
 } = {}) {
   const hold = phaseGovernanceHold(workflow, phase);
   if (hold) return hold.actions;
   // A published, unsubmitted code generation can also be changed in its own step: the person's request
-  // leads when they made one, else it follows submission (requested-successor.mjs).
-  const successor = requestedSuccessorAction(workflow, phase, { requested: requestedChange });
-  const withSuccessor = (actions) => !successor ? actions : requestedChange ? [successor, ...actions] : [...actions, successor];
+  // or files changed after publication lead, else it follows submission (requested-successor.mjs).
+  const leads = requestedChange || changedPaths.length > 0;
+  const successor = requestedSuccessorAction(workflow, phase, { requested: requestedChange, changedPaths });
+  const withSuccessor = (actions) => !successor ? actions : leads ? [successor, ...actions] : [...actions, successor];
   const view = hasDocuments ? copilotAction({
     skill: '/sflow-phase-documents',
     command: `singularity-flow phase show ${phase.id} --show-artifact`,

@@ -245,7 +245,8 @@ function visualCoverageActions(hold, timing) {
 
 export function workflowNextSteps(workflow, {
   publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
-  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, sheet = null
+  repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, sheet = null,
+  changedAfterPublication = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -309,6 +310,16 @@ export function workflowNextSteps(workflow, {
         stepActionHold.reason ?? 'The next step waits for a required after-step delivery.', { route: 'step-action-hold' }),
       ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))
     ];
+  }
+
+  // Files changed after the published code, which submission refuses: its next draft with them (the person
+  // confirms) leads, or the person sets them aside; the step's own routes follow (N7, changes-after-publication.mjs).
+  if (changedAfterPublication?.include && phase.status === 'in_progress' && changedAfterPublication.phase === phase.id) {
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, mcpHold });
+    const include = action('now', changedAfterPublication.include.skill, changedAfterPublication.include.command, changedAfterPublication.include.label,
+      { route: 'changed-after-publication' });
+    return [changedAfterPublication.include.copilotCommand ? Object.freeze({ ...include, copilotCommand: changedAfterPublication.include.copilotCommand }) : include,
+      ...rest.map((entry) => (entry.timing === 'now' ? Object.freeze({ ...entry, timing: 'then' }) : entry))];
   }
 
   // A step whose MCP prerequisites do not hold on this machine refuses prepare, publish and submit
@@ -448,7 +459,7 @@ export function workflowNextSteps(workflow, {
   return withDecisionList(workflow, phase, actions, held);
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null, sheet = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null, repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, pending = null, sheet = null, changedAfterPublication = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -477,7 +488,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet })
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress, repositoryHost, pendingDecisions, visualCoverageHold, mcpHold, approvalCheck, sheet, changedAfterPublication })
     .map((entry) => (entry.label ? entry : Object.freeze({ ...entry, label: nextActionLabel(entry, workflow) })));
   return {
     schemaVersion: 1,

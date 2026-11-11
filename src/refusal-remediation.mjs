@@ -883,6 +883,23 @@ function activePublicationSteps(_argv, error) {
   retry && step('sync-again', 'Once it has ended, publish with the subject\'s own sync.', retry, 'remediation')];
 }
 
+/**
+ * A published code step's own files changed after its publication (changes-after-publication.mjs): keep
+ * them in the next draft (a rollover the person confirms, or an approver's return to the step itself once
+ * submitted), or the person sets them aside in their own terminal. Never recovery first (N7).
+ */
+function changedAfterPublicationSteps(details) {
+  const include = details?.include ?? details?.nextAction;
+  if (!include?.command) return [];
+  const keep = step('include-change-in-next-draft', include.label ?? 'Start the next draft that includes the change; the person confirms it.',
+    include.command, 'remediation', include.skill ?? null);
+  return [
+    include.copilotCommand && keep.command ? Object.freeze({ ...keep, copilotCommand: include.copilotCommand }) : keep,
+    ...(details.setAside?.command ? [step('set-change-aside', `${details.setAside.label ?? 'Or the person sets the change aside.'} An agent cannot run it.`,
+      details.setAside.command, 'remediation')] : [])
+  ];
+}
+
 const KNOWN = Object.freeze({
   // A documentation topic or question given to `explain --subject`. The refusal names the topic it
   // matches first; these stay for words that match none. Repository diagnostics cannot help here.
@@ -1134,10 +1151,19 @@ const KNOWN = Object.freeze({
     step('preserve-unrelated-files', 'For unrelated edits, inspect recovery and have the person confirm its exact set-aside-worktree action. It saves a private copy before restoring only those files; nothing is discarded automatically.',
       error?.details?.recoveryCommand ?? null, 'remediation', '/sf-recover')
   ],
+  // A published code step's own files changed after publication: kept in its next draft, or set aside (N7).
+  CODE_CHANGED_AFTER_PUBLICATION: (argv, error) => {
+    const phase = lowerKebab(error?.details?.phase) ?? commandPhase(argv);
+    return changedAfterPublicationSteps(error?.details?.nextAction || !phase ? error?.details : { ...error?.details,
+      nextAction: { command: `singularity-flow phase rollover ${phase} --json`, skill: '/sf-recover', copilotCommand: `/sf-code ${phase}`,
+        label: `To keep the change: start the next draft of ${phase} that includes it. Preview it, and the person confirms.` } });
+  },
   // Unrelated changes must be preserved before the lifecycle decision can run.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: (argv, error) => [
+    // The step's own files changed after its publication: the same in-step repair as submission's (N7).
+    ...changedAfterPublicationSteps(error?.details?.changedAfterPublication),
     // The person's way through, from this exact state: nothing else clears a held checkout.
-    ...(error?.details?.setAside?.command ? [step('set-aside-held-changes',
+    ...(error?.details?.setAside?.command && !error.details.changedAfterPublication?.setAside ? [step('set-aside-held-changes',
       `A person looks at ${(error.details.setAside.paths ?? []).slice(0, 5).join(', ')}, then runs this in their own terminal. It keeps a private recovery copy of every changed file, then returns exactly those paths to their committed bytes. An agent cannot run it.`,
       error.details.setAside.command, 'remediation')] : []),
     step('review-held-changes',
@@ -1993,6 +2019,8 @@ function remediationPlanFor(error, argv = []) {
   if (['CODE_DELIVERY_EVIDENCE_REQUIRED', 'SPEC_PLANNED_CLAIM_MAP_REQUIRED'].includes(code)) known.push(...planCorrectionSteps(error?.details?.planCorrections));
   const sessionTransportBlocked = code === 'SESSION_STATE_REFRESH_UNAVAILABLE';
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
+  // A published code step's own change after publication: its in-step repair leads any producer read (N7).
+  const inStepFirst = authoringIncomplete || (code === 'CODE_CHANGED_AFTER_PUBLICATION' && known.length > 0);
   // A producer action that repeats a known step's exact command adds a second label, not a route.
   const nonDuplicateExplicit = explicit.filter((entry) => !entry?.command
     || !known.some((knownEntry) => knownEntry?.command === entry.command));
@@ -2030,12 +2058,12 @@ function remediationPlanFor(error, argv = []) {
         ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
       : qualityFindingsHeld
         ? [...nonDuplicateExplicit, ...phaseSteps]
-      : authoringIncomplete
+      : inStepFirst
         ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
         : [...nonDuplicateExplicit, ...known, ...phaseSteps]
     : requiredTestBlocked || upstreamInputBlocked
       ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
-    : authoringIncomplete
+    : inStepFirst
       ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
       : [...nonDuplicateExplicit, ...known, ...genericSteps(argv)];
   const steps = deduplicate(ordered);

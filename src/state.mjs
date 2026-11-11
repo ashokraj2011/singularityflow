@@ -5660,6 +5660,10 @@ async function submitPhaseTransition(root, config, workflow, {
         { code: 'CODE_DELIVERY_RECEIPT_MISSING' }
       );
     }
+    // Files changed after the published draft are this step's to repair, before it is submitted (N7).
+    const changed = await import('./changes-after-publication.mjs');
+    const after = await changed.changesAfterPublication(root, config, workflow, phase);
+    if (after) throw changed.changesAfterPublicationError(workflow, phase, after);
     const currentTree = await sourceTreeHash(root, config, workflow);
     const currentTestInput = await testInputTreeHash(root, config, workflow);
     if (evidence.sourceTreeSha256 !== currentTree || (currentTestInput && evidence.testInputSha256 !== currentTestInput)) {

@@ -196,6 +196,18 @@ async function phaseReadiness(root, config, workflow, {
         nextCommand: `singularity-flow appeal list --phase ${phase.id} --json`, nextSkill: '/sf-appeal' };
     }
   }
+  // Files changed after the published draft, which submission refuses: its in-step repair, never "ready" first (N7).
+  if (readiness.classification === 'ready-to-attempt' && phase?.status === 'in_progress' && config) {
+    const changed = await import('./changes-after-publication.mjs');
+    const after = await changed.changesAfterPublication(root, config, workflow, phase).catch(() => null);
+    if (after) {
+      const { include } = changed.changesAfterPublicationRoutes(workflow, phase, after);
+      return { ...readiness, lifecycleReady: false, classification: 'changed-after-publication', reasonCode: changed.CHANGED_AFTER_PUBLICATION,
+        reason: `${after.paths.join(', ')} changed after ${phase.id} draft ${phase.generation} was published. ${include.label}`,
+        command: include.command, nextCommand: include.command, nextSkill: '/sf-code',
+        changedAfterPublication: { paths: after.paths, uncommitted: after.uncommitted, committed: after.committed, copilotCommand: include.copilotCommand } };
+    }
+  }
   // Enforced visual coverage submission would refuse for, with the same routes: never "ready" first.
   if (readiness.lifecycleReady && phase?.status === 'in_progress' && phaseId === workflow.currentPhase
       && workflow.resolution?.verification?.coverage === 'enforce' && config) {

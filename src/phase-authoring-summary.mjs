@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { authoringRoute } from './code-delivery-policy.mjs';
+import { authoringRoute, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseHandoff, requestedSuccessorAction, requestedSuccessorEligible } from './guide.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { pinnedResolutionVerification } from './pinned-policy-read.mjs';
@@ -36,15 +36,20 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
   const requestedChange = requestedSuccessorEligible(workflow, phase)
     && (await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'requested-successor.mjs')).href))
       .requestedChanges(root, workflow, phase).catch(() => [])).length > 0;
+  // Files changed after the published code lead the same way: its next generation starts with them (N7).
+  const changedPaths = requestedSuccessorEligible(workflow, phase) && phaseRequiresCodeDelivery(phase)
+    ? (await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'changes-after-publication.mjs')).href))
+      .changesAfterPublication(root, config, workflow, phase).catch(() => null))?.paths ?? [] : [];
   const handoff = phase.status === 'in_progress'
-    ? phaseHandoff(workflow, phase, { sourceReviewEvidence, requestedChange, ...(documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 }) })
+    ? phaseHandoff(workflow, phase, { sourceReviewEvidence, requestedChange, changedPaths, ...(documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 }) })
       .map(({ skill, command, copilotCommand, modelFreeCommand, reason, optional }) => ({ skill, command, copilotCommand,
         modelFreeCommand: modelFreeCommand ?? null, reason, ...(optional ? { optional } : {}) }))
     : [];
   let entry = includeEntry ? phaseAuthoringEntry(workflow, phase, { review: sourceReviewEvidence, reviewError }) : null;
-  const offer = entry?.status === 'retained-generation' ? requestedSuccessorAction(workflow, phase, { requested: requestedChange }) : null;
-  if (offer) entry = { ...entry, ...(requestedChange ? { reason: 'change-requested' } : {}),
-    actions: entry.actions ? requestedChange ? [offer, ...entry.actions] : [...entry.actions, offer] : handoff };
+  const leads = requestedChange || changedPaths.length > 0;
+  const offer = entry?.status === 'retained-generation' ? requestedSuccessorAction(workflow, phase, { requested: requestedChange, changedPaths }) : null;
+  if (offer) entry = { ...entry, ...(changedPaths.length ? { reason: 'changed-after-publication', changedPaths } : requestedChange ? { reason: 'change-requested' } : {}),
+    actions: entry.actions ? leads ? [offer, ...entry.actions] : [...entry.actions, offer] : handoff };
   return {
     authoringSkill: route.authoringSkill,
     effectiveAuthoringSkill: route.effectiveAuthoringSkill,

@@ -977,7 +977,9 @@ async function worktreeRefusals(root, config, workflow) {
   try {
     assertLifecycleWorktreeClean(root, config, workflow);
     return [];
-  } catch (error) {
+  } catch (raised) {
+    // The step's own files changed after its publication: the hold's route is its in-step repair (N7).
+    const error = await (await import('./changes-after-publication.mjs')).withChangesAfterPublicationRoutes(raised, root, config, workflow);
     if (error?.code === 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED') {
       const paths = error.details?.paths ?? [];
       const [lead, rest] = [error.message.slice(0, error.message.indexOf('. ')), error.message.slice(error.message.indexOf('. ') + 2)];

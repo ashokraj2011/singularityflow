@@ -440,7 +440,7 @@ export function agentAct(result) {
       ...openUpstream(result), ...(result.clarification?.checkpoint?.newQuestionAction ? ['clarification.checkpoint.newQuestionAction'] : []),
       ...(result.recovery?.requiresRecovery ? ['recovery'] : result.generatesCode ? [...(result.recovery?.blockers?.length ? ['recovery.blockers'] : []), 'recovery.testExecution'] : []), ...(result.generatesCode ? ['intent'] : []),
       ...(result.fixOnTheWay?.fix?.length ? ['fixOnTheWay'] : [])],
-      said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay.${result.planChanges?.length ? ` The plan changed: ${result.planChanges.map((entry) => entry.words).join(' ')}` : ''}${result.fixOnTheWay?.fix?.some((entry) => !entry.departure) ? ` Also fix on the way: ${result.fixOnTheWay.fix.filter((entry) => !entry.departure).map((entry) => entry.id).join(', ')}; each fixOnTheWay.fix row has its record command.` : ''}` };
+      said: `Authoring ${result.phase ?? 'this step'} is admitted: do this step's own drafting now, inside mutationContract. It is not a next action to relay, and a draft not yet written is this turn's work, never a reason to stop.${result.planChanges?.length ? ` The plan changed: ${result.planChanges.map((entry) => entry.words).join(' ')}` : ''}${result.fixOnTheWay?.fix?.some((entry) => !entry.departure) ? ` Also fix on the way: ${result.fixOnTheWay.fix.filter((entry) => !entry.departure).map((entry) => entry.id).join(', ')}; each fixOnTheWay.fix row has its record command.` : ''}` };
     // The questions are one stage of this step: without what the task still owes, the turn ended at them.
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null,
       read: ['clarification', 'context', ...(result.authoring ? ['authoring'] : []), ...(result.authoringProgress ? ['authoringProgress'] : []), ...(result.taskCompletion ? ['taskCompletion'] : []), ...openUpstream(result)],
@@ -953,7 +953,7 @@ function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   const agentOutput = { complete: false, retained: false, state: 'detail-unavailable', bytes: bytes(agentJson(ordered)),
     ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_RESULT }
       : { instruction: 'No repository was found from here to keep the full result; the omitted fields are not shown. Run the command from the Story checkout to read them.' }) };
-  const render = (kept) => agentJson({ ...(act ? { act: { ...act, complete: false } } : {}), agentOutput,
+  const render = (kept) => agentJson({ ...(act ? { act } : {}), agentOutput,
     ...omittedList(keys.filter((key) => !kept.has(key)).map((key) => ({ field: key, bytes: size[key] })), null),
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])), ...nextOf(act, ordered) });
   const kept = new Set(keys);
@@ -964,7 +964,7 @@ function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   const text = [...reader].find((key) => !kept.has(key) && typeof ordered[key] === 'string');
   if (text) {
     const cut = (shown) => `${shown}\n[Cut here: ${bytes(ordered[text]) - bytes(shown)} more bytes. Run the command without --for-agent to read all of it.]`;
-    const withText = (shown) => agentJson({ ...(act ? { act: { ...act, complete: false } } : {}), agentOutput,
+    const withText = (shown) => agentJson({ ...(act ? { act } : {}), agentOutput,
       ...omittedList(keys.filter((key) => !kept.has(key) && key !== text).map((key) => ({ field: key, bytes: size[key] })), null),
       ...Object.fromEntries(keys.filter((key) => kept.has(key) || key === text).map((key) => [key, key === text ? cut(shown) : ordered[key]])), ...nextOf(act, ordered) });
     // Measured as JSON, which escapes the text's line breaks and quotes.
@@ -979,7 +979,7 @@ function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   const rendered = render(kept);
   if (bytes(rendered) <= budget) return `${rendered}\n`;
   // Nothing else fits: what is missing, by name and count only.
-  return `${agentJson({ act: { state: act?.state ?? 'read', do: act?.do ?? null, said: null, complete: false }, agentOutput, omittedFieldCount: keys.length, ...nextOf(act, ordered) })}\n`;
+  return `${agentJson({ act: { state: act?.state ?? 'read', do: act?.do ?? null, said: null }, agentOutput, omittedFieldCount: keys.length, ...nextOf(act, ordered) })}\n`;
 }
 
 /** The lines of `text` that fit `limit` bytes, whole lines only. */
@@ -1017,7 +1017,7 @@ async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null 
       ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_LITERAL }
         : { instruction: 'No repository was found from here to keep this output; only the preview is shown. Run the command from the Story checkout to read all of it.' }) };
   }
-  const envelope = (preview) => agentJson({ act: { state: 'read', said, do: null, complete: false }, agentOutput, preview });
+  const envelope = (preview) => agentJson({ act: { state: 'read', said, do: null }, agentOutput, preview });
   const reserve = bytes(envelope('')) + 16;
   return `${envelope(headLines(text, Math.max(0, Math.min(PREVIEW_BYTES, budget - reserve))))}\n`;
 }
@@ -1173,7 +1173,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
         ...(files.length ? { textFiles: files } : {}) }];
     }));
   };
-  const render = (kept, agentOutput, references, order = keys, values = ordered, index = null) => agentJson({ act: { ...(act ?? {}), complete: false }, agentOutput,
+  const render = (kept, agentOutput, references, order = keys, values = ordered, index = null) => agentJson({ act: act ?? {}, agentOutput,
     ...omittedList(order.filter((key) => !kept.has(key)).map((key) => references[key]), index ?? INDEX_PLACEHOLDER),
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, values[key]])), ...nextOf(act, result) });
   // Keep every field without a long text, then move fields out until the view fits: larger ones

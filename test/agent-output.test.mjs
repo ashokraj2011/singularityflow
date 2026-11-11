@@ -93,6 +93,9 @@ test('act reads each result by its own fields and never invents a next action', 
     ['findings', 'correction', 'traceabilityRepair', 'repairLoop'], 'every finding\'s choices and repair task are not what a correction needs');
   assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'implementation', generatesCode: true }).read.slice(-2), ['recovery.testExecution', 'intent']);
   assert.ok(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', generatesCode: true, recovery: { requiresRecovery: true } }).read.includes('recovery'));
+  // After the questions, an agent stopped because the draft was "still incomplete" (Story cplus, 2026-11-11).
+  assert.match(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'specification' }).said,
+    /a draft not yet written is this turn's work, never a reason to stop/);
   assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'planning' }).read.includes('intent'), false);
   // What a skill checks or tells the author to follow must be read: every phase skill shares these lists.
   const coding = agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', generatesCode: true, authoring: { policyVerified: true }, upstream: { attention: true },
@@ -290,7 +293,10 @@ test('a small result keeps every field with act first; a large one is written wh
   const view = JSON.parse(text);
   assert.deepEqual(Object.keys(view).slice(0, 3), ['act', 'agentOutput', 'omittedFields']);
   assert.equal(view.act.state, 'ask-person');
-  assert.equal(view.act.complete, false);
+  // A cut view is the output's state, not the work's: in act it read as "the draft is unfinished" and an
+  // agent stopped before drafting (Story cplus, 2026-11-11).
+  assert.equal(Object.hasOwn(view.act, 'complete'), false);
+  assert.equal(view.agentOutput.complete, false);
   assert.equal(view.act.paths, CLI_PATH_REFERENCE, 'the rule is named even when phase instructions are externalized');
   assert.deepEqual(view.clarification, large.clarification, 'the field act reads stays in the view');
   assert.equal(view.workId, 'W', 'small fields stay');

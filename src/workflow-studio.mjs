@@ -2543,7 +2543,13 @@ class StudioCandidate {
       else if (this.document.hasIn([...scope, 'qualityCommands'])) this.document.deleteIn([...scope, 'qualityCommands']);
       changed.push('checks');
     }
-    if (clarification != null) {
+    if (clarification != null && isObject(clarification)) {
+      // A whole setting (mode, maxQuestions, topics, markers) as written, per workflow on a shared step like
+      // sign-off; the candidate's validation refuses one the engine cannot read.
+      const scope = scopeFor('clarification');
+      this.document.setIn([...scope, 'clarification'], this.document.createNode(structuredClone(clarification)));
+      changed.push('questions');
+    } else if (clarification != null) {
       if (!CLARIFICATION_MODES.some((mode) => mode.id === clarification)) throw new SingularityFlowError('Clarifying questions are off, when-needed or required.', { code: 'STUDIO_CLARIFICATION_INVALID' });
       if (clarification === 'off') this.document.deleteIn(['phases', phaseId, 'clarification']);
       else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ mode: clarification }));
@@ -2575,7 +2581,7 @@ class StudioCandidate {
       changed.push('artifact set');
     }
     if (artifactFile !== undefined && artifactFile !== null) { this.nameArtifactFile(phaseId, artifactFile, name); changed.push('file'); }
-    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || authoringSkill !== undefined || afterStep !== undefined || template !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
+    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || authoringSkill !== undefined || afterStep !== undefined || template !== undefined || isObject(clarification)) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
     const droppedLine = this.droppedSkillLine(phaseId, label ?? name, dropped);
     if (droppedLine) this.summary.push(droppedLine);
   }

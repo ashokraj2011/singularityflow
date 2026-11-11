@@ -178,3 +178,28 @@ test('a clause an amendment removes is named wherever a tag still claims it', sl
   assert.match(advisories[0].message, /^@clause:QN-3:AC-002 at src\/legacy\.mjs:1 names a clause the specification removed; .*Advisory only\.$/u);
   assert.equal(advisories[0].blocking, false);
 });
+
+test('a plan amendment recorded after a step\'s approval keeps it under rule E8 when it names nothing the step cites, and reruns it when it does', slowLane({ timeout: 300_000 }), async (t) => {
+  const f = await fixture(t);
+  // QN-4: during implement, the plan's approvers account a file to AC-001, which fix-design does not cite.
+  await f.designed('QN-4');
+  f.sflow('decision', 'plan', '--add-location', 'QN-4:AC-001=src/extra.mjs', '--reason', 'The extra module carries the numeric value check the fix needs.');
+  const { decided } = await f.amend('QN-4', (text) => text.replace('The exported value equals 2.', 'The exported value equals 2 and is a number.'), 'Say the value is numeric.');
+  assert.match(decided, /Kept the approval of fix-design \(rule E8\): the amendment changed none of the clauses its artifacts cite; PAM-001 was recorded after its approval and names nothing it cites/u);
+  const kept = await f.workflow('QN-4');
+  assert.equal(kept.phases['fix-design'].status, 'approved');
+  assert.equal(kept.phases['fix-design'].retention.rule, 'E8');
+  assert.deepEqual(kept.phases['fix-design'].retention.laterDecisions.map((entry) => [entry.list, entry.id]), [['planAmendments', 'PAM-001']]);
+  const line = kept.history.find((entry) => entry.event === 'phase_retained' && entry.phase === 'fix-design');
+  assert.match(line.detail, /^Retained by rule E8: approved intent amendment AMD-001 changed none of the clauses its artifacts cite; PAM-001 was recorded after its approval and names nothing it cites or decided over/u);
+  assert.equal(kept.currentPhase, 'implement');
+
+  // QN-5: the same kind of amendment names AC-002, which fix-design cites: it runs again, as before.
+  await f.designed('QN-5');
+  f.sflow('decision', 'plan', '--add-location', 'QN-5:AC-002=src/extra.mjs', '--reason', 'The extra module keeps the single export rule in one place.');
+  const cited = await f.amend('QN-5', (text) => text.replace('The exported value equals 2.', 'The exported value equals 2 and is a number.'), 'Say the value is numeric.');
+  assert.doesNotMatch(cited.decided, /rule E8/u);
+  const refreshed = await f.workflow('QN-5');
+  assert.equal(refreshed.phases['fix-design'].status, 'in_progress');
+  assert.equal(refreshed.currentPhase, 'fix-design');
+});

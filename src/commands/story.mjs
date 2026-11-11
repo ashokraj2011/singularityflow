@@ -2490,7 +2490,13 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     }
     if (!application.revalidate?.length) console.log(`${result.transition.affectedPhases.length} phase(s) require revalidation; ${result.transition.preservedEvidence.length} unaffected evidence item(s) were preserved.`);
     if (application.retainedPhases?.length) {
-      console.log(`Kept the approval of ${application.retainedPhases.join(', ')} (rule E8): the amendment changed none of the clauses ${application.retainedPhases.length === 1 ? 'its' : 'their'} artifacts cite, and nothing else ${application.retainedPhases.length === 1 ? 'it' : 'they'} decided over had changed.`);
+      const one = application.retainedPhases.length === 1;
+      // Decisions recorded after their approval that name nothing they cite (phase-retention.mjs), said by name.
+      const kept = (await loadAcceptedStoryExecution(root, workflow.workItem.id).catch(() => null))?.workflow;
+      const later = [...new Set(application.retainedPhases.flatMap((id) => (kept?.phases?.[id]?.retention?.laterDecisions ?? []).map((entry) => entry.id ?? entry.list)))];
+      console.log(`Kept the approval of ${application.retainedPhases.join(', ')} (rule E8): the amendment changed none of the clauses ${one ? 'its' : 'their'} artifacts cite`
+        + `${later.length ? `; ${later.join(', ')} ${later.length === 1 ? 'was' : 'were'} recorded after ${one ? 'its' : 'their'} approval and ${later.length === 1 ? 'names' : 'name'} nothing ${one ? 'it cites' : 'they cite'}` : ''}`
+        + `, and nothing else ${one ? 'it' : 'they'} decided over had changed.`);
     }
     // It updated the spec to the code [SCS:REQ-022]: nothing was reset, so there is nothing to acknowledge.
     // Each step's own approvers answer its row instead: still holds, or return.

@@ -13,6 +13,7 @@
  * phase, a phase whose earlier completion was automatic, and a range a decision's loop or a changed
  * document or design source reopened always run again.
  */
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { approvalRequirementsMet } from './approval-authority.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -88,6 +89,13 @@ function retain(workflow, phase, approvals, { at, actor, agent, upstream, rule =
  * decision or run a skill, always run again; so does a step that plans when the amendment adds a
  * clause, since a new clause cites nothing yet and still has to be planned, unless the amendment carries
  * that plan's rows, signed by its approvers (`correctedPlans`) [PHR:REQ-008].
+ *
+ * The one other change a step may stand through is a Story decision recorded after its approval, so its
+ * approval never decided over it, that names nothing the step cites and not the step itself (laterDecisions):
+ * a plan amendment for a clause it does not cite, a risk accepted on a later step's obligation, a source
+ * statement's disposition. Only lists that grow by appended entries are read this way; any other change, or
+ * a later decision that names a cited clause or the step, runs the step again as before. The map carries
+ * them as `laterDecisions`, by step, for the history line that says why the step was kept.
  */
 /** The Story's plan corrections as they stood when `phase` was approved (a list started since was not there then). */
 function asApproved(workflow, phase) {
@@ -100,6 +108,7 @@ export async function amendmentRetentionCandidates(root, config, workflow, speci
   const counts = await presenceCountsOf(root, workflow);
   const order = workflow.phaseOrder ?? [];
   const candidates = new Map();
+  candidates.laterDecisions = new Map();
   for (let index = order.indexOf(specification?.id) + 1; index > 0 && index < order.length; index += 1) {
     const phase = workflow.phases[order[index]];
     if (phase?.status !== 'approved' || phaseRequiresCodeDelivery(phase)
@@ -112,12 +121,77 @@ export async function amendmentRetentionCandidates(root, config, workflow, speci
         || !approvalRequirementsMet(phase.approvalPolicy, approvals)) break;
     // A plan whose rows the amendment carries is read as its approval decided over it: the plan corrections its
     // approvers recorded since are their own decisions on the plan, not a change behind its approval [PHR:REQ-008].
-    const upstream = await phaseUpstream(root, config, correctedPlans.has(phase.id) ? asApproved(workflow, phase) : workflow, phase);
-    if (!upstream || approvals.some((entry) => entry.upstream.sha256 !== upstream.sha256)) break;
+    const decidedOver = correctedPlans.has(phase.id) ? asApproved(workflow, phase) : workflow;
+    const upstream = await phaseUpstream(root, config, decidedOver, phase);
+    let later = [];
+    if (!upstream || approvals.some((entry) => entry.upstream.sha256 !== upstream.sha256)) {
+      later = await unrelatedLaterDecisions(root, config, decidedOver, phase, approvals);
+      if (!later) break;
+    }
     if (!(await artifactsUnchanged(root, phase))) break;
     candidates.set(phase.id, approvals);
+    if (later.length) candidates.laterDecisions.set(phase.id, later);
   }
   return candidates;
+}
+
+// The Story decision lists that grow only by appended entries (a revocation is its own entry), and the
+// source statement dispositions, whose later entry only marks the one it replaces withdrawn.
+const LATER_DECISION_LISTS = Object.freeze(['planAmendments', 'riskDecisions', 'qualityRiskDecisions', 'scopeDispositions']);
+const after = (value, time) => Date.parse(value) > time;
+
+/** The Story as its decisions stood at `at`, and the entries recorded since, from the lists that can say. */
+function decisionsAsOf(workflow, at) {
+  const time = Date.parse(at);
+  const view = { ...workflow };
+  const later = [];
+  if (Number.isNaN(time)) return { view, later };
+  for (const key of LATER_DECISION_LISTS) {
+    if (!Array.isArray(workflow[key])) continue;
+    const kept = [];
+    for (const entry of workflow[key]) {
+      if (after(entry?.at, time)) later.push({ list: key, entry });
+      else if (key === 'scopeDispositions' && after(entry?.withdrawnAt, time)) {
+        // Withdrawn since: what it said is a change too, checked like a later entry.
+        const { withdrawnAt: _withdrawn, ...asItStood } = entry;
+        kept.push(asItStood);
+        later.push({ list: key, entry, withdrawn: true });
+      } else kept.push(entry);
+    }
+    view[key] = kept.length ? kept : undefined;
+  }
+  return { view, later };
+}
+
+/**
+ * Rule E8's later decisions for `phase`: the entries recorded after its approvals, when they are all that
+ * differs from what those approvals decided over, and none names a clause the step's artifacts cite or the
+ * step itself. Null when anything else changed or any entry names one of those; the step then runs again.
+ */
+async function unrelatedLaterDecisions(root, config, workflow, phase, approvals) {
+  const later = new Map();
+  for (const at of new Set(approvals.map((entry) => entry.at))) {
+    const { view, later: since } = decisionsAsOf(workflow, at);
+    if (!since.length) return null;
+    const upstream = await phaseUpstream(root, config, view, phase);
+    if (!upstream || approvals.filter((entry) => entry.at === at).some((entry) => entry.upstream.sha256 !== upstream.sha256)) return null;
+    for (const item of since) later.set(item.entry, item);
+  }
+  const { clauseReferences } = await import('./specifications.mjs');
+  const cited = new Set();
+  for (const artifact of phase.artifacts ?? []) {
+    const text = await readFile(path.join(root, artifact.path), 'utf8').catch(() => null);
+    if (text === null) return null;
+    for (const clause of clauseReferences(text)) cited.add(String(clause).toUpperCase());
+  }
+  const id = phase.id.replace(/[^A-Za-z0-9_-]/gu, (character) => `\\${character}`);
+  const step = new RegExp(`(?:^|[^A-Za-z0-9_.-])${id}(?:$|[^A-Za-z0-9_.-])`, 'u');
+  for (const { entry } of later.values()) {
+    const text = JSON.stringify(entry);
+    if (clauseReferences(text).some((clause) => cited.has(String(clause).toUpperCase())) || step.test(text)) return null;
+  }
+  return [...later.values()].map(({ list, entry, withdrawn }) => ({ list,
+    id: `${entry.id ?? entry.item ?? (entry.revokes ? `${entry.revokes} revoked` : list)}${withdrawn ? ' withdrawn' : ''}`, at: withdrawn ? entry.withdrawnAt : entry.at }));
 }
 
 /**

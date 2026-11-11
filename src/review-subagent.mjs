@@ -71,7 +71,9 @@ export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent
       // author ended its turn on /sf-review-source while the reviewer ran (Story anu-bin, 2026-11-11).
       + `Run it in the foreground and wait for its result (mode 'sync' where the tool has one, never 'background'); if a host starts it in the background anyway, wait for its completion notice. `
       + `Its review is this turn's work: never end the turn or offer ${prompt} while it runs. It reviews read-only and retains its report; do not review, edit or retain it yourself. When it returns, run ${status} once and follow its route here: `
-      + 'a correction opens the next generation of this step after the person confirms it; a ready review goes to submission. '
+      // The author ended its turn on "/sf-phase" after a correction, leaving the person to start it again (Story anu-bin, 2026-11-11).
+      + `a correction: show the person its findings and ask now with ask_user whether to correct them in generation ${generation + 1}; on yes, run the route's command and correct the draft in this same turn, then prepublish; never end the turn on that route. `
+      + 'A ready review goes to submission. '
       + `No sub-agent tool: end with "Run this in a new chat:" and ${prompt}.`
   };
 }

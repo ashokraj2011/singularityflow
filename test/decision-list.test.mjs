@@ -191,7 +191,8 @@ test('the digest binds the items, options, effects, defaults and the Story state
   assert.notEqual(packetOf(workflow, { candidates: [] }).packetSha256, first.packetSha256);
   assert.notEqual(decisionPacket(workflow, facts(workflow), { authorities: workflow.resolution.approvalAuthorities, actor, at: '2026-10-20T09:00:00.000Z' }).packetSha256,
     first.packetSha256, 'a new day moves the default dates');
-  assert.equal(first.record.recommended, `singularity-flow decisions record BIN-501 --choose d1=reuse --confirm ${first.packetSha256}`);
+  // A person's own record carries no digest: their terminal derives it and asks them [no hashes shown].
+  assert.equal(first.record.recommended, 'singularity-flow decisions record BIN-501 --choose d1=reuse');
 });
 
 test('a typed reason reaches the record command as the person wrote it: a shell never expands it', () => {
@@ -206,7 +207,7 @@ test('a typed reason reaches the record command as the person wrote it: a shell 
   assert.equal(execFileSync(shell, ['-c', `printf '%s' ${token}`], { encoding: 'utf8' }), `d1=${reason}`);
   assert.ok(validateSflowExecutionCommand(command, { shell: 'posix' })?.copyable, 'the guard reads it as one command');
   assert.equal(decisionRecordCommand('BIN-501', { choices: [['d1', 'reuse']], digest }),
-    `singularity-flow decisions record BIN-501 --choose d1=reuse --confirm ${digest}`, 'plain values stay bare');
+    'singularity-flow decisions record BIN-501 --choose d1=reuse', 'plain values stay bare; a person\'s own choice carries no digest');
 });
 
 test('the record plan uses the shown defaults, refuses what the person may not decide, and checks every value', () => {

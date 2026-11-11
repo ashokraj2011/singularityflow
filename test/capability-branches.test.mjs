@@ -65,12 +65,14 @@ test('a recorded base says where it came from, and an older record reads as it a
   assert.deepEqual(recordStoryRepositoryBases(repositories, options).map(row => Object.hasOwn(row, 'source')), [false, false]);
 
   const workflow = { workItem: { repositoryBases: recorded } };
-  assert.deepEqual(storyRepositoryBases(workflow).map(storyRepositoryBaseText),
-    [`api: release/api @ ${'a'.repeat(12)}`, `web: develop @ ${'b'.repeat(12)} (override)`]);
+  // A person reads each repository and its branch; the commit is the record's (owner, 2026-11-11: no SHA shown).
+  assert.deepEqual(storyRepositoryBases(workflow).map((base) => storyRepositoryBaseText(base)), ['api: release/api', 'web: develop (override)']);
+  assert.deepEqual(storyRepositoryBases(workflow).map((base) => storyRepositoryBaseText(base, { commit: true })),
+    [`api: release/api @ ${'a'.repeat(12)}`, `web: develop @ ${'b'.repeat(12)} (override)`], 'the Markdown record keeps it');
   assert.deepEqual(storyRepositoryBases({ workItem: { repositoryBases: [recorded[0]] } }), [], 'one repository has nothing to tell apart');
   assert.deepEqual(storyRepositoryBases({ workItem: {} }), [], 'a Story from before the record has none');
   assert.equal(storyRepositoryBaseText({ repositoryId: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40) }),
-    `web: develop @ ${'b'.repeat(12)}`, 'an older record has no source and no marker');
+    'web: develop', 'an older record has no source and no marker');
 });
 
 test('a capability names its own repositories and nobody else’s', () => {

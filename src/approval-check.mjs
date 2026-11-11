@@ -677,6 +677,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   PHASE_REPAIR_JOURNAL_INVALID: 'author-repairs',
   PHASE_APPEAL_REVIEW_REQUIRED: 'someone-decides',
   PHASE_APPEAL_INTEGRITY: 'someone-decides',
+  // A changed appeal packet is reviewed and confirmed afresh by its person, like the review it replaces.
+  PHASE_APPEAL_STALE: 'someone-decides',
   // Each departure says who decides it on the list; a rejected one its author restores [CQF:REQ-023, REQ-026].
   DEPARTURES_UNDECIDED: 'someone-decides',
   DEPARTURE_REJECTED_NOT_REVERTED: 'author-repairs',

@@ -55,8 +55,9 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
       artifact: { validation: { requiredHeadings: ['Actors'] } }
     };
   }
-  // This fixture tests amendment authority rather than the independent source-review service.
-  if (workType === 'spec-driven-standard') configuration.workTypes[workType].sourceReview = { mode: 'off' };
+  // This fixture tests amendment authority rather than the independent source-review service. Since review
+  // level 2 (a72215495) every work type reviews each authored step by default, so each variant opts out.
+  configuration.workTypes[workType].sourceReview = { mode: 'off' };
   await writeFile(configurationPath, YAML.stringify(configuration));
   git('add', '.');
   git('commit', '-qm', 'Initialize governed loop fixture');

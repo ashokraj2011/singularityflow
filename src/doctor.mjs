@@ -100,9 +100,26 @@ async function repositoryHooksCheck(root) {
   } catch { return null; }
 }
 
+/**
+ * VS Code older than 1.141 is said plainly, with what does not work there and that updating fixes it
+ * (vscode-host-version.mjs); a warning only. `editorVersion` is what the caller found; left out, only VS Code's own
+ * terminal names it. Nothing when no VS Code version can be seen.
+ */
+export async function vscodeVersionCheck(editorVersion) {
+  try {
+    const { vscodeEditorVersion, vscodeVersionLimits } = await import('./vscode-host-version.mjs');
+    const version = editorVersion === undefined ? vscodeEditorVersion() : editorVersion;
+    if (!version) return null;
+    const found = vscodeVersionLimits(version);
+    return found
+      ? check('vscode-version', 'warn', `VS Code ${found.version} is older than 1.141, which SFlow's Copilot plugin needs to work fully. ${found.limits.join(' ')}`, found.fix, { vscodeVersion: found.version })
+      : check('vscode-version', 'pass', `VS Code ${String(version).trim()}.`, null, { vscodeVersion: String(version).trim() });
+  } catch { return null; }
+}
+
 export async function doctorSnapshot(root, {
   workId = null, offline = false, performance = false, probeModelProvider = true,
-  execution = null
+  execution = null, editorVersion = undefined
 } = {}) {
   const checks = [];
   const mutationGuard = await (await import('./copilot-mutation-guard.mjs')).mutationGuardDiagnostics(root);
@@ -119,6 +136,8 @@ export async function doctorSnapshot(root, {
   const node = nodeRequirement();
   checks.push(check('node', node.met ? 'pass' : 'fail', `${node.editor ? "VS Code's " : ''}Node.js ${node.version}`,
     node.met ? null : `Install Node.js ${node.required}.`));
+  const editor = await vscodeVersionCheck(editorVersion);
+  if (editor) checks.push(editor);
   checks.push(check('git', 'pass', `Git repository ${root}`));
   const interruptedStarts = await listStoryStartJournals(root);
   checks.push(check(

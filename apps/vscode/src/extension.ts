@@ -148,6 +148,7 @@ import {
 import { GatewayStatusWorker } from './gateway-status-worker-client.ts';
 import { commandGuidanceText, safeCommandPair } from './views/command-guidance.ts';
 import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
+import { vscodeVersionLimits, vscodeVersionWarning } from '../../../src/vscode-host-version.mjs';
 import { createTerminalIn } from './terminal-start.ts';
 import {
   offerCopilotChatCounting, startCopilotChatCounting, turnOffCopilotChatCounting, turnOnCopilotChatCounting
@@ -372,6 +373,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // First line in the channel, so "which build is actually loaded" is one look rather than a guess.
   // The version does not change between development reinstalls, so it cannot answer this.
   output.appendLine(`Singularity Flow — build ${typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped'}`);
+  // An older VS Code is told plainly what does not work there, and that updating fixes it; SFlow still activates.
+  const olderEditor = vscodeVersionLimits(vscode.version);
+  if (olderEditor) {
+    output.appendLine(vscodeVersionWarning(vscode.version) ?? olderEditor.summary);
+    void Promise.resolve(vscode.window.showWarningMessage(olderEditor.summary, 'Show details'))
+      .then((choice) => { if (choice) output.show(true); }, () => {});
+  }
   /**
    * What a button on a result card does. `[UXH:REQ-031]` `[DHR:REQ-086]`
    *

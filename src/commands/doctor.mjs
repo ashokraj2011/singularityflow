@@ -3,7 +3,7 @@ import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { doctorSnapshot, doctorText } from '../doctor.mjs';
 import { repoRoot } from '../git.mjs';
-import { optionBoolean, optionString, optionStrings } from '../util.mjs';
+import { commandExists, optionBoolean, optionString, optionStrings, run as runCommand } from '../util.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -34,10 +34,14 @@ export async function doctorCommand(positionals, options) {
   }
   const root = repoRoot();
   if (optionBoolean(options, 'repair-hooks')) return repairHooks(root, options);
+  // The VS Code this person runs, as `reinstall` finds it: its own terminal, else the code command (never in tests).
+  const { vscodeEditorVersion } = await import('../vscode-host-version.mjs');
+  const editorVersion = vscodeEditorVersion({ exists: process.env.NODE_ENV === 'test' ? () => false : commandExists, execute: runCommand });
   const inspect = () => doctorSnapshot(root, {
     workId: positionals[1],
     offline: optionBoolean(options, 'offline'),
-    performance: optionBoolean(options, 'performance')
+    performance: optionBoolean(options, 'performance'),
+    editorVersion
   });
   // Performance doctor is explicitly a measurement of the checkout from which it was invoked,
   // including a new repository with no workflow. Routing already excludes the active workspace;

@@ -44,6 +44,8 @@ test('PCR REQ-030, REQ-033: the hook file names the plugin\'s seven events, each
       assert.equal(entry.bash, `/bin/bash ./.github/hooks/sflow-hook.sh ${action} ${setting}`);
       assert.match(entry.powershell, new RegExp(`& \\$sflowHook ${action} ${setting} \\}`, 'u'));
       assert.equal(entry.matcher, plugin.hooks[event][0].matcher);
+      // The launchers it names live in the project root, where every host starts a hook whose folder is "." (N6).
+      assert.equal(entry.cwd, '.');
     }
     assert.equal(repositoryHookSetting(JSON.stringify(file)), setting);
   }
@@ -202,6 +204,13 @@ test('PCR REQ-034: the status names a missing or changed hook file, disableAllHo
   assert.match(repositoryHookProblems(status).join(' '), /sflow\.json, \.github\/hooks\/README\.md differ from what SFlow writes for policy\.plainChatEdits: refuse/u);
   await writeRepositoryHooks(root, { setting: 'refuse' });
   assert.equal(repositoryHookProblems(await repositoryHookStatus(root, { setting: 'refuse', env })), null);
+  // A file written before it named the project root as its hooks' folder runs the same way, so it is no problem to repair.
+  const named = await readFile(path.join(root, REPOSITORY_HOOK_FILE), 'utf8');
+  const earlier = await repositoryHookJson('refuse', { cwd: null });
+  assert.doesNotMatch(earlier, /"cwd"/u);
+  await writeFile(path.join(root, REPOSITORY_HOOK_FILE), earlier);
+  assert.equal((await repositoryHookStatus(root, { setting: 'refuse', env })).files[REPOSITORY_HOOK_FILE], 'current');
+  await writeFile(path.join(root, REPOSITORY_HOOK_FILE), named);
   await mkdir(path.join(root, '.github/copilot'), { recursive: true });
   await writeFile(path.join(root, '.github/copilot/settings.local.json'), '{ "disableAllHooks": true }\n');
   await mkdir(env.COPILOT_HOME, { recursive: true });

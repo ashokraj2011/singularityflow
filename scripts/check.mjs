@@ -13,6 +13,7 @@ import { allCommands, documentedCommands, overviewCommands, synopsisFor } from '
 import { canonicalCommand, COMMAND_REGISTRY } from '../src/command-registry.mjs';
 import { COMMAND_SKILLS } from '../src/command-skills.mjs';
 import { copilotHookCommand } from '../src/copilot-hook-commands.mjs';
+import { COPILOT_HOOK_CWD } from '../src/repository-hooks.mjs';
 import { BOOLEAN_OPTIONS, defaultTimeoutFor, run } from '../src/util.mjs';
 import { SOURCE_LINE_BUDGETS, sourceSizeFailures } from './source-size-policy.mjs';
 import { validatePortfolio } from '../src/initiative-config.mjs';
@@ -186,10 +187,10 @@ if (Object.keys(hooksJson.hooks ?? {}).sort().join(',') !== Object.keys(expected
 }
 for (const [event, action] of Object.entries(expectedHooks)) {
   const entries = hooksJson.hooks?.[event];
-  if (!Array.isArray(entries) || entries.length !== 1 || entries[0]?.type !== 'command'
+  if (!Array.isArray(entries) || entries.length !== 1 || entries[0]?.type !== 'command' || entries[0].cwd !== COPILOT_HOOK_CWD
       || entries[0].bash !== copilotHookCommand(action, 'bash')
       || entries[0].powershell !== copilotHookCommand(action, 'powershell')) {
-    fail(`plugin/hooks.json ${event} must use the packaged hook launcher for ${action}`);
+    fail(`plugin/hooks.json ${event} must use the packaged hook launcher for ${action}, started in the chat's project root (cwd ${COPILOT_HOOK_CWD})`);
   }
 }
 // The repository's own hook file (.github/hooks/sflow.json) carries the same closed map [PCR:REQ-030]: the same seven
@@ -203,7 +204,7 @@ for (const [event, action] of Object.entries(expectedHooks)) {
     if (Object.keys(repository.hooks ?? {}).sort().join(',') !== Object.keys(expectedHooks).sort().join(',')) fail('the repository hook file must contain only the plugin\'s seven events');
     for (const [event, action] of Object.entries(expectedHooks)) {
       const [entry, ...rest] = repository.hooks[event];
-      if (rest.length || entry?.type !== 'command' || entry.matcher !== hooksJson.hooks[event][0].matcher
+      if (rest.length || entry?.type !== 'command' || entry.matcher !== hooksJson.hooks[event][0].matcher || entry.cwd !== COPILOT_HOOK_CWD
           || entry.bash !== hooks.repositoryHookCommand(action, setting, 'bash') || entry.powershell !== hooks.repositoryHookCommand(action, setting, 'powershell')) {
         fail(`the repository hook file's ${event} must run .github/hooks/sflow-hook for ${action} with policy.plainChatEdits ${setting}`);
       }

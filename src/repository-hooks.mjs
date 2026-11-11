@@ -31,6 +31,20 @@ export const REPOSITORY_HOOK_EVENTS = Object.freeze({ userPromptSubmitted: 'boun
   postToolUseFailure: 'boundary-failure' });
 const DEFAULT_SETTING = 'record';
 
+/**
+ * The folder every SFlow hook starts in (`cwd` in plugin/hooks.json and the repository's .github/hooks/sflow.json):
+ * the chat's project root. Without it Copilot CLI starts a plugin's hooks in the plugin's own folder, so a plugin
+ * copy removed under a running chat (a reinstall, an uninstall, a retired copy cleaned up) made the host fail every
+ * later hook with "spawn /bin/bash ENOENT" and deny every tool "(hook errored)" before any SFlow code ran (session
+ * mining N6). Live probes, Copilot CLI 1.0.107 to 1.0.109 (2026-11-12): a relative `cwd` resolves against the
+ * project root, also from a subfolder; `~`, `${HOME}` and `${COPILOT_PROJECT_DIR}` are not expanded; an absolute
+ * folder is used as it is, and a missing one fails the hook the same way; with the project root itself removed
+ * the host runs no hook at all. VS Code's own chat (1.146) joins a relative `cwd` to the workspace folder it uses
+ * anyway and hands the hook's folder on as the payload's `cwd`, which SFlow reads as the chat's folder: so the
+ * folder must stay the project root, never an absolute one such as the home folder.
+ */
+export const COPILOT_HOOK_CWD = '.';
+
 /** The marker SFlow's plugin leaves when its launcher runs, beside the Copilot mode file. */
 export const pluginMarkerFile = (env = process.env) => path.join(path.dirname(copilotModeFile(env)), 'copilot-plugin');
 
@@ -44,13 +58,17 @@ export function repositoryHookCommand(action, value, shell) {
   return `$sflowHook = './.github/hooks/sflow-hook.ps1'; try { & $sflowHook ${action} ${chosen} } catch [System.Management.Automation.PSSecurityException] { & (Get-Process -Id $PID).Path -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $sflowHook ${action} ${chosen} }`;
 }
 
-/** sflow.json for a setting: each event's matcher and timeout as the plugin's own hooks.json has them. */
-export async function repositoryHookJson(value) {
+/**
+ * sflow.json for a setting: each event's matcher and timeout as the plugin's own hooks.json has them, started in the
+ * project root (COPILOT_HOOK_CWD), where the launchers it names live. `cwd: null` gives the file as SFlow wrote it
+ * before it named that folder.
+ */
+export async function repositoryHookJson(value, { cwd = COPILOT_HOOK_CWD } = {}) {
   const plugin = JSON.parse(await readFile(path.join(PACKAGE_ROOT, 'plugin', 'hooks.json'), 'utf8'));
   const hooks = {};
   for (const [event, action] of Object.entries(REPOSITORY_HOOK_EVENTS)) {
     const own = plugin.hooks?.[event]?.[0] ?? {};
-    hooks[event] = [{ type: 'command', ...(own.matcher ? { matcher: own.matcher } : {}),
+    hooks[event] = [{ type: 'command', ...(own.matcher ? { matcher: own.matcher } : {}), ...(cwd ? { cwd } : {}),
       bash: repositoryHookCommand(action, value, 'bash'), powershell: repositoryHookCommand(action, value, 'powershell'), timeoutSec: own.timeoutSec ?? 10 }];
   }
   return `${JSON.stringify({ version: 1, hooks }, null, 2)}\n`;
@@ -181,10 +199,13 @@ const within = (folder, target) => {
  */
 export async function repositoryHookStatus(root, { setting: value = DEFAULT_SETTING, env = process.env } = {}) {
   const expected = await repositoryHookFiles(value);
+  // A hook file written before it named its folder runs the same way: every host starts a repository's hooks in its
+  // project root unless told otherwise (COPILOT_HOOK_CWD). Only `doctor --repair-hooks` rewrites it.
+  const earlier = { [REPOSITORY_HOOK_FILE]: await repositoryHookJson(value, { cwd: null }) };
   const files = {};
   for (const [relative, content] of Object.entries(expected)) {
     const current = await readFile(path.join(root, ...relative.split('/')), 'utf8').catch(() => null);
-    files[relative] = current === null ? 'missing' : current === content ? 'current' : 'changed';
+    files[relative] = current === null ? 'missing' : current === content || current === earlier[relative] ? 'current' : 'changed';
   }
   const disabled = [];
   for (const relative of ['.github/copilot/settings.json', '.github/copilot/settings.local.json']) {

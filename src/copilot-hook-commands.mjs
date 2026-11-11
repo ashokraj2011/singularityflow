@@ -2,7 +2,8 @@
  * COPILOT_PLUGIN_ROOT. These commands must resolve the installed launcher before Node runs.
  * VS Code before 1.141 passes neither (microsoft/vscode#338967), and a chat started before an update
  * may name a copy since removed: then the folder `plugin install` and the launcher itself record in
- * the marker beside the Copilot mode file (pluginMarkerFile in src/repository-hooks.mjs). */
+ * the marker beside the Copilot mode file (pluginMarkerFile in src/repository-hooks.mjs). The host starts
+ * each command in the folder COPILOT_HOOK_CWD names (src/repository-hooks.mjs). */
 const ACTIONS = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start', 'boundary-stop', 'boundary-failure']);
 const UNAVAILABLE = 'SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE: The packaged SFlow hook launcher was not found from PLUGIN_ROOT, COPILOT_PLUGIN_ROOT or the plugin folder SFlow recorded. VS Code before 1.141 passes no plugin folder, so update VS Code; otherwise run singularity-flow plugin install, which records it, and reload VS Code. Preserve the Story; do not disable hooks.';
 

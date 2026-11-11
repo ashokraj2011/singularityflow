@@ -31,6 +31,7 @@ import { pathToFileURL } from 'node:url';
 import { action, commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { PACKAGE_ROOT } from '../package-root.mjs';
+import { assertConfirmation, copySlip } from '../records.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card']);
@@ -455,9 +456,12 @@ function recordId(kind, record) {
 }
 
 function changedList(packet, confirm, phaseId) {
-  refused(`The decision list changed since it was reviewed (it was ${confirm.slice(0, 19)}…, it is ${packet.packetSha256.slice(0, 19)}…). Nothing was recorded. `
-    + 'Review the current list and choose again.', 'DECISIONS_PACKET_CHANGED', { packet, packetSha256: packet.packetSha256,
-    nextAction: { command: `singularity-flow decisions ${packet.workId}${phaseId ? ` --phase ${phaseId}` : ''}`, skill: '/sf-decide', label: 'Review the current decision list.' } });
+  const nextAction = { command: `singularity-flow decisions ${packet.workId}${phaseId ? ` --phase ${phaseId}` : ''}`, skill: '/sf-decide', label: 'Review the current decision list.' };
+  // A digest copied with a slip is not a changed list: say so, with the exact digest (a person's
+  // confirmation stays theirs; nothing is recorded on a near miss) [copied values].
+  assertConfirmation(confirm, packet.packetSha256, { code: 'DECISIONS_PACKET_CHANGED', fail: refused,
+    message: 'The decision list changed since it was reviewed. Nothing was recorded. Review the current list and choose again.',
+    details: { packet, packetSha256: packet.packetSha256, nextAction } });
 }
 
 async function record(root, options, workId, io) {
@@ -488,7 +492,7 @@ async function record(root, options, workId, io) {
         { packet, record: packet.record });
     }
     // Before the answers are read against this list: an item's number means something else on a changed one.
-    if (confirm && DIGEST.test(confirm) && confirm !== packet.packetSha256) changedList(packet, confirm, phaseId);
+    if (confirm && confirm !== packet.packetSha256 && (DIGEST.test(confirm) || copySlip(confirm, packet.packetSha256) === 'slip')) changedList(packet, confirm, phaseId);
     const plan = decisionRecordPlan(packet, answers, { at });
     const preview = await previewOf(workflow, packet, plan);
     if (prompt) {
@@ -503,7 +507,7 @@ async function record(root, options, workId, io) {
         'DECISIONS_CONFIRMATION_REQUIRED', { summary: preview.summary, record: preview.record, packetSha256: packet.packetSha256,
           nextAction: { command: `singularity-flow decisions ${packet.workId}`, skill: '/sf-decide', label: 'Review the decision list and the summary of your choices.' } });
     }
-    if (!DIGEST.test(confirm)) refused('--confirm takes the list\'s digest: sha256:<64 hexadecimal characters>.', 'DECISIONS_OPTIONS_INVALID');
+    if (!DIGEST.test(confirm)) refused(`--confirm takes the list's digest: sha256:<64 hexadecimal characters>; the current list's is ${packet.packetSha256}.`, 'DECISIONS_OPTIONS_INVALID', { packetSha256: packet.packetSha256 });
     if (!plan.steps.length) {
       const only = plan.refused.map((entry) => `${entry.item} (${entry.title}): ${entry.words} Share this with them: ${entry.share}`).join(' ');
       refused(`Nothing was recorded: you may not decide what you chose. ${only}`, 'DECISIONS_NOT_YOURS', { refused: plan.refused });

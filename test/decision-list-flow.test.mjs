@@ -242,6 +242,21 @@ test('the release-approval incident is one decision: recorded once, then approva
   const staleResult = json(stale);
   assert.equal(staleResult.error.code, 'DECISIONS_PACKET_CHANGED');
   assert.equal(staleResult.error.details.packet.packetSha256, packet.packetSha256);
+  assert.equal(staleResult.error.details.confirmation.expected, packet.packetSha256, 'a real change carries the current digest');
+  // A digest copied with a slip after its first twelve characters (both were shown as the same "changed"
+  // prefix) is a slip: nothing changed, use the exact digest [copied values].
+  const slipped = `${packet.packetSha256.slice(0, 40)}${packet.packetSha256[40] === 'a' ? 'b' : 'a'}${packet.packetSha256.slice(41)}`;
+  const slip = json(attemptAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd1=reuse', '--confirm', slipped, '--json'));
+  assert.equal(slip.error.code, 'DECISIONS_PACKET_MISTYPED');
+  assert.match(slip.error.message, new RegExp(`a copying slip of the current value; nothing changed\\. Use --confirm ${packet.packetSha256} exactly`, 'u'));
+  assert.deepEqual(slip.error.details.confirmation, { expected: packet.packetSha256, given: slipped, slip: true });
+  const cut = json(attemptAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd1=reuse', '--confirm', packet.packetSha256.slice(0, 30), '--json'));
+  assert.equal(cut.error.code, 'DECISIONS_PACKET_MISTYPED', 'a digest cut short is a slip too');
+  // An item not on the list is named, with the items there are; it was dropped without a word before.
+  const unknownItem = json(attemptAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd9=reuse', '--confirm', packet.packetSha256, '--json'));
+  assert.equal(unknownItem.error.code, 'DECISIONS_ANSWER_INVALID');
+  assert.match(unknownItem.error.message, /--choose names d9, which is not an item of this list; its items are d1/u);
+  assert.deepEqual((await workflow()).evidenceReuses ?? [], [], 'nothing was recorded for a slip or an unknown item');
   const unconfirmed = attemptAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd1=reuse', '--json');
   assert.equal(json(unconfirmed).error.code, 'DECISIONS_CONFIRMATION_REQUIRED');
   assert.equal(json(unconfirmed).error.details.record.command, packet.record.recommended);

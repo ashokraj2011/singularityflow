@@ -1,6 +1,7 @@
 /** An exact human disposition packet; preparing it never grants reviewer or lifecycle authority. */
 import { createHash } from 'node:crypto';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { assertConfirmation } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export function sourceReviewDecisionPacket({ workflow, phaseId, status, findingId, reason, actor, authority }) {
@@ -34,8 +35,9 @@ export function sourceReviewDecisionPacket({ workflow, phaseId, status, findingI
 }
 
 export function assertSourceReviewDecisionConfirmation(packet, confirmation) {
-  if (confirmation !== packet.packetSha256) throw new SingularityFlowError(
-    'Review and confirm the exact current human source-review disposition packet.',
-    { code: 'SOURCE_REVIEW_DECISION_STALE', details: { packetSha256: packet.packetSha256,
+  assertConfirmation(confirmation, packet.packetSha256, { code: 'SOURCE_REVIEW_DECISION_STALE',
+    fail: (message, code, details) => { throw new SingularityFlowError(message, { code, details }); },
+    message: 'Review and confirm the exact current human source-review disposition packet.',
+    details: { packetSha256: packet.packetSha256,
       recoveryCommand: `singularity-flow review-source decision-context ${packet.binding.phase} --work-id ${packet.binding.workId} --finding ${packet.binding.finding.id} --reason <TEXT> --json` } });
 }

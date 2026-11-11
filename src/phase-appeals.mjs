@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { openScopeAppeal } from './phase-finding-policy.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { branch, exactFileAtObject, head, identity } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { agentInputIssues, assertConfirmation, canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary } from './repository-change-set.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
@@ -29,11 +29,12 @@ const hash = value => `sha256:${createHash('sha256').update(canonicalJson(value)
 const bytesHash = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const fail = (message, code = 'PHASE_APPEAL_INVALID', details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 const SHA = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
-const text = z.string().trim().min(20).max(2000).refine(value => !/[\x00-\x1f\x7f]/u.test(value));
+const text = z.string().trim().min(20).max(2000).refine(value => !/[\x00-\x1f\x7f]/u.test(value), { message: 'must be one line, with no line breaks or control characters' });
 const portablePath = z.string().max(512).refine(value => value.length > 0 && value === value.trim()
   && !/[\\:*?"<>|\x00-\x1f\x7f]/u.test(value) && !value.startsWith('/')
   && value.split('/').every(segment => segment && segment !== '.' && segment !== '..' && !/[. ]$/u.test(segment)
-    && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(segment)));
+    && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(segment)),
+  { message: 'must be one exact repository-relative file path: no leading /, no backslash, no empty, . or .. segment, no segment ending in . or space, no wildcard and none of : * ? " < > |' });
 const change = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('add-location'), clauseId: z.string().min(1).max(200), path: portablePath }).strict(),
   z.object({ kind: z.literal('add-supporting'), path: portablePath, class: z.string().min(1).max(100), reason: text }).strict()
@@ -137,9 +138,9 @@ export async function preparePhaseAppeal(root, config, workflow, { phaseId = wor
   }
   const parsed = z.object({ changes: z.array(change).min(1).max(50), reason: text }).strict().safeParse({ changes, reason });
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    fail(`List 1–50 unique exact portable paths and substantive reasons. Wildcards, traversal, controls and unknown fields are not allowed. `
-      + `${issue?.path?.length ? issue.path.join('.') : 'The appeal'}: ${issue?.message ?? 'invalid'}.`);
+    // Every problem at once, each with its field and rule in words (one per round spent the repair budget).
+    const findings = agentInputIssues(parsed.error.issues, { changes, reason });
+    fail(`List 1–50 unique exact portable paths and substantive reasons. ${findings.map((entry) => entry.message).join(' ')}`, 'PHASE_APPEAL_INVALID', { findings });
   }
   changes = parsed.data.changes; reason = parsed.data.reason;
   if (new Set(changes.map(entry => entry.path)).size !== changes.length) fail('An appeal cannot list a path twice.');
@@ -213,7 +214,7 @@ export async function submitPhaseAppeal(root, config, workflow, options) {
     await verifyRetained(root, config, workflow, existing);
     return { status: 'already-submitted', packet: existing, stateChanged: false };
   }
-  if (options.confirm !== packet.packetSha256) fail('Confirm the exact current appeal packet hash after reviewing its diff.', 'PHASE_APPEAL_STALE');
+  assertConfirmation(options.confirm, packet.packetSha256, { fail, code: 'PHASE_APPEAL_STALE', message: 'Confirm the exact current appeal packet hash after reviewing its diff.' });
   if (existing) fail('This candidate already has a retained packet. Review its existing hash; do not rewrite it.', 'PHASE_APPEAL_CONFLICT');
   const actor = identity(root);
   const { publication } = await transactStory(root, config, workflow, { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED,
@@ -317,7 +318,7 @@ export async function decidePhaseAppeal(root, config, workflow, { id, decision, 
   const packet = (workflow.phaseAppeals ?? []).find(entry => entry.id === id);
   if (!packet) fail('No retained appeal has that exact ID.', 'PHASE_APPEAL_NOT_FOUND');
   await verifyRetained(root, config, workflow, packet);
-  if (confirm !== packet.packetSha256) fail('Review and confirm the exact retained packet hash.', 'PHASE_APPEAL_STALE');
+  assertConfirmation(confirm, packet.packetSha256, { fail, code: 'PHASE_APPEAL_STALE', message: 'Review and confirm the exact retained packet hash.' });
   if ((workflow.phaseAppealDecisions ?? []).some(entry => entry.appealId === id)) fail('This immutable appeal already has a decision. Prepare a successor packet for changed work.', 'PHASE_APPEAL_ALREADY_DECIDED');
   const phase = workflow.phases[packet.binding.phaseId];
   if (workflow.currentPhase !== phase.id || phase.status !== 'in_progress' || generation(phase) !== packet.binding.generation) fail('Use authorized recovery before deciding an appeal outside the current open generation.', 'PHASE_APPEAL_LIFECYCLE');
@@ -378,7 +379,7 @@ export async function attestPhaseAppeal(root, config, workflow, { id, confirm } 
   const record = (workflow.phaseAppealDecisions ?? []).find(entry => entry.appealId === id);
   const packet = (workflow.phaseAppeals ?? []).find(entry => entry.id === id);
   if (!record || !packet) fail('Choose an appeal with a retained human decision.', 'PHASE_APPEAL_NOT_FOUND');
-  if (confirm !== hash(record)) fail('Confirm the exact retained decision hash from appeal show.', 'PHASE_APPEAL_STALE');
+  assertConfirmation(confirm, hash(record), { fail, code: 'PHASE_APPEAL_STALE', message: 'Confirm the exact retained decision hash from appeal show.' });
   const actor = identity(root);
   requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: [record.authorityGroup], requiredAuthorities: [], minimum: 1 }, actor);

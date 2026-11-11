@@ -466,6 +466,14 @@ test('/sf-confirm turns run only the command carrying the digest the person type
     'singularity-flow submit custom-step', 'singularity-flow next']) {
     assert.equal((await shell(command)).permissionDecision, 'deny', command);
   }
+  // A digest copied with a slip is refused naming the digest the person typed, not as a command the turn
+  // does not permit [copied values]; a person's confirmation stays theirs, so nothing near it runs.
+  const slipped = await shell(confirmed.replace(digest, `sha256:${'c'.repeat(60)}cddc`));
+  assert.equal(slipped.permissionDecision, 'deny');
+  assert.match(slipped.permissionDecisionReason, new RegExp(`PHASE_MUTATION_CONFIRM_MISMATCH: .*the person confirmed ${digest} \\(a copying slip; nothing changed\\)\\. Run the same command with --confirm ${digest} exactly`, 'u'));
+  const other = await shell(confirmed.replace(digest, `sha256:${'d'.repeat(64)}`));
+  assert.match(other.permissionDecisionReason, /PHASE_MUTATION_CONFIRM_MISMATCH: /u);
+  assert.doesNotMatch(other.permissionDecisionReason, /copying slip/u);
   for (const target of ['src/App.jsx', 'singularity/work-items/PMC-1/artifacts/custom-step/doc.md']) {
     assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: target } })).permissionDecision, 'deny', target);
   }

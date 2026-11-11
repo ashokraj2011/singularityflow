@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { branch, head, identity, exactFileAtObject } from './git.mjs';
-import { recordSha256, canonicalJson } from './records.mjs';
+import { assertConfirmation, knownChoiceWords, nearestKnown, recordSha256, canonicalJson } from './records.mjs';
 import { loadActiveSpecRecords, readBoundSpecificationClaimMap } from './specifications.mjs';
 import { validatePlannedVerification } from './verification/intent.mjs';
 import { EvidenceAmendmentSchema, evidenceCorrectionProjection, evidenceOwnerAuthorities } from './plan-evidence-amendments.mjs';
@@ -76,11 +76,9 @@ export async function prepareEvidenceContractCorrection(root, config, workflow, 
   if (typeof reason !== 'string' || reason.trim().length < 20 || reason.trim().length > 1000
       || /[\x00-\x1f\x7f]/u.test(reason)) fail('Explain the evidence classification correction in 20–1000 characters.');
   clauseId = String(clauseId ?? '').toUpperCase();
-  if (!/^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(clauseId) || !['visual', 'inspection'].includes(method)) {
-    fail('Choose one exact approved acceptance criterion and visual or inspection.');
-  }
+  if (!['visual', 'inspection'].includes(method)) fail(`Choose visual or inspection as the method, not '${method ?? ''}'.`);
   const prefix = `${itemRoot(config, workflow)}/evidence/`;
-  if (typeof evidencePath !== 'string' || !evidencePath.startsWith(prefix)) fail('The exact retained file must belong to this Story\'s evidence directory.');
+  if (typeof evidencePath !== 'string' || !evidencePath.startsWith(prefix)) fail(`The exact retained file must belong to this Story's evidence directory: its path starts ${prefix}, and '${String(evidencePath ?? '').slice(0, 200)}' does not.`);
   const pathSchema = EvidenceAmendmentSchema.shape.path;
   if (!pathSchema.safeParse(evidencePath).success) fail('Use one exact portable evidence-file path; no traversal, links, or wildcards.');
   assertNoHiddenWorktreeChanges(root, 'Evidence correction');
@@ -93,8 +91,14 @@ export async function prepareEvidenceContractCorrection(root, config, workflow, 
   if (resolved.links.length) fail('Linked files or linked parents cannot become owned evidence.');
   const captured = await readRepositoryManifest(root, evidencePath, { maxBytes: 16 * 1024 * 1024 });
   const { owner, record } = await readOwnedPlan(root, config, workflow, phase);
+  // The acceptance criteria this step may correct, named whenever the one given is not one of them [agent input repairs].
+  const allocated = Object.keys(record.claims ?? {}).filter((id) => /:AC-\d{3}$/u.test(id)
+    && (!(record.claims[id].steps ?? []).length || record.claims[id].steps.includes(phase.id)));
   const claim = record.claims?.[clauseId];
-  if (!claim || ((claim.steps ?? []).length && !claim.steps.includes(phase.id))) fail('The approved plan does not allocate this exact criterion to the current phase.');
+  if (!/^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(clauseId) || !claim || ((claim.steps ?? []).length && !claim.steps.includes(phase.id))) {
+    fail(`${clauseId || 'That'} is not an approved acceptance criterion the plan allocates to ${phase.id}; ${knownChoiceWords(nearestKnown(clauseId, allocated))}.`,
+      'PLAN_EVIDENCE_CORRECTION_INVALID', { allowed: allocated.slice(0, 12) });
+  }
   if (claim.fulfillment === 'evidence' && claim.expectedPaths?.includes(evidencePath)) fail('This file already has an evidence contract. Repair its actual witness/gate instead of repeating classification.');
   const groups = evidenceOwnerAuthorities(workflow, owner.id);
   if (!groups.length) fail('There is no pinned plan approval authority.', 'PLAN_EVIDENCE_CORRECTION_AUTHORITY');
@@ -132,7 +136,8 @@ export async function prepareEvidenceContractCorrection(root, config, workflow, 
 export async function acceptEvidenceContractCorrection(root, config, workflow, options = {}) {
   await assertNoPendingPublication(root, config, workflow, 'correct an evidence contract');
   const preview = await prepareEvidenceContractCorrection(root, config, workflow, options);
-  if (options.confirm !== preview.packetSha256) fail('Review and confirm a fresh exact evidence correction packet.', 'PLAN_EVIDENCE_CORRECTION_STALE', { packetSha256: preview.packetSha256 });
+  assertConfirmation(options.confirm, preview.packetSha256, { fail, code: 'PLAN_EVIDENCE_CORRECTION_STALE', details: { packetSha256: preview.packetSha256 },
+    message: 'Review and confirm a fresh exact evidence correction packet.' });
   const actor = identity(root);
   const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: preview.authorityGroups, requiredAuthorities: [], minimum: 1 }, actor);

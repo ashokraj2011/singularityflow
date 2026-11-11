@@ -5,7 +5,7 @@ import { lstat, open, readdir, realpath, rename } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { gitCommonDir } from './git.mjs';
-import { canonicalJson } from './records.mjs';
+import { assertConfirmation, canonicalJson } from './records.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { listPrivateSidecar, readPrivateSidecar, safeSidecarTreeDirectory, writeImmutablePrivateSidecar } from './private-sidecar.mjs';
@@ -203,8 +203,9 @@ export async function quarantinePhaseRepairJournal(root, workflow, phase, confir
   if (!currentSubjectLockOwner(root, { kind: 'story', id: workflow.workItem.id })) throw new SingularityFlowError('A repair journal quarantine requires the Story mutation lock.', { code: 'PHASE_REPAIR_LOCK_REQUIRED' });
   const plan = await phaseRepairJournalQuarantinePlan(root, workflow, phase);
   if (plan.status !== 'confirmation-required') return plan;
-  if (confirmation !== plan.confirmation) throw new SingularityFlowError('The repair journal changed after review. Inspect the current quarantine plan and confirm its digest.',
-    { code: 'PHASE_REPAIR_QUARANTINE_STALE', details: { plan } });
+  assertConfirmation(confirmation, plan.confirmation, { code: 'PHASE_REPAIR_QUARANTINE_STALE', details: { plan },
+    fail: (message, code, details) => { throw new SingularityFlowError(message, { code, details }); },
+    message: 'The repair journal changed after review. Inspect the current quarantine plan and confirm its digest.' });
   const destination = await safeSidecarTreeDirectory(root, quarantineRoot(root), { create: true });
   const name = `${plan.journal}-${nowIso().replace(/[^0-9TZ]/gu, '')}-${randomUUID().slice(0, 8)}`;
   await rename(await phaseRepairJournalDirectory(root, plan.binding), path.join(destination, name));

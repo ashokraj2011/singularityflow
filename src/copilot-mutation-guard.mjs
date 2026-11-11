@@ -13,6 +13,7 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 const answerBinding = () => import('./copilot-answer-binding.mjs');
 // The turns whose decision commands are held to the person's answers.
 export const ANSWER_BOUND_SKILLS = new Set(ANSWER_BOUND_TURNS);
+import { copySlip } from './records.mjs';
 import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
@@ -755,6 +756,18 @@ export function argvAllowed(argv, mode, value) {
   // A step's review is staged and retained only in its reviewer's read-only turn (above), never by its author.
   if (reviewRetention(positionals)) return false;
   return !['approve', 'reject'].includes(positionals[0]);
+}
+
+/** What a /sf-confirm turn says of a command whose --confirm is not the digest the person typed; null otherwise. */
+function confirmDigestMismatch(call, value) {
+  if (typeof value.confirmDigest !== 'string') return null;
+  const safe = verifiedShellForm(call, value);
+  const options = safe ? parseCli(safe.argv).options : null;
+  const flag = typeof options?.confirm === 'string' ? 'confirm' : typeof options?.['confirm-plan'] === 'string' ? 'confirm-plan' : null;
+  if (!flag || options[flag] === value.confirmDigest) return null;
+  const given = options[flag];
+  return `PHASE_MUTATION_CONFIRM_MISMATCH: this command carries --${flag} ${given.slice(0, 80)}, but the person confirmed ${value.confirmDigest}`
+    + `${copySlip(given, value.confirmDigest) === 'slip' ? ' (a copying slip; nothing changed)' : ''}. Run the same command with --${flag} ${value.confirmDigest} exactly; this turn runs only the digest the person typed`;
 }
 
 const reviewRetention = (positionals) => positionals[0] === 'review-source' && ['stage', 'submit'].includes(positionals[1]);
@@ -1958,6 +1971,10 @@ async function mutationToolDecision(payload, record) {
           return mutationDenial(contract, CHAINED_OWNED_STEP_DENIAL, [], first ? { routes: [{ ...first, skill: null, copilotCommand: null }] } : own());
         }
         if (chained && !(PERSON_DECISION_TURNS.has(contract.turnMode) && ['approve', 'reject'].includes(chained.id))) return personStepRefusal(chained);
+        // A /sf-confirm turn runs only the digest the person typed. A command carrying another one was told
+        // only "not permitted by the bound turn mode"; name both, so a copying slip is copied again exactly.
+        const confirmMismatch = contract.turnMode === 'confirm' && !value.decisionEnded ? confirmDigestMismatch(call, value) : null;
+        if (confirmMismatch) return mutationDenial(contract, confirmMismatch);
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

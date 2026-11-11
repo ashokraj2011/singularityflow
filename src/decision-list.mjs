@@ -1622,6 +1622,14 @@ function checkedArticles(item, given, need) {
 export function decisionRecordPlan(packet, answers, { at }) {
   const steps = [];
   const refusedItems = [];
+  // An item that is not on this list was dropped without a word, or read as "you may not decide what
+  // you chose" when it was the only one: name it and the items there are [agent input repairs].
+  const listed = [...packet.items, ...(packet.offered ?? [])].map((item) => item.id);
+  for (const flag of ['choose', 'reason', 'expires', 'cause', 'clause', 'article']) {
+    const unknown = [...(answers[flag]?.keys() ?? [])].filter((item) => !listed.includes(item));
+    if (unknown.length) refused(`--${flag} names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'is not an item' : 'are not items'} of this list; its items are ${listed.join(', ') || 'none'}. Nothing was recorded.`,
+      'DECISIONS_ANSWER_INVALID', { items: listed, unknown });
+  }
   for (const item of [...packet.items, ...(packet.offered ?? [])]) {
     const chosen = answers.choose.get(item.id);
     if (!chosen) {

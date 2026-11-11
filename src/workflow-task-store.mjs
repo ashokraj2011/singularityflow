@@ -10,7 +10,7 @@ import { readPrivateSidecar, writeMutablePrivateSidecar, writeImmutablePrivateSi
 import { withSubjectLock } from './subject-lock.mjs';
 import { workflowTaskIdentity, workflowTaskInputSha256, validateWorkflowTask, updateWorkflowTask,
   mergeWorkflowTasks, workflowTaskResume, workflowTaskApplies, workflowTaskHasGeneration } from './workflow-task.mjs';
-import { recordSha256 } from './records.mjs';
+import { assertConfirmation, recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -100,9 +100,10 @@ export async function quarantineWorkflowTaskProgress(root, workflow, phase, { ro
       commandGuidance: next, automaticBudgetsAfterRecovery: 0, filesChanged: false,
       instruction: 'Preserve the exact damaged progress bytes. This recovery changes task metadata only; it never edits source, artifacts, reviews, evidence, approvals or application configuration. Automatic repair stays spent for this operation; owned draft correction and fresh checks remain available.' };
     if (!confirm) return preview;
-    if (confirm !== confirmation) throw new SingularityFlowError('Task progress changed after preview. Inspect its current exact bytes before confirming recovery.', {
-      code: 'WORKFLOW_TASK_RECOVERY_STALE', details: { nextAction: taskQuarantineRoute(identity).command }
-    });
+    assertConfirmation(confirm, confirmation, { code: 'WORKFLOW_TASK_RECOVERY_STALE',
+      fail: (message, code, details) => { throw new SingularityFlowError(message, { code, details }); },
+      message: 'Task progress changed after preview. Inspect its current exact bytes before confirming recovery.',
+      details: { nextAction: taskQuarantineRoute(identity).command } });
     await writeImmutablePrivateSidecar(root, backupPath, Buffer.from(JSON.stringify(capture)), { maximumBytes: 196608 });
     const record = updateWorkflowTask(identity, null, { inputSha256: workflowTaskInputSha256(workflow, phase),
       state: role === 'author' ? 'author-draft' : 'author-report', maximumContinuations: 0,

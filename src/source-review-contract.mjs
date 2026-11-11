@@ -201,6 +201,9 @@ export function sourceReviewRepairGuide(report, input, checked) {
           : 'No exact single-line match. Read the pinned source and independently recite it; no paraphrase or fuzzy replacement is allowed.' }),
       ...(current !== undefined ? { suppliedLineText: current.slice(0, 1024), suppliedLineTruncated: current.length > 1024 } : {}) };
   });
+  // A slip in copying the binding: the exact values, never a reload (the inputs did not change).
+  const binding = (checked.evaluation?.findings ?? []).filter(entry => entry.code === 'review-binding-mistyped')
+    .flatMap(entry => entry.slips ?? []).slice(0, 25).map(slip => ({ field: slip.field, proposedEdit: { field: slip.field, value: slip.value } }));
   const mappingTasks = (checked.evaluation?.findings ?? []).filter(entry => [
     'scenario-unmapped', 'clause-unmapped', 'source-unmapped', 'source-statement-unmapped', 'source-statements-unmapped', 'clause-unreviewed'
   ].includes(entry.code));
@@ -210,8 +213,8 @@ export function sourceReviewRepairGuide(report, input, checked) {
       ? mappingTasks.length
         ? 'Independently resolve the listed missing mappings now: add genuinely supported rows and recheck changed bytes within the repair budget, or retain already-reviewed genuine gaps with blocking findings. Never invent coverage or require an author successor for a reviewer mapping omission. Retention is not approval.'
         : 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
-      : 'Repair this private packet in the same review turn, then check it. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve binding, sources, judgments and human decisions.',
-    citations, omittedCitations: Math.max(0, candidates.length - citations.length),
+      : `${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment. ' : ''}Repair this private packet in the same review turn, then check it. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
+    ...(binding.length ? { binding } : {}), citations, omittedCitations: Math.max(0, candidates.length - citations.length),
     mappingTasks: mappingTasks.slice(0, 25), omittedMappingTasks: Math.max(0, mappingTasks.length - 25),
     mappingRule: 'Add a covered row only when the pinned source genuinely supports the scenario/clause, reconciling pinned answers. Otherwise retain a blocking finding; an unmapped scenario alone does not prevent retention. Never mark a gap supported to pass.' };
 }

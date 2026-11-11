@@ -2315,6 +2315,10 @@ export function refusalDetails(details) {
       proposedEdit: field(entry.proposedEdit?.field) && position(entry.proposedEdit?.value)
         ? { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } : null
     }) : null).slice(0, 25),
+    // A mistyped binding's exact values (hashes only, so nothing to redact) [Story anu-bin, 2026-11-11].
+    binding: ((edits) => (edits.length ? edits : null))(list(repair.binding, entry => entry && typeof entry === 'object' && field(entry.proposedEdit?.field)
+      && /^(?:sha256:)?[0-9a-f]{64}$/u.test(entry.proposedEdit?.value ?? '')
+      ? { field: field(entry.proposedEdit.field), proposedEdit: { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } } : null).slice(0, 25)),
     mappingTasks: list(repair.mappingTasks, entry => entry && typeof entry === 'object' ? compact({
       code: text(entry.code), sourceId: text(entry.sourceId), scenarioId: text(entry.scenarioId),
       clauseId: text(entry.clauseId), line: position(entry.line), message: text(entry.message)

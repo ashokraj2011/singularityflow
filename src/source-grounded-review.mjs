@@ -161,6 +161,48 @@ function finding(code, message, details = {}) {
   return { code, message, ...details };
 }
 
+const HASH = /^(?:sha256:)?[0-9a-f]{64}$/u;
+/** Levenshtein distance, stopping once it exceeds `limit`. */
+function editDistanceWithin(left, right, limit) {
+  if (Math.abs(left.length - right.length) > limit) return limit + 1;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= right.length; column += 1) {
+      current[column] = Math.min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1));
+    }
+    if (Math.min(...current) > limit) return limit + 1;
+    previous = current;
+  }
+  return previous[right.length];
+}
+
+/**
+ * The values a hand-copied binding got wrong, when every difference is a slip in copying a hash, else
+ * null. A changed input changes nearly all of a SHA-256's 64 characters; a slip changes a few. So a
+ * binding off by slips alone was mistyped, not reviewed against other inputs: a reviewer that retyped
+ * its report turned "copy one line number" into "inputs changed" and stopped (Story anu-bin, 2026-11-11).
+ */
+export function bindingSlips(reported, current, at = 'binding', slips = []) {
+  if (reported === undefined || current === undefined || reported === null || current === null) return reported === current ? slips : null;
+  if (typeof current === 'string') {
+    if (reported === current) return slips;
+    if (typeof reported !== 'string' || !HASH.test(current) || editDistanceWithin(reported, current, 8) > 8) return null;
+    slips.push({ field: at, value: current });
+    return slips;
+  }
+  if (Array.isArray(current)) {
+    if (!Array.isArray(reported) || reported.length !== current.length) return null;
+    return current.every((entry, index) => bindingSlips(reported[index], entry, `${at}[${index}]`, slips)) ? slips : null;
+  }
+  if (typeof current === 'object') {
+    if (typeof reported !== 'object' || Array.isArray(reported)) return null;
+    return [...new Set([...Object.keys(current), ...Object.keys(reported)])]
+      .every((key) => bindingSlips(reported[key], current[key], `${at}.${key}`, slips)) ? slips : null;
+  }
+  return reported === current ? slips : null;
+}
+
 /** Whether an upstream issue names a reviewer finding: by its clause, else by the finding's own id. */
 function reviewFindingRaised(issue, entry) {
   const text = `${issue.about ?? ''} ${issue.problem ?? ''}`;
@@ -540,7 +582,10 @@ export function evaluateSourceGroundedReview(report, context) {
   if (Object.hasOwn(report, 'humanDispositions') || Object.hasOwn(report, 'dispositions')) {
     findings.push(finding('review-self-disposition', 'Human dispositions cannot be supplied in the reviewer report.'));
   }
-  if (canonicalJson(report.binding) !== canonicalJson(binding)) {
+  const slips = canonicalJson(report.binding) === canonicalJson(binding) ? [] : bindingSlips(report.binding, binding);
+  if (slips?.length) findings.push(finding('review-binding-mistyped',
+    `The report's binding has ${slips.length} mistyped value${slips.length === 1 ? '' : 's'}; the pinned inputs did not change. Copy each proposed value exactly.`, { slips }));
+  else if (!slips) {
     return { status: 'stale', binding, reportSha256,
       findings: [finding('review-binding-stale', 'Pinned sources, human clarifications, approved upstream specification, artifact, phase, or generation changed after review.')],
       pendingDispositions: [] };

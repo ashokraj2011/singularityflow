@@ -134,6 +134,34 @@ test('stale bindings and invalid packet structure never receive usable mechanica
   assert.deepEqual(invalid.repair.citations, []);
 });
 
+test('a hash mistyped when copying the binding is repaired in the same turn, never sent back to reload (Story anu-bin, 2026-11-11)', () => {
+  const { input, report } = fixture();
+  const path = (binding) => binding.sources[0].textSha256;
+  // The live slip: two characters typed into a 64-character hash while retyping the whole report.
+  const real = path(input.binding);
+  report.binding.sources[0].textSha256 = `${real.slice(0, 8)}34${real.slice(8)}`;
+  const slipped = checkSourceReviewReport(report, input);
+  assert.equal(slipped.retentionReady, false, 'a mistyped binding is never retained');
+  assert.equal(slipped.repair.status, 'repair-packet');
+  assert.ok(slipped.findings.some((entry) => entry.code === 'review-binding-mistyped'));
+  assert.deepEqual(slipped.repair.binding, [{ field: 'binding.sources[0].textSha256', proposedEdit: { field: 'binding.sources[0].textSha256', value: real } }]);
+  assert.match(slipped.repair.instruction, /Copy each binding proposedEdit value exactly; the inputs did not change/u);
+  // The refusal at stage carries the same exact values.
+  const refusal = refusalEnvelope(new SingularityFlowError('Repair report format, citations or exact binding; no staging bytes changed.', {
+    code: 'SOURCE_REVIEW_REPORT_INVALID', details: { findings: slipped.findings, repair: slipped.repair } }), ['review-source', 'stage', 'specification']);
+  assert.deepEqual(refusal.error.details.repair.binding, slipped.repair.binding);
+  // Copied back exactly, it is retainable.
+  report.binding.sources[0].textSha256 = real;
+  assert.equal(checkSourceReviewReport(report, input).retentionReady, true);
+  // A really changed input changes nearly the whole hash: still stale, still a reload.
+  report.binding.sources[0].textSha256 = 'f'.repeat(64);
+  assert.equal(checkSourceReviewReport(report, input).repair.status, 'reload-context');
+  // So does a slip beside any other difference.
+  report.binding.sources[0].textSha256 = `${real.slice(0, 8)}34${real.slice(8)}`;
+  report.binding.generation = 2;
+  assert.equal(checkSourceReviewReport(report, input).repair.status, 'reload-context');
+});
+
 test('repair hints and matching-line lists are bounded without losing the true match count', () => {
   const { input, report } = fixture();
   input.sources[0].text = '# Converter\n' + 'Add a converter.\n'.repeat(40);

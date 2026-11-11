@@ -884,7 +884,7 @@ export function checkSourceReviewReport(report, input) {
   const evaluation = format.status === 'ready' ? evaluateSourceGroundedReview(report, {
     ...input, reviewerReadOnly: true
   }) : null;
-  const invalid = new Set(['review-contract-invalid', 'reviewer-not-independent', 'review-self-disposition',
+  const invalid = new Set(['review-contract-invalid', 'review-binding-mistyped', 'reviewer-not-independent', 'review-self-disposition',
     'row-id-invalid', 'attestation-invalid', 'citation-line-invalid', 'citation-quote-invalid',
     'source-unknown', 'clause-list-invalid', 'clause-row-invalid', 'plan-row-mismatch',
     'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed',

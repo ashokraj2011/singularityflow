@@ -78,10 +78,15 @@ const UNREADABLE = Object.freeze({
   unreadable: 'cannot be read'
 });
 
-const ANCHOR_FIX = (file) => `Write each requirement and acceptance criterion in ${file} with its anchor, for example "- The export includes every row. [{{work.id}}:REQ-001]" and "- A CSV with 3 rows downloads. [{{work.id}}:AC-001]". `
-  + 'The anchor gives the clause its ID; code later carries @clause:<WORK>:REQ-001 and tests @ac:<WORK>:AC-001.';
-const TABLE_FIX = (file, codeLabel) => `Give ${file} the planned-claims table the kernel reads, one row per clause the code step ${codeLabel} must meet:\n`
-  + `${PLANNED_TABLE_HEADER}\n${PLANNED_TABLE_DIVIDER}\n| \`{{work.id}}:REQ-001\` | TODO: replace with exact backticked repository-relative source paths | TODO: replace with exact backticked repository-relative test paths | new | TODO: what a person can observe when it works |`;
+// A template is copied into every Story, so its fix is placeholders the step's author fills for each
+// Story: TODO text and the {{work.id}} anchor variable, never one Story's requirement or plan wording
+// (office 2026-11-11: a realistic example here made Copilot ask the person for real wording).
+export const TEMPLATE_PLACEHOLDERS = 'These are placeholders the step\'s author fills for each Story; a template never holds one Story\'s wording, so nobody is asked for it.';
+export const ANCHOR_PLACEHOLDERS = Object.freeze(['- TODO: one observable requirement per line. [{{work.id}}:REQ-001]', '- TODO: one testable criterion per line. [{{work.id}}:AC-001]']);
+const ANCHOR_FIX = (file) => `Give ${file} placeholder clauses, each with its anchor:\n${ANCHOR_PLACEHOLDERS.join('\n')}\n${TEMPLATE_PLACEHOLDERS} `
+  + 'The anchor gives each clause its ID; code later carries @clause:<WORK>:REQ-001 and tests @ac:<WORK>:AC-001.';
+const TABLE_FIX = (file, codeLabel) => `Give ${file} the planned-claims table the kernel reads, one row per clause anchor the code step ${codeLabel} must meet, with TODO cells:\n`
+  + `${PLANNED_TABLE_HEADER}\n${PLANNED_TABLE_DIVIDER}\n| \`{{work.id}}:REQ-001\` | TODO: exact backticked source paths | TODO: exact backticked test paths | new | TODO: what a person observes |\n${TEMPLATE_PLACEHOLDERS}`;
 
 /**
  * Findings about the templates of one resolved workflow. Each is `{ code, severity, title, detail,

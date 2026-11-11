@@ -40,65 +40,37 @@ export function scopedUtilityRead(positionals, options = {}) {
     && !positionals.includes('--'));
 }
 
-// These read one Story named by their operand; `--work-id` names it the same way. /sf-status keeps an explicit Work
-// ID, and `status --work-id X --utility-entry` was refused without saying which option or what to run (2026-11-11).
+// /sf-status keeps an explicit Work ID: `status --work-id X` was refused, naming neither option nor form (2026-11-11).
 const WORK_ID_OPERAND = new Set(['status', 'progress', 'nextsteps']);
-
-/** The request with `--work-id` as the operand of a command that takes one, or as it was. */
-function withWorkIdOperand(positionals, options) {
-  const workId = options['work-id'];
-  if (!WORK_ID_OPERAND.has(positionals[0]) || typeof workId !== 'string' || !workId || positionals.length !== 1) return { positionals, options };
-  const { 'work-id': named, ...rest } = options;
-  return { positionals: [...positionals, named], options: rest };
-}
-
-const shellWord = (value) => (/^[A-Za-z0-9._:/=@-]+$/u.test(value) ? value : JSON.stringify(value));
-
-/** Which options the form does not admit, and the exact read it does admit, for the refusal to name. */
-function utilityEntryCorrection(positionals, options) {
-  const pair = positionals.slice(0, 2).join(' ');
-  const key = Object.hasOwn(FORMS, pair) ? pair : positionals[0];
-  const form = Object.hasOwn(FORMS, key) && key !== 'session' && !key.startsWith('session ') ? FORMS[key] : null;
-  if (!form || positionals.length < (form.min ?? 1) || positionals.length > form.max || positionals.includes('--')) return { unknown: [], command: null };
-  const unknown = Object.keys(options).filter((name) => name !== 'utility-entry' && !form.options.includes(name)
-    && !(['timings', 'timing'].includes(name) && options[name] === true));
-  const kept = Object.entries(options).filter(([name, value]) => form.options.includes(name) && !['json', 'for-agent'].includes(name)
-    && (value === true || typeof value === 'string'));
-  const command = ['singularity-flow', ...positionals.map(shellWord),
-    ...kept.flatMap(([name, value]) => (value === true ? [`--${name}`] : [`--${name}`, shellWord(value)])),
-    ...(positionals[0] === 'report' && options.format !== 'json' ? ['--format', 'json'] : []),
-    ...(positionals[0] === 'inputs' && options['dry-run'] !== true ? ['--dry-run'] : []),
-    '--utility-entry', '--for-agent', '--json'].join(' ');
-  return { unknown, command };
-}
+const word = (value) => (/^[\w.:/=@-]+$/u.test(value) ? value : JSON.stringify(value));
 
 export function validateUtilityEntry(positionals, options) {
-  ({ positionals, options } = withWorkIdOperand(positionals, options));
+  const { 'work-id': workId, ...rest } = options;
+  if (WORK_ID_OPERAND.has(positionals[0]) && positionals.length === 1 && typeof workId === 'string' && workId) [positionals, options] = [[...positionals, workId], rest];
   if (options['utility-entry'] !== true || options.json !== true || options['for-agent'] !== true
       // Session has its own agent envelope/guard. Share its read scope, not a second wrapper.
       || positionals[0] === 'session'
       || !scopedUtilityRead(positionals, options)) {
-    const { unknown, command } = utilityEntryCorrection(positionals, options);
-    throw Object.assign(new Error('--utility-entry requires an allowlisted read with --for-agent --json; mutations, output files and unknown options are not admitted.'
-      + `${unknown.length ? ` Not admitted in this read: ${unknown.map((name) => `--${name}`).join(', ')}.` : ''}`
-      + `${command ? ` The read it admits: ${command}` : ''}`), {
-      code: 'UTILITY_ENTRY_REQUEST_INVALID', details: { notAdmitted: unknown.map((name) => `--${name}`), command }
-    });
+    const key = Object.hasOwn(FORMS, positionals.slice(0, 2).join(' ')) ? positionals.slice(0, 2).join(' ') : positionals[0];
+    const form = Object.hasOwn(FORMS, key) && positionals[0] !== 'session' && positionals.length >= (FORMS[key].min ?? 1) && positionals.length <= FORMS[key].max ? FORMS[key] : null;
+    const notAdmitted = form ? Object.keys(options).filter((name) => name !== 'utility-entry' && !form.options.includes(name) && !(['timings', 'timing'].includes(name) && options[name] === true)).map((name) => `--${name}`) : [];
+    const command = form ? ['singularity-flow', ...positionals.map(word), ...Object.entries(options).filter(([name, value]) => form.options.includes(name) && !['json', 'for-agent'].includes(name) && (value === true || typeof value === 'string'))
+      .flatMap(([name, value]) => (value === true ? [`--${name}`] : [`--${name}`, word(value)])), ...(key === 'report' && options.format !== 'json' ? ['--format', 'json'] : []),
+    ...(key === 'inputs' && options['dry-run'] !== true ? ['--dry-run'] : []), '--utility-entry', '--for-agent', '--json'].join(' ') : null;
+    throw Object.assign(new Error(`--utility-entry requires an allowlisted read with --for-agent --json; mutations, output files and unknown options are not admitted.${notAdmitted.length
+      ? ` Not admitted in this read: ${notAdmitted.join(', ')}.` : ''}${command ? ` The read it admits: ${command}` : ''}`), { code: 'UTILITY_ENTRY_REQUEST_INVALID', details: { notAdmitted, command } });
   }
 }
 
 export function withoutUtilityEntry(argv) {
   const end = argv.indexOf('--');
   const kept = argv.filter((token, index) => (end >= 0 && index > end) || token !== '--utility-entry');
-  // `--work-id X` becomes the operand validateUtilityEntry admitted it as.
-  if (!WORK_ID_OPERAND.has(kept[0]) || kept.includes('--')) return kept;
+  // `--work-id X` goes on as the operand validateUtilityEntry admitted it as.
   const at = kept.findIndex((token) => token === '--work-id' || token.startsWith('--work-id='));
-  const operands = kept.slice(1).filter((token, index, rest) => !token.startsWith('--') && !(index > 0 && rest[index - 1] === '--work-id'));
-  if (at < 0 || operands.length) return kept;
-  const value = kept[at].includes('=') ? kept[at].slice('--work-id='.length) : kept[at + 1];
-  if (!value || value.startsWith('--')) return kept;
-  const without = kept.filter((_, index) => index !== at && !(index === at + 1 && !kept[at].includes('=')));
-  return [without[0], value, ...without.slice(1)];
+  const value = kept[at]?.includes('=') ? kept[at].slice(10) : kept[at + 1];
+  if (!WORK_ID_OPERAND.has(kept[0]) || kept.includes('--') || at < 0 || !value || value.startsWith('--')
+      || kept.slice(1).some((token, index) => !token.startsWith('--') && index + 1 !== at + 1)) return kept;
+  return [kept[0], value, ...kept.slice(1).filter((_, index) => index + 1 !== at && !(index + 1 === at + 1 && !kept[at].includes('=')))];
 }
 
 export function utilityResult(entry, data) {

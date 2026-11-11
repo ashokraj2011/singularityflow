@@ -400,6 +400,13 @@ export function agentAct(result) {
       && result.actions.some(action => action.id === 'working-tree')) return {
     state: 'await-human', do: null, read: ['actions', 'containment', 'blockers'],
     said: 'Review the exact changed paths. Keep intended Story edits through scope accounting and the returned same-phase correction/successor; preserve unrelated edits using the person’s hash-confirmed private-copy route. Do not commit submitted edits by hand, discard files or claim readiness because requiresRecovery is false. No approval is recorded.' };
+  // A reviewer to start here: its result is this turn's next step, so no route to relay while it runs (anu-bin, 2026-11-11).
+  // Before the code offer: asked first, the application and outcome questions made this unreachable for every reviewed
+  // code step, and their Not now routes relayed /sf-review-source while no reviewer ran (agent-text audit, 2026-11-11).
+  if (result.publishIfReady?.published && result.publishIfReady.reviewSubagent) return { state: 'start-reviewer', do: null,
+    read: ['publishIfReady.reviewSubagent', 'publishIfReady.output', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])],
+    said: `Published. Start the reviewer now as publishIfReady.reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.${result.publishIfReady.outcomeReview
+      ? ' Ask the application and outcome questions (publishIfReady.applicationStart, publishIfReady.outcomeReview) only after a ready review, never before it.' : ''}` };
   const codeOffer = result.publishIfReady?.published ? result.publishIfReady.outcomeReview
     : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
   // Published with its tests passing: ask once whether to start the application (application-start-offer.mjs).
@@ -424,10 +431,6 @@ export function agentAct(result) {
     said: 'Show actual retained test results, diagnostic runs separately, application readiness and outstanding human checks. Ask the returned validation question now. Start or configure the app, run tests, or open evidence only after the person chooses. Continue preserves all existing sign-offs; never accept, submit or approve from this choice.' };
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.
-  // A reviewer to start here: its result is this turn's next step, so no route to relay while it runs (anu-bin, 2026-11-11).
-  if (done && result.publishIfReady?.published && result.publishIfReady.reviewSubagent) return { state: 'start-reviewer', do: null,
-    read: ['publishIfReady.reviewSubagent', 'publishIfReady.output', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])],
-    said: 'Published. Start the reviewer now as publishIfReady.reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.' };
   if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
     read: result.publishIfReady?.published ? [...(result.publishIfReady.reviewSubagent ? ['publishIfReady.reviewSubagent'] : []), 'publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : []), ...(result.artifacts ? ['artifacts'] : [])]
       : ['submitIfReady.next', 'submitIfReady.result'],

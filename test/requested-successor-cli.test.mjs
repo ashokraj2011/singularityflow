@@ -150,6 +150,9 @@ test('after Code is published with its tests passing, the person is asked once w
   // Not now: the step goes on, submit first, then its next generation for a change.
   assert.deepEqual(publication.applicationStart.choices[1].routes.map((route) => route.command),
     ['singularity-flow submit implementation', 'singularity-flow phase rollover implementation --reason "<what to change>" --json']);
+  // Its words name those routes, in order: "submit it" sat over a review route first (agent-text audit, 2026-11-11).
+  const onward = publication.applicationStart.choices[1].routes.map((route) => route.copilotCommand ?? route.command);
+  assert.equal(publication.applicationStart.choices[1].description, `Go on with the step: ${onward.join(', then ')}.`);
   // The agent view asks it first, in the first 400 bytes, and its last line names it.
   const view = await boundedAgentOutput(story.published, { cwd: root });
   const asked = JSON.parse(view);

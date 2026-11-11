@@ -29,7 +29,8 @@ export async function applicationStartOffer(root, workflow, phase) {
     choices: [
       { id: 'start', label: 'Start the application', copilotCommand: '/sf-run-app start', command: 'singularity-flow app plan --json',
         description: 'The person chooses: /sf-run-app starts it in the environment they pick, and reports its address.' },
+      // Said from the routes themselves: "submit it" sat over a review route first (agent-text audit, 2026-11-11).
       { id: 'not-now', label: 'Not now', routes: onward,
-        description: onward.length > 1 ? 'Go on with the step: submit it, or start its next generation for a change.' : 'Go on with the step.' }
+        description: onward.length ? `Go on with the step: ${onward.map((route) => route.copilotCommand ?? route.command).join(', then ')}.` : 'Go on with the step.' }
     ] };
 }

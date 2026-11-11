@@ -70,5 +70,6 @@ test('with nowhere to keep the rest, help shows the start of its page and says w
   t.after(() => rm(outside, { recursive: true, force: true }));
   const view = JSON.parse(await boundedAgentOutput(JSON.stringify(SAMPLES['help-page']), { cwd: outside }));
   assert.match(view.content, /^singularity-flow decision line 0\n/u);
-  assert.match(view.content, /\[Cut here: \d+ more bytes\. Run the command without --for-agent to read all of it\.\]$/u);
+  // Never "run the command again" to read: a command that changed something would change it twice (agent-text audit, 2026-11-11).
+  assert.match(view.content, /\[Cut here: \d+ more bytes\. To see the rest of a read, run it again from the Story checkout; never run a command that changed anything again to read it: read where it left things \(singularity-flow nextsteps --for-agent --json\)\.\]$/u);
 });

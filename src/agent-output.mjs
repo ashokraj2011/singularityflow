@@ -990,7 +990,7 @@ function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   // `retained: false` and a second `state` as the review not retained (Story cplus, agent-text audit, 2026-11-11).
   const agentOutput = { view: 'detail-unavailable', fullResult: 'not-kept', bytes: bytes(agentJson(ordered)),
     ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_RESULT }
-      : { instruction: 'No repository was found from here to keep the full result; the omitted fields are not shown. Run the command from the Story checkout to read them.' }) };
+      : { instruction: `No repository was found from here to keep the full result; the omitted fields are not shown. ${ONLY_A_READ_AGAIN}` }) };
   const render = (kept) => agentJson({ ...(act ? { act } : {}), agentOutput,
     ...omittedList(keys.filter((key) => !kept.has(key)).map((key) => ({ field: key, bytes: size[key] })), null),
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])), ...nextOf(act, ordered) });
@@ -1001,7 +1001,7 @@ function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   // A reader's text with nowhere to keep the rest: its start, as much as fits, says so at its end.
   const text = [...reader].find((key) => !kept.has(key) && typeof ordered[key] === 'string');
   if (text) {
-    const cut = (shown) => `${shown}\n[Cut here: ${bytes(ordered[text]) - bytes(shown)} more bytes. Run the command without --for-agent to read all of it.]`;
+    const cut = (shown) => `${shown}\n[Cut here: ${bytes(ordered[text]) - bytes(shown)} more bytes. ${ONLY_A_READ_AGAIN}]`;
     const withText = (shown) => agentJson({ ...(act ? { act } : {}), agentOutput,
       ...omittedList(keys.filter((key) => !kept.has(key) && key !== text).map((key) => ({ field: key, bytes: size[key] })), null),
       ...Object.fromEntries(keys.filter((key) => kept.has(key) || key === text).map((key) => [key, key === text ? cut(shown) : ordered[key]])), ...nextOf(act, ordered) });
@@ -1053,7 +1053,7 @@ async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null 
   } else {
     agentOutput = { view: 'detail-unavailable', literal, fullResult: 'not-kept', bytes: bytes(text),
       ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_LITERAL }
-        : { instruction: 'No repository was found from here to keep this output; only the preview is shown. Run the command from the Story checkout to read all of it.' }) };
+        : { instruction: `No repository was found from here to keep this output; only the preview is shown. ${ONLY_A_READ_AGAIN}` }) };
   }
   const envelope = (preview) => agentJson({ act: { state: 'read', said, do: null }, agentOutput, preview });
   const reserve = bytes(envelope('')) + 16;
@@ -1090,6 +1090,9 @@ export async function boundedAgentOutput(text, options = {}) {
   }
 }
 
+// "Run the command from the Story checkout to read them" sent an agent to run a publication or a record again just to
+// read its result (agent-text audit, 2026-11-11). Only a read runs again; what changed anything is read where it left things.
+const ONLY_A_READ_AGAIN = 'To see the rest of a read, run it again from the Story checkout; never run a command that changed anything again to read it: read where it left things (singularity-flow nextsteps --for-agent --json).';
 const UNKEPT_RESULT = 'The full result could not be written here; the omitted fields are not shown. The command ran: never run it again to read them.';
 const UNKEPT_LITERAL = 'This output could not be written here; only the preview is shown. The command ran: never run it again to read the rest.';
 const errorCode = (error) => String(error?.code ?? error?.name ?? 'Error');
@@ -1305,7 +1308,7 @@ export async function boundedAgentText(text, { cwd = process.cwd(), budget = age
   // The bounded fallback: the start that fits, and what could not be kept. `[OUT:REQ-014]`
   const total = lineCount(text);
   const why = unkept ? 'The rest could not be written here; the command ran: never run it again to read the rest.'
-    : 'No repository was found from here to keep the rest; run the command from the Story checkout to read all of it.';
+    : `No repository was found from here to keep the rest. ${ONLY_A_READ_AGAIN}`;
   const footer = (shown) => `\n[Output not kept] Lines 1-${shown} of ${total} are above. ${why}\n`;
   const head = headLines(text, Math.max(0, budget - bytes(footer(total))));
   return `${head}${footer(head ? head.split('\n').length - 1 : 0)}`;

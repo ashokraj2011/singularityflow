@@ -250,3 +250,16 @@ test('a skill never stops or relays where the act its command returns says to go
     assert.match(text, /`reviewSubagent`/u, name);
   }
 });
+
+test('a view that could not keep the rest never says to run the command again to read it', async (t) => {
+  // "Run the command from the Story checkout to read them" sent a publication or a record to run again just to read its
+  // result; only a read runs again (agent-text audit, 2026-11-11).
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-text-norepo-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const large = { resultType: 'sflow-phase-publication', status: 'published', workId: 'W', phase: 'intake', notes: 'y'.repeat(9_000) };
+  for (const text of [JSON.stringify(large), 'z\n'.repeat(5_000)]) {
+    const view = await boundedAgentOutput(text, { cwd: outside });
+    assert.doesNotMatch(view, /Run the command (?:from the Story checkout|without --for-agent)/u);
+    assert.match(view, /never run a command that changed anything again to read it/u);
+  }
+});

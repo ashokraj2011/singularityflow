@@ -11,7 +11,7 @@
 import { z } from 'zod';
 
 const SHA = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
-const text = (maximum) => z.string().trim().min(20).max(maximum).refine((value) => !/[\x00-\x1f\x7f]/u.test(value));
+const text = (maximum) => z.string().trim().min(20).max(maximum).refine((value) => !/[\x00-\x1f\x7f]/u.test(value), { message: 'must be one line, with no line breaks or control characters' });
 const portablePath = z.string().min(1).max(512).refine((value) => value === value.trim()
   && !value.startsWith('/') && !/\\|^[A-Za-z]:|[\x00-\x1f\x7f]/u.test(value)
   && value.split('/').every((segment) => segment && segment !== '.' && segment !== '..'));

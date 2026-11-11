@@ -4,6 +4,7 @@ import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { exactFileAtObject, head, identity } from './git.mjs';
 import { canonicalJson } from './records.mjs';
+import { assertConfirmation } from './text-lines.mjs';
 import { StoryStateStore } from './state-stores.mjs';
 import { storyTestRiskAuthorityContext } from './story-test-risk.mjs';
 import { buildBaselineRiskDecision, qualifiedTrpIntakeDecisions } from './test-recovery-admission.mjs';
@@ -74,7 +75,8 @@ export async function reviewStoryBaselineAdmission(root, config, workflow, optio
   const initialHead = head(root);
   const context = await resolve(root, config, workflow, options);
   if (!options.apply) return context.preview;
-  if (!context.preview.ready || context.preview.planDigest !== options.confirmation) fail('Review and confirm the exact current baseline-admission plan.', 'TRP_RISK_REVIEW_STALE');
+  if (!context.preview.ready) fail('Review and confirm the exact current baseline-admission plan.', 'TRP_RISK_REVIEW_STALE');
+  assertConfirmation(options.confirmation, context.preview.planDigest, { fail, code: 'TRP_RISK_REVIEW_STALE', message: 'Review and confirm the exact current baseline-admission plan.' });
   const actor = identity(root);
   requireApprovalAuthority(context.authority.pinnedAuthorities, { authorities: context.authority.delegation.authorities }, actor);
   const principal = String(actor.email ?? actor.login ?? '').trim().toLowerCase();

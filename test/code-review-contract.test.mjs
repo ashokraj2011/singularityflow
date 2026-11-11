@@ -210,3 +210,54 @@ test('every authored step of a new Story is reviewed unless the work type turns 
   assert.equal(sourceReviewRequired(old, 'implement'), false, 'a Story pinned before level 2 does not review its new steps');
   assert.equal(sourceReviewRequired(pinned({ mode: 'off', phases: [], reviewerAgent: null }), 'intake'), false);
 });
+
+// Exact repairs for a code review's own copying slips [agent input repairs, Story anu-bin 2026-11-11].
+test('a code citation one line off gets its exact line, as a specification citation does', () => {
+  const ctx = context();
+  const value = report(ctx, (draft) => {
+    draft.rows[0].implementation[0].line -= 1;
+    draft.rows[0].tests[0].line += 1;
+    return draft;
+  });
+  const checked = checkSourceReviewReport(value, ctx);
+  assert.equal(checked.retentionReady, false);
+  const fixed = report(ctx);
+  // Before: the nested field was never read, so the guide said "No exact single-line match" with no line.
+  assert.deepEqual(checked.repair.citations.map((entry) => entry.proposedEdit), [
+    { field: 'rows[0].implementation[0].line', value: fixed.rows[0].implementation[0].line },
+    { field: 'rows[0].tests[0].line', value: fixed.rows[0].tests[0].line }]);
+  assert.ok(checked.repair.citations.every((entry) => entry.matchCount === 1 && typeof entry.suppliedLineText === 'string'));
+});
+
+test('a source ID that looks valid but is no source gets the exact ID, through the stage refusal too', async () => {
+  const { refusalEnvelope } = await import('../src/refusal-remediation.mjs');
+  const { SingularityFlowError } = await import('../src/util.mjs');
+  const ctx = context();
+  const value = report(ctx, (draft) => { draft.rows[0].tests[0].sourceId = 'code:refund.test.mjs'; return draft; });
+  const checked = checkSourceReviewReport(value, ctx);
+  assert.equal(checked.retentionReady, false);
+  const unknown = checked.findings.find((entry) => entry.code === 'source-unknown');
+  assert.match(unknown.message, /cites unknown source 'code:refund\.test\.mjs'; use code:test:refund\.test\.mjs exactly from sources\[\]\.id/u);
+  assert.deepEqual(unknown.proposedEdit, { field: 'rows[0].tests[0].sourceId', value: 'code:test:refund.test.mjs' });
+  assert.deepEqual(checked.repair.sourceIds, [{ field: 'rows[0].tests[0].sourceId', proposedEdit: unknown.proposedEdit }]);
+  const refusal = refusalEnvelope(new SingularityFlowError('Repair.', { code: 'SOURCE_REVIEW_REPORT_INVALID', details: checked }), ['review-source', 'stage', 'implement']);
+  assert.deepEqual(refusal.error.details.repair.sourceIds, checked.repair.sourceIds);
+  assert.deepEqual(refusal.error.details.findings.find((entry) => entry.code === 'source-unknown').proposedEdit, unknown.proposedEdit);
+});
+
+test('a reviewer\'s slip in qualityReviewed or unplannedPaths is its own repair, never a gap retained for the author', () => {
+  const ctx = context({ quality: [{ id: 'Q-1', summary: 'Unused variable', kind: 'quality' }] });
+  const value = report(ctx, (draft) => {
+    draft.qualityReviewed = ['Q-l'];
+    draft.unplannedPaths[0].sourceId = 'code:src:rounding.mjs';
+    return draft;
+  });
+  const checked = checkSourceReviewReport(value, ctx);
+  // Before: both were dropped, the step got "Q-1 is not reviewed" and "src/round.mjs is in no plan row", and the
+  // repair said "Retain this valid packet".
+  assert.equal(checked.retentionReady, false);
+  assert.equal(checked.repair.status, 'repair-packet');
+  assert.deepEqual(checked.repair.repairs.map((entry) => entry.proposedEdit), [
+    { field: 'unplannedPaths[0].sourceId', value: codeSourceId('src/round.mjs') },
+    { field: 'qualityReviewed[0]', value: 'Q-1' }]);
+});

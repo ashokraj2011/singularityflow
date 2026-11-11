@@ -22,6 +22,7 @@ import { staleClausesOf } from './scope/revisions.mjs';
 import { applyPlanCorrections, PlanRowCorrectionSchema, planCorrectionAuthorities, recordPlanRowCorrection } from './plan-row-corrections.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { countedRecords } from './presence/counted.mjs';
+import { agentInputIssues } from './text-lines.mjs';
 import { extractClauses, loadActiveSpecRecords, normalizeClaimMap } from './specifications.mjs';
 import { requiredRepoPath } from './story-state-validation.mjs';
 import { workDir, workDirRelative } from './story-paths.mjs';
@@ -246,9 +247,9 @@ export function amendmentPlanCorrection(workflow, { carried, reason, actor, auth
   };
   const checked = PlanRowCorrectionSchema.safeParse(correction);
   if (!checked.success) {
-    const issue = checked.error.issues[0];
-    throw new SingularityFlowError(`The plan rows of ${intentAmendment} are not well formed: ${issue?.path?.length ? `${issue.path.join('.')}: ` : ''}${issue?.message ?? 'invalid'}.`,
-      { code: 'PLAN_ROW_CORRECTION_INVALID' });
+    const findings = agentInputIssues(checked.error.issues, correction, { schema: PlanRowCorrectionSchema });
+    throw new SingularityFlowError(`The plan rows of ${intentAmendment} are not well formed: ${findings.map((entry) => entry.message).join(' ')}`,
+      { code: 'PLAN_ROW_CORRECTION_INVALID', details: { findings } });
   }
   return correction;
 }

@@ -13,6 +13,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';
 import { fallbackAuthorities } from '../approval-fallback.mjs';
 import { countedRecords, inDecisionOrder, isWithdrawn } from '../presence/counted.mjs';
+import { assertConfirmation } from '../text-lines.mjs';
 
 /** Who may decide the scope: the approval groups of the steps that define it, else the nearest step's. */
 export function scopeAuthorities(workflow) {
@@ -101,10 +102,10 @@ export function recordCompletenessReview(workflow, {
     );
   }
   if (confirm !== inventory.inventorySha256) {
-    throw new SingularityFlowError(
-      `The inventory you reviewed is not the current one; review it again and confirm ${inventory.inventorySha256}.`,
-      { code: 'SCOPE_INVENTORY_CHANGED', details: { expected: inventory.inventorySha256, supplied: confirm ?? null } }
-    );
+    assertConfirmation(confirm, inventory.inventorySha256, { code: 'SCOPE_INVENTORY_CHANGED',
+      fail: (message, code, details) => { throw new SingularityFlowError(message, { code, details }); },
+      message: 'The inventory you reviewed is not the current one; review it again and confirm it.',
+      details: { expected: inventory.inventorySha256, supplied: confirm ?? null } });
   }
   const known = new Set(STARTER_CHECKLIST.articles.map((article) => article.id));
   const unknown = checklist.map((entry) => entry?.article).filter((id) => !known.has(id));

@@ -9,6 +9,7 @@
 import { createHash } from 'node:crypto';
 
 import { canonicalJson, recordSha256 } from './records.mjs';
+import { copySlip, editDistanceWithin, knownChoiceWords, nearestKnown } from './text-lines.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
 import { nonTestVerification } from './verification/intent.mjs';
@@ -153,8 +154,13 @@ function reviewedClarificationSet(report, binding, findings) {
   }
   const missing = expected.filter((id) => !reviewed.includes(id));
   const unknown = reviewed.filter((id) => !expected.includes(id));
-  if (missing.length || unknown.length) findings.push(finding('clarifications-not-all-reviewed',
-    'The review must read and acknowledge the exact publication-bound human clarification records.', { missing, unknown }));
+  if (missing.length || unknown.length) {
+    // The IDs themselves, in the words: a stage refusal carries the message, not these lists.
+    const index = unknown.length === 1 && missing.length === 1 ? reviewed.indexOf(unknown[0]) : -1;
+    findings.push(finding('clarifications-not-all-reviewed',
+      `The review must read and acknowledge the exact publication-bound human clarification records in clarificationsReviewed; missing: ${missing.join(', ') || 'none'}; unknown: ${unknown.join(', ') || 'none'}.`,
+      { missing, unknown, ...(index >= 0 ? { field: `clarificationsReviewed[${index}]`, proposedEdit: { field: `clarificationsReviewed[${index}]`, value: missing[0] } } : {}) }));
+  }
 }
 
 function finding(code, message, details = {}) {
@@ -162,46 +168,58 @@ function finding(code, message, details = {}) {
 }
 
 const HASH = /^(?:sha256:)?[0-9a-f]{64}$/u;
-/** Levenshtein distance, stopping once it exceeds `limit`. */
-function editDistanceWithin(left, right, limit) {
-  if (Math.abs(left.length - right.length) > limit) return limit + 1;
-  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let row = 1; row <= left.length; row += 1) {
-    const current = [row];
-    for (let column = 1; column <= right.length; column += 1) {
-      current[column] = Math.min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1));
-    }
-    if (Math.min(...current) > limit) return limit + 1;
-    previous = current;
-  }
-  return previous[right.length];
+
+/** Every hash in a binding, by where it is: the inputs changed exactly when one of these did. */
+function bindingHashes(value, at = 'binding', found = []) {
+  if (typeof value === 'string') { if (HASH.test(value)) found.push(at); }
+  else if (Array.isArray(value)) value.forEach((entry, index) => bindingHashes(entry, `${at}[${index}]`, found));
+  else if (value && typeof value === 'object') for (const [key, entry] of Object.entries(value)) bindingHashes(entry, `${at}.${key}`, found);
+  return found;
 }
 
 /**
- * The values a hand-copied binding got wrong, when every difference is a slip in copying a hash, else
- * null. A changed input changes nearly all of a SHA-256's 64 characters; a slip changes a few. So a
- * binding off by slips alone was mistyped, not reviewed against other inputs: a reviewer that retyped
- * its report turned "copy one line number" into "inputs changed" and stopped (Story anu-bin, 2026-11-11).
+ * The values a hand-copied binding got wrong, when every difference is a slip in copying, else null.
+ * A changed input changes nearly all of a SHA-256's 64 characters; a slip changes a few, cuts it short
+ * or elides it, changes its case, or reorders a list of sources. So a binding whose every hash is the
+ * current one or a copying slip of it (copySlip) was mistyped, not reviewed against other inputs, and
+ * its other values (an ID, a path, the generation written as text) are slips too. A reviewer that
+ * retyped its report turned "copy one line number" into "inputs changed" and stopped (Story anu-bin,
+ * 2026-11-11); a hash cut short, an upper-case hash or reordered sources still did.
  */
-export function bindingSlips(reported, current, at = 'binding', slips = []) {
-  if (reported === undefined || current === undefined || reported === null || current === null) return reported === current ? slips : null;
-  if (typeof current === 'string') {
-    if (reported === current) return slips;
-    if (typeof reported !== 'string' || !HASH.test(current) || editDistanceWithin(reported, current, 8) > 8) return null;
+export function bindingSlips(reported, current, at = 'binding', slips = [], state = { hashes: 0 }) {
+  const top = at === 'binding';
+  const done = (result) => (top && result && !state.hashes && result.length ? null : result);
+  if (reported === undefined || current === undefined || reported === null || current === null) return done(reported === current ? slips : null);
+  if (typeof current === 'string' || typeof current === 'number' || typeof current === 'boolean') {
+    if (typeof current === 'string' && HASH.test(current)) state.hashes += 1;
+    if (reported === current) return done(slips);
+    // A hash is a slip only as copySlip says; another value (an ID, a path) only beside unchanged hashes,
+    // which the caller requires, and within a few characters of the current one.
+    const slip = typeof reported !== 'object' && (copySlip(reported, current) === 'slip' || (typeof current === 'string' && !HASH.test(current)
+      && typeof reported === 'string' && (reported.toLowerCase() === current.toLowerCase() || editDistanceWithin(reported, current, 2) <= 2)));
+    if (!slip) return null;
     slips.push({ field: at, value: current });
-    return slips;
+    return done(slips);
   }
   if (Array.isArray(current)) {
     if (!Array.isArray(reported) || reported.length !== current.length) return null;
-    return current.every((entry, index) => bindingSlips(reported[index], entry, `${at}[${index}]`, slips)) ? slips : null;
+    // A list of sources copied in another order: compare each by its ID.
+    const byId = current.every((entry) => entry && typeof entry.id === 'string')
+      && reported.every((entry) => entry && typeof entry.id === 'string') ? new Map(reported.map((entry) => [entry.id, entry])) : null;
+    const reordered = byId && byId.size === current.length && current.every((entry) => byId.has(entry.id))
+      && current.some((entry, index) => reported[index]?.id !== entry.id);
+    if (reordered) slips.push({ field: at, value: current });
+    return current.every((entry, index) => bindingSlips(reordered ? byId.get(entry.id) : reported[index], entry,
+      reordered ? `${at}[${reported.indexOf(byId.get(entry.id))}]` : `${at}[${index}]`, reordered ? [] : slips, state)) ? done(slips) : null;
   }
   if (typeof current === 'object') {
     if (typeof reported !== 'object' || Array.isArray(reported)) return null;
-    return [...new Set([...Object.keys(current), ...Object.keys(reported)])]
-      .every((key) => bindingSlips(reported[key], current[key], `${at}.${key}`, slips)) ? slips : null;
+    return done([...new Set([...Object.keys(current), ...Object.keys(reported)])]
+      .every((key) => bindingSlips(reported[key], current[key], `${at}.${key}`, slips, state)) ? slips : null);
   }
-  return reported === current ? slips : null;
+  return reported === current ? done(slips) : null;
 }
+export { bindingHashes };
 
 /** Whether an upstream issue names a reviewer finding: by its clause, else by the finding's own id. */
 function reviewFindingRaised(issue, entry) {
@@ -222,10 +240,31 @@ function clauseCaseHint(id, known) {
   return canonical && canonical !== id ? canonical : null;
 }
 
+/**
+ * A review row whose clauseId is not one this review covers, or repeats one: which, and the exact ID to
+ * use. "Needs one unique approved clause ID" said neither (agent input repairs).
+ */
+function clauseRowFinding(row, label, index, known, seen) {
+  const field = `rows[${index}].clauseId`;
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return finding('clause-row-invalid', `${label} must be an object.`);
+  if (known.includes(row.clauseId) && seen.has(row.clauseId)) {
+    return finding('clause-row-invalid', `${label} repeats clause '${row.clauseId}'; give each clause one row.`, { field });
+  }
+  const canonical = clauseCaseHint(row.clauseId, known);
+  if (canonical) return finding('clause-row-invalid', `${label} names clause '${row.clauseId}'; write it exactly as '${canonical}' (clause IDs are compared in their canonical form).`,
+    { canonical, field, proposedEdit: { field, value: canonical } });
+  const near = nearestKnown(row.clauseId, known);
+  return finding('clause-row-invalid', `${label} names clause '${row.clauseId ?? ''}', which this review does not cover; ${knownChoiceWords(near)}.`,
+    { field, ...(near.value ? { proposedEdit: { field, value: near.value } } : { allowed: near.allowed }) });
+}
+
 function citedSource(row, sources, findings, label, field) {
   const source = sources.get(row?.sourceId);
   if (!source) {
-    findings.push(finding('source-unknown', `${label} cites unknown source '${row?.sourceId ?? ''}'.`, { field: `${field}.sourceId` }));
+    // A source ID is copied from sources[].id; name the one meant, or the ones there are [agent input repairs].
+    const near = nearestKnown(row?.sourceId, [...sources.keys()]);
+    findings.push(finding('source-unknown', `${label} cites unknown source '${row?.sourceId ?? ''}'; ${knownChoiceWords(near)} from sources[].id.`,
+      { field: `${field}.sourceId`, ...(near.value ? { proposedEdit: { field: `${field}.sourceId`, value: near.value } } : { allowed: near.allowed }) }));
     return null;
   }
   const lines = source.text.split(/\r?\n/u);
@@ -311,7 +350,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
       continue;
     }
     if (!ID.test(String(row.id ?? '')) || rowIds.has(row.id)) {
-      findings.push(finding('row-id-invalid', `${label} needs a unique stable id.`));
+      findings.push(finding('row-id-invalid', rowIds.has(row.id) ? `${label} repeats id '${row.id}'; give each row its own id.` : `${label} needs a unique stable id.`, { field: `rows[${index}].id` }));
     } else rowIds.add(row.id);
     const uncitable = unreadable.get(row.sourceId);
     if (visuals.has(row.sourceId)) {
@@ -332,21 +371,27 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
     }
     if (row.outcome === 'covered') {
       if (!SCENARIO.test(String(row.scenarioId ?? '')) || !scenarios.has(row.scenarioId)) {
-        findings.push(finding('scenario-unknown', `${label} names scenario '${row.scenarioId ?? ''}' absent from the specification.`));
+        const near = nearestKnown(row.scenarioId, [...scenarios]);
+        findings.push(finding('scenario-unknown', `${label} names scenario '${row.scenarioId ?? ''}' absent from the specification; ${knownChoiceWords(near)}.`,
+          { field: `rows[${index}].scenarioId`, ...(near.value ? { proposedEdit: { field: `rows[${index}].scenarioId`, value: near.value } } : { allowed: near.allowed }) }));
       } else mappedScenarios.add(row.scenarioId);
       if (!Array.isArray(row.clauseIds) || !row.clauseIds.length || new Set(row.clauseIds).size !== row.clauseIds.length) {
         findings.push(finding('clause-list-invalid', `${label} needs distinct clause IDs.`));
-      } else for (const id of row.clauseIds) {
+      } else for (const [at, id] of row.clauseIds.entries()) {
         const canonical = authoritative.has(id) ? null : clauseCaseHint(id, authoritative);
-        if (canonical) findings.push(finding('clause-unknown', `${label} names clause '${id}'; write it exactly as '${canonical}' (clause IDs are compared in their canonical form).`, { canonical }));
-        else if (!authoritative.has(id)) findings.push(finding('clause-unknown', `${label} names unknown clause '${id}'.`));
+        const near = canonical || authoritative.has(id) ? null : nearestKnown(id, [...authoritative]);
+        const field = `rows[${index}].clauseIds[${at}]`;
+        if (canonical) findings.push(finding('clause-unknown', `${label} names clause '${id}'; write it exactly as '${canonical}' (clause IDs are compared in their canonical form).`, { canonical, field, proposedEdit: { field, value: canonical } }));
+        else if (near) findings.push(finding('clause-unknown', `${label} names unknown clause '${id}'; ${knownChoiceWords(near)}.`,
+          { field, ...(near.value ? { proposedEdit: { field, value: near.value } } : { allowed: near.allowed }) }));
         else mappedClauses.add(id);
       }
     } else if (row.outcome === 'excluded') {
       if (!String(row.reason ?? '').trim()) findings.push(finding('exclusion-reason-missing', `${label} needs a concrete proposed exclusion reason.`));
       pendingDispositions.push({ id: `exclusion:${row.id}`, kind: 'exclusion', rowId: row.id, reason: row.reason ?? null });
     } else if (row.outcome === 'question') {
-      findings.push(finding('source-question-unresolved', `${label} asks a material source question. Reconcile it with pinned human clarifications first: correct this review if the published artifact already follows an answered clarification; otherwise clarify and publish a corrected successor. A reviewer blocker is not a human-disposition exception.`,
+      // Read by the reviewer before retention and by the author after it: each is told what is theirs (N5).
+      findings.push(finding('source-question-unresolved', `${label} asks a material source question. Reviewer, before retaining: if a pinned clarification already answers it and the published artifact follows that answer, change this row to covered. Author, once the review is retained: get the question answered in this step's clarification, then publish a corrected successor; if the review itself is wrong, ask for a fresh review of the same generation (review-source context). A reviewer blocker is not a human-disposition exception.`,
         { rowId: row.id }));
       if (!String(row.question ?? '').trim()) findings.push(finding('question-text-missing', `${label} needs the unresolved question.`));
     } else findings.push(finding('row-outcome-invalid', `${label} outcome must be covered, excluded, or question.`));
@@ -392,10 +437,7 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
     const label = `Review row ${index + 1}`;
     if (!row || typeof row !== 'object' || Array.isArray(row) || !ids.includes(row.clauseId)
         || byId.has(row.clauseId)) {
-      const canonical = row && typeof row === 'object' && !ids.includes(row.clauseId) ? clauseCaseHint(row.clauseId, ids) : null;
-      findings.push(canonical
-        ? finding('clause-row-invalid', `${label} names clause '${row.clauseId}'; write it exactly as '${canonical}' (clause IDs are compared in their canonical form).`, { canonical })
-        : finding('clause-row-invalid', `${label} needs one unique approved clause ID.`));
+      findings.push(clauseRowFinding(row, label, index, ids, byId));
       continue;
     }
     byId.set(row.clauseId, row);
@@ -457,7 +499,7 @@ function evaluateDocumentRows(report, context, binding, findings) {
   for (const [index, row] of rows.entries()) {
     const label = `Review row ${index + 1}`;
     if (!row || typeof row !== 'object' || Array.isArray(row)) { findings.push(finding('row-invalid', `${label} must be an object.`)); continue; }
-    if (!ID.test(String(row.id ?? '')) || rowIds.has(row.id)) findings.push(finding('row-id-invalid', `${label} needs a unique stable id.`));
+    if (!ID.test(String(row.id ?? '')) || rowIds.has(row.id)) findings.push(finding('row-id-invalid', rowIds.has(row.id) ? `${label} repeats id '${row.id}'; give each row its own id.` : `${label} needs a unique stable id.`, { field: `rows[${index}].id` }));
     else rowIds.add(row.id);
     if (visuals.has(row.sourceId)) {
       if (typeof row.attestation !== 'string' || !row.attestation.trim()) findings.push(finding('visual-citation-invalid', `${label} must cite the inspected page or image region and observation.`));
@@ -505,9 +547,7 @@ function evaluateCodeRows(report, context, findings) {
   for (const [index, row] of rows.entries()) {
     const label = `Review row ${index + 1}`;
     if (!row || typeof row !== 'object' || Array.isArray(row) || !delivered.includes(row.clauseId) || byClause.has(row.clauseId)) {
-      const canonical = row && typeof row === 'object' && !delivered.includes(row.clauseId) ? clauseCaseHint(row.clauseId, delivered) : null;
-      findings.push(canonical ? finding('clause-row-invalid', `${label} names clause '${row.clauseId}'; write it exactly as '${canonical}'.`, { canonical })
-        : finding('clause-row-invalid', `${label} needs one unique clause this step delivers.`));
+      findings.push(clauseRowFinding(row, label, index, delivered, byClause));
       continue;
     }
     byClause.set(row.clauseId, row);
@@ -544,8 +584,16 @@ function evaluateCodeRows(report, context, findings) {
   // (a) Every changed path is planned, or the reviewer says it supports the plan.
   const plannedPaths = new Set(Object.values(planned ?? {}).flatMap((claim) => [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]));
   const unplanned = planned ? (code.changedPaths ?? []).filter((relative) => !plannedPaths.has(relative)) : [];
-  const reviewed = new Map((Array.isArray(report.unplannedPaths) ? report.unplannedPaths : [])
-    .map((entry) => [sources.get(entry?.sourceId)?.path ?? null, entry]));
+  const reviewedEntries = Array.isArray(report.unplannedPaths) ? report.unplannedPaths : [];
+  const reviewed = new Map(reviewedEntries.map((entry) => [sources.get(entry?.sourceId)?.path ?? null, entry]));
+  // A reviewed path whose sourceId is not a source: the reviewer's copying slip, never the author's gap.
+  for (const [at, entry] of reviewedEntries.entries()) {
+    if (sources.has(entry?.sourceId)) continue;
+    const field = `unplannedPaths[${at}].sourceId`;
+    const near = nearestKnown(entry?.sourceId, unplanned.filter((relative) => !reviewed.has(relative)).map((relative) => byPath.get(relative)?.id).filter(Boolean), { single: true });
+    findings.push(finding('unplanned-path-unknown', `unplannedPaths ${at + 1} names '${entry?.sourceId ?? ''}', which is not a changed path's source; ${knownChoiceWords(near)} from sources[].id.`,
+      { field, check: 'plan', ...(near.value ? { proposedEdit: { field, value: near.value } } : { allowed: near.allowed }) }));
+  }
   for (const relative of unplanned) {
     const entry = reviewed.get(relative);
     if (!entry) findings.push(finding('unplanned-path-unreviewed', `Changed path ${relative} is in no plan row; review it as supporting or out of scope.`,
@@ -555,6 +603,15 @@ function evaluateCodeRows(report, context, findings) {
   }
   // (c) Every unresolved quality, security or secret-scan result is reviewed.
   const acknowledged = new Set(Array.isArray(report.qualityReviewed) ? report.qualityReviewed : []);
+  const qualityIds = (code.quality ?? []).map((item) => item.id);
+  // An acknowledged ID that is no result: the reviewer's copying slip, never the author's gap.
+  for (const [at, id] of (Array.isArray(report.qualityReviewed) ? report.qualityReviewed : []).entries()) {
+    if (qualityIds.includes(id)) continue;
+    const field = `qualityReviewed[${at}]`;
+    const near = nearestKnown(id, qualityIds.filter((known) => !acknowledged.has(known)), { single: true });
+    findings.push(finding('quality-reviewed-unknown', `qualityReviewed names '${id}', which is not a result in context.code.quality; ${knownChoiceWords(near)}.`,
+      { field, check: 'quality', ...(near.value ? { proposedEdit: { field, value: near.value } } : { allowed: near.allowed }) }));
+  }
   for (const item of code.quality ?? []) if (!acknowledged.has(item.id)) findings.push(finding('quality-not-reviewed',
     `Quality result '${item.id}' (${item.summary}) is not reviewed.`, { check: 'quality', qualityId: item.id }));
 }
@@ -594,7 +651,14 @@ export function evaluateSourceGroundedReview(report, context) {
   if (!context.reviewerAgentId || !context.authorAgentId || context.reviewerReadOnly !== true
       || reviewer?.agentId !== context.reviewerAgentId || reviewer?.readOnly !== true
       || context.reviewerAgentId === context.authorAgentId) {
-    findings.push(finding('reviewer-not-independent', 'A trusted, read-only reviewer distinct from the artifact author is required.'));
+    // A reviewer that copied its own agent ID wrong is told the exact one, not that it is untrusted.
+    const copied = context.reviewerAgentId && context.authorAgentId && context.reviewerReadOnly === true
+      && context.reviewerAgentId !== context.authorAgentId && typeof reviewer?.agentId === 'string' && reviewer.agentId !== context.reviewerAgentId
+      && reviewer.agentId !== context.authorAgentId;
+    findings.push(finding('reviewer-not-independent', copied
+      ? `reviewer.agentId is '${reviewer.agentId}'; this review's reviewer is '${context.reviewerAgentId}': copy it exactly from reportTemplate.`
+      : 'A trusted, read-only reviewer distinct from the artifact author is required.',
+    copied ? { field: 'reviewer.agentId', proposedEdit: { field: 'reviewer.agentId', value: context.reviewerAgentId } } : {}));
   }
   reviewedSourceSet(report, binding, findings);
   reviewedVisualSet(report, binding, findings);
@@ -620,7 +684,8 @@ export function evaluateSourceGroundedReview(report, context) {
       if (!ID.test(String(entry?.id ?? '')) || ids.has(entry.id)
           || !['blocking', 'advisory'].includes(entry.severity)
           || !String(entry.message ?? '').trim()) {
-        findings.push(finding('review-finding-invalid', 'Reviewer findings need a unique id, severity "blocking" or "advisory", and non-empty message (not explanation).'));
+        findings.push(finding('review-finding-invalid', ids.has(entry?.id) ? `Reviewer finding ${index + 1} repeats id '${entry.id}'; give each finding its own id.`
+          : 'Reviewer findings need a unique id, severity "blocking" or "advisory", and non-empty message (not explanation).', { field: `findings[${index}]` }));
         continue;
       }
       ids.add(entry.id);

@@ -55,6 +55,9 @@ async function preservePreviousDraft(file, gitDirectory, draft) {
   return previous;
 }
 
+/** How a report reaches stagingPath, for a reviewer with a terminal alone or with a file-edit tool too. */
+const STAGE_ROUTE = 'Stage it with stagingProtocol.kernelStage (review-source stage <phase> --report-json \'<REPORT-JSON>\' --json, the whole JSON in one argument): it writes stagingPath even before the report is valid and returns the exact repairs; stage the repaired JSON again the same way. A host with a file-edit tool may instead write stagingPath and run stagingProtocol.check.';
+
 export function sourceReviewCheckProgress(input, stagingPath, checked, protocol) {
   const stale = checked.evaluation?.status === 'stale';
   const mappings = checked.repair?.mappingTasks?.length > 0;
@@ -78,18 +81,24 @@ export async function sourceReviewProgress({ input, retained, stagingPath, gitDi
   try { draft = await readSourceReviewDraft(stagingPath, gitDirectory); }
   catch (error) { return { ...base, state: 'read-error', ...(readRecovery ? { nextAction: readRecovery } : {}), error: { code: error.code ?? 'SOURCE_REVIEW_DRAFT_READ_FAILED', message: error.message, path: stagingPath },
     instruction: 'Preserve the existing draft and report this exact read error. Do not replace or recreate the file.' }; }
+  // Every route here runs with a terminal alone: a reviewer with no file-edit tool stages through the
+  // CLI, which writes stagingPath and checks it. "Author the report at stagingPath" stopped one that had
+  // only execute/read/view (Story anu-bin, 2026-11-11).
   if (!draft) return { ...base, state: 'author-report',
-    instruction: 'Author the independent report at stagingPath now using reportTemplate and the pinned inputs. Then check and retain it. An honest correction-required review can be retained; an unwritten report cannot. Do not relay the context command as the next step.' };
+    instruction: `Author the independent report now from reportTemplate and the pinned inputs, with "binding": "from-context". ${STAGE_ROUTE} Then retain it with stagingProtocol.retain. An honest correction-required review can be retained; an unwritten report cannot. Do not relay the context command as the next step.` };
   if (draft.error) return { ...base, state: 'repair-report', error: draft.error, nextAction: protocol.check,
-    instruction: 'Read and repair the JSON at stagingPath, preserving the existing draft. Check the changed packet and retain it when valid.' };
-  const progress = sourceReviewCheckProgress(input, stagingPath, check(draft.report, input), protocol);
+    instruction: `The JSON at stagingPath does not read. Stage the repaired report: ${STAGE_ROUTE} Retain it when valid.` };
+  // A draft that leaves the binding to SFlow: this read is the reviewer's own context, so its binding is current.
+  const report = draft.report && typeof draft.report === 'object' && !Array.isArray(draft.report)
+    && (!Object.hasOwn(draft.report, 'binding') || draft.report.binding === 'from-context') ? { ...draft.report, binding: input.binding } : draft.report;
+  const progress = sourceReviewCheckProgress(input, stagingPath, check(report, input), protocol);
   if (progress.state !== 'reload-context') return progress;
   // This invocation already loaded fresh inputs. Re-entering context would find the same stale
   // file forever. Keep it as an exact private backup and require new independent judgments here.
   try {
     const previousDraftPath = await preservePreviousDraft(stagingPath, gitDirectory, draft);
     return { ...base, state: 'review-changed-inputs', previousDraftPath,
-      instruction: 'This context is already fresh. The previous draft is preserved at previousDraftPath. Independently review the current pinned inputs and author a replacement from reportTemplate at stagingPath; never transplant stale citations, binding or judgments. Then check and retain it. Do not request context again.' };
+      instruction: `This context is already fresh. The previous draft is preserved at previousDraftPath. Independently review the current pinned inputs and author a replacement from reportTemplate, with "binding": "from-context"; never transplant stale citations or judgments. ${STAGE_ROUTE} Then retain it. Do not request context again.` };
   } catch (error) { return { ...base, state: 'read-error', ...(readRecovery ? { nextAction: readRecovery } : {}),
     error: { code: error.code ?? 'SOURCE_REVIEW_DRAFT_PRESERVATION_FAILED', message: error.message },
     instruction: 'Preserve the original staged report and report this exact preservation error; no draft was replaced.' }; }

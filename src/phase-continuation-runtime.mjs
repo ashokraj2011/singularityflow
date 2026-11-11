@@ -10,6 +10,7 @@ import { run, SingularityFlowError } from './util.mjs';
 import { hasPublishedPhaseGeneration } from './code-submission-evidence.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import { assertConfirmation } from './text-lines.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const fail = (message, code, details) => { throw new SingularityFlowError(message, { code, details }); };
@@ -115,7 +116,8 @@ export async function coordinatePhaseContinuation({ root, workId = null, phaseId
       return { ...await preview(current, dependencies), resumed: true, journalChanged: true,
         result: okay ? 'verified' : 'not-verified', mutates: true, registeredOperationExecuted: false };
     }
-    if (confirmation !== plan.confirmation) fail('Review and confirm the exact current continuation. Draft, policy or journal changed.', 'PHASE_CONTINUATION_STALE', { plan });
+    assertConfirmation(confirmation, plan.confirmation, { fail, code: 'PHASE_CONTINUATION_STALE', details: { plan },
+      message: 'Review and confirm the exact current continuation. Draft, policy or journal changed.' });
     if (!plan.continuationAllowed) fail('Follow the returned author, human or owner route. No unchanged retry or automatic approval is available.', 'PHASE_CONTINUATION_NOT_ADMITTED', { plan });
     const executed = [];
     for (let step = 0; step < 2 && plan.continuationAllowed; step += 1) {

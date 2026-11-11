@@ -62,7 +62,9 @@ test('pinned and overridden legacy agents get compatible delivery while exact pi
   assert.equal(projected.reviewer.sha256, agent.sha256);
   assert.doesNotMatch(projected.reviewer.effectiveInstructions, /cwd for every shell and file tool/u);
   assert.equal(projected.reviewGuide.readOrder[0], 'reviewer.effectiveInstructions');
-  assert.deepEqual(projected.reportTemplate.binding, binding);
+  // The reviewer's template leaves the binding to SFlow; the one binding stays beside it, unchanged.
+  assert.equal(projected.reportTemplate.binding, 'from-context');
+  assert.deepEqual(projected.binding, binding);
 });
 
 test('cached authoring prompts receive local verification guidance without rewriting old policy or evidence', () => {

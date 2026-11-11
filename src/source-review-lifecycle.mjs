@@ -6,6 +6,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { canonicalJson, recordSha256 } from './records.mjs';
+import { nearestKnown, valueAtField } from './text-lines.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -19,7 +20,7 @@ import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
-import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
+import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding, sourceReviewScenarioIds } from './source-grounded-review.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
 import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide } from './source-review-contract.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
@@ -775,11 +776,11 @@ async function evaluateRetainedSourceReview(root, config, workflow, phaseId, inp
 }
 
 /** Build the reviewer payload and private continuation checkpoint, without changing Story state. */
-export async function sourceReviewContext(root, config, workflow, phaseId, stagingPath) {
-  return withSourceReviewSnapshot(root, () => loadSourceReviewContext(root, config, workflow, phaseId, stagingPath));
+export async function sourceReviewContext(root, config, workflow, phaseId, stagingPath, { snapshot = true } = {}) {
+  return withSourceReviewSnapshot(root, () => loadSourceReviewContext(root, config, workflow, phaseId, stagingPath, { snapshot }));
 }
 
-async function loadSourceReviewContext(root, config, workflow, phaseId, stagingPath) {
+async function loadSourceReviewContext(root, config, workflow, phaseId, stagingPath, { snapshot = true } = {}) {
   const phase = checkPublishedGeneration(workflow, phaseId);
   const documentReadiness = await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, config, workflow, phaseId);
   if (documentReadiness.status !== 'ready') return {
@@ -804,6 +805,12 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
   const reportTemplate = sourceReviewReportTemplate(input);
   const conflict = sourceReviewAuthorConflict(workflow, workflow.phases[phaseId]);
   if (!conflict && stagingPath) await (await import('./copilot-mutation-guard.mjs')).issueMutationStaging(root, stagingPath, 'source-review');
+  // The binding this reviewer is shown, kept so its report may say "binding": "from-context" (a read
+  // the reviewer itself asked for; stage's own read and a host's card never replace it).
+  if (!conflict && stagingPath && snapshot && globalThis.__SFLOW_EXTENSION_HOST__ !== true) {
+    // Best effort: without it a "from-context" report is read as stale and sent back here, never accepted unbound.
+    await (await import('./source-review-staging.mjs')).writeSourceReviewContextBinding(root, stagingPath, input.binding).catch(() => {});
+  }
   const hashView = (artifact, binding) => ({ path: artifact.path, sha256: binding.sha256,
     sha256Domain: 'authored-content', authoredContentSha256: binding.sha256,
     registeredFileSha256: artifact.registeredFileSha256,
@@ -876,42 +883,59 @@ export function scopedSourceReviewerSession(input, authorSession) {
     agent: input.reviewerAgentId, agentSha256: input.reviewerAgentSha256 };
 }
 
-/** The value at a report field path such as `rows[1].tests[0].sourceId`, or undefined. */
-function reportValueAt(report, field) {
-  return String(field).split(/\.|(?=\[)/u).filter(Boolean).reduce((value, part) => {
-    const index = /^\[(\d+)\]$/u.exec(part);
-    return value == null ? undefined : index ? value[Number(index[1])] : value[part];
-  }, report);
-}
-
 /**
  * A source written as its path (code:src/App.jsx) rather than its ID (code:src:App.jsx): the exact ID to copy.
  * "Invalid input" alone left a reviewer guessing four forms until its repairs ran out (Story anu-bin, 2026-11-11).
  */
 function namedSourceIds(report, input, findings) {
   const known = [...(input.sources ?? []), ...(input.visualSources ?? [])].map((source) => source?.id).filter((id) => typeof id === 'string');
-  const loose = (value) => value.toLowerCase().replace(/[^a-z0-9._-]/gu, ':');
   return findings.map((entry) => {
     if (entry.code !== 'review-format-invalid' || !/(?:^sourcesReviewed\[\d+\]|\.sourceId)$/u.test(entry.field ?? '')) return entry;
-    const value = reportValueAt(report, entry.field);
+    const value = valueAtField(report, entry.field);
     if (typeof value !== 'string' || !known.length) return entry;
-    const matches = known.filter((id) => loose(id) === loose(value));
-    return matches.length === 1
-      ? { ...entry, message: `${value.slice(0, 200)} is not a source ID; copy ${matches[0]} exactly from sources[].id.`, proposedEdit: { field: entry.field, value: matches[0] } }
-      : { ...entry, message: `${value.slice(0, 200)} is not a source ID; copy one from sources[].id: ${known.slice(0, 12).join(', ')}${known.length > 12 ? ', …' : ''}.` };
+    const near = nearestKnown(value, known);
+    return near.value
+      ? { ...entry, message: `${value.slice(0, 200)} is not a source ID; copy ${near.value} exactly from sources[].id.`, proposedEdit: { field: entry.field, value: near.value } }
+      : { ...entry, message: `${value.slice(0, 200)} is not a source ID; copy one from sources[].id: ${near.allowed.join(', ')}${near.more ? ', …' : ''}.`, allowed: near.allowed };
   });
+}
+
+/**
+ * The IDs a review report copies, by field, so a format error on one names the exact ID meant
+ * [agent input repairs]. Clause IDs come from the reviewed specification, the approved one a plan
+ * covers, or the clauses a code step delivers.
+ */
+function reviewKnownIds(input) {
+  const clauses = () => {
+    try {
+      if (input.kind === 'code') return input.code?.deliveredClauses ?? [];
+      const document = input.kind === 'planning' ? input.upstreamSpec : input.kind === 'specification' ? input.artifact : null;
+      return document ? extractClauses(document.text, { sourcePath: document.path }).map((clause) => clause.id) : [];
+    } catch { return []; }
+  };
+  const clauseIds = clauses();
+  return [
+    { field: /(?:^rows\[\d+\]\.clauseId|^rows\[\d+\]\.clauseIds\[\d+\]|^findings\[\d+\]\.clauseId)$/u, values: clauseIds, what: 'a clause ID this review covers' },
+    { field: /^qualityReviewed\[\d+\]$/u, values: (input.code?.quality ?? []).map((item) => item.id), what: 'a result ID from context.code.quality' },
+    { field: /^clarificationsReviewed\[\d+\]$/u, values: (input.clarifications ?? []).map((entry) => entry.id), what: 'a clarification record ID from context.clarifications' },
+    ...(input.kind === 'specification' ? [{ field: /^rows\[\d+\]\.scenarioId$/u, values: [...sourceReviewScenarioIds(input.artifact?.text ?? '')], what: 'a scenario ID of the specification' }] : []),
+    { field: /^reviewer\.agentId$/u, values: input.reviewerAgentId ? [input.reviewerAgentId] : [], what: 'this review\'s reviewer' }
+  ].filter((entry) => entry.values.length);
 }
 
 /** Read-only format, citation and binding preflight. No reviewer authority or human decision is granted. */
 export function checkSourceReviewReport(report, input) {
-  const validated = validateSourceReviewReport(report, input.kind);
+  const validated = validateSourceReviewReport(report, input.kind, { known: () => reviewKnownIds(input) });
   const format = { ...validated, findings: namedSourceIds(report, input, validated.findings) };
   // The pure evaluator also reads historical, malformed packets. New packets use a strict format
   // preflight first, so incidental JS errors cannot hide a field-level format error.
   const evaluation = format.status === 'ready' ? evaluateSourceGroundedReview(report, {
     ...input, reviewerReadOnly: true
   }) : null;
+  // The reviewer's own copying slips (an unknown source, clause, scenario, quality result or changed path) block
+  // retention with their exact repair; retained, they read as the author's gaps the author cannot close.
   const invalid = new Set(['review-contract-invalid', 'review-binding-mistyped', 'reviewer-not-independent', 'review-self-disposition',
+    'quality-reviewed-unknown', 'unplanned-path-unknown', 'clause-unknown', 'scenario-unknown',
     'row-id-invalid', 'attestation-invalid', 'citation-line-invalid', 'citation-quote-invalid',
     'source-unknown', 'clause-list-invalid', 'clause-row-invalid', 'plan-row-mismatch',
     'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed',

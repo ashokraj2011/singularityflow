@@ -329,7 +329,8 @@ function authorityFor(config, workflow, phase, actor, requiredGroup = null) {
 
 export async function acceptQualityRisk(root, config, workflow, options) {
   const packet = await prepareQualityRisk(root, config, workflow, options);
-  if (options.confirm !== packet.packetSha256) fail('Review and confirm the exact current risk packet hash.', 'PHASE_QUALITY_RISK_STALE');
+  // Loaded only here: the copy-slip helpers stay out of the eager graph this module is in.
+  (await import('./text-lines.mjs')).assertConfirmation(options.confirm, packet.packetSha256, { fail, code: 'PHASE_QUALITY_RISK_STALE', message: 'Review and confirm the exact current risk packet hash.' });
   const actor = identity(root); const phase = workflow.phases[packet.binding.phaseId];
   const authority = authorityFor(config, workflow, phase, actor);
   const id = `PQR-${packet.packetSha256.slice(7, 31)}`;

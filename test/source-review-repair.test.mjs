@@ -209,3 +209,46 @@ test('stage/retain refusals preserve bounded exact repair fields through the CLI
   assert.equal(envelope.error.details.repair.reportSha256, checked.evaluation.reportSha256);
   assert.ok(envelope.error.details.repair.mappingTasks.some(entry => entry.scenarioId === 'S2'));
 });
+
+test('a binding cut short, elided, in upper case or with its sources reordered is a copying slip, never a reload (Story anu-bin, 2026-11-11)', () => {
+  const slipped = (change) => {
+    const { input, report } = fixture();
+    input.sources.push({ id: 'notes', path: 'NOTES.md', text: 'Notes.\n' });
+    input.binding = report.binding = sourceReviewBinding(input);
+    report.sourcesReviewed = ['story', 'notes'];
+    report.rows.push({ id: 'notes', sourceId: 'notes', line: 1, quote: 'Notes.', outcome: 'excluded', reason: 'Background notes only.' });
+    change(report.binding, input.binding);
+    return checkSourceReviewReport(report, input);
+  };
+  for (const [name, change] of [
+    ['cut short', (binding) => { binding.sources[0].textSha256 = binding.sources[0].textSha256.slice(0, 40); }],
+    ['elided', (binding) => { binding.sources[0].textSha256 = `${binding.sources[0].textSha256.slice(0, 12)}…${binding.sources[0].textSha256.slice(-6)}`; }],
+    ['upper case', (binding) => { binding.artifact.sha256 = binding.artifact.sha256.toUpperCase(); }],
+    ['a path in another case', (binding) => { binding.sources[0].path = binding.sources[0].path.toLowerCase(); }],
+    ['the generation as text', (binding) => { binding.generation = String(binding.generation); }],
+    ['sources reordered', (binding) => { binding.sources.reverse(); }]]) {
+    const checked = slipped(change);
+    assert.equal(checked.repair.status, 'repair-packet', name);
+    assert.ok(checked.findings.some((entry) => entry.code === 'review-binding-mistyped'), name);
+    assert.match(checked.repair.instruction, /"binding": "from-context"/u, name);
+  }
+  // A really changed input is still stale.
+  assert.equal(slipped((binding) => { binding.sources[0].textSha256 = 'f'.repeat(64); }).repair.status, 'reload-context');
+  assert.equal(slipped((binding) => { binding.generation = 2; }).repair.status, 'reload-context');
+});
+
+test('every format problem names its field and rule in words, never "Invalid input" or a raw pattern', () => {
+  const { input, report } = fixture();
+  report.rows[0].scenarioId = 's-1';
+  report.rows[0].clauseIds = ['REQ-001'];
+  report.findings.push({ id: 'gap one', severity: 'major', message: 'x', explanation: 'y' });
+  const checked = checkSourceReviewReport(report, input);
+  const messages = Object.fromEntries(checked.findings.map((entry) => [entry.field, entry]));
+  for (const entry of checked.findings) {
+    assert.doesNotMatch(entry.message, /^Invalid input$|must match pattern \//u, entry.field);
+  }
+  assert.match(messages['rows[0].scenarioId'].message, /a scenario ID such as S1|use S1 exactly/u);
+  assert.match(messages['findings[0].id'].message, /an ID: a letter or digit/u);
+  assert.match(messages['findings[0].severity'].message, /use one of: 'blocking', 'advisory'/u);
+  assert.match(messages['findings[0].explanation'].message, /has no field explanation; did you mean message\?/u);
+});

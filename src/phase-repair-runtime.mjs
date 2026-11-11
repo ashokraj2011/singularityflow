@@ -14,6 +14,7 @@ import { SingularityFlowError } from './util.mjs';
 import { phaseFindingIdentity, PHASE_REPAIR_POLICY_REVISION,
   correctionPlan, testRepairProgress } from './phase-finding-policy.mjs';
 import { createPhaseCheckpoint } from './phase-checkpoint.mjs';
+import { assertConfirmation } from './text-lines.mjs';
 
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 /** Progress means changed findings, not padding, moved line numbers or unrelated source edits. */
@@ -232,7 +233,8 @@ export async function coordinatePhaseRepair({ root, workId = null, phaseId = nul
         active.actionId === 'sync-retained-publication' && plan.observation.recovery.pendingPublication
           ? { outcome: 'binding-changed' } : {}), resumed: true };
     }
-    if (confirmation !== plan.confirmation) fail('Review the current exact repair plan and confirm its digest. Source, policy, journal or repository state moved.', 'PHASE_REPAIR_PLAN_STALE', { plan: publicPlan(plan) });
+    assertConfirmation(confirmation, plan.confirmation, { fail, code: 'PHASE_REPAIR_PLAN_STALE', details: { plan: publicPlan(plan) },
+      message: 'Review the current exact repair plan and confirm its digest. Source, policy, journal or repository state moved.' });
     if (!plan.admission.allowed) fail('A new repair cannot start. Resume the recorded attempt or follow the named human/owner route; its budget was not reset.', 'PHASE_REPAIR_ADMISSION_REFUSED', { plan: publicPlan(plan) });
     const checkpoint = plan.action.id === 'owned-producer-repair'
       ? await dependencies.checkpoint(root, current.config, current.workflow, current.phase) : null;

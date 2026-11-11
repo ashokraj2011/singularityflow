@@ -759,6 +759,22 @@ export function argvAllowed(argv, mode, value) {
   return !['approve', 'reject'].includes(positionals[0]);
 }
 
+/**
+ * What a /sf-confirm turn says of a command whose --confirm is not the digest the person typed; null otherwise.
+ * The slip check loads only here: the guard runs on every tool call and keeps its static graph small.
+ */
+async function confirmDigestMismatch(call, value) {
+  if (typeof value.confirmDigest !== 'string') return null;
+  const safe = verifiedShellForm(call, value);
+  const options = safe ? parseCli(safe.argv).options : null;
+  const flag = typeof options?.confirm === 'string' ? 'confirm' : typeof options?.['confirm-plan'] === 'string' ? 'confirm-plan' : null;
+  if (!flag || options[flag] === value.confirmDigest) return null;
+  const given = options[flag];
+  const { copySlip } = await import('./text-lines.mjs');
+  return `PHASE_MUTATION_CONFIRM_MISMATCH: this command carries --${flag} ${given.slice(0, 80)}, but the person confirmed ${value.confirmDigest}`
+    + `${copySlip(given, value.confirmDigest) === 'slip' ? ' (a copying slip; nothing changed)' : ''}. Run the same command with --${flag} ${value.confirmDigest} exactly; this turn runs only the digest the person typed`;
+}
+
 const reviewRetention = (positionals) => positionals[0] === 'review-source' && ['stage', 'submit'].includes(positionals[1]);
 const REVIEW_RETENTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a step\'s review is staged and retained only by its independent read-only reviewer, never by the turn that authored the step. Start that reviewer as a sub-agent in this chat (the publication\'s reviewSubagent), or run /sf-review-source <step> in a new chat; do not retry it here';
 
@@ -1960,6 +1976,10 @@ async function mutationToolDecision(payload, record) {
           return mutationDenial(contract, CHAINED_OWNED_STEP_DENIAL, [], first ? { routes: [{ ...first, skill: null, copilotCommand: null }] } : own());
         }
         if (chained && !(PERSON_DECISION_TURNS.has(contract.turnMode) && ['approve', 'reject'].includes(chained.id))) return personStepRefusal(chained);
+        // A /sf-confirm turn runs only the digest the person typed. A command carrying another one was told
+        // only "not permitted by the bound turn mode"; name both, so a copying slip is copied again exactly.
+        const confirmMismatch = contract.turnMode === 'confirm' && !value.decisionEnded ? await confirmDigestMismatch(call, value) : null;
+        if (confirmMismatch) return mutationDenial(contract, confirmMismatch);
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

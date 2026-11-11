@@ -259,21 +259,32 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
   assert.equal(staged.stagingPath, sourceReviewStagingPath(gitDir(root), workflow, workflow.phases.specification));
   const bytes = await readFile(staged.stagingPath);
   assert.equal(staged.effects.reviewRetained, false);
-  const stale = structuredClone(report); stale.binding.generation = 9;
-  for (const value of ['not-json', JSON.stringify(stale), 'x'.repeat(65537)]) {
+  // What is not JSON, or is over the bound, stages nothing.
+  for (const value of ['not-json', 'x'.repeat(65537)]) {
     await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', value), { code: 'SOURCE_REVIEW_REPORT_INVALID' });
     assert.deepEqual(await readFile(staged.stagingPath), bytes);
   }
+  // A draft that cannot be retained yet is staged (staging is not retention), so a reviewer with no
+  // file-edit tool can check it and stage the repair; the refusal says so and carries the repair
+  // (a reviewer with execute/read/view only stopped at "not retained", Story anu-bin, 2026-11-11).
+  const stale = structuredClone(report); stale.binding.generation = 9;
+  await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(stale)), { code: 'SOURCE_REVIEW_REPORT_INVALID' });
+  assert.deepEqual(JSON.parse(await readFile(staged.stagingPath, 'utf8')), stale);
   const badCitation = structuredClone(report);
   badCitation.rows[0].line = 999;
   await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(badCitation)), error => {
     assert.equal(error.code, 'SOURCE_REVIEW_REPORT_INVALID');
+    assert.match(error.message, /The review draft is staged at .*, but it cannot be retained yet: repair the listed fields and stage the repaired JSON again/u);
+    assert.doesNotMatch(error.message, /no staging bytes changed/u);
+    assert.equal(error.details.stagingPath, staged.stagingPath);
     assert.equal(error.details.repair.status, 'repair-packet');
     assert.equal(error.details.repair.citations[0].field, 'rows[0]');
     assert.equal(error.details.repair.citations[0].proposedEdit.value, report.rows[0].line);
     return true;
   });
-  assert.deepEqual(await readFile(staged.stagingPath), bytes, 'refused citation repair cannot change the previous draft');
+  assert.deepEqual(JSON.parse(await readFile(staged.stagingPath, 'utf8')), badCitation, 'the draft is staged for check and repair');
+  await stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report));
+  assert.deepEqual(await readFile(staged.stagingPath), bytes, 'the repaired report replaces the draft');
   workflow.phases.specification.generatedAgent = 'sflow-source-reviewer';
   workflow.resolution.sourceReview = { mode: 'enforce', phases: ['specification'], reviewerAgent: 'sflow-source-reviewer' };
   await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report)), { code: 'SOURCE_REVIEW_STAGING_NOT_REVIEWABLE' });
@@ -284,6 +295,33 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
   await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report)));
   assert.equal(await readFile(target, 'utf8'), 'untouched');
   assert.deepEqual(await readFile(path.join(root, `${ITEM}/workflow.json`)), before);
+});
+
+test('a report that leaves its binding to SFlow is staged with the binding its reviewer\'s context showed, never a newer one', async t => {
+  // Retyping the binding's hashes inline in a stage command was the slip that stopped a live review
+  // (Story anu-bin, 2026-11-11); the binding is freshness, not consent, so SFlow fills it.
+  const f = await fixture(t);
+  const root = await realpath(f.root);
+  const { config, workflow } = f;
+  const staging = sourceReviewStagingPath(gitDir(root), workflow, workflow.phases.specification);
+  const input = await sourceReviewInput(root, config, workflow, 'specification');
+  const report = { ...review(input), binding: 'from-context' };
+  // No context read yet: nothing fills it, and the check sends the reviewer to read context.
+  await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report)),
+    (error) => error.code === 'SOURCE_REVIEW_REPORT_INVALID' && error.details.repair.status === 'reload-context');
+  await sourceReviewContext(root, config, workflow, 'specification', staging);
+  const staged = await stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report));
+  assert.deepEqual(JSON.parse(await readFile(staged.stagingPath, 'utf8')).binding, input.binding);
+  const { binding: omitted, ...withoutBinding } = report;
+  assert.equal(omitted, 'from-context');
+  await stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(withoutBinding));
+  assert.deepEqual(JSON.parse(await readFile(staged.stagingPath, 'utf8')).binding, input.binding, 'an omitted binding is filled too');
+  // The binding the context showed, not the current one: inputs that changed since are still stale.
+  const kept = staging.replace(/\.json$/u, '.context-binding.json');
+  const snapshot = JSON.parse(await readFile(kept, 'utf8'));
+  await writeFile(kept, JSON.stringify({ ...snapshot, binding: { ...snapshot.binding, generation: 0 } }));
+  await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report)),
+    (error) => error.details.repair.status === 'reload-context');
 });
 
 test('kernel staging in a linked Story checkout stays in its own Git-private directory', async t => {

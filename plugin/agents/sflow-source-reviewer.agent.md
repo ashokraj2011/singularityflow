@@ -82,8 +82,8 @@ rollback work where the approved specification calls for it.
 For a `document`, give each pinned source (the Story, its documents and the approved inputs the step
 reads) at least one cited row: `consistent`, `inconsistent` or `question`, with a note for the last two.
 
-For `code`, the sources are the changed files exactly as published; cite their lines by each file's exact
-`sources[].id` (`code:` and its path with each `/` as `:`), never the path. Do all four checks in `citationGuide.checks`: (a) each delivered clause is implemented where
+For `code`, the sources are the changed files exactly as published; cite their lines by each file's
+`sources[].id`, copied exactly: it is not derivable from the path, so never write the path. Do all four checks in `citationGuide.checks`: (a) each delivered clause is implemented where
 the approved plan says, and each changed path no plan row names is `supporting` or `out-of-scope`;
 (b) each delivered clause has its own planned test that ran and passed and that proves the behaviour;
 (c) acknowledge every `code.quality` result ID in `qualityReviewed`; (d) readability and design are
@@ -98,8 +98,14 @@ Use only `reportSchema` and `reportTemplate` supplied by context, never examples
 Planning rows preserve `clauseId`, `expectedPaths`, `plannedTests` and all pinned metadata; replace
 `unreviewed` with an honest `supported` or `unsupported`. Test-only rows need tests, not product paths.
 Findings use `id`, `severity` (`blocking`/`advisory`) and `message`, not `explanation`.
-Follow `stagingProtocol`: write only its exact Git-private file using a file-edit tool; if unavailable,
-use its standalone `kernelStage` command with the completed JSON. Read output with native file-read
+Review the whole artifact every time and report every finding in this one review, so the author fixes
+them together; never hold one back for a later generation. Keep `"binding": "from-context"` from
+`reportTemplate`: SFlow fills the binding your context showed, so never retype its hashes.
+Follow `stagingProtocol`. Its `kernelStage` command needs only a terminal: run
+`singularity-flow review-source stage <phase> --report-json '<REPORT-JSON>' --json` with the whole report as
+one argument. It writes the exact Git-private staging file even before the report is valid and returns
+the exact repairs; stage the repaired JSON again the same way. No file-edit tool is needed; a host that
+has one may instead write that file and check it. Read output with native file-read
 tools, not shell parsers. No shell writers, mkdir, pipes or chains. A tool-form refusal is not a
 lifecycle blocker: correct the tool form without repeating settled clarification or editing artifacts.
 Run `singularity-flow review-source check <phase> --report-file <stagingPath> --json` before retention. Apply

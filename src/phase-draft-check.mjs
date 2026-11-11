@@ -1,6 +1,6 @@
 import { isConvergencePhase } from './phase-roles.mjs';
 import path from 'node:path';
-import { findingOwnedByPhase } from './phase-finding-policy.mjs';
+import { correctionPlan, ownInspectionOpen } from './phase-finding-policy.mjs';
 import { pathToFileURL } from 'node:url';
 import { PACKAGE_ROOT } from './package-root.mjs';
 
@@ -58,6 +58,19 @@ function correctionGuidance(kind, phase, { deterministicCode = false } = {}) {
     return 'Rerun the configured external producer or correct its source input, then check the resulting artifact again.';
   }
   return 'Open the exact file and line, provide the missing reviewed content, then check the draft again. SFlow cannot prove that the current agent owns these bytes and will not replace human-authored or unknown-authored content automatically.';
+}
+
+/**
+ * A generation a return left unchanged: the change the return asks for is the bound agent author's, this turn, and
+ * the return's withdrawal (a person's) follows it (owner policy 2026-11-10). With no bound agent author, a person
+ * chooses between the change and the withdrawal, so the withdrawal stays the draft's route, as before.
+ */
+export function returnWithdrawal(deliveryRoute, findings = [], { agentRepair = false } = {}) {
+  if (!deliveryRoute?.command || !findings.length) return { lead: null, after: null };
+  if (!agentRepair) return { lead: { class: 'human-context', guidance: deliveryRoute.guidance,
+    command: deliveryRoute.command, skill: deliveryRoute.skill }, after: null };
+  return { lead: null, after: { command: deliveryRoute.command, skill: deliveryRoute.skill ?? null,
+    detail: `If no change is needed, a reviewer of the returning step previews withdrawing ${deliveryRoute.changeRequestId ?? 'the return'}; the author makes the change it asks for first.` } };
 }
 
 /**
@@ -121,11 +134,14 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   // summary cannot add a missing tag or test, so "kernel-regenerate" stopped the author.
   const deterministicCode = configuredProducer === 'deterministic' && phaseRequiresCodeDelivery(phase);
   const codeOwnership = deterministicCode ? draftOwnership('governed-agent', workflow, phase, session) : ownership;
+  // This step's bound governed agent repairs its own findings, a deterministic code step's code included.
+  const agentRepair = deterministicCode ? codeOwnership.proven : producer === 'governed-agent';
   const reviewDraft = await phaseAuthoredReviewArtifacts(root, config, workflow, phase);
   const artifact = reviewDraft.artifacts.find((entry) => entry.scope === 'primary');
   let findings = [];
   let convergenceReview = null;
   let codeEvidenceRepair = null;
+  let withdrawalRoute = null;
   let traceabilityRepair = null;
   let verifiedCodeIntent = false;
   let artifactQuality = { acceptedFindings: [], risks: null };
@@ -181,9 +197,9 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       line: null, value: null, message: error.message, fingerprint: null });
   }
 
-  // Owned prose defects must not hide independent conformance or source/test diagnostics. Never
-  // inspect through a failed integrity/lifecycle boundary, or inspect another phase's draft.
-  const inspectOwnedDraft = () => findings.every(finding => phaseFindingPolicy(finding).repairableByProducer);
+  // Owned prose defects must not hide independent conformance or source/test diagnostics, and neither may a
+  // person's answer still owed. Never inspect through a failed integrity/lifecycle boundary, or another phase's draft.
+  const inspectOwnedDraft = () => ownInspectionOpen(workflow, phase, findings);
   if (inspectOwnedDraft() && artifact?.exists) {
     const comparison = await inspectPhaseConformance(root, config, workflow, phase);
     findings.push(...comparison.findings.map((finding) => ({
@@ -290,10 +306,11 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
           message: finding.message, fingerprint: null
         });
       }
-      // A generation a return left unchanged names that return's withdrawal, a person's decision.
-      const deliveryRoute = error.details?.deliveryRoute;
-      if (deliveryRoute?.command && findings.length) codeEvidenceRepair ??= { class: 'human-context',
-        guidance: deliveryRoute.guidance, command: deliveryRoute.command, skill: deliveryRoute.skill };
+      // A generation a return left unchanged: the change the return asks for is the author's, this turn; the
+      // return's withdrawal is a person's route that follows it, never the step's lead (owner policy 2026-11-10).
+      const withdrawal = returnWithdrawal(error.details?.deliveryRoute, findings, { agentRepair });
+      withdrawalRoute = withdrawal.after;
+      if (withdrawal.lead) codeEvidenceRepair ??= withdrawal.lead;
     }
   }
 
@@ -320,7 +337,11 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     ? await (await import(CORNER_CASE_MODULE)).inspectCornerCaseObligations(root, config, workflow, phase)
     : { cornerCases: { status: 'not-applicable', blocking: false, advisories: [] }, findings: [] };
   if (inspectOwnedDraft() && cornerCases.blocking) findings.push(...cornerCaseFindings);
-  const clarificationRoute = prospective && findings.some(finding => finding.category === 'clarification') ? {
+  // The author's own findings lead; an answer a person still owes follows them (correction.after), and leads
+  // only when nothing else is the author's to correct (owner policy 2026-11-10).
+  const ownDraft = correctionPlan(workflow, phase, findings);
+  const clarificationNeeded = prospective && findings.some(finding => finding.category === 'clarification');
+  const clarificationRoute = clarificationNeeded && !ownDraft.own.length ? {
     class: 'human-input', command: `singularity-flow clarification status ${phase.id} --json`, skill: null,
     guidance: 'Resolve only the cited material questions from the pinned source and human answers. Record the actual answer; do not invent a question, repeat answered clarifications, or treat a missing scenario table as a new interview.'
   } : null;
@@ -392,10 +413,18 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     correction: Object.freeze({
       class: repairClass,
       automatic: false,
+      // Same-turn whenever the author has its own repair and nothing stops it; another owner's finding beside
+      // it only follows (correctionPlan, owner policy 2026-11-10).
       sameTurn: prospective && repairClass === 'agent-authoring' && !awaitingApproval
-        && normalizedFindings.every(finding => findingOwnedByPhase(workflow, phase, finding))
+        && correctionPlan(workflow, phase, normalizedFindings, { stops: retained ? ['retained-publication'] : [] }).sameTurn
         && (!phaseRequiresCodeDelivery(phase) || editableCode)
         && traceabilityRepair?.status !== 'manual-review',
+      agentRepair,
+      // Other owners' routes, taken after the author's own repair.
+      after: Object.freeze([
+        ...(clarificationNeeded && !clarificationRoute ? [{ command: `singularity-flow clarification status ${phase.id} --json`, skill: null,
+          detail: 'Then get the person\'s answer for each cited open question, record it, and update the draft.' }] : []),
+        ...(withdrawalRoute ? [withdrawalRoute] : [])]),
       requiresNewGeneration: (awaitingApproval || retained) && !clean,
       // The escalation (finding-escalation.mjs ESCALATION_THRESHOLD, 3 sightings) fires on the second
       // changed draft that keeps the same finding; the limit the skills follow says the same.

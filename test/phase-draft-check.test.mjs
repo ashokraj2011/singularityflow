@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { draftCorrectionRoute, phaseDraftCheck } from '../src/phase-draft-check.mjs';
+import { draftCorrectionRoute, phaseDraftCheck, returnWithdrawal } from '../src/phase-draft-check.mjs';
 import { convergenceReviewRoute } from '../src/convergence-review-route.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
@@ -329,4 +329,20 @@ test('stale Code evidence owns the whole correction even when convergence also n
   assert.equal(review.skill, '/sf-converge');
   assert.match(safeCommandGuidance({ command: review.command, skill: review.skill })?.command ?? '', /story adjudicate CF-1/);
   assert.equal(draftCorrectionRoute(null, null), null);
+});
+
+test('an unchanged returned generation: the bound agent makes the asked-for change first; the withdrawal follows (owner policy 2026-11-10)', () => {
+  const route = { kind: 'withdraw-return', changeRequestId: 'CR-001', skill: '/sf-reject',
+    command: 'singularity-flow story rework roll-forward --work-id W-1 --change-request CR-001 --json',
+    guidance: 'Nothing changed since generation 1, which CR-001 returned to implementation. Make the change it asks for, then publish again.' };
+  const findings = [{ code: 'code.delivery.source-clause-tag-missing', category: 'traceability', value: 'W-1:REQ-001' }];
+  const agent = returnWithdrawal(route, findings, { agentRepair: true });
+  assert.equal(agent.lead, null, 'never the bound author\'s lead: it would ask a person instead of making the change');
+  assert.equal(agent.after.command, route.command);
+  assert.match(agent.after.detail, /CR-001/u);
+  // With no bound agent author, a person chooses, and the withdrawal stays the draft's route.
+  assert.deepEqual(returnWithdrawal(route, findings, { agentRepair: false }).lead,
+    { class: 'human-context', guidance: route.guidance, command: route.command, skill: '/sf-reject' });
+  assert.deepEqual(returnWithdrawal(route, [], { agentRepair: true }), { lead: null, after: null });
+  assert.deepEqual(returnWithdrawal(null, findings, { agentRepair: true }), { lead: null, after: null });
 });

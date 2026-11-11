@@ -1,5 +1,5 @@
 /** One policy-driven continuation state. Displayed routes are never execution authority. */
-import { phaseFindingPolicy } from './phase-finding-policy.mjs';
+import { correctionPlan, phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { phaseResolutionProjection } from './phase-resolution.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { hasPublishedPhaseGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
@@ -31,6 +31,8 @@ export function phaseJourney(workflow, phase, { findings = [], inspection = {}, 
   else if (phase.status === 'awaiting_approval' && outstandingWitnesses.length && witnessOnly) {
     state = 'witness-review'; next = outstandingWitnesses[0].commandGuidance;
   }
+  // The author's own repair leads a person's review beside it (owner policy 2026-11-10).
+  else if (drafting && correctionPlan(workflow, phase, findings).sameTurn) state = 'draft-repair';
   else if (human.length) state = 'human-review';
   else if (findings.length) state = producer.length ? 'draft-repair' : 'owner-resolution';
   else if (drafting && inspection.status === 'ready' && inspection.commands?.publish) {
@@ -51,8 +53,8 @@ export function phaseJourney(workflow, phase, { findings = [], inspection = {}, 
   if (!next && !['phase-complete', 'witness-review'].includes(state)) {
     const owner = state === 'integrity-blocked'
       ? resolution.issues.find(issue => issue.policy.classification === 'integrity-or-authority')
-      : state === 'draft-repair' && repairAllowed
-        ? resolution.issues.find(issue => issue.policy.repairableByProducer)
+      : state === 'draft-repair'
+        ? resolution.issues.find(issue => issue.policy.repairableByProducer) ?? resolution.issues[0]
         : state === 'human-review' ? human[0] : resolution.issues[0];
     next = owner?.choices?.[0]?.commandGuidance ?? guidance(['appeal', 'preflight', '--phase', phase.id, '--work-id', workflow.workItem.id, '--json']);
   }

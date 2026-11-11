@@ -61,6 +61,19 @@ test('the journey separates draft repair, pending human decisions, tests and imm
     assert.equal(unknown.state, 'owner-resolution'); assert.match(unknown.next.command, /doctor/u);
   }
 });
+test('the author\'s own repair leads a person\'s review beside it, whatever the inspection said (owner policy 2026-11-10)', () => {
+  for (const id of ['specification', 'planning', 'implementation', 'verification', 'future-team-step']) {
+    const workflow = aggregate(id); const phase = workflow.phases[id];
+    const author = { code: 'artifact.placeholder.unresolved', category: 'artifact', path: 'draft.md' };
+    const scope = { code: 'code.delivery.incomplete', category: 'code-delivery', details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE',
+      coverage: { unimplemented: [], unclaimedChangedPaths: ['src/unplanned.js'], invalidEvidence: [], withdrawnButClaimed: [] }, claimGaps: [] } };
+    const journey = phaseJourney(workflow, phase, { findings: [scope, author] });
+    assert.equal(journey.state, 'draft-repair', id);
+    assert.match(journey.next.command, /repair-plan/u, `${id}: the author's repair is the immediate route`);
+    assert.equal(phaseJourney(workflow, phase, { findings: [scope] }).state, 'human-review', `${id}: a person's review alone still leads`);
+  }
+});
+
 test('visual evidence is forecast before submission, but needs its actual witness before approval', () => {
   const workflow = aggregate(); const phase = workflow.phases[workflow.currentPhase];
   phase.generation = 1; phase.generationIntent.status = 'consumed';

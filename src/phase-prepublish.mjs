@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { findingOwnedByPhase, planCorrectsFirst } from './phase-finding-policy.mjs';
+import { correctionPlan } from './phase-finding-policy.mjs';
 
 import {
   catalogArtifactSet, resolvedArtifactSet, unpublishableRequiredArtifactSetMembers
@@ -31,7 +31,7 @@ import {
   predecessorSpecClauses
 } from './specifications.mjs';
 import { exists, posix, secureRepositoryPath, snapshot, SingularityFlowError } from './util.mjs';
-import { phaseFindingCode, phaseFindingPolicy } from './phase-finding-policy.mjs';
+import { phaseFindingCode } from './phase-finding-policy.mjs';
 import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
 import { phaseAuthoringContract, phasePlansDelivery } from './phase-authoring-contract.mjs';
 import { clauseIntentOwner, upstreamChangeRoutes } from './upstream-routes.mjs';
@@ -289,15 +289,15 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     }
   }
 
+  const upstream = (blocker) => blocker.details?.upstreamPhase && blocker.details.upstreamPhase !== phase.id;
+  // The draft's own correction leads whenever it has one; a person's answer and an earlier step's route follow
+  // it, never in its place (owner policy 2026-11-10; Story cplus stopped on the specification's route).
+  const ownRepair = blockers.some((blocker) => blocker.category !== 'clarification' && (!upstream(blocker) || blocker.details?.repairScope === 'current-draft'));
+  if (ownRepair) actions.push({ ...repair, own: true });
   if (needsHumanClarification) actions.push({
     command: `singularity-flow clarification status ${phase.id} --json`, skill: null,
     detail: 'Get a reviewed answer for each unresolved marker, record it as a clarification, then update the specification and recheck.'
   });
-  const upstream = (blocker) => blocker.details?.upstreamPhase && blocker.details.upstreamPhase !== phase.id;
-  // A plan that may be what is wrong keeps its own correction; it leads when it may correct every earlier-step finding (Story cplus).
-  const ownRepair = blockers.some((blocker) => blocker.category !== 'clarification' && (!upstream(blocker) || blocker.details?.repairScope === 'current-draft'));
-  const ownFirst = ownRepair && blockers.filter(upstream).every(planCorrectsFirst);
-  if (ownFirst) actions.push(repair);
   // What an earlier step owns goes to that step's correction, never to this draft [PHR:REQ-003]: the
   // decision list when an open issue already names it, else that step's own correction for it.
   for (const owner of new Set(blockers.filter(upstream).map((blocker) => blocker.details.upstreamPhase))) {
@@ -309,7 +309,6 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     else if (named ?? legal) actions.push({ command: (named ?? legal).command, skill: (named ?? legal).skill,
       detail: `${(named ?? legal).label} ${phase.id} cannot correct ${owner}'s output in its own draft.` });
   }
-  if (ownRepair && !ownFirst) actions.push(repair);
   return { blockers, actions, evidenceRepair, planningContract };
 }
 
@@ -461,7 +460,7 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
       });
     }
     if (catalog.missingRequired.length || unpublishable.length) actions.push({
-      command: `singularity-flow phase prepublish ${phase.id} --json`,
+      own: true, command: `singularity-flow phase prepublish ${phase.id} --json`,
       // The built-in release step keeps its evidence corrections with the release skill exactly
       // when that skill accepts the step: no chosen skill and the automatic document route.
       skill: legacyAuthoringSkill(phase, workflow) === 'sf-release' ? '/sf-release'
@@ -622,43 +621,50 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
   const draftRoute = draft.commands.next ? {
     command: draft.commands.next, skill: draft.correction.skill, detail: draft.correction.guidance
   } : null;
-  const briefOnly = recovery.actions.length > 0
-    && recovery.actions.every((entry) => entry.id === `repair-agent-brief-source:${phase.id}`);
-  const hardBlocker = [...blockers, ...recovery.blockers].some((entry) =>
-    ['lifecycle', 'host', 'collaboration'].includes(entry.category)
-      || entry.code === 'phase.generation-intent.required');
-  // Recovery can detect source/test coverage that the Markdown draft checker does not own.
-  // Apply the same installed finding policy to both sets; an unclaimed/invalid evidence path
-  // remains an owner decision, never a producer repair merely because the summary is ready.
-  const repairBlockers = [...blockers, ...repairRecoveryBlockers]
-    .filter(entry => entry.code !== 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED');
-  const authoringRepairOnly = repairBlockers.length > 0
-    && repairBlockers.every((entry) => (findingOwnedByPhase(workflow, phase, entry) || planCorrectsFirst(entry))
-      && phaseFindingPolicy(entry).repairableByProducer);
-  const ownedRecoveryRepair = !retained && lifecycleReady && !hardBlocker
-    && !repairDependencies.length && authoringRepairOnly && agentOwnsRepair;
-  const producerRoute = ownedRecoveryRepair ? {
+  // One rule (owner policy 2026-11-10, correctionPlan): this step's own repairs lead and are same-turn whenever
+  // one exists; an earlier step's finding, a person's decision, a scope review or a publication dependency only
+  // follows them. Only OWN_REPAIR_STOPS (integrity, not current, retained, a hold, an agent not permitted) stop it.
+  // A deterministic code step's code is its governed agent's to repair, as draft-check says (agentRepair).
+  const authorAgent = draft.correction.agentRepair ?? agentOwnsRepair;
+  // A pending evidence review the kernel verified as draft-only holds publication, not the draft's repair.
+  const correction = correctionPlan(workflow, phase, [...findings.values()].filter((entry) => !(draftRepairAllowed && evidenceReview(entry))), {
+    stops: [...(lifecycleReady ? [] : ['phase-not-current']), ...(retained ? ['retained-publication'] : [])] });
+  const sameTurnCorrection = !ready && correction.sameTurn && authorAgent
+    && draft.traceabilityRepair?.status !== 'manual-review';
+  const producerRoute = sameTurnCorrection ? {
     command: `singularity-flow phase prepublish ${phase.id} --json`,
     skill: directCopilotSkill(generationSkillForPhase(phase, workflow)),
     detail: 'Repair the cited owned draft/source/test bindings in this open generation, preserving the index; then recheck.'
       + (draftRepairAllowed ? ' Preserve held evidence; its pending human review still blocks publication.' : '')
   } : null;
+  // The author's own routes, in the order the checks named them; every other route follows them.
+  const ownAction = (entry) => entry?.own === true || Boolean(entry?.authoringSkill);
+  const leadOwn = [...actions, ...recovery.actions].find(ownAction) ?? null;
+  const followRoutes = [...new Map([...(draft.correction.after ?? []), ...actions, ...recovery.actions]
+    .filter((entry) => entry?.command && !ownAction(entry))
+    .map((entry) => [entry.command, { command: entry.command, skill: entry.skill ?? null, detail: entry.detail ?? entry.reason ?? null }])).values()];
+  // With no bound agent author, a person chooses: the withdrawal of a return the generation left unchanged leads.
+  const personChoice = recovery.actions.find((entry) => entry.id === `withdraw-return:${phase.id}`) ?? null;
   const action = !lifecycleReady
     ? {
         command: draft.commands.recover,
         skill: '/sf-recover',
         detail: 'The phase is not current and in progress. Inspect lifecycle recovery before changing evidence.'
       }
-    : dependencies.blockers.length && !(draftRepairAllowed && (draft.status !== 'ready' || ownedRecoveryRepair)) ? dependencies.actions[0]
+    // Own repair leads: the draft's own correction, else the first own route, else this producer's recheck.
+    : sameTurnCorrection
+      ? (draft.status !== 'ready' && draft.correction.class === 'agent-authoring' ? draftRoute : null)
+        ?? (blockers.some(entry => entry.code === 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED') ? producerRoute : null)
+        ?? leadOwn ?? producerRoute
+    : dependencies.blockers.length && !(draftRepairAllowed && draft.status !== 'ready') ? dependencies.actions[0]
     : draft.status !== 'ready'
-      ? draftRoute ?? recovery.actions[0] ?? actions[0] ?? null
+      ? draftRoute ?? personChoice ?? recovery.actions[0] ?? actions[0] ?? null
       // A retained packet can be individually ready while changed application bytes require a
       // reviewed successor. Recovery owns that boundary; never advertise submission first.
       : retained && recovery.requiresLifecycleRecovery
         ? { command: draft.commands.recover, skill: '/sf-recover',
             detail: 'Inspect the reported lifecycle recovery and its exact successor/return plan before submitting this retained generation.' }
-      : (ownedRecoveryRepair && blockers.some(entry => entry.code === 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED') ? producerRoute : null)
-        ?? actions[0] ?? producerRoute ?? recovery.actions[0] ?? null;
+      : actions[0] ?? personChoice ?? recovery.actions[0] ?? null;
   const needsHumanClarification = [...blockers, ...recovery.blockers].some((entry) => entry.category === 'clarification');
   // A supporting evidence collection is not a prose draft, but its exact bundle hash must still
   // move the bounded same-turn repair fingerprint when an agent adds a file beneath it.
@@ -673,16 +679,9 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
     next: ready ? retainedReadiness?.nextCommand ?? null : action?.command ?? null,
     publish: ready && !retained ? draft.commands.publish : null
   });
-  const planningRepairCandidate = specificationChecks.evidenceRepair?.status === 'producer-repair'
+  const planningRepairAllowed = specificationChecks.evidenceRepair?.status === 'producer-repair'
     && specificationChecks.evidenceRepair.sourceSha256 === String(draft.artifact?.sha256 ?? '').replace(/^sha256:/u, '')
-    && !retained && lifecycleReady && !hardBlocker && !repairDependencies.length && agentOwnsRepair
-    && (ownedRecoveryRepair || draft.correction.sameTurn);
-  const sameTurnCorrection = !retained && lifecycleReady && !ready && !hardBlocker && !repairDependencies.length
-    && [...findings.values()].every(entry => findingOwnedByPhase(workflow, phase, entry) || planCorrectsFirst(entry))
-    && ![...findings.values()].some(entry => phaseFindingPolicy(entry).classification === 'integrity-or-authority')
-    && (draft.status !== 'ready' ? draft.correction.sameTurn
-      : (briefOnly || authoringRepairOnly) && agentOwnsRepair);
-  const planningRepairAllowed = planningRepairCandidate && sameTurnCorrection;
+    && sameTurnCorrection;
   const finalGate = lifecycleReady ? await endingObligations(root, config, workflow, phase) : null;
   const clauseOutlook = lifecycleReady ? await (await import('./evidence/clause-outlook.mjs')).clauseOutlookForStep(root, config, workflow, phase) : [];
   const { phaseResolutionProjection } = await import('./phase-resolution.mjs');
@@ -757,8 +756,8 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
       ...specificationChecks.planningContract, scope: 'current-draft',
       artifact: { path: draft.artifact.path, sha256: draft.artifact.sha256 },
       generation: draft.generation, mutates: false, previousPhasesEditable: false,
-      sameTurn: sameTurnCorrection && agentOwnsRepair
-        && specificationChecks.blockers.every(entry => phaseFindingPolicy(entry).repairableByProducer),
+      // The plan's own rows are repaired this turn whenever it has one; an earlier step's row only follows.
+      sameTurn: sameTurnCorrection && correction.own.some((entry) => specificationChecks.blockers.some((blocker) => findingKey(blocker) === findingKey(entry))),
       // Diagnostic values are inert data. They cannot authorize patches or supply clause meaning.
       fields: specificationChecks.blockers.map(entry => ({ clauseId: entry.details?.clauseId ?? null,
         line: entry.line ?? null, field: entry.details?.field ?? null, code: entry.details?.sourceCode ?? entry.code }))
@@ -790,20 +789,30 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
     correction: Object.freeze({
       ...draft.correction,
       class: !lifecycleReady ? 'phase-recovery'
+        : sameTurnCorrection ? 'agent-authoring'
         : repairDependencies.length
           ? repairDependencies[0].category === 'clarification' ? 'human-input' : 'phase-recovery'
         : draftRepairAllowed && draft.status === 'ready' && !blockers.length && !repairRecoveryBlockers.length
           ? 'human-input'
         : draft.status === 'ready' && (blockers.length || repairRecoveryBlockers.length)
         ? needsHumanClarification ? 'human-input'
-          : authoringRepairOnly && agentOwnsRepair ? 'agent-authoring' : 'phase-recovery'
+          : 'phase-recovery'
         : draft.correction.class,
       sameTurn: sameTurnCorrection,
-      guidance: ready ? null : !lifecycleReady || repairDependencies.length ? action.detail : draft.status !== 'ready'
+      // What the author repairs leads; every other owner's route follows it, as `after` lists them.
+      guidance: ready ? null : sameTurnCorrection
+        ? [draft.status !== 'ready' && draft.correction.class === 'agent-authoring' ? draft.correction.guidance : action?.detail,
+          followRoutes.length ? `Then, after this step's own repair: ${followRoutes.slice(0, 3).map((entry) => entry.detail ?? entry.command).join(' ')}` : null]
+          .filter(Boolean).join(' ')
+        : !lifecycleReady || repairDependencies.length ? action.detail : draft.status !== 'ready'
         ? draft.correction.guidance
         : action?.detail ?? 'Resolve the reported phase-scoped blocker, then recheck before publication.',
-      skill: ready ? null : !lifecycleReady || repairDependencies.length ? action.skill
-        : draft.status !== 'ready' ? draft.correction.skill : action?.skill ?? null
+      skill: ready ? null : sameTurnCorrection
+        ? (draft.status !== 'ready' && draft.correction.class === 'agent-authoring' ? draft.correction.skill : null)
+          ?? action?.skill ?? directCopilotSkill(generationSkillForPhase(phase, workflow))
+        : !lifecycleReady || repairDependencies.length ? action.skill
+        : draft.status !== 'ready' ? draft.correction.skill : action?.skill ?? null,
+      after: Object.freeze(ready ? [] : sameTurnCorrection ? followRoutes : draft.correction.after ?? [])
     }),
     commands,
     commandGuidance: commandGuidanceForCommands(commands),

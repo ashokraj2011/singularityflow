@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { phasePrepublish, prepublishTestExecutionLines } from '../src/phase-prepublish.mjs';
+import { phaseDraftCheck } from '../src/phase-draft-check.mjs';
 import { applyRecovery, recoveryPlan } from '../src/collaboration.mjs';
 import { buildSpecIndex, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { coordinatePhaseRepair } from '../src/phase-repair-runtime.mjs';
@@ -492,6 +493,31 @@ test('prepublish routes an unresolved specification marker to human clarificatio
     finding.code === 'specification.unresolved-clarification' && finding.line === 3));
 });
 
+test('a question a person still answers never stops the author\'s own fixes beside it, and a malformed marker is the author\'s (owner policy 2026-11-10)', async (t) => {
+  const item = await fixture(t);
+  item.phase.id = 'specification';
+  item.phase.requiredArtifact.kind = 'requirements';
+  item.phase.clarification = { mode: 'off', markers: { mode: 'block' } };
+  item.workflow.currentPhase = 'specification';
+  item.workflow.phases = { specification: item.phase };
+  await writeFile(item.absolute, '# Plan\n\n[NEEDS CLARIFICATION: May the buyer retry payment?]\n\n[NEEDS CLARIFICATION: ]\n\nRollout: TBD\n');
+
+  const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: { ...item.session, phaseId: 'specification' } });
+  const malformed = result.findings.find((finding) => finding.code === 'specification.malformed-clarification');
+  assert.equal(malformed?.category, 'specification-quality', JSON.stringify(result.findings.map((finding) => [finding.code, finding.category])));
+  assert.ok(result.findings.some((finding) => finding.code === 'specification.unresolved-clarification'));
+  assert.equal(result.correction.class, 'agent-authoring');
+  assert.equal(result.correction.sameTurn, true, JSON.stringify(result.correction));
+  assert.equal(result.commands.next, 'singularity-flow phase show specification --show-artifact');
+  assert.ok(result.correction.after.some((route) => route.command === 'singularity-flow clarification status specification --json'),
+    'the person\'s answer follows the author\'s own correction');
+  // The draft check says the same.
+  const draft = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: { ...item.session, phaseId: 'specification' } });
+  assert.deepEqual([draft.correction.class, draft.correction.sameTurn], ['agent-authoring', true]);
+  assert.ok(draft.correction.after.some((route) => /clarification status specification/u.test(route.command)));
+});
+
 test('prepublish checks every approved clause against the planning table without creating a claim map', async (t) => {
   const item = await fixture(t);
   item.phase.requiredArtifact.kind = 'design';
@@ -636,6 +662,45 @@ test('a plan short of the approved intent is corrected in this turn first; the e
   assert.equal(issue.status, 'needs-correction');
   assert.deepEqual(issue.choices.slice(0, 2).map((choice) => choice.owner), ['custom-design', 'requirements-approval-authority'],
     'the earlier step\'s route stays, as the safety net after the plan\'s own correction');
+});
+
+test('the plan\'s own corrections lead and stay this turn\'s beside a row an open upstream issue names (owner policy 2026-11-10)', async t => {
+  const item = await fixture(t);
+  const REQ = 'PRE-1:REQ-001';
+  item.phase.id = 'custom-design';
+  item.workflow.currentPhase = 'custom-design';
+  item.session.phaseId = 'custom-design';
+  item.workflow.phaseOrder = ['requirements', 'custom-design', 'custom-code'];
+  item.workflow.resolution.spec = { mode: 'record', namespace: 'PRE-1', acceptance: 'presence' };
+  item.workflow.resolution.plannedClaims = {
+    mode: 'required', clausePhases: ['requirements'], owners: { 'custom-code': 'custom-design' }
+  };
+  item.workflow.phases = {
+    requirements: { id: 'requirements', status: 'approved', generation: 1,
+      requiredArtifact: { path: 'artifacts/requirements/spec.md', kind: 'requirements' } },
+    'custom-design': item.phase, 'custom-code': { id: 'custom-code', generationPolicy: { task: 'code' } }
+  };
+  // The person raised the intent to the specification's approvers; that row waits on their decision.
+  item.workflow.upstreamIssues = [{ id: 'UPI-001', phase: 'requirements', about: REQ, problem: 'The page is static; a test cannot observe it.' }];
+  const spec = 'singularity/work-items/PRE-1/artifacts/requirements/spec.md';
+  await mkdir(path.join(item.root, path.dirname(spec)), { recursive: true });
+  await writeFile(path.join(item.root, spec), `# Requirements\n\n[${REQ}]\nShow the result in binary.\n\n## Verification intent\n\n| Clause | Methods | Criterion |\n|---|---|---|\n| \`${REQ}\` | test | - |\n`);
+  await buildSpecIndex(item.root, spec, { workId: 'PRE-1', phase: 'requirements', generation: 1,
+    outputPath: 'singularity/work-items/PRE-1/context/spec-indexes/requirements-gen1.json',
+    policy: item.workflow.resolution.spec });
+  // The draft also holds unfinished text of its own: the author's to finish now.
+  await writeFile(item.absolute, ['# Plan', '', 'Rollout: TBD', '', '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    `| [${REQ}] | \`src/App.jsx\` | not-applicable: a reviewer reads the page | modified |`, ''].join('\n'));
+  const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  const waiting = result.findings.find((finding) => finding.details?.cause === 'intent-not-met');
+  assert.deepEqual(waiting?.details?.upstreamIssues, ['UPI-001'], JSON.stringify(result.findings.map((finding) => finding.message)));
+  assert.ok(result.findings.some((finding) => finding.code === 'artifact.placeholder.unresolved'));
+  // One row another owner decides never makes the author fix nothing: its own correction is this turn's and leads.
+  assert.equal(result.correction.sameTurn, true, JSON.stringify(result.correction));
+  assert.equal(result.correction.class, 'agent-authoring');
+  assert.equal(result.commands.next, 'singularity-flow phase show custom-design --show-artifact');
+  // The decision list follows it, for the row the issue names.
+  assert.ok(result.correction.after.some((route) => route.command === 'singularity-flow decisions PRE-1 --json'), JSON.stringify(result.correction.after));
 });
 
 test('any configured planning owner gets a hash-bound evidence repair before approval, not a late code gate', async t => {

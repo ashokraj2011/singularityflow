@@ -595,12 +595,9 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           continue;
         }
         // A row the plan put in the wrong place is the plan's approvers' to correct [PHR:REQ-003]: said
-        // beside the delivery below, as the refusal names it.
+        // after the delivery below, as the refusal names it; the author's own delivery leads (owner policy 2026-11-10).
         const [planCorrection] = error.code === 'SPEC_COVERAGE_INCOMPLETE' ? (error.details?.planCorrections ?? [])
           .filter((entry) => / decision plan /u.test(entry?.command ?? '')) : [];
-        if (planCorrection) {
-          actions.push(action({ id: `correct-plan-row:${phase.id}`, mode: 'manual', detail: planCorrection.label, command: planCorrection.command }));
-        }
         if (error.code === 'GENERATION_EXCLUDED_CHANGES_UNRESOLVED') {
           actions.push(action({ id: `reconcile-excluded-files:${phase.id}`, mode: 'manual',
             detail: error.message, command: error.details.accountingCommand, skill: '/sf-decide' }));
@@ -628,7 +625,6 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
                 ? `${error.message} This runtime cannot produce the required structured Rust test receipt. Use a supported registered adapter or a separately approved test policy; repeating /sf-code or publication against unchanged inputs cannot recover this phase.`
                 : testConfiguration
                   ? `${error.message} Inspect the suggestions with capability test-setup. An approved test command (kind: test, argv, workingDirectory, affectedRoots and a result adapter) from the original configuration authority is adopted for this Story through a reviewed story test-policy amend --reason TEXT; refreshing configuration alone does not change its pin. Code and tests are preserved, the tests still run, and repeating publication against unchanged inputs cannot recover this phase.`
-                  : error.details?.deliveryRoute ? error.message
                   : `${error.message} Keep this phase in progress, complete its application and test evidence, then inspect recovery again before publication.`,
           // Repository-owned runner declarations are ordinary in-scope application edits. A
           // malformed pinned command is not: it requires a distinct reviewed policy amendment.
@@ -640,12 +636,19 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
                 : invalidPinnedCommand && Number(phase.generation) === 0
                   ? 'singularity-flow explain test-recovery'
                   : null
-            : error.details?.deliveryRoute?.command ?? `singularity-flow phase show ${phase.id} --json`,
+            : `singularity-flow phase show ${phase.id} --json`,
           skill: configurationDependency
             ? missingRepositoryRunner ? '/sf-phase-documents' : testConfiguration ? '/sf-test-setup' : null
-            : error.details?.deliveryRoute?.skill ?? '/sf-phase-documents',
+            : '/sf-phase-documents',
           authoringSkill: configurationDependency ? null : generationSkill(phase, workflow)
         }));
+        if (planCorrection) {
+          actions.push(action({ id: `correct-plan-row:${phase.id}`, mode: 'manual', detail: planCorrection.label, command: planCorrection.command }));
+        }
+        // A return left unchanged: the change it asks for is the author's (above); its withdrawal is a person's.
+        if (error.details?.deliveryRoute?.command) actions.push(action({ id: `withdraw-return:${phase.id}`, mode: 'manual',
+          detail: error.details.deliveryRoute.guidance ?? error.message, command: error.details.deliveryRoute.command,
+          skill: error.details.deliveryRoute.skill ?? null }));
         if (missingRepositoryRunner) {
           // An activated command the pin predates is adopted; otherwise a person accepts a Story-only one.
           const { activatedTestCommandsFor } = await import('./activated-test-commands.mjs');
@@ -691,10 +694,12 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
     }));
   }
 
-  // Recovery leads with what clears this: a person's one choice, not another read (bin-opr2).
+  // A person's one choice leads over another read (bin-opr2), never over the author's own repair: the pin
+  // stops nothing until the tests do (Story anu-bin, owner policy 2026-11-10).
   const nodePin = (testExecution.earlyChecks ?? []).find((entry) => entry.pin);
   if (nodePin) {
-    actions.unshift(action({
+    const afterOwn = actions.reduce((last, entry, index) => (entry.authoringSkill ? index + 1 : last), 0);
+    actions.splice(afterOwn, 0, action({
       id: `pin-node-version:${phase.id}`, mode: 'manual',
       detail: `${nodePin.words} A person chooses ${nodePin.pin.replaces ? `to change ${nodePin.pin.file} to Node ${nodePin.pin.version}` : `Pin Node ${nodePin.pin.version}`} (Node ${nodePin.pin.node} is installed here): it ${nodePin.pin.replaces ? 'changes' : 'creates'} ${nodePin.pin.file} and amends the plan in one step, with their reason. It stops nothing until the tests do. singularity-flow tests node --work-id ${workflow.workItem.id} --phase ${phase.id} --node ${nodePin.pin.version} says whether the tests pass on it and records nothing.`,
       command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide'

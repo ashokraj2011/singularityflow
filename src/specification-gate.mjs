@@ -90,7 +90,8 @@ export function specificationGateDiagnostics(gate, artifactPath) {
   const project = (message, advisory) => {
     const source = [...(gate.report?.findings ?? []), ...(gate.report?.advisories ?? [])]
       .find(finding => finding.message === message);
-    const marker = MARKER_FINDING_KINDS.includes(source?.kind);
+    // A malformed marker is the author's own syntax to correct, not a question a person answers.
+    const marker = MARKER_FINDING_KINDS.includes(source?.kind) && source?.kind !== 'malformed-clarification';
     return { code: `specification.${source?.kind ?? 'quality-required'}`,
       category: marker ? 'clarification' : 'specification-quality', path: artifactPath,
       line: source?.line ?? null, value: source?.section ?? source?.clauseId ?? message,

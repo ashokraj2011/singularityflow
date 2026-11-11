@@ -11,8 +11,8 @@ import { phaseResolutionProjection, repairLoopAdmission } from './phase-resoluti
 import { storyUsesStepActions } from './step-action-delivery.mjs';
 import { appendPhaseRepairEvent, phaseRepairBinding, phaseRepairJournalQuarantinePlan, phaseRepairLoopSummary, quarantinePhaseRepairJournal, readPhaseRepairJournal, repairDigest } from './phase-repair-journal.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { phaseFindingPolicy, phaseFindingIdentity, PHASE_REPAIR_POLICY_REVISION,
-  findingOwnedByPhase, testRepairProgress } from './phase-finding-policy.mjs';
+import { phaseFindingIdentity, PHASE_REPAIR_POLICY_REVISION,
+  correctionPlan, testRepairProgress } from './phase-finding-policy.mjs';
 import { createPhaseCheckpoint } from './phase-checkpoint.mjs';
 
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
@@ -88,9 +88,9 @@ function actionFor(observation, { phase, workflow, config }) {
       && phase.status === 'in_progress' && observation.inspection.correction?.sameTurn === true
       && observation.inspection.ownership?.proven === true
       && observation.inspection.correction.class === 'agent-authoring'
-      && producerFindings.length > 0
-      && producerFindings.every(finding => findingOwnedByPhase(workflow, phase, finding)
-        && phaseFindingPolicy(finding).repairableByProducer)) {
+      // The author's own findings are repaired whenever one exists; another owner's finding beside them
+      // only follows (correctionPlan, owner policy 2026-11-10; the cplus plan row included).
+      && correctionPlan(workflow, phase, producerFindings).sameTurn) {
     return { id: 'owned-producer-repair', mode: 'producer-handoff', pendingHash: null,
       skill: observation.inspection.correction.skill,
       detail: 'The bound producer repairs only the returned owned draft/source findings, then resumes this same attempt. No nested model is launched.' };

@@ -502,6 +502,12 @@ Usage:
                                                         move a build to another computer: export it here, import it there inside the repository
   singularity-flow workflow check [WORKFLOW] [--change-set FILE|-] [--json]
                                                         explain each workflow in plain words and list what does not make sense, with where
+  singularity-flow workflow fix [WORKFLOW] [--answers FILE|-] [--write] [--json]
+                                                        every check finding as a drafted Workflow Studio change or a question only a
+                                                        person can answer (who is in a group, which route the team wants); drafts only.
+                                                        --write puts the change set in the private fix draft file for workflow check
+                                                        --change-set and workflow studio apply --change-set --propose; --answers turns
+                                                        answered questions into changes
 
   # SGOS — deterministic intent compilation and governed execution
   singularity-flow intent capture <TEXT> [--out FILE] [--json]

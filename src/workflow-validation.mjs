@@ -12,7 +12,7 @@
  * Read-only. The fixes are drafted elsewhere: Copilot's /sf-fix-workflow turns the findings into one
  * Workflow Studio change set at `fixDraft.changeSetPath` and proposes it for review. A workflow the
  * platform sees could be simpler carries `simplify`: what it found, and the route that builds a
- * simpler copy (`workflow build start --from-workflow ID --simplify`).
+ * simpler copy (`workflow build start --simplify ID`).
  */
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
@@ -77,15 +77,15 @@ async function simplifyHint(workflowId, { model, findings, definition, packaged 
   const { simplificationCandidates } = await import('./workflow-build/simplify.mjs');
   const candidates = simplificationCandidates({ model, workflow, findings, definition, packaged });
   if (!candidates.length) return null;
-  const command = `singularity-flow workflow build start --from-workflow ${workflowId} --simplify`;
-  const commandGuidance = safeCommandGuidance({ command, skill: '/sf-build-workflow' });
+  const command = `singularity-flow workflow build start --simplify ${workflowId}`;
+  // The skill takes the same option (its argument-hint): the route is the skill with it, as an explicit route.
+  const { copilotCommandForCommand } = await import('./copilot-guidance.mjs');
+  const copilotCommand = safeCommandGuidance({ command, skill: '/sf-build-workflow' }) ? copilotCommandForCommand(command, `/sf-build-workflow --simplify ${workflowId}`) : null;
   return {
     candidates: candidates.length,
     found: candidates.map((entry) => ({ kind: entry.kind, title: entry.title, location: entry.location })),
     nextAction: {
-      label: 'Build a simpler copy', command, skill: '/sf-build-workflow',
-      copilotCommand: commandGuidance?.copilotCommand ?? `/sf-build-workflow --from-workflow ${workflowId} --simplify`,
-      modelFreeCommand: commandGuidance?.modelFreeCommand ?? null, commandGuidance,
+      label: 'Build a simpler copy', command, skill: '/sf-build-workflow', copilotCommand, modelFreeCommand: null,
       reviewed: 'Each change is checked before it is offered and you accept or decline it; the result is a new workflow in one reviewed proposal. The original is never changed.'
     }
   };

@@ -1,5 +1,5 @@
 /**
- * A simpler workflow from one a team has: `workflow build start --from-workflow ID --simplify`.
+ * A simpler workflow from one a team has: `workflow build start --simplify ID`.
  *
  * The build copies the workflow under a new ID: the original is never changed, and Stories already
  * running keep the workflow they started with. It lists what the platform can see a simpler copy

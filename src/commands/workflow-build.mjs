@@ -1,7 +1,7 @@
 /**
  * `workflow build start | add | status` — start a progressive workflow build from a workflow the
- * repository has (changed in place with --change, copied, or copied --simplify: a simpler new one,
- * checked before it finishes with `verify`), from a team's material, or from a description, and see what it holds
+ * repository has (changed in place with --change, copied with --from-workflow, or a simpler new copy
+ * with --simplify, verified before it finishes), from a team's material, or from a description, and see what it holds
  * (src/workflow-build/). Builds are machine-local; nothing here changes a repository.
  */
 import { readFile, writeFile } from 'node:fs/promises';
@@ -266,8 +266,11 @@ export async function run(argv, { positionals, options }) {
     try { transfer = JSON.parse(await readFile(source, 'utf8')); } catch (error) { refuse(`The build file cannot be read: ${error.message}`, 'WORKFLOW_BUILD_TRANSFER_INVALID'); }
     record = await api.importWorkflowBuild(transfer, { root });
   } else if (action === 'start') {
-    record = await api.startWorkflowBuild({ root, fromWorkflow: optionString(options, 'from-workflow') ?? null, change: optionString(options, 'change') ?? null, ...(await material()),
-      describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null, simplify: optionBoolean(options, 'simplify') });
+    // --simplify ID: a new, simpler copy of that workflow (src/workflow-build/simplify.mjs).
+    const simplify = options.simplify === undefined ? null : optionString(options, 'simplify') ?? refuse('Name the workflow to simplify: --simplify <ID>.');
+    if (simplify && (options['from-workflow'] !== undefined || options.change !== undefined)) refuse('--simplify ID copies that workflow itself; leave out --from-workflow and --change.');
+    record = await api.startWorkflowBuild({ root, fromWorkflow: simplify ?? optionString(options, 'from-workflow') ?? null, change: optionString(options, 'change') ?? null, ...(await material()),
+      describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null, simplify: Boolean(simplify) });
   } else if (action === 'add') {
     const id = optionString(options, 'build');
     if (!id) refuse('Name the build: workflow build add --build <ID> --folder <DIR>.');

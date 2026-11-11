@@ -184,7 +184,9 @@ test('workflow help shows the check that explains a workflow and says what does 
   assert.match(page, /workflow build status \[--build ID\]/);
   assert.match(page, /workflow build propose --build ID --proposal FILE\|- \[--by you\|copilot\]/);
   assert.match(page, /workflow build decide --build ID --proposal P \(--accept \| --decline \[--reason TEXT\]\)/);
-  assert.match(page, /workflow build finish --build ID \(--propose \| --out FILE\)/);
+  assert.match(page, /workflow build finish --build ID \(--propose \| --out FILE\) \[--accept-problem ID\]\.\.\./);
+  assert.match(page, /workflow build start --simplify ID \[--name LABEL\]/);
+  assert.match(page, /workflow build verify --build ID \[--json\]/);
 });
 
 test('workflow help shows the three team import commands and their Copilot route', () => {

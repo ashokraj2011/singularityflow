@@ -482,12 +482,14 @@ Usage:
                                                         why and how to fix it; exits 1 when one is not. /sf-fix-workflow in Copilot
                                                         drafts the fixes as one reviewed configuration proposal
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
-  singularity-flow workflow build start [--change ID | --from-workflow ID [--simplify]] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
+  singularity-flow workflow build start [--change ID | --from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
     [--describe TEXT] [--name LABEL] [--json]
                                                         start a progressive build: what a workflow or a team's material holds, each item
                                                         with its file and lines (screened, never run or fetched; kept on this computer);
-                                                        --change changes that workflow in place, --from-workflow copies it; --simplify
-                                                        copies it under a new ID and offers each simplification it can check, located with why
+                                                        --change changes that workflow in place, --from-workflow copies it
+  singularity-flow workflow build start --simplify ID [--name LABEL] [--json]
+                                                        a simpler copy under a new ID: each simplification it can check is offered, located
+                                                        with why, for you to accept or decline; the workflow itself never changes
   singularity-flow workflow build add --build ID [--folder DIR]... [--file FILE]... [--notes FILE|-]... [--json]
   singularity-flow workflow build status [--build ID] [--json]
   singularity-flow workflow build source --build ID --path FILE [--from LINE] [--json]

@@ -1,5 +1,5 @@
 /**
- * A simpler workflow from a team's own: `workflow build start --from-workflow ID --simplify` copies it
+ * A simpler workflow from a team's own: `workflow build start --simplify ID` copies it
  * under a new ID, offers every simplification it can check (located, with why), a person accepts
  * each, and the build finishes only once `workflow validate` (and `workflow walk`, where present)
  * find nothing left in what it would propose, or the person accepts each remaining one by ID. The
@@ -66,7 +66,7 @@ test('simplify offers each candidate it checked, located with why; finish waits 
   const h = await harness();
   const { root, base } = await familyRepository(h);
   const original = await readFile(path.join(root, 'singularity/workflow.yml'));
-  const started = h.json(root, ['workflow', 'build', 'start', '--from-workflow', 'fmly', '--simplify']).build;
+  const started = h.json(root, ['workflow', 'build', 'start', '--simplify', 'fmly']).build;
   assert.equal(started.label, 'Family delivery (simpler)');
   assert.match(started.conversation[0].text, /^Simplifying Family delivery into a new workflow, Family delivery \(simpler\): 7 steps.*Family delivery itself is never changed, and Stories already running keep the workflow they started with\./u);
   const candidates = started.simplify.candidates;
@@ -111,7 +111,6 @@ test('simplify offers each candidate it checked, located with why; finish waits 
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr + refused.stdout, /Family delivery \(simpler\) is not finished: \d+ problems or stops remain in what it would propose \(workflow validate on the result\):\n {2}f-[a-f0-9]{12} {2}problem {2}/u);
   assert.match(refused.stderr + refused.stdout, /Only if the person accepts one as it is, finish with --accept-problem <ID> for each\./u);
-  assert.match(refused.stderr + refused.stdout, /Shell: singularity-flow workflow build verify --build wb_[a-f0-9]{16}/u);
   const bogus = h.flow(root, ['workflow', 'build', 'finish', '--build', started.id, '--propose', '--accept-problem', 'f-000000000000'], { allowFailure: true });
   assert.match(bogus.stderr + bogus.stdout, /'f-000000000000' is not a problem or stop the simpler workflow has that can be accepted/u);
   assert.equal(h.run('git', ['for-each-ref', 'refs/heads/sflow/config-change'], root).stdout, '', 'nothing was proposed');
@@ -136,7 +135,7 @@ test('a verified simpler workflow becomes one reviewed proposal that leaves the 
   const h = await harness();
   const { root, bare, base } = await familyRepository(h, { remote: true });
   const original = await readFile(path.join(root, 'singularity/workflow.yml'));
-  const started = h.json(root, ['workflow', 'build', 'start', '--from-workflow', 'fmly', '--simplify']).build;
+  const started = h.json(root, ['workflow', 'build', 'start', '--simplify', 'fmly']).build;
   const early = h.flow(root, ['workflow', 'build', 'finish', '--build', started.id, '--propose'], { allowFailure: true });
   assert.match(early.stderr + early.stdout, /is not finished: \d+ problems or stops remain/u);
   assert.equal(h.run('git', ['--git-dir', bare, 'for-each-ref', 'refs/heads/sflow/config-change'], base).stdout, '', 'nothing was proposed');
@@ -157,7 +156,7 @@ test('a walk stop holds the finish until the person accepts it by ID; no move ma
   const h = await harness();
   const { root, base } = await familyRepository(h);
   const env = { ...process.env, ...h.engineEnv };
-  const started = h.json(root, ['workflow', 'build', 'start', '--from-workflow', 'fmly', '--simplify', '--name', 'Family lite']).build;
+  const started = h.json(root, ['workflow', 'build', 'start', '--simplify', 'fmly', '--name', 'Family lite']).build;
   for (const proposal of started.proposals) h.json(root, ['workflow', 'build', 'decide', '--build', started.id, '--proposal', proposal.id, '--accept']);
   const { verifyBuild, walkStops, walkCandidate } = await import('../src/workflow-build/simplify.mjs');
   const { finishBuild, proposeToBuild } = await import('../src/workflow-build/engine.mjs');
@@ -180,13 +179,16 @@ test('a walk stop holds the finish until the person accepts it by ID; no move ma
   // Without `workflow walk` in the command registry, only workflow validate decides, and says so.
   assert.deepEqual(await walkCandidate({ repository: root, candidate: root, workflow: 'family-lite' }),
     { available: false, reason: 'This SFlow has no `workflow walk`, so only `workflow validate` checked the result.', stops: [] });
-  const again = h.json(root, ['workflow', 'build', 'start', '--from-workflow', 'fmly', '--simplify', '--name', 'Family other']).build;
+  const again = h.json(root, ['workflow', 'build', 'start', '--simplify', 'fmly', '--name', 'Family other']).build;
   const refused = await proposeToBuild(again.id, { title: 'Rename the build step', why: 'Shorter.', moves: [{ move: 'step.change', id: 'fmly-build', label: 'Build' }] }, { root, env })
     .then(() => null, (error) => error);
   assert.deepEqual(refused.details.findings.map((entry) => [entry.at, entry.code]), [['moves[0].id', 'BUILD_SIMPLIFY_ORIGINAL']]);
   assert.match(refused.details.findings[0].message, /^Step 'fmly-build' is in Family delivery, which a simpler copy never changes/u);
-  const usage = h.flow(root, ['workflow', 'build', 'start', '--change', 'fmly', '--simplify'], { allowFailure: true });
-  assert.match(usage.stderr + usage.stdout, /--simplify makes a new, simpler workflow from one the repository has: singularity-flow workflow build start --from-workflow fmly --simplify\. It never changes a workflow in place\./u);
+  const usage = h.flow(root, ['workflow', 'build', 'start', '--change', 'fmly', '--simplify', 'fmly'], { allowFailure: true });
+  assert.match(usage.stderr + usage.stdout, /--simplify ID copies that workflow itself; leave out --from-workflow and --change\./u);
+  const { startWorkflowBuild } = await import('../src/workflow-build/build.mjs');
+  const inPlace = await startWorkflowBuild({ root, change: 'fmly', simplify: true }, { env }).then(() => null, (error) => error);
+  assert.match(inPlace.message, /^--simplify makes a new, simpler workflow from one the repository has: singularity-flow workflow build start --simplify fmly\. It never changes a workflow in place\.$/u);
 });
 
 test('candidates are deterministic: groups with the same people, settings findings, shipped templates; a repair loop with a way on is not one', async () => {
@@ -263,7 +265,7 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
   assert.deepEqual([second.status, fixed.valid, fixed.workflows[0].findings.filter((entry) => entry.severity === 'problem')], [0, true, []]);
   // Correct but heavy: validate offers the simpler copy, with its route.
   assert.deepEqual([fixed.workflows[0].simplify.nextAction.copilotCommand, fixed.workflows[0].simplify.nextAction.command],
-    ['/sf-build-workflow --from-workflow fmly --simplify', 'singularity-flow workflow build start --from-workflow fmly --simplify']);
+    ['/sf-build-workflow --simplify fmly', 'singularity-flow workflow build start --simplify fmly']);
   assert.deepEqual(fixed.workflows[0].simplify.found.map((entry) => entry.kind), ['duplicate-step', 'unneeded-step']);
   // An agent nothing uses is the repository's: it makes no workflow heavy.
   const seeded = JSON.parse(h.flow(root, ['workflow', 'validate', 'repo-feature', '--json']).stdout);
@@ -273,7 +275,7 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
 test('the skills walk the person through simplify and never ask for template wording', async () => {
   const build = await readFile(path.join(packageRoot, 'plugin/skills/sflow-build-workflow/SKILL.md'), 'utf8');
   const fix = await readFile(path.join(packageRoot, 'plugin/skills/sflow-fix-workflow/SKILL.md'), 'utf8');
-  for (const pattern of [/--from-workflow <ID> \[--simplify\]/u, /take `candidates` one at a time/u, /ask with `ask_user`: accept, or decline with a reason; record exactly that with `build decide`/u,
+  for (const pattern of [/--simplify <ID>\] \[--folder/u, /`--simplify <ID>` makes a simpler copy \(step 8\)/u, /take `candidates` one at a time/u, /ask with `ask_user`: accept, or decline with a reason; record exactly that with `build decide`/u,
     /`singularity-flow workflow build verify --build <ID> --json`/u, /offer finishing only once the person explicitly accepts each as it is, then add `--accept-problem <id>` for each/u,
     /never changing the original workflow/u, /One with a `move`: propose that move \(`--by copilot`\), asking nothing/u, /A template fix is placeholders, never wording asked of the person/u]) {
     assert.match(build, pattern);

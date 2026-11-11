@@ -175,7 +175,7 @@ function reconcile(items, previous) {
 export async function startWorkflowBuild({ root = null, fromWorkflow = null, change = null, folders = [], files = [], notes = [], describe = null, name = null, simplify = false } = {}, { env = process.env } = {}) {
   if (fromWorkflow && change) fail('WORKFLOW_BUILD_USAGE', 'Copy a workflow with --from-workflow ID, or change one in place with --change ID; not both.');
   // A simpler workflow is always a new one: the workflow it starts from is never changed in place.
-  if (simplify && !fromWorkflow) fail('WORKFLOW_BUILD_USAGE', `--simplify makes a new, simpler workflow from one the repository has: singularity-flow workflow build start --from-workflow ${change ?? 'ID'} --simplify. It never changes a workflow in place.`);
+  if (simplify && (!fromWorkflow || change)) fail('WORKFLOW_BUILD_USAGE', `--simplify makes a new, simpler workflow from one the repository has: singularity-flow workflow build start --simplify ${fromWorkflow ?? change ?? 'ID'}. It never changes a workflow in place.`);
   if (simplify && (folders.length || files.length || notes.length || describe)) fail('WORKFLOW_BUILD_USAGE', '--simplify works from the workflow alone; add material to a build started without it.');
   if (!fromWorkflow && !change && !folders.length && !files.length && !notes.length && !describe) {
     fail('WORKFLOW_BUILD_USAGE', 'Start from something: --from-workflow ID, --folder DIR, --file FILE, --notes FILE or --describe TEXT; or change a workflow in place with --change ID.');

@@ -41,7 +41,8 @@ const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 export const DECISIONS_USAGE = [
   'Usage: singularity-flow decisions [WORK-ID] [--phase PHASE] [--no-card] [--json]',
   '       singularity-flow decisions [WORK-ID] --choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT] [--clause ITEM=IDS] [--json]',
-  '       singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [...] --confirm sha256:DIGEST [--json]',
+  '       singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [...]   (your own terminal shows the summary and asks)',
+  '       singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [...] --confirm sha256:DIGEST [--json]   (a script or a /sf-decide turn)',
   '       singularity-flow decisions record [WORK-ID] --answers FILE',
   '       singularity-flow decisions record [WORK-ID]   (interactive terminal)',
   'Lists what people must decide before the step can move, in plain words with choices, and records the',

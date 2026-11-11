@@ -126,8 +126,10 @@ export async function lastAgentResult({ cwd = process.cwd(), env = process.env, 
   const directory = agentResultsDirectory(cwd, env);
   const deadline = clock() + Math.max(0, wait) * 1000;
   const markers = () => entries(path.join(directory, 'running'), RUNNING_SCHEMA);
-  const wanted = (entry) => !command || entry.command === `singularity-flow ${command}`.trim()
-    || entry.command.startsWith(`singularity-flow ${String(command).trim()} `);
+  // The words as an agent copies them, executable and option values included, name the same command: "<its words>"
+  // with `singularity-flow` before them, or a --work-id value, matched nothing and lost a kept result (2026-11-11).
+  const asked = command ? agentCommandText(String(command).trim().replace(/^(?:singularity-flow|sflow)(?:\s+|$)/u, '').split(/\s+/u).filter(Boolean)) : null;
+  const wanted = (entry) => !asked || entry.command === asked || entry.command.startsWith(`${asked} `);
   let active = markers().filter(({ value }) => runningNow(value, clock()));
   while (active.length && clock() < deadline) {
     await sleep(Math.min(500, Math.max(1, deadline - clock())));

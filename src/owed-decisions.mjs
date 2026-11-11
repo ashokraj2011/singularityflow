@@ -118,13 +118,24 @@ export function signOffReady(workflow, witness) {
 }
 
 /**
+ * Whether the Story's source statements are a person's to decide yet: only once the step that defines the scope
+ * last has published a generation. Before that, linking each statement to its clauses is that step's author's own
+ * work (its draft check lists them); a Story just started showed "Decide scope item SRI-…" in Reviews (b-bin, 2026-11-11).
+ */
+export function scopeItemsReady(workflow, scoping) {
+  const last = finalScopeStep(workflow)?.id;
+  return Boolean(last) && scoping.includes(last) && Number(workflow.phases?.[last]?.generation ?? 0) >= 1;
+}
+
+/**
  * Every sign-off and scope disposition still owed by the steps named, from one evidence read, at
  * most MAX_LISTED of each; null when none is owed. Advisory: an unreadable evidence graph reports
  * itself unavailable and nothing here throws.
  */
 export async function owedDecisions(root, config, workflow, phaseIds, { limit = MAX_LISTED } = {}) {
   const witnessing = witnessingSteps(workflow, phaseIds);
-  const scoping = stepsHolding(workflow, phaseIds, ['scope']);
+  const scopeSteps = stepsHolding(workflow, phaseIds, ['scope']);
+  const scoping = scopeItemsReady(workflow, scopeSteps) ? scopeSteps : [];
   if (!witnessing.length && !scoping.length) return null;
   try {
     const reader = await evidenceReader();

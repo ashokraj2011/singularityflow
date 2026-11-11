@@ -577,7 +577,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-resolution.mjs), agent-input refusals with the exact fix and copy-slip checks (text-lines.mjs, specifications.mjs,
     // plan-row-corrections.mjs, phase-evidence-amendment.mjs), a passing tagged test establishing its criterion (state.mjs,
     // conformance-readiness.mjs), and the agent-view wording fixes (agent-output.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_605_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,606,150 (measured 9,606,146, commands/phase-lifecycle.mjs): a Story's source statements are owed to a person only
+    // once the scope step has published (owed-decisions.mjs scopeItemsReady) [Story b-bin, 2026-11-11]. No new eager file.
+    assert.ok(closure.bytes <= 9_606_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

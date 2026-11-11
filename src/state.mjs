@@ -2009,6 +2009,8 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
     pathContext: applicationPathContext(config, workflow)
   });
   const coverageResult = evaluateSpecCoverage(records, changedPaths, policy, { root, workflow });
+  // A criterion whose own tagged tests passed is more than test presence [fix E].
+  if (coverageResult.testPresenceOnly.length) await (await import('./criterion-test-failures.mjs')).withTestedCriteria(root, phase, coverageResult);
   // The publication check's routes on every path [PHR:REQ-003, 1f68d7b6c]: a clause a decided upstream
   // issue settles no longer counts, one an open issue names waits on its decision, and a row the plan
   // may have put in the wrong place names the plan's own corrections.

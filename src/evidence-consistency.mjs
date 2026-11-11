@@ -11,7 +11,7 @@ import { recordSha256 } from './records.mjs';
 export const EVIDENCE_CONSISTENCY_REVISION = 'evidence-consistency-v1';
 export const EVIDENCE_CONSISTENCY_HEADING = '# Evidence consistency';
 export const MAX_EVIDENCE_CONSISTENCY_BYTES = 32 * 1024;
-export const EVIDENCE_CONSISTENCY_INSTRUCTION = 'Use this read-only account for evidence provenance and outstanding decisions. A missing retained execution record does not prove tests never ran; it means that run is not established by the retained packet. A run reused on the same source tree is evidence for this step as well: no fresh run is missing. Earlier runs remain attributed to their producer, even after approved reuse. Reported clause verdicts are author claims, not verdicts established by this projection. Keep gaps and exceptions visible; never infer approval, invent results, or edit approved records to make a report consistent.';
+export const EVIDENCE_CONSISTENCY_INSTRUCTION = 'Use this read-only account for evidence provenance and outstanding decisions. A missing retained execution record does not prove tests never ran; it means that run is not established by the retained packet. A run reused on the same source tree is evidence for this step as well: no fresh run is missing. Earlier runs remain attributed to their producer, even after approved reuse. Reported clause verdicts are author claims, not verdicts established by this projection; a criterion whose test evidence it lists as established, and a clause verified through it, is not partial or missing for want of tests. Keep gaps and exceptions visible; never infer approval, invent results, or edit approved records to make a report consistent.';
 /**
  * Said once, when the account lists recorded visual reviews. The composed prompt carries them only
  * here (the separate recorded-visual-reviews section repeated them), so the rule travels with them.
@@ -55,6 +55,7 @@ function phaseFacts(workflow, phase, executionEvidence) {
       status, packetSha256: packet?.packetSha256 ?? null, packetPath: packet?.path ?? null,
       sourceTreeSha256: packet?.sourceTreeSha256 ?? null,
       runs: (packet?.checks ?? []).map((check) => projectRun(check, packet)),
+      ...(packet?.criterionTests?.length ? { criteria: packet.criterionTests.slice(0, ITEM_LIMIT) } : {}),
       omittedChecks: packet?.omittedChecks ?? 0, omittedExecutions: packet?.omittedExecutions ?? 0,
       diagnostics: diagnostics.map((item) => ({ code: item.code, status: item.status }))
     };
@@ -72,7 +73,19 @@ function ownEvidenceLine(entry) {
     // Not run again because the code did not change: the same run stands, and nothing is missing from this step.
     const reused = run.reused ? `; the run ${run.attemptId} that ${run.reused.recordedBy} recorded on this same source tree (${run.reused.treeSha256}), which stands for this step, so cite it as a fresh run` : '';
     return `${run.commandId}: ${run.outcome}, ${counts}; source binding ${run.binding}${reused}${run.label ? `; ${run.label}` : ''}`;
-  }).join('; ')}. Suite counts alone do not establish a clause verdict.`;
+  }).join('; ')}. Suite counts alone do not establish a clause verdict${entry.criteria ? '; each criterion\'s own tagged tests do, as listed next' : ''}.`;
+}
+
+const TEST_EVIDENCE_WORDS = Object.freeze({ established: 'established: each of its own tagged tests passed in a run bound to this source tree',
+  failed: 'not established: its own tagged test failed', skipped: 'not established: its own tagged test was skipped, so it verified nothing',
+  missing: 'not established: its own tagged test has no result in the run', inconclusive: 'not established: its own tagged test cannot be tied to one exact passing result',
+  stale: 'not established on this source tree: its run is not bound to the current code' });
+
+/** One criterion's own tests in one step's runs [fix E]; a gap names the step that delivered the tests. */
+function criterionLine(entry, phase) {
+  const tests = entry.tests.map((test) => `${test.test}${test.attemptId ? ` (${test.attemptId})` : ''}${entry.testEvidence === 'established' ? '' : `: ${test.result}`}`);
+  return `${entry.clauseId}: test evidence ${TEST_EVIDENCE_WORDS[entry.testEvidence] ?? entry.testEvidence}: ${tests.join('; ')}${entry.omittedTests ? `; ${entry.omittedTests} more` : ''}`
+    + `${entry.testEvidence === 'established' ? '.' : entry.testEvidence === 'stale' ? '; a run on the current code is needed.' : `. ${phase}, which delivered these tests, owns the repair.`}`;
 }
 
 /** What one recorded review is: the file a person looked at, what they decided, who, and when. */
@@ -100,7 +113,7 @@ export function evidenceConsistencyLines(snapshot) {
   if (!snapshot) return [];
   const lines = [
     'Read-only retained facts; not a new run, clause acceptance, publication or approval.',
-    ...snapshot.phases.map(ownEvidenceLine),
+    ...snapshot.phases.flatMap((entry) => [ownEvidenceLine(entry), ...(entry.criteria ?? []).map((criterion) => criterionLine(criterion, entry.phase))]),
     ...snapshot.reuses.map((entry) => `${entry.state === 'active' ? 'Approved reuse' : 'Reuse not active'}: ${entry.label}`),
     ...(snapshot.visualReviews.length ? [VISUAL_REVIEW_RULE] : []),
     ...snapshot.visualReviews.map((entry) => `${entry.id}: ${entry.clauseId}, slot ${entry.slot}: ${entry.valid ? 'recorded human review satisfies this slot' : 'review does not currently satisfy this slot'}; file binding ${entry.binding}, candidate ${entry.candidate}. ${visualReviewDetail(entry)}.`),

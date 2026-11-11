@@ -149,7 +149,6 @@
     "Render the status, attempt evidence, stop reason, preserved state, and exact next actions."
   ],
   "sflow-fix-workflow": [
-    "If `valid`, say so in two lines from `roles` (which step defines the clauses, plans each code step, carries the tags, reviews) and stop.",
     "For each `problem` in `workflows[].findings` and `repository.findings`: what is wrong (`title`, `location`), why it stops a Story (`blocksStart`: Story start refuses it;"
   ],
   "sflow-fresh-install": [

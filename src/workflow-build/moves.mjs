@@ -14,6 +14,7 @@ import { scannerCheck } from '../findings/ci-scanners.mjs';
 import { looksSecretName, looksSecretValue } from '../secret-looking.mjs';
 import { STUDIO_ID as ID } from '../agent-document-parser.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { normalizeClarificationPolicy } from '../clarifications.mjs';
 
 const OUTPUTS = ['document', 'analysis', 'code', 'none'];
 const TRIGGERS = ['submitted', 'approved', 'rejected'];
@@ -30,6 +31,8 @@ export const MOVES = Object.freeze({
   // command, category, directory and a test command's completed record are filled in from the found
   // command, never written by hand.
   'step.check': { required: ['id', 'item'], optional: ['requirement', 'command', 'category', 'directory', 'record'] },
+  // A step's clarifying questions in this workflow only: its whole policy, checked as the loader checks it.
+  'step.clarify': { required: ['id', 'mode'], optional: ['topics', 'maxQuestions', 'markers'] },
   'agent.add': { required: ['id', 'label', 'description'], optional: ['from', 'instructions', 'tools'] },
   'skill.add': { required: ['id', 'description'], optional: ['label', 'from', 'procedure', 'loading'] },
   'skill.attach': { required: ['skill'], optional: ['agent', 'steps', 'use'] },
@@ -58,6 +61,7 @@ export function movesGuide() {
       { move: 'skill.add', id: 'pci-check', description: 'Checks a change against the PCI rules.', procedure: 'Check card data never reaches logs.' },
       { move: 'skill.attach', skill: 'pci-check', agent: 'pay-reviewer', steps: ['pay-pci-review'] },
       { move: 'step.check', id: 'pay-build', item: 'i-0123456789ab' },
+      { move: 'step.clarify', id: 'pay-build', mode: 'when-needed', maxQuestions: 3, topics: ['approved deviations', 'implementation blockers'] },
       { move: 'branch.add', after: 'intake', name: 'channel', arms: [{ when: 'web', steps: ['web-build', 'web-test'] }, { when: 'mobile', steps: ['mobile-build'] }],
         otherwise: { steps: ['other-build'] }, join: 'release' },
       { move: 'item.leaveOut', item: 'i-0123456789ab', reason: 'CI already scans every change.' }
@@ -82,12 +86,15 @@ export function movesGuide() {
       "A test, lint, type-check, format or build command the material holds (an item whose category says so) becomes the check of the step it belongs to with step.check: sflow runs it when that step is submitted and records the result. Install, run, script and deployment commands stay in their skill or instructions for the agent; never make them checks.",
       "signOff.sendBackTo (optional) names the steps an approver may send rejected work back to: the step itself or steps before it in this workflow. A reused step keeps its own; when the check says rejecting it returns to a step this workflow does not have before it, that finding's fix gives the step.change that repoints it.",
       'Approval groups are created empty; people are added in Workflow Studio, never by a move.',
+      "step.clarify sets a step's clarifying questions for this workflow only, its whole policy: mode off, when-needed or required; topics; maxQuestions 1 to 10; markers { mode: off, warn or block }. Ask at or before the step that defines the scope; a code step asks when-needed, never required; a later step does not ask about what the approved scope settles.",
       'Cite the lines you relied on in the proposal evidence; say what you inferred in `why`.'
     ]
   };
 }
 
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+/** A step.clarify move's policy: the fields it gives, as workflow.yml holds them. */
+const clarificationOf = (move) => Object.fromEntries(['mode', 'maxQuestions', 'topics', 'markers'].filter((key) => move[key] !== undefined).map((key) => [key, move[key]]));
 const text = (value, max) => typeof value === 'string' && value.trim() && value.length <= max;
 
 /**
@@ -286,6 +293,11 @@ export function validateMoves(moves, { model, draft }) {
         }
         break;
       }
+      case 'step.clarify':
+        if (move.id && !steps.has(move.id) && !added.step.has(move.id)) add(`${at}.id`, 'BUILD_MOVE_REFERENCE', `Step '${move.id}' is not in this workflow.`);
+        try { normalizeClarificationPolicy(clarificationOf(move)); }
+        catch (error) { add(`${at}.mode`, 'BUILD_MOVE_CLARIFICATION', String(error.message).replace(/^clarification\./u, 'clarification ')); }
+        break;
       case 'step.check':
         if (move.id && !steps.has(move.id) && !added.step.has(move.id)) add(`${at}.id`, 'BUILD_MOVE_REFERENCE', `Step '${move.id}' is not in this workflow.`);
         if (move.requirement != null && !['required', 'advisory'].includes(move.requirement)) add(`${at}.requirement`, 'BUILD_MOVE_SHAPE', 'requirement is required or advisory.');
@@ -331,7 +343,7 @@ export function initialDraft(build, model) {
       decisions: source ? structuredClone(source.decisions ?? []) : [],
       baseDecisions: source ? structuredClone(source.decisions ?? []) : []
     },
-    steps: {}, overrides: {}, agents: {}, skills: {}, instructions: {}, groups: {}, attachments: [], actions: {}, checks: {},
+    steps: {}, overrides: {}, agents: {}, skills: {}, instructions: {}, groups: {}, attachments: [], actions: {}, checks: {}, clarifications: {},
     items: {}
   };
 }
@@ -369,6 +381,7 @@ export function applyMoves(draft, moves) {
       case 'step.remove':
         next.workflow.phases = next.workflow.phases.filter((entry) => entry !== move.id);
         delete next.steps[move.id]; delete next.overrides[move.id]; delete next.actions[move.id]; if (next.checks) delete next.checks[move.id];
+        if (next.clarifications) delete next.clarifications[move.id];
         next.workflow.decisions = next.workflow.decisions.filter((decision) => decision.after !== move.id);
         break;
       case 'step.move':
@@ -415,6 +428,7 @@ export function applyMoves(draft, moves) {
             ...(move.record ? { record: move.record } : {}), requirement: move.requirement ?? 'required' }];
         break;
       case 'action.add': next.actions[move.step] = [...(next.actions[move.step] ?? []), { on: move.on, target: move.target }]; break;
+      case 'step.clarify': (next.clarifications ??= {})[move.id] = clarificationOf(move); break;
       case 'item.classify': next.items[move.item] = { ...next.items[move.item], kind: move.as }; break;
       case 'item.leaveOut': next.items[move.item] = { ...next.items[move.item], status: 'left-out', reason: move.reason }; break;
       case 'item.keepAsLink': next.items[move.item] = { ...next.items[move.item], status: 'kept-as-link' }; break;
@@ -507,6 +521,10 @@ export function lowerDraft(draft, model) {
     const taken = new Set(current.map((entry) => (typeof entry === 'string' ? entry : entry?.id)));
     const added = checks.filter((check) => !current.some((entry) => [check.command, check.record?.argv.join(' ')].includes(commandOf(entry)))).map((check) => qualityCommand(check, taken));
     if (added.length) changes.push({ op: 'phase.update', id, workflow: workflowId, qualityCommands: [...current, ...added] });
+  }
+  // Clarifying questions are this workflow's own (phase.update with workflow), so another workflow's stay.
+  for (const [id, clarificationPolicy] of Object.entries(draft.clarifications ?? {})) {
+    if (draft.workflow.phases.includes(id)) changes.push({ op: 'phase.update', id, workflow: workflowId, clarificationPolicy: structuredClone(clarificationPolicy) });
   }
   for (const attachment of draft.attachments) {
     changes.push({ op: 'skill.attach', skill: attachment.skill, ...(attachment.agent ? { agent: attachment.agent } : { workflow: workflowId }),

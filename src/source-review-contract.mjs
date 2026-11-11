@@ -1,6 +1,7 @@
 /** One authoring contract for the context packet and the pre-retention format check. */
 import { z } from 'zod';
 
+import { agentInputIssues, valueAtField } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses, FULFILLMENT_TYPES } from './specifications.mjs';
 import { sourceReviewScenarioIds } from './source-grounded-review.mjs';
@@ -38,7 +39,8 @@ const documentRow = z.strictObject({
   outcome: z.enum(['consistent', 'inconsistent', 'question']).describe('Consistent: the document agrees with this source line. Inconsistent or question holds the step until its author corrects it.'),
   note: text().optional().describe('For inconsistent or question: what differs or what is unclear.')
 });
-const fileCitation = z.strictObject({ sourceId: id.describe('A changed file\'s exact sources[].id (code: and its path with each / as :, such as code:src:App.jsx); copy it, never write the path.'), line: citation.line, quote: citation.quote });
+// The ID is not derivable from the path (other characters become ':' too, and a long path becomes a hash).
+const fileCitation = z.strictObject({ sourceId: id.describe('A changed file\'s sources[].id, copied exactly; it is not derivable from the path.'), line: citation.line, quote: citation.quote });
 // A code step's row: one clause it delivers, where it is implemented and which test proves it [review level 2].
 const codeRow = z.strictObject({
   id: id.optional(),
@@ -67,7 +69,9 @@ function schema(kind) {
   return z.strictObject({
     schemaVersion: z.literal(currentSchemaVersion('source-grounded-review')),
     resultType: z.literal('source-grounded-review'), kind: z.literal(kind),
-    binding: z.record(z.string(), z.unknown()).describe('Copy the entire exact binding from context; never edit it.'),
+    // The binding is which inputs were reviewed (freshness, not consent): SFlow fills it from this reviewer's context.
+    binding: z.union([z.literal('from-context'), z.record(z.string(), z.unknown())])
+      .describe('Write "from-context": SFlow fills the binding your review-source context showed. Never retype its hashes.'),
     reviewer: z.strictObject({ agentId: id, readOnly: z.literal(true) }),
     sourcesReviewed: z.array(id).max(100),
     visualSourcesReviewed: z.array(z.strictObject({ sourceId: id,
@@ -85,19 +89,16 @@ export function sourceReviewReportSchema(kind) {
   return z.toJSONSchema(schema(kind));
 }
 
-function fieldPath(parts) {
-  return parts.reduce((value, part) => typeof part === 'number' ? `${value}[${part}]`
-    : `${value}${value ? '.' : ''}${part}`, '') || '$';
-}
-
-export function validateSourceReviewReport(report, kind) {
-  const result = schema(kind).safeParse(report);
-  const findings = result.success ? [] : result.error.issues.map((issue) => ({
-    code: 'review-format-invalid', field: fieldPath(issue.path),
-    message: issue.code === 'unrecognized_keys'
-      ? `Unexpected field(s): ${issue.keys.join(', ')}. Use reportSchema and reportTemplate from review-source context.`
-      : issue.message
-  }));
+/**
+ * Every format problem with its field, the rule in words and, for a copied ID, the exact ID meant
+ * (`known`: a function returning agentInputIssues known sets, read only when something failed).
+ */
+export function validateSourceReviewReport(report, kind, { known = null } = {}) {
+  const checked = schema(kind);
+  const result = checked.safeParse(report);
+  const findings = result.success ? [] : agentInputIssues(result.error.issues, report, { schema: checked, known: known ? known() : [] })
+    .map((entry) => ({ code: 'review-format-invalid', ...entry,
+      ...(/ has no field /u.test(entry.message) ? { message: `${entry.message} Use reportSchema and reportTemplate from review-source context.` } : {}) }));
   return { status: findings.length ? 'correction-required' : 'ready', findings };
 }
 
@@ -155,7 +156,7 @@ export function sourceReviewCitationGuide(input) {
         '(c) Quality and security: acknowledge every context.code.quality result ID in qualityReviewed; raise a blocking quality finding for one that must be fixed.',
         '(d) Readability and design: your judgement, proportionate. Advisory by default; blocking only for a real maintainability defect, named in defect.'
       ],
-      findingRule: 'Every finding names its check and cites a changed file: sourceId (its exact sources[].id, such as code:src:App.jsx), line and an exact quote; name the clauseId for plan and tests findings.'
+      findingRule: 'Every finding names its check and cites a changed file: sourceId (its sources[].id, copied exactly; it is not derivable from the path), line and an exact quote; name the clauseId for plan and tests findings.'
     } : {}),
     ...(input.kind === 'document' ? {
       mappingRule: 'Give each pinned source at least one cited row: consistent where the document agrees with it, inconsistent (with note) where it does not, question (with note) where it is unclear.'
@@ -177,8 +178,9 @@ export function sourceReviewRepairGuide(report, input, checked) {
   const sources = new Map(input.sources.map(source => [source.id, source]));
   const candidates = (checked.findings ?? []).filter(entry => ['citation-line-invalid', 'citation-quote-invalid'].includes(entry.code));
   const citations = candidates.slice(0, 25).map(entry => {
-    const match = /^(rows|findings)\[(\d+)\]$/u.exec(entry.field ?? '');
-    const row = match ? report?.[match[1]]?.[Number(match[2])] : null;
+    // Any cited entry: a row, a finding, or a code row's implementation or test citation (rows[0].tests[1]).
+    const cited = /^(?:rows|findings)\[\d+\](?:\.(?:implementation|tests)\[\d+\])?$/u.test(entry.field ?? '') ? valueAtField(report, entry.field) : null;
+    const row = cited && typeof cited === 'object' && !Array.isArray(cited) ? cited : null;
     const source = sources.get(entry.sourceId);
     const lines = source.text.split(/\r?\n/u);
     const quote = row?.quote;
@@ -202,8 +204,12 @@ export function sourceReviewRepairGuide(report, input, checked) {
       ...(current !== undefined ? { suppliedLineText: current.slice(0, 1024), suppliedLineTruncated: current.length > 1024 } : {}) };
   });
   // A source written as its path: the exact ID (Story anu-bin, 2026-11-11).
-  const sourceIds = (checked.findings ?? []).filter(entry => entry.code === 'review-format-invalid' && entry.proposedEdit)
-    .slice(0, 25).map(entry => ({ field: entry.field, proposedEdit: entry.proposedEdit }));
+  const sourceIds = (checked.findings ?? []).filter(entry => ['review-format-invalid', 'source-unknown'].includes(entry.code) && entry.proposedEdit
+    && /(?:^sourcesReviewed\[\d+\]|\.sourceId)$/u.test(entry.field ?? '')).slice(0, 25).map(entry => ({ field: entry.field, proposedEdit: entry.proposedEdit }));
+  // Every other field SFlow knows the exact value or the choices for [agent input repairs].
+  const repairs = (checked.findings ?? []).filter(entry => entry.field && (entry.proposedEdit || entry.allowed?.length)
+    && !['citation-line-invalid', 'citation-quote-invalid', 'review-binding-mistyped'].includes(entry.code)).slice(0, 25)
+    .map(entry => ({ field: entry.field, message: entry.message, ...(entry.proposedEdit ? { proposedEdit: entry.proposedEdit } : { allowed: entry.allowed.slice(0, 12) }) }));
   // A slip in copying the binding: the exact values, never a reload (the inputs did not change).
   const binding = (checked.evaluation?.findings ?? []).filter(entry => entry.code === 'review-binding-mistyped')
     .flatMap(entry => entry.slips ?? []).slice(0, 25).map(slip => ({ field: slip.field, proposedEdit: { field: slip.field, value: slip.value } }));
@@ -216,8 +222,8 @@ export function sourceReviewRepairGuide(report, input, checked) {
       ? mappingTasks.length
         ? 'Independently resolve the listed missing mappings now: add genuinely supported rows and recheck changed bytes within the repair budget, or retain already-reviewed genuine gaps with blocking findings. Never invent coverage or require an author successor for a reviewer mapping omission. Retention is not approval.'
         : 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
-      : `${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment. ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}Repair this private packet in the same review turn, then check it. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
-    ...(binding.length ? { binding } : {}), ...(sourceIds.length ? { sourceIds } : {}), citations, omittedCitations: Math.max(0, candidates.length - citations.length),
+      : `${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment (or write "binding": "from-context" and SFlow fills it from your context). ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}${repairs.length ? 'Set each repairs field to its proposedEdit value, or to one of its allowed values. ' : ''}Repair this private packet in the same review turn: stage the repaired JSON again with stagingProtocol.kernelStage (or edit stagingPath and check it). At most two changed-packet repair attempts; never retry unchanged bytes. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
+    ...(binding.length ? { binding } : {}), ...(sourceIds.length ? { sourceIds } : {}), ...(repairs.length ? { repairs } : {}), citations, omittedCitations: Math.max(0, candidates.length - citations.length),
     mappingTasks: mappingTasks.slice(0, 25), omittedMappingTasks: Math.max(0, mappingTasks.length - 25),
     mappingRule: 'Add a covered row only when the pinned source genuinely supports the scenario/clause, reconciling pinned answers. Otherwise retain a blocking finding; an unmapped scenario alone does not prevent retention. Never mark a gap supported to pass.' };
 }

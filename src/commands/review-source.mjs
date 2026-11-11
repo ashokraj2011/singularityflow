@@ -126,7 +126,11 @@ export async function reviewSourceCommand(positionals, options) {
     }
     const input = await sourceReviewInput(root, config, workflow, phaseId);
     const stagingEntry = await lstat(stagingPath).catch(() => null);
-    if (!stagingEntry?.isFile() || stagingEntry.size > 8 * 1024 * 1024) {
+    // Nothing staged yet: say so, and how, rather than a file-format refusal (a reviewer with no edit tool stages through the CLI).
+    if (!stagingEntry) throw new SingularityFlowError(`Nothing is staged at ${stagingPath} yet. Stage the report first: singularity-flow review-source stage ${phaseId} --report-json '<REPORT-JSON>' --json; nothing was retained.`, {
+      code: 'SOURCE_REVIEW_REPORT_NOT_STAGED', details: { stagingPath }
+    });
+    if (!stagingEntry.isFile() || stagingEntry.size > 8 * 1024 * 1024) {
       throw new SingularityFlowError('Staged source review must be a regular JSON file of at most 8 MiB.', {
         code: 'SOURCE_REVIEW_REPORT_STAGING_INVALID'
       });
@@ -136,6 +140,7 @@ export async function reviewSourceCommand(positionals, options) {
     catch (error) { throw new SingularityFlowError(`Staged source review is not valid JSON (${error.message}). Repair the staging file; no review was retained.`, {
       code: 'SOURCE_REVIEW_REPORT_INVALID'
     }); }
+    report = await (await import('../source-review-staging.mjs')).withSourceReviewContextBinding(root, stagingPath, report);
     if (action === 'check') {
       const checked = checkSourceReviewReport(report, input);
       const protocol = sourceReviewStagingProtocol(phaseId, stagingPath);

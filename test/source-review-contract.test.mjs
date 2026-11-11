@@ -33,9 +33,10 @@ test('compact planning review has one exact binding and does not trim source, pl
   const full = { canReview: true, binding: ctx.binding, sources: ctx.sources, upstreamSpec: ctx.upstreamSpec,
     artifact: ctx.artifact, reportTemplate: sourceReviewReportTemplate(ctx), reportSchema: sourceReviewReportSchema(ctx.kind) };
   const compact = compactSourceReviewContext(full, { workId: ctx.workId, ready: true });
-  assert.equal(Object.hasOwn(compact, 'binding'), false);
-  assert.equal(compact.reportTemplate.binding, ctx.binding);
-  for (const key of ['sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema']) assert.deepEqual(compact[key], full[key]);
+  assert.equal(compact.binding, ctx.binding, 'one binding, kept for reference');
+  assert.equal(compact.reportTemplate.binding, 'from-context', 'the reviewer never retypes the binding');
+  for (const key of ['sources', 'upstreamSpec', 'artifact', 'reportSchema']) assert.deepEqual(compact[key], full[key]);
+  assert.deepEqual(compact.reportTemplate, { ...full.reportTemplate, binding: 'from-context' });
   assert.equal(compact.reviewGuide.exactTexts, true);
   assert.throws(() => compactSourceReviewContext({ ...full, binding: { ...ctx.binding, generation: 2 } }, {}),
     { code: 'SOURCE_REVIEW_BINDING_MISMATCH' });

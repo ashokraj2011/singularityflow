@@ -261,13 +261,16 @@ test('compact review entry binds once and preserves every exact review material 
   assert.equal(compact.workId, WORK_ID);
   assert.equal(compact.phase, phaseId);
   assert.equal(path.resolve(compact.repositoryPath), path.resolve(git(root, 'rev-parse', '--show-toplevel')));
-  assert.equal(compact.bindingPath, 'reportTemplate.binding');
-  assert.equal(Object.hasOwn(compact, 'binding'), false);
-  assert.deepEqual(compact.reportTemplate.binding, full.binding);
+  // One binding, for reference; the reviewer's template leaves it to SFlow ("from-context"), which
+  // stage and check fill from this context, so no hash is retyped (Story anu-bin, 2026-11-11).
+  assert.equal(compact.bindingPath, 'binding');
+  assert.deepEqual(compact.binding, full.binding);
+  assert.equal(compact.reportTemplate.binding, 'from-context');
   for (const key of ['sources', 'clarifications', 'clarificationGuidance', 'artifact', 'upstreamSpec',
     'reportTemplate', 'reportSchema', 'stagingPath', 'continuation']) {
     // The same review material; the continuation routes an agent runs carry --for-agent.
-    assert.deepEqual(compact[key], await withAgentRoutes(full[key]), `compact entry lost ${key}`);
+    const expected = key === 'reportTemplate' ? { ...full.reportTemplate, binding: 'from-context' } : full[key];
+    assert.deepEqual(compact[key], await withAgentRoutes(expected), `compact entry lost ${key}`);
   }
   const { effectiveInstructions, instructionsNote, ...pinnedReviewer } = compact.reviewer;
   assert.deepEqual(pinnedReviewer, full.reviewer, 'pinned reviewer bytes, hash, identity and authority are unchanged');

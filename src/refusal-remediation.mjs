@@ -2221,11 +2221,19 @@ export function refusalDetails(details) {
   const stories = list(details.stories, (story) => (story && typeof story === 'object' && text(story.id)
     ? compact({ id: text(story.id), status: text(story.status), branch: text(story.branch) }) : null));
   if (stories.length) projected.stories = stories;
+  // A copied value's exact repair, or the values to choose from [agent input repairs]: plain IDs, paths,
+  // hashes, numbers and booleans only, bounded, so nothing arbitrary crosses the boundary.
+  const repairValue = (value) => ((typeof value === 'string' && value.length <= 512 && /^[\w.:/@+=, -]+$/u.test(value))
+    || Number.isSafeInteger(value) || typeof value === 'boolean' ? value : null);
+  const proposedEdit = (entry) => (field(entry?.proposedEdit?.field) && repairValue(entry.proposedEdit.value) !== null
+    ? { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } : null);
+  const allowedValues = (entry) => { const values = list(entry?.allowed, repairValue).slice(0, 12); return values.length ? values : null; };
   const findings = list(details.findings, (finding) => (finding && typeof finding === 'object' ? compact({
     code: text(finding.code), category: text(finding.category), phase: text(finding.phase), field: field(finding.field),
     path: text(finding.path), status: text(finding.status ?? finding.details?.status),
     upstreamPhase: text(finding.details?.upstreamPhase),
-    message: text(finding.details?.message ?? finding.message), recovery: text(finding.recovery?.command)
+    message: text(finding.details?.message ?? finding.message), recovery: text(finding.recovery?.command),
+    proposedEdit: proposedEdit(finding), allowed: allowedValues(finding)
   }) : null));
   if (findings.length) projected.findings = findings;
   const obligations = list(details.evaluation?.issues, (issue) => (issue && typeof issue === 'object' ? compact({
@@ -2319,10 +2327,14 @@ export function refusalDetails(details) {
     sourceIds: ((edits) => (edits.length ? edits : null))(list(repair.sourceIds, entry => entry && typeof entry === 'object' && field(entry.proposedEdit?.field)
       && /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/u.test(entry.proposedEdit?.value ?? '')
       ? { field: field(entry.proposedEdit.field), proposedEdit: { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } } : null).slice(0, 25)),
-    // A mistyped binding's exact values (hashes only, so nothing to redact) [Story anu-bin, 2026-11-11].
-    binding: ((edits) => (edits.length ? edits : null))(list(repair.binding, entry => entry && typeof entry === 'object' && field(entry.proposedEdit?.field)
-      && /^(?:sha256:)?[0-9a-f]{64}$/u.test(entry.proposedEdit?.value ?? '')
-      ? { field: field(entry.proposedEdit.field), proposedEdit: { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } } : null).slice(0, 25)),
+    // A mistyped binding's exact values: hashes, IDs, paths and numbers (a reordered list is repaired by
+    // "binding": "from-context", which the instruction says) [Story anu-bin, 2026-11-11].
+    binding: ((edits) => (edits.length ? edits : null))(list(repair.binding, entry => entry && typeof entry === 'object' && proposedEdit(entry)
+      ? { field: field(entry.proposedEdit.field), proposedEdit: proposedEdit(entry) } : null).slice(0, 25)),
+    // Every other field whose exact value or choices SFlow knows [agent input repairs].
+    repairs: ((edits) => (edits.length ? edits : null))(list(repair.repairs, entry => entry && typeof entry === 'object' && field(entry.field)
+      && (proposedEdit(entry) || allowedValues(entry)) ? compact({ field: field(entry.field), message: text(entry.message),
+        proposedEdit: proposedEdit(entry), allowed: proposedEdit(entry) ? null : allowedValues(entry) }) : null).slice(0, 25)),
     mappingTasks: list(repair.mappingTasks, entry => entry && typeof entry === 'object' ? compact({
       code: text(entry.code), sourceId: text(entry.sourceId), scenarioId: text(entry.scenarioId),
       clauseId: text(entry.clauseId), line: position(entry.line), message: text(entry.message)
@@ -2391,6 +2403,13 @@ export function refusalDetails(details) {
           recommended: option.recommended === true }) : null)) }) : null)).slice(0, 20) });
   }
   if (digest(details.packetSha256)) projected.packetSha256 = details.packetSha256;
+  // A copied confirmation that is not the current one: the exact current value, and whether it was a
+  // copying slip (nothing changed) or a real change [copied values]. Digests and plain IDs only.
+  const confirmed = details.confirmation;
+  if (confirmed && typeof confirmed === 'object' && repairValue(confirmed.expected) !== null && typeof confirmed.expected === 'string') {
+    projected.confirmation = compact({ expected: confirmed.expected, given: typeof confirmed.given === 'string' ? text(confirmed.given)?.slice(0, 200) ?? null : null,
+      slip: typeof confirmed.slip === 'boolean' ? confirmed.slip : null });
+  }
   const summary = list(details.summary, text);
   if (summary.length) projected.summary = summary;
   if (details.record && typeof details.record === 'object' && text(details.record.command)) {

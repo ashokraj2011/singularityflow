@@ -25,21 +25,27 @@ const FIRST_FIELDS = ['schemaVersion', 'resultType', 'paused', 'personalization'
 
 /** Lossless review projection: one authoritative binding, no duplicated inventory. */
 export function compactSourceReviewContext(packet, binding) {
-  const { binding: duplicate, ...context } = packet;
+  const { binding: duplicate, ...rest } = packet;
   if (packet.canReview && JSON.stringify(duplicate) !== JSON.stringify(packet.reportTemplate?.binding)) {
     throw new SingularityFlowError('Review template does not preserve the exact context binding.', {
       code: 'SOURCE_REVIEW_BINDING_MISMATCH'
     });
   }
+  // The reviewer's template leaves the binding to SFlow ("from-context"): stage and check fill the binding
+  // this context showed, kept here once for reference. Retyping its hashes inline in a stage command was
+  // the slip that stopped a live review (Story anu-bin, 2026-11-11).
+  const fromContext = Boolean(packet.canReview && rest.reportTemplate && duplicate && typeof duplicate === 'object');
+  const context = fromContext ? { ...rest, reportTemplate: { ...rest.reportTemplate, binding: 'from-context' } } : rest;
   const merged = { ...binding, ...context, resultType: 'source-review-agent-context',
     ...(typeof packet.reviewer?.instructions === 'string' ? { reviewer: { ...packet.reviewer,
       effectiveInstructions: withAgentPathProtocol(packet.kind === 'specification'
         ? withRequirementReviewProtocol(packet.reviewer.instructions) : packet.reviewer.instructions),
       instructionsNote: 'instructions and sha256 preserve the pinned agent. effectiveInstructions adds current runtime path and applicable requirement-review guidance; it changes no authority or review binding.' } } : {}),
-    bindingPath: packet.reportTemplate ? 'reportTemplate.binding' : null,
+    ...(fromContext ? { binding: duplicate } : {}),
+    bindingPath: packet.reportTemplate ? (fromContext ? 'binding' : 'reportTemplate.binding') : null,
     reviewGuide: {
       role: packet.canReview
-        ? 'You are this operation\'s reviewer: activation is automatic, so act under reviewer.effectiveInstructions (otherwise reviewer.instructions) yourself in this conversation; no other agent, setup or selection is needed. Do the whole review now: fill reportTemplate, stage it at stagingPath, check it, then retain it. This packet is complete: a bounded copy lists omittedFields with their line ranges in agentOutput.path; read those ranges with your file tool before concluding anything is missing.'
+        ? 'You are this operation\'s reviewer: activation is automatic, so act under reviewer.effectiveInstructions (otherwise reviewer.instructions) yourself in this conversation; no other agent, setup or selection is needed. Do the whole review now: fill reportTemplate, stage it with stagingProtocol.kernelStage (a terminal is enough; it writes stagingPath and checks it), repair and stage again, then retain it. This packet is complete: a bounded copy lists omittedFields with their line ranges in agentOutput.path; read those ranges with your file tool before concluding anything is missing.'
         : 'No review can be prepared here; relay continuation.actions and stop.',
       readOrder: [typeof packet.reviewer?.instructions === 'string' ? 'reviewer.effectiveInstructions' : 'reviewer.instructions', 'documentReadiness', 'clarifications', 'citationGuide', 'sources', ...(packet.visualSources?.length ? ['visualSources', 'visualGuidance'] : []), 'upstreamSpec', 'plan', 'code', 'artifact', 'reportTemplate', 'reportSchema']
         .filter(field => field === 'reviewer.effectiveInstructions' || packet[field] != null),
@@ -54,7 +60,7 @@ export function compactSourceReviewContext(packet, binding) {
           ? 'Document: read it against each pinned source (the Story, its documents and the approved inputs this step reads); give each a cited row (citationGuide.mappingRule).'
           : 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',
       ...(packet.upstreamSpecPhase ? { upstreamFindings: `A blocking finding about the approved specification itself, not the plan, names ownerPhase "${packet.upstreamSpecPhase}": it is raised there as an upstream issue and holds only the Story's ending, not the plan.` } : {}),
-      next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Read the exact source text files; their 1-based lines, not packet JSON lines, are citation lines. Use citationGuide to check all scenarios/clauses. Stage, check, repair format/citations using repair hints in this turn (at most two changed packets), then retain when retentionReady, even with honest semantic gaps. Use stagingProtocol; native file-read tools, not shell parsers or duplicate inventories.' } };
+      next: 'Start from reportTemplate; keep "binding": "from-context" (never retype hashes), preserve metadata and supply independent assessments/citations. Read the exact source text files; their 1-based lines, not packet JSON lines, are citation lines. Use citationGuide to check all scenarios/clauses. Stage, check, repair format/citations using repair hints in this turn (at most two changed packets), then retain when retentionReady, even with honest semantic gaps. Use stagingProtocol; native file-read tools, not shell parsers or duplicate inventories.' } };
   const ordered = {};
   for (const key of FIRST_FIELDS) if (Object.hasOwn(merged, key)) ordered[key] = merged[key];
   for (const [key, value] of Object.entries(merged)) if (!Object.hasOwn(ordered, key)) ordered[key] = value;

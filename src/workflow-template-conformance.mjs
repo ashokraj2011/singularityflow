@@ -14,7 +14,9 @@
  *   fulfillment cells); TODO paths and tests are the author's to fill and are not judged;
  * - every section the step's publication checks for should be in the template (preparation copies a
  *   missing one in, so this is a warning);
- * - the template must exist, be a plain file, and use only tokens step entry renders.
+ * - the template must exist, be a plain file, and use only tokens step entry renders;
+ * - guidance to the author is marked, one line per paragraph (src/template-guidance.mjs), so
+ *   publication removes it and an agent's one-line edit matches it (a note).
  *
  * Deterministic and read-only: no model, no Git, nothing written. Templates an agent supplies
  * (`agent:<id>/<template>`) and skill steps have no file here and are not judged.
@@ -27,6 +29,7 @@ import { renderArtifactTemplateText } from './config.mjs';
 import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
 import { scaffoldPlanningRows } from './phase-authoring-contract.mjs';
 import { extractClauses, inspectPlannedClaimMap, normalizeSpecPolicy, plannedClaimSource } from './specifications.mjs';
+import { markTemplateGuidance } from './template-guidance.mjs';
 
 /** The Work ID templates are rendered with; any Story's ID renders the same structure. */
 export const SAMPLE_WORK_ID = 'CHECK-1';
@@ -126,6 +129,8 @@ export async function templateConformanceFindings(resolved, { read, label = (id)
         stopsAt: { step: phase.id, when: 'entry' } });
       continue;
     }
+    const guidance = phase.generation?.producer === 'deterministic' ? null : guidanceNote(source, label(phase.id));
+    if (guidance) add(guidance);
     const structure = parseMarkdownStructure(rendered);
     const headings = new Set(structure.headings.map((heading) => heading.normalized));
     const missing = requiredArtifactSections(phase).filter((section) => !headings.has(normalizeMarkdownHeading(section)));
@@ -192,4 +197,37 @@ export async function templateConformanceFindings(resolved, { read, label = (id)
 /** The planned-claims header row and divider the kernel reads, for fix texts and skills. */
 export function plannedTableExample() {
   return `${PLANNED_TABLE_HEADER}\n${PLANNED_TABLE_DIVIDER}`;
+}
+
+const spans = (changes) => changes.map((change) => (change.endLine > change.line ? `${change.line}-${change.endLine}` : `${change.line}`));
+const listed = (items) => (items.length > 4 ? `${items.slice(0, 4).join(', ')} and ${items.length - 4} more`
+  : items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0]);
+const several = (changes) => changes.length > 1 || changes[0].endLine > changes[0].line;
+const where = (changes) => `line${several(changes) ? 's' : ''} ${listed(spans(changes))}`;
+
+/**
+ * A note when a template's guidance would stay in every published document (visible prose, or a
+ * plain comment) or is wrapped over several lines, which an agent quoting it as one line cannot
+ * match. `fix.data.edits` are the exact line replacements (1-based, inclusive) that mark it;
+ * markTemplateGuidance makes the same edits.
+ */
+function guidanceNote(source, stepLabel) {
+  const { changes } = markTemplateGuidance(source.text);
+  if (!changes.length) return null;
+  const unmarked = changes.filter((change) => change.kind === 'unmarked');
+  const wrapped = changes.filter((change) => change.kind === 'wrapped');
+  const said = [
+    unmarked.length ? `${where(unmarked)} ${several(unmarked) ? 'read' : 'reads'} like guidance to the author, so every published document keeps ${unmarked.length === 1 ? 'it' : 'them'}` : null,
+    wrapped.length ? `${where(wrapped)} ${wrapped.length === 1 ? 'hold a paragraph' : 'hold paragraphs'} wrapped over several lines, which an agent quoting ${wrapped.length === 1 ? 'it' : 'one'} as one line cannot match` : null
+  ].filter(Boolean);
+  return {
+    code: 'CHECK_TEMPLATE_GUIDANCE', severity: 'note',
+    title: `The template of ${stepLabel} has guidance ${unmarked.length ? 'a published document would keep' : 'wrapped over several lines'}`,
+    detail: `In ${source.file}, ${said.join('; ')}.`,
+    location: { file: source.file, line: changes[0].line },
+    fix: {
+      text: `Write each guidance paragraph on one line as <!-- sflow:guidance ... -->: publication removes it, and an agent's edit matches it. Text a published document must keep stays as it is.`,
+      data: { file: source.file, edits: changes.map(({ line, endLine, kind, replacement }) => ({ line, endLine, kind, text: replacement })) }
+    }
+  };
 }

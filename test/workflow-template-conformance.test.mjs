@@ -97,3 +97,50 @@ test('a clause a later step redefines, or a namespace the configuration does not
   const namespaced = await judge({ 'spec.md': SPEC.replaceAll('{{work.id}}:REQ', 'OTHER:REQ'), 'plan.md': PLAN, 'build.md': '# Build\n' }, { spec: { mode: 'record', namespace: 'APP' } });
   assert.match(namespaced[0].detail, /does not use configured namespace APP/u);
 });
+
+test('guidance a published document would keep, or wrapped over lines, is a note with the exact edits that mark it', async () => {
+  const wrapped = [
+    '# {{work.id}}', '',
+    'Write what the export must do. Every requirement below needs',
+    'an anchor.', '',
+    '<!-- Before drafting, read the request', 'and the attachments. -->', '',
+    '## Requirements', '',
+    '- Export every row. [{{work.id}}:REQ-001]', ''
+  ].join('\n');
+  const findings = await judge({ 'spec.md': wrapped, 'plan.md': PLAN, 'build.md': '# Build\n' });
+  assert.deepEqual(codes(findings), [['CHECK_TEMPLATE_GUIDANCE', 'spec', 'note']]);
+  const [note] = findings;
+  assert.deepEqual(note.location, { file: 'templates/spec.md', line: 3 });
+  assert.match(note.detail, /lines 3-4 and 6-7 read like guidance to the author, so every published document keeps them/u);
+  assert.match(note.fix.text, /<!-- sflow:guidance \.\.\. -->/u);
+  assert.deepEqual(note.fix.data, { file: 'templates/spec.md', edits: [
+    { line: 3, endLine: 4, kind: 'unmarked', text: '<!-- sflow:guidance Write what the export must do. Every requirement below needs an anchor. -->' },
+    { line: 6, endLine: 7, kind: 'unmarked', text: '<!-- sflow:guidance Before drafting, read the request and the attachments. -->' }
+  ] });
+
+  // Marked guidance wrapped over two lines is the same note, saying only that.
+  const marked = wrapped.replace('Write what', '<!-- sflow:guidance Write what').replace('an anchor.', 'an anchor. -->')
+    .replace('<!-- Before drafting, read the request\nand the attachments. -->', '<!-- sflow:guidance Before drafting, read the request and the attachments. -->');
+  const [again] = await judge({ 'spec.md': marked, 'plan.md': PLAN, 'build.md': '# Build\n' });
+  assert.equal(again.code, 'CHECK_TEMPLATE_GUIDANCE');
+  assert.match(again.title, /wrapped over several lines/u);
+  assert.match(again.detail, /lines 3-4 hold a paragraph wrapped over several lines, which an agent quoting it as one line cannot match/u);
+
+  // Marked, one line per paragraph: nothing to say. TODO lines, anchors and tables are the author's, never guidance.
+  assert.deepEqual(await judge({ 'spec.md': `${SPEC}\n<!-- sflow:guidance Write one requirement per line. -->\n`, 'plan.md': PLAN, 'build.md': '# Build\n' }), []);
+});
+
+test('an anchor written only in guidance defines no clause; a deterministic step\'s template is not judged for guidance', async () => {
+  const onlyGuidance = '# {{work.id}}\n\n## Requirements\n\n<!-- sflow:guidance For example: - Export every row. [{{work.id}}:REQ-001] -->\n';
+  const findings = await judge({ 'spec.md': onlyGuidance, 'plan.md': PLAN, 'build.md': '# Build\n' });
+  assert.deepEqual(codes(findings).filter(([code]) => code !== 'CHECK_TEMPLATE_PLANNED_TABLE'), [['CHECK_TEMPLATE_CLAUSE_ANCHORS', 'spec', 'problem']]);
+  assert.match(findings[0].title, /defines no requirement clauses/u);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-template-guidance-'));
+  await mkdir(path.join(root, 'templates'), { recursive: true });
+  await writeFile(path.join(root, 'templates', 'summary.md'), '# Summary\n\nThe kernel assembles this record from the\nchange set.\n');
+  const resolved = { id: 'team', phases: [{ id: 'summary', label: 'Summary', template: 'summary.md', artifact: { kind: 'implementation-summary' }, generation: { producer: 'deterministic' } }] };
+  assert.deepEqual(await templateConformanceFindings(resolved, { read: templateReader(root, 'templates') }), []);
+  resolved.phases[0].generation = { producer: 'governed-agent' };
+  assert.deepEqual(codes(await templateConformanceFindings(resolved, { read: templateReader(root, 'templates') })), [['CHECK_TEMPLATE_GUIDANCE', 'summary', 'note']]);
+});

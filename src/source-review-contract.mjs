@@ -1,7 +1,7 @@
 /** One authoring contract for the context packet and the pre-retention format check. */
 import { z } from 'zod';
 
-import { agentInputIssues, valueAtField } from './records.mjs';
+import { agentInputIssues, valueAtField } from './text-lines.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses, FULFILLMENT_TYPES } from './specifications.mjs';
 import { sourceReviewScenarioIds } from './source-grounded-review.mjs';

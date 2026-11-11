@@ -13,7 +13,7 @@
  * later approved plan generation supersedes its old corrections. Pure: no I/O.
  */
 import { z } from 'zod';
-import { agentInputIssues, knownChoiceWords, nearestKnown, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { applyPlanEvidenceAmendments, evidenceOwnerAuthorities } from './plan-evidence-amendments.mjs';
 import { fallbackAuthorities } from './approval-fallback.mjs';
@@ -60,6 +60,16 @@ export const PlanRowCorrectionSchema = z.strictObject({
   ? Boolean(value.intentAmendment) && value.authorizationId === null
   : !value.intentAmendment && value.authorizationId !== null && value.operations.every((operation) => operation.op !== 'keep-row')),
 { message: 'a correction is reviewed in a terminal, or carried by an intent amendment, which alone keeps a row as it is' });
+
+/**
+ * "use X exactly" for a value written without its namespace or in another case, else the values to choose
+ * from (at most 12). Local, not text-lines.mjs: this module is in the graph every session read loads.
+ */
+function choiceWords(given, values) {
+  const upper = String(given ?? '').toUpperCase();
+  const matches = values.filter((entry) => entry.toUpperCase() === upper || entry.toUpperCase().endsWith(`:${upper}`));
+  return matches.length === 1 ? `use ${matches[0]} exactly` : values.length ? `use one of: ${values.slice(0, 12).join(', ')}${values.length > 12 ? ', …' : ''}` : 'none is planned';
+}
 
 function invalid(message, details = undefined) {
   throw new SingularityFlowError(message, { code: 'PLAN_ROW_CORRECTION_INTEGRITY', ...(details ? { details } : {}) });
@@ -150,7 +160,7 @@ function applyOperation(result, operation, { check }) {
     // with an evidence correction instead, so a proof never loses its witness here.
     const removed = operation.op === 'remove-test' ? operation.test : operation.from;
     const tests = claim.tests ?? [];
-    check(tests.includes(removed), `${removed} is not a planned test of ${id}; ${knownChoiceWords(nearestKnown(removed, tests))}.`, { clauseId: id, allowed: tests.slice(0, 12) });
+    check(tests.includes(removed), `${removed} is not a planned test of ${id}; ${choiceWords(removed, tests)}.`, { clauseId: id, allowed: tests.slice(0, 12) });
     const stated = (result.verificationContracts ?? []).find((entry) => entry.clauseId === id);
     const witnessed = (stated?.slots ?? []).some((entry) => entry.witness?.path === removed);
     if (operation.op === 'remove-test') {
@@ -170,7 +180,7 @@ function applyOperation(result, operation, { check }) {
   }
   const paths = claim.expectedPaths ?? [];
   const removed = operation.op === 'remove-location' ? operation.path : operation.from;
-  check(paths.includes(removed), `${removed} is not an expected path of ${id}; ${knownChoiceWords(nearestKnown(removed, paths))}.`, { clauseId: id, allowed: paths.slice(0, 12) });
+  check(paths.includes(removed), `${removed} is not an expected path of ${id}; ${choiceWords(removed, paths)}.`, { clauseId: id, allowed: paths.slice(0, 12) });
   const next = paths.filter((entry) => entry !== removed);
   if (operation.op === 'replace-location') {
     check(!paths.includes(operation.to), `${operation.to} is already an expected path of ${id}.`, { clauseId: id });
@@ -215,8 +225,7 @@ export function recordPlanRowCorrection(workflow, {
       refused(`${clauseId} is still an approved clause of this Story, so its row stays; correct the row instead.`, { clauseId });
     }
     if (input.op !== 'remove-row' && !active.has(clauseId)) {
-      const near = nearestKnown(clauseId, [...active]);
-      refused(`${clauseId || 'That clause'} is not an approved clause of this Story; ${knownChoiceWords(near)}.`, { clauseId, ...(near.value ? {} : { allowed: near.allowed }) });
+      refused(`${clauseId || 'That clause'} is not an approved clause of this Story; ${choiceWords(clauseId, [...active])}.`, { clauseId, allowed: [...active].slice(0, 12) });
     }
     let operation;
     if (input.op === 'keep-row') {
@@ -277,8 +286,8 @@ export function recordPlanRowCorrection(workflow, {
   };
   const checked = PlanRowCorrectionSchema.safeParse(correction);
   if (!checked.success) {
-    const findings = agentInputIssues(checked.error.issues, correction, { schema: PlanRowCorrectionSchema });
-    refused(`The plan correction is not well formed: ${findings.map((entry) => entry.message).join(' ')}`, { findings });
+    // Every problem at once, with its field (the operations were already checked field by field above).
+    refused(`The plan correction is not well formed: ${checked.error.issues.map((issue) => `${issue.path.join('.') || 'correction'}: ${issue.message}`).join('; ')}.`);
   }
   workflow.planAmendments.push(correction);
   return correction;

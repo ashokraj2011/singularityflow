@@ -10,7 +10,7 @@ import { run, SingularityFlowError } from './util.mjs';
 import { hasPublishedPhaseGeneration } from './code-submission-evidence.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
-import { assertConfirmation } from './records.mjs';
+import { assertConfirmation } from './text-lines.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const fail = (message, code, details) => { throw new SingularityFlowError(message, { code, details }); };

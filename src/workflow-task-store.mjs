@@ -10,7 +10,8 @@ import { readPrivateSidecar, writeMutablePrivateSidecar, writeImmutablePrivateSi
 import { withSubjectLock } from './subject-lock.mjs';
 import { workflowTaskIdentity, workflowTaskInputSha256, validateWorkflowTask, updateWorkflowTask,
   mergeWorkflowTasks, workflowTaskResume, workflowTaskApplies, workflowTaskHasGeneration } from './workflow-task.mjs';
-import { assertConfirmation, recordSha256 } from './records.mjs';
+import { recordSha256 } from './records.mjs';
+import { assertConfirmation } from './text-lines.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';

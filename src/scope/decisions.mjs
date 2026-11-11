@@ -13,7 +13,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { CLAUSE_LINKED_DISPOSITIONS, DECIDABLE_SCOPE_DISPOSITIONS } from './extract.mjs';
 import { fallbackAuthorities } from '../approval-fallback.mjs';
 import { countedRecords, inDecisionOrder, isWithdrawn } from '../presence/counted.mjs';
-import { assertConfirmation } from '../records.mjs';
+import { assertConfirmation } from '../text-lines.mjs';
 
 /** Who may decide the scope: the approval groups of the steps that define it, else the nearest step's. */
 export function scopeAuthorities(workflow) {

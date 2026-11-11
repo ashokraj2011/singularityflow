@@ -31,7 +31,7 @@ import { pathToFileURL } from 'node:url';
 import { action, commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { PACKAGE_ROOT } from '../package-root.mjs';
-import { assertConfirmation, copySlip } from '../records.mjs';
+import { assertConfirmation, copySlip } from '../text-lines.mjs';
 import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card']);

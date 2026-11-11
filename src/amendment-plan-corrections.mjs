@@ -22,7 +22,7 @@ import { staleClausesOf } from './scope/revisions.mjs';
 import { applyPlanCorrections, PlanRowCorrectionSchema, planCorrectionAuthorities, recordPlanRowCorrection } from './plan-row-corrections.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { countedRecords } from './presence/counted.mjs';
-import { agentInputIssues } from './records.mjs';
+import { agentInputIssues } from './text-lines.mjs';
 import { extractClauses, loadActiveSpecRecords, normalizeClaimMap } from './specifications.mjs';
 import { requiredRepoPath } from './story-state-validation.mjs';
 import { workDir, workDirRelative } from './story-paths.mjs';

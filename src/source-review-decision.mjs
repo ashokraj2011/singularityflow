@@ -1,7 +1,7 @@
 /** An exact human disposition packet; preparing it never grants reviewer or lifecycle authority. */
 import { createHash } from 'node:crypto';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { assertConfirmation } from './records.mjs';
+import { assertConfirmation } from './text-lines.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export function sourceReviewDecisionPacket({ workflow, phaseId, status, findingId, reason, actor, authority }) {

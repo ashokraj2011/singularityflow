@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { branch, head, identity, exactFileAtObject } from './git.mjs';
-import { assertConfirmation, knownChoiceWords, nearestKnown, recordSha256, canonicalJson } from './records.mjs';
+import { recordSha256, canonicalJson } from './records.mjs';
 import { loadActiveSpecRecords, readBoundSpecificationClaimMap } from './specifications.mjs';
 import { validatePlannedVerification } from './verification/intent.mjs';
 import { EvidenceAmendmentSchema, evidenceCorrectionProjection, evidenceOwnerAuthorities } from './plan-evidence-amendments.mjs';
@@ -96,6 +96,8 @@ export async function prepareEvidenceContractCorrection(root, config, workflow, 
     && (!(record.claims[id].steps ?? []).length || record.claims[id].steps.includes(phase.id)));
   const claim = record.claims?.[clauseId];
   if (!/^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(clauseId) || !claim || ((claim.steps ?? []).length && !claim.steps.includes(phase.id))) {
+    // Loaded only on this refusal: the helpers stay out of the eager graph this module is in.
+    const { knownChoiceWords, nearestKnown } = await import('./text-lines.mjs');
     fail(`${clauseId || 'That'} is not an approved acceptance criterion the plan allocates to ${phase.id}; ${knownChoiceWords(nearestKnown(clauseId, allocated))}.`,
       'PLAN_EVIDENCE_CORRECTION_INVALID', { allowed: allocated.slice(0, 12) });
   }
@@ -136,7 +138,7 @@ export async function prepareEvidenceContractCorrection(root, config, workflow, 
 export async function acceptEvidenceContractCorrection(root, config, workflow, options = {}) {
   await assertNoPendingPublication(root, config, workflow, 'correct an evidence contract');
   const preview = await prepareEvidenceContractCorrection(root, config, workflow, options);
-  assertConfirmation(options.confirm, preview.packetSha256, { fail, code: 'PLAN_EVIDENCE_CORRECTION_STALE', details: { packetSha256: preview.packetSha256 },
+  (await import('./text-lines.mjs')).assertConfirmation(options.confirm, preview.packetSha256, { fail, code: 'PLAN_EVIDENCE_CORRECTION_STALE', details: { packetSha256: preview.packetSha256 },
     message: 'Review and confirm a fresh exact evidence correction packet.' });
   const actor = identity(root);
   const authority = requireApprovalAuthority(workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities,

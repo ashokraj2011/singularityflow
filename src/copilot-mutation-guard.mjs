@@ -13,7 +13,7 @@ const stagingPaths = () => import('./phase-staging-paths.mjs');
 const answerBinding = () => import('./copilot-answer-binding.mjs');
 // The turns whose decision commands are held to the person's answers.
 export const ANSWER_BOUND_SKILLS = new Set(ANSWER_BOUND_TURNS);
-import { copySlip } from './records.mjs';
+import { copySlip } from './text-lines.mjs';
 import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';

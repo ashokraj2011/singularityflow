@@ -14,7 +14,7 @@ import { SingularityFlowError } from './util.mjs';
 import { phaseFindingPolicy, phaseFindingIdentity, PHASE_REPAIR_POLICY_REVISION,
   findingOwnedByPhase, testRepairProgress } from './phase-finding-policy.mjs';
 import { createPhaseCheckpoint } from './phase-checkpoint.mjs';
-import { assertConfirmation } from './records.mjs';
+import { assertConfirmation } from './text-lines.mjs';
 
 const fail = (message, code, details = {}) => { throw new SingularityFlowError(message, { code, details }); };
 /** Progress means changed findings, not padding, moved line numbers or unrelated source edits. */

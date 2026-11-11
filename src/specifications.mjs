@@ -996,7 +996,7 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, pl
     if (claims[id]) throw new SingularityFlowError(`${kind} claim map defines clause ${id} more than once using different letter casing.`);
     if (known.size && !known.has(id)) {
       throw new SingularityFlowError(`${kind} claim map references unknown clause ${id}. Cite only clauses this Story defines; ${clauseChoiceWords(id, known)}.`, {
-        code: 'SPEC_CLAIM_MAP_UNKNOWN_CLAUSE', details: { kind, clause: id, allowed: [...known].slice(0, 12) }
+        code: 'SPEC_CLAIM_MAP_UNKNOWN_CLAUSE', details: { kind, clause: id }
       });
     }
     if (!claim || typeof claim !== 'object' || Array.isArray(claim)) throw new SingularityFlowError(`${kind} claim ${id} must be an object.`);

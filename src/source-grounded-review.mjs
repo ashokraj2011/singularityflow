@@ -8,7 +8,8 @@
  */
 import { createHash } from 'node:crypto';
 
-import { canonicalJson, copySlip, editDistanceWithin, knownChoiceWords, nearestKnown, recordSha256 } from './records.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
+import { copySlip, editDistanceWithin, knownChoiceWords, nearestKnown } from './text-lines.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
 import { nonTestVerification } from './verification/intent.mjs';

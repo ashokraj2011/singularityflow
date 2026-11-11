@@ -12,7 +12,8 @@
  * each raise or decision is one appended entry. Pure: no I/O.
  */
 import { z } from 'zod';
-import { agentInputIssues, discrepancyItemSha256, knownChoiceWords, nearestKnown } from './records.mjs';
+import { discrepancyItemSha256 } from './records.mjs';
+import { agentInputIssues, knownChoiceWords, nearestKnown } from './text-lines.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';

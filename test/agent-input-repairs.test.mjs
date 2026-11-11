@@ -11,7 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { z } from 'zod';
 
-import { agentInputIssues, assertConfirmation, copySlip, nearestKnown } from '../src/records.mjs';
+import { agentInputIssues, assertConfirmation, copySlip, nearestKnown } from '../src/text-lines.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { UpstreamIssueSchema, UpstreamIssueDecisionSchema } from '../src/upstream-issues.mjs';
@@ -155,7 +155,7 @@ async function sourceFiles(directory) {
 test('every --confirm an agent feeds goes through assertConfirmation; the rest may only shrink', async () => {
   let remaining = 0;
   for (const file of await sourceFiles('src')) {
-    if (file === path.join('src', 'records.mjs')) continue;
+    if (file === path.join('src', 'text-lines.mjs')) continue;
     const lines = (await readFile(path.join(ROOT, file), 'utf8')).split('\n');
     for (const line of lines) {
       if (!RAW.test(line) || COMPUTED.some(([at, text]) => at === file.split(path.sep).join('/') && line.includes(text))) continue;

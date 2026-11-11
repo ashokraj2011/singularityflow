@@ -80,7 +80,7 @@ export async function prepareApprovalDecisions(root, config, workflow, phase, { 
     refused(`Recording decisions with the approval needs the digest of the list they were chosen from: add --decisions ${list.packetSha256}, after reviewing it with ${route.command}.`,
       'APPROVAL_DECISIONS_CONFIRMATION_REQUIRED', { packetSha256: list.packetSha256, nextAction: route });
   }
-  const { assertConfirmation, copySlip } = await import('./records.mjs');
+  const { assertConfirmation, copySlip } = await import('./text-lines.mjs');
   if (!DIGEST.test(digest) && copySlip(digest, list.packetSha256) !== 'slip') refused(`--decisions takes the list's digest: sha256:<64 hexadecimal characters>; the current list's is ${list.packetSha256}.`, 'APPROVAL_DECISIONS_OPTIONS_INVALID', { packetSha256: list.packetSha256 });
   // Twelve characters of each were shown, so a slip after them read as the same digest "changed" [copied values].
   assertConfirmation(digest, list.packetSha256, { code: 'DECISIONS_PACKET_CHANGED', fail: refused, label: '--decisions',

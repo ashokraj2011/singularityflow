@@ -143,8 +143,11 @@ function deliveryValidation(review, delivered, graph) {
   if (app.status === 'declared') {
     for (const entry of app.entries ?? []) {
       if (entry.started && entry.ready) choices.push({ id: `open:${entry.id}`, label: `Open ${entry.name}`, description: entry.url, entryId: entry.id });
+      // `app start` stays attached until the application exits: run in the foreground it held the turn until the host's
+      // timeout, which stopped the application with it (agent-text audit, 2026-11-11).
       else if (!entry.started && !entry.portTaken && entry.start) choices.push({ id: `start:${entry.id}`, label: `Start ${entry.name}`,
-        description: 'Use this checkout’s declared launch configuration.', entryId: entry.id, route: entry.start });
+        description: 'Use this checkout’s declared launch configuration.', entryId: entry.id, route: entry.start, runMode: 'background',
+        how: 'Run route.command with your terminal tool\'s background (async) mode so it keeps running, then run singularity-flow app status --json until this entry is ready or reports its failure.' });
     }
   }
   if (['declared', 'none-declared'].includes(app.status)) choices.push({ id: 'configure', label: 'Set up or change local run configuration',
@@ -173,7 +176,7 @@ function deliveryValidation(review, delivered, graph) {
         detail: checks.length ? 'Capture or attach genuine evidence, then use the human review checklist. A screenshot alone is not a sign-off.'
           : 'Check the acceptance criteria against tests, API responses or CLI output.' }
     ], choices, recordsAcceptance: false,
-    instruction: 'Ask this question now with these choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. Execute only the selected returned route when this surface permits it; otherwise hand off to that exact skill. Cancellation records nothing. Continue does not waive checks, submit or approve.' };
+    instruction: 'Ask this question now with these choices. Prefer the native sflowDeliveryValidation tool; otherwise use the host question tool. Execute only the selected returned route when this surface permits it, a start in the background as its how says; otherwise hand off to that exact skill. Cancellation records nothing. Continue does not waive checks, submit or approve.' };
 }
 
 /**

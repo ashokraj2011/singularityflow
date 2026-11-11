@@ -435,10 +435,10 @@ export function agentAct(result) {
   if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
     state: 'await-human', do: null, read: ['data.outcome'],
     ...(result.data.outcome.validation ? { ask: { kind: 'choice', question: result.data.outcome.validation.question,
-      choices: result.data.outcome.validation.choices.map(({ id, label, description }) => ({ id, label, description })),
+      choices: result.data.outcome.validation.choices.map(({ id, label, description, how = null }) => ({ id, label, description, ...(how ? { how } : {}) })),
       tool: { name: 'sflowDeliveryValidation', input: { workId: result.data.outcome.workId,
         ...(result.data.outcome.application?.capability ? { capability: result.data.outcome.application.capability } : {}) } },
-      how: 'Ask now using the native tool or host question tool. Execute only the selected returned route if this skill permits it; otherwise relay its exact skill. Cancellation records nothing; do not repeat the question unchanged.' } } : {}),
+      how: 'Ask now using the native tool or host question tool. Execute only the selected returned route if this skill permits it (a Start in the terminal tool\'s background mode, as its choice says, never the foreground); otherwise relay its exact skill. Cancellation records nothing; do not repeat the question unchanged.' } } : {}),
     said: 'Show actual retained test results, diagnostic runs separately, application readiness and outstanding human checks. Ask the returned validation question now. Start or configure the app, run tests, or open evidence only after the person chooses. Continue preserves all existing sign-offs; never accept, submit or approve from this choice.' };
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.

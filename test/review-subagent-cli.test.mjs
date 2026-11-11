@@ -39,7 +39,10 @@ test('the handoff starts the pinned reviewer as a sub-agent in this chat, then r
   assert.match(handoff.instruction, /do not review, edit or retain it yourself/u);
   // Started in the background, the author ended its turn on /sf-review-source while the reviewer ran (Story anu-bin, 2026-11-11).
   assert.match(handoff.instruction, /Run it in the foreground and wait for its result \(mode 'sync' where the tool has one, never 'background'\)/u);
-  assert.match(handoff.instruction, /never end the turn or offer \/sf-review-source implement while it runs/u);
+  // "wait for its completion notice" named no way to wait while the host said to end the response (agent-text audit, 2026-11-11).
+  assert.doesNotMatch(handoff.instruction, /wait for its completion notice/u);
+  assert.match(handoff.instruction, /If a host starts it in the background anyway: read or wait for that agent's result with the host's own tool when it has one; if ending your response is the only way to wait, end it saying only that the review is running and continues here when it returns, with no route or skill\./u);
+  assert.match(handoff.instruction, /never offer \/sf-review-source implement while it runs, and never end the turn before it returns but as just said/u);
   // A correction is confirmed by the person in this chat and corrected in the same turn, never left as "/sf-phase" (Story anu-bin, 2026-11-11).
   assert.match(handoff.instruction, /a correction: show the person its findings and ask now with ask_user whether to correct them in generation 3; on yes, run the route's command and correct the draft in this same turn, then prepublish; never end the turn on that route\. A ready review goes to submission\./u);
   assert.match(handoff.instruction, /No sub-agent tool: end with "Run this in a new chat:" and \/sf-review-source implement\.$/u);

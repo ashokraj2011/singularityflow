@@ -516,7 +516,7 @@ export async function walkCandidate({ repository, candidate, workflow }) {
   if (!operationById('workflow.walk')) return { available: false, reason: 'This SFlow has no `workflow walk`, so only `workflow validate` checked the result.', stops: [] };
   const { withConfigurationReadRoot } = await import('../configuration-read-scope.mjs');
   const { parseArgs } = await import('../util.mjs');
-  const { run } = await import('../commands/workflow.mjs');
+  const workflowCommand = await import('../commands/workflow.mjs');
   const argv = ['workflow', 'walk', workflow, '--json'];
   const lines = [];
   const log = console.log;
@@ -525,7 +525,7 @@ export async function walkCandidate({ repository, candidate, workflow }) {
   console.log = (...values) => { lines.push(values.join(' ')); };
   try {
     process.chdir(repository);
-    await withConfigurationReadRoot(repository, candidate, { kind: 'working-tree', ref: null, commit: null }, () => run(argv, parseArgs(argv)));
+    await withConfigurationReadRoot(repository, candidate, { kind: 'working-tree', ref: null, commit: null }, () => workflowCommand.run(argv, parseArgs(argv)));
   } catch (error) {
     return { available: true, command: `singularity-flow ${argv.join(' ')}`, error: error.message, stops: [{ id: 'walk-failed', step: null, title: `workflow walk could not run: ${error.message}`, detail: null }] };
   } finally {

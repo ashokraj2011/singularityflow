@@ -117,17 +117,11 @@ function skillRouteForCommand(command, skill, fallback) {
     const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+spec\s+author\s+[a-z]+\s+(SPEC-[A-Z0-9]+(?:-[A-Z0-9]+)*)(?:\s|$)/u);
     return match ? `${selected} ${match[1]}` : selected;
   }
-  if (selected === '/sf-fix-workflow') {
-    const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+workflow\s+validate\s+([a-z0-9]+(?:-[a-z0-9]+)*)(?:\s|$)/u);
-    return match ? `${selected} ${match[1]}` : selected;
-  }
-  // A simpler copy of a workflow starts with the same two options; reading one build goes on with it.
-  if (selected === '/sf-build-workflow') {
-    const plain = !/[\u0000-\u001f\u007f]/u.test(value);
-    const simplify = plain && value.match(/^(?:singularity-flow|sflow)\s+workflow\s+build\s+start\s+--from-workflow\s+([a-z0-9]+(?:-[a-z0-9]+)*)\s+--simplify$/u);
-    if (simplify) return `${selected} --from-workflow ${simplify[1]} --simplify`;
-    const build = plain && value.match(/^(?:singularity-flow|sflow)\s+workflow\s+build\s+(?:status|check|verify)\s+--build\s+(wb_[a-f0-9]{16})$/u);
-    return build ? `${selected} --build ${build[1]}` : selected;
+  // The workflow a route names goes with it: /sf-fix-workflow ID, and a simpler copy of one
+  // (/sf-build-workflow --from-workflow ID --simplify).
+  if (selected === '/sf-fix-workflow' || selected === '/sf-build-workflow') {
+    const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+workflow\s+(?:validate\s+([a-z0-9]+(?:-[a-z0-9]+)*)(?:\s|$)|build start (--from-workflow [a-z0-9-]+ --simplify)$)/u);
+    return match ? `${selected} ${match[1] ?? match[2]}` : selected;
   }
   if (selected === '/sf-workflows') {
     const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+workflow\s+((?:intent|markup)\s+.+)$/u);

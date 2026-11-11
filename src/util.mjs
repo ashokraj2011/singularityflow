@@ -232,7 +232,9 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   // Run and test: app start --debug, tests summary --latest. Environment files: env files add|remove --personal, create --from-template, root|link --clear.
   'debug', 'latest', 'personal', 'from-template', 'clear',
   // doctor --repair-hooks [PCR:REQ-030].
-  'repair-hooks'
+  'repair-hooks',
+  // workflow build start --from-workflow ID --simplify (src/commands/workflow-build.mjs).
+  'simplify'
 ]));
 
 /**

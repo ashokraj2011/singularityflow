@@ -273,6 +273,45 @@ test('a configuration that does not load is fixed first, then what it hid, in ro
   assert.match(refused.problems[0].message, /still drafts/u);
 });
 
+test('a workflow.yml a YAML 1.1 writer broke is repaired as text, through configuration save', async () => {
+  const root = await fmlyRepository();
+  const file = path.join(root, 'singularity/workflow.yml');
+  const text = await readFile(file, 'utf8');
+  await writeFile(file, text.replace(/^(\s+signing:) off$/mu, '$1 false').replace(/^(\s+build:) off$/mu, '$1 false'));
+  run('git', ['commit', '-am', 'saved by a YAML 1.1 writer'], root);
+  assert.equal(json(root, ['workflow', 'check', WORKFLOW]).configuration.valid, false);
+  const result = json(root, ['workflow', 'fix', WORKFLOW, '--write']);
+  assert.equal(result.changeSet, null, 'Workflow Studio cannot read a configuration that does not load');
+  assert.equal(result.configurationFiles.length, 1);
+  assert.equal(result.configurationFiles[0].path, 'singularity/workflow.yml');
+  assert.equal(result.configurationFiles[0].content, text, 'false is off again, and nothing else changed');
+  assert.equal(result.after.configurationLoads, true, JSON.stringify(result.after));
+  assert.equal(await readFile(result.configurationFiles[0].written, 'utf8'), text);
+  assert.match(result.next[0], /^Propose for review: singularity-flow configuration save singularity\/workflow\.yml --propose < /u);
+  assert.notEqual(await readFile(file, 'utf8'), text, 'the repository keeps its file until the proposal is applied');
+});
+
+test('every fixer runs on a finding of its code, and every question it asks has choices and says why', async () => {
+  const root = await fmlyRepository();
+  const { fixContext, WORKFLOW_FIXERS, CONFIGURATION_FIXER } = await import('../src/workflow-fix/index.mjs');
+  const { FixDraft } = await import('../src/workflow-fix/draft.mjs');
+  const { checkWorkflowConfiguration } = await import('../src/workflow-check.mjs');
+  const ctx = await fixContext(root);
+  ctx.check = await checkWorkflowConfiguration(root, { workflows: [WORKFLOW] });
+  const subject = { workflow: WORKFLOW, step: 'fmly-code', group: 'product-approvers', skill: 'fmly-e2e-test-generation-source', agent: 'fmly-delivery',
+    instruction: 'none', file: 'singularity/skill-library/fmly-e2e-test-generation-source/SKILL.md', template: 'fmly/requirements.md' };
+  for (const [code, entry] of [...Object.entries(WORKFLOW_FIXERS), ['YAML_BAD_INDENT', CONFIGURATION_FIXER]]) {
+    ctx.draft = new FixDraft({ configRoot: ctx.configRoot, templatesRoot: ctx.templatesRoot, raw: ctx.raw, agents: ctx.model.agents });
+    const finding = { id: 'f-000000000001', code, severity: 'problem', title: `A ${code} finding`, detail: `Something about ${code}.`, subject,
+      location: { file: 'singularity/workflow.yml', line: 3 }, fix: { text: 'Fix it.' } };
+    const { value } = await ctx.draft.record(() => entry.fix([finding], ctx));
+    for (const question of value?.questions ?? []) {
+      assert.ok(question.ask && question.why && question.choices.length, `${code}: ${JSON.stringify(question)}`);
+      assert.ok(question.choices.every((choice) => choice.id && choice.label && typeof choice.apply === 'function'), `${code}: every choice applies`);
+    }
+  }
+});
+
 test('workflow fix is a read that never crosses the model boundary', async () => {
   const { resolveOperation } = await import('../src/command-registry.mjs');
   for (const options of [{}, { write: true }, { answers: '-' }]) {

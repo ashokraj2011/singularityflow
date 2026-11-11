@@ -839,10 +839,50 @@ async function unreadable([finding]) {
 async function configurationProblem(findings, ctx) {
   const results = { questions: [] };
   const done = [];
-  for (const finding of findings) {
-    const problem = ctx.configurationProblems.find((entry) => entry.line === finding.location?.line && entry.code === finding.code) ?? null;
+  // Later lines first, so a line taken out does not move the ones still to mend.
+  for (const finding of [...findings].sort((left, right) => (right.location?.line ?? 0) - (left.location?.line ?? 0))) {
+    const problem = ctx.configurationProblems.find((entry) => entry.line === finding.location?.line && entry.code === finding.code
+      && (finding.detail ?? '').startsWith(String(entry.message ?? '').slice(0, 40))) ?? ctx.configurationProblems.find((entry) => entry.line === finding.location?.line && entry.code === finding.code) ?? null;
     const file = problem?.file ?? finding.subject?.file;
-    const line = problem?.line ?? finding.location?.line;
+    // The key the message names ("Work type 'x' intelligence.worldModel must be ..."), found by its keys
+    // when the diagnosis located only the work type, or nothing.
+    const named = /^(?:Work type '([^']+)' )?([A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*) must be/u.exec(problem?.message ?? finding.detail ?? '');
+    const keys = named ? [...(named[1] ? ['workTypes', named[1]] : []), ...named[2].split('.')] : null;
+    const keyed = keys && file ? ctx.locate(file, keys) : null;
+    let keyLine = keyed && (await ctx.draft.lineOf(file, keyed))?.trim().startsWith(`${keys.at(-1)}:`) ? keyed : null;
+    if (!keyLine && keys && file) {
+      // Nested where the message does not say: the one line that sets that key, when only one does.
+      const lines = (await ctx.draft.fileText(file))?.split('\n') ?? [];
+      const setting = lines.map((text, index) => ({ text, index })).filter(({ text }) => new RegExp(`^\\s*${keys.at(-1)}:\\s*\\S`, 'u').test(text));
+      if (setting.length === 1) keyLine = setting[0].index + 1;
+    }
+    const line = keyLine ?? problem?.line ?? finding.location?.line ?? null;
+    // The values the validator accepts: its own list, else the ones its message names ("must be off or commit").
+    const choices = problem?.choices ?? /must be (?:one of )?([a-z0-9-]+(?:, [a-z0-9-]+)*,? or [a-z0-9-]+|[a-z0-9-]+(?:, [a-z0-9-]+)+)\./u.exec(problem?.message ?? finding.detail ?? '')?.[1]
+      .split(/,? or |, /u).filter(Boolean) ?? [];
+    // A field the configuration does not have, written on one line: it goes.
+    const unknownField = /contains unknown field '([^']+)'/u.exec(problem?.message ?? finding.detail ?? '')?.[1];
+    const fieldLine = unknownField && line ? await ctx.draft.lineOf(file, line) : null;
+    const nextLine = fieldLine != null ? await ctx.draft.lineOf(file, line + 1) : null;
+    if (fieldLine != null && new RegExp(`^(\\s*)(?:- )?${unknownField}:\\s*[^\\s#|>]`, 'u').test(fieldLine)
+        && !(nextLine && /^\s*/u.exec(nextLine)[0].length > /^\s*/u.exec(fieldLine)[0].length)) {
+      await ctx.draft.editLine(file, line, () => null, { remove: true });
+      done.push(`${file} line ${line}: '${unknownField}', a field the configuration does not have, goes`);
+      continue;
+    }
+    const unknownGroup = /Phase '([^']+)' approval references unknown authority '([^']+)'/u.exec(problem?.message ?? finding.detail ?? '');
+    if (unknownGroup) {
+      // Workflow Studio reads the configuration as written, so the step's sign-off is changed there.
+      const [, stepId, missing] = unknownGroup;
+      const approval = ctx.raw.phases?.[stepId]?.approval ?? {};
+      const groups = (approval.authorities ?? []).filter((id) => id !== missing);
+      const groupsHere = Object.entries(ctx.raw.approvalAuthorities ?? {}).map(([id, group]) => ({ id, label: group?.label ?? id, members: group?.members ?? [], githubTeams: group?.githubTeams ?? [], status: 'people' }));
+      results.questions.push({ ask: `${ctx.raw.phases?.[stepId]?.label ?? stepId} is signed off by '${missing}', a group that does not exist. Which group signs it off?`, why: PEOPLE_WHY,
+        choices: groupChoices({ ...ctx, model: { ...ctx.model, groups: groupsHere } }, { exclude: groups,
+          apply: (draft, group) => draft.phase(stepId, { approval: { groups: [...new Set([...groups, group])], minimum: approval.minimum ?? 1, ...(approval.rejectTo ? { rejectTo: approval.rejectTo } : {}) } }),
+          create: { id: missing, label: missing.split('-').map((part) => part[0].toUpperCase() + part.slice(1)).join(' ') } }) });
+      continue;
+    }
     if (problem?.code === 'WORKFLOW_TEMPLATE_MISSING' && problem.path) {
       const [scope, , , step] = problem.path;
       const stepId = scope === 'phases' ? problem.path[1] : step;
@@ -850,6 +890,30 @@ async function configurationProblem(findings, ctx) {
       if (problem.suggestion) ctx.draft.phase(stepId, { template: problem.suggestion }, { workflow: workflowId });
       else ctx.draft.create({ kind: 'template', path: /uses template '([^']+)'/u.exec(problem.message)?.[1] }, newStepTemplate(stepId, stepId));
       done.push(problem.suggestion ? `${stepId} uses template ${problem.suggestion}` : `the missing template of ${stepId} is created from the starter`);
+      continue;
+    }
+    // A YAML 1.1 writer turns off and on into false and true; where off (on) is the one the validator wants, it is meant.
+    // Every line that sets that key to the flag under that parent is refused alike, so each is mended.
+    const flagged = [];
+    if (file && keys && !keyLine && choices.length) {
+      const lines = (await ctx.draft.fileText(file))?.split('\n') ?? [];
+      lines.forEach((text, index) => {
+        const match = new RegExp(`^(\\s*)${keys.at(-1)}:\\s*(false|true)\\s*(?:#.*)?$`, 'u').exec(text);
+        if (!match) return;
+        const parent = lines.slice(0, index).reverse().find((above) => /\S/u.test(above) && /^\s*/u.exec(above)[0].length < match[1].length);
+        if (keys.length < 2 || new RegExp(`^\\s*${keys.at(-2)}:`, 'u').test(parent ?? '')) flagged.push({ line: index + 1, flag: match[2] });
+      });
+    } else if (line) {
+      const flag = /:\s*(false|true)\s*(?:#.*)?$/u.exec((await ctx.draft.lineOf(file, line)) ?? problem?.source ?? '')?.[1];
+      if (flag) flagged.push({ line, flag });
+    }
+    const mended = flagged.filter((entry) => choices.includes(entry.flag === 'false' ? 'off' : 'on'));
+    if (file && mended.length) {
+      for (const entry of mended) {
+        const meant = entry.flag === 'false' ? 'off' : 'on';
+        await ctx.draft.editLine(file, entry.line, (text) => text.replace(/:(\s*)(false|true)(\s*(?:#.*)?)$/u, `:$1${meant}$3`));
+      }
+      done.push(`${file} line${mended.length === 1 ? '' : 's'} ${words(mended.map((entry) => String(entry.line)))}: ${mended[0].flag} becomes ${mended[0].flag === 'false' ? 'off' : 'on'}, the value a YAML writer turned into ${mended[0].flag}`);
       continue;
     }
     const swap = /^Change '(.+)' to '(.+)'\.$/u.exec(problem?.fix ?? finding.fix?.text ?? '');
@@ -865,7 +929,7 @@ async function configurationProblem(findings, ctx) {
     results.questions.push({ ask: `${file ?? 'singularity/workflow.yml'}${line ? ` line ${line}` : ''}: ${finding.detail ?? finding.title}${problem?.fix || finding.fix?.text ? ` ${problem?.fix ?? finding.fix.text}` : ''} What should the line say?`,
       why: 'The configuration does not load, and its own diagnosis names no single correct value; the right one is the author\'s.',
       answer: { kind: 'text' },
-      choices: [...(problem?.choices ?? []).slice(0, 8).map((choice) => ({ id: `value:${choice}`, label: choice, effect: `Line ${line} uses '${choice}'.`,
+      choices: [...choices.slice(0, 8).map((choice) => ({ id: `value:${choice}`, label: choice, effect: `Line ${line} uses '${choice}'.`,
         apply: (draft) => draft.editLine(file, line, (text) => text.replace(/:\s*.*$/u, `: ${choice}`)) })),
       ...(file && line ? [{ id: 'line', label: 'This text for the line', needs: 'text', effect: `Line ${line} becomes the text you give.`, apply: (draft, answer) => draft.editLine(file, line, () => String(answer?.text ?? '')) }] : [])] });
   }

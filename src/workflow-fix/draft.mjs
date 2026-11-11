@@ -135,8 +135,18 @@ export class FixDraft {
     this.touch(key);
   }
 
+  /** A configuration file's text as the fixes so far leave it, or null. */
+  async fileText(file) {
+    return this.lines.get(`file:${file}`)?.text ?? readFile(path.join(this.configRoot, file), 'utf8').catch(() => null);
+  }
+
+  /** One line of a configuration file as the fixes so far leave it. */
+  async lineOf(file, line) {
+    return (await this.fileText(file))?.split('\n')[line - 1] ?? null;
+  }
+
   /** One line of a configuration file that does not load, changed as written (`configuration save`). */
-  async editLine(file, line, transform) {
+  async editLine(file, line, transform, { remove = false } = {}) {
     const key = `file:${file}`;
     if (!this.lines.has(key)) {
       const base = await readFile(path.join(this.configRoot, file), 'utf8').catch(() => null);
@@ -146,10 +156,10 @@ export class FixDraft {
     const entry = this.lines.get(key);
     const lines = entry.text.split('\n');
     if (line < 1 || line > lines.length) return false;
-    const next = transform(lines[line - 1]);
-    if (next == null || next === lines[line - 1]) return false;
+    const next = remove ? null : transform(lines[line - 1]);
+    if (!remove && (next == null || next === lines[line - 1])) return false;
     if (this.recording && !this.recording.before.has(key)) this.recording.before.set(key, entry.text);
-    lines[line - 1] = next;
+    if (remove) lines.splice(line - 1, 1); else lines[line - 1] = next;
     entry.text = lines.join('\n');
     this.touch(key);
     return true;
@@ -207,8 +217,8 @@ export class FixDraft {
   }
 
   /** Every Studio change the draft holds, in the order first touched; a removal replaces any edit to what it removes. */
-  studioChanges() {
-    return this.order.filter((key) => !key.startsWith('file:')).map((key) => this.compile(key)).filter(Boolean);
+  studioChanges(exclude = null) {
+    return this.order.filter((key) => !key.startsWith('file:') && !exclude?.has(key)).map((key) => this.compile(key)).filter(Boolean);
   }
 
   /** Configuration files changed as text (a configuration that does not load), each with its new content. */

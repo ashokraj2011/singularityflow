@@ -11,7 +11,8 @@
  *
  * The result, `resultType: 'workflow-fix'`:
  *   findings   each finding checked, with how it is resolved: `change` (its change ID), `question`
- *              (its question ID), `answered`, or `covered` (an earlier change already does it)
+ *              (its question ID), `answered`, `covered` (an earlier change already does it), or
+ *              `packaged` (a workflow SFlow protects, which changes only with SFlow)
  *   changes    [{ id, code, findings, summary, ops, diffs, shared?, answers? }]: `ops` the Studio
  *              operations that make it (an op another change also shapes is in `shared`), `diffs`
  *              each text it edits as a unified diff
@@ -33,7 +34,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { checkWorkflowConfiguration } from '../workflow-check.mjs';
 import { buildStudioModel, planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../workflow-studio.mjs';
 import { FixDraft } from './draft.mjs';
-import { fixerFor } from './registry.mjs';
+import { CONFIGURATION_FIXER, fixerFor } from './registry.mjs';
 
 export { WORKFLOW_FIXERS, CONFIGURATION_FIXER, fixerFor } from './registry.mjs';
 export const WORKFLOW_FIX_RESULT = 'workflow-fix';
@@ -55,7 +56,8 @@ export function readFixAnswers(text) {
   return answers;
 }
 
-async function context(root) {
+/** What every fixer reads: the configuration as written, as loaded and as Workflow Studio models it. */
+export async function fixContext(root) {
   const configRoot = configurationReadRoot(root);
   const text = await readFile(path.join(configRoot, WORKFLOW_PATH), 'utf8').catch(() => '');
   let raw = {};
@@ -72,8 +74,12 @@ async function context(root) {
   const agents = await discoverAgents(root).catch(() => []);
   const ledger = await loadImportsLedger(configRoot).catch(() => ({ imports: {} }));
   const resolvedCache = new Map();
+  const { yamlLocator } = await import('../workflow-check.mjs');
+  const locators = new Map([[WORKFLOW_PATH, yamlLocator(text, WORKFLOW_PATH)]]);
   return {
     configRoot, raw, definition, configurationProblems, model,
+    /** The line of a key path in a configuration file, or null. */
+    locate: (file, keys) => locators.get(file)?.(keys)?.line ?? null,
     templatesRoot: model.templatesRoot ?? raw.templatesRoot ?? 'singularity/templates',
     readOnlyReviewers: new Set(agents.filter((agent) => agent.metadata?.['sflow-mode'] === 'read-only-review').map((agent) => agent.id)),
     importsLedger: ledger.imports ?? {},
@@ -103,7 +109,7 @@ function shownQuestion(entry) {
  */
 async function draftRound(root, { only, answers, round }) {
   const check = await checkWorkflowConfiguration(root, only);
-  const ctx = await context(root);
+  const ctx = await fixContext(root);
   ctx.check = check;
   const draft = new FixDraft({ configRoot: ctx.configRoot, templatesRoot: ctx.templatesRoot, raw: ctx.raw, agents: ctx.model.agents });
   ctx.draft = draft;
@@ -116,9 +122,11 @@ async function draftRound(root, { only, answers, round }) {
     seen.set(finding.id, count);
     return { finding, ref: count === 1 ? finding.id : `${finding.id}-${count}`, fixer: fixerFor(finding, { configurationLoads }) };
   });
+  // A packaged workflow SFlow protects changes with SFlow, never through a change set here.
+  const packaged = new Set(ctx.model.workflows.filter((entry) => entry.readOnly).map((entry) => entry.id));
   const groups = new Map();
   for (const entry of entries) {
-    if (!entry.fixer) continue;
+    if (!entry.fixer || packaged.has(entry.finding.subject?.workflow)) continue;
     const key = `${entry.finding.code}\0${entry.fixer.group ? entry.fixer.group(entry.finding) : entry.ref}`;
     if (!groups.has(key)) groups.set(key, { key, fixer: entry.fixer, entries: [] });
     groups.get(key).entries.push(entry);
@@ -141,6 +149,30 @@ async function draftRound(root, { only, answers, round }) {
           : { resolution: 'covered', reason: 'An earlier change already does what this finding asks.' });
     }
   }
+  // A workflow.yml repaired as text is diagnosed again: its validator stops at what it cannot repair
+  // itself, so the next problems show only once the first are mended.
+  const seenProblems = new Set(entries.map((entry) => String(entry.finding.detail ?? '')));
+  for (let pass = 0; !configurationLoads && pass < CONFIGURATION_PASSES; pass += 1) {
+    const repaired = draft.files().find((file) => file.path === WORKFLOW_PATH);
+    if (!repaired) break;
+    const problems = await diagnoseConfiguration(ctx.configRoot, repaired.content);
+    // Only what this pass shows for the first time: one still unanswered is asked once.
+    const fresh = problems.filter((problem) => !seenProblems.has(String(problem.message)));
+    for (const problem of fresh) seenProblems.add(String(problem.message));
+    if (!fresh.length) break;
+    ctx.configurationProblems = problems;
+    const found = fresh.map((problem) => ({ id: problemRef(problem), code: problem.code ?? 'WORKFLOW_CONFIGURATION_INVALID', severity: 'problem',
+      title: String(problem.message).split(/(?<=[.!?])\s+/u)[0], detail: problem.message, fix: problem.fix ? { text: problem.fix } : null,
+      subject: { file: problem.file ?? WORKFLOW_PATH }, ...(problem.line ? { location: { file: problem.file ?? WORKFLOW_PATH, line: problem.line } } : {}), blocksStart: true }));
+    const { value, keys, diffs } = await draft.record(() => CONFIGURATION_FIXER.fix(found, ctx));
+    const refs = found.map((finding) => finding.id);
+    const change = keys.length ? { code: found[0].code, findings: refs, summary: value?.summary ?? found[0].title, keys, diffs } : null;
+    if (change) changes.push(change);
+    const asked = (value?.questions ?? []).map((entry, index) => ({ id: `q-${shortHash(`${refs.join('\0')}\0${index}`)}`, code: found[0].code, findings: refs, ...entry }));
+    questions.push(...asked);
+    found.forEach((finding) => { entries.push({ finding, ref: finding.id, fixer: CONFIGURATION_FIXER }); resolution.set(finding.id, change ? { resolution: 'change', change } : asked.length ? { resolution: 'question', question: asked[0].id } : { resolution: 'covered' }); });
+    if (!keys.length) break;
+  }
   // Answered questions become changes of their own.
   const answered = new Set();
   for (const [id, answer] of Object.entries(answers ?? {})) {
@@ -161,11 +193,23 @@ async function draftRound(root, { only, answers, round }) {
     for (const ref of entry.findings) resolution.set(ref, { resolution: 'answered', question: id, ...(change ? { change } : {}) });
   }
   const findings = entries.map(({ finding, ref, fixer }) => ({ ...listed(finding, ref), ...(round > 1 ? { round } : {}),
-    ...(resolution.get(ref) ?? (fixer ? { resolution: 'covered' } : { resolution: 'unhandled' })) }));
+    ...(resolution.get(ref) ?? (packaged.has(finding.subject?.workflow) ? { resolution: 'packaged', reason: PACKAGED }
+      : fixer ? { resolution: 'covered' } : { resolution: 'unhandled' })) }));
   return { check, ctx, draft, findings, changes, questions, answered };
 }
 
 const MAX_ROUNDS = 3;
+const PACKAGED = 'A packaged workflow SFlow protects: it changes with an SFlow update, never by a change set here. Copy it (workflow copy) to change your own.';
+const CONFIGURATION_PASSES = 6;
+const problemRef = (problem) => `f-${shortHash(`${problem.code}\0${problem.line ?? ''}\0${problem.message}`)}`;
+
+/** The located problems of a workflow.yml text, as the configuration loader diagnoses them. */
+async function diagnoseConfiguration(configRoot, text) {
+  const [{ diagnoseWorkflowText }, { applyWorkflowCompatibility }, { isAgentTemplateReference }] = await Promise.all([
+    import('../configuration-diagnostics.mjs'), import('../config.mjs'), import('../agent-document-parser.mjs')]);
+  return diagnoseWorkflowText(text, { root: configRoot, validate: (candidate) => validateDefinition(candidate), prepare: applyWorkflowCompatibility,
+    resolveWorkType, isAgentTemplateReference }).catch(() => []);
+}
 const afterOf = (plan) => (plan.valid
   ? { valid: plan.inspection?.configuration?.valid !== false, counts: plan.inspection?.counts ?? countsOf([]),
     findings: [...(plan.inspection?.workflows ?? []).flatMap((entry) => entry.findings), ...(plan.inspection?.repository?.findings ?? [])]
@@ -187,9 +231,12 @@ export async function draftWorkflowFixes(root, { workflow = null, answers = null
   const rounds = [await draftRound(root, { only, answers, round: 1 })];
   const first = rounds[0];
   const base = first.ctx.model.base;
-  const studioChanges = () => rounds.flatMap((entry) => entry.draft.studioChanges());
+  // Changes Workflow Studio refused, by round: their keys leave the change set.
+  const refusedKeys = new Map();
+  const studioChanges = () => rounds.flatMap((entry) => entry.draft.studioChanges(refusedKeys.get(entry)));
   const changeSetOf = (changes) => (changes.length ? { schema: STUDIO_CHANGE_SET_SCHEMA, ...(base ? { base } : {}), changes } : null);
   let after = null;
+  let lastPlan = null;
   while (verify) {
     const changeSet = changeSetOf(studioChanges());
     if (!changeSet) break;
@@ -204,19 +251,45 @@ export async function draftWorkflowFixes(root, { workflow = null, answers = null
       return inspection;
     } });
     after = afterOf(plan);
+    lastPlan = plan;
     if (!plan.valid || !next) break;
     rounds.push(next);
   }
-  if (verify && rounds.length > 1) {
-    const plan = await planStudioChangeSet(root, changeSetOf(studioChanges()), { inspect: (candidateRoot) => checkWorkflowConfiguration(candidateRoot, only) });
-    after = afterOf(plan);
+  const replan = async () => {
+    const changeSet = changeSetOf(studioChanges());
+    lastPlan = changeSet ? await planStudioChangeSet(root, changeSet, { inspect: (candidateRoot) => checkWorkflowConfiguration(candidateRoot, only) }) : null;
+    after = lastPlan ? afterOf(lastPlan) : null;
+  };
+  if (verify && rounds.length > 1) await replan();
+  // A change Workflow Studio refuses (a step another workflow protects, a group it will not take) is
+  // taken out, and its finding is asked about instead; the rest still apply.
+  for (let attempt = 0; verify && lastPlan && !lastPlan.valid && attempt < 3; attempt += 1) {
+    const culprits = [];
+    for (const problem of lastPlan.problems.filter((entry) => entry.change)) {
+      for (const entry of rounds) {
+        for (const change of entry.changes.filter((candidate) => !candidate.refused)) {
+          const ops = change.keys.map((key) => entry.draft.compile(key)).filter(Boolean);
+          if (ops.some((op) => op.op === problem.change && (!problem.subject?.id || [op.id, op.phase, op.path].includes(problem.subject.id)))) culprits.push({ entry, change, problem });
+        }
+      }
+    }
+    if (!culprits.length) break;
+    for (const { entry, change, problem } of culprits) {
+      change.refused = problem.message;
+      refusedKeys.set(entry, new Set([...(refusedKeys.get(entry) ?? []), ...change.keys]));
+      entry.questions.push({ id: `q-${shortHash(`refused\0${change.findings.join('\0')}`)}`, code: change.code, findings: change.findings,
+        ask: `Workflow Studio refused the change drafted for this (${change.summary.split('\n')[0]}): ${problem.message}`,
+        why: 'The fix needs a change Workflow Studio does not allow here; what to do instead is a person\'s decision.', choices: [{ id: 'keep', label: 'Leave it for now', effect: 'Nothing changes.', apply: () => {} }] });
+      for (const finding of entry.findings.filter((candidate) => change.findings.includes(candidate.id))) Object.assign(finding, { resolution: 'question', question: entry.questions.at(-1).id, change: undefined });
+    }
+    await replan();
   }
   const configurationFiles = first.draft.files();
   if (verify && !after && configurationFiles.length) {
     const file = configurationFiles.find((entry) => entry.path === WORKFLOW_PATH);
-    let problem = null;
-    try { validateDefinition(YAML.parse(file?.content ?? '') ?? {}); } catch (error) { problem = error.message; }
-    after = { valid: !problem, configurationLoads: !problem, ...(problem ? { problems: [{ code: 'CONFIGURATION_INVALID', message: problem }] } : {}) };
+    const problems = file ? await diagnoseConfiguration(first.ctx.configRoot, file.content) : [];
+    after = { valid: !problems.length, configurationLoads: !problems.length,
+      ...(problems.length ? { problems: problems.map((problem) => ({ code: problem.code, message: `${problem.line ? `line ${problem.line}: ` : ''}${problem.message}` })) } : {}) };
   }
 
   // Number the changes across rounds; each change's ops as its round's draft leaves them.
@@ -224,11 +297,12 @@ export async function draftWorkflowFixes(root, { workflow = null, answers = null
   const ids = new Map();
   for (const entry of rounds) {
     const owners = new Map();
-    for (const change of entry.changes) for (const key of change.keys) owners.set(key, [...(owners.get(key) ?? []), change]);
-    for (const change of entry.changes) {
+    const kept = entry.changes.filter((change) => !change.refused);
+    for (const change of kept) for (const key of change.keys) owners.set(key, [...(owners.get(key) ?? []), change]);
+    for (const change of kept) {
       const id = `c-${changes.length + 1}`;
       ids.set(change, id);
-      const { keys, ...shown } = change;
+      const { keys, refused: _refused, ...shown } = change;
       changes.push({ id, ...shown, ...(entry !== first ? { round: rounds.indexOf(entry) + 1 } : {}),
         ops: keys.filter((key) => !key.startsWith('file:')).map((key) => entry.draft.compile(key)).filter(Boolean), owners, keys });
     }

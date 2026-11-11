@@ -20,7 +20,7 @@ function printFix(result) {
   console.log(`${scope}: ${countWords(result.counts)}; ${plural(result.counts.changes, 'change')} drafted, ${plural(result.counts.questions, 'question')} for a person.`);
   if (result.changes.length) {
     console.log('');
-    console.log('Changes (one reviewed Workflow Studio proposal; nothing is applied yet):');
+    console.log(result.changeSet ? 'Changes (one reviewed Workflow Studio proposal; nothing is applied yet):' : 'Changes (one reviewed configuration proposal; nothing is applied yet):');
     result.changes.forEach((change, index) => {
       console.log(`  ${index + 1}. ${indented(change.summary, '     ')}  [${change.code}${change.answers ? `, answers ${change.answers}` : ''}]`);
       for (const diff of change.diffs ?? []) console.log(`     ${indented(diff.diff.trimEnd(), '     ')}`);

@@ -19,9 +19,12 @@
  *                reason: null|'review-off'|'reviewer-unavailable'|'skipped'|'reviewer-drafts-it'|'not-authored', text }
  *   approval   { mode: 'required'|'policy'|'none', policy: { id, maximumChangedPaths }|null,
  *                groups: [{ id, label, members, teams: [], status: 'people'|'anyone'|'teams'|'auto'|'blocked', canApprove }],
- *                minimum, requiredGroups: [], selfApproval, where: 'none'|'chat'|'own-terminal-when-needed',
- *                ownTerminalWhen: [{ reason: 'evidence-sign-off'|'test-decision', ownTerminalStep, command, text }],
+ *                minimum, requiredGroups: [], selfApproval, sfGuard: 'on'|'off'|'unknown',
+ *                where: 'none'|'chat'|'own-terminal-when-needed'|'own-terminal',
+ *                ownTerminalWhen: [{ reason: 'sf-guard'|'evidence-sign-off'|'test-decision', ownTerminalStep, command, text }],
  *                text, groupsText }
+ *              With SF Guard on (the repository's presence policy; every person step signed), every approval
+ *              is signed in the approver's own terminal: where is 'own-terminal' and 'sf-guard' comes first.
  *   tests      { runs, from: 'step'|'repository'|'found'|'code-step'|null, ids: [], levels: [], checks: [], evidenceFrom, text }
  *   signOffs   [{ kind: 'evidence', methods: ['inspection'|'visual'], where: 'own-terminal', text }
  *               | { kind: 'applicability', responsibility, group, where: 'chat', text }]
@@ -154,9 +157,10 @@ function testsOf(step, phase, stepLabel) {
 
 /**
  * The map for every step of one Studio workflow, by step ID; empty when the workflow does not
- * resolve (its finding says why). `resolved` is resolveWorkType's result for it.
+ * resolve (its finding says why). `resolved` is resolveWorkType's result for it; `sfGuard` is whether
+ * SF Guard is on for the repository, as a Story starting now pins it ('on', 'off' or 'unknown').
  */
-export function workflowStepPeople(model, workflow, resolved) {
+export function workflowStepPeople(model, workflow, resolved, { sfGuard = 'off' } = {}) {
   const people = new Map();
   if (!resolved || !workflow) return people;
   const agents = new Map((model.agents ?? []).map((agent) => [agent.id, agent]));
@@ -191,6 +195,11 @@ export function workflowStepPeople(model, workflow, resolved) {
     // criterion, the visual verification step for visual ones), and its test-run decisions.
     const methods = !hasCode ? [] : step.output === 'code' ? ['inspection', ...(visualStep ? [] : ['visual'])] : step.id === visualStep ? ['visual'] : [];
     const ownTerminalWhen = [];
+    // SF Guard signs every approval with the approver's presence key, which only their own terminal holds.
+    if (policy.mode !== 'none' && sfGuard === 'on') {
+      ownTerminalWhen.push({ reason: 'sf-guard', ownTerminalStep: null, command: `singularity-flow approve ${step.id} --work-id <WORK-ID>`,
+        text: 'always: SF Guard is on, so every approval is signed there' });
+    }
     if (policy.mode !== 'none' && methods.length && confirmEvidence(step.id)) {
       ownTerminalWhen.push({ reason: 'evidence-sign-off', ownTerminalStep: confirmEvidence(step.id),
         command: `singularity-flow approve ${step.id} --work-id <WORK-ID> --confirm-evidence`,
@@ -201,22 +210,24 @@ export function workflowStepPeople(model, workflow, resolved) {
         command: `singularity-flow decision test-risk <WORK-ID> --phase ${step.id} --cause <CAUSE> --expires <YYYY-MM-DD> --reason <REASON>`,
         text: `when its test results need a person's decision (a test-run risk, a narrowed or reused run${step.id === visualStep ? ', a screen size that does not apply' : ''}), which VS Code's approval form also takes` });
     }
-    const where = policy.mode === 'none' ? 'none' : ownTerminalWhen.length ? 'own-terminal-when-needed' : 'chat';
+    const where = policy.mode === 'none' ? 'none' : sfGuard === 'on' ? 'own-terminal' : ownTerminalWhen.length ? 'own-terminal-when-needed' : 'chat';
     const minimum = policy.mode === 'none' ? 0 : policy.minimum ?? 1;
     const requiredGroups = [...(policy.requiredAuthorities ?? [])];
     const from = listWords(groups.map((group) => group.label), 'or') || 'a group nobody has chosen yet';
     const count = minimum === 1 ? 'one person' : `${minimum} people`;
     const including = requiredGroups.length ? `, including someone from ${listWords(requiredGroups.map(groupLabel))}` : '';
     const self = policy.allowSelfApproval ? 'its author may approve it' : 'someone other than its author approves it';
-    const place = where === 'chat' ? 'in the chat with /sf-approve (or VS Code\'s Approve, or the approver\'s own terminal)'
-      : `in the chat with /sf-approve, but only in the approver's own terminal ${ownTerminalWhen.map((entry) => entry.text).join(', or ')}`;
+    const place = where === 'own-terminal' ? '. SF Guard is on: every approval is signed in the approver\'s own terminal (the chat and VS Code hand them the command)'
+      : where === 'chat' ? ', in the chat with /sf-approve (or VS Code\'s Approve, or the approver\'s own terminal)'
+        : `, in the chat with /sf-approve, but only in the approver's own terminal ${ownTerminalWhen.map((entry) => entry.text).join(', or ')}`;
+    const unread = policy.mode !== 'none' && sfGuard === 'unknown' ? ' SF Guard\'s policy cannot be read here, so whether approvals are signed is not known.' : '';
     const approvalText = policy.mode === 'none' ? 'Approval: none; it moves on when it is submitted.'
-      : policy.mode === 'policy' ? `Approval: automatic when the change fits policy ${policy.policy ?? 'quick-fix-low-risk-v1'}${policy.maximumChangedPaths ? ` (at most ${plural(policy.maximumChangedPaths, 'changed path')})` : ''}; otherwise ${count} from ${from}${including} (${self}), ${place}.`
-        : `Approval: ${count} from ${from}${including} (${self}), ${place}.`;
+      : policy.mode === 'policy' ? `Approval: automatic when the change fits policy ${policy.policy ?? 'quick-fix-low-risk-v1'}${policy.maximumChangedPaths ? ` (at most ${plural(policy.maximumChangedPaths, 'changed path')})` : ''}; otherwise ${count} from ${from}${including} (${self})${place}.${unread}`
+        : `Approval: ${count} from ${from}${including} (${self})${place}.${unread}`;
     const approval = {
       mode: policy.mode, policy: policy.mode === 'policy' ? { id: policy.policy ?? null, maximumChangedPaths: policy.maximumChangedPaths ?? null } : null,
       groups, minimum, requiredGroups, selfApproval: policy.mode === 'none' ? false : Boolean(policy.allowSelfApproval),
-      where, ownTerminalWhen, text: approvalText,
+      sfGuard, where, ownTerminalWhen, text: approvalText,
       groupsText: groups.length ? `Approvers: ${groups.map(groupWords).join('; ')}.` : 'Approvers: none.'
     };
     const questions = questionsOf(phase, author, approval, groupLabel);

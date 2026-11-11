@@ -15,7 +15,10 @@ import YAML from 'yaml';
 
 import { initializeDefinition } from '../src/config.mjs';
 import { OWN_TERMINAL_STEPS } from '../src/person-step-catalog.mjs';
+import { approverId, emptyPresenceChain, foldPresenceChain, nextPresenceEvent, PRESENCE_CHAIN_PATH, presenceChainText, presenceEventStatement } from '../src/presence/chain.mjs';
+import { presenceNonce, statementText } from '../src/presence/statement.mjs';
 import { STEP_PEOPLE_ITEMS, workflowStepPeople } from '../src/workflow-step-people.mjs';
+import { softwarePresenceKey } from './helpers/presence-keys.mjs';
 
 const bin = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORKFLOW = 'singularity/workflow.yml';
@@ -297,6 +300,47 @@ test('a questions setting that does not load is named at its own line, for the s
   assert.match(validated.stdout, /^ {11}Fix: Rename 'maxQuestion' in Architecture and design's clarification to maxQuestions, or remove it\.$/mu);
 });
 
+/** SF Guard's policy chain with one approver's presence key registered and the guard turned on, every event signed. */
+function enabledPresenceChain(email) {
+  const key = softwarePresenceKey();
+  const approver = approverId({ email });
+  const chain = emptyPresenceChain();
+  const signed = (fields) => {
+    const event = nextPresenceEvent(chain, fields);
+    const entry = { signer: approver, keyId: key.keyId, nonce: presenceNonce() };
+    event.signatures.push({ ...entry, signature: key.sign(statementText(presenceEventStatement(chain.chainId, event, entry))) });
+    chain.events.push(event);
+  };
+  signed({ kind: 'register', approver, keyId: key.keyId, key: key.line,
+    github: { listed: true, snapshotSha256: `sha256:${'0'.repeat(64)}`, fetchedAt: new Date().toISOString() } });
+  signed({ kind: 'enable', remoteCheck: null, exceptions: [] });
+  return chain;
+}
+
+test('with SF Guard on, every approval is signed in the approver\'s own terminal, and the map says so', async () => {
+  const chain = enabledPresenceChain('people-checker@example.invalid');
+  const folded = foldPresenceChain(chain);
+  assert.deepEqual([folded.enabled, folded.problems], [true, []], 'the fixture chain verifies as the guard reads it');
+  const root = await repository(({ files }) => { files[PRESENCE_CHAIN_PATH] = presenceChainText(chain); });
+  const { status, report, stderr } = json(root, ['workflow', 'check', 'feature']);
+  assert.equal(status, 0, stderr);
+  assert.equal(report.sfGuard, 'on');
+  const steps = report.workflows[0].explanation.steps;
+  for (const step of steps) {
+    const approval = step.people.approval;
+    assert.equal(approval.sfGuard, 'on', step.id);
+    assert.equal(approval.where, 'own-terminal', step.id);
+    assert.deepEqual(approval.ownTerminalWhen[0], { reason: 'sf-guard', ownTerminalStep: null, command: `singularity-flow approve ${step.id} --work-id <WORK-ID>`,
+      text: 'always: SF Guard is on, so every approval is signed there' });
+    assert.match(approval.text, /^Approval: one person from [^.]*\(its author may approve it\)\. SF Guard is on: every approval is signed in the approver's own terminal \(the chat and VS Code hand them the command\)\.$/u, step.id);
+  }
+  // The code step still names what else its approver decides there.
+  assert.deepEqual(steps.find((step) => step.id === 'implementation').people.approval.ownTerminalWhen.map((entry) => entry.reason), ['sf-guard', 'evidence-sign-off', 'test-decision']);
+  // Without the policy file nothing is read, and approvals stay in the chat.
+  const off = json(await repository(), ['workflow', 'check', 'feature']).report;
+  assert.deepEqual([off.sfGuard, off.workflows[0].explanation.steps[0].people.approval.where], ['off', 'chat']);
+});
+
 test('the map reads people from the groups and producers a step really has', () => {
   const resolved = {
     phases: [{ id: 'sign', generation: { allowedProducers: ['human'], defaultProducer: 'human' },
@@ -324,4 +368,8 @@ test('the map reads people from the groups and producers a step really has', () 
     + 'Empty: nobody (no people, no teams, and nobody is added automatically), so nobody can approve.');
   assert.deepEqual([people.review.reviewed, people.review.reason], [false, 'review-off']);
   assert.equal(workflowStepPeople({ agents: [] }, workflow, null).size, 0, 'a workflow that does not resolve has no map');
+  // A policy chain that cannot be read here is said, and nothing is claimed about signatures.
+  const unread = workflowStepPeople({ agents: [] }, workflow, resolved, { sfGuard: 'unknown' }).get('sign').approval;
+  assert.deepEqual([unread.sfGuard, unread.where], ['unknown', 'chat']);
+  assert.match(unread.text, / SF Guard's policy cannot be read here, so whether approvals are signed is not known\.$/u);
 });

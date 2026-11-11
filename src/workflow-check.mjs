@@ -25,7 +25,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { loadDefinition, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
-import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { configurationReadRoot, configurationReadRootForPath } from './configuration-read-scope.mjs';
 import { guidanceConflicts, scanGuidanceText } from './guidance-scan.mjs';
 import { mcpServerSetupCommands, mcpTargetOriginNeed, mcpTargetOriginSteps } from './mcp-target.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
@@ -410,7 +410,7 @@ async function questionPlacementFindings(workflow, resolved, { people, stepLabel
 }
 
 /** Check one workflow of the model; returns its findings. */
-async function checkWorkflow(workflow, { definition, raw = {}, model, locate, guidance, groups, templates, unmapped = new Set() }) {
+async function checkWorkflow(workflow, { definition, raw = {}, model, locate, guidance, groups, templates, sfGuard = 'off', unmapped = new Set() }) {
   const findings = [];
   const stepLabel = (id) => workflow.steps.find((step) => step.id === id)?.label ?? id;
   const decisionOf = (id) => (workflow.decisions ?? []).find((entry) => entry.id === id);
@@ -525,7 +525,7 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
       add({ ...rest, area: 'guidance', subject: { step, template, file: entry.location?.file ?? null } });
     }
     // Who drafts, asks, reviews and approves each step, and where; then whether questions are asked in the right steps.
-    people = workflowStepPeople(model, workflow, resolved);
+    people = workflowStepPeople(model, workflow, resolved, { sfGuard });
     for (const entry of await questionPlacementFindings(workflow, resolved, { people, stepLabel, settingOf, templates })) add(entry);
   }
 
@@ -863,6 +863,21 @@ function clarificationPolicyProblems(text) {
 }
 
 /**
+ * Whether SF Guard is on for the repository, as a Story starting now would pin it (presencePinForStart):
+ * the guard's own policy chain in the approved configuration, folded with every signature verified.
+ * A repository that never opted in has no policy file, so nothing is read (loadPresenceContext does the
+ * same). 'unknown' when the chain cannot be read here; nothing is then said about signatures.
+ */
+async function sfGuardState(root) {
+  const { PRESENCE_CHAIN_PATH } = await import('./presence/chain.mjs');
+  if (!(await exists(path.join(configurationReadRootForPath(root, PRESENCE_CHAIN_PATH), PRESENCE_CHAIN_PATH)))) return 'off';
+  try {
+    const policy = await (await import('./presence/store.mjs')).readPresencePolicy(root);
+    return policy.folded?.enabled ? 'on' : 'off';
+  } catch { return 'unknown'; }
+}
+
+/**
  * A configuration that does not load: every located problem, each refusing every Story. A step's
  * clarification that does not load is said at its own line instead of the validator's bare refusal.
  */
@@ -919,6 +934,7 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
   // workflow.yml as written: where each setting a fix changes lives.
   const raw = (() => { try { return YAML.parse(String(text ?? '')) ?? {}; } catch { return {}; } })();
   const groups = new Map(model.groups.map((group) => [group.id, group]));
+  const sfGuard = await sfGuardState(root);
   const guidance = new GuidanceReader(configRoot, model);
   const templates = templateReader(configRoot, definition.templatesRoot ?? model.templatesRoot);
   const mapping = unmappedRefusal ? await agentMappingFindings(unmappedRefusal.details.problems, { model, definition, locate, configRoot }) : [];
@@ -926,7 +942,7 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
   const results = [];
   for (const workflow of model.workflows) {
     if (only && !only.includes(workflow.id)) continue;
-    const { findings, resolved, explanationGuidance, people } = await checkWorkflow(workflow, { definition, raw, model, locate, guidance, groups, templates, unmapped });
+    const { findings, resolved, explanationGuidance, people } = await checkWorkflow(workflow, { definition, raw, model, locate, guidance, groups, templates, sfGuard, unmapped });
     results.push({
       id: workflow.id, label: workflow.label, readOnly: Boolean(workflow.readOnly),
       explanation: explainWorkflow(model, workflow.id, { resolved, guidance: explanationGuidance, people }),
@@ -944,6 +960,8 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
     ...base,
     authority: model.authority,
     configuration: unmappedRefusal ? { valid: false, code: unmappedRefusal.code, checked: 'without-agents' } : { valid: true },
+    // SF Guard for the repository (every approval signed in the approver's own terminal while it is on).
+    sfGuard,
     counts: countsOf(all),
     workflows: results,
     repository: { counts: countsOf(repository), findings: repository }

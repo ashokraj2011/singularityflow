@@ -188,3 +188,21 @@ test('/sf-run-app frees a held port the way the refusal names, and never kills a
   const skill = await readFile(new URL('../plugin/skills/sflow-run-app/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /`APP_PORT_IN_USE` names the port's holder: an SFlow run \(any checkout\) stops by its `details\.nextAction` once the person confirms; another process only the person stops, one they named, in their own terminal \(`kill <pid>` from `details\.holder`\)\. Never kill a process yourself\./u);
 });
+
+test('every skill line that starts a long-running command says how to wait for it', async () => {
+  // `app start` stays attached until the app exits and `tests run` until the tests end: run with no word on waiting,
+  // a host timeout cut them, and a plain --json result could not be read back (agent-text audit, 2026-11-11).
+  const { readdir, readFile } = await import('node:fs/promises');
+  const root = new URL('../plugin/skills/', import.meta.url);
+  const missing = [];
+  for (const name of await readdir(root)) {
+    let text;
+    try { text = await readFile(new URL(`${name}/SKILL.md`, root), 'utf8'); } catch { continue; }
+    for (const line of text.split('\n')) {
+      if (!/\brun `singularity-flow (?:app start|tests run)\b/iu.test(line)) continue;
+      // Kept and read back with `result last` (--for-agent), or run in the background and polled.
+      if (!/--for-agent[^`]*`[^.]*(?:result last|foreground)|background \(async\) mode[^.]*app status/u.test(line)) missing.push(`${name}: ${line.slice(0, 160)}`);
+    }
+  }
+  assert.deepEqual(missing, []);
+});

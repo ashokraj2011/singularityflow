@@ -10,6 +10,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { agentAct } from '../src/agent-output.mjs';
+import { clarificationCheckpoint } from '../src/clarifications.mjs';
+import { CLARIFICATION_RESPONSE_FORMAT } from '../src/phase-staging-paths.mjs';
 import { reviewSubagentHandoff } from '../src/review-subagent.mjs';
 
 const handoff = reviewSubagentHandoff({ workId: 'QF-1', phase: 'implement', generation: 1, reviewerAgent: 'sflow-source-reviewer' });
@@ -60,4 +62,14 @@ test('every publish result of a reviewed step acts start-reviewer, and the publi
   // Once --publish-if-ready itself could not run it, its own command stays, so nothing loops.
   const refused = agentAct({ ...ready, publishIfReady: { published: false, reason: 'publish-command-not-recognized', command: ready.commands.publish } });
   assert.equal(refused.do.shell, ready.commands.publish);
+});
+
+test('an instruction to write a file names the file and gives its shape in the same words', () => {
+  // "Use a file-edit tool for issued JSON" survived b14f1c553 in the checkpoint's own instruction, where no file is
+  // issued and recordAction (with its responseFormat) is absent until context is composed (agent-text audit, 2026-11-11).
+  for (const mode of ['required', 'when-needed']) {
+    const { instruction } = clarificationCheckpoint({ mode }, { recordState: 'missing', errors: [] });
+    assert.doesNotMatch(instruction, /\bissued (?:JSON|staging file)\b/u, mode);
+    assert.ok(instruction.includes(`at responseStagingPath as ${CLARIFICATION_RESPONSE_FORMAT}`), mode);
+  }
 });

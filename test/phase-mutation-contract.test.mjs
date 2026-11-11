@@ -213,6 +213,8 @@ test('prompt submission announces the exact code prerequisite before a denied ed
   assert.match(next.additionalContext, /kernel-only.*no direct repository edits/);
   assert.match(next.additionalContext, /Never inline an authoring skill/);
   assert.match(next.additionalContext, /Step author: \/sf-code\./, 'a code step names its own author');
+  // A turn that writes no code is not told whether code authoring is ready: "false" read as a blocker (office, 2026-11-11).
+  assert.doesNotMatch(next.additionalContext, /Code authoring ready/);
   // The kernel skill's own steps run: a kernel turn is never told to stop (a /sf-submit that obeyed
   // "return the configured authoring skill and stop" submitted nothing, 2026-10-26).
   assert.match(next.additionalContext, /Carry out the invoked skill's steps in this turn\./);

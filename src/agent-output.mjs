@@ -52,7 +52,7 @@ export const READ_PLAN_CHUNKS = 10;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
 // `wait`: reading a result again while its command still runs is never a loop.
-const UNCOUNTED_STATES = new Set(['author', 'read', 'paused', 'wait', 'await-human']);
+const UNCOUNTED_STATES = new Set(['author', 'read', 'paused', 'wait', 'await-human', 'end-turn']);
 const LARGE_TEXT_BYTES = 4_000;
 const FIELD_ORDER = 'agentOutputFieldOrder';
 // Recorded sessions read review document bodies back in every approval, publish and submit result
@@ -294,6 +294,14 @@ export function agentAct(result) {
   }
   if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
   if (result.paused === true) return { state: 'paused', said: 'SFlow is paused for this conversation; answer as native Copilot and offer only /sf-pause off.', do: null };
+  // A step approved here ends the turn with one next step, the clean-chat boundary. Its act also said "next:
+  // /sf-nextsteps", so the person saw three competing next steps (Story anu-bin verification, 2026-11-11).
+  if (result.resultType === 'sflow-approval-agent-result' && result.outcome?.status === 'succeeded' && result.turnBoundary === 'end') {
+    const boundary = Array.isArray(result.contextBoundary?.commands) && result.contextBoundary.commands.length ? result.contextBoundary.commands.join(', then ') : null;
+    return { state: 'end-turn', do: null, read: ['outcome', 'decision', 'warnings', ...(result.contextBoundary ? ['contextBoundary'] : [])],
+      said: boundary ? `Approved. End this turn; the one next step is ${boundary} (${result.contextBoundary.nextPhase ?? 'the next step'}). Offer no other route.`
+        : 'Approved. End this turn; the next step continues in a new turn. Offer no other route.' };
+  }
   // `result last` (agent-result-keeper.mjs): a kept result is acted on as the command returned it;
   // otherwise it says to wait for the command, run it once more, or that nothing was kept.
   if (result.resultType === 'sflow-kept-result') {
@@ -588,12 +596,15 @@ export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
   const findings = act?.state === 'correct' && Array.isArray(result.findings) && result.findings.length
     ? result.findings.map((entry) => [entry?.code ?? null, entry?.message ?? null, entry?.line ?? null]) : null;
   if (!act || UNCOUNTED_STATES.has(act.state) || !(act.do || act.ask || findings)) return act;
+  // A result that changed state is progress, never a repeat: five different approvals in one chat were
+  // counted as one result coming back five times, "repeating the command cannot change it" (anu-bin, 2026-11-11).
+  if (result.effects?.stateChanged === true) return act;
   const fingerprint = sha256(JSON.stringify([result.resultType ?? null, act.state, act.do?.shell ?? act.do?.copilot ?? null,
     act.ask?.value ?? null, result.head ?? null, result.generation ?? null, result.status ?? result.classification ?? null, findings]));
   let count = 1;
   try {
     count = observeFindingStreak(root, { workId: `agent-loop:${result.workId ?? result.resultType ?? 'result'}`,
-      phaseId: String(result.phase ?? result.phaseId ?? '-'), fingerprint, windowMs: LOOP_WINDOW_MS, now });
+      phaseId: String(result.phase ?? result.phaseId ?? result.outcome?.slots?.phase ?? '-'), fingerprint, windowMs: LOOP_WINDOW_MS, now });
   } catch { return act; }
   if (count < LOOP_THRESHOLD) return act;
   const instruction = act.ask?.kind === 'confirm' || act.state === 'confirm'

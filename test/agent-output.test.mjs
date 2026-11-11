@@ -1013,3 +1013,37 @@ test('a long result keeps who and where it is about in the view: repositoryPath,
     assert.deepEqual([view.repositoryPath, view.workId, view.phase, view.ready], [result.repositoryPath, 'ID-STORY', 'intake', true], cwd);
   }
 });
+
+test('an approval ends the turn with one next step, and approvals are never counted as a loop (Story anu-bin, 2026-11-11)', async (t) => {
+  // The live result: act said "next: /sf-nextsteps" beside "End this approval turn. Run /clear, then /sf-next", and the
+  // fifth approval of the chat (a different step each time) came back "Repeated 5 times … cannot change it".
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-act-')));
+  const previous = process.env.SINGULARITY_FLOW_FINDING_STREAKS;
+  process.env.SINGULARITY_FLOW_FINDING_STREAKS = path.join(root, 'streaks');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_FINDING_STREAKS;
+    else process.env.SINGULARITY_FLOW_FINDING_STREAKS = previous;
+    await rm(root, { recursive: true, force: true });
+  });
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const approval = (phase, next) => ({ schemaVersion: 1, resultType: 'sflow-approval-agent-result', operation: { id: 'approve', classification: 'mutation' },
+    subject: { kind: 'story', id: 'W-1' }, outcome: { status: 'succeeded', messageId: 'approve.succeeded', slots: { phase, next, reached: true } },
+    effects: { stateChanged: true, filesChanged: true, publicationCreated: true, externalSystemsChanged: false }, turnBoundary: 'end',
+    contextBoundary: { mode: 'new', event: 'approval', phase, nextPhase: next, commands: ['/clear', '/sf-next'] },
+    next: [{ command: 'singularity-flow nextsteps --for-agent --json', skill: '/sf-nextsteps', copilotCommand: '/sf-nextsteps' }] });
+  const act = agentAct(approval('verification', 'release'));
+  assert.equal(act.state, 'end-turn');
+  assert.equal(act.do, null, 'no second next step beside the clean-chat boundary');
+  assert.match(act.said, /the one next step is \/clear, then \/sf-next \(release\)\. Offer no other route\./u);
+  const now = Date.now();
+  const steps = [['specification', 'planning'], ['planning', 'implementation'], ['implementation', 'convergence'], ['convergence', 'verification'], ['verification', 'release']];
+  for (const [index, [phase, next]] of steps.entries()) {
+    const result = approval(phase, next);
+    assert.equal(observeAgentLoop(root, result, agentAct(result), { now: now + index * 60_000 }).loop, undefined, `${phase} approval is progress, not a repeat`);
+  }
+  // Even an act with a route is never a loop when the result changed state.
+  const changed = { ...approval('verification', 'release'), turnBoundary: null };
+  for (let index = 0; index < LOOP_THRESHOLD + 2; index += 1) {
+    assert.equal(observeAgentLoop(root, changed, { state: 'next', do: { shell: 'singularity-flow nextsteps --for-agent --json' } }, { now: now + (10 + index) * 60_000 }).loop, undefined);
+  }
+});

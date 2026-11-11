@@ -245,7 +245,9 @@ export function turnBoundaryContext(value, presented = mutationContractPresentat
   const volatile = [
     `SFlow turn boundary (${value.skill}): ${contract.turnMode} turn, ${contract.workId ?? 'no Story'} step ${contract.phaseId ?? 'none'} generation ${contract.generation ?? 'none'}.`,
     contract.authoringSkill ? `Step author: ${contract.authoringSkill}.` : null,
-    contract.policy?.requiresOpenGeneration ? `Code authoring ready: ${presented.codeAuthoringReady}.` : null,
+    // Only an authoring turn writes code. Told "Code authoring ready: false" in a /sf-next turn, an agent reported
+    // "code authoring is not ready" as a blocker right after planning was approved (office, 2026-11-11).
+    contract.policy?.requiresOpenGeneration && contract.turnMode === 'authoring' ? `Code authoring ready: ${presented.codeAuthoringReady}.` : null,
     presented.sourceEditPrerequisite ? `Before source edits: ${presented.sourceEditPrerequisite.command}.` : null
   ].filter(Boolean).join(' ');
   const stable = [

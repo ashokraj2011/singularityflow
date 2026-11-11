@@ -17,7 +17,7 @@ const LIMIT = 8;
 const CHECK_LIMIT = 8;
 export const MAX_EXECUTION_EVIDENCE_BYTES = 24 * 1024;
 
-export const EXECUTION_EVIDENCE_INSTRUCTION = 'Use retainedExecutionEvidence for governed command outcomes, not earlier authored prose or IDE test discovery. An IDE "No tests found" is a separate discovery failure, not a failed governed run or a pass. Current source/test-input bindings must match before reusing results; a check whose `testResult.reused` is set is that run on this same source tree, not run again because the code did not change, so cite its attempt ID and counts as you would a fresh run: no fresh run is missing. Command success alone proves neither every criterion nor visual acceptance. Reconcile contradictions explicitly in this draft, citing the packet, generation and source; preserve approved reports and decisions. If policy requires new execution or a prior-phase correction, follow the returned human/rework route, never relabel partial evidence as matched.';
+export const EXECUTION_EVIDENCE_INSTRUCTION = 'Use retainedExecutionEvidence for governed command outcomes, not earlier authored prose or IDE test discovery. An IDE "No tests found" is a separate discovery failure, not a failed governed run or a pass. Current source/test-input bindings must match before reusing results; a check whose `testResult.reused` is set is that run on this same source tree, not run again because the code did not change, so cite its attempt ID and counts as you would a fresh run: no fresh run is missing. Command success alone proves neither every criterion nor visual acceptance; `criterionTests` joins each criterion to its own tagged tests in those runs, and `established` there means each passed through its own result on this source tree, so that criterion (and a clause verified through it) has its test evidence. Reconcile contradictions explicitly in this draft, citing the packet, generation and source; preserve approved reports and decisions. If policy requires new execution or a prior-phase correction, follow the returned human/rework route, never relabel partial evidence as matched.';
 
 function guidance(argv) {
   return safeCommandGuidance({ executable: 'singularity-flow', argv });
@@ -90,7 +90,7 @@ export function projectExecutionPacket(packet, phase, current, { checkLimit = CH
  * evidence only when that record is the same run on this same source tree; on anything less it is
  * left out, and the check reads as having no structured result.
  */
-export function reusedExecutionDetails(root, packet, testPolicy, itemRelative, listed = []) {
+export function reusedExecutionDetails(root, packet, testPolicy, itemRelative, listed = [], receipts = null) {
   return (packet.checks ?? []).filter(check => check?.kind === 'test' && check.reusedFrom?.attemptId && !listed.includes(check.id)).slice(0, CHECK_LIMIT).flatMap(check => {
     const source = check.reusedFrom;
     const relative = source.receiptPath ?? `${itemRelative}/context/code-delivery/tests/attempts/${source.phase}/${source.attemptId}.json`;
@@ -109,6 +109,7 @@ export function reusedExecutionDetails(root, packet, testPolicy, itemRelative, l
         || receipt.candidate?.treeSha256 !== check.sourceTreeSha256 || !sameCode(check, packet)
         || (receipt.candidate?.testInputSha256 ?? null) !== (check.testInputSha256 ?? null)
         || (source.receiptSha256 && source.receiptSha256 !== sha256)) return [];
+    receipts?.set(check.id, receipt);
     return [{ attemptId: receipt.attemptId, commandId: check.id, path: relative, sha256, status: receipt.status, adapter: receipt.adapter, counts: receipt.tests,
       assurance: receipt.assurance, reused: { recordedBy: receipt.phase, generation: receipt.generation, commit: receipt.candidate.commit, treeSha256: receipt.candidate.treeSha256 },
       meetsPinnedCountPolicy: testReceiptPassing(receipt, testPolicy?.minimumDiscovered ?? 1, testPolicy?.minimumPassed ?? 1) && receipt.tests?.skipped === 0,
@@ -116,7 +117,7 @@ export function reusedExecutionDetails(root, packet, testPolicy, itemRelative, l
   });
 }
 
-function executionDetails(root, packet, testPolicy, itemRelative) {
+function executionDetails(root, packet, testPolicy, itemRelative, receipts) {
   const references = packet.submissionEvidence?.testExecutions ?? [];
   return [...references.slice(0, CHECK_LIMIT).map(reference => {
     // readStoryReviewPacket already verified these exact immutable bytes and their bound digests.
@@ -138,6 +139,7 @@ function executionDetails(root, packet, testPolicy, itemRelative) {
         || receipt.process?.status !== check.status || receipt.process?.exitCode !== check.exitCode) {
       throw new SingularityFlowError('Retained execution identity differs.', { code: 'STORY_REVIEW_EVIDENCE_INVALID' });
     }
+    receipts.set(receipt.commandId, receipt);
     return { attemptId: receipt.attemptId, commandId: receipt.commandId, path: reference.path, sha256: reference.sha256,
       status: receipt.status, adapter: receipt.adapter, counts: receipt.tests,
       assurance: receipt.assurance,
@@ -148,7 +150,7 @@ function executionDetails(root, packet, testPolicy, itemRelative) {
       meetsPinnedCountPolicy: testReceiptPassing(receipt, testPolicy?.minimumDiscovered ?? 1, testPolicy?.minimumPassed ?? 1)
         && receipt.tests?.skipped === 0,
       criterionVerdict: 'requires-bound-witness-evaluation' };
-  }), ...reusedExecutionDetails(root, packet, testPolicy, itemRelative, references.map(reference => reference.commandId))];
+  }), ...reusedExecutionDetails(root, packet, testPolicy, itemRelative, references.map(reference => reference.commandId), receipts)];
 }
 
 /**
@@ -206,8 +208,9 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
         } catch (error) { diagnostics.push({ phase: candidate.phase.id,
           code: error.code ?? 'TCA_EPOCH_VALIDATION_REQUIRED', status: 'unavailable' }); }
       }
-      packets.push({ ...candidate, packet, epochVerified,
-        executions: executionDetails(root, packet, workflow.resolution?.codeDelivery?.tests, `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`) });
+      const receipts = new Map();
+      packets.push({ ...candidate, packet, epochVerified, receipts,
+        executions: executionDetails(root, packet, workflow.resolution?.codeDelivery?.tests, `${definition.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`, receipts) });
     } catch (error) {
       // A missing/shallow history is evidence unavailable, never a new gate on draft repair.
       diagnostics.push({ phase: candidate.phase.id, generation: candidate.entry.generation,
@@ -222,10 +225,14 @@ export async function phaseExecutionEvidence(root, definition, workflow, phase) 
     catch (error) { current.status = 'unavailable'; diagnostics.push({
       phase: phase.id, code: error.code ?? 'CURRENT_EXECUTION_BINDING_UNAVAILABLE', status: 'unavailable' }); }
   }
-  const entries = packets.map(({ phase: producer, entry, packet, epochVerified, executions }) => {
+  // Each criterion's own tagged tests joined to these runs: what establishes it, where suite counts cannot.
+  const { retainedCriterionTests } = packets.some(({ packet, receipts }) => receipts.size && packet.submissionEvidence?.codeDelivery?.path)
+    ? await import('./criterion-test-failures.mjs') : { retainedCriterionTests: () => [] };
+  const entries = packets.map(({ phase: producer, entry, packet, epochVerified, executions, receipts }) => {
     const projected = projectExecutionPacket(packet, producer, { ...current,
       ancestor: (commit, evidenceCommit) => Boolean(commit && commitIsAncestor(root, commit, evidenceCommit)) }, { epochVerified });
-    return { ...projected, checks: projected.checks.map(check => {
+    const criterionTests = retainedCriterionTests(root, packet, receipts, projected.checks);
+    return { ...projected, ...(criterionTests.length ? { criterionTests } : {}), checks: projected.checks.map(check => {
       const execution = executions.find(record => record.commandId === check.commandId);
       return { ...check, testResult: execution ? { status: execution.status, counts: execution.counts ?? null,
         assurance: execution.assurance, ...(execution.reused ? { reused: execution.reused } : {}) } : { status: 'no-structured-result-in-packet', counts: null },

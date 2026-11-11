@@ -211,7 +211,8 @@ test('approving a submitted phase names each later commit, and an undecided amen
   git('commit', '--allow-empty', '-qm', 'Unrelated empty commit');
   const unrelated = git('rev-parse', '--short=12', 'HEAD');
   const ordinary = refuse();
-  assert.match(ordinary.error.message, new RegExp(`This commit after the submission \\(evidence [0-9a-f]{12}\\) may not precede approval: - ${unrelated} Unrelated empty commit\\.`, 'u'));
+  // Each commit by its message: a person never reads its SHA (owner, 2026-11-11); the details keep it.
+  assert.match(ordinary.error.message, /This commit after the submission may not precede approval: - "Unrelated empty commit"\./u);
   assert.deepEqual(ordinary.error.details.blockingCommits, [{ commit: unrelated, subject: 'Unrelated empty commit', kind: 'commit' }]);
   assert.equal(ordinary.error.details.pendingIntentAmendments, undefined);
   assert.equal(ordinary.error.details.nextAction, undefined);
@@ -254,7 +255,7 @@ test('approving a submitted phase names each later commit, and an undecided amen
   const pending = refuse('APPROVAL_INTENT_AMENDMENT_PENDING');
   assert.equal(pending.error.message, [
     'Approving planning waits for intent amendment AMD-001 to be decided.',
-    `Intent amendment AMD-001 changes ${WORK}:AC-001 and ${WORK}:REQ-002 and was proposed after planning was submitted (${proposal}); a person who approves specification decides it.`,
+    `Intent amendment AMD-001 changes ${WORK}:AC-001 and ${WORK}:REQ-002 and was proposed after planning was submitted; a person who approves specification decides it.`,
     'Rejecting it keeps this submission, and planning can then be approved as it is; approving it changes the approved clauses, so planning reopens to be revised and submitted again.'
   ].join(' '), 'one sentence per line in a terminal; the JSON envelope joins them');
   assert.deepEqual(pending.error.details.pendingIntentAmendments, [{ id: 'AMD-001', commit: proposal, changedClauses: [`${WORK}:AC-001`, `${WORK}:REQ-002`] }]);

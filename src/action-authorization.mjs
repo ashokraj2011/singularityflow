@@ -99,6 +99,18 @@ export async function issueActionAuthorization(root, plan, action, {
   return record;
 }
 
+// A digest or commit as a whole value, or inside a text: what a person never reads (owner, 2026-11-11).
+const DIGEST_VALUE = /^(?:sha256:)?(?:[0-9a-f]{40,64}|(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,39})$/iu;
+const DIGEST_IN_TEXT = /(?:sha256:)?(?<![0-9A-Za-z_])(?:[0-9a-f]{40,64})(?![0-9A-Za-z_])/giu;
+
+/** The card as a person reads it: every field but its digests. The card bound and signed is the whole one. */
+export function readableCard(value) {
+  if (Array.isArray(value)) return value.filter((entry) => !(typeof entry === 'string' && DIGEST_VALUE.test(entry))).map(readableCard);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value)
+    .filter(([, entry]) => !(typeof entry === 'string' && DIGEST_VALUE.test(entry))).map(([key, entry]) => [key, readableCard(entry)]));
+  return typeof value === 'string' ? value.replace(DIGEST_IN_TEXT, '(as reviewed)') : value;
+}
+
 /**
  * Direct-terminal confirmation. No caller-supplied answer, stream or receipt can stand in for the
  * named action on the exact card. This is terminal-local review, not authenticated Copilot consent.
@@ -119,7 +131,7 @@ export async function captureTerminalActionAuthorization(root, plan, action, { l
   const beforeActor = actorKey(identity(root));
   // Live human review must not enter the --json stdout buffer: the handler awaits an answer,
   // while that buffer flushes only after it returns. stderr remains a real, visible terminal.
-  stderr.write(`${JSON.stringify({ plan: reviewedPlan, action: reviewedAction }, null, 2)}\n`);
+  stderr.write(`${JSON.stringify(readableCard({ plan: reviewedPlan, action: reviewedAction }), null, 2)}\n`);
   const terminal = readline.createInterface({ input: stdin, output: stderr });
   // A person reads this terminal: the command's --json result reaches them whole (agent-output.mjs).
   globalThis.__SINGULARITY_FLOW_PERSON_AT_TERMINAL = true;

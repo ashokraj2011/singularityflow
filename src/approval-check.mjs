@@ -547,11 +547,12 @@ function blockingCommitFacts(root, workflow, phase, blocking, evidenceCommit) {
   const scopePhase = scopeStepOf(workflow)?.id ?? null;
   // One item per line in a terminal; JSON flattens the lines, so each item ends its own clause.
   const items = [
-    ...shown.map((entry) => `${entry.commit} ${entry.subject || '(no subject)'}${commitNote(entry)}`),
+    // Each commit by its message, never its SHA (owner, 2026-11-11); `blockingCommits` keeps the commit for a machine.
+    ...shown.map((entry) => `${entry.subject ? `"${entry.subject}"` : 'a commit with no message'}${commitNote(entry)}`),
     ...(blocking.length > shown.length ? [`… and ${blocking.length - shown.length} more`] : [])
   ];
   const lines = [
-    `${blocking.length === 1 ? 'This commit' : `These ${blocking.length} commits`} after the submission (evidence ${shortCommit(evidenceCommit)}) may not precede approval:`,
+    `${blocking.length === 1 ? 'This commit' : `These ${blocking.length} commits`} after the submission may not precede approval:`,
     ...items.map((item, index) => `- ${item}${index === items.length - 1 ? '.' : ';'}`)
   ];
   for (const entry of pending) {
@@ -630,7 +631,7 @@ export function pendingAmendmentRefusal(workflow, phase, proposals) {
   const one = pending.length === 1;
   return new SingularityFlowError([
     `Approving ${phase.id} waits for ${one ? `intent amendment ${first.id}` : `${pending.length} intent amendments`} to be decided.`,
-    ...pending.map((entry) => `Intent amendment ${entry.id}${entry.changedClauses.length ? ` changes ${clauseList(entry.changedClauses)} and` : ''} was proposed after ${phase.id} was submitted (${entry.commit}); `
+    ...pending.map((entry) => `Intent amendment ${entry.id}${entry.changedClauses.length ? ` changes ${clauseList(entry.changedClauses)} and` : ''} was proposed after ${phase.id} was submitted; `
       + `a person who approves ${scopePhase ?? 'the scope'} decides it.`),
     `Rejecting ${one ? 'it' : 'them'} keeps this submission, and ${phase.id} can then be approved as it is; `
       + `approving ${one ? 'it' : 'one'} changes the approved clauses, so ${phase.id} reopens to be revised and submitted again.`

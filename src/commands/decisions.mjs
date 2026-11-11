@@ -614,8 +614,11 @@ async function show(root, options, workId) {
       console.log(packet.headline);
       for (const entry of preview.refused) console.log(`Not yours to decide: ${entry.item} (${entry.title}). ${entry.words} Share this with them: ${entry.share}`);
       for (const line of preview.summary) console.log(`  ${line}`);
-      if (preview.record) console.log(`Nothing was recorded. To record these decisions, run in your own terminal:\n  ${preview.record.command}`);
-      if (preview.withApproval) console.log(`Or record them with the approval, in one commit:\n  ${preview.withApproval.command}`);
+      // A person reads a command they can type: a digest stays with the route a /sf-decide turn runs [no hashes shown].
+      if (preview.record) console.log(preview.record.recordInChat
+        ? `Nothing was recorded. To record these decisions, answer them in ${preview.record.copilotCommand}, or run ${packet.record.interactive} in your own terminal, which asks you each choice.`
+        : `Nothing was recorded. To record these decisions, run in your own terminal:\n  ${preview.record.command}`);
+      if (preview.withApproval && !preview.withApproval.recordInChat) console.log(`Or record them with the approval, in one commit:\n  ${preview.withApproval.command}`);
     }
     return emitShow(packet, options, workflow, { preview });
   }

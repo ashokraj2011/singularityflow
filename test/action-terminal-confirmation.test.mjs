@@ -77,6 +77,8 @@ test('JSON output buffering cannot hide a live review card or its confirmation p
     assert.deepEqual(result, { confirmed: true });
     assert.match(output, /"planId": "plan-1"/);
     assert.match(output, /Type Amend test command to confirm this exact action/);
+    // The card a person reads names no digest (owner, 2026-11-11); the plan it binds is the whole one.
+    assert.doesNotMatch(output, /planHash|a{64}/u);
   });
 
 test('Enter, a case mismatch then Enter, and three mismatches never authorize',

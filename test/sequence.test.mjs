@@ -49,6 +49,9 @@ async function repository() {
   for (const phase of Object.values(config.phases ?? {})) {
     if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   }
+  // These tests drive sequence gates, not reviews: the fixture's feature Story is unreviewed on purpose. Every step's
+  // review is walked in review-every-step-cli.test.mjs.
+  config.workTypes.feature.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root);
   execute('git', ['commit', '-m', 'initialize'], root);

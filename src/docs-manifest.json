@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "8c3871f7827b2fad6ad46b0b754644a055a0d477",
+  "sourceCommit": "92d7b253925a9a52f7dfeb9a6219ed74514f254e",
   "topicCount": 92,
-  "contentSha256": "e1129579b9b79c3c10796bc09519a0114aa2c6f621f1fb24582f0789cf190b0b",
+  "contentSha256": "5f14c736c74779966916826d797854bd2de38990b9d48736e470612ca70bdee4",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -456,8 +456,8 @@
     {
       "id": "quick-fix",
       "title": "The quick-fix rail",
-      "version": 5,
-      "sha256": "24f5439c4865a290091063069d735a0b6b2ec2ee58fb07be656dd0136049a292",
+      "version": 6,
+      "sha256": "c25bb974a808fb7ebdfad7d4b76a16a558009f1bca8b9ca88e2a1374e92acf2f",
       "routingSha256": "e48bee95d4e2dc5f4001a723006a2735a28b5216de204e3ae8aafaf6b91d1c12",
       "file": "quick-fix.md"
     },
@@ -616,8 +616,8 @@
     {
       "id": "specification-quality",
       "title": "Specification quality and clarification markers",
-      "version": 15,
-      "sha256": "c98c7e2a38a046a14bfac7dc3cfd860069088864cf0f64e8d24c111a67a6e585",
+      "version": 16,
+      "sha256": "2742cbbb97fbaa66f6b021634cb82005f194ab72d26b0895823bf005f877d5b1",
       "routingSha256": "6f4200409c982f2aec675cbaf904563a0b014733cbc9e88da82127c4982fdd21",
       "file": "specification-quality.md"
     },

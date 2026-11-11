@@ -21,7 +21,7 @@ import { withRequirementReviewProtocol, REQUIREMENT_REVIEW_PROTOCOL } from './re
 const FIRST_FIELDS = ['schemaVersion', 'resultType', 'paused', 'personalization', 'ready', 'repositoryPath', 'workItemRoot',
   'workId', 'story', 'phase', 'phaseStatus', 'generation', 'kind', 'canReview', 'status', 'reason', 'continuation', 'recovery',
   'progress', 'taskResume', 'reviewGuide', 'citationGuide', 'bindingPath', 'reportTemplate', 'stagingPath', 'stagingProtocol', 'authorAgentId', 'requiredReviewerAgentId',
-  'reviewer', 'documentReadiness', 'clarifications', 'clarificationGuidance', 'visualSources', 'visualGuidance', 'unreadableSources', 'sources', 'upstreamSpec', 'artifact', 'reportSchema'];
+  'reviewer', 'documentReadiness', 'clarifications', 'clarificationGuidance', 'visualSources', 'visualGuidance', 'unreadableSources', 'sources', 'upstreamSpec', 'plan', 'code', 'artifact', 'reportSchema'];
 
 /** Lossless review projection: one authoritative binding, no duplicated inventory. */
 export function compactSourceReviewContext(packet, binding) {
@@ -41,14 +41,18 @@ export function compactSourceReviewContext(packet, binding) {
       role: packet.canReview
         ? 'You are this operation\'s reviewer: activation is automatic, so act under reviewer.effectiveInstructions (otherwise reviewer.instructions) yourself in this conversation; no other agent, setup or selection is needed. Do the whole review now: fill reportTemplate, stage it at stagingPath, check it, then retain it. This packet is complete: a bounded copy lists omittedFields with their line ranges in agentOutput.path; read those ranges with your file tool before concluding anything is missing.'
         : 'No review can be prepared here; relay continuation.actions and stop.',
-      readOrder: [typeof packet.reviewer?.instructions === 'string' ? 'reviewer.effectiveInstructions' : 'reviewer.instructions', 'documentReadiness', 'clarifications', 'citationGuide', 'sources', ...(packet.visualSources?.length ? ['visualSources', 'visualGuidance'] : []), 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema']
+      readOrder: [typeof packet.reviewer?.instructions === 'string' ? 'reviewer.effectiveInstructions' : 'reviewer.instructions', 'documentReadiness', 'clarifications', 'citationGuide', 'sources', ...(packet.visualSources?.length ? ['visualSources', 'visualGuidance'] : []), 'upstreamSpec', 'plan', 'code', 'artifact', 'reportTemplate', 'reportSchema']
         .filter(field => field === 'reviewer.effectiveInstructions' || packet[field] != null),
       progress: 'Read progress first. Resume its exact staged draft and nextAction; retained ends the review. afterRetention is future guidance until the report is retained. Never restart context merely to avoid authoring the report.',
       exactTexts: true, bindingCopies: packet.reportTemplate ? 1 : 0,
       ...(packet.kind === 'specification' ? { requirementCoverage: typeof packet.reviewer?.instructions === 'string'
         ? 'Apply the requirement-review calibration in reviewer.effectiveInstructions; existing acceptance criteria count as coverage.'
         : REQUIREMENT_REVIEW_PROTOCOL } : {}),
-      verification: 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',
+      verification: packet.kind === 'code'
+        ? 'Code: run all four checks in citationGuide.checks, (a) plan, (b) tests, (c) quality and security, (d) readability and design. sources are the changed files as published; cite file:line in them. A finding names its check; design blocks only for a named defect.'
+        : packet.kind === 'document'
+          ? 'Document: read it against each pinned source (the Story, its documents and the approved inputs this step reads); give each a cited row (citationGuide.mappingRule).'
+          : 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',
       ...(packet.upstreamSpecPhase ? { upstreamFindings: `A blocking finding about the approved specification itself, not the plan, names ownerPhase "${packet.upstreamSpecPhase}": it is raised there as an upstream issue and holds only the Story's ending, not the plan.` } : {}),
       next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Read the exact source text files; their 1-based lines, not packet JSON lines, are citation lines. Use citationGuide to check all scenarios/clauses. Stage, check, repair format/citations using repair hints in this turn (at most two changed packets), then retain when retentionReady, even with honest semantic gaps. Use stagingProtocol; native file-read tools, not shell parsers or duplicate inventories.' } };
   const ordered = {};
@@ -68,7 +72,7 @@ export async function sourceReviewAgentContext({ cwd = process.cwd(), phaseId = 
   // A step with no source review is answered, not refused, so a reviewer never stops on it.
   if (!sourceReviewKind(workflow, phase.id)) return { ...entry.packet, resultType: 'source-review-agent-context',
     status: 'not-required', canReview: false,
-    reason: `'${phase.id}' neither defines the scope nor plans the claims, so it has no source review.`,
+    reason: `'${phase.id}' has no review in this Story's pinned review policy.`,
     continuation: { actions: [] } };
   if (!workflowBranchAllowed(workflow, branch(root))) throw new SingularityFlowError(
     `Current branch is not registered for Story '${workflow.workItem.id}'.`);

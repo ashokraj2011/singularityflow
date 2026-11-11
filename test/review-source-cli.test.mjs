@@ -550,6 +550,8 @@ test('legacy/off-policy Story status does not demand a reviewer or published gen
   git(root, 'switch', '-c', 'OFF-1');
   const config = await loadConfig(root);
   const resolved = resolveWorkType(config, 'spec-code-test-loop');
+  // A legacy Story: what it pinned before review level 2 reviewed every authored step. Its pin stays its own.
+  resolved.sourceReview = { mode: 'off', phases: [], reviewerAgent: null };
   const authorAgent = resolved.phases[0].defaultAgent;
   await setAgentSession(root, config, ACTOR, authorAgent, 'OFF-1',
     { phaseId: 'specification', source: 'test' });

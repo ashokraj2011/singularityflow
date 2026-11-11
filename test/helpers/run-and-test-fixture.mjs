@@ -41,7 +41,7 @@ def test_round():
     assert 1 == 2
 `;
 
-export async function repository(t, { extraCommands = [], implementCommands = true, implementQualityCommands = null, files = {}, applicationReview = null } = {}) {
+export async function repository(t, { extraCommands = [], implementCommands = true, implementQualityCommands = null, files = {}, applicationReview = null, reviews = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-tests-run-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -83,6 +83,9 @@ export async function repository(t, { extraCommands = [], implementCommands = tr
     config.phases.implement.approval = { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['implement', 'intake'] };
   }
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // These suites test running and testing code, not reviews: their quick fix is unreviewed unless a suite asks
+  // (`reviews: true`). The review of every step is walked in review-every-step-cli.test.mjs.
+  if (!reviews) config.workTypes['quick-fix'].sourceReview = { mode: 'off' };
   if (implementQualityCommands) config.phases.implement.qualityCommands = implementQualityCommands;
   else if (implementCommands) config.phases.implement.qualityCommands = [
     { id: 'module-junit', kind: 'test', argv: ['node', 'tools/junit.mjs', '2'], workingDirectory: '.', affectedRoots: ['tests'],

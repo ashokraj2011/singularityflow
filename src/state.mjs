@@ -106,7 +106,10 @@ import { classifySupportingChange } from './supporting-changes.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
 import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
 import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
-import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
+// The review of a step is read only where it gates submission and approval, from the CLI source: the CLI's eager
+// graph and the editor bundles that submit or approve do not carry the whole review evaluator [review level 2].
+const readSourceReviewStatus = async (...args) => (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'source-review-lifecycle.mjs')).href))
+  .readSourceReviewStatus(...args);
 import {
   assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, isDocumentationPath, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
   reviewCodeSource, reviewRepairTarget, storyMergedBaseChanges, testCommandProvenance, uncoveredTestDeliveryPaths,
@@ -5593,10 +5596,16 @@ async function submitPhaseTransition(root, config, workflow, {
   if (sourceReviewRequired(workflow, phase.id)) {
     const review = await readSourceReviewStatus(root, config, workflow, phase.id);
     if (review.status !== 'ready') {
+      // A finding about the approved specification is raised there, never re-reviewed here [PHR:REQ-003].
+      // Otherwise the in-step route leads: review this generation, or correct it in the same step.
+      const continuation = await import('./source-review-continuation.mjs');
+      const [first] = continuation.sourceReviewContinuation(workflow, phase, review).actions ?? [];
+      const nextAction = continuation.reviewUpstreamRoute(workflow, phase, review)
+        ?? (first?.command ? { command: first.command, skill: first.skill, label: first.reason ?? null }
+          : { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' });
       throw new SingularityFlowError(
-        `Phase '${phase.id}' cannot be submitted until an independent source-grounded review is ready. `
-        + `Run singularity-flow review-source context ${phase.id} --json, use its pinned reviewer instructions without changing the shared author, `
-        + `check the staged report with review-source check before retaining it, and resolve the listed findings before retrying.\n- `
+        `Phase '${phase.id}' cannot be submitted until its independent review is ready (${review.status}). Next, in this step: ${nextAction.command}. `
+        + `The review uses its pinned reviewer instructions without changing the shared author; check the staged report with review-source check before retaining it.\n- `
         + (review.findings?.map((entry) => entry.message).join('\n- ') || `Review status: ${review.status}.`),
         {
           code: 'SOURCE_REVIEW_REQUIRED',
@@ -5604,9 +5613,7 @@ async function submitPhaseTransition(root, config, workflow, {
             workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
             status: review.status, findings: review.findings ?? [],
             pendingDispositions: review.pendingDispositions ?? [],
-            // A finding about the approved specification is raised there, never re-reviewed here [PHR:REQ-003].
-            nextAction: (await import('./source-review-continuation.mjs')).reviewUpstreamRoute(workflow, phase, review)
-              ?? { command: `singularity-flow review-source context ${phase.id} --json`, skill: '/sf-review-source' }
+            nextAction
           }
         }
       );

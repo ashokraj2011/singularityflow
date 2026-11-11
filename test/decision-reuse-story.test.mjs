@@ -48,6 +48,9 @@ test('a real Story chooses the channel once and a later decision routes on it wi
     config.workTypes[ID].decisions[1]
   ];
   delete config.workTypes[ID].decisions[1].maxRounds;
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   await mkdir(path.join(root, 'src')); await mkdir(path.join(root, 'test'));
   await writeFile(path.join(root, 'src/screen.mjs'), 'export const title = "Approved screen";\n');

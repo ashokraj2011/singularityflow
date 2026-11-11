@@ -76,7 +76,9 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
   const reason = given === null ? null : await noteRequestedChange(root, workflow, phase, given);
   if (given !== null && reason === null) throw new SingularityFlowError('--reason needs the words that say what to change; nothing was left after redaction.', {
     code: 'GENERATION_CHANGE_REASON_REQUIRED' });
-  const requests = [...new Set([...await requestedChanges(root, workflow, phase), ...(reason && typedFocusOff(workflow) ? [reason] : [])])];
+  const review = await reviewCorrectionRequest(root, config, workflow, phase);
+  const requests = [...new Set([...await requestedChanges(root, workflow, phase), ...(reason && typedFocusOff(workflow) ? [reason] : []),
+    ...(review ? [review] : [])])];
   const next = nextPhaseGeneration(phase);
   if (!requests.length) throw new SingularityFlowError(
     `${phase.id} generation ${phase.generation} is published and unchanged; its next generation opens for a change the person asks for. `
@@ -126,4 +128,21 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
       reason: `Author generation ${intent.generation} for what was asked; its tests run again before it is published.` } };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else console.log(`Opened ${phase.id} generation ${intent.generation} for the change asked for. Generation ${phase.generation} stays as published.`);
+}
+
+/**
+ * A retained review of this generation that asks for corrections is a change the step itself asks for [review
+ * level 2]: its report, by SHA-256, and its blocking findings are the reason generation N+1 opens in the same step.
+ * The person still confirms the rollover, as for any other.
+ */
+export async function reviewCorrectionRequest(root, config, workflow, phase) {
+  const { sourceReviewRequired } = await import('./source-review-policy.mjs');
+  if (!sourceReviewRequired(workflow, phase.id)) return null;
+  let status;
+  try { status = await (await import('./source-review-lifecycle.mjs')).readSourceReviewStatus(root, config, workflow, phase.id); }
+  catch { return null; }
+  if (status?.status !== 'correction-required' || !status.reportSha256 || Number(status.generation) !== Number(phase.generation)) return null;
+  const blocking = (status.findings ?? []).filter((entry) => entry.code !== 'human-disposition-required').slice(0, 5)
+    .map((entry) => String(entry.message ?? entry.code).replace(/\s+/gu, ' ').slice(0, 300));
+  return `Correct what review ${status.reportSha256.slice(0, 12)} of generation ${phase.generation} found: ${blocking.join(' | ') || 'its blocking findings'}`.slice(0, 2000);
 }

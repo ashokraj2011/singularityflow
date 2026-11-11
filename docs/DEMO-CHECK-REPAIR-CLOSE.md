@@ -31,6 +31,16 @@ There are three automatic backward routes per decision, then the engine requests
 direction. Blocked access, unavailable tools, skipped required tests and inconclusive evidence
 never become a pass. Human disagreement uses normal reject/rework; preserved work remains intact.
 
+## A reviewer in every step
+
+Every step of a new demo Story is reviewed before it is submitted: Intake, Check, Repair and Close
+each get an independent read-only review (`sflow-source-reviewer`) of what the step published. Run
+`/sf-review-source` after a step publishes; submission waits until the review is ready. Repair's code
+review checks that the code matches the approved plan, that each clause has its own test that ran and
+passed, every quality and security result, and readability (advice unless it names a real
+maintainability defect). A review asking for corrections opens the step's next generation in the same
+step, once you confirm it; nothing is approved by the review. Stories started earlier keep their review.
+
 ## Inputs and tools
 
 Provide screenshots, documents or Story details during intake. Agree test commands/environment,

@@ -36,6 +36,9 @@ async function repository() {
   // enforcement is covered by repository-readiness-runtime and the real Classic/first-run journeys.
   config.repositoryReadiness = { ...config.repositoryReadiness, requiredBeforeStory: false };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // These lifecycle fixtures test sequencing, approval and rework, not reviews: their Stories are unreviewed on
+  // purpose. Every step's review is walked in review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes)) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root); execute('git', ['commit', '-m', 'initial'], root);
   const remote = `${root}.git`;

@@ -183,6 +183,9 @@ test('the CLI accepts and revokes the risk of an inconclusive criterion through 
     workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
     result: { adapter: 'junit-xml', path: '.sflow/results/unit.xml', minimumDiscovered: 1 }
   }];
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   cliRun('git', ['add', '.'], root);
   cliRun('git', ['commit', '-m', 'Initialize the risk fixture'], root);

@@ -72,6 +72,9 @@ async function storyAtCode(t, { existingImports = false } = {}) {
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   // Its testing step then runs the repository's tests, as packaged feature and bugfix verification do.
   delete config.workTypes['classic-delivery'].phaseOverrides.testing.testEvidenceFrom;
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Fixture']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], { cwd: base });
@@ -416,6 +419,9 @@ test('all-configured reaches the gates, from intake or changed later, and only-n
     const config = YAML.parse(await readFile(configPath, 'utf8'));
     config.worldModel.grounding = 'off'; config.approvalSecurity = { profile: 'poc' };
     for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+    // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+    // review-every-step-cli.test.mjs.
+    for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
     await writeFile(configPath, YAML.stringify(config));
     must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Fixture']);
     must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);

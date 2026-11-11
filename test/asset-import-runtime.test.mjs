@@ -60,6 +60,8 @@ async function repository() {
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.workTypes[WORK_TYPE] = {
     label: 'Import demo', phases: ['intake', 'design'],
+    // Not a review test: its Story is unreviewed on purpose (every step's review: review-every-step-cli.test.mjs).
+    sourceReview: { mode: 'off' },
     phaseOverrides: { design: { inputs: ['intake'] } },
     // Drafting a design from imported assets specifies, builds and tests nothing, and says so.
     omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({

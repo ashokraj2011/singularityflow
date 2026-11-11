@@ -207,6 +207,9 @@ async function storyThroughGates(t, { files, source, testFile, sourceText, testT
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'A repository of this runner']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);

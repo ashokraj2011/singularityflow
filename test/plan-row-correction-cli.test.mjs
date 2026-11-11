@@ -58,6 +58,9 @@ test('a wrong plan path is corrected by the plan approvers and the code step con
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.workTypes['classic-delivery'].spec = { ...(config.workTypes['classic-delivery'].spec ?? {}), mode: 'enforce', coverage: 'enforce' };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the correction fixture'], root);
@@ -155,6 +158,9 @@ test('a row planned as a product change is corrected to test-only and the tests-
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.workTypes['classic-delivery'].spec = { ...(config.workTypes['classic-delivery'].spec ?? {}), mode: 'enforce', coverage: 'enforce' };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the test-only fixture'], root);

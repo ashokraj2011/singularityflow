@@ -47,6 +47,9 @@ async function repository(t, configure = () => {}) {
   config.repositoryReadiness = { ...config.repositoryReadiness, requiredBeforeStory: false };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   configure(config);
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   git(root, 'add', '.');
   git(root, 'commit', '-q', '-m', 'initial');

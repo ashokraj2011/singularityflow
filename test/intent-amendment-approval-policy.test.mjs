@@ -84,6 +84,9 @@ test('amendments honor required groups, retain all reviewers and let a prior rev
     members: [{ email: 'b@example.com' }] };
   config.phases.specification.approval = { authorities: ['product-approvers', 'quality-reviewers'],
     requiredAuthorities: ['quality-reviewers'], minimum: 2, allowSelfApproval: true, rejectTo: ['specification'] };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   git('add', '.');
   git('commit', '-qm', 'Initialize multi-authority amendment fixture');

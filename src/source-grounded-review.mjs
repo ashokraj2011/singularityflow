@@ -1,5 +1,6 @@
 /**
- * Independent, source-grounded review of specification and planning artifacts.
+ * Independent, source-grounded review of every authored step's artifact: a specification, a plan, any other
+ * document ('document'), and a code step's change ('code', [review level 2]).
  *
  * The reviewer supplies semantic judgments. This module only checks that the review is complete,
  * cites bytes in the pinned sources, covers the structured clauses/plan, and still describes the
@@ -82,8 +83,17 @@ function unreadableBinding(entry) {
 }
 
 /** Build the binding expected in the independent report from current, trusted input bytes. */
-export function sourceReviewBinding({ kind, workId, phase, generation, sources, visualSources = [], artifact, upstreamSpec = null, unreadableSources = [], clarifications = [] }) {
-  if (!['specification', 'planning'].includes(kind)) throw new SingularityFlowError('Review kind must be specification or planning.');
+export const SOURCE_REVIEW_KINDS = Object.freeze(['specification', 'planning', 'document', 'code']);
+
+/** A changed file's source ID in a code review: its path, as an ID. */
+export function codeSourceId(relative) {
+  const id = `code:${String(relative).replace(/[^A-Za-z0-9._-]/gu, ':')}`;
+  return ID.test(id) ? id : `code:${sha256(String(relative)).slice(0, 32)}`;
+}
+
+export function sourceReviewBinding({ kind, workId, phase, generation, sources, visualSources = [], artifact, upstreamSpec = null, plan = null, code = null, unreadableSources = [], clarifications = [] }) {
+  if (!SOURCE_REVIEW_KINDS.includes(kind)) throw new SingularityFlowError(`Review kind must be one of ${SOURCE_REVIEW_KINDS.join(', ')}.`);
+  if (kind === 'code' && (!code || typeof code !== 'object')) throw new SingularityFlowError('A code review needs the step\'s delivery evidence.');
   requireId(workId, 'Review work ID');
   requireId(phase, 'Review phase');
   if (!Number.isSafeInteger(generation) || generation < 0) throw new SingularityFlowError('Review generation must be a non-negative integer.');
@@ -126,7 +136,10 @@ export function sourceReviewBinding({ kind, workId, phase, generation, sources, 
     ...(unreadable.length ? { unreadableSources: unreadable } : {}),
     ...(boundClarifications.length ? { clarifications: boundClarifications } : {}),
     artifact: artifactBinding(artifact, 'Review artifact'),
-    ...(kind === 'planning' ? { upstreamSpec: artifactBinding(upstreamSpec, 'Approved specification') } : {})
+    ...(kind === 'planning' ? { upstreamSpec: artifactBinding(upstreamSpec, 'Approved specification') } : {}),
+    // A code review is bound to the approved plan it checks against and to the delivery evidence it reads.
+    ...(kind === 'code' && plan ? { plan: artifactBinding(plan, 'Approved plan') } : {}),
+    ...(kind === 'code' ? { evidenceSha256: recordSha256(code) } : {})
   };
 }
 
@@ -385,6 +398,126 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
 }
 
 /**
+ * Any other authored document, reviewed against what it read [review level 2]: each pinned source (the Story and
+ * its documents, and the approved inputs the step reads) has cited rows saying the document is consistent with it,
+ * or not, or asks a question. An inconsistency or open question holds the step until its author corrects it.
+ */
+function evaluateDocumentRows(report, context, binding, findings) {
+  const rows = report.rows;
+  if (!Array.isArray(rows) || !rows.length || rows.length > MAX_ROWS) {
+    findings.push(finding('rows-invalid', `A document review needs 1 to ${MAX_ROWS} cited rows.`));
+    return;
+  }
+  const sources = new Map(context.sources.map((source) => [source.id, source]));
+  const visuals = new Map((context.visualSources ?? []).map((entry) => [entry.id, entry]));
+  const mapped = new Set();
+  const rowIds = new Set();
+  for (const [index, row] of rows.entries()) {
+    const label = `Review row ${index + 1}`;
+    if (!row || typeof row !== 'object' || Array.isArray(row)) { findings.push(finding('row-invalid', `${label} must be an object.`)); continue; }
+    if (!ID.test(String(row.id ?? '')) || rowIds.has(row.id)) findings.push(finding('row-id-invalid', `${label} needs a unique stable id.`));
+    else rowIds.add(row.id);
+    if (visuals.has(row.sourceId)) {
+      if (typeof row.attestation !== 'string' || !row.attestation.trim()) findings.push(finding('visual-citation-invalid', `${label} must cite the inspected page or image region and observation.`));
+      else mapped.add(row.sourceId);
+    } else {
+      const source = citedSource(row, sources, findings, label, `rows[${index}]`);
+      if (source) mapped.add(source.id);
+    }
+    if (row.outcome === 'inconsistent') findings.push(finding('document-inconsistent',
+      `${label}: the document is not consistent with ${row.sourceId}:${row.line ?? '?'}. ${String(row.note ?? '').trim()}`.trim(), { rowId: row.id }));
+    else if (row.outcome === 'question') findings.push(finding('source-question-unresolved',
+      `${label} asks a material question about ${row.sourceId}: ${String(row.note ?? '').trim() || 'see the row'}`, { rowId: row.id }));
+    else if (row.outcome !== 'consistent') findings.push(finding('row-outcome-invalid', `${label} outcome must be consistent, inconsistent, or question.`));
+  }
+  for (const source of [...binding.sources, ...(binding.visualSources ?? [])]) if (!mapped.has(source.id)) findings.push(finding('source-unmapped',
+    `Pinned source '${source.id}' has no cited row saying whether the document is consistent with it.`, { sourceId: source.id }));
+}
+
+/**
+ * A code step's change, reviewed against its approved plan and the evidence its delivery recorded [review level 2]:
+ *   (a) each clause the step delivers is implemented where the plan says, and every changed path is planned or
+ *       reviewed as a supporting change;
+ *   (b) each delivered clause has its own test, planned, that ran and passed, and that the reviewer says proves it;
+ *   (c) every unresolved quality, security or secret-scan result is reviewed;
+ *   (d) readability and design are the reviewer's judgement: blocking only for a named maintainability defect.
+ * Every citation is a changed file's exact line (file:line), and every finding names its check.
+ */
+function evaluateCodeRows(report, context, findings) {
+  const code = context.code ?? {};
+  const sources = new Map(context.sources.map((source) => [source.id, source]));
+  const byPath = new Map(context.sources.map((source) => [source.path, source]));
+  const planned = code.planned ?? null;
+  const delivered = code.deliveredClauses ?? [];
+  const passed = new Set(code.passedTests ?? []);
+  const rows = report.rows;
+  if (!Array.isArray(rows) || rows.length > MAX_ROWS) {
+    findings.push(finding('rows-invalid', `A code review needs at most ${MAX_ROWS} clause rows.`));
+    return;
+  }
+  const byClause = new Map();
+  const cite = (entry, label, field) => {
+    const source = citedSource(entry, sources, findings, label, field);
+    return source ? source.path : null;
+  };
+  for (const [index, row] of rows.entries()) {
+    const label = `Review row ${index + 1}`;
+    if (!row || typeof row !== 'object' || Array.isArray(row) || !delivered.includes(row.clauseId) || byClause.has(row.clauseId)) {
+      const canonical = row && typeof row === 'object' && !delivered.includes(row.clauseId) ? clauseCaseHint(row.clauseId, delivered) : null;
+      findings.push(canonical ? finding('clause-row-invalid', `${label} names clause '${row.clauseId}'; write it exactly as '${canonical}'.`, { canonical })
+        : finding('clause-row-invalid', `${label} needs one unique clause this step delivers.`));
+      continue;
+    }
+    byClause.set(row.clauseId, row);
+    const claim = planned?.[row.clauseId] ?? null;
+    // (a) Implemented where the plan says.
+    const implementation = Array.isArray(row.implementation) ? row.implementation : [];
+    for (const [at, entry] of implementation.entries()) {
+      const where = cite(entry, `${label} implementation ${at + 1}`, `rows[${index}].implementation[${at}]`);
+      if (where && claim && !(claim.expectedPaths ?? []).includes(where)) findings.push(finding('implementation-outside-plan',
+        `${row.clauseId} is implemented in ${where}, which its plan row does not name (planned: ${(claim.expectedPaths ?? []).join(', ') || 'none'}).`,
+        { clauseId: row.clauseId, check: 'plan', path: where }));
+    }
+    if (row.assessment !== 'implemented') findings.push(finding('clause-not-implemented',
+      `${row.clauseId} is not implemented as the approved ${planned ? 'plan' : 'scope'} says.`, { clauseId: row.clauseId, check: 'plan' }));
+    else if (!implementation.length && claim?.fulfillment !== 'test-only') findings.push(finding('clause-implementation-uncited',
+      `${row.clauseId} is marked implemented without a cited file:line.`, { clauseId: row.clauseId, check: 'plan' }));
+    // (b) Its own test, planned, run and passed, and proving it.
+    const tested = !claim || !['not-applicable', 'non-test'].includes(claim.testDisposition);
+    const tests = Array.isArray(row.tests) ? row.tests : [];
+    if (tested && !tests.length) findings.push(finding('clause-test-uncited', `${row.clauseId} has no cited test that proves it.`, { clauseId: row.clauseId, check: 'tests' }));
+    for (const [at, entry] of tests.entries()) {
+      const where = cite(entry, `${label} test ${at + 1}`, `rows[${index}].tests[${at}]`);
+      if (!where) continue;
+      if (claim && (claim.tests ?? []).length && !claim.tests.includes(where)) findings.push(finding('test-outside-plan',
+        `${row.clauseId}'s test ${where} is not the planned test (${claim.tests.join(', ')}).`, { clauseId: row.clauseId, check: 'tests', path: where }));
+      if (!passed.has(where)) findings.push(finding('clause-test-not-run',
+        `${row.clauseId}'s test ${where} has no passing run recorded for this generation.`, { clauseId: row.clauseId, check: 'tests', path: where }));
+    }
+    if (tested && row.testAssessment !== 'proves') findings.push(finding('clause-test-not-proving',
+      `${row.clauseId}'s test does not prove the behaviour the clause states.`, { clauseId: row.clauseId, check: 'tests' }));
+  }
+  for (const id of delivered) if (!byClause.has(id)) findings.push(finding('clause-unreviewed',
+    `Delivered clause '${id}' has no code review row.`, { clauseId: id }));
+  // (a) Every changed path is planned, or the reviewer says it supports the plan.
+  const plannedPaths = new Set(Object.values(planned ?? {}).flatMap((claim) => [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]));
+  const unplanned = planned ? (code.changedPaths ?? []).filter((relative) => !plannedPaths.has(relative)) : [];
+  const reviewed = new Map((Array.isArray(report.unplannedPaths) ? report.unplannedPaths : [])
+    .map((entry) => [sources.get(entry?.sourceId)?.path ?? null, entry]));
+  for (const relative of unplanned) {
+    const entry = reviewed.get(relative);
+    if (!entry) findings.push(finding('unplanned-path-unreviewed', `Changed path ${relative} is in no plan row; review it as supporting or out of scope.`,
+      { sourceId: byPath.get(relative)?.id ?? null, check: 'plan', path: relative }));
+    else if (entry.assessment === 'out-of-scope') findings.push(finding('unplanned-change',
+      `Changed path ${relative} is outside the approved plan: ${String(entry.note ?? '').trim()}`, { check: 'plan', path: relative }));
+  }
+  // (c) Every unresolved quality, security or secret-scan result is reviewed.
+  const acknowledged = new Set(Array.isArray(report.qualityReviewed) ? report.qualityReviewed : []);
+  for (const item of code.quality ?? []) if (!acknowledged.has(item.id)) findings.push(finding('quality-not-reviewed',
+    `Quality result '${item.id}' (${item.summary}) is not reviewed.`, { check: 'quality', qualityId: item.id }));
+}
+
+/**
  * Evaluate an independently produced report. Human dispositions must come from the caller's
  * authenticated approval path, never from a field in the reviewer-authored report.
  */
@@ -428,6 +561,8 @@ export function evaluateSourceGroundedReview(report, context) {
   });
   try {
     if (context.kind === 'specification') evaluateSpecificationRows(report, context, binding, findings, pendingDispositions);
+    else if (context.kind === 'document') evaluateDocumentRows(report, context, binding, findings);
+    else if (context.kind === 'code') evaluateCodeRows(report, context, findings);
     else evaluatePlanningRows(report, context, findings, pendingDispositions);
   } catch (error) {
     findings.push(finding('review-structure-invalid', error.message));
@@ -444,6 +579,15 @@ export function evaluateSourceGroundedReview(report, context) {
         continue;
       }
       ids.add(entry.id);
+      // A code finding names its check and cites a changed file's line; design blocks only for a named defect.
+      if (context.kind === 'code') {
+        if (!['plan', 'tests', 'quality', 'design'].includes(entry.check) || !entry.sourceId || !Number.isSafeInteger(entry.line) || !entry.quote) {
+          findings.push(finding('finding-citation-missing', `Reviewer finding '${entry.id}' needs its check (plan, tests, quality or design) and a cited file:line.`, { field: `findings[${index}]` }));
+        }
+        if (entry.check === 'design' && entry.severity === 'blocking' && !String(entry.defect ?? '').trim()) {
+          findings.push(finding('design-blocking-without-defect', `Design finding '${entry.id}' blocks only for a real maintainability defect: name it in defect, or make it advisory.`, { field: `findings[${index}]` }));
+        }
+      }
       if (entry.sourceId) {
         if (context.visualSources?.some(source => source.id === entry.sourceId)) {
           if (!String(entry.attestation ?? '').trim()) findings.push(finding('visual-citation-invalid',

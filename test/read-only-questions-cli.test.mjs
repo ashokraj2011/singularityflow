@@ -37,8 +37,9 @@ async function featureStory(t) {
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
-  // Reviewed like spec-driven-standard, so intake sits in a Story whose later steps owe a source review.
-  config.workTypes.feature.sourceReview = { mode: 'enforce', phases: ['requirements', 'implementation-spec'], reviewerAgent: 'sflow-source-reviewer' };
+  // Reviewed like spec-driven-standard, so intake sits in a Story whose later steps owe a source review. Every
+  // authored step is reviewed from review level 2; intake is skipped on purpose: these tests ask at a step with no review.
+  config.workTypes.feature.sourceReview = { mode: 'enforce', phases: ['requirements', 'implementation-spec'], skip: ['intake'], reviewerAgent: 'sflow-source-reviewer' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the read-only questions fixture'], root);

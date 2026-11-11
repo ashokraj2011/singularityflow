@@ -44,6 +44,9 @@ async function drafted(t, W) {
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.workTypes['classic-delivery'].spec = { ...(config.workTypes['classic-delivery'].spec ?? {}), mode: 'enforce', coverage: 'enforce' };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the upstream issue fixture'], root);
@@ -201,6 +204,9 @@ test('a Story completes only once its open upstream issue is decided', slowLane(
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the completion fixture'], root);

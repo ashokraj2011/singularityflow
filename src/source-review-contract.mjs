@@ -32,8 +32,27 @@ const planningRow = z.strictObject({
   observableResult: text().optional(),
   assessment: z.enum(['supported', 'unsupported']).describe('An independent judgment, never a default. Use unsupported and a blocking finding for a real gap.')
 });
+// A document step's row: what one cited source line says against the document [review level 2].
+const documentRow = z.strictObject({
+  id, sourceId: id, line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(),
+  outcome: z.enum(['consistent', 'inconsistent', 'question']).describe('Consistent: the document agrees with this source line. Inconsistent or question holds the step until its author corrects it.'),
+  note: text().optional().describe('For inconsistent or question: what differs or what is unclear.')
+});
+const fileCitation = z.strictObject({ sourceId: id.describe('A changed file\'s source ID (code:<path>).'), line: citation.line, quote: citation.quote });
+// A code step's row: one clause it delivers, where it is implemented and which test proves it [review level 2].
+const codeRow = z.strictObject({
+  id: id.optional(),
+  clauseId: id.describe('One clause this step delivers, exactly as reportTemplate names it.'),
+  implementation: z.array(fileCitation).max(50).describe('(a) Where the clause is implemented: file:line in a planned path.'),
+  tests: z.array(fileCitation).max(50).describe('(b) The clause\'s own test: file:line of the planned test that ran and passed.'),
+  assessment: z.enum(['implemented', 'not-implemented']).describe('An independent judgment, never a default.'),
+  testAssessment: z.enum(['proves', 'does-not-prove', 'not-applicable']).describe('Whether the cited test checks the behaviour the clause states.')
+});
+const unplannedPath = z.strictObject({ sourceId: id, assessment: z.enum(['supporting', 'out-of-scope']), note: text() });
 const reviewerFinding = z.strictObject({
   id, severity: z.enum(['blocking', 'advisory']),
+  check: z.enum(['plan', 'tests', 'quality', 'design']).optional().describe('Code review only: which check found it. Design blocks only with defect.'),
+  defect: text(1024).optional().describe('Code review, design check: the maintainability defect that makes it blocking.'),
   message: text().describe('Explain the evidence and gap in message; not explanation.'),
   clauseId: id.optional(), sourceId: id.optional(),
   line: citation.line.optional(), quote: citation.quote.optional(), attestation: text(1024).optional(),
@@ -41,7 +60,10 @@ const reviewerFinding = z.strictObject({
 });
 
 function schema(kind) {
-  if (!['specification', 'planning'].includes(kind)) throw new TypeError('Unknown source review kind.');
+  if (!['specification', 'planning', 'document', 'code'].includes(kind)) throw new TypeError('Unknown source review kind.');
+  const rows = kind === 'planning' ? z.array(planningRow).min(0).max(2000)
+    : kind === 'document' ? z.array(documentRow).min(1).max(2000)
+      : kind === 'code' ? z.array(codeRow).min(0).max(2000) : z.array(specificationRow).min(1).max(2000);
   return z.strictObject({
     schemaVersion: z.literal(currentSchemaVersion('source-grounded-review')),
     resultType: z.literal('source-grounded-review'), kind: z.literal(kind),
@@ -51,7 +73,9 @@ function schema(kind) {
     visualSourcesReviewed: z.array(z.strictObject({ sourceId: id,
       method: z.enum(['image-tool', 'pdf-tool']), locator: text(1024), observations: text() })).max(100).optional(),
     clarificationsReviewed: z.array(id).max(2).optional().describe('Read and acknowledge every record in context.clarifications. Omit only when none is pinned.'),
-    rows: z.array(kind === 'planning' ? planningRow : specificationRow).min(kind === 'planning' ? 0 : 1).max(2000),
+    rows,
+    ...(kind === 'code' ? { unplannedPaths: z.array(unplannedPath).max(2000).describe('(a) Each changed path no plan row names: supporting, or out-of-scope.'),
+      qualityReviewed: z.array(id).max(500).describe('(c) The ID of every quality, security and secret-scan result in context.code.quality.') } : {}),
     findings: z.array(reviewerFinding).max(500)
   });
 }
@@ -95,12 +119,21 @@ export function sourceReviewReportTemplate(input) {
         assessment: 'unreviewed' };
     });
   }
+  if (input.kind === 'code') {
+    const planned = input.code?.planned ?? {};
+    rows = (input.code?.deliveredClauses ?? []).map((clauseId) => ({ clauseId, implementation: [], tests: [],
+      assessment: 'unreviewed', testAssessment: ['not-applicable', 'non-test'].includes(planned[clauseId]?.testDisposition) ? 'not-applicable' : 'unreviewed' }));
+  }
+  const plannedPaths = new Set(Object.values(input.code?.planned ?? {}).flatMap((claim) => [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]));
   return {
     schemaVersion: currentSchemaVersion('source-grounded-review'), resultType: 'source-grounded-review', kind: input.kind,
     binding: input.binding, reviewer: { agentId: input.reviewerAgentId, readOnly: true },
     sourcesReviewed: [...input.sources, ...(input.visualSources ?? [])].map((source) => source.id),
     ...(input.visualSources?.length ? { visualSourcesReviewed: [] } : {}),
-    ...(input.clarifications?.length ? { clarificationsReviewed: [] } : {}), rows, findings: []
+    ...(input.clarifications?.length ? { clarificationsReviewed: [] } : {}), rows,
+    ...(input.kind === 'code' ? { unplannedPaths: input.code?.planned ? input.sources.filter((source) => (input.code.changedPaths ?? []).includes(source.path) && !plannedPaths.has(source.path))
+      .map((source) => ({ sourceId: source.id, assessment: 'unreviewed', note: '' })) : [], qualityReviewed: [] } : {}),
+    findings: []
   };
 }
 
@@ -115,6 +148,18 @@ export function sourceReviewCitationGuide(input) {
     lineBasis: '1-based lines of sources[].text, not the JSON packet, original attachment, artifact or clarification record. In the agent view, read each source textFile with the native file tool; its line numbers are citation line numbers.',
     quoteRule: 'Copy an exact non-empty substring of that single line, at most 1024 characters. Do not paraphrase, normalize whitespace, include a line-number prefix, or combine lines.',
     ...(input.visualSources?.length ? { visualRule: 'Inspect exact visualSources[].absolutePath with an actual native image/PDF tool. Acknowledge each in visualSourcesReviewed with method, locator and observations. A covered row cites sourceId and attestation naming the page/region and observed behavior; never invent line/quote for pixels.' } : {}),
+    ...(input.kind === 'code' ? {
+      checks: [
+        '(a) Plan: each delivered clause is implemented where its plan row says (cite file:line in implementation); review every changed path no plan row names as supporting or out-of-scope.',
+        '(b) Tests: each delivered clause has its own planned test that ran and passed (context.code.passedTests); cite its file:line and say whether it proves the behaviour.',
+        '(c) Quality and security: acknowledge every context.code.quality result ID in qualityReviewed; raise a blocking quality finding for one that must be fixed.',
+        '(d) Readability and design: your judgement, proportionate. Advisory by default; blocking only for a real maintainability defect, named in defect.'
+      ],
+      findingRule: 'Every finding names its check and cites a changed file: sourceId (code:<path>), line and an exact quote; name the clauseId for plan and tests findings.'
+    } : {}),
+    ...(input.kind === 'document' ? {
+      mappingRule: 'Give each pinned source at least one cited row: consistent where the document agrees with it, inconsistent (with note) where it does not, question (with note) where it is unclear.'
+    } : {}),
     ...(input.kind === 'specification' ? {
       scenarioIds: [...sourceReviewScenarioIds(input.artifact.text)],
       ...clauses,

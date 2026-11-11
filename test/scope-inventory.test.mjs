@@ -295,6 +295,9 @@ test('the CLI shows the inventory and records a scope decision through the scope
   definition.repositoryReadiness = { ...(definition.repositoryReadiness ?? {}), requiredBeforeStory: false };
   definition.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(definition.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(definition.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(file, YAML.stringify(definition));
   git('add', '.');
   git('commit', '-qm', 'Govern the fixture');
@@ -358,6 +361,9 @@ async function publishedScopeStory(t, id, { criteria = [], planned = [], section
   definition.repositoryReadiness = { ...(definition.repositoryReadiness ?? {}), requiredBeforeStory: false };
   definition.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(definition.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(definition.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(file, YAML.stringify(definition));
   git('add', '.');
   git('commit', '-qm', 'Govern the fixture');

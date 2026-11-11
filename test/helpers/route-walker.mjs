@@ -78,6 +78,8 @@ export async function codeStepTemplate(t, { configure = null } = {}) {
   config.worldModel.grounding = 'off'; config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.workTypes['classic-delivery'].spec = { ...(config.workTypes['classic-delivery'].spec ?? {}), mode: 'enforce', coverage: 'enforce' };
+  // The walker follows routes, not reviews: its Story is unreviewed. Reviews are walked in review-every-step-cli.test.mjs.
+  config.workTypes['classic-delivery'].sourceReview = { mode: 'off' };
   configure?.(config);
   await writeFile(configPath, YAML.stringify(config));
   git('add', '.'); git('commit', '-qm', 'Initialize the walker fixture');

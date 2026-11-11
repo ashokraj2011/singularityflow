@@ -201,6 +201,8 @@ async function createRepositorySeed() {
   workflow.workTypes.feature.auto = {
     eligibility: 'bounded', allowedPaces: ['phase'], defaultUntil: 'first-human-boundary'
   };
+  // Not a review test: Auto's Stories are unreviewed on purpose (every step's review: review-every-step-cli.test.mjs).
+  for (const workType of Object.values(workflow.workTypes)) workType.sourceReview = { mode: 'off' };
   await writeFile(workflowPath, YAML.stringify(workflow));
   await writeFile(path.join(root, 'app.mjs'), 'export const value = 1;\n');
   run('git', ['add', '.'], root);

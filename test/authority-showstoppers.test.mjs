@@ -39,7 +39,8 @@ async function repository(t, body, mutate = () => {}) {
   config.repositoryReadiness = { ...(config.repositoryReadiness ?? {}), requiredBeforeStory: false };
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
-  config.workTypes['doc-only'] = body;
+  // Not a review test: its Story is unreviewed on purpose (every step's review: review-every-step-cli.test.mjs).
+  config.workTypes['doc-only'] = { sourceReview: { mode: 'off' }, ...body };
   mutate(config);
   await writeFile(configPath, YAML.stringify(config));
   git('add', '-A');

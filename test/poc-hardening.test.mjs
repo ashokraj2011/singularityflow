@@ -87,6 +87,9 @@ test('a phase cannot advance until every required authority group has decided', 
     name: 'Engineering Reviewer', email: 'engineering@example.com'
   }];
   const resolved = resolveWorkType(config, 'poc-workflow');
+  // Not a review test: this Story is pinned unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  resolved.sourceReview = { mode: 'off', phases: [], reviewerAgent: null };
   const publication = resolved.phases.find((phase) => phase.id === 'poc-publication-review');
   const hardenedPublication = {
     ...publication,

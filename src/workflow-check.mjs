@@ -24,6 +24,7 @@ import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { guidanceConflicts, scanGuidanceText } from './guidance-scan.mjs';
 import { mcpServerSetupCommands, mcpTargetOriginNeed, mcpTargetOriginSteps } from './mcp-target.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
+import { sourceReviewPolicyNotice } from './source-review-policy.mjs';
 import { SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
 import { explainWorkflow } from './workflow-explanation.mjs';
 import { simulateWorkflowRoutes } from './workflow-route-simulation.mjs';
@@ -285,6 +286,15 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
         fix: `Give ${stepLabel(planner)}'s planned-claims table a Steps column and name the code step of each row, or give each code step a plan of its own in plannedClaims.owners.`,
         subject: { step: planner } });
     }
+    // Every authored step is reviewed from review level 2: a legacy list is reported, never silently ignored.
+    const reviewNotice = sourceReviewPolicyNotice(resolved.sourceReview, workflow.id);
+    if (reviewNotice) add({ code: 'CHECK_REVIEW_PHASES_SUPERSEDED', area: 'flow', severity: 'note',
+      title: 'Its review list no longer limits which steps are reviewed', detail: reviewNotice,
+      fix: 'Nothing to fix. To leave a step unreviewed, list it under sourceReview.skip.', subject: {} });
+    if (resolved.sourceReview?.unavailableReviewer) add({ code: 'CHECK_REVIEWER_UNAVAILABLE', area: 'flow', severity: 'warning',
+      title: 'No step of this workflow is reviewed',
+      detail: `Every authored step is reviewed by '${resolved.sourceReview.unavailableReviewer}', which this configuration does not have as a read-only reviewer.`,
+      fix: `Add the '${resolved.sourceReview.unavailableReviewer}' agent with sflow-mode: read-only-review, or name another in sourceReview.reviewerAgent.`, subject: {} });
     let simulation = null;
     try { simulation = simulateWorkflowRoutes(resolved, { approvalAuthorities: definition.approvalAuthorities }); }
     catch (error) {

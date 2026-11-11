@@ -33,6 +33,9 @@ async function storyPastIntake() {
   // The editor states the storage it shows, here `--store git`. New templates allow only local
   // storage, so this fixture approves the older policy that also allows Git.
   config.documents.storage = { allowed: ['git', 'local'], default: 'git' };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root); run('git', ['commit', '-m', 'initialize'], root);
   run('git', ['init', '--bare', '-b', 'main', `${root}.git`], root); run('git', ['remote', 'add', 'origin', `${root}.git`], root); run('git', ['push', '-u', 'origin', 'main'], root);

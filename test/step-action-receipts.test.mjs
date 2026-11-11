@@ -169,6 +169,9 @@ test('integrations record commits each delivered delivery once, after review, an
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.integrations = { targets: { 'team-events': { kind: 'webhook', url: local.url } } };
   config.phases.intake.afterStep = [{ id: 'announce', on: ['submitted', 'approved'], target: 'team-events' }];
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the receipt fixture'], root);
@@ -347,6 +350,9 @@ async function requiredStory(t, local) {
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.integrations = { targets: { 'audit-log': { kind: 'webhook', url: local.url } } };
   config.phases.intake.afterStep = [{ id: 'audit', on: ['approved'], target: 'audit-log', required: true }];
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the required-action fixture'], root);

@@ -83,6 +83,9 @@ async function customizeCapabilityProposal(root, branch) {
       }
     }
   };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(workflow.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(workflowPath, YAML.stringify(workflow));
   git(root, ['add', '.']);
   git(root, ['commit', '-q', '-m', 'review POC workflow policy']);

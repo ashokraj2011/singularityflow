@@ -40,7 +40,7 @@ export async function reviewSourceCommand(positionals, options) {
   if (!['context', 'decision-context', 'stage', 'check', 'submit', 'decide', 'status'].includes(action)) {
     throw new SingularityFlowError("Source review action must be context, decision-context, stage, check, submit, decide, or status.");
   }
-  const phaseId = requirePositional(positionals, 2, 'step that defines the scope or plans the claims');
+  const phaseId = requirePositional(positionals, 2, 'step to review');
   const root = repoRoot();
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   // Reviewable by what the step does, not what it is called [E2G-001]. Asking whether a review is
@@ -48,12 +48,13 @@ export async function reviewSourceCommand(positionals, options) {
   if (['status', 'context', 'decision-context', 'check'].includes(action) && !sourceReviewKind(workflow, phaseId) && workflow.phases?.[phaseId]) {
     const result = { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, phase: phaseId,
       mode: 'not-applicable', status: 'not-required', findings: [], pendingDispositions: [],
-      reason: `'${phaseId}' neither defines the scope nor plans the claims, so it has no source review.` };
+      reason: workflow.resolution?.sourceReview?.kinds ? `'${phaseId}' has no review in this Story's pinned review policy.`
+        : `'${phaseId}' neither defines the scope nor plans the claims, so it has no source review.` };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     return console.log(`Source review: not required for ${workflow.workItem.id} ${phaseId}; ${result.reason}`);
   }
   if (!sourceReviewKind(workflow, phaseId)) {
-    throw new SingularityFlowError(`Source review applies only to a step that defines the scope or plans the claims; '${phaseId}' does neither.`);
+    throw new SingularityFlowError(`Source review applies only to a step the Story's review covers; '${phaseId}' is not one.`);
   }
   if (!workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Current branch is not registered for Story '${workflow.workItem.id}'.`);

@@ -62,6 +62,9 @@ async function fixture(t, id, { code = false, minimum = 1 } = {}) {
       [final]: { inputs: [producer], approval: { authorities: ['quality-reviewers'], requiredAuthorities: ['quality-reviewers'], minimum, rejectTo: [producer, final] } }
     }
   };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   git('add', '.'); git('commit', '-m', 'Local regression configuration');
   git('init', '--bare', '-b', 'main', path.join(directory, 'remote.git'));
@@ -265,6 +268,9 @@ test('governed repairs and later Code publications are not stale evidence; out-o
       ? { inputs: [], approval: { authorities: ['quality-reviewers'], requiredAuthorities: ['quality-reviewers'], minimum: 1, rejectTo: order } }
       : { inputs: [] }]))
   };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   git('add', '.'); git('commit', '-m', 'Governed chain configuration');
   git('init', '--bare', '-b', 'main', path.join(directory, 'remote.git'));

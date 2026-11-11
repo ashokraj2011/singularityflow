@@ -25,6 +25,9 @@ async function designed(t) {
       design: { inputs: ['intake'], clarification: { mode: 'off' }, approval: { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake', 'design'] } },
       implement: { inputs: ['intake', 'design'], approval: { mode: 'required', authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['intake', 'design', 'implement'] } } },
     omits: [{ responsibility: 'verify', reason: 'This fixture walks a design departure and has no verification step.', authority: 'quality-reviewers' }] };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   repo.must('git', ['add', 'singularity/workflow.yml']);
   repo.must('git', ['commit', '-q', '-m', 'A design step between scope and code']);

@@ -1,14 +1,15 @@
 /**
  * A spec-driven Story walked on the real CLI up to its Verification step: one real `npm test` run at
- * Implementation, on code that then does not change. `untested` leaves that clause with no test delivered.
+ * Implementation, on code that then does not change. `untested` leaves that clause with no test delivered. `review`,
+ * when given, reviews each published step before it is submitted (a walk with reviews on).
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { approvedSpecificationStory, implementationPlan } from './submitted-planning-story.mjs';
 
-export async function storyAtVerification(t, WORK, { untested = null, configure = null } = {}) {
-  const story = await approvedSpecificationStory(t, WORK, { configure: (configuration) => {
+export async function storyAtVerification(t, WORK, { untested = null, configure = null, review = null } = {}) {
+  const story = await approvedSpecificationStory(t, WORK, { review, configure: (configuration) => {
     configuration.workTypes['spec-driven-standard'].spec.coverage = 'record';
     configure?.(configuration);
   } });
@@ -24,6 +25,7 @@ export async function storyAtVerification(t, WORK, { untested = null, configure 
     : implementationPlan(WORK));
   cli('artifact', 'scan', '--phase', 'planning');
   cli('phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place');
+  await review?.('planning', { cli, root });
   cli('submit', 'planning', '--skip-checks'); cli('approve', 'planning', '--yes');
   cli('prepare', 'implementation');
   const clauses = [`${WORK}:AC-001`, `${WORK}:REQ-002`];
@@ -36,6 +38,7 @@ export async function storyAtVerification(t, WORK, { untested = null, configure 
   await writeFile(path.join(item, 'artifacts/implementation/operator-notes.md'), ['# Operator notes', '', 'Nothing changes for an operator.', ''].join('\n'));
   cli('artifact', 'scan', '--phase', 'implementation');
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  await review?.('implementation', { cli, root });
   cli('submit', 'implementation'); cli('approve', 'implementation', '--yes');
   cli('prepare', 'convergence');
   if (untested) {

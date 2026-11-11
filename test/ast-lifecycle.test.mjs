@@ -44,6 +44,8 @@ async function fixture({
     id: 'required-path', mode: predicateMode, type: 'path-exists', path: predicatePath,
     minimumAssurance: 'text'
   }];
+  // Not a review test: its Story is unreviewed on purpose (every step's review: review-every-step-cli.test.mjs).
+  definition.workTypes.feature.sourceReview = { mode: 'off' };
   await writeFile(definitionPath, YAML.stringify(definition));
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'initialize AST lifecycle fixture');

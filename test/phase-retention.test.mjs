@@ -135,6 +135,9 @@ async function retentionStory(t, { designInputs = ['intake'] } = {}) {
     phaseOverrides: { requirements: { inputs: ['intake'] }, design: { inputs: designInputs, approval: { rejectTo: ['intake', 'requirements', 'design'] } } },
     omits: ['implement', 'verify'].map((responsibility) => ({ responsibility, reason: 'A document-only fixture that changes no repository code.', authority: 'product-approvers' }))
   };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the retention fixture'], root);

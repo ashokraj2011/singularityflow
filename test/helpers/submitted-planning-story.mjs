@@ -99,6 +99,8 @@ export async function approvedSpecificationStory(t, WORK, options = {}) {
   await writeFile(path.join(item, 'artifacts/specification/spec.md'), specification(WORK, 1));
   cli('artifact', 'scan', '--phase', 'specification');
   cli('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
+  // A walk with reviews on reviews the step here, as its independent reviewer would (step-review.mjs).
+  await options.review?.('specification', { cli, root });
   cli('submit', 'specification', '--skip-checks');
   cli('approve', 'specification', '--yes');
   return { directory, root, run, git, cli, item };

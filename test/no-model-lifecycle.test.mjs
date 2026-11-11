@@ -350,6 +350,9 @@ test('a Story phase completes through manual authorship with model mode disabled
   const config = await loadConfig(root);
   config.git.publish = 'off';
   const resolved = resolveWorkType(config, 'feature');
+  // Not a review test: this Story is pinned unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  resolved.sourceReview = { mode: 'off', phases: [], reviewerAgent: null };
   const requirements = resolved.phases.find((phase) => phase.id === 'requirements');
   // A later step keeps the phase under test from being the Story's last, so finishing it advances
   // the Story instead of running the final evaluation of a rail trimmed for this test.

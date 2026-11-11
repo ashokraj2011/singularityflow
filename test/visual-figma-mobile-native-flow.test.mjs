@@ -54,6 +54,9 @@ async function repository(base) {
     config.approvalAuthorities[id] = { label: config.approvalAuthorities[id].label, allowAnyGitIdentity: false,
       members: [{ email: `${REVIEWER.toLowerCase().replace(/\s+/gu, '.')}@example.com` }] };
   }
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root);
   execute('git', ['commit', '-m', 'initial'], root);

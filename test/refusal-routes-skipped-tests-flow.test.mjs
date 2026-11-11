@@ -64,6 +64,9 @@ test('every test skipped is an environment cause the step approvers can accept, 
   // Code is approved by its own reviewers, and verification consumes Code's tests.
   config.phases.implement.approval = { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['implement'] };
   Object.assign(config.phases.verify, { testEvidenceFrom: 'implement', writeScope: 'artifact-only' });
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Skipped tests fixture']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);

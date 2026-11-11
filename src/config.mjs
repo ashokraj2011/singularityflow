@@ -52,7 +52,7 @@ import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs
 import { normalizeDecisions } from './workflow-decisions.mjs';
 import { compileObligationGraph, pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
-import { assertSourceReviewerAvailable, normalizeSourceReviewPolicy } from './source-review-policy.mjs';
+import { assertSourceReviewerAvailable, availableDefaultSourceReview, normalizeSourceReviewPolicy } from './source-review-policy.mjs';
 import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeTestRecoveryPolicy } from './test-recovery-intake.mjs';
@@ -1124,10 +1124,10 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       workType.references, `Work type '${id}' references`
     );
     workType.spec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
-    workType.sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
+    workType.sourceReview = availableDefaultSourceReview(normalizeSourceReviewPolicy(workType.sourceReview, {
       workTypeId: id, phases: workType.phases
-    });
-    if (!storyBootstrap && definition.agentCatalog?.length) assertSourceReviewerAvailable(workType.sourceReview, definition.agentCatalog, {
+    }), definition.agentCatalog);
+    if (!storyBootstrap && definition.agentCatalog?.length && !workType.sourceReview.defaulted) assertSourceReviewerAvailable(workType.sourceReview, definition.agentCatalog, {
       workTypeId: id
     });
   }
@@ -2083,11 +2083,20 @@ export function resolveWorkType(definition, workTypeId) {
     id: workTypeId, phases, decisions, reworkLoops, plannedClaims, omits: workType.omits
   }, { authorities: normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity) });
   // A source review checks a step that defines the scope or plans the claims, whatever it is called.
-  const sourceReview = normalizeSourceReviewPolicy(workType.sourceReview, {
+  // Every authored step has a review from level 2 (source-review-policy.mjs): a code step's is a code review, a
+  // step the kernel builds or that writes nothing has none. A scope or plan step a legacy list names keeps its kind.
+  const resolvedPhase = (id) => phases.find((phase) => phase.id === id) ?? null;
+  const sourceReview = availableDefaultSourceReview(normalizeSourceReviewPolicy(workType.sourceReview, {
     workTypeId, phases: workType.phases,
-    reviewable: (id) => reviewKindForResponsibilities(obligationGraph.nodes?.find((node) => node.id === id)?.responsibilities) != null
-  });
-  if (definition.agentCatalog?.length) assertSourceReviewerAvailable(sourceReview,
+    reviewable: (id) => reviewKindForResponsibilities(obligationGraph.nodes?.find((node) => node.id === id)?.responsibilities),
+    authored: (id) => {
+      const phase = resolvedPhase(id);
+      if (!phase || stepOutputKind(phase) === 'none') return null;
+      if (phaseRequiresCodeDelivery(phase)) return 'code';
+      return deterministicOnlyGeneration(phase) || isConvergencePhase(phase) ? null : 'document';
+    }
+  }), definition.agentCatalog);
+  if (definition.agentCatalog?.length && !sourceReview.defaulted) assertSourceReviewerAvailable(sourceReview,
     definition.agentCatalog, { workTypeId });
   return {
     id: workTypeId,

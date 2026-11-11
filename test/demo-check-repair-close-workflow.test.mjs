@@ -17,6 +17,7 @@ import { applyWorkflowImport, exportWorkflowBundle, planWorkflowImport } from '.
 import { librarySkillPath, loadSkillLibrary, SKILL_ATTACHMENTS_PATH } from '../src/skill-library.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { codeReport, retainStepReview, reviewStep } from './helpers/step-review.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ID = 'demo-check-repair-close';
@@ -235,6 +236,8 @@ test('DEMO-001 shows the approved title', () => assert.equal(title, 'Approved sc
   run('git', ['init', '--bare', '-b', 'main', remote]);
   run('git', ['remote', 'add', 'origin', remote]); run('git', ['push', '-u', 'origin', 'main']);
   const cli = (...args) => run(process.execPath, [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', ...args]);
+  // Every step of a new demo Story is reviewed before it is submitted [review level 2]: the walk reviews each one.
+  const json = (args) => JSON.parse(cli(...args));
   cli('start', 'DEMO-LOOP-1', '--from-branch', 'main', '--work-type', ID,
     '--title', 'Check the provided screenshot', '--description', 'Check, repair and independently retest before closing.');
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/DEMO-LOOP-1/workflow.json'), 'utf8'));
@@ -271,7 +274,7 @@ Run node --test test/screen.test.mjs locally. No browser, remote service or prod
 ## Routing and human checkpoints
 Check existing behavior first; a demonstrated failure goes to Repair and independent recheck. A fresh pass goes to Close only after human approval and no-additional-implementation applicability. Missing tools stay blocked. Closing documents and final human approval end the Story.
 `);
-  cli('phase', 'publish', PHASES[0]); cli('submit', PHASES[0]);
+  cli('phase', 'publish', PHASES[0]); reviewStep(json, PHASES[0]); cli('submit', PHASES[0]);
   // demo-intake defines the scope, so its approvers decide each source statement before approving it [PHR:REQ-002].
   const scope = JSON.parse(cli('evidence', 'scope', '--json')).data.scope;
   for (const item of scope.items.filter((entry) => entry.disposition === 'unresolved')) {
@@ -303,7 +306,7 @@ verdict=pass. All required assertions executed successfully against current byte
 ## Human checkpoint
 Pending authorized review of this exact report and no-additional-implementation applicability. The agent does not approve or close the Story.
 `);
-  cli('phase', 'publish', PHASES[1]); cli('submit', PHASES[1], '--decision', 'verdict=pass');
+  cli('phase', 'publish', PHASES[1]); reviewStep(json, PHASES[1]); cli('submit', PHASES[1], '--decision', 'verdict=pass');
   assert.equal((await readState()).currentPhase, PHASES[1], 'agent verdict and submission cannot route without human approval');
   cli('decision', 'applicability', '--responsibility', 'implement', '--reason', 'Fresh DEMO-001 evidence proves current code meets the approved title; no additional implementation is needed to close.');
   cli('approve', PHASES[1], '--yes');
@@ -326,7 +329,7 @@ No known residual defect within the bounded screen-title assertion. Run node --t
 ## Human closing decision
 Awaiting authorized review of this published closing report. The agent cannot claim the final approval; that separate human checkpoint completes the Story.
 `);
-  cli('phase', 'publish', PHASES[3]); cli('submit', PHASES[3]);
+  cli('phase', 'publish', PHASES[3]); reviewStep(json, PHASES[3]); cli('submit', PHASES[3]);
   assert.notEqual((await readState()).status, 'closed', 'closing submission alone cannot end the Story');
   cli('approve', PHASES[3], '--yes');
   assert.equal((await readState()).status, 'closed');
@@ -369,6 +372,8 @@ test('DEMO-001 shows the approved title', () => assert.equal(title, 'Approved sc
   run('git', ['init', '--bare', '-b', 'main', remote]);
   run('git', ['remote', 'add', 'origin', remote]); run('git', ['push', '-u', 'origin', 'main']);
   const cli = (...args) => run(process.execPath, [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', ...args]);
+  // Every step of a new demo Story is reviewed before it is submitted [review level 2]: the walk reviews each one.
+  const json = (args) => JSON.parse(cli(...args));
   cli('start', 'DEMO-LOOP-2', '--from-branch', 'main', '--work-type', ID,
     '--title', 'Repair the screen title', '--description', 'Check, repair and independently retest before closing.');
   const workRoot = path.join(root, 'singularity/work-items/DEMO-LOOP-2');
@@ -398,7 +403,7 @@ Run node --test test/screen.test.mjs locally. No browser, remote service or prod
 ## Routing and human checkpoints
 Check existing behavior first; a demonstrated failure goes to Repair and independent recheck. A fresh pass goes to Close after human approval. Closing documents and final human approval end the Story.
 `);
-  cli('phase', 'publish', PHASES[0]); cli('submit', PHASES[0]);
+  cli('phase', 'publish', PHASES[0]); reviewStep(json, PHASES[0]); cli('submit', PHASES[0]);
   // demo-intake defines the scope, so its approvers decide each source statement before approving it [PHR:REQ-002].
   const scope = JSON.parse(cli('evidence', 'scope', '--json')).data.scope;
   for (const item of scope.items.filter((entry) => entry.disposition === 'unresolved')) {
@@ -431,7 +436,7 @@ verdict=${verdict}. ${verdict === 'pass' ? 'All required assertions executed suc
 ## Human checkpoint
 Pending authorized review of this exact report. The agent does not approve or close the Story.
 `);
-  cli('phase', 'publish', PHASES[1]); cli('submit', PHASES[1], '--decision', `verdict=${verdict}`);
+  cli('phase', 'publish', PHASES[1]); reviewStep((args) => JSON.parse(cli(...args)), PHASES[1]); cli('submit', PHASES[1], '--decision', `verdict=${verdict}`);
   cli('approve', PHASES[1], '--yes');
 }
 
@@ -462,7 +467,26 @@ node --test test/screen.test.mjs passes locally after the change.
 ## Handoff and remaining risks
 Hand back to an independent recheck. No other screen text changed.
 `);
-  cli('phase', 'publish', PHASES[2]); cli('submit', PHASES[2], '--decision', 'next=recheck');
+  cli('phase', 'publish', PHASES[2]);
+  // The repair's code review asks for a correction: generation 2 opens in the same step, with the review as its
+  // reason, once the person confirms it; generation 2's review is ready, and only then does the repair submit.
+  const json = (args) => JSON.parse(cli(...args));
+  const first = json(['review-source', 'context', PHASES[2], '--json']);
+  assert.equal(first.kind, 'code', 'the repair is reviewed as code');
+  const screen = first.sources.find((entry) => entry.path === 'src/screen.mjs');
+  const held = retainStepReview(json, PHASES[2], codeReport(first, { findings: [{ id: 'name-the-screen', severity: 'blocking', check: 'plan',
+    clauseId: 'DEMO-LOOP-2:AC-001', message: 'The clause comment must name the screen whose title it sets, as the intake says.',
+    sourceId: screen.id, line: 1, quote: '// @clause:DEMO-LOOP-2:AC-001' }] }));
+  assert.equal(held.status, 'correction-required');
+  const preview = json(['phase', 'rollover', PHASES[2], '--json']);
+  assert.ok(preview.requestedChange.requests.some((entry) => /^Correct what review [0-9a-f]{12} of generation 1 found: .*name-the-screen/u.test(entry)));
+  assert.equal(json(['phase', 'rollover', PHASES[2], '--confirm', preview.confirmation, '--json']).generationIntent.generation, 2);
+  await writeFile(path.join(story.root, 'src/screen.mjs'),
+    '// @clause:DEMO-LOOP-2:AC-001 the demo screen shows the approved title\nexport const title = "Approved screen";\n');
+  cli('phase', 'publish', PHASES[2]);
+  const repairReview = reviewStep(json, PHASES[2]);
+  assert.equal(repairReview.packet.generation, 2);
+  cli('submit', PHASES[2], '--decision', 'next=recheck');
   cli('approve', PHASES[2], '--yes');
   assert.equal((await readState()).currentPhase, PHASES[1], 'a repair always returns to an independent recheck');
   run('git', ['add', '-A']); run('git', ['commit', '-m', 'Commit repaired bytes before the recheck'], { allowFailure: true });
@@ -488,6 +512,7 @@ No known residual defect within the bounded screen-title assertion. Run node --t
 Awaiting authorized review of this published closing report.
 `);
   cli('phase', 'publish', PHASES[3]);
+  reviewStep((args) => JSON.parse(cli(...args)), PHASES[3]);
   const readiness = JSON.parse(cli('status', 'DEMO-LOOP-2', '--submission-readiness', '--json'));
   const message = JSON.stringify(readiness);
   assert.doesNotMatch(message, /were never implemented/u, 'an approved repair is not reported as never implemented');

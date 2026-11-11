@@ -495,15 +495,18 @@ test('a renamed copy of convergence keeps its rules, and the name alone confers 
   assert.equal(isConvergencePhase(resolved), false);
 });
 
-test('source review follows the steps that define the scope and plan the claims, whatever they are called [E2G-001]', async () => {
+test('source review follows what each step does, whatever it is called [E2G-001]', async () => {
   const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
   const renamed = renameStep(renameStep(definition, 'specification', 'scope-spec'), 'planning', 'claim-plan');
   const resolved = resolveWorkType(validateDefinition(renamed), 'spec-driven-standard');
-  assert.deepEqual(resolved.sourceReview.phases, ['scope-spec', 'claim-plan'], 'renamed scope and plan steps stay reviewable');
+  // From review level 2 every authored step is reviewed; the listed scope and plan steps keep their own reviews.
+  assert.deepEqual(resolved.sourceReview.kinds, { 'scope-spec': 'specification', 'claim-plan': 'planning', implementation: 'code',
+    verification: 'document', release: 'document' }, 'renamed scope and plan steps stay reviewable; the kernel-built convergence is not');
+  assert.deepEqual(resolved.sourceReview.supersededPhases, ['scope-spec', 'claim-plan'], 'the legacy list is reported, never silently ignored');
   const code = structuredClone(renamed);
   code.workTypes['spec-driven-standard'].sourceReview.phases = ['implementation'];
-  assert.throws(() => resolveWorkType(validateDefinition(code), 'spec-driven-standard'), /define the scope or plan the claims/,
-    'a step that neither defines the scope nor plans the claims has no source review, whatever it is called');
+  assert.equal(resolveWorkType(validateDefinition(code), 'spec-driven-standard').sourceReview.kinds.implementation, 'code',
+    'a code step is reviewed as code, whatever it is called and whatever a legacy list says');
 });
 
 test('every shipped Story workflow phase renders a contract-consistent guarded artifact', async () => {

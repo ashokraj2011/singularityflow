@@ -51,6 +51,9 @@ test('an approved intent amendment clears the decision values the reset step rec
     inputs: [{ name: 'ready', values: ['yes', 'no'] }],
     routes: [{ id: 'ready', label: 'Ready', when: { ready: ['yes'] }, to: 'next' }, { id: 'anyway', label: 'Test anyway', to: 'next' }]
   }];
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the amendment fixture'], root);

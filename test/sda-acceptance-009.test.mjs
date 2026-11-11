@@ -100,6 +100,9 @@ test('a pinned Story under an amended workflow keeps its bytes through export, i
   configuration.approvalSecurity = { profile: 'poc' };
   configuration.repositoryReadiness = { ...(configuration.repositoryReadiness ?? {}), requiredBeforeStory: false };
   for (const authority of Object.values(configuration.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(configuration.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(workflowFile, YAML.stringify(configuration));
   a.git(a.checkout, 'add', '.');
   a.git(a.checkout, 'commit', '-qm', 'Initialize the pinned-Story fixture');

@@ -15,6 +15,7 @@ import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { decisionOutcome, normalizeDecisionInputValues, obligationsDroppedBySkips, pendingDecisionRecord, resolveDecisionChoice } from '../src/workflow-decisions.mjs';
 
+import { reviewStep } from './helpers/step-review.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ID = 'document-test-repair';
 const PHASES = ['document-intake', 'scenario-check', 'scenario-repair', 'scenario-retest'];
@@ -198,6 +199,8 @@ test('a fresh Story tests existing behavior and finishes only after human accept
     return result.stdout;
   };
   const flow = (...args) => run(process.execPath, [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', ...args]);
+  // Every step of a new Story is reviewed before it is submitted [review level 2]: the walk reviews each one.
+  const json = (args) => JSON.parse(flow(...args));
   run('git', ['init', '-b', 'main']);
   run('git', ['config', 'user.name', 'Document Scenario Reviewer']);
   run('git', ['config', 'user.email', 'scenario-reviewer@example.test']);
@@ -260,6 +263,7 @@ Use node --test test/screen.test.mjs from this local repository. No browser, rem
 Test existing behavior first. A fresh pass needs human approval and a no-change applicability decision; a demonstrated failure requests repair. Missing tools remain blocked. At the loop limit a human chooses another matching attempt or cancels, never overrides a failure as passing.
 `);
   flow('phase', 'publish', 'document-intake');
+  reviewStep(json, 'document-intake');
   flow('submit', 'document-intake');
   // The step that defines the scope is approved once each statement is dispositioned [PHR:REQ-002].
   const scope = JSON.parse(flow('evidence', 'scope', '--json')).data.scope;
@@ -293,6 +297,7 @@ verdict=pass. All required observable assertions ran successfully; there is no p
 Pending authorized review of this exact published report, together with implementation-not-applicable acknowledgement. The agent cannot approve or finish the Story itself.
 `);
   flow('phase', 'publish', 'scenario-check');
+  reviewStep(json, 'scenario-check');
   flow('submit', 'scenario-check', '--decision', 'verdict=pass');
   const readState = async () => JSON.parse(await readFile(path.join(root, 'singularity/work-items/DOC-1/workflow.json'), 'utf8'));
   assert.equal((await readState()).currentPhase, 'scenario-check', 'agent pass/submission alone cannot finish');

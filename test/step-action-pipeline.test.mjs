@@ -116,6 +116,9 @@ test('a pipeline delivers a pushed approval to a trusted target and records it; 
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.integrations = { targets: { 'audit-log': { kind: 'webhook', url: local.url, signingSecret: 'SFLOW_SECRET_PIPELINE_KEY', deliverFrom: 'pipeline' } } };
   config.phases.intake.afterStep = [{ id: 'audit', on: ['approved'], target: 'audit-log', required: true }];
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], dev);
   run('git', ['commit', '-m', 'Initialize the pipeline fixture'], dev);

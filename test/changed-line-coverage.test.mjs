@@ -113,6 +113,9 @@ async function storyAtCode(t, { codeDelivery = null, coverage = true } = {}) {
   config.repositoryReadiness = { ...(config.repositoryReadiness ?? {}), requiredBeforeStory: false };
   if (codeDelivery) config.codeDelivery = { ...(config.codeDelivery ?? {}), ...codeDelivery };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Fixture']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], { cwd: base });

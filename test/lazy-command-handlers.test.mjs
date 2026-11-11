@@ -556,7 +556,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (requested-successor.mjs). No new eager file.
     // 9,692,100 (measured 9,692,073, commands/phase-lifecycle.mjs): a code step's publication asks once whether to start
     // the application (phase-lifecycle.mjs +510); the question is built lazily (application-start-offer.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_692_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,586,400 (measured 9,586,369, commands/phase-lifecycle.mjs): a reviewer in every step, code included [review
+    // level 2]. The review is read only where it gates submission and approval, so state.mjs loads it from the CLI
+    // source and the evaluator, its contract and the new document and code checks leave the eager graph
+    // (source-review-lifecycle.mjs, source-grounded-review.mjs, source-review-contract.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_586_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -804,7 +808,9 @@ test('the common session projection does not import attach, state stores or publ
   // the level-2 pin (phase-roles.mjs +295) [PHR:REQ-006].
   // 4,201,100 (measured 4,201,051): a revised clause's row kept as it stands (plan-row-corrections.mjs +871) [PHR:REQ-008].
   // 4,203,750 (measured 4,203,735): a code step's later steps' repository tests, resolved at Story start (config.mjs +2684) [PHR:REQ-007].
-  assert.ok(current.bytes <= 4_203_750, `session current loads ${current.bytes} source bytes`);
+  // 4,208,500 (measured 4,208,463): a reviewer in every authored step of a new Story, code included, pinned at its start
+  // [review level 2] (source-review-policy.mjs +3611, config.mjs +801, phase-roles.mjs +314). Its evaluator stays lazy.
+  assert.ok(current.bytes <= 4_208_500, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -111,6 +111,9 @@ async function fixture(t, { unavailable = true, danglingRuntime = false, downstr
     workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
     result: { adapter: failedRisk ? 'junit-xml' : 'node-tap', path: reportRelative,
       minimumDiscovered: failedRisk ? 2 : 1, minimumPassed: failedRisk && !skippedRisk ? 2 : 1 } }];
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(definition.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(definitionPath, YAML.stringify(definition));
   if (danglingRuntime) {
     await mkdir(path.join(root, 'tools'));

@@ -104,6 +104,9 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   delivery.phaseOverrides.implementation.approval = {
     ...(delivery.phaseOverrides.implementation.approval ?? {}), rejectTo: ['intake']
   };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the amendment fixture'], root);

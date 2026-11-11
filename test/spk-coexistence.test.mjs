@@ -123,6 +123,9 @@ test('a legacy Story runs through the shared phases untouched by the pack', asyn
   for (const phase of Object.values(workflow.phases ?? {})) {
     if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
   }
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(workflow.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(workflowPath, YAML.stringify(workflow));
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'governance');

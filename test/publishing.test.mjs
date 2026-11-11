@@ -355,6 +355,9 @@ test('every approval creates and pushes its own atomic decision commit', async (
   config.approvalAuthorities['product-approvers'].members = [{
     name: 'Independent Reviewer', email: 'independent.reviewer@example.com'
   }];
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root); run('git', ['commit', '-m', 'init'], root); run('git', ['push', '-u', 'origin', 'main'], root);
 

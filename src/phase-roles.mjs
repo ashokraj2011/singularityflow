@@ -100,9 +100,15 @@ export function reviewKindForResponsibilities(responsibilities = []) {
   return null;
 }
 
-/** The source-review kind of one step of a Story, from its pinned responsibilities. */
+/**
+ * The source-review kind of one step of a Story: what its start pinned (every authored step, from review
+ * level 2: a document step's review is 'document', a code step's 'code'), else its pinned responsibilities.
+ */
 export function sourceReviewKind(workflow, phaseId) {
-  return workflow?.phases?.[phaseId] ? reviewKindForResponsibilities(stepResponsibilities(workflow, phaseId)) : null;
+  if (!workflow?.phases?.[phaseId]) return null;
+  const pinned = workflow.resolution?.sourceReview?.kinds;
+  if (pinned && typeof pinned === 'object') return Object.hasOwn(pinned, phaseId) ? pinned[phaseId] : null;
+  return reviewKindForResponsibilities(stepResponsibilities(workflow, phaseId));
 }
 
 /** The id of the step that defines a Story's scope: the first step that holds it, whatever it is called. */

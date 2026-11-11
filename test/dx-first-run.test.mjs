@@ -47,11 +47,14 @@ test('end-to-end-under-budget', async () => {
     const configured = await readFile(path.join(result.repository, 'singularity/workflow.yml'), 'utf8');
     const definition = YAML.parse(configured);
     assert.equal(definition.repositoryReadiness.requiredBeforeStory, false);
-    // The guide's one setting is the only line it changes in the packaged starter; World Model
-    // grounding is no longer a setting.
+    // The guide's two settings are the only lines it changes in the packaged starter: local publication, and its
+    // toy quick fix unreviewed, since the walkthrough runs no model to review it. World Model grounding is no
+    // longer a setting.
     assert.deepEqual(changedLines(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'), configured), {
-      removed: ['  publish: required'], added: ['  publish: off']
+      removed: ['  publish: required'], added: ['  publish: off', '    sourceReview:', '      mode: off']
     });
+    assert.equal(definition.workTypes['quick-fix'].sourceReview.mode, 'off');
+    assert.match(result.reviews, /^off in this walkthrough: it runs no model, so no reviewer; a real Story has a reviewer in every step$/u);
     assert.equal(run('git', ['status', '--porcelain'], { cwd: result.repository }).stdout, '');
     assert.ok(result.steps.every((step) => step.output.length <= 4_050));
     const workflow = JSON.parse(await readFile(path.join(

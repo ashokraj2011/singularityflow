@@ -85,6 +85,9 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExpl
     workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
     result: { adapter: 'node-tap', path: '.sflow/results/generated.tap', minimumDiscovered: 1, minimumPassed: 1 } };
   phase.qualityCommands = noExplicitTestCommand ? [] : [initialTestCommand];
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(definition.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(definitionPath, YAML.stringify(definition));
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'Application and approved initial policy');
   git(base, 'clone', '-q', '--bare', root, remote); git(root, 'remote', 'add', 'origin', remote);

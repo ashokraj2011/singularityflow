@@ -103,6 +103,9 @@ process.exit(status);
     const file = path.join(a.repo, 'singularity/workflow.yml');
     const definition = YAML.parse(await readFile(file, 'utf8'));
     definition.worldModel.grounding = 'off';
+    // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+    // review-every-step-cli.test.mjs.
+    for (const workType of Object.values(definition.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
     await writeFile(file, YAML.stringify(definition));
     a.git('add', '.');
     a.git('commit', '-qm', 'Initialize Singularity Flow');

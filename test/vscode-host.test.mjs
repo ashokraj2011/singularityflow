@@ -1113,6 +1113,8 @@ test('My Work resolves an active workspace when no editor folder is open', async
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  // Not a review test: this quick fix is unreviewed on purpose (every step's review: review-every-step-cli.test.mjs).
+  workflow.workTypes['quick-fix'].sourceReview = { mode: 'off' };
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', workflowFile], { cwd: root });
   run('git', ['commit', '-m', 'Use local publication for My Work test'], { cwd: root });
@@ -4691,6 +4693,9 @@ test('the packaged POC release candidate journey survives publication, review, C
     modelPolicy: 'never',
     timeoutMs: 60_000
   }];
+  // This journey proves the packaged editor's release-candidate path, not reviews: its Story is unreviewed on purpose.
+  // Every step's review is walked in review-every-step-cli.test.mjs.
+  for (const workType of Object.values(definition.workTypes)) workType.sourceReview = { mode: 'off' };
   await writeFile(workflowFile, YAML.stringify(definition));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize governed POC repository'], { cwd: root });

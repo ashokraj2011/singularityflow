@@ -60,6 +60,9 @@ async function story(t, workType, agent, workId) {
   config.workTypes['design-only'] = { label: 'Design intake', phases: ['design-intake'], designSources: { ...mobile.designSources, consumeIn: [] },
     templateOverrides: { 'design-intake': mobile.templateOverrides['design-intake'] },
     documents: { allowedPhases: ['design-intake'] }, omits: omits(['scope', 'plan', 'implement', 'verify', 'review']) };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   execute('git', ['add', '-A'], root);
   execute('git', ['commit', '-m', 'initial'], root);

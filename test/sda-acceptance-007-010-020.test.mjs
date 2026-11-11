@@ -68,6 +68,9 @@ async function repository(t, { root: place = (base) => path.join(base, 'app'), c
   configuration.repositoryReadiness = { ...(configuration.repositoryReadiness ?? {}), requiredBeforeStory: false };
   for (const authority of Object.values(configuration.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   configure(configuration);
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(configuration.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(file, YAML.stringify(configuration));
   if (agent) {
     await mkdir(path.join(root, '.github/agents'), { recursive: true });

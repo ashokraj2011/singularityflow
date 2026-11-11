@@ -46,6 +46,9 @@ async function documentStory(t) {
     omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({ responsibility,
       reason: `This document-only fixture exercises forward amendment and has no ${responsibility} step.`, authority: 'quality-reviewers' }))
   };
+  // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the forward amendment fixture'], root);

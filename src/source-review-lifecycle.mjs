@@ -19,7 +19,8 @@ import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { effectiveDocumentMimeType, extractSourceText, isTextualSource } from './source-text.mjs';
-import { evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
+import { codeSourceId, evaluateSourceGroundedReview, sourceReviewBinding } from './source-grounded-review.mjs';
+import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
 import { sourceReviewReportSchema, sourceReviewReportTemplate, validateSourceReviewReport, sourceReviewCitationGuide, sourceReviewRepairGuide } from './source-review-contract.mjs';
 import { ensureSecureRepositoryDirectory, exists, nowIso, posix, run, secureRepositoryPath, SingularityFlowError, writeJson } from './util.mjs';
 import { committedSourceReviewFile, prefetchSourceReviewFiles, sharedSourceReviewInput,
@@ -42,7 +43,7 @@ function itemRelative(config, workId) { return posix(path.join(config.workItemRo
 
 export function sourceReviewDirectory(root, config, workflow, phaseId) {
   if (!sourceReviewKind(workflow, phaseId)) {
-    throw new SingularityFlowError(`Source review applies only to a step that defines the scope or plans the claims; '${phaseId}' does neither.`);
+    throw new SingularityFlowError(`Source review applies only to a step the Story's review covers; '${phaseId}' is not one.`);
   }
   const phase = workflow.phases?.[phaseId];
   if (!phase) throw new SingularityFlowError(`Story has no '${phaseId}' phase.`);
@@ -342,8 +343,9 @@ async function loadSourceReviewInput(root, config, workflow, phaseId) {
       { code: 'SOURCE_REVIEW_AGENT_NOT_PINNED' }
     );
   }
-  // A plan is reviewed against the approved scope it plans: the step before it that defines it.
   const kind = sourceReviewKind(workflow, phaseId);
+  if (kind === 'document' || kind === 'code') return stepReviewInput(root, config, workflow, phase, kind, { reviewerAgentId, reviewerAgentSha256 });
+  // A plan is reviewed against the approved scope it plans: the step before it that defines it.
   const approved = kind === 'planning'
     ? latestStepBefore(workflow, phaseId, (candidate) => stepResponsibilities(workflow, candidate.id).includes('scope')) : null;
   if (kind === 'planning' && approved?.status !== 'approved') throw new SingularityFlowError(
@@ -376,6 +378,85 @@ async function loadSourceReviewInput(root, config, workflow, phaseId) {
     recovery: sourceReviewAuthorConflict(workflow, phase) ? phaseGovernanceHold(workflow, phase) : null
   };
   return { ...context, binding: sourceReviewBinding(context) };
+}
+
+/**
+ * What a document or code step is reviewed against [review level 2]. A document is read against the Story and its
+ * documents and the approved inputs the step reads. A code change is read file by file, as published (each file's
+ * bytes must be the ones its delivery recorded), against the approved plan and scope, the tests its delivery ran
+ * and the quality results it recorded.
+ */
+async function stepReviewInput(root, config, workflow, phase, kind, { reviewerAgentId, reviewerAgentSha256 }) {
+  const phaseId = phase.id;
+  const artifact = await phaseArtifact(root, config, workflow, phaseId);
+  const clarifications = [await publishedClarification(root, config, workflow, phase, artifact, 'current-phase')].filter(Boolean);
+  const common = { kind, workId: workflow.workItem.id, phase: phaseId, generation: phase.generation, artifact,
+    ...(clarifications.length ? { clarifications } : {}),
+    authorAgentId: phase.generatedAgent ?? 'human-author', reviewerAgentId, reviewerAgentSha256,
+    recovery: sourceReviewAuthorConflict(workflow, phase) ? phaseGovernanceHold(workflow, phase) : null };
+  if (kind === 'document') {
+    const { sources, unreadable, visualSources } = await storySources(root, config, workflow, phaseId);
+    const inputs = workflow.resolution?.phases?.find((entry) => entry.id === phaseId)?.inputs ?? [];
+    for (const input of inputs) {
+      const step = workflow.phases?.[input?.phase];
+      if (!step || step.status !== 'approved' || !step.requiredArtifact?.path || sources.length >= MAX_CITED_SOURCES) continue;
+      const read = await phaseArtifact(root, config, workflow, step.id);
+      sources.push({ id: `input:${step.id}`, path: read.path, text: read.text });
+    }
+    const context = { ...common, sources, ...(visualSources.length ? { visualSources } : {}), ...(unreadable.length ? { unreadableSources: unreadable } : {}) };
+    return { ...context, binding: sourceReviewBinding(context) };
+  }
+  const evidence = phase.deliveryEvidence ?? {};
+  const sources = [];
+  for (const entry of [...(evidence.paths ?? [])].filter((item) => item?.exists && ['source', 'test'].includes(item.kind))
+    .sort((left, right) => left.path.localeCompare(right.path))) {
+    if (sources.length >= MAX_CITED_SOURCES) break;
+    const file = await checkedFile(root, entry.path, `Changed file ${entry.path}`, entry.sha256);
+    let text;
+    try { text = boundedText(utf8(file.bytes, `Changed file ${entry.path}`), `Changed file ${entry.path}`); } catch { continue; }
+    sources.push({ id: codeSourceId(entry.path), path: entry.path, text });
+  }
+  // A generation that changed no source or test file is reviewed from what it published: its summary, so the review
+  // can say what the delivered clauses lack instead of the step having no review at all.
+  if (!sources.length) sources.push({ id: 'summary', path: artifact.path, text: artifact.text });
+  const scope = latestStepBefore(workflow, phaseId, (candidate) => stepResponsibilities(workflow, candidate.id).includes('scope'));
+  const plan = latestStepBefore(workflow, phaseId, (candidate) => stepResponsibilities(workflow, candidate.id).includes('plan'));
+  const scopeArtifact = scope?.status === 'approved' && scope.requiredArtifact?.path ? await phaseArtifact(root, config, workflow, scope.id) : null;
+  const planArtifact = plan?.status === 'approved' && plan.requiredArtifact?.path ? await phaseArtifact(root, config, workflow, plan.id) : null;
+  let clauses = [];
+  try { clauses = scopeArtifact ? extractClauses(scopeArtifact.text, { sourcePath: scopeArtifact.path }) : []; } catch { clauses = []; }
+  let planned = null;
+  if (planArtifact) {
+    try {
+      const claims = derivePlannedClaimMap(planArtifact.text, { clauseIds: clauses.map((clause) => clause.id), clauses }).claimMap.claims;
+      planned = Object.fromEntries(Object.entries(claims).map(([id, claim]) => [id, { expectedPaths: [...(claim.expectedPaths ?? [])].sort(),
+        tests: [...(claim.tests ?? [])].sort(), testDisposition: claim.testDisposition ?? 'unspecified', ...(claim.fulfillment ? { fulfillment: claim.fulfillment } : {}) }]));
+    } catch { planned = null; }
+  }
+  // A test command that passed ran every test it holds: its tests, and each clause's bound witness, ran and passed.
+  const passedRun = (evidence.preflightAttempts ?? []).some((attempt) => attempt?.status === 'passed');
+  const passedTests = passedRun ? [...new Set([...(evidence.testPaths ?? []),
+    ...(evidence.acceptanceCriteria?.witnesses ?? []).map((witness) => witness.testSource).filter(Boolean)])].sort() : [];
+  const quality = qualityResultsForReview(evidence.qualityFindings);
+  const code = { deliveredClauses: planned ? Object.keys(planned).sort() : clauses.map((clause) => clause.id).sort(),
+    planned, changedPaths: sources.filter((source) => source.id !== 'summary').map((source) => source.path), passedTests, quality };
+  const context = { ...common, sources, code, ...(planArtifact ? { plan: planArtifact } : {}) };
+  return { ...context, binding: sourceReviewBinding(context) };
+}
+
+/** The quality, security and secret-scan results a code review acknowledges: what still counts, is held, or could not run. */
+function qualityResultsForReview(results) {
+  if (!results || typeof results !== 'object') return [];
+  const idOf = (value, fallback) => (/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/u.test(String(value ?? '')) ? String(value)
+    : `q:${sha256(Buffer.from(String(fallback))).slice(0, 16)}`);
+  const counted = new Set(results.counted ?? []);
+  const findings = (results.findings ?? []).filter((entry) => counted.has(entry.fingerprint)).map((entry) => ({ id: idOf(entry.id, entry.fingerprint),
+    summary: `${entry.tool ?? 'scanner'} ${entry.rule ?? ''} at ${entry.file ?? '?'}:${entry.line ?? '?'}: ${String(entry.message ?? '').slice(0, 200)}`.replace(/\s+/gu, ' ') }));
+  const byFingerprint = new Map((results.findings ?? []).map((entry) => [entry.fingerprint, entry]));
+  const held = (results.dependencies?.held ?? []).map((fingerprint) => byFingerprint.get(fingerprint)).filter(Boolean)
+    .map((entry) => ({ id: idOf(entry.id, entry.fingerprint), summary: `${entry.package ?? 'package'}${entry.installedVersion ? `@${entry.installedVersion}` : ''} ${entry.rule ?? ''}`.trim() }));
+  const unavailable = (results.unavailable ?? []).map((entry) => ({ id: idOf(`unavailable:${entry.commandId}`, entry.commandId), summary: `${entry.commandId} could not run` }));
+  return [...findings, ...held, ...unavailable];
 }
 
 function assertSourceReviewPublicationCurrent(workflow, phase) {
@@ -766,6 +847,9 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
     ...(input.unreadableSources?.length ? { unreadableSources: input.unreadableSources } : {}),
     artifact: hashView(input.artifact, input.binding.artifact),
     ...(input.upstreamSpec ? { upstreamSpec: hashView(input.upstreamSpec, input.binding.upstreamSpec) } : {}),
+    // A code review reads the approved plan and the delivery evidence its checks (a)-(c) are made against.
+    ...(input.plan ? { plan: hashView(input.plan, input.binding.plan) } : {}),
+    ...(input.code ? { code: input.code } : {}),
     // A finding about that specification names this step as its ownerPhase [PHR:REQ-003].
     ...(input.upstreamSpecPhase ? { upstreamSpecPhase: input.upstreamSpecPhase } : {}),
     citationGuide: sourceReviewCitationGuide(input),
@@ -805,7 +889,7 @@ export function checkSourceReviewReport(report, input) {
     'source-unknown', 'clause-list-invalid', 'clause-row-invalid', 'plan-row-mismatch',
     'review-finding-invalid', 'review-findings-invalid', 'sources-reviewed-invalid', 'sources-not-all-reviewed',
     'clarifications-reviewed-invalid', 'clarifications-not-all-reviewed', 'visual-sources-not-reviewed',
-    'visual-inspection-invalid', 'visual-citation-invalid']);
+    'visual-inspection-invalid', 'visual-citation-invalid', 'finding-citation-missing', 'design-blocking-without-defect']);
   const bindingAndCitationFindings = evaluation?.findings.filter((entry) => invalid.has(entry.code) || entry.code === 'review-binding-stale') ?? [];
   const checked = { format, evaluation,
     retentionReady: format.status === 'ready' && evaluation.status !== 'stale' && !bindingAndCitationFindings.length,

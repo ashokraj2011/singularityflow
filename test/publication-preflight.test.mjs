@@ -94,6 +94,9 @@ async function fixture(name, { qualityCommands = [], ignoredReportPath = null,
   config.git.publish = 'off';
   if (artifactSets) config.artifactSets = artifactSets;
   const resolved = resolveWorkType(config, 'feature');
+  // Not a review test: this Story is pinned unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  resolved.sourceReview = { mode: 'off', phases: [], reviewerAgent: null };
   const requirements = resolved.phases.find((phase) => phase.id === 'requirements');
   resolved.phases = [{
     ...resolved.phases[0],
@@ -310,6 +313,9 @@ async function codeFixture(name, {
   const config = await loadConfig(root);
   config.git.publish = 'off';
   const resolved = resolveWorkType(config, 'feature');
+  // Not a review test: this Story is pinned unreviewed on purpose. Every step's review is walked in
+  // review-every-step-cli.test.mjs.
+  resolved.sourceReview = { mode: 'off', phases: [], reviewerAgent: null };
   // This deliberately reduced one-phase fixture has no specification/planning owner. Make that
   // omission explicit so tests of code-delivery mechanics do not accidentally depend on a legacy
   // implicit opt-out from the planned-claim contract.

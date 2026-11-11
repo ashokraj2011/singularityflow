@@ -31,6 +31,9 @@ async function configureRepository(root) {
   const text = await readFile(file, 'utf8');
   const definition = YAML.parse(text);
   definition.git.publish = 'off';
+  // The walkthrough runs no model, so no independent reviewer can review its toy Story. Its quick fix says so
+  // (`sourceReview.mode: off`) instead of pretending a review; a real Story has a reviewer in every step.
+  definition.workTypes['quick-fix'].sourceReview = { mode: 'off' };
   // The starter keeps its commentary, so the guide's repository reads like any initialized one.
   await writeFile(file, renderDataPreservingFormatting(text, definition));
 }
@@ -159,6 +162,7 @@ export async function runFirstRunGuide({ keep = false, onBoundary } = {}) {
       completed,
       networkAccess: false,
       modelInvocations: 0,
+      reviews: 'off in this walkthrough: it runs no model, so no reviewer; a real Story has a reviewer in every step',
       workId: 'TOY-001',
       repository,
       retained: keep,

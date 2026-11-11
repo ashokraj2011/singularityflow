@@ -29,6 +29,7 @@ export async function guideCommand(positionals, options) {
       `work item ${result.workId}`,
       `${result.modelInvocations} model invocation(s)`,
       `network access: ${result.networkAccess ? 'yes' : 'no'}`,
+      `reviews ${result.reviews}`,
       `final state ${result.finalStateSha256.slice(0, 12)}`
     ))}`);
     console.log(style.detail(result.retained

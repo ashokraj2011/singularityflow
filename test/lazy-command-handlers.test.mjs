@@ -572,7 +572,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // file short only of its binding is the author's to bind (phase-finding-policy.mjs) [Story anu-bin]. No new eager file.
     // 9,589,000 (measured 9,588,977, commands/phase-lifecycle.mjs): a child branch keeps the session on the Story's current
     // step, so that step's own review can be retained there (story-lineage.mjs preserveAgent +109). No new eager file.
-    assert.ok(closure.bytes <= 9_589_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,605,500 (measured 9,605,498, commands/phase-lifecycle.mjs): the 2026-11-11 class sweep after the anu-bin and
+    // cplus stops, merged: one own-repair-first correction rule (phase-finding-policy.mjs correctionPlan, phase-draft-check.mjs,
+    // phase-resolution.mjs), agent-input refusals with the exact fix and copy-slip checks (text-lines.mjs, specifications.mjs,
+    // plan-row-corrections.mjs, phase-evidence-amendment.mjs), a passing tagged test establishing its criterion (state.mjs,
+    // conformance-readiness.mjs), and the agent-view wording fixes (agent-output.mjs). No new eager file.
+    assert.ok(closure.bytes <= 9_605_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -657,7 +662,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 862,200 (measured 862,186): doctor --repair-hooks is a flag (util.mjs +60) [PCR:REQ-030], which every command reads to dispatch.
   // 862,250 (measured 862,203): `decision witness-defer` is a person's mutation [PHR:REQ-007] (command-registry.mjs +17),
   // which every command reads to dispatch; the command itself loads lazily.
-  assert.ok(root.bytes <= 862_250, `root dispatch loads ${root.bytes} source bytes`);
+  // 864,550 (measured 864,534): /sf-status and the other utility reads accept --work-id, and a refused read names
+  // the option and the exact command to run (utility-entry.mjs +2.3 KB) [Story anu-bin, 2026-11-11].
+  assert.ok(root.bytes <= 864_550, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -824,7 +831,9 @@ test('the common session projection does not import attach, state stores or publ
   // [review level 2] (source-review-policy.mjs +3611, config.mjs +801, phase-roles.mjs +314). Its evaluator stays lazy.
   // 4,209,100 (measured 4,209,083): the clarification reply file's exact shape on every route that records replies
   // (phase-staging-paths.mjs CLARIFICATION_RESPONSE_FORMAT, clarifications.mjs) [Story anu-bin, 2026-11-11]. No new eager file.
-  assert.ok(current.bytes <= 4_209_100, `session current loads ${current.bytes} source bytes`);
+  // 4,212,000 (measured 4,211,990): the 2026-11-11 class sweep merged (agent-input refusals and copy-slip checks in
+  // text-lines.mjs, the utility entry's --work-id, agent-view wording). No new eager file.
+  assert.ok(current.bytes <= 4_212_000, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

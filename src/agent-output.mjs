@@ -385,7 +385,8 @@ export function agentAct(result) {
   }
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.repair?.status === 'repair-packet') return {
     state: 'correct', do: null, read: ['error.details.repair', 'error.details.findings'],
-    said: 'The packet was not retained. Repair its exact format/citation fields using the returned hints and this invocation\'s stagingProtocol; check changed bytes within the two-repair budget. Do not restart the phase, run generic diagnostics, or invent coverage.' };
+    // Stage writes the draft and refuses only its retention, so the repair is a fresh stage, not a missing file (anu-bin, 2026-11-11).
+    said: 'Staged, not retained yet. Apply each returned repair exactly (proposedEdit values as given), then stage the repaired JSON again with stagingProtocol within the two-repair budget. Do not restart the phase, run generic diagnostics, or invent coverage.' };
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
     if (!plan.escalation && plan.repairContinuation?.kind === 'test-command-definition'

@@ -297,8 +297,10 @@ export async function inspectPhaseConformance(root, config, workflow, phase) {
     ...finding, path: relative
   }));
   const reused = await conformanceEvidenceReuse(root, config, workflow, phase.id);
-  const advisories = inspectConformanceVerdictAdvisories(markdown, { workflow, phaseId: phase.id, reused })
-    .map((entry) => Object.freeze({ ...entry, path: relative }));
+  const verdicts = inspectConformanceVerdictAdvisories(markdown, { workflow, phaseId: phase.id, reused });
+  // A gap its criterion's own passing tagged tests close is named for the author [fix E].
+  if (verdicts.length) verdicts.push(...await (await import('./criterion-test-failures.mjs')).testedVerdictAdvisories(root, config, workflow, phase, markdown));
+  const advisories = verdicts.map((entry) => Object.freeze({ ...entry, path: relative }));
   return { findings, advisories, summary: verdictSummaryStatus(markdown, workflow, phase.id, { reused }) };
 }
 

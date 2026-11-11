@@ -19,11 +19,12 @@ import { buildTestExecutionReceipt, replayTestReports } from '../src/code-delive
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { discoverDeclarations } from '../src/verification/adapters.mjs';
 import { testAdapterProfile } from '../src/verification/profiles.mjs';
-import { criterionTestEvidence, phaseCriterionTests, withTestedCriteria } from '../src/criterion-test-failures.mjs';
+import { criterionTestEvidence, establishedVerdictAdvisories, phaseCriterionTests, withTestedCriteria } from '../src/criterion-test-failures.mjs';
 import { phaseExecutionEvidence, renderExecutionEvidence } from '../src/phase-execution-evidence.mjs';
 import { readEvidenceConsistency } from '../src/evidence-consistency-read.mjs';
 import { renderEvidenceConsistency } from '../src/evidence-consistency.mjs';
 import { evaluateSpecCoverage } from '../src/specifications.mjs';
+import { inspectConformanceVerdictAdvisories, inspectPhaseConformance } from '../src/conformance-readiness.mjs';
 
 const AC = 'ANU-BIN:AC-001';
 const REQ = 'ANU-BIN:REQ-001';
@@ -154,7 +155,24 @@ test('the Story anu-bin shape: both tagged Vitest tests passed, so AC-001 is est
   }
   assert.match(rendered, /a criterion whose test evidence it lists as established, and a clause verified through it, is not partial or missing/u);
   assert.match(rendered, /Suite counts alone do not establish a clause verdict; each criterion's own tagged tests do/u);
+  // Release's own draft check reads the same join: its author sees the partial verdict the tests close.
+  assert.equal(item.phase.requiredArtifact.kind, 'conformance-report');
+  const named = await releaseAdvisories(item);
+  assert.deepEqual(named.map((entry) => entry.clauseId), [AC]);
+  assert.equal(named[0].blocking, false);
+  assert.equal(named[0].requiredBefore, null);
 });
+
+/** Release's draft check on a report that calls AC-001 partial: the tests-established advisories it gives. */
+async function releaseAdvisories(item) {
+  const report = path.join(item.root, 'singularity/work-items/anu-bin', item.phase.requiredArtifact.path);
+  await mkdir(path.dirname(report), { recursive: true });
+  await writeFile(report, ['# Release conformance', '', '## Requirement trace', '', '| Clause | Evidence | Verdict |', '|---|---|---|',
+    `| \`${AC}\` | tagged tests; run TA-c7b76e50714f1641b5a0 | partial — the packet does not establish this criterion's verdict. |`, ''].join('\n'));
+  const { advisories } = await inspectPhaseConformance(item.root, item.config, item.workflow, item.phase);
+  assert.ok(advisories.some((entry) => entry.code === 'conformance.verdict-incomplete'), 'the honest gap is still a person\'s decision');
+  return advisories.filter((entry) => entry.code === 'conformance.verdict-tests-established');
+}
 
 test('the same for a Jest run: its tagged tests join by describe path and title', async (t) => {
   const item = await story(t, { adapter: 'jest-json' });
@@ -195,6 +213,7 @@ test('a tagged test that failed or was skipped, or one with no result, keeps its
     const consistency = await readEvidenceConsistency(item.root, item.config, item.workflow, item.phase,
       { executionEvidence: evidence, visualReviews: null, documents: [] });
     assert.match(consistency.summary.join('\n'), new RegExp(`${AC}: test evidence not established: .*implementation, which delivered these tests, owns the repair\\.`, 'u'));
+    assert.deepEqual(await releaseAdvisories(item), [], `${status}: a real gap is never named as closed`);
   }
   // A test the run does not name verifies nothing; another passing test in the same file never stands in for it.
   const item = await story(t);
@@ -213,6 +232,7 @@ test('a run the code moved past no longer establishes the criterion on the curre
   const consistency = await readEvidenceConsistency(item.root, item.config, item.workflow, item.phase,
     { executionEvidence: evidence, visualReviews: null, documents: [] });
   assert.match(consistency.summary.join('\n'), /not established on this source tree: its run is not bound to the current code/u);
+  assert.deepEqual(await releaseAdvisories(item), [], 'a run on other code closes nothing');
 });
 
 test('ratchet: the code step\'s coverage never calls a criterion test-presence-only when its tagged test passed', async (t) => {
@@ -232,4 +252,23 @@ test('ratchet: the code step\'s coverage never calls a criterion test-presence-o
   // The code step calls it wherever its coverage lists a criterion as presence only.
   const source = await readFile(new URL('../src/state.mjs', import.meta.url), 'utf8');
   assert.match(source, /evaluateSpecCoverage\(records, changedPaths, policy, \{ root, workflow \}\);\n.*\n  if \(coverageResult\.testPresenceOnly\.length\) await \(await import\('\.\/criterion-test-failures\.mjs'\)\)\.withTestedCriteria\(root, phase, coverageResult\);/u);
+});
+
+test('Release: a partial verdict on a criterion its tagged tests establish is named for its author, with the run', () => {
+  const report = ['## Requirement trace', '', '| Clause | Evidence | Verdict |', '|---|---|---|',
+    `| \`${REQ}\` | source trace; retained run TA-c7b76e50714f1641b5a0 | partial — suite counts do not establish this clause. |`,
+    `| \`${AC}\` | tagged tests; retained run TA-c7b76e50714f1641b5a0 | partial — the packet does not establish this criterion's verdict. |`, ''].join('\n');
+  const criterionTests = [{ clauseId: AC, testEvidence: 'established', tests: [{ test: `'convertToBinary › converts an evaluated decimal value to binary' in ${UNIT}`, attemptId: 'TA-c7b76e50714f1641b5a0', result: 'passed' }] }];
+  const verifiedThrough = { [REQ]: AC };
+  const established = establishedVerdictAdvisories(report, criterionTests, verifiedThrough);
+  const advisories = inspectConformanceVerdictAdvisories(report);
+  assert.deepEqual(established.map((entry) => entry.clauseId).sort(), [AC, REQ].sort());
+  assert.match(established.find((entry) => entry.clauseId === AC).message, /each of its own tagged tests passed in TA-c7b76e50714f1641b5a0/u);
+  assert.match(established.find((entry) => entry.clauseId === REQ).message, new RegExp(`verified through ${AC}`, 'u'));
+  // Still a gap a person decides while the report says partial: the advisory names the evidence, it never decides.
+  assert.equal(advisories.filter((entry) => entry.code === 'conformance.verdict-incomplete').length, 2);
+  // A criterion whose tagged test did not pass gets no such advisory: the gap is real.
+  assert.deepEqual(establishedVerdictAdvisories(report, [{ ...criterionTests[0], testEvidence: 'failed' }], verifiedThrough), []);
+  assert.deepEqual(establishedVerdictAdvisories(report, [...criterionTests, { ...criterionTests[0], testEvidence: 'stale' }], verifiedThrough), [],
+    'one step\'s open run keeps it open');
 });

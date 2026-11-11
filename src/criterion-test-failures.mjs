@@ -7,6 +7,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { conformanceVerdictGaps } from './conformance-verdicts.mjs';
 import { exactFileAtObject } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
@@ -148,4 +149,53 @@ export async function phaseCriterionTests(root, phase, current = null) {
     && (candidate?.testInputSha256 ?? null) === (current.testInputSha256 ?? null));
   return criterionTestEvidence(delivery.traceability.witnesses, (witness) => receipts.get(witness.commandId) ?? (witness.commandId ? null : only),
     (commandId) => (bound((receipts.get(commandId) ?? only)?.candidate) ? 'matched' : 'stale'));
+}
+
+/**
+ * Release [fix E]: each row a conformance report calls partial or missing whose clause (or the criterion
+ * its specification verifies it through) has established test evidence, named for the report's author
+ * with the passing tests and run. Information only: it never blocks, and never decides the gap.
+ */
+export function establishedVerdictAdvisories(markdown, criterionTests = [], verifiedThrough = {}) {
+  // A criterion one step's run left open stays open, whatever another step's run says.
+  const open = new Set(criterionTests.filter((entry) => entry.testEvidence !== 'established').map((entry) => entry.clauseId.toUpperCase()));
+  const established = new Map(criterionTests.filter((entry) => entry.testEvidence === 'established' && !open.has(entry.clauseId.toUpperCase()))
+    .map((entry) => [entry.clauseId.toUpperCase(), entry]));
+  const proven = (clauseId) => established.get(clauseId.toUpperCase()) ?? established.get(String(verifiedThrough[clauseId] ?? '').toUpperCase()) ?? null;
+  const seen = new Set();
+  return conformanceVerdictGaps(markdown).filter((gap) => ['partial', 'missing'].includes(gap.verdict) && proven(gap.clauseId)
+    && !seen.has(gap.clauseId.toUpperCase()) && seen.add(gap.clauseId.toUpperCase())).map((gap) => {
+    const criterion = proven(gap.clauseId);
+    const through = criterion.clauseId.toUpperCase() === gap.clauseId.toUpperCase() ? '' : `, verified through ${criterion.clauseId},`;
+    const runs = [...new Set(criterion.tests.map((entry) => entry.attemptId).filter(Boolean))].join(', ');
+    return Object.freeze({ code: 'conformance.verdict-tests-established', category: 'traceability', blocking: false,
+      requiredBefore: null, clauseId: gap.clauseId, value: gap.clauseId, line: gap.line,
+      details: { clauseId: gap.clauseId, verdict: gap.verdict, criterionId: criterion.clauseId, tests: criterion.tests },
+      message: `conformance ${gap.clauseId}${through} is called ${gap.verdict}, but each of its own tagged tests passed in ${runs || 'the retained run'} on this source tree`
+        + ` (${criterion.tests.map((entry) => entry.test).join('; ')}): its test evidence is established. Call it matched on that evidence,`
+        + ' or name in the row what else it lacks that a test cannot show; a person decides only that.' });
+  });
+}
+
+/**
+ * The same for a step's report on disk, from the earlier code steps' own recorded runs on the code as it
+ * is now. Read only when the report calls a clause partial or missing; unreadable evidence names nothing.
+ */
+export async function testedVerdictAdvisories(root, config, workflow, phase, markdown) {
+  if (!conformanceVerdictGaps(markdown).some((gap) => ['partial', 'missing'].includes(gap.verdict))) return [];
+  const order = workflow?.phaseOrder ?? [];
+  const producers = order.slice(0, Math.max(0, order.indexOf(phase.id))).map((id) => workflow.phases?.[id])
+    .filter((step) => step?.status !== 'skipped' && step?.deliveryEvidence?.receiptPath);
+  if (!producers.length) return [];
+  try {
+    const { sourceTreeDigests, testInputTreeHash } = await import('./state-stores.mjs');
+    const current = { ...await sourceTreeDigests(root, config, workflow), testInputSha256: await testInputTreeHash(root, config, workflow) };
+    const criterionTests = [];
+    for (const step of producers) criterionTests.push(...await phaseCriterionTests(root, step, current));
+    if (!criterionTests.length) return [];
+    const { loadActiveSpecRecords } = await import('./specifications.mjs');
+    const records = await loadActiveSpecRecords(path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id), workflow);
+    const clauses = (records.indexes ?? []).flatMap((index) => index.clauses ?? []).filter((clause) => clause.verification?.criterionId);
+    return establishedVerdictAdvisories(markdown, criterionTests, Object.fromEntries(clauses.map((clause) => [clause.id, clause.verification.criterionId])));
+  } catch { return []; }
 }

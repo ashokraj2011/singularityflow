@@ -68,8 +68,11 @@ export async function readEvidenceConsistency(root, config, workflow, phase, opt
       import('./conformance-verdicts.mjs'), import('./conformance-readiness.mjs'), import('./verification/witness-report-findings.mjs')]);
     // Those readers already blank managed content while preserving original file line numbers.
     reportedVerdicts.push(...conformanceTableRows(document.content).map((row) => ({ ...row, path: document.path, assurance: 'authored-claim' })));
+    const criterionTests = (executionEvidence?.entries ?? []).flatMap((entry) => entry.criterionTests ?? []);
     findings.push(...[...inspectConformanceVerdictAdvisories(document.content, { workflow, phaseId: phase.id,
       now: options.at, reused: (executionEvidence?.reusedTestEvidence ?? []).filter((entry) => entry.state === 'active') }),
+    // A gap the criterion's own passing tagged tests close [fix E].
+    ...(criterionTests.length ? (await import('./criterion-test-failures.mjs')).establishedVerdictAdvisories(document.content, criterionTests) : []),
     ...witnessReportFindings(document.content, visualReviews?.reviews ?? [])]
       .map((entry) => ({ ...entry, path: document.path })));
     const { upstreamDiscrepanciesFromMarkdown, discrepancySteps } = await import('./phase-upstream-discrepancies.mjs');

@@ -314,6 +314,23 @@ test('size and exact-path recovery applies to native read aliases, never real ac
   assert.equal(recoverableWorkflowReadFailure({ toolCalls: [{ toolName: 'edit' }] }, { code: 'FILE_READ_TOO_LONG' }), false);
   assert.equal(recoverableWorkflowReadFailure({ toolName: 'Read' }, { permissionDecision: 'deny', code: 'PHASE_MUTATION_PATH_DENIED',
     permissionDecisionReason: 'Output truncated; permission denied by the hook.' }), false);
+  // An edit of its own that missed the file's current lines, or a refused tool form, is this turn's repair and the task
+  // continues (Story anu-bin, 2026-11-11: apply_patch "Failed to find expected lines" ended a code review as a blocker).
+  for (const [toolName, error] of [['apply_patch', { message: 'Failed to find expected lines in src/App.jsx:\n  const x = 1;' }],
+    ['replace_string_in_file', { message: 'Could not find the old string in file src/App.jsx' }],
+    ['bash', { permissionDecision: 'deny', permissionDecisionReason: 'PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output. Correct the tool form in this turn' }]]) {
+    await f.start(); await f.arm();
+    const failure = await repositoryToolFailure({ ...f.payload, toolName, toolArgs: { path: file }, error });
+    assert.match(failure.additionalContext, /not a blocker/u, toolName);
+    assert.doesNotMatch(failure.additionalContext, /explicit blocker/u, toolName);
+    assert.equal((await f.stop()).decision, 'block', `${toolName}: the task stays continuable`);
+  }
+  // The same edit refused for permission keeps its blocker.
+  await f.start(); await f.arm();
+  const refused = await repositoryToolFailure({ ...f.payload, toolName: 'apply_patch', toolArgs: { path: file },
+    error: { code: 'EACCES', message: 'EACCES: permission denied, open src/App.jsx' } });
+  assert.match(refused.additionalContext, /explicit blocker/u);
+  assert.deepEqual(await f.stop(), {});
   await f.start(); await f.arm();
   const human = await repositoryToolFailure({ ...f.payload, toolName: 'bash', error: {
     code: 'HUMAN_APPROVAL_REQUIRED', message: 'Only the authorized person can decide.',

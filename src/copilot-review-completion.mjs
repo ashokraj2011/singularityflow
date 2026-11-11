@@ -63,6 +63,30 @@ export function recoverableWorkflowReadFailure(payload, error) {
       && !/\bdenied\b|\brefused\b|not found|does not exist/iu.test(details.message));
 }
 
+const toolNames = (payload = {}) => [payload.toolName, payload.tool_name, ...(Array.isArray(payload.toolCalls) ? payload.toolCalls : [])
+  .map((call) => call?.name ?? call?.toolName ?? call?.tool_name)].filter((name) => typeof name === 'string');
+// The host's own file-edit tools: apply_patch, edit/str_replace forms, insert/replace/create/write file.
+const EDIT_TOOL = /^(?:apply_patch|str_replace\w*|multi_?edit|edit|write|create)$|(?:patch|edit|replace|insert|write|create)_?\w*file|file_?(?:edit|write)/iu;
+// An edit that did not land because its expected text did not match the file as it is now.
+const EDIT_MISS = /failed to find (?:the )?expected lines|could not (?:find|locate) (?:the )?(?:expected|old|search|original)|no (?:exact )?match(?:es)? (?:found|for)|not found in (?:the )?file|(?:old_?str(?:ing)?|search (?:string|text)|expected (?:text|content|lines))\b[^.]{0,80}\b(?:not found|did not match|does not match|no match)|(?:appears|occurs|found) (?:more than once|multiple times)|not unique|multiple (?:matches|occurrences)|(?:has been|was) (?:modified|changed) since|patch (?:failed|does not apply|could not be applied)|hunk \S* ?failed/iu;
+// What a turn cannot repair by itself: a permission, a protected or out-of-scope path, a missing input.
+const REAL_BLOCKER = /\bdenied\b|\brefused\b|permission|\bEACCES\b|\bEPERM\b|\bENOENT\b|protected|not admitted|read-only|no such file/iu;
+// Refusals whose own text says to correct the tool form in this turn; they do not invalidate the phase.
+const TOOL_FORM_CODES = new Set(['PHASE_MUTATION_TOOL_PROTOCOL', 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED']);
+
+/**
+ * A failure this turn repairs by itself, or null: an edit of its own that missed the file's current lines, or a
+ * refused tool form. Never an explicit blocker (Story anu-bin, 2026-11-11: an apply_patch "Failed to find expected
+ * lines" in a code review ended the turn as a TOOL_FAILURE blocker). Permissions, missing inputs and a person's
+ * steps keep their blocker.
+ */
+export function ownToolRepair(payload = {}, error = payload.error) {
+  const details = failureDetails(error, payload);
+  if (TOOL_FORM_CODES.has(details.code)) return `${details.code}: the tool form was refused, nothing else. Correct it as the refusal says and continue this admitted task in this turn; this is not a blocker and does not invalidate the phase.`;
+  if (!toolNames(payload).some((name) => EDIT_TOOL.test(name)) || !EDIT_MISS.test(details.message) || REAL_BLOCKER.test(details.message)) return null;
+  return `The edit${details.path ? ` of ${details.path}` : ''} did not apply: its expected lines do not match the file as it is now. This is this turn's own repair, not a blocker. Read the current file again, then retry with a changed edit whose lines match it exactly (never the same edit again), and continue the admitted task; nothing was recorded or lost.`;
+}
+
 /** Real errors retain their cause and a read-only owner/recovery route; no automatic retry. */
 export async function noteTaskCompletionFailure(payload, error = payload.error) {
   const value = await workflowCompletionTurn(payload);
@@ -86,6 +110,9 @@ export async function noteTaskCompletionFailure(payload, error = payload.error) 
         : ' Follow the existing read/path correction. If this reader cannot safely narrow the content, preserve its exact error and use the task\'s owner/recovery route; never repeat an unchanged failed range.') };
     }
   }
+  // The turn's own edit or tool form: repaired now, so the task stays continuable.
+  const ownRepair = ownToolRepair(payload, error);
+  if (ownRepair) return { additionalContext: ownRepair };
   operation.blocked = true;
   operation.failure = failureDetails(error, payload);
   const candidates = [error?.nextAction, error?.details?.nextAction,

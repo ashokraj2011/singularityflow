@@ -7,9 +7,13 @@
  * classes, not the instances: a new branch of `act`, a new flag or a new instruction meets them too.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
-import { agentAct } from '../src/agent-output.mjs';
+import { agentAct, LOOP_THRESHOLD, observeAgentLoop } from '../src/agent-output.mjs';
 import { clarificationCheckpoint } from '../src/clarifications.mjs';
 import { CLARIFICATION_RESPONSE_FORMAT } from '../src/phase-staging-paths.mjs';
 import { reviewSubagentHandoff } from '../src/review-subagent.mjs';
@@ -71,5 +75,54 @@ test('an instruction to write a file names the file and gives its shape in the s
     const { instruction } = clarificationCheckpoint({ mode }, { recordState: 'missing', errors: [] });
     assert.doesNotMatch(instruction, /\bissued (?:JSON|staging file)\b/u, mode);
     assert.ok(instruction.includes(`at responseStagingPath as ${CLARIFICATION_RESPONSE_FORMAT}`), mode);
+  }
+});
+
+test('the first convergence review act already says to ask in this chat, show the digest and confirm once', () => {
+  // Only the loop warning on the third repeat said it (session mining N4, 2026-11-11).
+  const act = agentAct({ resultType: 'sflow-submission-readiness', workId: 'W', phaseId: 'convergence', head: 'h0',
+    classification: 'convergence-advance-required', nextCommand: 'singularity-flow story advance --work-id W', nextSkill: '/sf-submit' });
+  assert.equal(act.state, 'confirm-review');
+  assert.match(act.said, /Run do\.shell once to show the review and its digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once\./u);
+});
+
+test('questions that hold the task say the task goes on after the answers', () => {
+  const act = agentAct({ resultType: 'sflow-phase-entry', status: 'clarification-required', context: { text: 'x' },
+    taskCompletion: { complete: false, state: 'blocked', instruction: 'Finish the admitted task or preserve its exact blocker and owner route.' } });
+  assert.equal(act.state, 'ask-person');
+  assert.match(act.said, /taskCompletion is blocked only on these answers: once they are given, record them and author this step in this same turn\./u);
+});
+
+test('a correction line names where to fix, by path or by the packet field', () => {
+  // Review findings carry `field`, not `path`, so act.fix named no place (agent-text audit, 2026-11-11).
+  const act = agentAct({ resultType: 'source-review-check', findings: [
+    { code: 'review-format-invalid', field: 'rows[3].sourceId', message: 'Invalid input' },
+    { code: 'TRACE', path: 'src/a.mjs', line: 4, message: 'Tag the clause.' }] });
+  assert.deepEqual(act.fix, ['review-format-invalid at rows[3].sourceId: Invalid input', 'TRACE at src/a.mjs:4: Tag the clause.']);
+});
+
+test('the loop warning never tells an agent to run what is the person\'s, nor to ask questions that are not there', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-text-loop-'));
+  const previous = process.env.SINGULARITY_FLOW_FINDING_STREAKS;
+  process.env.SINGULARITY_FLOW_FINDING_STREAKS = path.join(root, 'streaks');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_FINDING_STREAKS;
+    else process.env.SINGULARITY_FLOW_FINDING_STREAKS = previous;
+    await rm(root, { recursive: true, force: true });
+  });
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const now = Date.parse('2026-11-11T12:00:00Z');
+  // A person-authored publication (confirm-in-terminal) and a raw Git route (ask-person, no questions).
+  const cases = [
+    { resultType: 'sflow-phase-prepublish', workId: 'W', phase: 'intake', status: 'ready', head: 'h0', publishIfReady: { published: false, reason: 'person-authored' },
+      commands: { publish: 'singularity-flow phase publish intake --authored human --channel manual-in-place' } },
+    { workId: 'W', phase: 'intake', head: 'h0', nextAction: { command: 'git stash push -m keep', reason: 'Keep the edits aside.' } }];
+  for (const [index, result] of cases.entries()) {
+    const act = agentAct(result);
+    assert.ok(['confirm-in-terminal', 'ask-person'].includes(act.state), act.state);
+    const seen = [1, 2, 3].map((minute) => observeAgentLoop(root, { ...result, workId: `W${index}` }, act, { now: now + minute * 60_000 }));
+    assert.equal(seen[2].loop.repeated, LOOP_THRESHOLD);
+    assert.doesNotMatch(seen[2].loop.instruction, /Do act\.do now|run do\.shell|questions/u, act.state);
+    assert.match(seen[2].loop.instruction, /never run it/u, act.state);
   }
 });

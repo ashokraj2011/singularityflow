@@ -459,7 +459,10 @@ export function agentAct(result) {
     // The questions are one stage of this step: without what the task still owes, the turn ended at them.
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null,
       read: ['clarification', 'context', ...(result.authoring ? ['authoring'] : []), ...(result.authoringProgress ? ['authoringProgress'] : []), ...(result.taskCompletion ? ['taskCompletion'] : []), ...openUpstream(result)],
-      said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };
+      // taskCompletion says 'blocked' here, with "preserve its exact blocker and owner route": read as a stop, the turn
+      // ended at the questions (agent-text audit, 2026-11-11). It waits only on these answers.
+      said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.${result.taskCompletion
+        ? ' taskCompletion is blocked only on these answers: once they are given, record them and author this step in this same turn.' : ''}`) };
     return withRoute({ state: 'next', said: oneLine(result.reason ?? `Phase entry status: ${result.status}.`), do: null }, firstNow(result.next));
   }
   if (result.resultType === 'sflow-phase-prepublish') {
@@ -570,7 +573,10 @@ export function agentAct(result) {
     return { ...withRoute({ state: 'next', said: null, do: null }, action), read: ['data.preparation.scope'] };
   }
   const state = result.classification === 'convergence-advance-required' ? 'confirm-review' : 'next';
-  const said = oneLine(result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')) || null;
+  // The in-chat confirmation came only with the loop warning, on the third repeat; the first act gave only the
+  // generic reason, and the person was left to re-run the preview (session mining N4, 2026-11-11).
+  const said = oneLine(`${result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')}${state === 'confirm-review'
+    ? ' Run do.shell once to show the review and its digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once.' : ''}`) || null;
   const nextsteps = result.resultType === 'sflow-nextsteps'
     ? { read: ['contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
   return withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);
@@ -585,7 +591,8 @@ function correctionList(findings) {
   if (!Array.isArray(findings) || !findings.length) return {};
   const MAXIMUM = 6;
   const fix = findings.slice(0, MAXIMUM).map((finding) => {
-    const where = finding?.path ? ` at ${finding.path}${finding.line ? `:${finding.line}` : ''}` : '';
+    // A review packet's findings name a `field`, not a path: their lines named no place to fix (agent-text audit, 2026-11-11).
+    const where = finding?.path ? ` at ${finding.path}${finding.line ? `:${finding.line}` : ''}` : finding?.field ? ` at ${finding.field}` : '';
     return oneLine(`${finding?.code ?? 'finding'}${where}: ${finding?.message ?? ''}`, 320);
   });
   if (findings.length > MAXIMUM) fix.push(`+${findings.length - MAXIMUM} more in findings`);
@@ -619,8 +626,11 @@ export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
     ? `This confirmation has come back ${count} times in a row and the person has not given it. Ask them now in this chat to confirm the exact value; only on an explicit yes run do.shell once. Do not offer the preview again.`
     : act.state === 'confirm-review'
       ? `This review has come back ${count} times in a row unconfirmed. Run do.shell once to show the digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once. Do not end with this route again.`
+    // A person's own step is shown, never run: "Do act.do now" contradicted next's "never run it" (agent-text audit, 2026-11-11).
+    : PERSON_STATES.has(act.state) && act.do && !act.ask
+      ? `This has come back ${count} times in a row: do.shell is the person's to run, never this turn's. Show it to them once more, say it is theirs to run, and stop; never run it.`
     : act.state === 'ask-person'
-      ? `The same questions have been due ${count} times in a row. Ask them now with ask_user (or print them and stop); do not load the context again.`
+      ? `The same questions have been due ${count} times in a row. Ask them now with your question tool (ask_user; in VS Code, vscode_askQuestions), or print them and stop; do not load the context again.`
     : act.state === 'correct'
       ? `The same findings have come back ${count} times unchanged, so the edits are not fixing them. Read what each finding quotes and the shape it asks for, change exactly that, or tell the person what is blocked and stop.`
       : `The same result has come back ${count} times in a row; repeating the command cannot change it. Do act.do now, or tell the person exactly what is blocked and stop.`;

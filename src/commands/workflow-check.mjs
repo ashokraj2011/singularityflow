@@ -33,6 +33,11 @@ function printSteps(explanation) {
     if (step.checksText) console.log(`     ${step.checksText}`);
     console.log(`     ${step.signOff}`);
     for (const line of step.then) console.log(`     ${line}`);
+    // Who does what, where (src/workflow-step-people.mjs): one line per item.
+    if (step.people) {
+      console.log('     Who does what, where:');
+      for (const line of step.people.lines) console.log(`       ${line}`);
+    }
   }
 }
 

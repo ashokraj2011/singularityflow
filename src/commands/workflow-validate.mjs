@@ -35,7 +35,7 @@ export async function run(argv, { positionals, options }) {
       { key: 'reason', label: 'REASON' }
     ]));
   }
-  const lines = validationFindingLines(result);
+  const lines = validationFindingLines(result, { people: Boolean(positionals[2]) });
   for (const line of lines) console.log(line);
   console.log(`${result.workflows.length || lines.length ? '\n' : ''}Validated ${result.workflows.length} Story workflow(s): ${result.valid ? 'valid' : 'not valid'}.`);
   if (!result.valid) {

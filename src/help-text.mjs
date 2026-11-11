@@ -480,7 +480,8 @@ Usage:
                                                         is each workflow correct: its clause steps and plan owners, what every route
                                                         owes, and every check finding (step templates included), each located, with
                                                         why and how to fix it; exits 1 when one is not. /sf-fix-workflow in Copilot
-                                                        drafts the fixes as one reviewed configuration proposal
+                                                        drafts the fixes as one reviewed configuration proposal. With WORKFLOW, who
+                                                        drafts, asks, reviews and approves each step, and where
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
   singularity-flow workflow build start [--change ID | --from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
     [--describe TEXT] [--name LABEL] [--json]
@@ -501,7 +502,8 @@ Usage:
   singularity-flow workflow build import --file FILE [--json]
                                                         move a build to another computer: export it here, import it there inside the repository
   singularity-flow workflow check [WORKFLOW] [--change-set FILE|-] [--json]
-                                                        explain each workflow in plain words and list what does not make sense, with where
+                                                        explain each workflow in plain words and list what does not make sense, with where;
+                                                        with WORKFLOW, who drafts, asks, reviews and approves each step, and where
 
   # SGOS — deterministic intent compilation and governed execution
   singularity-flow intent capture <TEXT> [--out FILE] [--json]

@@ -98,9 +98,10 @@ function thenWords(step, workflow, { stepLabel, groupLabel, rejectTo }) {
 /**
  * Explain one workflow of a Studio model. `resolved` (optional) is the engine's resolution of it,
  * for rejection targets the model does not show; `guidance` (optional) maps a step ID to the links
- * and API calls its own guidance gives.
+ * and API calls its own guidance gives; `people` (optional) maps a step ID to who does what in it,
+ * and where (src/workflow-step-people.mjs), given as the step's `people`.
  */
-export function explainWorkflow(model, workflowId, { resolved = null, guidance = new Map() } = {}) {
+export function explainWorkflow(model, workflowId, { resolved = null, guidance = new Map(), people = new Map() } = {}) {
   const workflow = model.workflows.find((entry) => entry.id === workflowId);
   if (!workflow) return null;
   const phases = new Map(model.phases.map((phase) => [phase.id, phase]));
@@ -143,7 +144,8 @@ export function explainWorkflow(model, workflowId, { resolved = null, guidance =
       signOff: signOffWords(step.approval, groupLabel),
       then: thenWords(step, workflow, { stepLabel, groupLabel, rejectTo: resolvedPhases.get(step.id)?.approval?.rejectTo ?? [] }),
       links: found.links,
-      apiCalls: found.apiCalls
+      apiCalls: found.apiCalls,
+      ...(people.has(step.id) ? { people: people.get(step.id) } : {})
     };
   });
   const signOffs = workflow.steps.filter((step) => step.approval?.mode !== 'none').length;

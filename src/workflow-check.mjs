@@ -14,6 +14,8 @@
  * `blocksStart` says which findings those gates refuse (assertWorkTypeStartable, and a configuration
  * that does not load); a problem that lets a Story start says where it would stop in `stopsAt`.
  * Each step's template is judged by the kernel's own readers (src/workflow-template-conformance.mjs).
+ * Each step's explanation carries `people`: who drafts, asks, answers, reviews and approves it, and
+ * where (src/workflow-step-people.mjs).
  */
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
@@ -28,6 +30,7 @@ import { sourceReviewPolicyNotice } from './source-review-policy.mjs';
 import { SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
 import { explainWorkflow } from './workflow-explanation.mjs';
 import { simulateWorkflowRoutes } from './workflow-route-simulation.mjs';
+import { workflowStepPeople } from './workflow-step-people.mjs';
 import { buildStudioModel } from './workflow-studio.mjs';
 import { templateConformanceFindings, templateReader } from './workflow-template-conformance.mjs';
 
@@ -238,6 +241,7 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
   };
 
   let resolved = null;
+  let people = new Map();
   // Steps the engine already says can reach the end unreviewed; the sign-off check does not repeat it.
   const reviewGaps = new Set();
   const unreachable = new Set();
@@ -328,6 +332,8 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
       const { step, template, kernelCode, ...rest } = entry;
       add({ ...rest, area: 'guidance', subject: { step, template, file: entry.location?.file ?? null } });
     }
+    // Who drafts, asks, reviews and approves each step, and where.
+    people = workflowStepPeople(model, workflow, resolved);
   }
 
   // Who owns each step: an agent to draft it, people to sign it off.
@@ -440,7 +446,7 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
       title: undescribed.length === 1 ? `${undescribed[0].label} does not say what it is for` : `${undescribed.length} steps do not say what they are for`,
       detail: `Without a description: ${undescribed.map((step) => step.label).join(', ')}.`, fix: "Add a description in the step's properties in Workflow Studio.", subject: {} });
   }
-  return { findings, resolved, explanationGuidance };
+  return { findings, resolved, explanationGuidance, people };
 }
 
 /** Findings about the repository's own agents, skills, instructions and links, not one workflow. */
@@ -623,10 +629,10 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
   const results = [];
   for (const workflow of model.workflows) {
     if (only && !only.includes(workflow.id)) continue;
-    const { findings, resolved, explanationGuidance } = await checkWorkflow(workflow, { definition, model, locate, guidance, groups, templates, unmapped });
+    const { findings, resolved, explanationGuidance, people } = await checkWorkflow(workflow, { definition, model, locate, guidance, groups, templates, unmapped });
     results.push({
       id: workflow.id, label: workflow.label, readOnly: Boolean(workflow.readOnly),
-      explanation: explainWorkflow(model, workflow.id, { resolved, guidance: explanationGuidance }),
+      explanation: explainWorkflow(model, workflow.id, { resolved, guidance: explanationGuidance, people }),
       counts: countsOf(findings), findings
     });
   }

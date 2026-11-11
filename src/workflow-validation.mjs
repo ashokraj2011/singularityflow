@@ -34,16 +34,20 @@ export function workflowFixDraftPath(root, workflowId = null, { env = process.en
   return path.join(workflowBuildStateRoot(env), 'workflow-fixes', repository, `${workflowId ?? 'all-workflows'}.change-set.json`);
 }
 
-/** What each step holds, and whether it defines the clause anchors, plans claims, or carries the code's tags. */
+/**
+ * What each step holds, and whether it defines the clause anchors, plans claims, or carries the code's
+ * tags; `people` is who drafts, asks, reviews and approves it, and where (src/workflow-step-people.mjs).
+ */
 function stepRoles(entry, explanation) {
-  const labels = new Map((explanation?.steps ?? []).map((step) => [step.id, step.label]));
+  const explained = new Map((explanation?.steps ?? []).map((step) => [step.id, step]));
   const codeSteps = new Set(Object.keys(entry.owners ?? {}));
   return (entry.obligations?.steps ?? []).map((step) => ({
-    id: step.id, label: labels.get(step.id) ?? step.id, responsibilities: step.responsibilities,
+    id: step.id, label: explained.get(step.id)?.label ?? step.id, responsibilities: step.responsibilities,
     definesClauses: (entry.clausePhases ?? []).includes(step.id),
     plansClaimsFor: Object.entries(entry.owners ?? {}).filter(([, owner]) => owner === step.id).map(([code]) => code),
     // Its code carries @clause:<WORK>:REQ-001 comments and its tests @ac:<WORK>:AC-001 tags.
-    carriesTags: entry.status === 'protected' && codeSteps.has(step.id)
+    carriesTags: entry.status === 'protected' && codeSteps.has(step.id),
+    ...(explained.get(step.id)?.people ? { people: explained.get(step.id).people } : {})
   }));
 }
 
@@ -135,8 +139,22 @@ function findingLines(findings, labelOf, { indent = '  ', start = 'Story start r
   return lines;
 }
 
-/** The text `workflow validate` prints after its table. */
-export function validationFindingLines(result) {
+/**
+ * Who does what, where, in each step of one workflow, one line per item under the step: what
+ * `workflow check WORKFLOW` and `workflow validate WORKFLOW` print.
+ */
+export function stepPeopleLines(steps, { indent = '  ' } = {}) {
+  const lines = [];
+  for (const [index, step] of steps.entries()) {
+    if (!step.people) continue;
+    lines.push(`${indent}${index + 1}. ${step.label}`);
+    for (const line of step.people.lines) lines.push(`${indent}   ${line}`);
+  }
+  return lines;
+}
+
+/** The text `workflow validate` prints after its table; with one workflow named, who does what in each step too. */
+export function validationFindingLines(result, { people = false } = {}) {
   const lines = [];
   for (const workflow of result.workflows) {
     const labelOf = (id) => workflow.roles.find((step) => step.id === id)?.label ?? id;
@@ -146,6 +164,11 @@ export function validationFindingLines(result) {
     lines.push('', `${workflow.label} (${workflow.id}): ${workflow.valid ? 'valid' : 'not valid'}; ${plural(workflow.counts.problem, 'problem')}, ${plural(workflow.counts.warning, 'warning')}, ${plural(notes, 'note')}.`);
     lines.push(...shown);
     if (notes) lines.push(`  ${plural(notes, 'note')}: singularity-flow workflow check ${workflow.id} lists ${notes === 1 ? 'it' : 'them'}.`);
+  }
+  if (people) {
+    for (const workflow of result.workflows.filter((entry) => entry.roles.some((step) => step.people))) {
+      lines.push('', `Who does what, where, in ${workflow.label} (${workflow.id}):`, ...stepPeopleLines(workflow.roles));
+    }
   }
   const attributed = new Set(result.workflows.flatMap((workflow) => workflow.findings.map((entry) => entry.id)));
   const own = result.repository.findings.filter((entry) => !attributed.has(entry.id) && entry.severity !== 'note');

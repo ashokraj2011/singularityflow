@@ -267,3 +267,18 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
   assert.deepEqual(fixed.workflows[0].simplify.found.map((entry) => entry.kind), ['duplicate-step', 'unneeded-step', 'unused-asset']);
 });
 
+test('the skills walk the person through simplify and never ask for template wording', async () => {
+  const build = await readFile(path.join(packageRoot, 'plugin/skills/sflow-build-workflow/SKILL.md'), 'utf8');
+  const fix = await readFile(path.join(packageRoot, 'plugin/skills/sflow-fix-workflow/SKILL.md'), 'utf8');
+  for (const pattern of [/--from-workflow <ID> \[--simplify\]/u, /take `candidates` one at a time/u, /ask with `ask_user`: accept, or decline with a reason; record exactly that with `build decide`/u,
+    /`singularity-flow workflow build verify --build <ID> --json`/u, /offer finishing only once the person explicitly accepts each as it is, then add `--accept-problem <id>` for each/u,
+    /never changing the original workflow/u, /One with a `move`: propose that move \(`--by copilot`\), asking nothing/u, /A template fix is placeholders, never wording asked of the person/u]) {
+    assert.match(build, pattern);
+  }
+  for (const pattern of [/With `simplify` it is correct but heavy: name `simplify\.found` and offer `simplify\.nextAction`/u,
+    /With `fixDraft\.fixCommand`, run it: each `change` it returns goes into the draft as given, asking nothing; ask only its `question`s, one at a time/u,
+    /Never ask for template content/u, /say in one line that it adds placeholders each Story's author fills/u]) {
+    assert.match(fix, pattern);
+  }
+  assert.doesNotMatch(fix, /wording of requirements/u, 'the person is never asked for requirement wording');
+});

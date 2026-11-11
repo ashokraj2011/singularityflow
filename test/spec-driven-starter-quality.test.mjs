@@ -33,15 +33,17 @@ test('independent review is an explicit pinned policy, not a retroactive Story g
   const pinned = (resolution) => ({ phases: { specification: {}, implementation: {} }, resolution: { ...resolution,
     obligationGraph: { nodes: [{ id: 'specification', responsibilities: ['scope'] }, { id: 'implementation', responsibilities: ['implement'] }] } } });
   assert.equal(sourceReviewRequired(pinned({ sourceReview: current }), 'specification'), true);
-  assert.equal(sourceReviewRequired(pinned({ sourceReview: current }), 'implementation'), false);
+  // A reviewer in every authored step, code included (owner decision 2026-11-10, review level 2, 92a78019c).
+  assert.equal(sourceReviewRequired(pinned({ sourceReview: current }), 'implementation'), true);
   assert.equal(sourceReviewRequired(pinned({}), 'specification'), false);
   assert.throws(() => normalizeSourceReviewPolicy({ mode: 'enforce', phases: ['nonexistent'],
     reviewerAgent: 'sflow-source-reviewer' }, { workTypeId: 'bad', phases: starter.phases }),
   /distinct active steps/);
-  // Whether a step is reviewable is its structure, which the work type's obligation graph supplies.
-  assert.throws(() => normalizeSourceReviewPolicy({ mode: 'enforce', phases: ['implementation'],
-    reviewerAgent: 'sflow-source-reviewer' }, { workTypeId: 'bad', phases: starter.phases, reviewable: (id) => id !== 'implementation' }),
-  /define the scope or plan the claims/);
+  // Level 2 (a72215495): a legacy phases list no longer limits or refuses the review; it is kept and reported.
+  const listed = normalizeSourceReviewPolicy({ mode: 'enforce', phases: ['implementation'], reviewerAgent: 'sflow-source-reviewer' },
+    { workTypeId: 'bad', phases: starter.phases, reviewable: (id) => (id === 'implementation' ? null : 'specification') });
+  assert.deepEqual(listed.supersededPhases, ['implementation']);
+  assert.ok(listed.phases.includes('implementation'));
   assert.throws(() => assertSourceReviewerAvailable(current, [], {
     workTypeId: 'spec-driven-standard'
   }), { code: 'SOURCE_REVIEW_AGENT_UNAVAILABLE' });

@@ -322,6 +322,10 @@ test('a standalone SFlow command the author\'s turn does not run is never sent b
     assert.doesNotMatch(answer.permissionDecisionReason, /on its own/u, command);
   }
   assert.equal(decisionOf(guard('singularity-flow help')), 'allow', 'the route it names runs');
+  // A person's step is refused for what it is, with the person's own line, never "run it on its own" (person-step golden).
+  const approve = guard('singularity-flow approve intake --work-id QF-1 --yes');
+  assert.match(approve.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a step is the decision of a person who approves it/u);
+  assert.doesNotMatch(approve.permissionDecisionReason, /on its own/u);
   // A real chain still gets the one command to run alone.
   assert.match(guard('singularity-flow help | head -5').permissionDecisionReason, /Run `singularity-flow help` on its own in this turn/u);
 });

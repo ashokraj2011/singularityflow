@@ -1078,9 +1078,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
       await import('./copilot-mutation-guard.mjs').then(module => module.refreshMutationContracts(root, null, {
         decisionEnded: ['approve', 'reject'].includes(definition.name)
           || definition.name === 'review-source' && positionals[1] === 'decide',
-        // A command classed as a read can still commit to the Story (a plain prepublish keeps what the person asked
-        // for): the commit is SFlow's own, never a change made outside it (Copilot CLI live probe, 2026-11-12).
-        advanceBaseline: operation.classification === 'mutation' || globalThis[Symbol.for('singularity-flow.story-committed')] === true
+        advanceBaseline: operation.classification === 'mutation'
       })).catch(() => {});
       timer.stage('contract-refresh');
     }

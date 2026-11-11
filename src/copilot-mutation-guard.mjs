@@ -2020,7 +2020,10 @@ async function mutationToolDecision(payload, record) {
           // Already one standalone command, which this turn does not run: "run it on its own" sent it straight back.
           // A model told so about `singularity-flow --help` handed the whole step to sub-agents (Copilot CLI live
           // probe, 2026-11-12), which then published it with no reviewer started.
+          // A person's step (an approval, a return) is refused for what it is, with the person's own line.
           const standalone = verifiedShellForm(call, value);
+          const persons = standalone ? personStepOfCall(call, payload.cwd) : null;
+          if (persons) return personStepRefusal(persons);
           if (standalone) return mutationDenial(contract, ['--help', '-h'].includes(standalone.argv.join(' '))
             ? 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: run `singularity-flow help` (or `singularity-flow help <command>`) instead; this turn does not run the bare --help form'
             : 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this turn does not run this SFlow command. Follow the exact action the last SFlow result returned; nothing needs recovering', [], { routes: [] });
@@ -2274,6 +2277,10 @@ async function bindingCurrent(value) {
 
 export async function refreshMutationContracts(root, accepted = null, { decisionEnded = false, advanceBaseline = false } = {}) {
   if (readCopilotMode().paused || !root) return;
+  // A command classed as a read can still commit to the Story (a plain prepublish keeps what the person asked for;
+  // commitAndPublish notes it): the commit is SFlow's own, never a change made outside it (Copilot CLI live probe,
+  // 2026-11-12, where it stopped the author before publishing).
+  advanceBaseline ||= globalThis[Symbol.for('singularity-flow.story-committed')] === true;
   root = await realpath(root);
   const names = await readdir(directory()).catch(() => []);
   const entries = [];

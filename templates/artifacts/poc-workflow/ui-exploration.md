@@ -6,6 +6,8 @@
 
 <!-- sflow:guidance Record the approved environment, exact origin, browser project, viewport, source revision, feature flags, test-data identity, and Playwright host attestation. Refer to secret names only. Stop if the browser is redirected outside the approved origin or the environment cannot be identified. -->
 
+TODO: Record the approved environment, exact origin, browser project, viewport, source revision and test-data identity.
+
 ## Observed journeys and states
 
 | Scenario / AC | Actions performed | Observed state | Expected state | Result |

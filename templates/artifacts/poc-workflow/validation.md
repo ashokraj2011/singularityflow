@@ -6,6 +6,8 @@
 
 <!-- sflow:guidance Name the Story commit/tree, generated test paths, approved environment, browser projects, viewports, and acceptance/risk items covered. Say explicitly what this run does not validate. -->
 
+TODO: Name the Story commit and tree, the tests, environment, browsers and viewports covered, and what this run does not validate.
+
 ## Commands and environment
 
 | Order | Exact argv / command | Working directory | Exit code | Duration | Result |

@@ -6,6 +6,8 @@
 
 {{inputs}}
 
+TODO: State the behavior this proof of concept must validate, why it matters, the expected demonstration outcome and what is excluded.
+
 ## Repository and branch context
 
 | Field | Governed value |

@@ -6,6 +6,8 @@
 
 <!-- sflow:guidance Describe the detected Playwright configuration, language, package manager, fixtures, Page Object Model convention, test root, reporting, and CI pattern. Explain how the implementation follows those existing boundaries. If no convention exists, record the smallest proposed layout and obtain engineering approval rather than inventing a framework migration. -->
 
+TODO: Describe the Playwright configuration and conventions this repository already uses, and how the generated tests follow them.
+
 ## Files changed
 
 | Path | Created/updated | Purpose | Governed source |

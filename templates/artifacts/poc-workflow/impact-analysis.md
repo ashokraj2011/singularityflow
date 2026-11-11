@@ -6,6 +6,8 @@
 
 <!-- sflow:guidance Record the exact pinned remote base commit, current Story commit/tree, comparison command, and whether uncommitted bytes were included. Never call a status-only hash a content comparison. -->
 
+TODO: Record the pinned base commit, the current Story commit and tree, the comparison command, and whether uncommitted bytes were included.
+
 ## Changed-code evidence
 
 | Changed path or symbol | Evidence | Runtime responsibility | Existing tests |

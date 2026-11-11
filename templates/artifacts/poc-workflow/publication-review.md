@@ -6,6 +6,8 @@
 
 <!-- sflow:guidance Record the configured remote, selected base branch and pinned base commit, isolated Story branch, current Story commit/tree, and exact destination ref. The destination must be the Story ref; never write or force-update the selected base. State whether the branch is already published or has a pending-publication recovery record. -->
 
+TODO: Record the remote, base branch and pinned base commit, Story branch, current Story commit and tree, and the exact destination ref.
+
 ## Change and coverage summary
 
 <!-- sflow:guidance Summarize changed Page Objects, specs, fixtures, helpers, and configuration. Map the proposed PR to approved `[POC:AC-nnn]` items and the regression footprint. Include an exact diff/stat and identify any non-test source change for special review. -->
@@ -16,7 +18,7 @@ TODO: Summarize the changed files and map the proposed PR to the approved accept
 
 <!-- sflow:guidance Link the approved validation generation, commands, exit codes, scenario matrix, Playwright reports, traces, screenshots, logs, and governed MCP provenance. Do not describe failed, stale, blocked, or not-run evidence as green. -->
 
-TODO: Link the approved validation generation and the evidence it retained.
+TODO: Link the approved validation generation, its commands and exit codes, the scenario matrix, and the reports, traces, screenshots and logs it retained.
 
 ## Residual risk and rollback
 

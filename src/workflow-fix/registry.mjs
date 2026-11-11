@@ -19,7 +19,12 @@
  * `workflow(id, field, value)` for a workflow, `op(op)` for any other Workflow Studio change, and
  * `remove(kind, id)`. What it touches becomes one change with its diffs. A question's choices each
  * carry `apply(draft, answer)`, run when `workflow fix --answers` names that choice. test/workflow-fix.test.mjs
- * fails for a code `workflow check` can raise that has no entry here.
+ * fails for a code `workflow check` can raise that has no entry here: every quoted 'CHECK_…' literal
+ * under src/, the route simulation's, phase topology's and obligation graph's codes, and the agent
+ * mapping codes; and for an entry no module raises any more.
+ *
+ * A question is `{ ask, why, answer?, choices: [{ id, label, effect, needs?: 'people' | 'text', apply }] }`.
+ * Choices never invent people, groups or reasons: people and reasons come from the answer.
  */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -28,8 +33,7 @@ import { normalizeMarkdownHeading, parseMarkdownStructure } from '../markdown-st
 import { PACKAGE_ROOT } from '../package-root.mjs';
 import { isConvergencePhase, isVisualVerificationPhase } from '../phase-roles.mjs';
 import { scanGuidanceText } from '../guidance-scan.mjs';
-import { librarySkillPath, librarySkillText, parseLibrarySkill } from '../skill-library.mjs';
-import { instructionPath } from '../instruction-library.mjs';
+import { librarySkillText, parseLibrarySkill } from '../skill-library.mjs';
 import { newStepTemplate } from '../step-outputs.mjs';
 import { lineNumberOf, removeLine, retargetLink, unlinkTarget } from './text.mjs';
 import {
@@ -103,9 +107,7 @@ function sameNamed(ctx, directory, name, exclude) {
   return found.sort();
 }
 
-async function templateExists(ctx, template) {
-  return existsSync(path.join(ctx.configRoot, ctx.templatesRoot, template));
-}
+const templateExists = (ctx, template) => existsSync(path.join(ctx.configRoot, ctx.templatesRoot, template));
 
 /** What a step's template must give its author, added to `text`: anchors, the plan's table, required sections. */
 function conformTemplate(text, { definesClauses, plans, sections }) {
@@ -337,7 +339,7 @@ async function templateMissing([finding], ctx) {
     return { summary: `Create template ${template} for ${label}${existsSync(packaged) ? ' from the packaged one' : ' from the starter'}, with what the step's publication reads as placeholders.` };
   }
   let name = `${workflow?.id ?? 'steps'}/${stepId}.md`;
-  for (let number = 2; await templateExists(ctx, name) || ctx.draft.has({ kind: 'template', path: name }); number += 1) name = `${workflow?.id ?? 'steps'}/${stepId}-${number}.md`;
+  for (let number = 2; templateExists(ctx, name) || ctx.draft.has({ kind: 'template', path: name }); number += 1) name = `${workflow?.id ?? 'steps'}/${stepId}-${number}.md`;
   ctx.draft.create({ kind: 'template', path: name }, content);
   ctx.draft.phase(stepId, { template: name }, { workflow: workflow?.id });
   return { summary: `Give ${label} a template of its own, ${name} (the one it names ${finding.title.replace(/^The template of .*? /u, '')}), with what the step's publication reads as placeholders.` };
@@ -403,11 +405,14 @@ async function undescribedSteps([finding], ctx) {
 
 async function duplicateLabel([finding], ctx) {
   const workflow = workflowOf(ctx, finding);
-  const step = stepIn(workflow, finding.subject.step);
+  // The steps that share the name, from "Steps a, b share a name"; a step SFlow protects keeps its name.
+  const ids = /^Steps (.+) share a name/u.exec(finding.detail ?? '')?.[1]?.split(/,\s*/u) ?? [finding.subject.step];
+  const protectedSteps = new Set(ctx.model.protection?.phases ?? []);
+  const step = stepIn(workflow, [...ids].reverse().find((id) => !protectedSteps.has(id)) ?? finding.subject.step);
   if (!step) return { summary: null };
   const label = `${step.label} (${step.id})`.slice(0, 120);
   ctx.draft.phase(step.id, { label });
-  return { summary: `Rename the second step called ${step.label} to ${label}, so people can tell them apart.` };
+  return { summary: `Rename ${step.id}, one of the steps called ${step.label}, to ${label}, so people can tell them apart.` };
 }
 
 async function stepAgent([finding], ctx) {
@@ -974,7 +979,7 @@ export const WORKFLOW_FIXERS = Object.freeze({
   CHECK_CODE_WITHOUT_SIGNOFF: either(44, 'No step of the workflow has a sign-off to follow; who reviews the work is the team\'s decision.', codeWithoutSignOff),
   CHECK_LAST_STEP_NO_SIGNOFF: question(46, 'A workflow may end when its last step is submitted; whether the team wants a sign-off there is its decision.', lastStepNoSignOff),
   // Flow: the engine's own rules.
-  WORKFLOW_REJECTION_TARGET: change(50, rejectionTarget),
+  WORKFLOW_REJECTION_TARGET: either(50, 'A step nobody signs off has no send-back target to repoint; where rejected work goes is the team\'s decision.', rejectionTarget),
   WORKFLOW_AUTHORITY_UNKNOWN: question(50, PEOPLE_WHY, unknownAuthority),
   WORKFLOW_ROUTE_PAUSE_UNOWNED: either(52, 'The step the decision follows has no sign-off to follow; who decides is the team\'s decision.', decisionOwner),
   WORKFLOW_ROUTE_EXHAUSTION: either(52, 'The step the decision follows has no sign-off to follow; who decides is the team\'s decision.', decisionOwner),

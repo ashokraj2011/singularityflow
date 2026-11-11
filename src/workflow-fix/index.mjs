@@ -199,6 +199,7 @@ async function draftRound(root, { only, answers, round }) {
 }
 
 const MAX_ROUNDS = 3;
+const BISECT_LIMIT = 8;
 const PACKAGED = 'A packaged workflow SFlow protects: it changes with an SFlow update, never by a change set here. Copy it (workflow copy) to change your own.';
 const CONFIGURATION_PASSES = 6;
 const problemRef = (problem) => `f-${shortHash(`${problem.code}\0${problem.line ?? ''}\0${problem.message}`)}`;
@@ -269,8 +270,20 @@ export async function draftWorkflowFixes(root, { workflow = null, answers = null
       for (const entry of rounds) {
         for (const change of entry.changes.filter((candidate) => !candidate.refused)) {
           const ops = change.keys.map((key) => entry.draft.compile(key)).filter(Boolean);
-          if (ops.some((op) => op.op === problem.change && (!problem.subject?.id || [op.id, op.phase, op.path].includes(problem.subject.id)))) culprits.push({ entry, change, problem });
+          if (!culprits.some((culprit) => culprit.change === change)
+              && ops.some((op) => op.op === problem.change && (!problem.subject?.id || [op.id, op.phase, op.path].includes(problem.subject.id)))) culprits.push({ entry, change, problem });
         }
+      }
+    }
+    if (!culprits.length) {
+      // Refused as a whole (validation names no change): the latest change whose leaving makes the rest apply.
+      const candidates = rounds.flatMap((entry) => entry.changes.filter((change) => !change.refused).map((change) => ({ entry, change }))).reverse().slice(0, BISECT_LIMIT);
+      for (const candidate of candidates) {
+        const trial = new Map([...refusedKeys].map(([entry, keys]) => [entry, new Set(keys)]));
+        trial.set(candidate.entry, new Set([...(trial.get(candidate.entry) ?? []), ...candidate.change.keys]));
+        const changes = rounds.flatMap((entry) => entry.draft.studioChanges(trial.get(entry)));
+        const plan = changes.length ? await planStudioChangeSet(root, changeSetOf(changes)) : { valid: true };
+        if (plan.valid) { culprits.push({ ...candidate, problem: lastPlan.problems[0] }); break; }
       }
     }
     if (!culprits.length) break;

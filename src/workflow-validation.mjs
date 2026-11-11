@@ -58,6 +58,8 @@ function fixAction(workflowId) {
     copilotCommand: commandGuidance?.copilotCommand ?? `/sf-fix-workflow${workflowId ? ` ${workflowId}` : ''}`,
     commandGuidance,
     workflowStudio: 'In VS Code, open Workflow Studio (Singularity Flow: Workflow Studio), choose the workflow and press Check.',
+    // Every finding as a drafted change or a question only a person can answer (src/workflow-fix/index.mjs).
+    draftCommand: `singularity-flow workflow fix${workflowId ? ` ${workflowId}` : ''} --write`,
     reviewed: 'Copilot drafts every fix as one configuration proposal; nothing changes until it is reviewed and activated.'
   };
 }

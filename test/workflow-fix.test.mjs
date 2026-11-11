@@ -162,7 +162,10 @@ test('the fmly-qa-test-automation findings: one change set that leaves nothing t
   const checked = json(root, ['workflow', 'check', WORKFLOW]);
   assert.deepEqual([checked.counts.problem, checked.counts.warning, checked.counts.note], [2, 5, 1], JSON.stringify(checked.counts));
   const original = await readFile(path.join(root, 'singularity/templates/fmly/requirements.md'), 'utf8');
+  const validated = JSON.parse(flow(root, ['workflow', 'validate', WORKFLOW, '--json'], { allowFailure: true }).stdout);
+  assert.equal(validated.nextAction.draftCommand, `singularity-flow workflow fix ${WORKFLOW} --write`);
   const result = json(root, ['workflow', 'fix', WORKFLOW, '--write']);
+  assert.equal(result.draft.path, validated.fixDraft.changeSetPath, 'the same private draft file /sf-fix-workflow proposes');
   assert.equal(result.resultType, 'workflow-fix');
   assert.equal(result.counts.questions, 0, JSON.stringify(result.questions));
   assert.equal(result.counts.unhandled, 0);

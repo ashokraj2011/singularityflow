@@ -69,6 +69,7 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
 
   const diagnosticOnly = item.recovery?.status === 'unreadable';
   const actions = diagnosticOnly ? [] : (legalActions ?? (item.nextAction ? [item.nextAction.operation] : []));
+  const personFirst = item.nextAction?.personRoute?.kind === 'submit' && !diagnosticOnly ? 1 : 0;
 
   return sflowResult({
     kind: 'read',
@@ -124,11 +125,27 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
      * next action would collapse those two steps into one, which is exactly the collapse that makes
      * a returning developer advance a phase they had not yet understood.
      */
-    next: actions.map((operation, index) => plannerNavigation({
+    next: (personFirst ? [plannerNavigation({
+      // A person's step, never this tool's to run: the exact route they type, first, so no agent reads "continue"
+      // again as "submission is not available here" (office BRBRP-1003, 2026-11-11).
+      handle: `person:submit:${item.id}:${item.nextAction.personRoute.phase}`,
+      id: `submit:${item.id}`,
+      label: `Submit ${item.nextAction.personRoute.phase} for approval (you run it)`,
+      rank: 0,
+      kind: 'read',
+      reasonCode: 'work.submit-published',
+      confirmation: 'none',
+      interaction: 'navigation',
+      emphasis: 'primary',
+      executable: false,
+      fallback: { label: `Submit ${item.nextAction.personRoute.phase} for approval`,
+        command: `singularity-flow submit ${item.nextAction.personRoute.phase} --work-id ${item.id}` }
+      // Followed by a host, it reads readiness (whether submission would pass); the submission itself is the fallback.
+    }, 'work.readiness', { workId: item.id, workKind: item.kind })] : []).concat(actions.map((operation, index) => plannerNavigation({
       handle: `continue:${item.id}:${operation}`,
       id: `continue:${operation}`,
       label: operation,
-      rank: index,
+      rank: index + personFirst,
       kind: 'read',
       reasonCode: item.nextAction?.reasonCode ?? 'work.legal-now',
       confirmation: 'none',
@@ -138,10 +155,10 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
        * ordered by the lifecycle rather than by this planner, so leading with its head is deferring
        * to that order rather than inventing a second one.
        */
-      emphasis: index === 0 ? 'primary' : 'secondary',
+      emphasis: index === 0 && !personFirst ? 'primary' : 'secondary',
       executable: false,
       fallback: { label: operation, command: `sflow status --work-id ${item.id}` }
-    }, operation, { workId: item.id, workKind: item.kind })).concat(item.kind === 'story' && !diagnosticOnly ? [{
+    }, operation, { workId: item.id, workKind: item.kind }))).concat(item.kind === 'story' && !diagnosticOnly ? [{
       /**
        * The Story's recorded progress in the editor's Progress view. `[INT:IFC-061]`
        *
@@ -152,7 +169,7 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
       handle: `host-action:progress:${item.id}`,
       id: `progress:${item.id}:open-view`,
       label: 'Open progress',
-      rank: actions.length,
+      rank: actions.length + personFirst,
       kind: 'host-action',
       reasonCode: 'work.open-progress-view',
       confirmation: 'none',
@@ -162,7 +179,7 @@ export function workContinueResult(item, { subject = null, localChanges = null, 
       hostAction: { id: 'vscode.openProgress', arguments: { workId: item.id } },
       fallback: { label: 'Show progress in the terminal', command: `sflow progress ${item.id}` }
     }] : []),
-    restState: actions.length ? null : 'blocked',
+    restState: actions.length || personFirst ? null : 'blocked',
     data: {
       work: item,
       /**

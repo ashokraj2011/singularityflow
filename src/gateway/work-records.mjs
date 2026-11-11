@@ -231,6 +231,11 @@ function nextAction(workflow, group) {
       : { operation: 'work.continue', reasonCode: 'approval.waiting' };
   }
   if (phase.status === 'in_progress' || phase.status === 'rework') {
+    // A published current generation is submitted next, and only a person starts a submission. Offered only
+    // "continue" again, an agent on the gateway tools said it could not submit and stopped, twice (office, 2026-11-11).
+    if (requiredArtifactRecorded(phase) && phase.generationIntent?.status !== 'open') {
+      return { operation: 'work.continue', reasonCode: 'work.submit-published', personRoute: { kind: 'submit', phase: phaseId } };
+    }
     return { operation: 'work.continue', reasonCode: 'work.resume-phase' };
   }
   return { operation: 'work.readiness', reasonCode: 'work.check-readiness' };

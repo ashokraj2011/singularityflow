@@ -136,6 +136,30 @@ test('continue reconstructs from records and returns legal actions without propo
   assert.equal(result.next.every((entry) => entry.executable === false), true);
 });
 
+test('a published step leads with the person\'s submit route, never only "continue" (office BRBRP-1003, 2026-11-11)', async () => {
+  // On the gateway tools an agent got only work.continue for a published, ready plan and said, twice, that it could
+  // not submit: submission is a person's step, so the result names the exact route they type.
+  const root = await fixture({ 'WRK-1': inProgress('WRK-1', 'Address validation') });
+  const result = await workContinue({ root, arguments: { workId: 'WRK-1' }, context: { actor: ACTOR } });
+  validateSflowResult(result);
+  const [first] = result.next;
+  assert.equal(first.reasonCode, 'work.submit-published');
+  assert.equal(first.executable, false);
+  assert.equal(first.emphasis, 'primary');
+  assert.match(first.label, /^Submit design for approval \(you run it\)$/u);
+  assert.equal(first.fallback.command, 'singularity-flow submit design --work-id WRK-1');
+  assert.equal(result.next.filter((entry) => entry.emphasis === 'primary').length, 1, 'one lead');
+  // A step still drafting its next generation resumes it instead.
+  const drafting = inProgress('WRK-2');
+  drafting.phases.design.generationIntent = { status: 'open', generation: 2 };
+  const open = await workContinue({ root: await fixture({ 'WRK-2': drafting }), arguments: { workId: 'WRK-2' }, context: { actor: ACTOR } });
+  assert.notEqual(open.next[0]?.reasonCode, 'work.submit-published');
+  // And one with nothing published yet.
+  const unpublished = story('WRK-3', { design: { status: 'in_progress', generation: 0, label: 'Design' } }, { currentPhase: 'design' });
+  const fresh = await workContinue({ root: await fixture({ 'WRK-3': unpublished }), arguments: { workId: 'WRK-3' }, context: { actor: ACTOR } });
+  assert.notEqual(fresh.next[0]?.reasonCode, 'work.submit-published');
+});
+
 test('local development is preserved, disclosed, and bound to the bytes it was seen at', async () => {
   // `[INT:CON-063]`.
   const root = await fixture({ 'WRK-1': inProgress('WRK-1') });

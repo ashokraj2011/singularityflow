@@ -333,7 +333,8 @@ test('app start names the address it cannot bind, whole, when another process ho
   t.after(() => holder.close());
   const refused = cli(root, ['app', 'start']);
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, new RegExp(`cannot bind http://127\\.0\\.0\\.1:${port}/?: another process already listens there`, 'u'));
+  // The holder is named (46f27f60e): its pid and short name, and that no SFlow run started it.
+  assert.match(refused.stderr, new RegExp(`cannot bind http://127\\.0\\.0\\.1:${port}/?: process \\d+ \\([^)]+\\), which no SFlow run started, already listens there`, 'u'));
   assert.doesNotMatch(refused.stderr, /invalid-remote/u);
   await assert.rejects(readFile(path.join(root, 'app', 'pid.txt')), { code: 'ENOENT' });
 });

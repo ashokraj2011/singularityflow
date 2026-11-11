@@ -46,7 +46,7 @@ const handleOnly = (property, description) => Object.freeze({
 export const SFLOW_TOOLS = Object.freeze([
   {
     name: 'sflow_resolve',
-    description: 'Turn a request into one resolved operation, a bounded choice, a question, or a refusal.',
+    description: 'Turn a request into one resolved operation, a bounded choice, a question, or a refusal. An action marked executable: false with a fallback is the person\'s to start (submitting is one): give them its fallback route to type, never say it is unavailable.',
     inputSchema: Object.freeze({
       type: 'object',
       additionalProperties: false,
@@ -71,7 +71,7 @@ export const SFLOW_TOOLS = Object.freeze([
   },
   {
     name: 'sflow_next',
-    description: 'Ask the kernel which actions are currently legal.',
+    description: 'Ask the kernel which actions are currently legal. An action marked executable: false with a fallback is the person\'s to start (submitting is one): give them its fallback route to type, never say it is unavailable.',
     inputSchema: Object.freeze({
       type: 'object',
       additionalProperties: false,

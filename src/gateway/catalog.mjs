@@ -173,6 +173,7 @@ export const WORK_CODES = Object.freeze([
   'work.no-legal-action',
   'work.check-readiness',
   'work.resume-phase',
+  'work.submit-published',
   'work.open-handoff-view',
   'work.open-progress-view',
   /**

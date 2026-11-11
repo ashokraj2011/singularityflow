@@ -162,6 +162,8 @@ export const RESULT_MESSAGES = Object.freeze({
   'work.no-legal-action': M('Nothing is available to do here'),
   'work.check-readiness': M('Check whether this is ready'),
   'work.resume-phase': M('Resume this phase'),
+  // Only a person starts a submission; the gateway names the route they type (office BRBRP-1003, 2026-11-11).
+  'work.submit-published': M('Submit it for approval: you run it', 'This step is published. Submitting is yours to start: type /sf-submit in Copilot, @sflow /submit in VS Code, or the shell command; it checks the review and every gate first.'),
   'work.open-handoff-view': M('Open the handoff packet view'),
   'work.open-progress-view': M('Open the progress view'),
   'work.all-phases-complete': M('Every step is decided'),

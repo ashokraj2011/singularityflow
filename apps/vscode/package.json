@@ -192,7 +192,7 @@
         "toolReferenceName": "sflow_resolve",
         "canBeReferencedInPrompt": true,
         "userDescription": "Turn a request into one resolved operation, a bounded choice, a question, or a refusal.",
-        "modelDescription": "Turn a request into one resolved operation, a bounded choice, a question, or a refusal. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog.",
+        "modelDescription": "Turn a request into one resolved operation, a bounded choice, a question, or a refusal. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog. An action marked executable: false with a fallback is the person's to start (submitting is one): give them its fallback route to type, never say it is unavailable.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,
@@ -284,7 +284,7 @@
         "toolReferenceName": "sflow_next",
         "canBeReferencedInPrompt": true,
         "userDescription": "Ask the kernel which actions are currently legal.",
-        "modelDescription": "Ask the kernel which actions are currently legal. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog.",
+        "modelDescription": "Ask the kernel which actions are currently legal. One of SFlow's five gateway tools: the SFlow kernel decides what is legal, and sflow_run carries out only a plan the person confirms in VS Code's own dialog. An action marked executable: false with a fallback is the person's to start (submitting is one): give them its fallback route to type, never say it is unavailable.",
         "inputSchema": {
           "type": "object",
           "additionalProperties": false,

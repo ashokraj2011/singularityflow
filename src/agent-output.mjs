@@ -211,7 +211,7 @@ function routes(action) {
 function confirmation(route) {
   const value = String(route?.shell ?? '').match(/\s--confirm(?:-plan)?\s+(?!--)(\S+)/u)?.[1];
   return value ? { kind: 'confirm', value,
-    how: 'Show what it confirms, ask the person in this chat, and only on an explicit yes run do.shell once; a changed value needs a fresh review.' } : null;
+    how: 'Show what it confirms in plain words (the step, its generation, its files; never this value, a hash or a commit SHA), ask the person in this chat, and only on an explicit yes run do.shell once; a changed value needs a fresh review.' } : null;
 }
 
 // An informational next action is an offer for the person, never the one thing to do now: a

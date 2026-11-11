@@ -417,7 +417,7 @@ export function agentAct(result) {
   if (reviewer) return { state: 'start-reviewer', do: null,
     read: [`${at}reviewSubagent`, ...(at ? ['publishIfReady.output', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])] : [])],
     said: `Published. Start the reviewer now as ${at}reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.${(at ? result.publishIfReady.outcomeReview : result.outcomeReview)
-      ? ` Ask the application and outcome questions (${at}applicationStart, ${at}outcomeReview) only after a ready review, never before it.` : ''}` };
+      ? ` Ask the application and outcome questions (${['applicationStart', 'outcomeReview'].filter((key) => (at ? result.publishIfReady : result)[key]).map((key) => `${at}${key}`).join(', ')}) only after a ready review, never before it.` : ''}` };
   const codeOffer = result.publishIfReady?.published ? result.publishIfReady.outcomeReview
     : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
   // Published with its tests passing: ask once whether to start the application (application-start-offer.mjs).

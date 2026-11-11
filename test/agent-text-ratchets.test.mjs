@@ -263,3 +263,28 @@ test('a view that could not keep the rest never says to run the command again to
     assert.match(view, /never run a command that changed anything again to read it/u);
   }
 });
+
+test('every field act names in read, said or how is in the same result', () => {
+  // "stage the issued JSON" named a file that was not there; read lists and said texts name fields an agent then looks
+  // for and, not finding, stops (agent-text audit, 2026-11-11).
+  const own = /^(?:do|act|agentOutput|ask)\./u;
+  const resolves = (result, trail) => trail.split('.').reduce((node, key) => (node == null ? undefined : node[key.replace(/\[\]$/u, '')]), result) !== undefined;
+  const corpus = [
+    published(), published({ start: declared }), published({ review: false, start: declared }),
+    { resultType: 'sflow-phase-entry', status: 'clarification-required', context: { text: 'x' }, clarification: { checkpoint: { stage: 'derive-questions' } },
+      taskCompletion: { complete: false, state: 'blocked' } },
+    { resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'intake', authoring: {}, mutationContract: {}, authoringProgress: {}, scopeReview: {}, context: {} },
+    { resultType: 'sflow-phase-prepublish', status: 'ready', phase: 'intake', scopeReview: {}, commands: { publish: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' } },
+    { resultType: 'sflow-kept-result', status: 'interrupted', interrupted: { command: 'singularity-flow phase prepublish intake' }, safeRead: 'singularity-flow nextsteps --for-agent --json' }];
+  for (const result of corpus) {
+    const act = agentAct(result);
+    const where = `${result.resultType}/${result.status}`;
+    for (const trail of act.read ?? []) assert.ok(resolves(result, trail), `${where}: read names ${trail}`);
+    for (const text of [act.said, act.ask?.how].filter(Boolean)) {
+      for (const [trail] of text.matchAll(/\b[a-z][A-Za-z]*(?:\.[a-z][A-Za-z]*(?:\[\])?)+\b/gu)) {
+        if (own.test(trail) || !Object.hasOwn(result, trail.split('.')[0])) continue;
+        assert.ok(resolves(result, trail), `${where}: said names ${trail}`);
+      }
+    }
+  }
+});

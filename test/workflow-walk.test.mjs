@@ -2,8 +2,10 @@
  * `workflow walk`: a model-free dry run drives a throwaway Story through every step of a workflow on an
  * isolated copy and reports every stop that is not a person's real decision (src/workflow-walk/).
  *
- * The stub author's filling, the walk's isolation, its registration, its text, and one real walk that
- * stops at Story start (an approval group nobody can approve).
+ * Fast lane: the stub author's filling, the walk's isolation, its registration, its text, and one real
+ * walk that stops at Story start (an approval group nobody can approve). Slow lane: every shipped
+ * workflow walks with no stop; a team's custom workflow walks clean; configurations that make a step
+ * impossible stop there with their cause.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -18,6 +20,7 @@ import { MACHINE_STATE_LOCATIONS } from '../src/machine-state-locations.mjs';
 import { clauseSection, codeChange, draftClauses, fillDocument, hasPlannedClaimsTable, plannedClaimsSection } from '../src/workflow-walk/author.mjs';
 import { walkEnvironment } from '../src/workflow-walk/sandbox.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -189,3 +192,77 @@ test('an approval group nobody may approve stops the walk at Story start, with i
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '', 'nothing written to the repository it ran from');
 });
 
+// ------------------------------------------------------------------------------------------- slow
+
+/**
+ * Every shipped Story workflow walks with no stop. Three need an external tool a walk does not have:
+ * figma-mobile a Figma MCP design source, poc-workflow a live web application at its start,
+ * spec-code-test-loop a Playwright MCP smoke in its testing step. They end not judged, never stopped.
+ */
+const NEEDS_EXTERNAL_TOOL = new Set(['figma-mobile', 'poc-workflow', 'spec-code-test-loop']);
+
+test('every shipped Story workflow walks to its end with no stop', slowLane({ timeout: 3_600_000, concurrency: 3 }), async (t) => {
+  const { walkWorkflows } = await import('../src/workflow-walk/walk.mjs');
+  const YAML = (await import('yaml')).default;
+  const shipped = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+  const ids = Object.keys(shipped.workTypes);
+  assert.ok(ids.length >= 18, `the shipped catalog holds ${ids.length} Story workflows`);
+  await Promise.all(ids.map((id) => t.test(id, async () => {
+    const result = await walkWorkflows(ROOT, { workflow: id, shipped: true, stepSeconds: 600, totalSeconds: 1800 });
+    assert.equal(result.source.kind, 'shipped');
+    assert.deepEqual(stopsOf(result), [], `${id} stopped`);
+    const [workflow] = result.workflows;
+    assert.equal(workflow.outcome, NEEDS_EXTERNAL_TOOL.has(id) ? 'not-judged' : 'completed', JSON.stringify(workflow.steps.map((step) => [step.id, step.outcome, step.notJudged])));
+    if (!NEEDS_EXTERNAL_TOOL.has(id)) {
+      assert.ok(workflow.steps.every((step) => ['approved', 'completed', 'skipped'].includes(step.outcome)), JSON.stringify(workflow.steps.map((step) => [step.id, step.outcome])));
+      assert.ok(workflow.steps.some((step) => step.people.some((entry) => entry.kind === 'approval')), `${id} names who approves`);
+    }
+  })));
+});
+
+test("a team's own workflow (custom requirements, code and testing steps) walks clean, naming each step's person steps", slowLane({ timeout: 900_000 }), async (t) => {
+  const { FAMILY_FILES, familyWorkflow } = await import('./helpers/family-workflow.mjs');
+  const root = await repository(t, { files: FAMILY_FILES, edit: (configuration) => familyWorkflow(configuration) });
+  const { status, value } = walkCli(root, ['family-delivery']);
+  assert.deepEqual(stopsOf(value), []);
+  assert.equal(status, 0);
+  assert.equal(value.ok, true);
+  const [workflow] = value.workflows;
+  assert.equal(workflow.outcome, 'completed');
+  assert.deepEqual(workflow.steps.map((step) => [step.id, step.outcome]), [['fmly-requirements', 'approved'], ['fmly-code', 'approved'], ['fmly-testing', 'approved']]);
+  const kinds = Object.fromEntries(workflow.steps.map((step) => [step.id, step.people.map((entry) => entry.kind)]));
+  assert.ok(kinds['fmly-requirements'].includes('clarification'), 'its clarification is asked of a person');
+  assert.ok(kinds['fmly-requirements'].includes('decision'), "the Story's scope statement is a person's decision");
+  for (const id of ['fmly-requirements', 'fmly-code', 'fmly-testing']) {
+    assert.ok(kinds[id].includes('review'), `${id} is reviewed`);
+    assert.ok(kinds[id].includes('approval'), `${id} is approved`);
+  }
+});
+
+test('a step whose markers block while its clarification is off stops the walk there, with that cause', slowLane({ timeout: 900_000 }), async (t) => {
+  const { FAMILY_FILES, familyWorkflow } = await import('./helpers/family-workflow.mjs');
+  const root = await repository(t, { files: FAMILY_FILES, edit: (configuration) => familyWorkflow(configuration,
+    { requirements: { clarification: { mode: 'off', markers: { mode: 'block' } } } }) });
+  const { status, value } = walkCli(root, ['family-delivery']);
+  assert.equal(status, 1);
+  const [workflow] = value.workflows;
+  assert.equal(workflow.outcome, 'stopped');
+  assert.equal(workflow.stops.length, 1, JSON.stringify(workflow.stops));
+  assert.equal(workflow.stops[0].step, 'fmly-requirements');
+  assert.match(workflow.stops[0].message, /unresolved clarification marker/u);
+  assert.match(workflow.stops[0].cause, /clarification is off/u);
+  assert.deepEqual(workflow.steps.filter((step) => step.outcome === 'not-reached').map((step) => step.id), ['fmly-code', 'fmly-testing']);
+});
+
+test('a code step with no test command this machine can run stops the walk at that step, naming the command', slowLane({ timeout: 900_000 }), async (t) => {
+  const { FAMILY_FILES, MISSING_TEST_COMMAND, familyWorkflow } = await import('./helpers/family-workflow.mjs');
+  const root = await repository(t, { files: FAMILY_FILES, edit: (configuration) => familyWorkflow(configuration, { code: { qualityCommands: MISSING_TEST_COMMAND } }) });
+  const { status, value } = walkCli(root, ['family-delivery']);
+  assert.equal(status, 1);
+  const [workflow] = value.workflows;
+  assert.equal(workflow.outcome, 'stopped');
+  assert.equal(workflow.stops[0].step, 'fmly-code', JSON.stringify(workflow.stops));
+  assert.equal(workflow.stops[0].code, 'CODE_TEST_FAILED');
+  assert.match(workflow.stops[0].cause, /test command 'unit' cannot start on this machine/u);
+  assert.equal(workflow.steps[0].outcome, 'approved', 'the steps before it walk on');
+});

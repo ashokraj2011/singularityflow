@@ -72,7 +72,9 @@ function refusalOf(result) {
   const text = `${result.stderr ?? ''}\n${result.stdout ?? ''}`;
   const code = error?.code ?? /\b([A-Z][A-Z0-9]+(?:_[A-Z0-9]+){1,})\b/u.exec(String(error?.message ?? text))?.[1] ?? (result.timedOut ? 'WORKFLOW_WALK_TIMEOUT' : null);
   const message = error?.message ?? (text.trim().split('\n').filter(Boolean).slice(-3).join(' ') || 'The command failed without a message.');
-  return { code, message: shortMessage(message), details: error?.details ?? null, routes: [...new Set(routes)] };
+  // A failed required test keeps its run beside the details: the cause names that command.
+  const details = error?.requiredTestExecution ? { ...(error.details ?? {}), requiredTestExecution: error.requiredTestExecution } : error?.details ?? null;
+  return { code, message: shortMessage(message), details, routes: [...new Set(routes)] };
 }
 
 class WalkStop extends Error {

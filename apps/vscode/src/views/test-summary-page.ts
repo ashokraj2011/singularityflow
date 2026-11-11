@@ -102,7 +102,7 @@ export function testSummaryHtml(view: TestSummaryView): string {
         <code>${escape(run.id)}</code></p>
       ${run.label ? `<p class="ts-label">${escape(run.label)}</p>` : ''}
       ${run.countsNote ? `<p class="notice ts-counts" data-counts-for-step="false">${escape(run.countsNote)}</p>` : ''}
-      <p class="muted">${escape([run.startedAt, run.commit ? `commit ${run.commit.slice(0, 12)}` : null,
+      <p class="muted">${escape([run.startedAt, run.commit ? 'on your latest commit' : null,
     run.uncommittedChanges ? 'with uncommitted changes' : null, run.ranBy ? `ran by ${run.ranBy}` : null].filter(Boolean).join(' · '))}</p>
     </section>` : picker;
   const totals = view.totals ? `<div class="summary-grid ts-totals">

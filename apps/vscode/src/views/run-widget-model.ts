@@ -417,7 +417,7 @@ export function runOutputLines(summary: TestSummary): string[] {
   if (!run) return ['The engine recorded no test run.'];
   return [
     `${run.label || evidenceClassLabel(run.evidenceClass)} [${run.evidenceClass}]`,
-    `Run ${run.id}${run.environment ? `, environment ${run.environment}` : ''}${run.commit ? `, commit ${run.commit.slice(0, 12)}` : ''}${run.uncommittedChanges ? ', with uncommitted changes' : ''}: ${totalsLine(summary.totals)}.`,
+    `Run ${run.id}${run.environment ? `, environment ${run.environment}` : ''}${run.commit ? ', on your latest commit' : ''}${run.uncommittedChanges ? ', with uncommitted changes' : ''}: ${totalsLine(summary.totals)}.`,
     ...summary.commands.filter((command) => command.label && command.label !== run.label).map((command) => `${command.id}: ${command.label}`),
     ...summary.commands.filter((command) => command.note).map((command) => `${command.id}: ${command.note}`),
     ...(summary.truncated ? ['The summary lists the first 5,000 test cases; the Test summary page has the run.'] : [])

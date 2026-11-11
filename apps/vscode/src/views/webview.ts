@@ -27,7 +27,7 @@ export interface EvidenceConsistencyPresentation { projectionSha256: string; sum
 
 /** Render the shared account without recomputing or preselecting any human decision. */
 export function evidenceConsistencyHtml(snapshot?: EvidenceConsistencyPresentation | null): string {
-  return snapshot ? `<details class="approval-evidence" open><summary>Evidence consistency</summary><code>${escape(snapshot.projectionSha256)}</code><ul>${snapshot.summary.map((line) => `<li>${escape(line)}</li>`).join('')}</ul></details>` : '';
+  return snapshot ? `<details class="approval-evidence" open><summary>Evidence consistency</summary><ul>${snapshot.summary.map((line) => `<li>${escape(line)}</li>`).join('')}</ul></details>` : '';
 }
 
 /**

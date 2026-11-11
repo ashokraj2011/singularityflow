@@ -67,7 +67,7 @@ export function evidenceManagerHtml(
       <span class="evidence-item-icon">${icon(item.mimeType?.startsWith('image/') ? 'visual' : 'document', { size: 20 })}</span>
       <div><strong>${escape(item.label)}</strong>
         <p>${escape(item.target.label)} · ${escape(item.id)} · ${escape(item.mimeType ?? item.kind)}</p>
-        <small>${item.sha256 ? `sha256 ${escape(item.sha256.slice(0, 16))}…` : escape(item.url ?? item.path ?? 'metadata only')}</small>
+        <small>${escape(item.url ?? item.path ?? (item.sha256 ? 'its exact bytes recorded' : 'metadata only'))}</small>
         ${storage ? `<small class="evidence-storage${item.storage === 'local' && item.availability !== 'available' ? ' warn' : ''}">${escape(storage)}</small>` : ''}
         ${story ? `<small class="evidence-phases">Used in: ${escape(item.phases?.length ? item.phases.join(', ') : 'every phase')}</small>` : ''}
         ${history ? `<small>Detached${item.detachReason ? ` · ${escape(item.detachReason)}` : ''}${item.detachedBy ? ` · ${escape(item.detachedBy)}` : ''}</small>` : ''}

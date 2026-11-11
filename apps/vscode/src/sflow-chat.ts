@@ -1024,11 +1024,11 @@ function renderRouter(value: unknown): ParticipantRendered {
 function renderDocuments(value: unknown): ParticipantRendered {
   const documents = jsonArray(value).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
   let markdown = `### Active documents\n\n${documents.length} document${documents.length === 1 ? '' : 's'} returned.\n\n`;
+  // A person reads each document by name and step, never its digest (owner, 2026-11-11).
   for (const document of documents.slice(0, 20)) {
-    const digest = typeof document.sha256 === 'string' ? document.sha256.slice(0, 12) : 'unavailable';
     markdown += `- **${markdownValue(document.label ?? document.id ?? 'Document')}**`;
     if (document.phase) markdown += ` · ${markdownValue(document.phase)}`;
-    markdown += ` · \`${markdownValue(digest)}\`\n`;
+    markdown += '\n';
   }
   if (documents.length > 20) markdown += `- …and ${documents.length - 20} more. Open Documents for the complete list.\n`;
   return { markdown };
@@ -1055,8 +1055,7 @@ function renderApprovalReview(value: unknown): ParticipantRendered {
     + `- Phase: **${markdownValue(result.phaseLabel ?? result.phase ?? 'unavailable')}**\n`
     + `- Status: ${markdownValue(result.status ?? 'unavailable')} · generation ${markdownValue(result.generation ?? 0)}\n`;
   for (const document of documents.slice(0, 8)) {
-    const digest = typeof document.sha256 === 'string' ? document.sha256.slice(0, 12) : 'unavailable';
-    markdown += `- Artifact: ${markdownValue(document.label ?? document.id ?? 'document')} · \`${markdownValue(digest)}\`\n`;
+    markdown += `- Artifact: ${markdownValue(document.label ?? document.id ?? 'document')}\n`;
   }
   markdown += '\nApproval was **not** recorded. Open the guarded Approvals form to review the exact checklist and receipt-bound decision.\n';
   const guidance = typeof result.phase === 'string'

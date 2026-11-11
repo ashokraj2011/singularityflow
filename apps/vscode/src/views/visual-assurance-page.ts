@@ -13,7 +13,6 @@ function statusClass(status: string): string {
   return 'wait';
 }
 
-function shortHash(value?: string | null): string { return value ? value.slice(0, 12) : '—'; }
 function percent(value?: number): string { return Number.isFinite(value) ? `${((value ?? 0) * 100).toFixed(2)}%` : '—'; }
 
 function notices(view: VisualAssuranceView): string {
@@ -36,7 +35,7 @@ function evidenceRows(rows: VisualEvidenceRecord[]): string {
     <td>${escape(row.server ?? '—')}<small>${escape(row.tool ?? '—')}</small></td>
     <td>${escape(row.phase ?? '—')}<small>generation ${escape(row.targetGeneration ?? '—')}</small></td>
     <td>${escape(row.fileVersion ?? row.profileId ?? '—')}<small>${escape(row.nodes?.join(', ') ?? row.screenId ?? '')}</small></td>
-    <td><code>${escape(shortHash(row.outputSha256 ?? row.output?.sha256))}</code><small>${escape(row.agent ?? '—')}</small></td>
+    <td>${escape(row.agent ?? '—')}</td>
     <td>${openButton(row.output?.path)}</td>
   </tr>`).join('');
 }
@@ -48,13 +47,12 @@ function sourceSection(view: VisualAssuranceView): string {
     <div class="section-heading"><div><p class="eyebrow">Pinned inputs</p><h2>${icon('visual')}Design sources</h2></div>
       ${approved ? '<span class="pill ok">Approved source set</span>' : '<span class="pill wait">No approved source set</span>'}</div>
     ${approved ? `<div class="assurance-facts">
-      <div><span>Set hash</span><strong><code>${escape(shortHash(approved.setSha256))}</code></strong></div>
       <div><span>Approved at</span><strong>${escape(approved.phase ?? '—')} · generation ${escape(approved.generation ?? '—')}</strong></div>
       <div><span>Bound records</span><strong>${approved.records?.length ?? 0}</strong></div>
-      <div><span>Inventory</span><strong>${inventory ? shortHash(inventory.digest.digestSha256) : 'Not generated'}</strong></div>
+      <div><span>Inventory</span><strong>${inventory ? 'Generated' : 'Not generated'}</strong></div>
     </div>` : `<div class="empty-state"><strong>No approved design-source set yet.</strong><p>Record the versioned design output during the configured capture phase, publish it, and approve that exact generation. The dashboard never substitutes a live design for the pinned source.</p></div>`}
     <div class="section-heading subheading"><h3>${icon('document')}Recorded design evidence</h3><button class="secondary" data-action="show-record">Record evidence</button></div>
-    <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Version / nodes</th><th>Hash / agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.designSources)}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Version / nodes</th><th>Agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.designSources)}</tbody></table></div>
     ${view.candidates.length ? `<div class="notice warning"><strong>${view.candidates.length} newer candidate version${view.candidates.length === 1 ? '' : 's'} detected.</strong><p>A candidate is adopted only through a new capture-phase generation and approval; this page does not silently replace the pin.</p>
       <div class="table-wrap candidate-table"><table><thead><tr><th>Design file</th><th>Approved version</th><th>Candidate version</th><th>Classification</th><th>Decision</th></tr></thead><tbody>${view.candidates.map((candidate) => `<tr><td><code>${escape(candidate.fileKey ?? '—')}</code></td><td>${escape(candidate.approvedVersion ?? '—')}</td><td>${escape(candidate.candidateVersion ?? '—')}</td><td>${escape(candidate.classification ?? 'candidate')}</td><td>${candidate.candidateRecordId ? `<button type="button" class="secondary compact-action" data-promote-candidate="${escape(candidate.candidateRecordId)}">Promote candidate</button>` : '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
     <div class="card-foot"><button data-action="inventory"${approved ? '' : ' disabled'}>${icon('worldModel')}Generate deterministic inventory</button>${inventory ? openButton(inventory.path, 'Open inventory') : ''}</div>
@@ -85,7 +83,7 @@ function coverageSection(view: VisualAssuranceView): string {
     <span class="pill ${required && view.summary.profilesCovered === required ? 'ok' : 'wait'}">${view.summary.profilesCovered}/${required} covered${notApplicable}</span></div>
     ${view.profiles.length ? `<div class="profile-grid">${view.profiles.map(profileCard).join('')}</div>` : '<div class="empty-state">No visual verification profiles are configured for this Story workflow.</div>'}
     <div class="section-heading subheading"><h3>${icon('artifact')}Captured implementation visuals</h3></div>
-    <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Profile / screen</th><th>Hash / agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.visualArtifacts)}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Profile / screen</th><th>Agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.visualArtifacts)}</tbody></table></div>
   </section>`;
 }
 
@@ -112,9 +110,9 @@ function comparisonSection(view: VisualAssuranceView, media: VisualMediaResolver
         <button type="button" class="secondary visual-mode" data-mode="diff" role="tab" aria-selected="false">Diff</button>
       </div>
       <div class="visual-stage side" data-visual-stage>
-        <figure class="visual-pane expected">${image(row.expected?.path, media, `Approved design for ${row.profileId ?? row.id}`)}<figcaption>Approved design <code>${escape(shortHash(row.expected?.sha256))}</code></figcaption></figure>
-        <figure class="visual-pane actual">${image(row.actual?.path, media, `Implementation capture for ${row.profileId ?? row.id}`)}<figcaption>Implementation <code>${escape(shortHash(row.actual?.sha256))}</code></figcaption></figure>
-        <figure class="visual-pane diff">${image(row.diffImage?.path, media, `Difference highlight for ${row.profileId ?? row.id}`)}<figcaption>Deterministic diff <code>${escape(shortHash(row.diffImage?.sha256))}</code></figcaption></figure>
+        <figure class="visual-pane expected">${image(row.expected?.path, media, `Approved design for ${row.profileId ?? row.id}`)}<figcaption>Approved design</figcaption></figure>
+        <figure class="visual-pane actual">${image(row.actual?.path, media, `Implementation capture for ${row.profileId ?? row.id}`)}<figcaption>Implementation</figcaption></figure>
+        <figure class="visual-pane diff">${image(row.diffImage?.path, media, `Difference highlight for ${row.profileId ?? row.id}`)}<figcaption>Deterministic diff</figcaption></figure>
         <label class="overlay-control"><span>Reveal implementation</span><input type="range" min="0" max="100" value="50" aria-label="Reveal implementation image"></label>
       </div>
       <div class="card-foot">${openButton(row.expected?.path, 'Expected')}${openButton(row.actual?.path, 'Actual')}${openButton(row.diffImage?.path, 'Diff')}${openButton(row.path, 'Report')}</div>
@@ -139,7 +137,7 @@ function mcpSection(view: VisualAssuranceView): string {
       <label class="field"><span>Nodes</span><input name="nodes" type="text" placeholder="node-1, node-2"></label>
     </div><div class="card-foot"><button type="submit">Record provenance</button><button type="reset" class="secondary">Clear</button></div></form></details>
     <div class="section-heading subheading"><h3>${icon('commit')}Other MCP evidence</h3></div>
-    <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Version</th><th>Hash / agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.otherEvidence)}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Record</th><th>MCP source</th><th>Phase</th><th>Version</th><th>Agent</th><th>Artifact</th></tr></thead><tbody>${evidenceRows(view.otherEvidence)}</tbody></table></div>
   </section>`;
 }
 

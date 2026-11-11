@@ -14,7 +14,7 @@ import {
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds } from './traceability-ids.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
+import { isTestAutomationPath, isTestSupportPath } from './source-boundary.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
 import { accountedAmendmentPaths, departureCandidatePaths, planAmendmentRecord } from './plan-amendments.mjs';
@@ -625,6 +625,11 @@ export function validatePlannedEvidenceTypes(claims, { evidenceRoot = null } = {
     if (configurationTests.length) throw new SingularityFlowError(
       `${id}: ${configurationTests.join(', ')} configures tools or runtime behavior; it is not executable test source. Put configuration in its own fulfillment configuration row or the plan's Supporting files, and name actual tests in Planned tests.`,
       { code: 'SPEC_PLANNED_PATH_ROLE_INVALID', details: { clauseId: id, paths: configurationTests, expectedRole: 'configuration', correction: 'separate-configuration-from-tests' } });
+    // Caught here, by the plan's own check, so the author moves them in this turn; a reviewer found them first (office, 2026-11-11).
+    const supportTests = (claim.tests ?? []).filter(isTestSupportPath);
+    if (supportTests.length) throw new SingularityFlowError(
+      `${id}: ${supportTests.join(', ')} ${supportTests.length === 1 ? 'is' : 'are'} test support (a mock, fixture, setup, helper or page object), not a test case; running ${supportTests.length === 1 ? 'it' : 'them'} proves nothing for ${id}. List ${supportTests.length === 1 ? 'it' : 'them'} under the plan's Supporting files with a reason, and name the test files that use ${supportTests.length === 1 ? 'it' : 'them'} in Planned tests.`,
+      { code: 'SPEC_PLANNED_PATH_ROLE_INVALID', details: { clauseId: id, paths: supportTests, expectedRole: 'test-support', correction: 'separate-support-from-tests' } });
     if (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment)) {
       const tests = new Set(claim.tests ?? []);
       const configurations = (claim.expectedPaths ?? []).filter(isConfigurationPath);
@@ -792,7 +797,7 @@ function supportingFilesFromPlan(lines, { classesOnly = false } = {}) {
     if (!classesOnly && (reason.length > 500 || /[\u0000-\u001f\u007f]/u.test(reason))) throw invalid('has a reason longer than 500 characters or with control characters.');
     const classified = classifySupportingChange(candidate);
     if (classified.refused) {
-      throw invalid(`cannot be a supporting file: it is ${classified.refused.replace('-', ' ')}, and ${classified.reason}. Supporting files are dependency locks, build and CI configuration, repository metadata and documentation.`);
+      throw invalid(`cannot be a supporting file: it is ${classified.refused.replace('-', ' ')}, and ${classified.reason}. Supporting files are dependency locks, build and CI configuration, repository metadata, documentation and test support (mocks, fixtures, setup, helpers).`);
     }
     if (found.has(candidate) && !classesOnly) throw invalid('is listed twice.');
     found.set(candidate, { path: candidate, class: classified.class, reason });

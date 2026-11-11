@@ -579,7 +579,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // conformance-readiness.mjs), and the agent-view wording fixes (agent-output.mjs). No new eager file.
     // 9,606,150 (measured 9,606,146, commands/phase-lifecycle.mjs): a Story's source statements are owed to a person only
     // once the scope step has published (owed-decisions.mjs scopeItemsReady) [Story b-bin, 2026-11-11]. No new eager file.
-    assert.ok(closure.bytes <= 9_606_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,609,100 (measured 9,609,085, commands/phase-lifecycle.mjs): test support (mocks, fixtures, setup, helpers) is refused from
+    // Planned tests with the move to make and has its own Supporting files class (source-boundary.mjs isTestSupportPath,
+    // supporting-changes.mjs, specifications.mjs) [office, 2026-11-11]. No new eager file.
+    assert.ok(closure.bytes <= 9_609_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -835,7 +838,8 @@ test('the common session projection does not import attach, state stores or publ
   // (phase-staging-paths.mjs CLARIFICATION_RESPONSE_FORMAT, clarifications.mjs) [Story anu-bin, 2026-11-11]. No new eager file.
   // 4,212,000 (measured 4,211,990): the 2026-11-11 class sweep merged (agent-input refusals and copy-slip checks in
   // text-lines.mjs, the utility entry's --work-id, agent-view wording). No new eager file.
-  assert.ok(current.bytes <= 4_212_000, `session current loads ${current.bytes} source bytes`);
+  // 4,214,950 (measured 4,214,929): the same test-support rule (source-boundary.mjs, supporting-changes.mjs) [office, 2026-11-11].
+  assert.ok(current.bytes <= 4_214_950, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

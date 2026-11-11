@@ -177,6 +177,24 @@ test('configuration obligations never owe source tags, and approved legacy paths
     error => error.code === 'SPEC_PLANNED_PATH_ROLE_INVALID' && error.details.correction === 'separate-configuration-from-tests');
 });
 
+test('a plan that lists test support as planned tests is told to move it, by the plan\'s own check (office, 2026-11-11)', () => {
+  // A plan listed three E2E setup/mock modules as AC-001's planned tests; only the reviewer said so. The plan's own
+  // check now refuses it with the exact move, so the author fixes it before review.
+  const id = 'PLAN-1:AC-001';
+  const plan = (tests, supporting = '') => '| Clause | Expected paths | Planned tests | Fulfillment |\n|---|---|---|---|\n'
+    + `| ${id} | \`src/routes/orders.ts\` | ${tests} | modified |\n` + supporting;
+  assert.throws(() => derivePlannedClaimMap(plan('`e2e/setup/mock-api.ts`, `e2e/helpers.ts`, `e2e/orders.spec.ts`'), { clauseIds: [id] }),
+    (error) => error.code === 'SPEC_PLANNED_PATH_ROLE_INVALID' && error.details.correction === 'separate-support-from-tests'
+      && JSON.stringify([...error.details.paths].sort()) === JSON.stringify(['e2e/helpers.ts', 'e2e/setup/mock-api.ts'])
+      && /test support \(a mock, fixture, setup, helper or page object\), not a test case[\s\S]*Supporting files/u.test(error.message));
+  // Moved as told: the support under Supporting files, the test case in Planned tests.
+  const moved = derivePlannedClaimMap(plan('`e2e/orders.spec.ts`',
+    '\n## Supporting files\n\n- `e2e/setup/mock-api.ts` — mocks the orders API for the E2E test\n- `e2e/helpers.ts` — shared E2E login steps\n'), { clauseIds: [id] });
+  assert.deepEqual(moved.claimMap.claims[id].tests, ['e2e/orders.spec.ts']);
+  // A test case is never taken for support, whatever its name.
+  assert.doesNotThrow(() => derivePlannedClaimMap(plan('`tests/setup.test.js`, `e2e/login.spec.ts`'), { clauseIds: [id] }));
+});
+
 test('a later phase cannot redefine a clause an earlier phase defined', () => {
   const earlier = extractClauses('[W-1:REQ-001] Export CSV.\n', { sourcePath: 'requirements.md' });
   assert.throws(

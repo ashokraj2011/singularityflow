@@ -7,11 +7,11 @@
  */
 import path from 'node:path';
 import { posix } from './util.mjs';
-import { isTestAutomationPath } from './source-boundary.mjs';
+import { isTestAutomationPath, isTestSupportPath } from './source-boundary.mjs';
 import { configurationPathKind } from './configuration-paths.mjs';
 
 export const SUPPORTING_CHANGE_CLASSES = Object.freeze([
-  'dependency-lock', 'build-configuration', 'ci-configuration', 'repository-metadata', 'documentation'
+  'dependency-lock', 'build-configuration', 'ci-configuration', 'repository-metadata', 'documentation', 'test-support'
 ]);
 
 const DOCUMENT_EXTENSIONS = /\.(?:md|markdown|mdx|rst|adoc|txt)$/u;
@@ -38,8 +38,11 @@ export function classifySupportingChange(candidate) {
     return { refused: 'configuration', reason: 'runtime configuration belongs in a clause with fulfillment configuration, not unclaimed supporting files' };
   }
   if (configuration) return { class: configuration };
+  // Test support (mocks, fixtures, setup, helpers) proves nothing by running and carries no application behaviour, so
+  // it is listed here with its reason; it had no valid place at all, refused here and from Planned tests (office, 2026-11-11).
+  if (isTestSupportPath(relative)) return { class: 'test-support' };
   if (isTestAutomationPath(relative)) {
-    return { refused: 'test-source', reason: 'a test belongs in the Planned tests column of its clause row' };
+    return { refused: 'test-source', reason: 'a test case belongs in the Planned tests column of its clause row' };
   }
   if (CI_SUPPORT_PATHS.some(pattern => pattern.test(lower))) return { class: 'ci-configuration' };
   if (DOCUMENT_EXTENSIONS.test(base) && (atRoot || /^docs?\//u.test(lower))) return { class: 'documentation' };

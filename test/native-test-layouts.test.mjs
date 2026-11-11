@@ -149,8 +149,8 @@ test('a script below __tests__ is an acceptance test whatever it is called, as J
 });
 
 test('a fixture below __tests__ is support, never the acceptance test', async (t) => {
-  const { publish } = await implementationWithTestAt(t, 'LAYOUT-5', 'app/src/__tests__/fixtures/value.js');
-  const refused = publish();
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /no acceptance test is available for the implementation/u);
+  // Refused by the step that plans it, with the move to make, not first at the code step ("no acceptance test is
+  // available"): the step responsible repairs it (office, 2026-11-11).
+  await assert.rejects(() => implementationWithTestAt(t, 'LAYOUT-5', 'app/src/__tests__/fixtures/value.js'),
+    (error) => /app\/src\/__tests__\/fixtures\/value\.js is test support \(a mock, fixture, setup, helper or page object\), not a test case[\s\S]*Supporting files/u.test(error.message));
 });

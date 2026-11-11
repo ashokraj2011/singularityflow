@@ -42,6 +42,29 @@ function isNativeTestPath(relative) {
     || NAMED_TEST_FILE.test(segments.at(-1) ?? '');
 }
 
+// A test case names itself by its file; whatever else sits beside it may support it.
+const TEST_CASE_FILE = /(?:\.(?:spec|test|e2e)\.[a-z0-9]+|_test\.(?:go|py)|^test_.+\.py|(?:Test|Tests|IT|Spec)\.(?:java|kt|kts|scala|cs|swift|groovy))$/u;
+const TEST_SUPPORT_DIRECTORIES = new Set(['__mocks__', 'mocks', 'mock', 'fixture', 'fixtures', 'support', 'helpers', 'helper',
+  'stubs', 'stub', 'factories', 'page-object', 'page-objects', 'pageobjects', 'pom', 'test-utils', 'setup']);
+const TEST_SUPPORT_FILE = /(?:^|[._-])(?:mocks?|fixtures?|setup|teardown|helpers?|stubs?|factor(?:y|ies)|support|utils?)(?:[._-][a-z0-9]+)*\.[a-z0-9]+$/iu;
+
+/**
+ * A test-support module: a mock, fixture, setup, helper or page object, which a test uses but which proves nothing by
+ * running. A plan listed three E2E setup and mock modules as an AC's planned tests; only the reviewer said so
+ * (office, 2026-11-11). Narrow on purpose: a file named like a test case is never support, and an ordinary file in
+ * a test folder (test/calculator.js) is not either.
+ */
+export function isTestSupportPath(candidate) {
+  const relative = posix(String(candidate ?? '')).replace(/^\.\//, '');
+  if (!relative || relative.startsWith('../') || path.posix.isAbsolute(relative)) return false;
+  const segments = relative.split('/');
+  const basename = segments.at(-1) ?? '';
+  if (TEST_CASE_FILE.test(basename)) return false;
+  if (basename === 'conftest.py' || /\.page\.[a-z0-9]+$/iu.test(basename)) return true;
+  if (segments.slice(0, -1).some((segment) => TEST_SUPPORT_DIRECTORIES.has(segment.toLowerCase()))) return true;
+  return TEST_SUPPORT_FILE.test(basename);
+}
+
 /**
  * A deliberately narrow repository-independent boundary for generated browser automation.
  * Product directories such as `src/pages` are not accepted merely because they contain the word

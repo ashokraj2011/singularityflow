@@ -264,7 +264,10 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
   // Correct but heavy: validate offers the simpler copy, with its route.
   assert.deepEqual([fixed.workflows[0].simplify.nextAction.copilotCommand, fixed.workflows[0].simplify.nextAction.command],
     ['/sf-build-workflow --from-workflow fmly --simplify', 'singularity-flow workflow build start --from-workflow fmly --simplify']);
-  assert.deepEqual(fixed.workflows[0].simplify.found.map((entry) => entry.kind), ['duplicate-step', 'unneeded-step', 'unused-asset']);
+  assert.deepEqual(fixed.workflows[0].simplify.found.map((entry) => entry.kind), ['duplicate-step', 'unneeded-step']);
+  // An agent nothing uses is the repository's: it makes no workflow heavy.
+  const seeded = JSON.parse(h.flow(root, ['workflow', 'validate', 'repo-feature', '--json']).stdout);
+  assert.deepEqual([seeded.valid, seeded.workflows[0].simplify], [true, undefined]);
 });
 
 test('the skills walk the person through simplify and never ask for template wording', async () => {

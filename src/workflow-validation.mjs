@@ -67,13 +67,15 @@ function fixAction(workflowId) {
 /**
  * What would make a workflow simpler, as the platform sees it (src/workflow-build/simplify.mjs), and
  * the route that builds a simpler copy from it: each candidate checked and offered there, the person
- * accepting each one, and the original never changed. Null when nothing is found.
+ * accepting each one, and the original never changed. Null when nothing is found. Only what is in the
+ * workflow itself counts here: an agent nothing uses is the repository's, so it makes no workflow
+ * heavy (a simplify build still offers to leave it out).
  */
-async function simplifyHint(workflowId, { model, findings, repositoryFindings, definition }) {
+async function simplifyHint(workflowId, { model, findings, definition, packaged }) {
   const workflow = model?.workflows.find((entry) => entry.id === workflowId);
   if (!workflow) return null;
-  const { simplificationCandidates, packagedPhaseIds } = await import('./workflow-build/simplify.mjs');
-  const candidates = simplificationCandidates({ model, workflow, findings, repositoryFindings, definition, packaged: await packagedPhaseIds() });
+  const { simplificationCandidates } = await import('./workflow-build/simplify.mjs');
+  const candidates = simplificationCandidates({ model, workflow, findings, definition, packaged });
   if (!candidates.length) return null;
   const command = `singularity-flow workflow build start --from-workflow ${workflowId} --simplify`;
   const commandGuidance = safeCommandGuidance({ command, skill: '/sf-build-workflow' });
@@ -92,7 +94,9 @@ async function simplifyHint(workflowId, { model, findings, repositoryFindings, d
 /**
  * `workflow fix` drafts each finding's exact change, or the one question a person must answer, where
  * this SFlow has the command: feature-detected in the command registry (operation `workflow.fix`), so
- * /sf-fix-workflow runs it only when it exists and otherwise drafts the fixes itself.
+ * /sf-fix-workflow runs it only when it exists and otherwise drafts the fixes itself. The skill reads
+ * from its JSON only each fix's `change` (Studio change set ops, put into the draft as given, asking
+ * nothing) and `question` (asked one at a time); the command must be a read for the fix turn to run it.
  */
 async function fixDrafter(workflowId) {
   const { operationById } = await import('./command-registry.mjs');
@@ -112,8 +116,9 @@ export async function validateWorkflows(root, { workflow = null, env = process.e
   const checked = new Map(check.workflows.map((entry) => [entry.id, entry]));
   const repositoryFindings = check.repository.findings;
   const hints = new Map();
+  const packaged = await (await import('./workflow-build/simplify.mjs')).packagedPhaseIds();
   for (const entry of catalog.workflows) {
-    hints.set(entry.id, await simplifyHint(entry.id, { model: check.studioModel, findings: checked.get(entry.id)?.findings ?? [], repositoryFindings, definition }).catch(() => null));
+    hints.set(entry.id, await simplifyHint(entry.id, { model: check.studioModel, findings: checked.get(entry.id)?.findings ?? [], definition, packaged }).catch(() => null));
   }
   const workflows = catalog.workflows.map((entry) => {
     const own = checked.get(entry.id);

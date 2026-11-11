@@ -14,6 +14,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
@@ -34,6 +35,7 @@ import {
 } from './run-configurations.mjs';
 import { environmentBindingRefusal, localIntegrationPolicyRefusal, selectRunEnvironment } from './run-environment.mjs';
 import { gateTestEnvironmentModule } from './test-runtime.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const APP_RUN_FORMAT = 'sflow-app-run/v1';
@@ -441,6 +443,74 @@ async function removeFiles(files) {
 }
 
 /**
+ * Who listens on an application's port. Run records are kept per checkout, so another Story checkout's SFlow run was
+ * not recognised, and the refusal named no process: the agent could neither stop the right one nor tell the person
+ * what held the port (session mining N2, 2026-11-11). First an SFlow run of any checkout of this repository, then the
+ * process the system names, by its short name only (a full command line can carry a secret). Best effort: null.
+ */
+async function portHolder(root, port, { platform = process.platform, spawnSyncCommand = spawnSync } = {}) {
+  let base;
+  try { base = path.join(gitCommonDir(root), 'singularity-flow', 'app'); } catch { base = null; }
+  const files = [];
+  const walk = async (directory, depth) => {
+    if (depth > 4 || files.length >= 200) return;
+    let entries;
+    try { entries = await readdir(directory, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) await walk(file, depth + 1);
+      else if (entry.isFile() && entry.name.endsWith('.json')) files.push(file);
+    }
+  };
+  if (base) await walk(base, 0);
+  for (const file of files) {
+    let record;
+    try {
+      const text = await readFile(file, 'utf8');
+      if (Buffer.byteLength(text) > MAXIMUM_RECORD_BYTES) continue;
+      record = JSON.parse(text);
+    } catch { continue; }
+    if (record?.format !== APP_RUN_FORMAT || !Number.isInteger(record.pid) || record.pid <= 0 || typeof record.url !== 'string') continue;
+    let url;
+    try { url = loopbackApplicationUrl(record.url); } catch { continue; }
+    if (Number(url.port || (url.protocol === 'https:' ? 443 : 80)) !== port || !recordedProcessAlive(record)) continue;
+    return { pid: record.pid, command: null, sflowRun: { capability: record.capability, startId: record.id,
+      checkout: typeof record.checkout === 'string' ? record.checkout : null } };
+  }
+  try {
+    if (platform === 'win32') {
+      const listed = spawnSyncCommand('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', timeout: 2_000, windowsHide: true });
+      const line = String(listed?.stdout ?? '').split(/\r?\n/u).find((entry) => /\bLISTENING\b/u.test(entry) && new RegExp(`:${port}\\s`, 'u').test(entry));
+      const pid = Number(line?.trim().split(/\s+/u).at(-1));
+      if (!Number.isInteger(pid) || pid <= 0) return null;
+      const named = spawnSyncCommand('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', timeout: 2_000, windowsHide: true });
+      return { pid, command: String(named?.stdout ?? '').match(/^"([^"]+)"/u)?.[1] ?? null };
+    }
+    const listed = spawnSyncCommand('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc'], { encoding: 'utf8', timeout: 2_000 });
+    const pid = Number(String(listed?.stdout ?? '').match(/^p(\d+)$/mu)?.[1]);
+    return Number.isInteger(pid) && pid > 0 ? { pid, command: String(listed.stdout).match(/^c(.+)$/mu)?.[1] ?? null } : null;
+  } catch { return null; }
+}
+
+/** The port refusal: who holds it, and the one route that frees it or gives this checkout its own port. */
+function portInUse(root, context, entry, subject, applicationUrl, holder) {
+  const ownPort = { command: `singularity-flow app suggest --capability ${context.capabilityId} --json`, copilotCommand: '/sf-run-app suggest',
+    label: 'Give this checkout its own port: /sf-run-app suggest drafts the entry; change its port and save it on this checkout only (app config save-local).' };
+  const run = holder?.sflowRun;
+  const elsewhere = run?.checkout && path.resolve(run.checkout) !== path.resolve(root);
+  const stop = run ? safeCommandGuidance({ argv: ['app', 'stop', run.startId, '--capability', run.capability, ...(elsewhere ? ['--context-root', run.checkout] : [])] }) : null;
+  const who = run ? `SFlow's run of '${run.startId}'${elsewhere ? ` from the checkout ${run.checkout}` : ''} (pid ${holder.pid})`
+    : holder ? `process ${holder.pid}${holder.command ? ` (${holder.command})` : ''}, which no SFlow run started,` : 'another process';
+  const then = run && stop ? `Stop it with ${stop.command}, or give this checkout its own port (/sf-run-app suggest, saved on this checkout only).`
+    : holder ? `It is not SFlow's to stop: a person who asked for it stops it in their own terminal (kill ${holder.pid}). Or give this checkout its own port (/sf-run-app suggest, saved on this checkout only).`
+      : 'Stop it, or give this checkout its own port (/sf-run-app suggest, saved on this checkout only).';
+  return new SingularityFlowError(`${subject} cannot bind ${applicationUrl.origin}: ${who} already listens there. ${then} Nothing was started.`, {
+    code: 'APP_PORT_IN_USE', details: { startId: entry.id, url: applicationUrl.origin, port: Number(applicationUrl.port || 0) || null,
+      holder: holder ? { pid: holder.pid, command: holder.command ?? null, ...(run ? { sflowRun: run } : {}) } : null,
+      nextAction: stop ? { ...stop, label: `Stop SFlow's run of '${run.startId}' that holds the port.` } : ownPort } });
+}
+
+/**
  * Run one start entry in the foreground: run its before-launch steps, spawn, record, wait for
  * readiness, then stay attached until the application exits or this process is asked to stop.
  * Resolves with how it ended.
@@ -516,8 +586,9 @@ async function runSingleApplication(root, context, entry, {
     for (const note of debugLaunch.notes) output.write(`${note}\n`);
   }
   const applicationUrl = loopbackApplicationUrl(entry.url);
-  if (await debugPortAccepts(Number(applicationUrl.port || (applicationUrl.protocol === 'https:' ? 443 : 80)), { host: applicationUrl.hostname.replace(/^\[|\]$/gu, ''), timeoutMs: 300 })) {
-    throw new SingularityFlowError(`${subject} cannot bind ${applicationUrl.origin}: another process already listens there. Stop it, or choose a different personal port. Nothing was started.`, { code: 'APP_PORT_IN_USE' });
+  const applicationPort = Number(applicationUrl.port || (applicationUrl.protocol === 'https:' ? 443 : 80));
+  if (await debugPortAccepts(applicationPort, { host: applicationUrl.hostname.replace(/^\[|\]$/gu, ''), timeoutMs: 300 })) {
+    throw portInUse(root, context, entry, subject, applicationUrl, await portHolder(root, applicationPort, { platform, spawnSyncCommand }));
   }
   // Before-launch steps get the application's environment without the debugger's variables: a build
   // step must not start a JDWP agent or an inspector on the port the application will debug on.

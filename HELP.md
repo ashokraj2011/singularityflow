@@ -3209,6 +3209,7 @@ uses JSON-aware and textual secret redaction before content-addressed storage. U
 singularity-flow workflow list
 singularity-flow workflow validate
 singularity-flow workflow walk quick-fix
+singularity-flow workflow fix customer-onboarding --write
 singularity-flow workflow simulate figma-mobile
 singularity-flow workflow diff figma-mobile
 singularity-flow workflow add figma-mobile --dry-run
@@ -3217,6 +3218,14 @@ singularity-flow workflow create pilot-check --phases testing,verification --pro
 singularity-flow skill inspect ./skills/threat-model --json
 singularity-flow skill inspect ./skills/threat-model --skill-id threat-model --json
 ```
+
+`workflow fix` turns every finding of `workflow check` and `workflow validate` into a drafted Workflow
+Studio change, or a question only a person can answer (who belongs in an approval group, which of two
+valid routes the team wants), with why it is theirs. A template gets placeholders only: clause anchors on
+TODO lines and a planned-claims table whose cells say TODO, never requirements a person would mistake
+for real ones. It applies nothing: `--write` puts the change set in the private fix draft file, `workflow
+check --change-set <file>` confirms what it leaves, and `workflow studio apply --change-set <file>
+--propose` makes it one reviewed proposal. `--answers <file>` turns answered questions into changes.
 
 `--background-sync` saves an exact configuration proposal commit and durable Push recovery intent
 before starting a bounded background upload. It is supported by workflow proposals (including

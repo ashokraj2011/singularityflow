@@ -1759,6 +1759,8 @@ export async function validateConfigurationCandidates(root, candidates, definiti
     for (const source of sources) await copyConfigurationSource(root, validationRoot, source);
     for (const { path: relative, content } of candidates) {
       const candidatePath = path.join(validationRoot, relative);
+      // A file the candidate removes (content null) is not in the copy either.
+      if (content == null) { await rm(candidatePath, { force: true }); continue; }
       await mkdir(path.dirname(candidatePath), { recursive: true });
       await writeText(candidatePath, content);
     }

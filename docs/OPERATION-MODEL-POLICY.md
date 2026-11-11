@@ -1018,6 +1018,7 @@ Every public operation is classified before its implementation module is importe
 | workflow.diff | read | never | — | — |
 | workflow.edit | mutation | never | — | — |
 | workflow.export | mutation | never | — | — |
+| workflow.fix | read | never | — | — |
 | workflow.import | mutation | never | — | — |
 | workflow.import-team.compile | mutation | never | — | — |
 | workflow.import-team.compile.preview | read | never | — | — |

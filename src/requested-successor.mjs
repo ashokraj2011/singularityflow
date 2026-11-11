@@ -71,7 +71,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     import('./commands/shared/print-command-routes.mjs'), import('./commands/shared/story-draft-transaction.mjs'), import('./generation-boundary.mjs')]);
   if (!requestedSuccessorEligible(workflow, phase)) throw new SingularityFlowError(
     `Phase '${phase.id}' has no changed consumed generation to roll over.`, { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: null });
-  const supplied = optionString(options, 'confirm');
+  let supplied = optionString(options, 'confirm');
   const given = optionString(options, 'reason', null);
   const reason = given === null ? null : await noteRequestedChange(root, workflow, phase, given);
   if (given !== null && reason === null) throw new SingularityFlowError('--reason needs the words that say what to change; nothing was left after redaction.', {
@@ -104,15 +104,24 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     mutates: Boolean(supplied)
   };
   if (!supplied) {
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
-    else {
-      console.log(`Start ${phase.id} generation ${next} for a change (generation ${phase.generation} stays as published):`);
-      for (const request of requests) console.log(`  · "${request.replace(/\s+/gu, ' ')}"`);
-      console.log(`Confirm: ${expected}`);
-      if (route) printCommandRoutes(route, { label: 'Continue' });
-      console.log('Nothing was changed.');
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
+    console.log(`Start ${phase.id} generation ${next} for a change (generation ${phase.generation} stays as published):`);
+    for (const request of requests) console.log(`  · "${request.replace(/\s+/gu, ' ')}"`);
+    // A person confirms the step and generation they just read, never a digest [no hashes shown]: in their own
+    // terminal this same process asks, and binds the digest it derived above; `--json` keeps it for an agent.
+    if (process.stdin.isTTY === true && process.stdout.isTTY === true) {
+      const readline = await import('node:readline/promises');
+      const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
+      let answer = '';
+      try { answer = (await terminal.question(`Type yes to start ${phase.id} generation ${next}, or press Enter to cancel: `)).trim().toLowerCase(); }
+      finally { terminal.close(); }
+      if (answer !== 'yes') return console.log('Nothing was changed.');
+      supplied = expected;
+    } else {
+      printCommandRoutes(safeCommandGuidance({ argv: confirmArgv.slice(0, confirmArgv.indexOf('--confirm')), skill: '/sf-recover' }),
+        { label: 'To start it, run this in your own terminal, which asks you to confirm, or ask Copilot' });
+      return console.log('Nothing was changed.');
     }
-    return;
   }
   if (supplied !== expected) throw new SingularityFlowError(
     `The rollover confirmation must equal ${expected}: what was asked for or the published bytes changed since the preview. Preview again.`,
@@ -132,7 +141,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
 
 /**
  * A retained review of this generation that asks for corrections is a change the step itself asks for [review
- * level 2]: its report, by SHA-256, and its blocking findings are the reason generation N+1 opens in the same step.
+ * level 2]: its blocking findings, from the review of that generation, are the reason generation N+1 opens in the same step.
  * The person still confirms the rollover, as for any other.
  */
 export async function reviewCorrectionRequest(root, config, workflow, phase) {
@@ -144,5 +153,6 @@ export async function reviewCorrectionRequest(root, config, workflow, phase) {
   if (status?.status !== 'correction-required' || !status.reportSha256 || Number(status.generation) !== Number(phase.generation)) return null;
   const blocking = (status.findings ?? []).filter((entry) => entry.code !== 'human-disposition-required').slice(0, 5)
     .map((entry) => String(entry.message ?? entry.code).replace(/\s+/gu, ' ').slice(0, 300));
-  return `Correct what review ${status.reportSha256.slice(0, 12)} of generation ${phase.generation} found: ${blocking.join(' | ') || 'its blocking findings'}`.slice(0, 2000);
+  // Named by its generation, never its digest: these words are shown and kept as "Asked for" [no hashes shown].
+  return `Correct what the review of generation ${phase.generation} found: ${blocking.join(' | ') || 'its blocking findings'}`.slice(0, 2000);
 }

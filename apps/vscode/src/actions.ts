@@ -252,7 +252,8 @@ export async function runGovernedAction(
           `The published ${rolloverPhase} generation changed. Start generation ${preview.toGeneration} with the exact current bytes?`,
           {
             modal: true,
-            detail: `${commandGuidanceText(guidance)}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
+            // The button carries the preview's confirmation; a person reads the step and generation, never a digest.
+            detail: `Generation ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
           },
           'Start new generation'
         );
@@ -368,7 +369,7 @@ export async function runPlannedAction(
     `Run the exact action “${choice.action.reason}”?`,
     {
       modal: true,
-      detail: `${commandGuidanceText(choice.guidance)}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
+      detail: `${commandGuidanceText(choice.guidance)}\n\nPlan ${plan.planId} is bound to the latest commit on ${plan.revision.branch}. Any repository or lifecycle change invalidates it.`
     },
     'Run action'
   );

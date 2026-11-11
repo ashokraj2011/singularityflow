@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 99
+version: 100
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1751,9 +1751,9 @@ a model-free dry run that drives one throwaway Story through every step and repo
 would stop that is not a real decision a person is meant to make.
 
 ```bash
-singularity-flow workflow walk                 # every Story workflow of this repository
+singularity-flow workflow walk                        # every Story workflow of this repository
 singularity-flow workflow walk team-delivery --json
-singularity-flow workflow walk --shipped       # the shipped workflows, from anywhere
+singularity-flow workflow walk --source shipped       # the shipped workflows, from anywhere
 ```
 
 It reads this repository's workflow configuration (the approved `sflow/config` copy where there is

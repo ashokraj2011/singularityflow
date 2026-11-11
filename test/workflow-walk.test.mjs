@@ -160,6 +160,9 @@ test('a walk refuses an unknown option and an unknown workflow, before it builds
   const option = run(process.execPath, [CLI, '--no-model', 'workflow', 'walk', '--fast', '--json'], root, { allowFailure: true });
   assert.notEqual(option.status, 0);
   assert.match(option.stdout + option.stderr, /WORKFLOW_WALK_USAGE/u);
+  const source = run(process.execPath, [CLI, '--no-model', 'workflow', 'walk', '--source', 'elsewhere', '--json'], root, { allowFailure: true });
+  assert.notEqual(source.status, 0);
+  assert.match(source.stdout + source.stderr, /WORKFLOW_WALK_USAGE/u, 'a source is this repository or the shipped catalog');
   const unknown = walkCli(root, ['no-such-workflow']);
   assert.notEqual(unknown.status, 0);
   assert.equal(unknown.value.error?.code, 'WORKFLOW_WALK_UNKNOWN_WORKFLOW');

@@ -205,8 +205,6 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'author',
   // findings list (src/commands/findings.mjs).
   'all-repositories',
-  // workflow walk --shipped (src/commands/workflow-walk.mjs).
-  'shipped',
   // spec author (src/commands/spec-author.mjs); start --spec and spec attach (src/spec-library/slice.mjs).
   'any', 'defer', 'reopen', 'revise', 'allow-partial-dependency',
   'purge', 'timeline',

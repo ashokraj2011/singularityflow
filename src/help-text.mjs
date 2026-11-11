@@ -481,7 +481,7 @@ Usage:
                                                         owes, and every check finding (step templates included), each located, with
                                                         why and how to fix it; exits 1 when one is not. /sf-fix-workflow in Copilot
                                                         drafts the fixes as one reviewed configuration proposal
-  singularity-flow workflow walk [WORKFLOW] [--shipped] [--step-seconds N] [--total-seconds N] [--keep] [--json]
+  singularity-flow workflow walk [WORKFLOW] [--source repository|shipped] [--step-seconds N] [--total-seconds N] [--keep] [--json]
                                                         a model-free dry run: drives a throwaway Story through every step on an isolated
                                                         copy (stub author, stub reviewer, test approver) and lists each step's person
                                                         steps and every stop no person decision clears, with its likely cause; reads

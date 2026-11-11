@@ -1,5 +1,5 @@
 /**
- * `workflow walk [WORKFLOW] [--shipped] [--step-seconds N] [--total-seconds N] [--keep] [--json]` —
+ * `workflow walk [WORKFLOW] [--source repository|shipped] [--step-seconds N] [--total-seconds N] [--keep] [--json]` —
  * a model-free dry run that drives a throwaway Story through every step of each workflow on an
  * isolated copy and reports every place it would stop that is not a real decision a person is meant
  * to make (src/workflow-walk/walk.mjs). It reads only this repository's workflow configuration; every
@@ -8,7 +8,7 @@
  */
 import { SingularityFlowError, optionBoolean, optionString } from '../util.mjs';
 
-const OPTIONS = ['json', 'shipped', 'step-seconds', 'total-seconds', 'keep'];
+const OPTIONS = ['json', 'source', 'step-seconds', 'total-seconds', 'keep'];
 
 function seconds(options, name, fallback, maximum) {
   const raw = optionString(options, name);
@@ -56,7 +56,11 @@ export async function run(argv, { positionals, options }) {
   const unknown = Object.keys(options).filter((key) => !OPTIONS.includes(key));
   if (unknown.length) throw new SingularityFlowError(`workflow walk does not take --${unknown[0]}.`, { code: 'WORKFLOW_WALK_USAGE' });
   if (positionals.length > 3) throw new SingularityFlowError('Name at most one workflow: singularity-flow workflow walk [WORKFLOW].', { code: 'WORKFLOW_WALK_USAGE' });
-  const shipped = optionBoolean(options, 'shipped');
+  const source = optionString(options, 'source') ?? 'repository';
+  if (!['repository', 'shipped'].includes(source)) {
+    throw new SingularityFlowError(`--source takes repository (this repository's workflows, the default) or shipped (the shipped ones), not '${source}'.`, { code: 'WORKFLOW_WALK_USAGE' });
+  }
+  const shipped = source === 'shipped';
   const root = shipped ? process.cwd() : (await import('../git.mjs')).repoRoot();
   const { walkWorkflows } = await import('../workflow-walk/walk.mjs');
   const json = optionBoolean(options, 'json');

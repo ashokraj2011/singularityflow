@@ -684,7 +684,7 @@ export async function walkWorkflows(root, { workflow = null, shipped = false, st
   if (!shipped) {
     configuration = await readRepositoryConfiguration(root);
     if (!configuration.files.has('singularity/workflow.yml')) {
-      throw new SingularityFlowError('This repository has no workflow configuration (singularity/workflow.yml) to walk. Run singularity-flow workflow walk --shipped to walk the shipped workflows, or initialize the repository first.',
+      throw new SingularityFlowError('This repository has no workflow configuration (singularity/workflow.yml) to walk. Run singularity-flow workflow walk --source shipped to walk the shipped workflows, or initialize the repository first.',
         { code: 'WORKFLOW_WALK_NO_CONFIGURATION' });
     }
   }

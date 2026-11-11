@@ -556,7 +556,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (requested-successor.mjs). No new eager file.
     // 9,692,100 (measured 9,692,073, commands/phase-lifecycle.mjs): a code step's publication asks once whether to start
     // the application (phase-lifecycle.mjs +510); the question is built lazily (application-start-offer.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_692_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,692,700 (measured 9,692,688, commands/phase-lifecycle.mjs): a sign-off is offered only once its evidence exists and its
+    // step has published (owed-decisions.mjs signOffReady +588) [PHR:REQ-006]. No new eager file.
+    assert.ok(closure.bytes <= 9_692_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

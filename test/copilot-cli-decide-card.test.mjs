@@ -418,3 +418,39 @@ test('the Copilot CLI table names evidence carried by a step\'s "still holds", a
   assert.ok(lines.includes('- **Carried by "still holds".** Counted on a person\'s word, not a new run: tests and reviews that predate the amended wording, kept because the step\'s own approvers said it still holds.'));
   assert.ok(lines.includes("  - PAY-1:AC-001: Code's evidence predates AMD-001's wording; Code Approver, for the Code approvers (engineering-reviewers), said it still holds."));
 });
+
+test('nobody types a path: several files are a choice, none is never asked, and a failed sign-off keeps the rest (2026-11-11)', async () => {
+  // The owner was asked "The file you looked at" for a screenshot no step had captured, typed "i h", and the whole card
+  // ended in ENOENT with nothing more recorded.
+  const several = { ...review, files: ['src/a.jsx', 'src/b.css'] };
+  const form = witnessForm(several);
+  assert.deepEqual(form.requestedSchema.properties.file.enum, ['src/a.jsx', 'src/b.css'], 'the person picks one of the files');
+  const answered = { 'states-the-outcome': 'Yes', 'matches-the-criterion': 'Yes', 'current-for-this-change': 'Yes', reason: 'The layout reflows at the narrow viewport.' };
+  assert.match(witnessAnswers(several, { ...answered, file: 'i h' }).problem, /Pick the file you looked at: src\/a\.jsx, src\/b\.css/u);
+  assert.equal(witnessAnswers(several, { ...answered, file: 'src/b.css' }).file, 'src/b.css');
+
+  const option = (id, files) => ({ id, label: 'I checked', recordable: false, effects: [], needs: {}, decidedBy: allowed,
+    action: { command: 'singularity-flow decision witness', humanReview: { ...review, slot: id, files } } });
+  const item = (id, files) => ({ id, kind: 'evidence-obligation', title: `Check ${id}`, why: 'A person looks.', decidedBy: allowed, options: [option(id, files)] });
+  // No evidence file: nothing to look at, so it is not asked.
+  const empty = packet({ items: [item('visual', [])] });
+  const none = person([], [empty]);
+  const nothing = await runCard(none.ui);
+  assert.equal(none.seen.asked.length, 0, 'a sign-off with no file is never a form');
+  assert.deepEqual([nothing.recorded, none.seen.witnessed], [[], []]);
+
+  // The first sign-off fails to record; the second is still asked and recorded, and the failure is said.
+  const two = packet({ items: [item('inspection', ['src/a.jsx']), item('inspection-2', ['src/b.css'])] });
+  const yes = { choice: 'I looked at it', ...answered };
+  const { seen, ui } = person([accept(yes), accept({ confirm: SIGN }), accept(yes), accept({ confirm: SIGN })], [two, two, two, two]);
+  let calls = 0;
+  ui.witness = async (read, current, answer) => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+    seen.witnessed.push({ current, answer });
+    return { record: { id: 'WIT-002' } };
+  };
+  const result = await runCard(ui);
+  assert.deepEqual(result.recorded, ['WIT-002']);
+  assert.ok(seen.shown.some((text) => /was not recorded: ENOENT/u.test(text)), 'the failed sign-off is said');
+});

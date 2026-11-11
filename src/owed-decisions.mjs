@@ -108,6 +108,16 @@ function scopeItemsOf(workflow, inventory) {
 }
 
 /**
+ * Whether a sign-off can be looked at yet [PHR:REQ-006]: its evidence exists (a file to look at) and a step that owns
+ * it has published a generation, so what a person signs is this change's evidence, never the file as it stood before
+ * the step began (which the change would make stale) and never a screenshot no step has captured.
+ */
+export function signOffReady(workflow, witness) {
+  if (!Array.isArray(witness.files) || !witness.files.length) return false;
+  return (witness.owners ?? []).some((owner) => Number(workflow.phases?.[owner]?.generation ?? 0) >= 1);
+}
+
+/**
  * Every sign-off and scope disposition still owed by the steps named, from one evidence read, at
  * most MAX_LISTED of each; null when none is owed. Advisory: an unreadable evidence graph reports
  * itself unavailable and nothing here throws.
@@ -128,7 +138,7 @@ export async function owedDecisions(root, config, workflow, phaseIds, { limit = 
       .filter((witness) => witness.status !== 'met' && witness.owners.includes(phaseId)))
       .filter((witness) => !seen.has(`${witness.clauseId}\u0000${witness.slot}`) && seen.add(`${witness.clauseId}\u0000${witness.slot}`))
       .map((witness) => ({ clauseId: witness.clauseId, clauseText: witness.clauseText, slot: witness.slot, method: witness.method, status: witness.status,
-        files: witness.files, owners: witness.owners, available: witness.available, humanRequired: true, command: witness.commandGuidance.command ?? null }));
+        files: witness.files, owners: witness.owners, available: witness.available && signOffReady(workflow, witness), humanRequired: true, command: witness.commandGuidance.command ?? null }));
     const scopeItems = !scoping.length ? []
       : scopeItemsOf(workflow, graph.untrusted ? await reader.previewScopeInventory(root, config, workflow) : graph.scope);
     if (!witnesses.length && !scopeItems.length) return null;

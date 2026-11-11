@@ -160,9 +160,10 @@ function changesOf(model, draft, moves, explainWorkflow) {
     removed,
     moved: [...new Set(moves.filter((move) => move.move === 'step.move' && now.includes(move.id) && base.phases.includes(move.id)).map((move) => move.id))]
       .map((id) => ({ id, label: label(id), position: now.indexOf(id) + 1 })),
-    changed: now.filter((id) => base.phases.includes(id) && (draft.overrides[id] || draft.actions[id] || draft.checks?.[id]?.length)).map((id) => ({ id, label: label(id),
+    changed: now.filter((id) => base.phases.includes(id) && (draft.overrides[id] || draft.actions[id] || draft.checks?.[id]?.length || draft.clarifications?.[id])).map((id) => ({ id, label: label(id),
       what: [...Object.keys(draft.overrides[id] ?? {}).filter((field) => draft.overrides[id][field] != null).map((field) => CHANGED_WORDS[field] ?? field),
         ...(draft.actions[id] ? ['after-step actions'] : []),
+        ...(draft.clarifications?.[id] ? [`clarifying questions (${draft.clarifications[id].mode})`] : []),
         ...(draft.checks?.[id]?.length ? [`checks: ${draft.checks[id].map((check) => check.command).join(', ')}`] : [])] })),
     decisions: {
       added: draft.workflow.decisions.filter((decision) => !had.has(decisionKey(decision))).map((decision) => ({ after: decision.after, label: decision.label ?? decision.kind })),

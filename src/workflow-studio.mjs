@@ -20,6 +20,7 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
 import { loadDefinition, mergePhaseOverride, resolveWorkType, STEP_DESCRIPTION_LIMIT, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAttachedSkills } from './agents.mjs';
 import {
   SKILL_ATTACHMENTS_PATH, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
@@ -2409,7 +2410,7 @@ class StudioCandidate {
     });
   }
 
-  updatePhase({ id, workflow, label, description, output, inputs, approval, views, clarification, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile }) {
+  updatePhase({ id, workflow, label, description, output, inputs, approval, views, clarification, clarificationPolicy, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
     // Shared once the change set is applied: a step this change set also adds to another workflow
@@ -2513,6 +2514,19 @@ class StudioCandidate {
       else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ mode: clarification }));
       changed.push('questions');
     }
+    // The whole clarification policy (mode, maxQuestions, topics, markers), checked by the loader's own
+    // rule. Like sign-off and inputs, a shared step gets it for the named workflow only, so the questions
+    // another workflow asks at the same step stay as they are; an override replaces the step's own policy.
+    if (clarificationPolicy != null) {
+      if (typeof clarificationPolicy !== 'object' || Array.isArray(clarificationPolicy)) {
+        throw new SingularityFlowError(`The clarifying questions of ${name} are { mode, maxQuestions, topics, markers }.`, { code: 'STUDIO_CLARIFICATION_INVALID' });
+      }
+      try { normalizeClarificationPolicy(clarificationPolicy); }
+      catch (error) { throw new SingularityFlowError(`The clarifying questions of ${name}: ${error.message}`, { code: 'STUDIO_CLARIFICATION_INVALID' }); }
+      const given = Object.fromEntries(['mode', 'maxQuestions', 'topics', 'markers'].filter((key) => clarificationPolicy[key] !== undefined).map((key) => [key, structuredClone(clarificationPolicy[key])]));
+      this.document.setIn([...scopeFor('clarification'), 'clarification'], this.document.createNode(given));
+      changed.push('questions');
+    }
     if (template !== undefined) {
       // A workflow's own template for a shared step lives in its templateOverrides; otherwise the
       // step's defaultTemplate changes wherever the step is used. null takes the setting away.
@@ -2539,7 +2553,7 @@ class StudioCandidate {
       changed.push('artifact set');
     }
     if (artifactFile !== undefined && artifactFile !== null) { this.nameArtifactFile(phaseId, artifactFile, name); changed.push('file'); }
-    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || authoringSkill !== undefined || afterStep !== undefined || template !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
+    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || clarificationPolicy != null || authoringSkill !== undefined || afterStep !== undefined || template !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
     const droppedLine = this.droppedSkillLine(phaseId, label ?? name, dropped);
     if (droppedLine) this.summary.push(droppedLine);
   }

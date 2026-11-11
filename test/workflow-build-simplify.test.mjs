@@ -179,6 +179,23 @@ test('a walk stop holds the finish until the person accepts it by ID; no move ma
   // Without `workflow walk` in the command registry, only workflow validate decides, and says so.
   assert.deepEqual(await walkCandidate({ repository: root, candidate: root, workflow: 'family-lite' }),
     { available: false, reason: 'This SFlow has no `workflow walk`, so only `workflow validate` checked the result.', stops: [] });
+  // Questions are this workflow's own: step.clarify on a step the original shares writes the copy's override only.
+  const { checkBuild, decideInBuild } = await import('../src/workflow-build/engine.mjs');
+  const clarify = { move: 'step.clarify', id: 'fmly-build', mode: 'when-needed', maxQuestions: 3, topics: ['implementation blockers'] };
+  const wrong = await proposeToBuild(started.id, { title: 'Ask always', why: 'No.', moves: [{ ...clarify, mode: 'always' }] }, { root, env }).then(() => null, (error) => error);
+  assert.deepEqual(wrong.details.findings.map((entry) => [entry.at, entry.code]), [['moves[0].mode', 'BUILD_MOVE_CLARIFICATION']]);
+  const asked = await proposeToBuild(started.id, { title: 'Family build asks only when needed', why: 'Its inputs settle the scope.', moves: [clarify] }, { root, env });
+  await decideInBuild(started.id, asked.proposal.id, { accept: true, root, env });
+  const clarified = await checkBuild(started.id, { root, env });
+  assert.deepEqual(clarified.changeSet.changes.filter((change) => change.clarificationPolicy),
+    [{ op: 'phase.update', id: 'fmly-build', workflow: 'family-lite', clarificationPolicy: { mode: 'when-needed', maxQuestions: 3, topics: ['implementation blockers'] } }]);
+  assert.ok(clarified.plan.summary.includes('Family build: questions changed for Family lite only.'), clarified.plan.summary.join('\n'));
+  assert.deepEqual(clarified.changes.changed.find((entry) => entry.id === 'fmly-build')?.what, ['clarifying questions (when-needed)']);
+  const { planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const studio = await planStudioChangeSet(root, { ...clarified.changeSet, changes: [...clarified.changeSet.changes.filter((change) => !change.clarificationPolicy),
+    { op: 'phase.update', id: 'fmly-build', workflow: 'family-lite', clarificationPolicy: { mode: 'required', maxQuestions: 40 } }] });
+  assert.deepEqual([studio.valid, studio.problems[0]?.code], [false, 'STUDIO_CLARIFICATION_INVALID'], 'Studio checks the policy as the loader does');
+  assert.match(studio.problems[0].message, /^The clarifying questions of Family build: clarification\.maxQuestions must be an integer from 1 through 10\.$/u);
   const again = h.json(root, ['workflow', 'build', 'start', '--simplify', 'fmly', '--name', 'Family other']).build;
   const refused = await proposeToBuild(again.id, { title: 'Rename the build step', why: 'Shorter.', moves: [{ move: 'step.change', id: 'fmly-build', label: 'Build' }] }, { root, env })
     .then(() => null, (error) => error);
@@ -234,6 +251,29 @@ test('candidates are deterministic: groups with the same people, settings findin
   // The same workflow whose planned claims name the step keeps it: no move changes planned claims.
   const planned = simplificationCandidates({ model, workflow: { ...workflow, plannedClaims: { clausePhases: ['team-spec'], owners: {} } }, findings: [findings[2]], definition, packaged: new Set(['requirements']) });
   assert.match(planned.find((entry) => entry.kind === 'shipped-template').notOffered, /^The workflow's planned claims name team-spec, and no build move changes planned claims/u);
+  // `workflow check`'s clarity findings carry fix.data: the edits to a step's clarification setting.
+  const { clarifyMoveOf } = await import('../src/workflow-build/simplify.mjs');
+  const setting = (step) => ({ path: ['phases', step, 'clarification'], line: 7, scope: 'step', workflowPath: ['workTypes', 'team', 'phaseOverrides', step, 'clarification'] });
+  const policies = { 'team-build': { mode: 'required', maxQuestions: 3, topics: ['blockers'], markers: { mode: 'off' } }, 'team-spec': { mode: 'off', maxQuestions: 5, topics: [], markers: { mode: 'block' } } };
+  const clarity = [
+    { code: 'CHECK_CODE_STEP_ALWAYS_ASKS', area: 'clarity', severity: 'warning', title: 'team-build stops for a person\'s answer before every change', subject: { step: 'team-build' },
+      fix: { text: 'Set when-needed.', data: { step: 'team-build', setting: setting('team-build'), decidedBy: 'fixer', edits: [{ path: ['phases', 'team-build', 'clarification', 'mode'], from: 'required', to: 'when-needed' }] } } },
+    { code: 'CHECK_SCOPE_NOT_CLARIFIED', area: 'clarity', severity: 'warning', title: 'Nobody is asked about the scope before team-spec defines it', subject: { step: 'team-spec' },
+      fix: { text: 'Turn clarification on.', data: { step: 'team-spec', setting: setting('team-spec'), decidedBy: 'fixer',
+        edits: [{ path: ['phases', 'team-spec', 'clarification', 'mode'], to: 'required' }, { path: ['phases', 'team-spec', 'clarification', 'topics'], to: ['scope', 'acceptance criteria'] }] } } },
+    { code: 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', area: 'clarity', severity: 'warning', title: 'team-spec drafts without always confirming its reading', subject: { step: 'team-spec' },
+      fix: { text: 'If people should always confirm.', data: { step: 'team-spec', setting: setting('team-spec'), decidedBy: 'person', edits: [], question: { text: 'Should team-spec always confirm its reading?' } } } }
+  ];
+  const policyOf = (step) => policies[step] ?? null;
+  assert.deepEqual(clarifyMoveOf(clarity[0], policyOf), { move: 'step.clarify', id: 'team-build', mode: 'when-needed', maxQuestions: 3, topics: ['blockers'] }, 'the whole policy, only the edited field changed');
+  assert.deepEqual(clarifyMoveOf(clarity[1], policyOf), { move: 'step.clarify', id: 'team-spec', mode: 'required', maxQuestions: 5, topics: ['scope', 'acceptance criteria'], markers: { mode: 'block' } });
+  assert.equal(clarifyMoveOf(clarity[2], policyOf), null, 'a person decides; no move is made for them');
+  assert.equal(clarifyMoveOf({ fix: { data: { ...clarity[0].fix.data, edits: [{ path: ['phases', 'team-build', 'approval'], to: 'none' }] } } }, policyOf), null, 'only edits to the clarification setting');
+  const offered = simplificationCandidates({ model, workflow, findings: clarity, definition, packaged: new Set() }).filter((entry) => entry.kind === 'contradicting-settings');
+  assert.deepEqual(offered.map((entry) => [entry.subject.finding, entry.moves.map((move) => move.move), entry.notOffered]), [
+    ['CHECK_CODE_STEP_ALWAYS_ASKS', [], 'No build move changes this setting; set when-needed.'],
+    ['CHECK_SCOPE_NOT_CLARIFIED', [], 'No build move changes this setting; turn clarification on.'],
+    ['CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', [], 'A person decides: Should team-spec always confirm its reading?']], 'without the steps\' policies (no definition here) nothing is guessed');
   assert.deepEqual(walkStops({ stops: [{ at: 'team-check', message: 'Waits for inputs' }, { step: 'team-build', title: 'A person approves', personDecision: true }] }, 'team')
     .map((stop) => [stop.step, stop.title, /^walk-[a-f0-9]{10}$/u.test(stop.id)]), [['team-check', 'Waits for inputs', true]]);
 });

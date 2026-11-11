@@ -13,7 +13,7 @@
  * - unused-asset: an agent, skill or instruction nothing uses (`workflow check`'s CHECK_*_UNUSED);
  * - mergeable-groups: approval groups of this workflow with exactly the same people in them;
  * - contradicting-settings: review, clarification and question-placement findings of `workflow check`
- *   (a finding that carries the builder's move is offered with it);
+ *   (offered with the builder's move a finding carries, or the step.clarify its fix's edits make);
  * - shipped-template: a team step whose template the kernel cannot read, where a shipped step writes
  *   the same kind of document;
  * - loop-only-route: a decision whose routes only send work back.
@@ -28,6 +28,8 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { normalizeClarificationPolicy } from '../clarifications.mjs';
+import { resolveWorkType } from '../config.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { applyMoves, validateMoves } from './moves.mjs';
 import { draftOf, planFor, repositoryOf, targetWorkflow, withRepository, workflowFingerprint } from './engine.mjs';
@@ -35,12 +37,14 @@ import { readWorkflowBuild, saveWorkflowBuild } from './store.mjs';
 
 export const SIMPLIFY_KINDS = Object.freeze(['loop-only-route', 'duplicate-step', 'unneeded-step', 'mergeable-groups', 'contradicting-settings', 'shipped-template', 'unused-asset']);
 const SETTINGS_CODE = /^CHECK_(?:REVIEW|REVIEWER|CLARIFICATION|QUESTION|PLACEMENT)/u;
-const SETTINGS_AREAS = new Set(['review', 'questions', 'clarification', 'placement']);
+// `workflow check`'s clarity findings say where questions are asked (CHECK_SCOPE_NOT_CLARIFIED,
+// CHECK_MARKERS_UNANSWERABLE, CHECK_QUESTIONS_SETTLED_BY_SCOPE, CHECK_CODE_STEP_ALWAYS_ASKS, ...).
+const SETTINGS_AREAS = new Set(['review', 'questions', 'clarification', 'placement', 'clarity']);
 const UNUSED = Object.freeze({ CHECK_AGENT_UNUSED: 'agent', CHECK_SKILL_UNUSED: 'skill', CHECK_INSTRUCTION_UNUSED: 'instruction' });
 // Moves a simplify candidate may carry: each changes only the copy (a step the copy leaves out or
 // adds as it is, what a step reads and who signs it off in this workflow, a decision), never a step
 // other workflows share.
-const COPY_ONLY_MOVES = new Set(['step.remove', 'step.move', 'decision.remove', 'decision.add', 'branch.add', 'item.leaveOut', 'item.keepAsLink', 'item.prerequisite', 'item.classify']);
+const COPY_ONLY_MOVES = new Set(['step.remove', 'step.move', 'step.clarify', 'decision.remove', 'decision.add', 'branch.add', 'item.leaveOut', 'item.keepAsLink', 'item.prerequisite', 'item.classify']);
 
 function fail(code, message, details = undefined) {
   throw new SingularityFlowError(message, { code, details });
@@ -263,18 +267,53 @@ function groupCandidates({ workflow, model, labelOf, groupLabel, locate }) {
   return candidates;
 }
 
+/**
+ * The builder move a clarity finding's fix makes: `fix.data` names the step and the edits to its
+ * clarification setting (`setting.path`, then each edit's `path` and `to`, or `remove`), and the move
+ * is the whole policy the step then has in this workflow, so nothing the edits leave alone is lost (a
+ * workflow's override replaces the step's own policy). Null when a person decides (`decidedBy:
+ * person`, with its `question`) or an edit is not to that setting. `policyOf(step)` is the step's
+ * policy now, as the loader normalized it.
+ */
+export function clarifyMoveOf(finding, policyOf) {
+  const data = finding?.fix?.data;
+  if (!data || data.decidedBy === 'person' || !data.step || !Array.isArray(data.edits) || !data.edits.length) return null;
+  const base = Array.isArray(data.setting?.path) ? data.setting.path : null;
+  const current = policyOf(data.step);
+  if (!base || !current) return null;
+  const policy = { mode: current.mode, maxQuestions: current.maxQuestions, ...(current.topics?.length ? { topics: [...current.topics] } : {}),
+    ...(current.markers?.mode && current.markers.mode !== 'off' ? { markers: { mode: current.markers.mode } } : {}) };
+  for (const edit of data.edits) {
+    if (!Array.isArray(edit?.path) || base.some((key, index) => edit.path[index] !== key)) return null;
+    const rest = edit.path.slice(base.length);
+    if (!rest.length && plainObject(edit.to)) Object.assign(policy, structuredClone(edit.to));
+    else if (rest.length === 1 && ['mode', 'maxQuestions', 'topics', 'markers'].includes(rest[0])) {
+      if (edit.remove) delete policy[rest[0]];
+      else policy[rest[0]] = structuredClone(edit.to);
+    } else return null;
+  }
+  try { normalizeClarificationPolicy(policy); } catch { return null; }
+  return { move: 'step.clarify', id: data.step, ...policy };
+}
+const plainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
 /** Review, clarification and question-placement findings `workflow check` reports for this workflow. */
-function settingsCandidates({ findings }) {
+function settingsCandidates({ findings, policyOf }) {
   return findings.filter((finding) => (SETTINGS_CODE.test(finding.code) || SETTINGS_AREAS.has(finding.area))
-      && (finding.severity !== 'note' || finding.fix?.move))
-    .map((finding) => ({
-      kind: 'contradicting-settings', subject: { finding: finding.code, ...(finding.subject?.step ? { step: finding.subject.step } : {}) },
-      title: finding.title,
-      why: [finding.detail, finding.fix?.text].filter(Boolean).join(' '),
-      location: finding.location ?? null,
-      moves: finding.fix?.move ? [finding.fix.move] : [],
-      ...(finding.fix?.move ? {} : { notOffered: `No build move changes this setting; ${finding.fix?.text ? `${finding.fix.text.charAt(0).toLowerCase()}${finding.fix.text.slice(1)}` : 'change it in Workflow Studio.'}` })
-    }));
+      && (finding.severity !== 'note' || finding.fix?.move || clarifyMoveOf(finding, policyOf)))
+    .map((finding) => {
+      const move = finding.fix?.move ?? clarifyMoveOf(finding, policyOf);
+      const decides = finding.fix?.data?.decidedBy === 'person' && finding.fix.data.question?.text;
+      return {
+        kind: 'contradicting-settings', subject: { finding: finding.code, ...(finding.subject?.step ? { step: finding.subject.step } : {}) },
+        title: finding.title,
+        why: [finding.detail, finding.fix?.text].filter(Boolean).join(' '),
+        location: finding.location ?? null,
+        moves: move ? [move] : [],
+        ...(move ? {} : { notOffered: decides ? `A person decides: ${finding.fix.data.question.text}`
+          : `No build move changes this setting; ${finding.fix?.text ? `${finding.fix.text.charAt(0).toLowerCase()}${finding.fix.text.slice(1)}` : 'change it in Workflow Studio.'}` })
+      };
+    });
 }
 
 /** A team step whose template the kernel cannot read, where a shipped step writes the same kind of document. */
@@ -356,7 +395,9 @@ export function simplificationCandidates({ model, workflow, findings = [], repos
   const labelOf = (id) => workflow.steps.find((step) => step.id === id)?.label ?? model.phases.find((phase) => phase.id === id)?.label ?? id;
   const groupLabel = (id) => model.groups.find((group) => group.id === id)?.label ?? id;
   const templateOf = (step) => step.template ?? model.phases.find((phase) => phase.id === step.id)?.template ?? null;
-  const context = { workflow, model, labelOf, groupLabel, templateOf, locate, findings, repositoryFindings, definition, packaged };
+  const resolved = (() => { try { return definition ? resolveWorkType(definition, workflow.id) : null; } catch { return null; } })();
+  const policyOf = (id) => resolved?.phases?.find((phase) => phase.id === id)?.clarification ?? null;
+  const context = { workflow, model, labelOf, groupLabel, templateOf, locate, findings, repositoryFindings, definition, packaged, policyOf };
   const duplicates = duplicateCandidates(context);
   const all = [...loopCandidates(context), ...duplicates, ...unneededCandidates({ ...context, skip: new Set(duplicates.map((entry) => entry.subject.step)) }),
     ...groupCandidates(context), ...settingsCandidates(context), ...templateCandidates(context), ...unusedCandidates(context)];
@@ -539,14 +580,18 @@ export async function walkCandidate({ repository, candidate, workflow }) {
   return { available: true, command: `singularity-flow ${argv.join(' ')}`, stops: walkStops(result, workflow), result };
 }
 
-/** The problems a validation reports for one workflow: its own findings, and anything that stops the configuration from loading. */
-function validationProblems(validation, workflowId) {
+/**
+ * The problems a validation reports for one workflow: its own findings, and anything that stops the
+ * configuration from loading. A problem whose fix the builder can make carries that `move`.
+ */
+function validationProblems(validation, workflowId, policyOf = () => null) {
   const own = validation.workflows.find((entry) => entry.id === workflowId);
   const seen = new Set();
   const problems = [...(own?.findings ?? []), ...(validation.repository?.findings ?? []).filter((entry) => entry.blocksStart)]
     .filter((entry) => entry.severity === 'problem' && !seen.has(entry.id) && seen.add(entry.id));
   const items = problems.map((entry) => ({ id: entry.id, source: 'validate', code: entry.code, title: entry.title, detail: entry.detail ?? null,
-    location: entry.location ?? null, ...(entry.fix?.text ? { fix: entry.fix.text } : {}), ...(entry.fix?.move ? { move: entry.fix.move } : {}), acceptable: true }));
+    location: entry.location ?? null, ...(entry.fix?.text ? { fix: entry.fix.text } : {}),
+    ...((entry.fix?.move ?? clarifyMoveOf(entry, policyOf)) ? { move: entry.fix?.move ?? clarifyMoveOf(entry, policyOf) } : {}), acceptable: true }));
   if (own && !own.valid && !items.length) {
     items.push({ id: 'validate-not-valid', source: 'validate', code: own.status, title: own.reason ?? `workflow validate says ${own.label ?? workflowId} is not valid`, detail: null, location: null, acceptable: true });
   }
@@ -572,7 +617,10 @@ export async function verifyBuild(id, { root = null, env = process.env, walk = w
     const before = originalId ? workflowFingerprint(model.workflows.find((workflow) => workflow.id === originalId)) : null;
     const { changeSet, plan } = await planFor(repository, draft, model, { inspect: async (candidate) => {
       const validation = await validateWorkflows(candidate, { workflow: workflowId, env });
-      return { validation, walk: await walk({ repository, candidate, workflow: workflowId }),
+      const { loadDefinition } = await import('../config.mjs');
+      const resolved = await loadDefinition(candidate).then((definition) => resolveWorkType(definition, workflowId), () => null);
+      const policies = Object.fromEntries((resolved?.phases ?? []).map((phase) => [phase.id, phase.clarification ?? null]));
+      return { validation, policies, walk: await walk({ repository, candidate, workflow: workflowId }),
         original: originalId ? workflowFingerprint((await buildStudioModel(candidate)).workflows.find((workflow) => workflow.id === originalId)) : null };
     } });
     return { workflowId, label: draft.workflow.label, changeSet, plan, before };
@@ -583,7 +631,7 @@ export async function verifyBuild(id, { root = null, env = process.env, walk = w
   if (!plan.valid) remaining.push(...plan.problems.map((problem, index) => ({ id: `plan-${index + 1}`, source: 'plan', code: problem.code, title: problem.message, detail: null, location: null, acceptable: false })));
   if (!changeSet.changes.length) remaining.push({ id: 'nothing-changed', source: 'plan', code: 'WORKFLOW_BUILD_NOT_READY', title: 'The build changes nothing yet.', detail: null, location: null, acceptable: false });
   const { fixDraft, nextAction, ...validation } = inspection?.validation ?? {};
-  if (inspection?.validation) remaining.push(...validationProblems(inspection.validation, workflowId));
+  if (inspection?.validation) remaining.push(...validationProblems(inspection.validation, workflowId, (step) => inspection.policies?.[step] ?? null));
   const walked = inspection?.walk ?? { available: false, reason: 'The workflow could not be staged, so it was not walked.', stops: [] };
   remaining.push(...(walked.stops ?? []).map((stop) => ({ ...stop, source: 'walk', acceptable: true })));
   if (originalId && inspection && inspection.original !== before) {

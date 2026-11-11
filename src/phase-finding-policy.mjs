@@ -28,6 +28,77 @@ export function planCorrectsFirst(finding) {
 
 export { phaseCorrectionTargets };
 
+/**
+ * The only conditions that suspend a step's own repair (owner policy 2026-11-10). Anything else another
+ * owner holds (an earlier step's issue, a person's decision, a scope review, a publication dependency, an
+ * advisory pin, a return to withdraw, an assignment) never stops the author: its route follows the author's.
+ */
+export const OWN_REPAIR_STOPS = Object.freeze({
+  // Restored from authenticated bytes or amended through its authority, never edited around.
+  integrity: 'An integrity or authority boundary failed.',
+  // Only the current in-progress step is edited; another step's work is not this turn's.
+  'phase-not-current': 'The step is not the current in-progress step.',
+  // Published bytes are history: the pending sync, the restore or the successor comes first.
+  'retained-publication': 'The step\'s publication is retained, pending or changed since it was published.',
+  // An intent amendment awaits its acknowledgement; the draft's intent may change under it.
+  'governance-hold': 'An intent amendment awaits acknowledgement.',
+  // The mutation contract refuses this agent's edits: a role restriction, a skill host, no open code generation,
+  // or the generation's required checkpoint answers not yet recorded (answer first; never draft unknown scope).
+  'agent-not-permitted': 'This agent may not author the step now.',
+  // Evidence a person must review sits in the worktree, and the kernel has not verified draft-only repair beside it.
+  'held-evidence-unverified': 'Held evidence awaits review, and draft-only repair is not verified.',
+  // The approved code a review reads changed: its rework comes first, and the review is redone on it.
+  'stale-reviewed-input': 'The reviewed code evidence is stale.'
+});
+
+/** The stop a single finding sets, or null; integrity first, as phaseFindingPolicy orders it. */
+export function ownRepairStop(finding) {
+  const code = phaseFindingCode(finding);
+  const category = String(finding?.category ?? '').trim().toLowerCase();
+  if (phaseFindingPolicy(finding).classification === 'integrity-or-authority') return 'integrity';
+  if (category === 'agent-role' || ['phase.generation-intent.required', 'code.generation.intent-unverified',
+    'phase.skill-host.unavailable'].includes(code) || finding?.code === 'phase.clarification.not-ready') return 'agent-not-permitted';
+  if (code === 'PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED') return 'held-evidence-unverified';
+  if (category === 'amendment') return 'governance-hold';
+  if (category === 'lifecycle') return code === 'phase.lifecycle.not-publishable' ? 'phase-not-current' : 'retained-publication';
+  if (/^PRIOR_CODE_TEST_EVIDENCE/u.test(code)) return 'stale-reviewed-input';
+  return null;
+}
+
+/** A finding this step's producer repairs in its own draft or open generation. */
+export function ownProducerRepair(workflow, phase, finding) {
+  return (findingOwnedByPhase(workflow, phase, finding) || planCorrectsFirst(finding))
+    && phaseFindingPolicy(finding).repairableByProducer;
+}
+
+/**
+ * One rule for every surface: the step's own repairs lead and are same-turn whenever one exists and no
+ * OWN_REPAIR_STOPS applies; every other finding is foreign, and its route follows them. `stops` adds the
+ * caller's lifecycle facts (not current, retained) to those the findings themselves set.
+ */
+export function correctionPlan(workflow, phase, findings = [], { stops = [] } = {}) {
+  const own = [];
+  const foreign = [];
+  for (const finding of findings) (ownProducerRepair(workflow, phase, finding) ? own : foreign).push(finding);
+  const stopped = [...new Set([...stops, ...findings.map(ownRepairStop)].filter(Boolean))];
+  for (const stop of stopped) {
+    if (!Object.hasOwn(OWN_REPAIR_STOPS, stop)) throw new TypeError(`Unknown own-repair stop '${stop}'.`);
+  }
+  return Object.freeze({ own: Object.freeze(own), foreign: Object.freeze(foreign), stops: Object.freeze(stopped),
+    sameTurn: stopped.length === 0 && own.length > 0 });
+}
+
+/**
+ * Whether a draft check may go on to inspect the author's own conformance, source and test work beside its
+ * findings: not through a stop, and not past a finding no repair here clears, but a person's answer or an earlier
+ * step's gap never hides what the author owns (owner policy 2026-11-10).
+ */
+export function ownInspectionOpen(workflow, phase, findings = []) {
+  const plan = correctionPlan(workflow, phase, findings);
+  return !plan.stops.length && plan.foreign.every((finding) =>
+    ['human-input', 'upstream-defect'].includes(phaseFindingPolicy(finding).classification));
+}
+
 /** Runtime overlay also applies to older pinned Stories; it does not rewrite their policy bytes. */
 export function phaseRepairCapabilities(phase) {
   return { revision: PHASE_REPAIR_POLICY_REVISION, phaseId: phase.id,
@@ -85,7 +156,10 @@ const AUTHOR_CODES = new Set(['AGENT_BRIEF_SUMMARY_REQUIRED', 'AGENT_BRIEF_PRESE
   'AGENT_BRIEF_MAXIMUM_BYTES_EXCEEDED', 'AGENT_BRIEF_HEADING_AMBIGUOUS', 'ARTIFACT_COMMENT_UNCLOSED',
   'CODE_DELIVERY_EVIDENCE_REQUIRED', 'CODE_DELIVERY_RETAINED_EVIDENCE_MISSING',
   // A departure a person rejected: the model restores the file in its own open generation [CQF:REQ-026].
-  'DEPARTURE_REJECTED_NOT_REVERTED']);
+  'DEPARTURE_REJECTED_NOT_REVERTED',
+  // A code comment naming a clause the Story did not approve ("Correct the tag"), or a link where a file
+  // belongs: the author's own edit, which recovery reports under its code-delivery wrapper.
+  'EVIDENCE_CLAUSE_UNAPPROVED', 'SYMLINK_DELIVERY_FORBIDDEN']);
 // An honest comparison that finds the delivery incomplete: the gap is the delivering step's, so the
 // report's author never edits the verdict; that step's approvers decide an upstream issue.
 const UPSTREAM_DEFECT_CODES = new Set(['conformance.verdict-incomplete']);
@@ -141,11 +215,11 @@ export function phaseFindingPolicy(finding) {
   } else if (code === 'SPEC_COVERAGE_INCOMPLETE') {
     classification = 'quality';
     const coverage = finding.details?.coverage;
-    // A changed file the plan names for a clause, short only of its binding, is the author's to bind; that binding
-    // is what claims it. Any other unclaimed change is still a person's scope review (Story anu-bin, 2026-11-11).
-    const planned = new Set((finding.details?.claimGaps ?? []).flatMap((gap) => gap.missingSourceBindings ?? []));
-    repair = coverage?.invalidEvidence?.length || (coverage?.unclaimedChangedPaths ?? []).some((file) => !planned.has(file))
-      || coverage?.withdrawnButClaimed?.length ? 'scope-or-evidence-review' : 'owned-author';
+    // Clauses still to deliver or bind are the author's, beside any unplanned change or invalid evidence: the
+    // author delivers its part this turn and the person's scope review follows (owner policy, 2026-11-10). Only a
+    // finding with nothing left to deliver is a person's review alone (Story anu-bin, 2026-11-11).
+    repair = coverageOwnDelivery(finding) || !(coverage?.invalidEvidence?.length || coverageScopeReviewPaths(finding).length
+      || coverage?.withdrawnButClaimed?.length) ? 'owned-author' : 'scope-or-evidence-review';
     riskEligible = !(coverage?.invalidEvidence?.length || coverage?.unclaimedChangedPaths?.length
       || coverage?.withdrawnButClaimed?.length)
       && (finding.details?.riskEligible === true || finding.details?.qualityRisk?.eligible === true);
@@ -165,6 +239,23 @@ export function phaseFindingPolicy(finding) {
   return Object.freeze({ classification, repair, riskEligible,
     repairableByProducer: ['owned-author', 'owned-test-environment'].includes(repair), automaticRiskAcceptance: false,
     preserveWork: true, priorApprovalsImmutable: true });
+}
+
+/**
+ * Changed files a coverage finding leaves to a person's scope review: unclaimed and not a planned file short only
+ * of its binding, which binding claims (Story anu-bin, 2026-11-11).
+ */
+export function coverageScopeReviewPaths(finding) {
+  const planned = new Set((finding?.details?.claimGaps ?? []).flatMap((gap) => gap?.missingSourceBindings ?? []));
+  return (finding?.details?.coverage?.unclaimedChangedPaths ?? []).filter((file) => !planned.has(file));
+}
+
+/** Whether a coverage finding names delivery the author still owes: a clause to implement, bind or test. */
+export function coverageOwnDelivery(finding) {
+  const gaps = finding?.details?.claimGaps ?? [];
+  return gaps.some((gap) => ['missingSourcePaths', 'missingSourceBindings', 'missingTestPaths', 'missingConfigurationPaths']
+    .some((key) => (gap?.[key] ?? []).length > 0))
+    || (!gaps.length && (finding?.details?.coverage?.unimplemented ?? []).length > 0);
 }
 
 export function isArtifactQualityFinding(finding) {

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
+import { coverageScopeReviewPaths, phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
 import { deriveMutationContract, mutationPathDecision } from '../src/phase-mutation-contract.mjs';
 import { testExecutionHandoff } from '../src/test-execution-handoff.mjs';
@@ -95,9 +95,15 @@ test('a changed file the plan names for a clause, short only of its binding, is 
   const planned = phaseFindingPolicy(coverage(['src/components/StandardKeypad.jsx']));
   assert.equal(planned.repair, 'owned-author');
   assert.equal(planned.repairableByProducer, true);
-  // A change the plan does not name for any clause is still a person's scope review.
+  // A change the plan does not name for any clause is still a person's scope review, beside the binding the author
+  // adds now: the binding is not withheld for it (owner policy 2026-11-10).
   const other = phaseFindingPolicy(coverage(['src/components/StandardKeypad.jsx', 'src/unplanned.js']));
-  assert.equal(other.repair, 'scope-or-evidence-review');
-  assert.equal(other.repairableByProducer, false);
+  assert.equal(other.repair, 'owned-author');
+  assert.equal(other.repairableByProducer, true);
   assert.equal(other.riskEligible, false, 'never an accepted risk while a change is unclaimed');
+  assert.deepEqual(coverageScopeReviewPaths(coverage(['src/components/StandardKeypad.jsx', 'src/unplanned.js'])), ['src/unplanned.js']);
+  // Nothing left to deliver: only the person's review remains.
+  const scopeOnly = { code: 'code.delivery.incomplete', category: 'code-delivery', details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE',
+    coverage: { unimplemented: [], unclaimedChangedPaths: ['src/unplanned.js'], invalidEvidence: [], withdrawnButClaimed: [] }, claimGaps: [] } };
+  assert.equal(phaseFindingPolicy(scopeOnly).repair, 'scope-or-evidence-review');
 });

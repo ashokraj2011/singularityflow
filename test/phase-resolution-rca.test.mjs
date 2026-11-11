@@ -9,13 +9,16 @@ test('coverage risk guidance exposes the registered Copilot route in any custom 
     sourceCode: 'SPEC_COVERAGE_INCOMPLETE', qualityRisk: { eligible: true }, coverage: { unimplemented: ['CUSTOM-1:AC-001'] }
   } };
   const result = phaseResolutionChoices(workflow, phase, finding);
-  const risk = result.choices[0];
+  // The author delivers the clause first; the pilot risk a person may accept follows (owner policy 2026-11-10).
+  assert.equal(result.choices[0].kind, 'author-correction');
+  assert.equal(result.choices[0].owner, 'ship-feature');
+  const risk = result.choices[1];
   assert.equal(risk.kind, 'pilot-risk-review');
   assert.equal(risk.automatic, false);
   assert.equal(risk.commandGuidance?.skill, '/sf-appeal');
   assert.match(risk.copilotCommand ?? '', /^\/sf-appeal/);
   assert.match(risk.detail, /soft mode alone is no waiver/);
-  assert.match(result.choices[1].copilotCommand, /^\/sf-recover/);
+  assert.ok(result.choices.some(choice => /^\/sf-recover/.test(choice.copilotCommand ?? '')));
   const integrity = phaseResolutionChoices(workflow, phase, { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE' });
   assert.equal(integrity.choices.some(choice => choice.kind === 'pilot-risk-review'), false);
 });

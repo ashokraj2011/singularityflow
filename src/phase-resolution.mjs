@@ -4,7 +4,7 @@ import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-deliv
 import { submitRoute } from './submit-route.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { planCorrectsFirst, repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
+import { planCorrectsFirst, coverageScopeReviewPaths, repairContinuationForIssues, phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding, activeRepairPhase, openScopeAppeal, phaseCorrectionTargets, phaseRepairActionAdmission } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
 import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { CONFORMANCE_GAP_RULE, conformanceGapDecisions, upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
@@ -222,24 +222,27 @@ export function phaseResolutionChoices(workflow, phase, finding) {
       ['decisions', workId, '--json'],
       `${decision.issues.map((entry) => `${entry.id} (raised against ${entry.phase}) names ${entry.clauses.join(', ')}`).join('; ')}. Its approvers decide it in the decision list: return, plan correction, accepted risk or dismissal. More code from ${phase.id} cannot clear it.`,
       '/sf-decide');
-  } else if (code === 'spec_coverage_incomplete' && finding.details?.coverage?.unclaimedChangedPaths?.length) {
-    // A scope appeal needs the current open code generation (preparePhaseAppeal's own checks);
-    // anywhere else the plan's approvers account for the path with a plan decision instead of a
-    // route that would refuse.
-    const openCode = openScopeAppeal(workflow, phase, phaseRequiresCodeDelivery(phase));
-    resolution = openCode
+  } else if (category === 'quality-coverage' || code === 'spec_coverage_incomplete') {
+    // The clauses the author still owes lead: deliver or bind them in this step, this turn. A person's scope
+    // review of unplanned paths and a pilot risk acceptance follow it, never in its place (owner policy 2026-11-10).
+    // A scope appeal needs the current open code generation (preparePhaseAppeal's own checks); anywhere else
+    // the plan's approvers account for the path with a plan decision instead of a route that would refuse.
+    const unplanned = coverageScopeReviewPaths(finding);
+    const scope = !unplanned.length ? null : openScopeAppeal(workflow, phase, phaseRequiresCodeDelivery(phase))
       ? route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
-        'Account for exact unplanned paths through a reviewed scope appeal first. Recheck afterward; only the remaining missing coverage is eligible for pilot risk.', '/sf-appeal')
+        `Account for the exact unplanned path${unplanned.length === 1 ? '' : 's'} (${unplanned.slice(0, 5).join(', ')}) through a reviewed scope appeal. Recheck afterward; only the remaining missing coverage is eligible for pilot risk.`, '/sf-appeal')
       : route('plan-amendment', 'plan-approval-authority', ['decision', 'plan', workId, '--add-location', '<clause>=<path>', '--reason', '<why>'],
         'An approver of the plan accounts for each unplanned path under its row. No phase is reset.', '/sf-decide');
-  } else if ((category === 'quality-coverage' || code === 'spec_coverage_incomplete')
-      && (finding.details?.riskEligible === true || finding.details?.qualityRisk?.eligible === true)) {
-    resolution = route('pilot-risk-review', 'phase-approval-authority',
-      ['appeal', 'risk-prepare', '--phase', phase.id, '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
-      'Preview exact missing coverage. An authorized human may accept it for this pilot phase with an expiry; soft mode alone is no waiver. Tests, review and integrity stay enforced.', '/sf-appeal');
-  } else if (category === 'quality-coverage' || code === 'spec_coverage_incomplete') {
-    resolution = route('author-correction', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
+    const risk = scope || !(finding.details?.riskEligible === true || finding.details?.qualityRisk?.eligible === true) ? null
+      : route('pilot-risk-review', 'phase-approval-authority',
+        ['appeal', 'risk-prepare', '--phase', phase.id, '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
+        'Preview exact missing coverage. An authorized human may accept it for this pilot phase with an expiry; soft mode alone is no waiver. Tests, review and integrity stay enforced.', '/sf-appeal');
+    const deliver = policy.repairableByProducer ? route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+      'Deliver the clauses this finding lists in the open generation: implement each in its planned source with its @clause comment, bind a planned file that already holds it, and add its planned tests; then recheck.',
+      generationSkillForPhase(phase, workflow)) : null;
+    resolution = deliver ?? scope ?? route('author-correction', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
       'Repair unaccounted scope or invalid evidence through a reviewed successor or plan amendment. Pilot risk cannot waive integrity.');
+    gapRoutes = [scope, risk].filter((choice) => choice && choice !== resolution);
   } else if (code === 'code_delivery_retained_evidence_missing') {
     // A planned evidence file is this step's deliverable. Say how to make it from this checkout.
     resolution = route('capture-retained-evidence', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
@@ -262,6 +265,12 @@ export function phaseResolutionChoices(workflow, phase, finding) {
         'Explain each exact extra path and its approved clause or supporting class. Review the diff before accounting for it; tests still have to run.', '/sf-appeal')
       : route('plan-amendment', 'plan-approval-authority', ['decision', 'plan', workId, '--add-location', '<clause>=<path>', '--reason', '<why>'],
         'The plan approver accounts for the exact supporting path without resetting an approved phase. Recheck this phase afterward.', '/sf-decide');
+  } else if (policy.classification === 'author-correction' && /test|validation|coverage/u.test(code)) {
+    // A planned-test row or a missing assertion is the author's draft or test to correct, never a run's risk
+    // review: the word "test" in its code sent plan rows to the test-run routes [owner policy 2026-11-10].
+    resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+      'Correct the cited row or test in this step\'s own draft or open generation, then recheck; prepublish lists every remaining finding at once.',
+      generationSkillForPhase(phase, workflow));
   } else if (/test|validation|coverage/u.test(code) || ['test', 'tests', 'validation'].includes(category)) {
     resolution = testFindingRoute(workflow, phase, finding, code);
   } else if (/host|remote|transport|integration|dependency/u.test(code)

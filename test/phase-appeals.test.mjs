@@ -88,8 +88,10 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
   assert.equal(published.kind, 'plan-amendment');
   assert.match(published.command, /decision plan APPEAL-1 --add-location/u);
   assert.equal(phaseResolutionChoices(workflow, phase, unclaimed).choices[0].kind, 'plan-amendment');
-  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'code.delivery.incomplete',
-    details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE', qualityRisk: { eligible: true } } }).choices[0].kind, 'pilot-risk-review');
+  // The author delivers first; the pilot risk a person may accept follows it (owner policy 2026-11-10).
+  assert.deepEqual(phaseResolutionChoices(workflow, phase, { code: 'code.delivery.incomplete',
+    details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE', qualityRisk: { eligible: true } } }).choices.slice(0, 2).map(choice => choice.kind),
+  ['author-correction', 'pilot-risk-review']);
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'SPEC_COVERAGE_INCOMPLETE' }).choices[0].kind, 'author-correction');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'artifact.placeholder' }).choices[0].kind, 'author-correction');
   const evidence = phaseResolutionChoices(workflow, phase, { code: 'phase.evidence-contract.not-ready',
@@ -556,7 +558,8 @@ test('pilot risk unlocks only the reviewed editable candidate, still runs tests 
     assert.equal(completeAgentResult(f.cli('phase', 'prepublish', 'implementation', '--json').stdout).status, 'correction-required');
     const blocked = completeAgentResult(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
     assert.equal(blocked.resolution.issues.filter(issue => ['SPEC_COVERAGE_INCOMPLETE', 'code.delivery.incomplete'].includes(issue.code)).length, 1);
-    assert.equal(blocked.resolution.issues.find(issue => issue.code === 'SPEC_COVERAGE_INCOMPLETE').choices[0].kind, 'pilot-risk-review');
+    assert.deepEqual(blocked.resolution.issues.find(issue => issue.code === 'SPEC_COVERAGE_INCOMPLETE').choices.slice(0, 2).map(choice => choice.kind),
+      ['author-correction', 'pilot-risk-review'], 'the author delivers first; the pilot risk follows');
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
     const accept = packet => {
       const id = `PQR-${packet.packetSha256.slice(7, 31)}`;

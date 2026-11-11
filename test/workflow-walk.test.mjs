@@ -101,14 +101,32 @@ test('what the stub adds only where the platform needs it: anchors, a planned-cl
 test("a walk's commands run with every machine location, home, Git config and temporary folder inside its own folder", () => {
   const base = path.join(os.tmpdir(), 'sflow-workflow-walk-example');
   const env = walkEnvironment(base, { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: '/elsewhere/active.json', GIT_DIR: '/elsewhere/.git',
-    SINGULARITY_FLOW_SESSION_ID: 'another', COPILOT_AGENT_SESSION: 'x', NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: 'off' });
+    SINGULARITY_FLOW_SESSION_ID: 'another', COPILOT_AGENT_SESSION: 'x', NODE_ENV: 'test', SINGULARITY_FLOW_BUNDLE: 'off',
+    JIRA_API_TOKEN: 'secret', GITHUB_TOKEN: 'secret', HTTPS_PROXY: 'http://proxy.invalid' });
   const inside = (value) => typeof value === 'string' && value.startsWith(`${base}${path.sep}`);
   for (const name of Object.keys(MACHINE_STATE_LOCATIONS)) assert.ok(inside(env[name]), `${name}=${env[name]}`);
   for (const name of ['HOME', 'USERPROFILE', 'GIT_CONFIG_GLOBAL', 'COPILOT_HOME', 'TMPDIR']) assert.ok(inside(env[name]), `${name}=${env[name]}`);
   assert.equal(env.GIT_CONFIG_NOSYSTEM, '1');
   assert.equal(env.SINGULARITY_FLOW_NO_MODEL, '1');
-  for (const name of ['GIT_DIR', 'SINGULARITY_FLOW_SESSION_ID', 'COPILOT_AGENT_SESSION', 'NODE_ENV']) assert.equal(env[name], undefined, name);
+  for (const name of ['GIT_DIR', 'SINGULARITY_FLOW_SESSION_ID', 'COPILOT_AGENT_SESSION', 'NODE_ENV', 'JIRA_API_TOKEN', 'GITHUB_TOKEN', 'HTTPS_PROXY']) {
+    assert.equal(env[name], undefined, `${name} is not passed to a walk's commands`);
+  }
+  assert.equal(env.PATH, process.env.PATH, 'programs are found where the person finds them');
   assert.equal(env.SINGULARITY_FLOW_BUNDLE, 'off', 'the walk runs the same build');
+});
+
+test("after-step actions are taken out of the walk's own copy, and listed, so the walk sends nothing", async (t) => {
+  const { mkdtemp: makeTemporary } = await import('node:fs/promises');
+  const { withoutAfterStepActions } = await import('../src/workflow-walk/sandbox.mjs');
+  const folder = await makeTemporary(path.join(os.tmpdir(), 'sflow-walk-actions-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const file = path.join(folder, 'workflow.yml');
+  const action = { id: 'tell-jira', target: 'jira', on: ['approved'], send: 'summary' };
+  await writeFile(file, YAML.stringify({ phases: { intake: { label: 'Intake', afterStep: [action] }, verify: { label: 'Verify' } },
+    workTypes: { 'quick-fix': { phases: ['intake', 'verify'], phaseOverrides: { verify: { afterStep: [action, { ...action, id: 'hook' }] } } } } }));
+  assert.deepEqual(await withoutAfterStepActions(file), [{ where: 'phases.intake', actions: 1 }, { where: 'workTypes.quick-fix.phaseOverrides.verify', actions: 2 }]);
+  assert.doesNotMatch(await readFile(file, 'utf8'), /afterStep/u);
+  assert.deepEqual(await withoutAfterStepActions(file), [], 'nothing left to take out');
 });
 
 test('workflow walk is a read of this repository, never a model call, and is in the help', async () => {

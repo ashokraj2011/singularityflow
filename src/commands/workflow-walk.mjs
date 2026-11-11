@@ -29,6 +29,9 @@ export function walkLines(result) {
     : result.source.kind === 'approved' ? `the approved configuration (${result.source.ref}${result.source.commit ? ` ${String(result.source.commit).slice(0, 12)}` : ''})`
       : "this checkout's workflow configuration";
   lines.push(`Walked ${result.counts.workflows} workflow(s) from ${source}, with no model, on a throwaway copy.`);
+  if (result.actionsLeftOut?.length) {
+    lines.push(`After-step actions were left out of the copy, so nothing was sent: ${result.actionsLeftOut.map((entry) => `${entry.where} (${entry.actions})`).join(', ')}.`);
+  }
   for (const workflow of result.workflows) {
     lines.push('', `${workflow.label} (${workflow.id}): ${workflow.outcome}${workflow.reason ? `: ${workflow.reason}` : ''} in ${workflow.seconds} s`);
     for (const step of workflow.steps) {

@@ -5,7 +5,8 @@
  * every place it would stop that is not a real decision a person is meant to make (refusals.mjs).
  *
  * Result (schemaVersion 1, resultType `workflow-walk`):
- *   { ok, source: { kind: shipped|approved|checkout, ref?, commit? }, budget: { stepSeconds, totalSeconds },
+ *   { ok, source: { kind: shipped|approved|checkout, ref?, commit? }, actionsLeftOut: [{ where, actions }],
+ *     budget: { stepSeconds, totalSeconds },
  *     counts: { workflows, completed, stopped, notJudged, stops, expectedPersonSteps, expectedReviews },
  *     workflows: [{ id, label, outcome: completed|stopped|not-judged|not-walked, reason?, seconds,
  *       steps: [{ id, label, outcome: approved|completed|skipped|stopped|not-judged|not-reached,
@@ -227,7 +228,8 @@ async function decideOpenItems(walk, stepId) {
     const clause = option.needs?.clause?.known?.[0] ?? walk.clauses[0] ?? null;
     const expires = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
     const filled = option.chat.command.replace(/<CLAUSES?>/gu, clause ?? '').replace(/<REASON>/gu, REASON).replace(/<(?:EXPIRES|DATE)>/gu, expires);
-    walk.person(stepId, { class: 'expected-person-step', kind: 'decision', ask: `${item.title}${option.decidedBy?.words ? ` (${option.decidedBy.words.replace(/^You may decide this /u, 'decided by ').replace(/\.$/u, '')})` : ''}`,
+    const deciders = option.decidedBy?.labels ?? item.decidedBy?.labels ?? [];
+    walk.person(stepId, { class: 'expected-person-step', kind: 'decision', ask: `${item.title}${deciders.length ? ` (decided by ${deciders.join(' or ')})` : ''}`,
       where: whereFor(filled), command: filled.replace(/ --fetch\b/u, '') });
     if (/<[A-Z_]+>/u.test(filled)) {
       walk.stop(stepId, ['decisions', WALK_WORK_ID], { code: 'WORKFLOW_WALK_DECISION_VALUE', message: `The decision "${item.title}" needs a value the walk cannot supply: ${filled}`, routes: [] },
@@ -461,10 +463,12 @@ async function publish(walk, stepId) {
     if (/^singularity-flow mcp record\b/u.test(act?.do?.shell ?? '')) {
       walk.cannotJudge(stepId, args, 'WORKFLOW_WALK_EXTERNAL_TOOL', `The step needs a result recorded from an external tool before it can publish, which the walk has no connection to: ${actWords(result)}`);
     }
-    const standIn = act?.do?.shell ? STAND_INS.find((entry) => entry.matches(act.do.shell)) : null;
-    if (standIn && !met.has(standIn.id)) {
-      met.add(standIn.id);
-      await standIn.run(walk, stepId, act);
+    // What the author writes besides the draft when the step asks for it (an evidence file), once each.
+    const asked = [...(act?.fix ?? []), ...(result.parsed?.findings ?? []).map((entry) => `${entry.code ?? ''} at ${entry.path ?? ''}: ${entry.message ?? ''}`)].join('\n');
+    const repair = FINDING_REPAIRS.find((entry) => !met.has(entry.id) && entry.pattern.test(asked));
+    if (repair) {
+      met.add(repair.id);
+      await repair.run(walk, stepId, asked);
       args = ['phase', 'prepublish', stepId, '--work-id', WALK_WORK_ID, '--for-agent', '--json'];
       continue;
     }
@@ -477,10 +481,21 @@ async function publish(walk, stepId) {
 }
 
 /**
- * What the walk does where a step asks its agent for something outside the draft that the walk can
- * stand in for without a model or a remote. Each is reported as the step's person or agent work.
+ * What the stub author writes besides the draft when a step's check asks for it, as an author would:
+ * an evidence file its artifact set requires. Each is named in the step's notes.
  */
-const STAND_INS = [];
+const FINDING_REPAIRS = [{
+  id: 'artifact-set-evidence',
+  pattern: /required-member-missing at (\S+?)(?=[:\s]|$)/u,
+  async run(walk, stepId, asked) {
+    for (const member of new Set([...asked.matchAll(/required-member-missing at (\S+?)(?=[:\s]|$)/gu)].map((match) => match[1]))) {
+      const target = member.endsWith('/') ? `${member}evidence-index.md` : member;
+      const cited = walk.clauses.map((clause) => `\`${clause}\``).join(', ') || 'The change';
+      await walk.writeText(target, `# Evidence index — ${WALK_WORK_ID}\n\n${cited}: \`test/value.test.mjs\` passed against \`src/value.mjs\` on the run the code step recorded.\n`);
+      walk.step(stepId).notes.push(`The stub author wrote ${target}, the evidence file the step's artifact set requires.`);
+    }
+  }
+}];
 
 /** A convergence step's submission: a person reviews the deterministic result and confirms its digest. */
 async function advance(walk, stepId) {
@@ -674,6 +689,7 @@ export async function walkWorkflows(root, { workflow = null, shipped = false, st
     }
   }
   const template = await createSandbox({ configuration, timeoutMs: Math.max(1000, Math.min(stepSeconds * 1000, deadline - Date.now())) });
+  const actionsLeftOut = template.actionsLeftOut ?? [];
   const results = [];
   try {
     const listed = await storyWorkflows(template);
@@ -711,6 +727,8 @@ export async function walkWorkflows(root, { workflow = null, shipped = false, st
   return {
     schemaVersion: 1, resultType: 'workflow-walk', ok: counts.stops === 0 && counts.notJudged === 0,
     source: shipped ? { kind: 'shipped' } : configuration.source, modelUsed: false,
+    // After-step actions send to other systems; the walk takes them out of its copy and sends nothing.
+    actionsLeftOut,
     budget: { stepSeconds, totalSeconds }, counts, workflows: results
   };
 }

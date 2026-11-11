@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 98
+version: 99
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1761,7 +1761,9 @@ one, else the checkout) and changes nothing here. Everything else happens in a t
 it removes afterwards (`--keep` leaves it and names it): a small Node project with a `node --test`
 test, the configuration copied in and initialized, a local bare repository as its remote, and a home
 folder and machine state of its own. It never runs a model, never pushes anywhere but that local
-remote, and never contacts a remote service.
+remote, and never contacts a remote service: its commands see none of your environment's tokens, and
+each step's after-step actions are left out of its copy (the result lists them as `actionsLeftOut`),
+so nothing is sent to Jira or a webhook.
 
 For each step it uses the kernel's own commands as an agent and a person would: `prepare`; a stub
 author that fills the step's own template (every TODO and placeholder, the clause anchors where the
@@ -1785,7 +1787,7 @@ Every refusal or hold it meets is classed as one of:
 
 The text lists, per workflow and step, what a person will be asked to do there and where, then each
 stop with its command, refusal code, message and most likely configuration cause. `--json` returns
-`schemaVersion: 1`, `resultType: workflow-walk`, `ok`, `source`, `budget`, `counts` (`workflows`,
+`schemaVersion: 1`, `resultType: workflow-walk`, `ok`, `source`, `actionsLeftOut`, `budget`, `counts` (`workflows`,
 `completed`, `stopped`, `notJudged`, `stops`, `expectedPersonSteps`, `expectedReviews`) and
 `workflows[]`, each with `id`, `label`, `outcome` (`completed`, `stopped`, `not-judged`,
 `not-walked`), `seconds`, `steps[]` (`id`, `label`, `outcome`, `people[]`, `stops[]`,

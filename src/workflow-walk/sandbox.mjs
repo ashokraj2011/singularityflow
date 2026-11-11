@@ -21,17 +21,18 @@ import { removeTemporaryTree } from '../util.mjs';
 export const WALK_IDENTITY = Object.freeze({ name: 'Workflow Walk', email: 'workflow-walk@example.invalid' });
 const CLI = path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs');
 
-// Inherited variables a walk's commands must not see: another Story's session or Copilot turn, a Git
-// directory a caller pointed at, a test seam. The bundle selectors keep the walk on the same build.
-const DROPPED = /^(?:SINGULARITY_FLOW_|SFLOW_|COPILOT_|GITHUB_COPILOT|VSCODE_|GIT_|XDG_|npm_config_|NODE_ENV$)/iu;
-const KEPT = new Set(['SINGULARITY_FLOW_BUNDLE', 'SINGULARITY_FLOW_BUNDLE_DIR']);
+// The only inherited variables a walk's commands see: where programs are, the locale and terminal,
+// what Windows needs to start a process, and the bundle selectors that keep the walk on this build.
+// Everything else (tokens and secrets, another Story's session or Copilot turn, a Git directory a
+// caller pointed at, a test seam, proxies) stays out.
+const INHERITED = /^(?:PATH|PATHEXT|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|LANG|LANGUAGE|LC_[A-Z]+|TERM|TZ|SHELL|NODE_OPTIONS|SINGULARITY_FLOW_BUNDLE|SINGULARITY_FLOW_BUNDLE_DIR)$/iu;
 
 /** The environment every command of one walk runs with: all of it under `base`. */
 export function walkEnvironment(base, env = process.env) {
   const home = path.join(base, 'home');
-  const isolated = Object.fromEntries(Object.entries(env).filter(([name]) => KEPT.has(name) || !DROPPED.test(name)));
+  const inherited = Object.fromEntries(Object.entries(env).filter(([name]) => INHERITED.test(name)));
   return {
-    ...isolated,
+    ...inherited,
     ...Object.fromEntries(Object.entries(MACHINE_STATE_LOCATIONS).map(([name, relative]) => [name, path.join(base, 'machine', relative)])),
     HOME: home, USERPROFILE: home, COPILOT_HOME: path.join(home, '.copilot'),
     TMPDIR: path.join(base, 'tmp'), TMP: path.join(base, 'tmp'), TEMP: path.join(base, 'tmp'),
@@ -148,6 +149,27 @@ async function newFolder({ timeoutMs, keep }) {
   };
 }
 
+/**
+ * The walk sends nothing to other systems: each step's after-step actions (a Jira write, a webhook)
+ * are taken out of the walk's own copy of the configuration. Returns where they were, for the report.
+ */
+export async function withoutAfterStepActions(file) {
+  const YAML = (await import('yaml')).default;
+  const text = await readFile(file, 'utf8').catch(() => null);
+  if (text == null) return [];
+  const document = YAML.parse(text) ?? {};
+  const leftOut = [];
+  const strip = (owner, where) => {
+    for (const [id, phase] of Object.entries(owner ?? {})) {
+      if (Array.isArray(phase?.afterStep) && phase.afterStep.length) { leftOut.push({ where: `${where}${id}`, actions: phase.afterStep.length }); delete phase.afterStep; }
+    }
+  };
+  strip(document.phases, 'phases.');
+  for (const [workType, definition] of Object.entries(document.workTypes ?? {})) strip(definition?.phaseOverrides, `workTypes.${workType}.phaseOverrides.`);
+  if (leftOut.length) await writeFile(file, YAML.stringify(document));
+  return leftOut;
+}
+
 const failed = (what, result) => Object.assign(new Error(`${what} failed in the walk's own repository: ${(result.stderr || result.stdout || '').trim().slice(0, 600)}`),
   { code: 'WORKFLOW_WALK_SANDBOX_FAILED' });
 
@@ -178,6 +200,7 @@ export async function createSandbox({ configuration = null, timeoutMs = 120_000,
       await writeFile(path.join(repository, relative), bytes);
     }
     sandbox.init = await must(sandbox.run(['init']), 'singularity-flow init');
+    sandbox.actionsLeftOut = await withoutAfterStepActions(path.join(repository, 'singularity', 'workflow.yml'));
     await must(sandbox.git(['add', '-A']), 'git add');
     await must(sandbox.git(['commit', '-q', '-m', 'The workflow configuration under walk']), 'git commit');
     await must(sandbox.git(['init', '-q', '--bare', '-b', 'main', remote], { cwd: base }), 'git init --bare');

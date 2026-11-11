@@ -14,6 +14,7 @@ import { extractNormativeStatements, normalizeStatement, scopeItemId, statementS
 import { buildScopeInventory } from '../src/scope/inventory.mjs';
 import { matrixMarkdown, matrixPage, matrixText } from '../src/evidence/matrix.mjs';
 import { currentCompletenessReview, recordCompletenessReview, recordScopeDecision } from '../src/scope/decisions.mjs';
+import { decisionListFacts } from '../src/decision-list-reads.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'singularity-flow.mjs');
@@ -317,6 +318,19 @@ test('the CLI shows the inventory and records a scope decision through the scope
   const workflowState = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SCOPE-1/workflow.json'), 'utf8'));
   assert.equal(workflowState.scopeDispositions.at(-1).authorityGroup, 'product-approvers');
   assert.equal(workflowState.history.at(-1).event, 'scope_decided');
+
+  // The decision list offers the completeness review only while the step that defines the scope is current: a later
+  // step opening the list for its own decision is not asked six scope questions. With no constitution pinned, the
+  // consistency article asks only what it can [PHR:REQ-006].
+  const definitionNow = YAML.parse(await readFile(file, 'utf8'));
+  const stateNow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SCOPE-1/workflow.json'), 'utf8'));
+  const inScopeStep = await decisionListFacts(root, definitionNow, stateNow);
+  assert.ok(inScopeStep.completeness, 'offered while the scope step is current');
+  assert.equal(inScopeStep.completeness.articles.find((article) => article.id === 'consistency').question,
+    'Do the requirements agree with each other and with the scenarios?');
+  const laterStep = stateNow.phaseOrder[stateNow.phaseOrder.indexOf(stateNow.currentPhase) + 1];
+  const later = await decisionListFacts(root, definitionNow, { ...stateNow, currentPhase: laterStep }, { phaseId: laterStep });
+  assert.equal(later.completeness, null, `not offered at ${laterStep}`);
 
   // The completeness review [E2G-007] names the inventory it read and answers every article.
   const articles = ARTICLES.flatMap((article) => ['--article', `${article}=satisfied`]);

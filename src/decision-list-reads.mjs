@@ -167,13 +167,22 @@ async function scopeClauses(root, config, workflow) {
  */
 async function completenessFacts(root, config, workflow) {
   try {
+    // Offered only while the step that defines the scope is the current one: the review belongs to that step, and
+    // a later step (code, verification) opening the list for its own decision is not asked six scope questions
+    // [PHR:REQ-006]. `decision completeness` itself stays available to a person at any time.
+    const { finalScopeStep } = await import('./scope/authoring.mjs');
+    if (!workflow.currentPhase || finalScopeStep(workflow)?.id !== workflow.currentPhase) return null;
     const [{ evidenceGraphFromAggregate }, { scopeAuthorities }, { CHECKLIST_DECISIONS, STARTER_CHECKLIST }] = await Promise.all([
       import('./evidence/graph.mjs'), import('./scope/decisions.mjs'), import('./specification-quality.mjs')]);
     const graph = await evidenceGraphFromAggregate(root, config, workflow);
     const groups = scopeAuthorities(workflow);
     if (!graph.scope?.structurallyComplete || !graph.scope.items.length || graph.completenessReview || !groups.length) return null;
+    // A Story that pins no constitution has no articles to agree with: the question asks only what it can.
+    const constitution = Boolean(workflow.resolution?.constitutionPin);
+    const asked = (article) => (constitution || article.id !== 'consistency' ? article.question
+      : 'Do the requirements agree with each other and with the scenarios?');
     return { inventorySha256: graph.scope.inventorySha256, statements: graph.scope.items.length, groups,
-      articles: STARTER_CHECKLIST.articles.map(({ id, title, question }) => ({ id, title, question })), decisions: [...CHECKLIST_DECISIONS] };
+      articles: STARTER_CHECKLIST.articles.map((article) => ({ id: article.id, title: article.title, question: asked(article) })), decisions: [...CHECKLIST_DECISIONS] };
   } catch (error) { if (error instanceof SingularityFlowError) return null; throw error; }
 }
 

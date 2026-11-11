@@ -661,7 +661,7 @@ const RANK = Object.freeze({
   'constitution.policy': 7.4, 'constitution.set': 7.5,
   'phase.agent': 8, 'agent.update': 9, 'skill.attach': 9.5, 'skill.detach': 9.5,
   'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11, 'skill.remove': 11.1,
-  'integration.target.remove': 11.5
+  'integration.target.remove': 11.5, 'agent.remove': 11.05
 });
 
 /** A step's after-step actions as the page sends them: the written shape, checked for form only. */
@@ -1057,6 +1057,7 @@ class StudioCandidate {
       case 'group.update': return this.updateGroup(change);
       case 'agent.create': return this.createAgent(change);
       case 'agent.update': return this.updateAgent(change);
+      case 'agent.remove': return this.removeAgent(change);
       case 'userAgent.add': return this.addUserDefinedAgent(change);
       case 'userAgent.update': return this.replaceUserDefinedAgent(change);
       case 'workflow.install': return this.installBlueprint(change);
@@ -2205,6 +2206,35 @@ class StudioCandidate {
     this.summary.push(`Agent ${agent.label} updated.`);
   }
 
+  /**
+   * An agent file this repository wrote, taken away. Refused while it drafts a step, reviews a
+   * workflow, holds an MCP server, belongs to a framework workflow, or came from an import (taken
+   * away with import.remove instead, so its ledger entry goes with it).
+   */
+  removeAgent({ id }) {
+    const agent = this.requireAgent(requireId(id, 'An agent ID'));
+    if (agent.scope !== 'repository' || agent.apm || this.protectedAgents.has(agent.id)) {
+      throw new SingularityFlowError(`${agent.label} is not an agent file this repository owns, so it is not removed here.`, { code: 'STUDIO_AGENT_IN_USE' });
+    }
+    if (Object.values(this.ledger.imports ?? {}).some((entry) => entry.kind === 'agent' && entry.target?.id === agent.id)) {
+      throw new SingularityFlowError(`${agent.label} was imported; remove it with its import (import.remove).`, { code: 'STUDIO_AGENT_IN_USE' });
+    }
+    if (agent.defaultFor.length) {
+      throw new SingularityFlowError(`${agent.label} still drafts ${agent.defaultFor.map((step) => this.phaseLabel(step)).join(', ')}; choose other agents for those steps first.`, { code: 'STUDIO_AGENT_IN_USE' });
+    }
+    const reviews = Object.entries(this.content.workTypes ?? {}).filter(([, type]) => type?.sourceReview?.reviewerAgent === agent.id).map(([workflowId]) => workflowId);
+    if (reviews.length) throw new SingularityFlowError(`${agent.label} reviews ${reviews.join(', ')}; name another reviewer there first.`, { code: 'STUDIO_AGENT_IN_USE' });
+    const servers = Object.entries(this.content.mcpServers ?? {}).filter(([, server]) => (server?.agents ?? []).includes(agent.id)).map(([serverId]) => serverId);
+    if (servers.length) throw new SingularityFlowError(`${agent.label} is still assigned MCP server(s) ${servers.join(', ')}; unassign them first.`, { code: 'STUDIO_AGENT_IN_USE' });
+    this.agents.delete(agent.id);
+    if (!agent.created) this.removedAgents.add(agent.relative);
+    if (this.lock.agents?.[agent.id]) { delete this.lock.agents[agent.id]; this.lockChanged = true; }
+    if (this.attachments.some((attachment) => attachment.agent === agent.id)) {
+      this.setFileAttachments(this.attachments.filter((attachment) => attachment.agent !== agent.id));
+    }
+    this.summary.push(`Agent ${agent.label} removed.`);
+  }
+
   async installBlueprint({ id }) {
     const workflowId = requireId(id, 'A blueprint');
     const starter = this.sources.starter;
@@ -2607,7 +2637,7 @@ class StudioCandidate {
     this.summary.push(`New workflow ${name}${copied ? `, a copy of ${copied}` : ''}: ${ids.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  updateWorkflow({ id, label, description, phases, reworkLoops, decisions, plannedClaims }) {
+  updateWorkflow({ id, label, description, phases, reworkLoops, decisions, plannedClaims, sourceReview, omits }) {
     const workflowId = requireId(id, 'A workflow ID');
     const current = this.content.workTypes?.[workflowId];
     if (!current) throw new SingularityFlowError(`There is no workflow '${workflowId}'.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
@@ -2675,6 +2705,19 @@ class StudioCandidate {
         this.document.setIn(['workTypes', workflowId, 'plannedClaims'], this.document.createNode({ mode: 'required', clausePhases, owners }));
       }
       changed.push('planned claims');
+    }
+    // Written as authored, or taken away with null; the whole candidate is validated afterwards, so an
+    // unknown field, step or reviewer is refused with the engine's own message.
+    for (const [field, value, words] of [['sourceReview', sourceReview, 'review of each step'], ['omits', omits, 'responsibilities it leaves out']]) {
+      if (value === undefined) continue;
+      if (value === null || (Array.isArray(value) && !value.length)) {
+        if (this.document.hasIn(['workTypes', workflowId, field])) this.document.deleteIn(['workTypes', workflowId, field]);
+      } else if (field === 'sourceReview' ? isObject(value) : Array.isArray(value)) {
+        this.document.setIn(['workTypes', workflowId, field], this.document.createNode(structuredClone(value)));
+      } else {
+        throw new SingularityFlowError(`${name}'s ${words} must be ${field === 'sourceReview' ? 'a map' : 'a list'}.`, { code: 'STUDIO_WORKFLOW_INVALID' });
+      }
+      changed.push(words);
     }
     this.workflows.set(workflowId, { newlyCreated: this.workflows.get(workflowId)?.newlyCreated ?? false });
     if (changed.length) this.summary.push(`${name}: ${changed.join(', ')} changed.`);

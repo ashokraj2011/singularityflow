@@ -27,7 +27,9 @@ const clipSentences = (value) => {
   return end > 40 ? text.slice(0, end + 1) : text.slice(0, 200);
 };
 const choosable = (option) => option.recordable !== false && option.available !== false && option.decidedBy?.allowed === true;
-const reviews = (item) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
+// A sign-off with no evidence file has nothing to look at yet: it is not asked.
+const reviews = (item) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false
+  && (option.action.humanReview.files ?? []).length > 0);
 const ownSteps = (item) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const itemName = (item) => item.details?.path ?? item.title;
 
@@ -268,7 +270,8 @@ export function witnessForm(review) {
     ...(review.files.length === 1 ? [`Look at ${review.files[0]} first.`] : [])].join('\n'),
   requestedSchema: { type: 'object', required: ['choice', ...WITNESS_QUESTIONS.map(([id]) => id)], properties: {
     choice: { type: 'string', title: 'Did you look at it?', enum: ['I looked at it', NOT_NOW] },
-    ...(review.files.length === 1 ? {} : { file: { type: 'string', title: 'The file you looked at, from the repository root' } }),
+    // Several files: the person picks the one they looked at; nobody is asked to type a path [PHR:REQ-006].
+    ...(review.files.length === 1 ? {} : { file: { type: 'string', title: 'Which file did you look at?', enum: [...review.files] } }),
     ...Object.fromEntries(WITNESS_QUESTIONS.map(([id, question]) => [id, { type: 'string', title: question, enum: ['Yes', 'No'] }])),
     reason: textField('What did you inspect? In your own words', { minimum: 10, maximum: 1000 }) } } };
 }
@@ -276,7 +279,7 @@ export function witnessForm(review) {
 export function witnessAnswers(review, content) {
   const reason = String(content?.reason ?? '').trim();
   const file = review.files.length === 1 ? review.files[0] : String(content?.file ?? '').trim();
-  if (!file) return { problem: 'Name the file you looked at.' };
+  if (!review.files.includes(file)) return { problem: `Pick the file you looked at: ${review.files.join(', ')}.` };
   if (reason.length < 10 || reason.length > 1000) return { problem: 'Describe what you inspected in 10 to 1000 characters.' };
   for (const [id] of WITNESS_QUESTIONS) if (!['Yes', 'No'].includes(content?.[id])) return { problem: 'Answer each question yes or no.' };
   return { problem: null, file, reason, answers: WITNESS_QUESTIONS.map(([id]) => [id, content[id] === 'Yes']) };
@@ -385,10 +388,15 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
     if (answer.cancelled || answer.notNow) continue;
     const sign = await ask(witnessConfirm(current, answer));
     if (sign?.action === 'accept' && sign.content?.confirm === SIGN) {
-      const result = await witness(packet, current, answer);
-      if (result?.record?.id) {
-        recorded.push(result.record.id);
-        decided.push(`Signed off ${current.clauseId} · ${current.slot}`);
+      // One sign-off that cannot be recorded never loses the decisions and sign-offs already recorded.
+      try {
+        const result = await witness(packet, current, answer);
+        if (result?.record?.id) {
+          recorded.push(result.record.id);
+          decided.push(`Signed off ${current.clauseId} · ${current.slot}`);
+        }
+      } catch (error) {
+        await show(`The sign-off of ${current.clauseId} · ${current.slot} was not recorded: ${error.message}`);
       }
       packet = await read();
     }

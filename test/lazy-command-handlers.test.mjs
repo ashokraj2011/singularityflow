@@ -556,11 +556,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (requested-successor.mjs). No new eager file.
     // 9,692,100 (measured 9,692,073, commands/phase-lifecycle.mjs): a code step's publication asks once whether to start
     // the application (phase-lifecycle.mjs +510); the question is built lazily (application-start-offer.mjs). No new eager file.
-    // 9,586,400 (measured 9,586,369, commands/phase-lifecycle.mjs): a reviewer in every step, code included [review
+    // 9,692,700 (measured 9,692,688, commands/phase-lifecycle.mjs): a sign-off is offered only once its evidence exists and its
+    // step has published (owed-decisions.mjs signOffReady +588) [PHR:REQ-006]. No new eager file.
+    // 9,587,000 (measured 9,586,982, commands/phase-lifecycle.mjs): a reviewer in every step, code included [review
     // level 2]. The review is read only where it gates submission and approval, so state.mjs loads it from the CLI
     // source and the evaluator, its contract and the new document and code checks leave the eager graph
     // (source-review-lifecycle.mjs, source-grounded-review.mjs, source-review-contract.mjs). No new eager file.
-    assert.ok(closure.bytes <= 9_586_400, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    assert.ok(closure.bytes <= 9_587_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

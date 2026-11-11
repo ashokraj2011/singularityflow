@@ -5661,7 +5661,7 @@ async function submitPhaseTransition(root, config, workflow, {
       );
     }
     // Files changed after the published draft are this step's to repair, before it is submitted (N7).
-    const changed = await import('./changes-after-publication.mjs');
+    const changed = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'changes-after-publication.mjs')).href);
     const after = await changed.changesAfterPublication(root, config, workflow, phase);
     if (after) throw changed.changesAfterPublicationError(workflow, phase, after);
     const currentTree = await sourceTreeHash(root, config, workflow);

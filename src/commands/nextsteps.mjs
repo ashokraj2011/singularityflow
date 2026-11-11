@@ -221,7 +221,9 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   // Files changed after the published code, which submission refuses: its in-step repair leads (N7).
   let changedAfterPublication = null;
   if (consumedGenerationChanged && active.status === 'in_progress') {
-    const changed = await import('../changes-after-publication.mjs');
+    // Read from the CLI source, so the editor bundles that read next steps do not carry the check.
+    const { PACKAGE_ROOT } = await import('../package-root.mjs');
+    const changed = await import((await import('node:url')).pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'changes-after-publication.mjs')).href);
     const after = await changed.changesAfterPublication(root, definition, workflow, active).catch(() => null);
     if (after) changedAfterPublication = { phase: active.id, paths: after.paths, include: changed.changesAfterPublicationRoutes(workflow, active, after).include };
   }

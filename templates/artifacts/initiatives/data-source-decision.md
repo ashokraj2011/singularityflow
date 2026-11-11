@@ -4,13 +4,11 @@
 
 # {{initiative.id}} — {{output.label}}
 
-Where test data will come from, decided deliberately. The default — a copy of production — is the
-option with the most obligations attached, and taking it by accident is how those obligations get
-missed.
+<!-- sflow:guidance Where test data will come from, decided deliberately. The default — a copy of production — is the option with the most obligations attached, and taking it by accident is how those obligations get missed. -->
 
 ## Decision
 
-The chosen source, in one line, with the date and who decided.
+<!-- sflow:guidance The chosen source, in one line, with the date and who decided. -->
 
 ## Options considered
 
@@ -23,12 +21,11 @@ The chosen source, in one line, with the date and who decided.
 
 ## Why
 
-The reasoning, including what was traded away.
+<!-- sflow:guidance The reasoning, including what was traded away. -->
 
 ## If production data is used
 
-Only complete this section if it is. An empty section here is a much better signal than a
-half-completed one.
+<!-- sflow:guidance Only complete this section if it is. An empty section here is a much better signal than a half-completed one. -->
 
 | Question | Answer |
 |---|---|
@@ -41,11 +38,11 @@ half-completed one.
 
 ## Referential integrity
 
-Whether related records stay consistent across systems, and what breaks if they do not.
+<!-- sflow:guidance Whether related records stay consistent across systems, and what breaks if they do not. -->
 
 ## Refresh
 
-Who refreshes, how often, and what the process is when it drifts.
+<!-- sflow:guidance Who refreshes, how often, and what the process is when it drifts. -->
 
 ## Open questions
 

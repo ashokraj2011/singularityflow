@@ -2,11 +2,7 @@
 
 ## Agent brief
 
-<!--
-Summarize what was verified, the overall verdict, material failures or omissions, residual risk, and
-release recommendation for downstream agents. Exact acceptance and negative-test evidence is
-preserved separately by the governed projection.
--->
+<!-- sflow:guidance Summarize what was verified, the overall verdict, material failures or omissions, residual risk, and release recommendation for downstream agents. Exact acceptance and negative-test evidence is preserved separately by the governed projection. -->
 
 TODO: Write the Agent brief here as visible text; text inside the comment above is not read.
 

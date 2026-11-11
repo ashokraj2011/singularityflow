@@ -4,9 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-Whether the non-functional targets were actually met, measured rather than asserted. The
-specification said what was required; this says what was observed, and the two columns sit next to
-each other on purpose.
+<!-- sflow:guidance Whether the non-functional targets were actually met, measured rather than asserted. The specification said what was required; this says what was observed, and the two columns sit next to each other on purpose. -->
 
 ## Results
 
@@ -14,13 +12,11 @@ each other on purpose.
 |---|---|---|---|---|---|
 | NFR-P1 | | | | met / missed / not measured | |
 
-"Not measured" is a legitimate verdict and a more useful one than a blank. It says the commitment
-exists and nobody checked.
+<!-- sflow:guidance "Not measured" is a legitimate verdict and a more useful one than a blank. It says the commitment exists and nobody checked. -->
 
 ## Conditions of measurement
 
-Environment, data volume, load profile and duration. A latency figure without these is not
-comparable to the target it is being checked against.
+<!-- sflow:guidance Environment, data volume, load profile and duration. A latency figure without these is not comparable to the target it is being checked against. -->
 
 ## Missed targets
 
@@ -35,8 +31,7 @@ comparable to the target it is being checked against.
 
 ## Observability in place
 
-Whether the signals the specification required are actually being emitted, since that is what makes
-these targets checkable after release.
+<!-- sflow:guidance Whether the signals the specification required are actually being emitted, since that is what makes these targets checkable after release. -->
 
 | Target | Signal | Emitting | Alerting |
 |---|---|---|---|

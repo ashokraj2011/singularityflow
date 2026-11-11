@@ -4,8 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-How well the system must behave, stated as numbers somebody can measure. "Fast", "secure" and
-"scalable" are not requirements; they are the absence of one.
+<!-- sflow:guidance How well the system must behave, stated as numbers somebody can measure. "Fast", "secure" and "scalable" are not requirements; they are the absence of one. -->
 
 ## Performance
 
@@ -15,8 +14,7 @@ How well the system must behave, stated as numbers somebody can measure. "Fast",
 
 ## Capacity and growth
 
-What the system must carry today and what it must still carry in a year. A target with no horizon
-gets designed for today.
+<!-- sflow:guidance What the system must carry today and what it must still carry in a year. A target with no horizon gets designed for today. -->
 
 | Dimension | Today | At launch | In 12 months |
 |---|---|---|---|
@@ -29,7 +27,7 @@ gets designed for today.
 
 ## Recovery
 
-What is promised after a failure, which is a different question from how often failure is allowed.
+<!-- sflow:guidance What is promised after a failure, which is a different question from how often failure is allowed. -->
 
 | Scenario | Recovery time | Data loss tolerated | Tested how |
 |---|---|---|---|
@@ -47,8 +45,7 @@ What is promised after a failure, which is a different question from how often f
 
 ## Observability
 
-What must be emitted for the targets above to be provable in production. A target nobody can measure
-after launch is not a commitment.
+<!-- sflow:guidance What must be emitted for the targets above to be provable in production. A target nobody can measure after launch is not a commitment. -->
 
 | Target | Signal | Emitted by | Alert threshold |
 |---|---|---|---|
@@ -60,7 +57,7 @@ after launch is not a commitment.
 
 ## Trade-offs accepted
 
-Where one of these targets was relaxed to meet another, and who agreed.
+<!-- sflow:guidance Where one of these targets was relaxed to meet another, and who agreed. -->
 
 | Relaxed | In favour of | Agreed by |
 |---|---|---|

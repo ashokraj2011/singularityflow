@@ -4,9 +4,7 @@
 
 ## Approved sources
 
-TODO: Register each document or screenshot with its exact retained path, SHA-256, source and
-meaning. Distinguish user instructions from document content. Inaccessible images or ambiguous
-interpretations require clarification; do not invent observations.
+TODO: Register each document or screenshot with its exact retained path, SHA-256, source and meaning. Distinguish user instructions from document content. Inaccessible images or ambiguous interpretations require clarification; do not invent observations.
 
 ## Scope and acceptance criteria
 
@@ -28,22 +26,11 @@ TODO: State the user outcome, in/out-of-scope behavior, allowed repair paths and
 
 ## Test tool and authorized environment
 
-TODO: Record inspected repository test configuration, exact argv/cwd/report adapter, authorized
-target/origins, browser/viewports if relevant, test-data cleanup and secret references (not values).
-Choose Playwright or the repository's other tool explicitly. No automatic install, inferred access,
-production interaction or test execution at intake. Missing runners stay pending until configured.
-For later product repair, `/sf-test-setup` configures the structured Code gate through the approved
-configuration authority; never edit protected workflow policy on the Story branch.
+TODO: Record inspected repository test configuration, exact argv/cwd/report adapter, authorized target/origins, browser/viewports if relevant, test-data cleanup and secret references (not values). Choose Playwright or the repository's other tool explicitly. No automatic install, inferred access, production interaction or test execution at intake. Missing runners stay pending until configured. For later product repair, `/sf-test-setup` configures the structured Code gate through the approved configuration authority; never edit protected workflow policy on the Story branch.
 
 ## Planned implementation evidence
 
-Do not presume code is broken before the initial scenario check, but plan now the exact paths a
-repair would most likely change: a later repair may change only the paths these approved rows
-claim. List exact repository-relative product source and executable test paths in backticks.
-Use fulfillment `modified` for product source a repair may change, or `test-only` with an
-unquoted dash (-) under Expected paths when only tests would change. A repair that needs any
-other path hands back to intake: the repair reviewer rejects it to this step (`document-intake`)
-for a revised, re-approved plan; it never changes an unplanned path.
+<!-- sflow:guidance Do not presume code is broken before the initial scenario check, but plan now the exact paths a repair would most likely change: a later repair may change only the paths these approved rows claim. List exact repository-relative product source and executable test paths in backticks. Use fulfillment `modified` for product source a repair may change, or `test-only` with an unquoted dash (-) under Expected paths when only tests would change. A repair that needs any other path hands back to intake: the repair reviewer rejects it to this step (`document-intake`) for a revised, re-approved plan; it never changes an unplanned path. -->
 
 | Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
@@ -51,10 +38,4 @@ for a revised, re-approved plan; it never changes an unplanned path.
 
 ## Repair and acceptance agreement
 
-TODO: Confirm test-first behavior and human review at each checkpoint. `pass` means all required
-scenarios ran and passed; `repair` means an evidenced product/test defect; `blocked` means tool,
-access or evidence is unavailable. A screenshot/model statement is not a structured test receipt.
-The kernel gates routing on the submitted agent verdict plus human approval. It does not infer
-scenario truth from prose. For a pass without changes, a quality reviewer also records why
-implementation is not applicable. After two automatic backward routes, the workflow waits for
-explicit direction: another reviewed attempt, return to intake or cancel, never a false pass.
+TODO: Confirm test-first behavior and human review at each checkpoint. `pass` means all required scenarios ran and passed; `repair` means an evidenced product/test defect; `blocked` means tool, access or evidence is unavailable. A screenshot/model statement is not a structured test receipt. The kernel gates routing on the submitted agent verdict plus human approval. It does not infer scenario truth from prose. For a pass without changes, a quality reviewer also records why implementation is not applicable. After two automatic backward routes, the workflow waits for explicit direction: another reviewed attempt, return to intake or cancel, never a false pass.

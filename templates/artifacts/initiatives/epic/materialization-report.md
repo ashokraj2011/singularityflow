@@ -1,11 +1,8 @@
 # Jira and Git Materialization Report — {{workId}}
 
-The handoff record for the moment planning became delivery. It states exactly
-what was created, from which approved plan, and what remains outstanding — so a
-reader months later can reconstruct how each Story branch came to exist.
+<!-- sflow:guidance The handoff record for the moment planning became delivery. It states exactly what was created, from which approved plan, and what remains outstanding — so a reader months later can reconstruct how each Story branch came to exist. -->
 
-Materialization is resumable. If it was retried, record every attempt rather than
-only the successful one.
+<!-- sflow:guidance Materialization is resumable. If it was retried, record every attempt rather than only the successful one. -->
 
 ## Result
 
@@ -24,8 +21,7 @@ only the successful one.
 
 ## Jira Story receipts
 
-One row per Story. The numeric issue ID is the durable identity: a Jira key can
-be re-keyed by a project move, and lineage must survive that.
+<!-- sflow:guidance One row per Story. The numeric issue ID is the durable identity: a Jira key can be re-keyed by a project move, and lineage must survive that. -->
 
 | Plan ID | Jira key | Jira issue ID | Action | Parent Epic | Result |
 | --- | --- | --- | --- | --- | --- |
@@ -37,9 +33,7 @@ be re-keyed by a project move, and lineage must survive that.
 | --- | --- | --- | --- | --- | --- | --- |
 | | | | | | | Yes / No |
 
-Stories in the Epic's own repository are based on the Epic branch; Stories
-elsewhere are based on that repository's default branch. Record which rule
-applied where the base branch is not obvious.
+<!-- sflow:guidance Stories in the Epic's own repository are based on the Epic branch; Stories elsewhere are based on that repository's default branch. Record which rule applied where the base branch is not obvious. -->
 
 ## Traceability confirmation
 
@@ -53,7 +47,7 @@ applied where the base branch is not obvious.
 
 ## Deviations from the approved plan
 
-Anything that differs from the approved Story plan, and the authority for it.
+<!-- sflow:guidance Anything that differs from the approved Story plan, and the authority for it. -->
 
 | Plan ID | Expected | Actual | Reason | Approved by |
 | --- | --- | --- | --- | --- |
@@ -67,8 +61,7 @@ Anything that differs from the approved Story plan, and the authority for it.
 
 ## Outstanding work
 
-Anything a person must do before delivery can proceed — unmapped Stories, missing
-repository access, Jira permissions, or manual branch protection changes.
+<!-- sflow:guidance Anything a person must do before delivery can proceed — unmapped Stories, missing repository access, Jira permissions, or manual branch protection changes. -->
 
 -
 

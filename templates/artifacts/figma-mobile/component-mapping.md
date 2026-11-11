@@ -20,7 +20,7 @@ TODO: Identify the repository modules, component libraries, theme/token sources,
 |---|---|---|---|---|
 | TODO | TODO | TODO | exact/derived/new | TODO |
 
-Hard-coded colors, spacing, typography, radii, and elevations require an explicit approved deviation.
+<!-- sflow:guidance Hard-coded colors, spacing, typography, radii, and elevations require an explicit approved deviation. -->
 
 ## Asset mapping
 

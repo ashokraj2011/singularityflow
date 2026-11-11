@@ -1,8 +1,6 @@
 # POC Lite plan
 
-This checkpoint is assembled deterministically from the selected repository, exact source
-revision, requested local change, and governed inputs. No model, World Model, MCP server, Jira
-connection, or external Git host is required by this workflow profile.
+This checkpoint is assembled deterministically from the selected repository, exact source revision, requested local change, and governed inputs. No model, World Model, MCP server, Jira connection, or external Git host is required by this workflow profile.
 
 ## Work item
 
@@ -14,14 +12,11 @@ Planning is artifact-only. Source changes are expected only after ACT begins.
 
 ## Configured checks
 
-ACT discovers the existing repository-native executable test command; no package installation or
-network-backed validation is added by this profile.
+ACT discovers the existing repository-native executable test command; no package installation or network-backed validation is added by this profile.
 
 ## Specification claims
 
-POC Lite defines no requirement clauses: the workflow declares that it omits scope, and the final
-reviewer records why scope does not apply to this Story before it can finish. Its bounded intent
-and final human decision remain visible without manufacturing acceptance clauses.
+POC Lite defines no requirement clauses: the workflow declares that it omits scope, and the final reviewer records why scope does not apply to this Story before it can finish. Its bounded intent and final human decision remain visible without manufacturing acceptance clauses.
 
 ## Governed inputs
 

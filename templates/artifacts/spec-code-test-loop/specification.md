@@ -2,10 +2,7 @@
 
 ## Agent brief
 
-<!--
-Summarize approved behavior, users, exclusions, and the exact clause-to-test plan for Code and
-Playwright review. Do not claim that a browser observation or a drafted test proves the behavior.
--->
+<!-- sflow:guidance Summarize approved behavior, users, exclusions, and the exact clause-to-test plan for Code and Playwright review. Do not claim that a browser observation or a drafted test proves the behavior. -->
 
 TODO: Write the Agent brief here as visible text; text inside the comment above is not read.
 
@@ -15,25 +12,18 @@ TODO: Identify who uses the feature and which actions each actor may perform.
 
 ## User scenarios
 
-TODO: Describe the starting state, user action, visible outcome, and relevant failure and empty
-states. Identify the approved browser origin and environment only when they are known; otherwise
-record an open question before review.
+TODO: Describe the starting state, user action, visible outcome, and relevant failure and empty states. Identify the approved browser origin and environment only when they are known; otherwise record an open question before review.
 
 ## Requirements
 
-Write one testable obligation per stable, fully qualified clause ID. Replace the examples with
-the actual Story requirements and acceptance criteria; preserve clause IDs across amendments
-unless the obligation is withdrawn and that withdrawal is explicitly reviewed.
+<!-- sflow:guidance Write one testable obligation per stable, fully qualified clause ID. Replace the examples with the actual Story requirements and acceptance criteria; preserve clause IDs across amendments unless the obligation is withdrawn and that withdrawal is explicitly reviewed. -->
 
 - TODO: State an observable behavior. [{{work.id}}:REQ-001]
 - TODO: State an independently checkable acceptance outcome. [{{work.id}}:AC-001]
 
 ## Scenario coverage
 
-<!-- Author S-number situations under User scenarios, each with complete Given/When/Then cases.
-Map every behavior/acceptance clause below. Outcome: success, failure, boundary, empty. Include
-distinct failure cases for approved rejection/error behavior; prose alone is not an acceptance
-case. Use only pinned source/clarification facts, never invented behavior or test results. -->
+<!-- sflow:guidance Author S-number situations under User scenarios, each with complete Given/When/Then cases. Map every behavior/acceptance clause below. Outcome: success, failure, boundary, empty. Include distinct failure cases for approved rejection/error behavior; prose alone is not an acceptance case. Use only pinned source/clarification facts, never invented behavior or test results. -->
 
 | Clause | Scenario | Outcome |
 |---|---|---|
@@ -42,11 +32,7 @@ case. Use only pinned source/clarification facts, never invented behavior or tes
 
 ## Verification intent
 
-<!-- Declare test/visual/inspection methods for every clause. Comma-separated methods are all
-required. Each AC names itself under Criterion; a visual/inspection requirement links to the AC
-proving it, and that AC lists every method the requirement lists (a `test, visual` requirement
-needs a `test, visual` AC). A test-only requirement may use -. Resolve the proof method from the
-Story source here. -->
+<!-- sflow:guidance Declare test/visual/inspection methods for every clause. Comma-separated methods are all required. Each AC names itself under Criterion; a visual/inspection requirement links to the AC proving it, and that AC lists every method the requirement lists (a `test, visual` requirement needs a `test, visual` AC). A test-only requirement may use -. Resolve the proof method from the Story source here. -->
 
 | Clause | Methods | Criterion |
 |---|---|---|
@@ -55,29 +41,22 @@ Story source here. -->
 
 ## Boundary and non-functional requirements
 
-TODO: Record limits, error handling, permissions, accessibility, privacy, and measurable
-performance requirements or explain why a category is not applicable.
+TODO: Record limits, error handling, permissions, accessibility, privacy, and measurable performance requirements or explain why a category is not applicable.
 
 ## Planned implementation evidence
 
-Add exactly one row for every approved requirement and acceptance clause above. Use exact
-repository-relative source and executable-test paths in backticks, not directories or globs.
-If a clause truly cannot be tested, use `not-applicable:` followed by a concrete reviewer-approved
-reason. For approved non-executable proof, use `verification: <AC-ID>` and its primary
-visual/inspection Verification contract. Browser observations never replace approved test methods.
+<!-- sflow:guidance Add exactly one row for every approved requirement and acceptance clause above. Use exact repository-relative source and executable-test paths in backticks, not directories or globs. If a clause truly cannot be tested, use `not-applicable:` followed by a concrete reviewer-approved reason. For approved non-executable proof, use `verification: <AC-ID>` and its primary visual/inspection Verification contract. Browser observations never replace approved test methods. -->
 
 | Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
 | `{{work.id}}:REQ-001` | TODO: replace with exact backticked repository-relative source paths | TODO: replace with exact backticked repository-relative test paths | new | TODO: what a person can observe when it works |
 | `{{work.id}}:AC-001` | TODO: replace with exact backticked repository-relative source paths | TODO: replace with exact backticked repository-relative test paths | new | TODO: what a person can observe when it works |
 
-<!-- Fulfillment: new, modified, existing (behaviour already at the listed paths), removed, test-only (tests are the whole delivery; Expected paths is -), document, configuration, or evidence (retained files under this Story's evidence/ directory). Do not put screenshots in Planned tests or product-source rows. An evidence AC needs a primary visual/inspection Verification contract; file presence is not a visual pass. Observable result states what is observed. Multi-code-step plans add Steps to allocate each row. -->
+<!-- sflow:guidance Fulfillment: new, modified, existing (behaviour already at the listed paths), removed, test-only (tests are the whole delivery; Expected paths is -), document, configuration, or evidence (retained files under this Story's evidence/ directory). Do not put screenshots in Planned tests or product-source rows. An evidence AC needs a primary visual/inspection Verification contract; file presence is not a visual pass. Observable result states what is observed. Multi-code-step plans add Steps to allocate each row. -->
 
 ## Evidence and assumptions
 
-TODO: Cite the request, pinned repository and document inputs, approved browser target, test
-data boundary, and any unresolved assumptions. Do not guess a requirement from an unavailable
-source or silently change an approved obligation during Code or Playwright testing.
+TODO: Cite the request, pinned repository and document inputs, approved browser target, test data boundary, and any unresolved assumptions. Do not guess a requirement from an unavailable source or silently change an approved obligation during Code or Playwright testing.
 
 ## Out of scope
 

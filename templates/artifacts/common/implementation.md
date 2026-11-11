@@ -2,11 +2,7 @@
 
 ## Agent brief
 
-<!--
-Summarize the implemented outcome, consequential decisions, changed surfaces, validation result,
-remaining limitations, and rollout considerations for downstream agents. Keep it evidence-based;
-the detailed changed-components and test sections are preserved separately.
--->
+<!-- sflow:guidance Summarize the implemented outcome, consequential decisions, changed surfaces, validation result, remaining limitations, and rollout considerations for downstream agents. Keep it evidence-based; the detailed changed-components and test sections are preserved separately. -->
 
 TODO: Write the Agent brief here as visible text; text inside the comment above is not read.
 

@@ -31,7 +31,7 @@ export function newStepContract(id, label, output = 'document') {
 
 /** The starter template a new step's artifact begins from. */
 export function newStepTemplate(id, label) {
-  return [`# ${label}`, '', `A starter for the ${id} step. Replace this with what the step actually has to answer;`,
-    'the engine checks that the artifact is at least a couple of hundred bytes, not that it is good.', '',
+  // Guidance on one line, marked so publication removes it (src/template-guidance.mjs).
+  return [`# ${label}`, '', `<!-- sflow:guidance A starter for the ${id} step: write what the step actually has to answer under each heading. The engine checks that the artifact is at least a couple of hundred bytes, not that it is good. -->`, '',
     '## What this step decides', '', '## Evidence', '', '## Open questions', ''].join('\n');
 }

@@ -1,7 +1,6 @@
 # {{work.id}} — Quick fix scope and plan
 
-This short checkpoint states what the fix must do and where it lands before any code changes.
-One reviewer signs it off; Implement then has to meet exactly these claims.
+<!-- sflow:guidance This short checkpoint states what the fix must do and where it lands before any code changes. One reviewer signs it off; Implement then has to meet exactly these claims. -->
 
 ## Problem and fix
 
@@ -9,8 +8,7 @@ TODO: Describe the defect or small change and the intended fix in one or two sen
 
 ## Acceptance criteria
 
-Give every outcome a stable, fully qualified ID. Replace the example; do not approve this draft
-while placeholders remain.
+<!-- sflow:guidance Give every outcome a stable, fully qualified ID. Replace the example; do not approve this draft while placeholders remain. -->
 
 | Clause | Observable outcome |
 |---|---|
@@ -18,14 +16,13 @@ while placeholders remain.
 
 ## Planned implementation evidence
 
-One row for each clause above, with exact repository-relative source and executable-test paths
-in backticks. If a clause truly cannot be tested, write `not-applicable:` and a specific reason.
+<!-- sflow:guidance One row for each clause above, with exact repository-relative source and executable-test paths in backticks. If a clause truly cannot be tested, write `not-applicable:` and a specific reason. -->
 
 | Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
 | `{{work.id}}:AC-001` | TODO: replace with exact backticked repository-relative source paths | TODO: replace with exact backticked repository-relative test paths | new | TODO: what a person can observe when it works |
 
-<!-- Fulfillment: new, modified, existing (behaviour already at the listed paths), removed, test-only (tests are the whole delivery; Expected paths is -), document, configuration, or evidence (retained files under this Story's evidence/ directory). Do not put screenshots in Planned tests or product-source rows. An evidence AC needs a primary visual/inspection Verification contract; file presence is not a visual pass. Observable result states what is observed. Multi-code-step plans add Steps to allocate each row. -->
+<!-- sflow:guidance Fulfillment: new, modified, existing (behaviour already at the listed paths), removed, test-only (tests are the whole delivery; Expected paths is -), document, configuration, or evidence (retained files under this Story's evidence/ directory). Do not put screenshots in Planned tests or product-source rows. An evidence AC needs a primary visual/inspection Verification contract; file presence is not a visual pass. Observable result states what is observed. Multi-code-step plans add Steps to allocate each row. -->
 
 ## Out of scope
 

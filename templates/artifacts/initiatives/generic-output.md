@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Describe the governed outcome for **{{phase.label}}**.
+<!-- sflow:guidance Describe the governed outcome for **{{phase.label}}**. -->
 
 ## Inputs and evidence
 
@@ -14,7 +14,7 @@ Describe the governed outcome for **{{phase.label}}**.
 
 ## Decision
 
-Record the decision, scope, owners, dependencies, risks, and measurable outcomes.
+<!-- sflow:guidance Record the decision, scope, owners, dependencies, risks, and measurable outcomes. -->
 
 ## Open items
 

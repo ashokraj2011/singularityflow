@@ -4,8 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-What ships, to whom, and when — and equally, what does not. The boundary is the point of this
-document; a scope with nothing out of it has not been scoped.
+<!-- sflow:guidance What ships, to whom, and when — and equally, what does not. The boundary is the point of this document; a scope with nothing out of it has not been scoped. -->
 
 ## In this release
 
@@ -15,36 +14,35 @@ document; a scope with nothing out of it has not been scoped.
 
 ## Explicitly out
 
-What was considered and deliberately deferred, with the reason. This is the record that stops it
-being relitigated.
+<!-- sflow:guidance What was considered and deliberately deferred, with the reason. This is the record that stops it being relitigated. -->
 
 | Deferred | Reason | Revisit when |
 |---|---|---|
 
 ## Audience and rollout
 
-Who gets it, in what order, and how exposure is controlled.
+<!-- sflow:guidance Who gets it, in what order, and how exposure is controlled. -->
 
 | Stage | Audience | Exposure | Entry criteria | Exit criteria |
 |---|---|---|---|---|
 
 ## Dependencies
 
-What must land first, inside or outside this initiative.
+<!-- sflow:guidance What must land first, inside or outside this initiative. -->
 
 | Dependency | Owner | Needed by | Status | If late |
 |---|---|---|---|---|
 
 ## Release gates
 
-What must be true to ship. Each gate names the evidence that satisfies it.
+<!-- sflow:guidance What must be true to ship. Each gate names the evidence that satisfies it. -->
 
 | Gate | Evidence | Owner |
 |---|---|---|
 
 ## Communications
 
-Who needs to know what, and when — including support and operations.
+<!-- sflow:guidance Who needs to know what, and when — including support and operations. -->
 
 | Audience | Message | Timing | Owner |
 |---|---|---|---|

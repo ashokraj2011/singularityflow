@@ -1,8 +1,6 @@
 # Parent Solution Specification — {{workId}}
 
-This is the approved Epic-level contract used to allocate work to Stories and
-to perform the final cross-Story specification-to-code comparison. Keep
-`PSPEC-nnn` identifiers stable after approval.
+<!-- sflow:guidance This is the approved Epic-level contract used to allocate work to Stories and to perform the final cross-Story specification-to-code comparison. Keep `PSPEC-nnn` identifiers stable after approval. -->
 
 ## Outcome and scope
 
@@ -56,6 +54,4 @@ to perform the final cross-Story specification-to-code comparison. Keep
 
 ## Final validation contract
 
-The final Product Owner review classifies every `REQ-nnn`, `AC-nnn`,
-`PSPEC-nnn`, and Story specification clause as `matched`, `partial`, `missing`,
-`deviated`, or `unplanned`, against exact submitted source and evidence hashes.
+<!-- sflow:guidance The final Product Owner review classifies every `REQ-nnn`, `AC-nnn`, `PSPEC-nnn`, and Story specification clause as `matched`, `partial`, `missing`, `deviated`, or `unplanned`, against exact submitted source and evidence hashes. -->

@@ -1,7 +1,7 @@
 /**
  * Test runs keep their machine state out of the developer's home.
  *
- * scripts/test-machine-state.mjs lists the variable that redirects every machine-wide location. The
+ * src/machine-state-locations.mjs lists the variable that redirects every machine-wide location. The
  * sweep below finds each `~/.singularity-flow` default in the shipped sources and requires one of
  * those variables to guard it, so a new default cannot quietly send test fixtures home. The child
  * run proves the redirect where the leak was seen: a session listing under a sentinel HOME. The
@@ -72,11 +72,12 @@ test('every home-directory default for machine state is redirected by the suite 
     return !(PRODUCT_LIFECYCLE_FILES.has(relative) && !variables.length && (segment == null || segment === 'installations'));
   });
   assert.deepEqual(unredirected.map(({ location, variables }) => `${location} ${variables.join(' ') || '(no variable)'}`), [],
-    'Add the variable that redirects each location to scripts/test-machine-state.mjs, or give it one.');
+    'Add the variable that redirects each location to src/machine-state-locations.mjs, or give it one.');
 });
 
 test('every redirect variable is still read by the shipped sources', async () => {
-  const text = (await shippedSources()).map((source) => source.text).join('\n');
+  // The list itself names every variable; a variable only it names is read by nobody.
+  const text = (await shippedSources()).filter((source) => source.relative !== 'src/machine-state-locations.mjs').map((source) => source.text).join('\n');
   const named = new Set([...text.matchAll(NAMED_VARIABLE)].map((match) => match[2]));
   const unread = Object.keys(MACHINE_STATE_LOCATIONS)
     .filter((variable) => !named.has(variable) && !new RegExp(`\\b${variable}\\b`).test(text));

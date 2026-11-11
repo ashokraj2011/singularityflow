@@ -303,8 +303,11 @@ export function agentAct(result) {
   if (result.resultType === 'sflow-kept-result') {
     if (result.status === 'running') return { state: 'wait', do: { reason: 'Read the result once the command ends.', copilot: null, shell: result.retry ?? null, vscode: null },
       said: oneLine(`Still running: ${(result.running ?? []).map((entry) => entry.command).join('; ')}. Run this same read again; never run the command itself again.`) };
-    if (result.status === 'interrupted') return { state: 'next', do: null,
-      said: oneLine(`${result.interrupted?.command ?? 'The command'} ended without a result (interrupted or killed). Run it again once, with --for-agent --json.`) };
+    // "Run it again once" replayed a publication a host had killed after it committed, against every "never replay"
+    // (agent-text audit, 2026-11-11): read where it left things first.
+    if (result.status === 'interrupted') return { state: 'read',
+      do: result.safeRead ? { reason: 'Read where the command left things before any rerun.', copilot: null, shell: result.safeRead, vscode: null } : null,
+      said: oneLine(`${result.interrupted?.command ?? 'The command'} ended without a result (interrupted or killed). ${result.safeRead ? 'Run do.shell to read where it left things' : 'Read where it left things with nextsteps'}; run the command again once, with --for-agent --json, only if that read shows it took no effect.`) };
     // Nothing kept for the command that was cut: its own safe read, never another command's result or a repeat of a mutation.
     if (result.status === 'none' && result.safeRead) return { state: 'read', do: { reason: 'Read where the command left things; never run it again.', copilot: null, shell: result.safeRead, vscode: null },
       said: oneLine(`No result is kept for ${result.command ?? 'that command'}. Run do.shell to read where it left things; never run the command itself again.`) };

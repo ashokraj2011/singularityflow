@@ -3319,6 +3319,10 @@ async function validateStudioCandidate(sources, files, inspect = null) {
   const after = { story: readCandidate(WORKFLOW_PATH, before.story), initiative: readCandidate(PORTFOLIO_PATH, before.initiative) };
   const afterAgents = new Map(sources.agents.map((agent) => [agent.id, agent]));
   for (const file of files.filter((entry) => entry.path.startsWith('.github/agents/'))) {
+    if (file.after == null) {
+      for (const [id, agent] of afterAgents) if (agent.relative === file.path || agent.source === file.path) afterAgents.delete(id);
+      continue;
+    }
     const parsed = parseAgentDependencies(asText(file.after), { source: file.path });
     afterAgents.set(parsed.id, parsed);
   }
@@ -3326,9 +3330,9 @@ async function validateStudioCandidate(sources, files, inspect = null) {
     { beforeAgents: sources.agents, afterAgents: [...afterAgents.values()], files });
   const { validateConfigurationCandidates } = await import('./editor.mjs');
   const definition = sources.definition ?? { templatesRoot: sources.templatesRoot };
-  // A removed file stays in the copy validation reads, so the attachments file is checked empty.
-  await validateConfigurationCandidates(sources.configRoot, files.filter((file) => file.after != null || file.path === SKILL_ATTACHMENTS_PATH)
-    .map((file) => ({ path: file.path, content: file.after == null ? 'attachments: []\n' : asText(file.after) })), definition, sources.portfolio, { inspect });
+  // A removed file is removed from the copy validation reads (content null); the attachments file is checked empty.
+  await validateConfigurationCandidates(sources.configRoot, files.map((file) => ({ path: file.path,
+    content: file.after == null ? (file.path === SKILL_ATTACHMENTS_PATH ? 'attachments: []\n' : null) : asText(file.after) })), definition, sources.portfolio, { inspect });
 }
 
 export function readStudioChangeSet(text) {

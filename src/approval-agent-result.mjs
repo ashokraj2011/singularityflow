@@ -15,7 +15,8 @@ export function approvalAgentResult(result) {
       reviewPacketSha256: result.data?.reviewPacketSha256,
       artifactSetSha256: result.data?.artifactSetSha256 },
     finalCheck: result.data?.finalCheck ?? null,
-    warnings: result.data?.selfApproval === true ? ['Self-approval is not independent review.'] : [],
+    // Said plainly: "recorded under quality-reviewers, but self-approved" read as a fault (anu-bin, 2026-11-11).
+    warnings: result.data?.selfApproval === true ? ['You approved a step you also worked on. This Story allows it, but it is not independent review.'] : [],
     personalization: result.data?.personalization,
     next: [safeCommandGuidance('singularity-flow nextsteps --json')] };
 }

@@ -567,7 +567,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-resolution.mjs) [Story cplus, 2026-11-11]. No new eager file.
     // 9,588,500 (measured 9,588,487, commands/phase-lifecycle.mjs): the clarification reply file's exact shape on every
     // route that records replies (phase-staging-paths.mjs, clarifications.mjs, phase-entry-authoring.mjs) [Story anu-bin]. No new eager file.
-    assert.ok(closure.bytes <= 9_588_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,588,900 (measured 9,588,868, commands/phase-lifecycle.mjs): a reviewer started after publication is waited for, not
+    // relayed (agent-output.mjs), a mistyped review binding gets its exact values (refusal-remediation.mjs), and a planned
+    // file short only of its binding is the author's to bind (phase-finding-policy.mjs) [Story anu-bin]. No new eager file.
+    assert.ok(closure.bytes <= 9_588_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

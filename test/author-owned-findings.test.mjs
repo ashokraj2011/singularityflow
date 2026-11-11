@@ -83,3 +83,21 @@ test('a runner held back by another delivery finding is blocked, not missing, an
     blockedBy: ['CODE_DELIVERY_TEST_COMMAND_REQUIRED'] });
   assert.equal(missing.runnerStatus, 'unavailable');
 });
+
+test('a changed file the plan names for a clause, short only of its binding, is the author\'s to bind (Story anu-bin, 2026-11-11)', () => {
+  // The live finding: StandardKeypad.jsx carries the BIN key the plan put there, without REQ-001's binding. Classed a
+  // person's scope review, the code step fixed nothing and handed the person a Node pin decision instead.
+  const coverage = (unclaimedChangedPaths) => ({ code: 'code.delivery.incomplete', category: 'code-delivery',
+    details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE', coverage: { unimplemented: ['ANU-BIN:REQ-001'], unclaimedChangedPaths,
+      invalidEvidence: [], withdrawnButClaimed: [] },
+    claimGaps: [{ clauseId: 'ANU-BIN:REQ-001', verdict: 'partial', missingSourcePaths: [],
+      missingSourceBindings: ['src/components/StandardKeypad.jsx'], missingTestPaths: [], missingConfigurationPaths: [] }] } });
+  const planned = phaseFindingPolicy(coverage(['src/components/StandardKeypad.jsx']));
+  assert.equal(planned.repair, 'owned-author');
+  assert.equal(planned.repairableByProducer, true);
+  // A change the plan does not name for any clause is still a person's scope review.
+  const other = phaseFindingPolicy(coverage(['src/components/StandardKeypad.jsx', 'src/unplanned.js']));
+  assert.equal(other.repair, 'scope-or-evidence-review');
+  assert.equal(other.repairableByProducer, false);
+  assert.equal(other.riskEligible, false, 'never an accepted risk while a change is unclaimed');
+});

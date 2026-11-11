@@ -141,7 +141,10 @@ export function phaseFindingPolicy(finding) {
   } else if (code === 'SPEC_COVERAGE_INCOMPLETE') {
     classification = 'quality';
     const coverage = finding.details?.coverage;
-    repair = coverage?.invalidEvidence?.length || coverage?.unclaimedChangedPaths?.length
+    // A changed file the plan names for a clause, short only of its binding, is the author's to bind; that binding
+    // is what claims it. Any other unclaimed change is still a person's scope review (Story anu-bin, 2026-11-11).
+    const planned = new Set((finding.details?.claimGaps ?? []).flatMap((gap) => gap.missingSourceBindings ?? []));
+    repair = coverage?.invalidEvidence?.length || (coverage?.unclaimedChangedPaths ?? []).some((file) => !planned.has(file))
       || coverage?.withdrawnButClaimed?.length ? 'scope-or-evidence-review' : 'owned-author';
     riskEligible = !(coverage?.invalidEvidence?.length || coverage?.unclaimedChangedPaths?.length
       || coverage?.withdrawnButClaimed?.length)

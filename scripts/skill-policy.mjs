@@ -60,7 +60,7 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * own chat, as a sub-agent (review-subagent.mjs). Engine-owned like the approved-inputs contract it follows, and
  * counted with it: fixed overhead on the skills that author and publish, not per-skill prose.
  */
-export const REVIEW_SUBAGENT_CONTRACT = 'A publication returning `reviewSubagent` is reviewed next: start that reviewer as a sub-agent here, as its `instruction` says (no sub-agent tool: its new-chat route); never review, retain or submit it yourself.';
+export const REVIEW_SUBAGENT_CONTRACT = 'A publication returning `reviewSubagent` is reviewed next: start that reviewer as a sub-agent here, in the foreground, as its `instruction` says (no sub-agent tool: its new-chat route); relay no route while it runs, and ask a code offer only after a ready review; never review, retain or submit it yourself.';
 
 /**
  * Read `act` first; a long result is bounded, never lost. `[large-output]` `[agent-output]`

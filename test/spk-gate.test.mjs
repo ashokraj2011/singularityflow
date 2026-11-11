@@ -34,6 +34,18 @@ import {
 
 const ACTOR = { name: 'Gate Driver', email: 'gate@example.invalid', login: null };
 
+// A Story pins the owner-step checks at start, so approving the scope step first asks for each source
+// statement's disposition [PHR:REQ-002]. A person records it here; what these tests check comes after.
+async function dispositionScope(root, config, workflow) {
+  const { previewScopeInventory } = await import('../src/evidence/graph.mjs');
+  const { recordScopeDecision } = await import('../src/scope/decisions.mjs');
+  const inventory = await previewScopeInventory(root, config, workflow);
+  for (const item of (inventory?.items ?? []).filter((entry) => entry.disposition === 'unresolved')) {
+    recordScopeDecision(workflow, { item: item.id, disposition: 'excluded', reason: 'Outside what this approval test checks.',
+      actor: ACTOR.email, authorityGroup: 'product-approvers', at: '2026-11-11T00:00:00.000Z', inventory, knownClauseIds: [] });
+  }
+}
+
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(' ')} failed`);
@@ -404,6 +416,7 @@ test('an approval without its checklist is not an approval', async () => {
     await createStoryReviewPacket(root, config, workflow, workflow.phases.specification);
     git(root, 'add', '.');
     git(root, 'commit', '-m', '[DRIVE-1][phase:specification][submit] immutable review evidence');
+    await dispositionScope(root, config, workflow);
 
     const submittedArtifact = path.join(
       root, 'singularity', 'work-items', 'DRIVE-1',
@@ -514,6 +527,7 @@ test('approval checklist opt-out leaves no articles to decide or submit', async 
     await createStoryReviewPacket(root, config, workflow, workflow.phases.specification);
     git(root, 'add', '.');
     git(root, 'commit', '-m', '[DRIVE-1][phase:specification][submit] immutable review evidence');
+    await dispositionScope(root, config, workflow);
     await assert.rejects(
       () => approvePhase(root, config, workflow, {
         phaseId: 'specification', checklist: [{ article: 'completeness', decision: 'satisfied' }],

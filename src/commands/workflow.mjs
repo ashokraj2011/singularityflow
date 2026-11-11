@@ -36,6 +36,7 @@ export async function run(argv, { positionals, options }) {
   if (method === 'check') return (await import('./workflow-check.mjs')).run(argv, { positionals, options });
   if (method === 'validate') return (await import('./workflow-validate.mjs')).run(argv, { positionals, options });
   if (method === 'walk') return (await import('./workflow-walk.mjs')).run(argv, { positionals, options });
+  if (method === 'fix') return (await import('./workflow-fix.mjs')).run(argv, { positionals, options });
   if (method === 'build') return (await import('./workflow-build.mjs')).run(argv, { positionals, options });
   if (!['proposals', 'proposal'].includes(method)) return (await import('./legacy.mjs')).run(argv);
   const root = repoRoot();

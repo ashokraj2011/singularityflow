@@ -662,7 +662,7 @@ const RANK = Object.freeze({
   'constitution.policy': 7.4, 'constitution.set': 7.5,
   'phase.agent': 8, 'agent.update': 9, 'skill.attach': 9.5, 'skill.detach': 9.5,
   'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11, 'skill.remove': 11.1,
-  'integration.target.remove': 11.5
+  'integration.target.remove': 11.5, 'agent.remove': 11.05
 });
 
 /** A step's after-step actions as the page sends them: the written shape, checked for form only. */
@@ -1058,6 +1058,7 @@ class StudioCandidate {
       case 'group.update': return this.updateGroup(change);
       case 'agent.create': return this.createAgent(change);
       case 'agent.update': return this.updateAgent(change);
+      case 'agent.remove': return this.removeAgent(change);
       case 'userAgent.add': return this.addUserDefinedAgent(change);
       case 'userAgent.update': return this.replaceUserDefinedAgent(change);
       case 'workflow.install': return this.installBlueprint(change);
@@ -2185,9 +2186,15 @@ class StudioCandidate {
     this.summary.push(`User-defined agent ${label}: its folder replaced (${files.length} file${files.length === 1 ? '' : 's'}${removed ? `, ${removed} removed` : ''}); its step and workflow are unchanged, and running Stories keep the folder they started with.`);
   }
 
-  updateAgent({ id, label, description, tools, views, instructions }) {
+  updateAgent({ id, label, description, tools, views, instructions, phases }) {
     const agent = this.touch(this.requireAgent(requireId(id, 'An agent ID')));
     if (label != null) agent.label = requireLabel(label, 'The agent');
+    if (phases != null) {
+      // The steps it may draft (sflow-phases); it stops drafting by default any step it no longer lists.
+      if (!Array.isArray(phases) || !phases.length) throw new SingularityFlowError(`${agent.label} lists at least one step it may draft.`, { code: 'STUDIO_AGENT_INVALID' });
+      agent.phases = [...new Set(phases.map((phase) => requireId(phase, 'A step ID')))];
+      agent.defaultFor = agent.defaultFor.filter((phase) => agent.phases.includes(phase));
+    }
     if (description != null) agent.description = String(description).replace(/\s+/g, ' ').trim() || agent.description;
     if (tools != null) agent.tools = [...new Set(tools.map(String).filter(Boolean))];
     if (views != null) agent.views = [...new Set(views.map(String).filter(Boolean))];
@@ -2204,6 +2211,35 @@ class StudioCandidate {
       }
     }
     this.summary.push(`Agent ${agent.label} updated.`);
+  }
+
+  /**
+   * An agent file this repository wrote, taken away. Refused while it drafts a step, reviews a
+   * workflow, holds an MCP server, belongs to a framework workflow, or came from an import (taken
+   * away with import.remove instead, so its ledger entry goes with it).
+   */
+  removeAgent({ id }) {
+    const agent = this.requireAgent(requireId(id, 'An agent ID'));
+    if (agent.scope !== 'repository' || agent.apm || this.protectedAgents.has(agent.id)) {
+      throw new SingularityFlowError(`${agent.label} is not an agent file this repository owns, so it is not removed here.`, { code: 'STUDIO_AGENT_IN_USE' });
+    }
+    if (Object.values(this.ledger.imports ?? {}).some((entry) => entry.kind === 'agent' && entry.target?.id === agent.id)) {
+      throw new SingularityFlowError(`${agent.label} was imported; remove it with its import (import.remove).`, { code: 'STUDIO_AGENT_IN_USE' });
+    }
+    if (agent.defaultFor.length) {
+      throw new SingularityFlowError(`${agent.label} still drafts ${agent.defaultFor.map((step) => this.phaseLabel(step)).join(', ')}; choose other agents for those steps first.`, { code: 'STUDIO_AGENT_IN_USE' });
+    }
+    const reviews = Object.entries(this.content.workTypes ?? {}).filter(([, type]) => type?.sourceReview?.reviewerAgent === agent.id).map(([workflowId]) => workflowId);
+    if (reviews.length) throw new SingularityFlowError(`${agent.label} reviews ${reviews.join(', ')}; name another reviewer there first.`, { code: 'STUDIO_AGENT_IN_USE' });
+    const servers = Object.entries(this.content.mcpServers ?? {}).filter(([, server]) => (server?.agents ?? []).includes(agent.id)).map(([serverId]) => serverId);
+    if (servers.length) throw new SingularityFlowError(`${agent.label} is still assigned MCP server(s) ${servers.join(', ')}; unassign them first.`, { code: 'STUDIO_AGENT_IN_USE' });
+    this.agents.delete(agent.id);
+    if (!agent.created) this.removedAgents.add(agent.relative);
+    if (this.lock.agents?.[agent.id]) { delete this.lock.agents[agent.id]; this.lockChanged = true; }
+    if (this.attachments.some((attachment) => attachment.agent === agent.id)) {
+      this.setFileAttachments(this.attachments.filter((attachment) => attachment.agent !== agent.id));
+    }
+    this.summary.push(`Agent ${agent.label} removed.`);
   }
 
   async installBlueprint({ id }) {
@@ -2508,23 +2544,24 @@ class StudioCandidate {
       else if (this.document.hasIn([...scope, 'qualityCommands'])) this.document.deleteIn([...scope, 'qualityCommands']);
       changed.push('checks');
     }
-    if (clarification != null) {
+    // The whole clarification policy (mode, maxQuestions, topics, markers), as `clarificationPolicy` (the
+    // builder's step.clarify) or as a `clarification` object (workflow fix), checked by the loader's own
+    // rule. Like sign-off and inputs, a shared step gets it for the named workflow only, so the questions
+    // another workflow asks at the same step stay as they are; an override replaces the step's own policy.
+    const policy = clarificationPolicy ?? (isObject(clarification) ? clarification : null);
+    if (policy != null) {
+      if (typeof policy !== 'object' || Array.isArray(policy)) {
+        throw new SingularityFlowError(`The clarifying questions of ${name} are { mode, maxQuestions, topics, markers }.`, { code: 'STUDIO_CLARIFICATION_INVALID' });
+      }
+      try { normalizeClarificationPolicy(policy); }
+      catch (error) { throw new SingularityFlowError(`The clarifying questions of ${name}: ${error.message}`, { code: 'STUDIO_CLARIFICATION_INVALID' }); }
+      const given = Object.fromEntries(['mode', 'maxQuestions', 'topics', 'markers'].filter((key) => policy[key] !== undefined).map((key) => [key, structuredClone(policy[key])]));
+      this.document.setIn([...scopeFor('clarification'), 'clarification'], this.document.createNode(given));
+      changed.push('questions');
+    } else if (clarification != null) {
       if (!CLARIFICATION_MODES.some((mode) => mode.id === clarification)) throw new SingularityFlowError('Clarifying questions are off, when-needed or required.', { code: 'STUDIO_CLARIFICATION_INVALID' });
       if (clarification === 'off') this.document.deleteIn(['phases', phaseId, 'clarification']);
       else this.document.setIn(['phases', phaseId, 'clarification'], this.document.createNode({ mode: clarification }));
-      changed.push('questions');
-    }
-    // The whole clarification policy (mode, maxQuestions, topics, markers), checked by the loader's own
-    // rule. Like sign-off and inputs, a shared step gets it for the named workflow only, so the questions
-    // another workflow asks at the same step stay as they are; an override replaces the step's own policy.
-    if (clarificationPolicy != null) {
-      if (typeof clarificationPolicy !== 'object' || Array.isArray(clarificationPolicy)) {
-        throw new SingularityFlowError(`The clarifying questions of ${name} are { mode, maxQuestions, topics, markers }.`, { code: 'STUDIO_CLARIFICATION_INVALID' });
-      }
-      try { normalizeClarificationPolicy(clarificationPolicy); }
-      catch (error) { throw new SingularityFlowError(`The clarifying questions of ${name}: ${error.message}`, { code: 'STUDIO_CLARIFICATION_INVALID' }); }
-      const given = Object.fromEntries(['mode', 'maxQuestions', 'topics', 'markers'].filter((key) => clarificationPolicy[key] !== undefined).map((key) => [key, structuredClone(clarificationPolicy[key])]));
-      this.document.setIn([...scopeFor('clarification'), 'clarification'], this.document.createNode(given));
       changed.push('questions');
     }
     if (template !== undefined) {
@@ -2553,7 +2590,7 @@ class StudioCandidate {
       changed.push('artifact set');
     }
     if (artifactFile !== undefined && artifactFile !== null) { this.nameArtifactFile(phaseId, artifactFile, name); changed.push('file'); }
-    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || clarificationPolicy != null || authoringSkill !== undefined || afterStep !== undefined || template !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
+    if (changed.length) this.summary.push(`${label ?? name}: ${changed.join(', ')} changed${shared && workflow && (inputs != null || approval != null || clarificationPolicy != null || isObject(clarification) || authoringSkill !== undefined || afterStep !== undefined || template !== undefined) ? ` for ${this.content.workTypes?.[workflow]?.label ?? workflow} only` : ''}.`);
     const droppedLine = this.droppedSkillLine(phaseId, label ?? name, dropped);
     if (droppedLine) this.summary.push(droppedLine);
   }
@@ -2621,7 +2658,7 @@ class StudioCandidate {
     this.summary.push(`New workflow ${name}${copied ? `, a copy of ${copied}` : ''}: ${ids.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  updateWorkflow({ id, label, description, phases, reworkLoops, decisions, plannedClaims }) {
+  updateWorkflow({ id, label, description, phases, reworkLoops, decisions, plannedClaims, sourceReview, omits }) {
     const workflowId = requireId(id, 'A workflow ID');
     const current = this.content.workTypes?.[workflowId];
     if (!current) throw new SingularityFlowError(`There is no workflow '${workflowId}'.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
@@ -2689,6 +2726,19 @@ class StudioCandidate {
         this.document.setIn(['workTypes', workflowId, 'plannedClaims'], this.document.createNode({ mode: 'required', clausePhases, owners }));
       }
       changed.push('planned claims');
+    }
+    // Written as authored, or taken away with null; the whole candidate is validated afterwards, so an
+    // unknown field, step or reviewer is refused with the engine's own message.
+    for (const [field, value, words] of [['sourceReview', sourceReview, 'review of each step'], ['omits', omits, 'responsibilities it leaves out']]) {
+      if (value === undefined) continue;
+      if (value === null || (Array.isArray(value) && !value.length)) {
+        if (this.document.hasIn(['workTypes', workflowId, field])) this.document.deleteIn(['workTypes', workflowId, field]);
+      } else if (field === 'sourceReview' ? isObject(value) : Array.isArray(value)) {
+        this.document.setIn(['workTypes', workflowId, field], this.document.createNode(structuredClone(value)));
+      } else {
+        throw new SingularityFlowError(`${name}'s ${words} must be ${field === 'sourceReview' ? 'a map' : 'a list'}.`, { code: 'STUDIO_WORKFLOW_INVALID' });
+      }
+      changed.push(words);
     }
     this.workflows.set(workflowId, { newlyCreated: this.workflows.get(workflowId)?.newlyCreated ?? false });
     if (changed.length) this.summary.push(`${name}: ${changed.join(', ')} changed.`);
@@ -3284,6 +3334,10 @@ async function validateStudioCandidate(sources, files, inspect = null) {
   const after = { story: readCandidate(WORKFLOW_PATH, before.story), initiative: readCandidate(PORTFOLIO_PATH, before.initiative) };
   const afterAgents = new Map(sources.agents.map((agent) => [agent.id, agent]));
   for (const file of files.filter((entry) => entry.path.startsWith('.github/agents/'))) {
+    if (file.after == null) {
+      for (const [id, agent] of afterAgents) if (agent.relative === file.path || agent.source === file.path) afterAgents.delete(id);
+      continue;
+    }
     const parsed = parseAgentDependencies(asText(file.after), { source: file.path });
     afterAgents.set(parsed.id, parsed);
   }
@@ -3291,9 +3345,9 @@ async function validateStudioCandidate(sources, files, inspect = null) {
     { beforeAgents: sources.agents, afterAgents: [...afterAgents.values()], files });
   const { validateConfigurationCandidates } = await import('./editor.mjs');
   const definition = sources.definition ?? { templatesRoot: sources.templatesRoot };
-  // A removed file stays in the copy validation reads, so the attachments file is checked empty.
-  await validateConfigurationCandidates(sources.configRoot, files.filter((file) => file.after != null || file.path === SKILL_ATTACHMENTS_PATH)
-    .map((file) => ({ path: file.path, content: file.after == null ? 'attachments: []\n' : asText(file.after) })), definition, sources.portfolio, { inspect });
+  // A removed file is removed from the copy validation reads (content null); the attachments file is checked empty.
+  await validateConfigurationCandidates(sources.configRoot, files.map((file) => ({ path: file.path,
+    content: file.after == null ? (file.path === SKILL_ATTACHMENTS_PATH ? 'attachments: []\n' : null) : asText(file.after) })), definition, sources.portfolio, { inspect });
 }
 
 export function readStudioChangeSet(text) {

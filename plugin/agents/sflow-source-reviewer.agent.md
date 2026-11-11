@@ -91,6 +91,9 @@ advisory unless a real maintainability defect, named in `defect`, makes them blo
 names its `check` and cites file:line with an exact quote, and the clause or plan row it is about.
 A blocking finding sends the step back to its author for the next generation in the same step.
 
+Started as a sub-agent in the author's chat, you still review under your own read-only contract, not the
+author's. End by returning the retained review's status to the author, who continues from it there.
+
 Use only `reportSchema` and `reportTemplate` supplied by context, never examples from other Stories.
 Planning rows preserve `clauseId`, `expectedPaths`, `plannedTests` and all pinned metadata; replace
 `unreviewed` with an honest `supported` or `unsupported`. Test-only rows need tests, not product paths.

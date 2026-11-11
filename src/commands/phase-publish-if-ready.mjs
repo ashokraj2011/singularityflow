@@ -41,12 +41,18 @@ export function personAuthoredPublication(argv) {
   return Boolean(argv) && !['governed-agent', 'deterministic'].includes(authored);
 }
 
-/** Review is the next human handoff for code; keep the canonical lifecycle route alongside it. */
-export function afterPublication(published, shown) {
-  const lifecycle = nextAfterStep(shown, 'Published.');
+/**
+ * Review is the next human handoff for code; keep the canonical lifecycle route alongside it. A step that owes its
+ * independent review hands the author's turn `reviewSubagent` (review-subagent.mjs): its reviewer starts as a
+ * sub-agent in this chat, and its lifecycle route (the review in a new chat) stays the fallback.
+ */
+export function afterPublication(published, shown, reviewSubagent = null) {
+  const route = nextAfterStep(shown, 'Published.');
+  const lifecycle = reviewSubagent ? { ...route, instruction: `Published. ${reviewSubagent.instruction}` } : route;
+  const review = reviewSubagent ? { reviewSubagent } : {};
   const offer = published?.outcomeReview;
-  if (!offer) return { next: lifecycle };
-  return { outcomeReview: offer, afterReview: lifecycle, next: {
+  if (!offer) return { ...review, next: lifecycle };
+  return { outcomeReview: offer, afterReview: lifecycle, ...review, next: {
     instruction: `Published. ${offer.instruction} Show this next action with its Copilot, Shell and VS Code (model-free) routes.`,
     reason: offer.reason, commandGuidance: { command: offer.command, copilotCommand: offer.copilotCommand,
       modelFreeCommand: offer.modelFreeCommand ?? null }
@@ -63,6 +69,18 @@ export function withoutPublishOffer(prepublish) {
     ...(prepublish.commands ? { commands: { ...prepublish.commands, publish: null } } : {}),
     ...(prepublish.commandGuidance ? { commandGuidance: { ...prepublish.commandGuidance, publish: null } } : {}),
     ...(handoff?.command ? { testExecution: { ...prepublish.testExecution, handoff: { ...handoff, command: null } } } : {}) };
+}
+
+/** The reviewer to start as a sub-agent when the published step's next action is its review; null otherwise. */
+async function reviewerHandoff(shown, phaseId) {
+  if (shown?.continuation?.nextCommand !== `singularity-flow review-source context ${phaseId} --json`) return null;
+  try {
+    const [{ loadAcceptedStoryExecution }, { repoRoot }, { reviewSubagentHandoff }] = await Promise.all([
+      import('../accepted-story-execution.mjs'), import('../git.mjs'), import('../review-subagent.mjs')]);
+    const { workflow } = await loadAcceptedStoryExecution(repoRoot(), shown.workId ?? null);
+    return reviewSubagentHandoff({ workId: workflow.workItem.id, phase: phaseId,
+      generation: Number(workflow.phases?.[phaseId]?.generation ?? 0), reviewerAgent: workflow.resolution?.sourceReview?.reviewerAgent });
+  } catch { return null; }
 }
 
 export async function run({ positionals, options }) {
@@ -90,7 +108,7 @@ export async function run({ positionals, options }) {
   const shown = await step(['phase', 'show', phaseId, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');
   // First, with what follows: the prepublish fields after it describe the draft before publication.
-  const after = afterPublication(published.value, shown.value);
+  const after = afterPublication(published.value, shown.value, await reviewerHandoff(shown.value, phaseId));
   // What the findings loop let through is the person's to hear in this reply [CQF:REQ-043].
   if (published.value?.qualityFindings?.words && after.next?.instruction) {
     after.next = { ...after.next, instruction: `${after.next.instruction} Also say, as written: ${published.value.qualityFindings.words}` };

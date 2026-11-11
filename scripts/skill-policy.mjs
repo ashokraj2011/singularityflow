@@ -56,6 +56,13 @@ export const APPROVED_INPUTS_CONTRACT = 'Approved phase inputs are the earlier s
 export const approvedInputsContractApplies = (contract) => contract === 'clarification-and-artifact';
 
 /**
+ * Every authored step of a new Story is reviewed [review level 2], and the author's turn starts that review in its
+ * own chat, as a sub-agent (review-subagent.mjs). Engine-owned like the approved-inputs contract it follows, and
+ * counted with it: fixed overhead on the skills that author and publish, not per-skill prose.
+ */
+export const REVIEW_SUBAGENT_CONTRACT = 'A publication returning `reviewSubagent` is reviewed next: start that reviewer as a sub-agent here, as its `instruction` says (no sub-agent tool: its new-chat route); never review, retain or submit it yourself.';
+
+/**
  * Read `act` first; a long result is bounded, never lost. `[large-output]` `[agent-output]`
  *
  * Copilot keeps a long tool result in a file and shows the model only its start, or saves it
@@ -503,7 +510,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalContract ? ` ${refusalContract}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT}` : ''}${completeOutput ? ` ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT} ${REVIEW_SUBAGENT_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalContract ? ` ${refusalContract}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT}` : ''}${completeOutput ? ` ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = `${executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)))} ${CLI_PATH_CONTRACT}`;
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -753,8 +760,10 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
         ? domainBodyTokens - estimatedTokens(domainBody.replace(applicabilityText, '')) : estimatedTokens(applicabilityText);
     const approvedInputs = approvedInputsContractApplies(classPolicy.outputContract);
     // Measured in this body, so rounding a separate estimate never moves the skill's own prose count.
-    const approvedInputsTokens = approvedInputs && domainBody.includes(` ${APPROVED_INPUTS_CONTRACT}`)
-      ? domainBodyTokens - estimatedTokens(domainBody.replace(` ${APPROVED_INPUTS_CONTRACT}`, '')) : 0;
+    const approvedInputsText = domainBody.includes(` ${APPROVED_INPUTS_CONTRACT} ${REVIEW_SUBAGENT_CONTRACT}`)
+      ? ` ${APPROVED_INPUTS_CONTRACT} ${REVIEW_SUBAGENT_CONTRACT}` : ` ${APPROVED_INPUTS_CONTRACT}`;
+    const approvedInputsTokens = approvedInputs && domainBody.includes(approvedInputsText)
+      ? domainBodyTokens - estimatedTokens(domainBody.replace(approvedInputsText, '')) : 0;
     const pauseGuard = copilotPauseGuardForSkill(name, executionBoundaryKind);
     const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
     const gatewayTools = gatewayToolsApplies(rule);
@@ -819,6 +828,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     }
     if (approvedInputs !== skill.body.includes(APPROVED_INPUTS_CONTRACT)) {
       errors.push(`${name}: ${approvedInputs ? 'missing' : 'unexpected'} engine approved-inputs contract`);
+    }
+    if (approvedInputs !== skill.body.includes(REVIEW_SUBAGENT_CONTRACT)) {
+      errors.push(`${name}: ${approvedInputs ? 'missing' : 'unexpected'} engine review sub-agent contract`);
     }
     for (const message of artifactPresentationContractErrors(skill.body)) errors.push(`${name}: ${message}`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);

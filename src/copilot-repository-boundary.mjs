@@ -161,7 +161,7 @@ async function notePlainChatPrompt(payload, { skill, paused, now }) {
   } catch { return null; }
 }
 
-async function recordTurn(payload, { now = Date.now(), captureMutation = null }) {
+async function recordTurn(payload, { now = Date.now(), captureMutation = null, reviewerSubagent = false }) {
   await removeRecord(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER))
     .catch(() => {});
   await settleObservedEdits(payload).catch(() => {});
@@ -182,10 +182,15 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   const file = recordPath(payload);
   if (!file) return {};
   const mode = readCopilotMode();
-  await attribute(payload, (recorder, directory) => recorder.sfGuardNotePrompt(payload, { directory, paused: mode.paused,
+  // A reviewer sub-agent's own turn (review-subagent.mjs) is recorded by SFlow, not typed: no prompt of it is noted.
+  if (!reviewerSubagent) await attribute(payload, (recorder, directory) => recorder.sfGuardNotePrompt(payload, { directory, paused: mode.paused,
     explicitSkill: explicitSflowSkill(payload.prompt), now }), { always: true });
+  // A sub-agent's task text is written by the turn that started it: it never starts, replaces or ends that turn. A
+  // sub-agent with a session of its own (hosts name the author's as parentAgentId) records its own turn as usual.
+  if ([payload.agentId, payload.agent_id].some((value) => value != null && value !== '')
+      && [payload.parentAgentId, payload.parent_agent_id, sessionId(payload)].filter(Boolean)[0] === sessionId(payload)) return {};
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
-  const noted = await notePlainChatPrompt(payload, { skill, paused: mode.paused, now });
+  const noted = reviewerSubagent ? null : await notePlainChatPrompt(payload, { skill, paused: mode.paused, now });
   if (noted?.decision === 'block') {
     // The prompt never reaches the model (Copilot CLI and VS Code): no turn of it, and none left from before.
     await removeRecord(file);
@@ -222,6 +227,12 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null })
   return captured ?? {};
 }
 
+/** A reviewer sub-agent started in an author's chat is checked under its own review turn (review-subagent.mjs). */
+async function ownTurnPayload(payload) {
+  if (!payload || [payload.agentId, payload.agent_id].every((value) => value == null || value === '')) return payload;
+  return (await import('./review-subagent.mjs')).reviewerSubagentPayload(payload, path.join(path.dirname(copilotModeFile()), 'copilot-boundaries'));
+}
+
 export async function endRepositoryBoundaryTurn(payload = {}) {
   await settleObservedEdits(payload).catch(() => {});
   await attribute(payload, (recorder, directory) => recorder.sfGuardEndSession(payload, { directory }));
@@ -240,6 +251,7 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
  * secret runs nothing [PCR:REQ-003].
  */
 export async function repositoryToolGuard(payload = {}) {
+  payload = await ownTurnPayload(payload);
   const explicitTurn = await hasBoundaryTurn(payload);
   const decision = await secretInPrompt(payload) ?? (explicitTurn ? await turnToolGuard(payload) : await plainChatGuard(payload));
   if (explicitTurn && decision.permissionDecision === 'deny') await (await import('./copilot-review-completion.mjs'))
@@ -261,6 +273,7 @@ async function turnToolGuard(payload) {
 }
 
 export async function repositoryPostToolGuard(payload = {}) {
+  payload = await ownTurnPayload(payload);
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolResult(payload, { directory }));
   if (!(await hasBoundaryTurn(payload))) return {};
   try { return await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
@@ -268,10 +281,12 @@ export async function repositoryPostToolGuard(payload = {}) {
 }
 
 export async function repositoryAgentStop(payload = {}) {
+  payload = await ownTurnPayload(payload);
   return (await import('./copilot-review-completion.mjs')).workflowTaskAgentStop(payload);
 }
 
 export async function repositoryToolFailure(payload = {}) {
+  payload = await ownTurnPayload(payload);
   return (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload);
 }
 

@@ -752,7 +752,18 @@ export function argvAllowed(argv, mode, value) {
     && [options.confirm, options['confirm-plan']].includes(value.confirmDigest)
     && !['approve', 'reject'].includes(positionals[0])
     && (!options['work-id'] || !value.contract || options['work-id'] === value.contract.workId);
+  // A step's review is staged and retained only in its reviewer's read-only turn (above), never by its author.
+  if (reviewRetention(positionals)) return false;
   return !['approve', 'reject'].includes(positionals[0]);
+}
+
+const reviewRetention = (positionals) => positionals[0] === 'review-source' && ['stage', 'submit'].includes(positionals[1]);
+const REVIEW_RETENTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a step\'s review is staged and retained only by its independent read-only reviewer, never by the turn that authored the step. Start that reviewer as a sub-agent in this chat (the publication\'s reviewSubagent), or run /sf-review-source <step> in a new chat; do not retry it here';
+
+/** A verified `review-source stage|submit`: the reviewer's own retention, refused in any other turn. */
+function reviewRetentionCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  return Boolean(safe) && reviewRetention(parseCli(safe.argv).positionals);
 }
 
 /**
@@ -1906,6 +1917,7 @@ async function mutationToolDecision(payload, record) {
         if (plannedActionExecution(call, value)) return mutationDenial(contract, PLANNED_ACTION_DENIAL, [], own());
         const hostOnly = hostOnlyDenial(call, value);
         if (hostOnly) return mutationDenial(contract, hostOnly);
+        if (reviewRetentionCall(call, value)) return mutationDenial(contract, REVIEW_RETENTION_DENIAL);
         if (publicationSetAsideCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting a waiting commit aside clears what SFlow would publish and moves the branch; the person who looked at it confirms it with the commit ID in their own terminal (the preview without --confirm may run here). Show the user the preview and the command, and stop; do not retry it', [], own());
         if (setAsideDecision(call, value)) return mutationDenial(contract,

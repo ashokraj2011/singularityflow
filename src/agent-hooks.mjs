@@ -88,6 +88,9 @@ export function governedAgentRouteHint(agent, workId = null) {
 // actions. Unknown Copilot agents are unrelated to Flow and produce no output or token overhead.
 export async function copilotAgentStartHook(root, payload = {}) {
   if (readCopilotMode().paused) return {};
+  // The Story's reviewer started as a sub-agent in an author's chat gets its own review turn there (review-subagent.mjs).
+  const reviewer = await (await import('./review-subagent.mjs')).reviewerSubagentStart(root, payload);
+  if (reviewer) return reviewer;
   const agentName = copilotAgentName(payload);
   if (!agentName) return {};
   const log = repositoryLogger(root, null, {

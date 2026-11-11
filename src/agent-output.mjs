@@ -425,7 +425,7 @@ export function agentAct(result) {
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.
   if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
-    read: result.publishIfReady?.published ? ['publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : []), ...(result.artifacts ? ['artifacts'] : [])]
+    read: result.publishIfReady?.published ? [...(result.publishIfReady.reviewSubagent ? ['publishIfReady.reviewSubagent'] : []), 'publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : []), ...(result.artifacts ? ['artifacts'] : [])]
       : ['submitIfReady.next', 'submitIfReady.result'],
     do: done.commandGuidance ? { reason: oneLine(done.reason), copilot: done.commandGuidance.copilotCommand ?? null,
       shell: done.commandGuidance.command ?? null, vscode: done.commandGuidance.modelFreeCommand ?? null } : null };

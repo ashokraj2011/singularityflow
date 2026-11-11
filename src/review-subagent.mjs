@@ -67,7 +67,10 @@ export function reviewSubagentHandoff({ workId, phase, generation, reviewerAgent
     agent: reviewerAgent, phase, generation, prompt, reviewStatus: status,
     instruction: `Start the independent reviewer of ${phase} generation ${generation} now, in this chat: run agent '${reviewerAgent}' as a sub-agent `
       + `with the task tool: agent_type '${reviewerAgent}', prompt '${prompt}' (VS Code's Copilot agent and the Copilot CLI alike). `
-      + `It reviews read-only and retains its report; do not review, edit or retain it yourself. When it returns, run ${status} once and follow its route here: `
+      // Started with mode 'background', the host said "tell the user you're waiting and end your response", and the
+      // author ended its turn on /sf-review-source while the reviewer ran (Story anu-bin, 2026-11-11).
+      + `Run it in the foreground and wait for its result (mode 'sync' where the tool has one, never 'background'); if a host starts it in the background anyway, wait for its completion notice. `
+      + `Its review is this turn's work: never end the turn or offer ${prompt} while it runs. It reviews read-only and retains its report; do not review, edit or retain it yourself. When it returns, run ${status} once and follow its route here: `
       + 'a correction opens the next generation of this step after the person confirms it; a ready review goes to submission. '
       + `No sub-agent tool: end with "Run this in a new chat:" and ${prompt}.`
   };

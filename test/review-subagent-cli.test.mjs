@@ -37,6 +37,9 @@ test('the handoff starts the pinned reviewer as a sub-agent in this chat, then r
   assert.match(handoff.instruction, /When it returns, run singularity-flow review-source status implement --work-id QF-1 --for-agent --json once and follow its route here/u);
   assert.match(handoff.instruction, /as a sub-agent with the task tool: agent_type 'sflow-source-reviewer', prompt '\/sf-review-source implement' \(VS Code's Copilot agent and the Copilot CLI alike\)/u);
   assert.match(handoff.instruction, /do not review, edit or retain it yourself/u);
+  // Started in the background, the author ended its turn on /sf-review-source while the reviewer ran (Story anu-bin, 2026-11-11).
+  assert.match(handoff.instruction, /Run it in the foreground and wait for its result \(mode 'sync' where the tool has one, never 'background'\)/u);
+  assert.match(handoff.instruction, /never end the turn or offer \/sf-review-source implement while it runs/u);
   assert.match(handoff.instruction, /a correction opens the next generation of this step after the person confirms it; a ready review goes to submission/u);
   assert.match(handoff.instruction, /No sub-agent tool: end with "Run this in a new chat:" and \/sf-review-source implement\.$/u);
   assert.equal(reviewSubagentHandoff({ workId: 'QF-1', phase: 'implement', generation: 2, reviewerAgent: 'Not An Id' }), null);
@@ -88,6 +91,9 @@ test('in the author\'s chat, the reviewer sub-agent reviews read-only under its 
   assert.equal(published.publishIfReady.next.instruction, `Published. ${handoff.instruction}`, 'the author is told to start it here, not in a new chat first');
   assert.equal(published.publishIfReady.next.commandGuidance.copilotCommand, '/sf-review-source intake', 'the new-chat route stays the fallback');
   assert.equal(agentAct(published).read[0], 'publishIfReady.reviewSubagent', 'the author reads the handoff first');
+  // No route to relay while the reviewer runs: the act says to start it and wait, not "Next: /sf-review-source".
+  assert.deepEqual([agentAct(published).state, agentAct(published).do], ['start-reviewer', null]);
+  assert.match(agentAct(published).said, /wait for its result in this turn/u);
 
   // The host starts it as the G0 probe saw (SPEC-SFG §1.1): subagentStart names the agent and the author's chat
   // (parentAgentId), and every sub-agent event runs under a session of its own. agent-start gives the pinned

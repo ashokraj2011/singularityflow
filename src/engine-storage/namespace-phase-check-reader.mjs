@@ -14,7 +14,7 @@ import {namespaceScope,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
-import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
+import {createNamespaceStoryObserver,memoNamespaceObservedEvidence} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
 import {createNamespacePhaseCheckCodec,phaseCheckRecord,phaseCheckRecordValue,phaseCheckEvidenceBinding,NAMESPACE_PHASE_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -25,9 +25,9 @@ const sourceValue=snapshot=>({projectId:snapshot.projectId,repositoryId:snapshot
 
 export function createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer:givenObserver}={}) {
   scope=namespaceScope(scope);const observer=givenObserver??createNamespaceStoryObserver({records,content,scope,workId,authority});
-  const codec=createNamespacePhaseCheckCodec({scope,workId,authority,limits:namespaceLimits(records.descriptor.limits),textDigests:NODE_TEXT_DIGESTS});
-  const lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits:namespaceLimits(records.descriptor.limits),textDigests:NODE_TEXT_DIGESTS});
-  const inspectOperation=records.inspectOperation.bind(records),parser=createNodeTestReportCodec();
+  const limits=namespaceLimits(records.descriptor.limits),codec=createNamespacePhaseCheckCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
+  const lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
+  const inspection=Object.freeze({port:records,method:records.inspectOperation}),inspectOperation=inspection.method.bind(records),parser=createNodeTestReportCodec();
   async function json(reference,kind,signal){if(contentReference(reference).bytes>33_554_432)throw error('The check body exceeds its byte bound.','ENGINE_STORAGE_LIMIT');
     const data=await observer.bytes(reference,reference.bytes,signal);
     try{return phaseCheckRecordValue(kind,JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data)));}
@@ -101,7 +101,7 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     }
     return checks;
   }
-  async function accepted(input,{signal}={}) {
+  async function acceptedObservation(input,{signal}={}) {
     const k=codec.keys(input),operation=await inspectOperation(scope,k.operation,{signal});
     const saved=await observer.record('evidence',k.manifest,true,signal,true);
     if(operation?.status==='missing'&&operation.receipt===null){if(saved)throw error('An unaccepted check result is not execution evidence.','ENGINE_STORAGE_CORRUPT');return null;}
@@ -117,6 +117,9 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     if(receipt.records.find(item=>item.key===k.manifest)?.version!==saved.version)throw error('The check result has another accepted record revision.','ENGINE_STORAGE_CORRUPT');
     return {plan:original.plan,body,receipt,record:{key:k.manifest,version:saved.version,content:metadata.content}};
   }
+  async function accepted(input,options={}){codec.keys(input);const selected=structuredClone(input);
+    return memoNamespaceObservedEvidence(observer,inspection,{profile:'sflow-namespace-phase-check-proof/v1',binding:codec.binding,limits,input:selected},
+      ()=>acceptedObservation(selected,options),options);}
   async function proof(binding,phaseId,{signal}={}) {
     phaseCheckEvidenceBinding(binding);
     const found=await accepted({operationId:binding.operationId,workId,phaseId},{signal});

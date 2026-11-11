@@ -9,14 +9,15 @@ import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs
 import {createNamespaceConfigurationObserver} from './namespace-configuration-reader.mjs';
 import {createNamespaceStoryCodec} from './namespace-story-codec.mjs';
 import {createNamespaceLifecycleReceiptReader} from './namespace-lifecycle-receipt-reader.mjs';
-import {memoNamespaceStoryOrigin,memoNamespaceWitnessProof as memoWitness,memoNamespaceCodePredecessorProof as memoCodePredecessors,memoNamespaceCodePolicyProof as memoCodePolicy,memoNamespaceDecisionProof as memoDecision} from './namespace-read-session.mjs';
+import {memoNamespaceStoryOrigin,memoNamespaceWitnessProof as memoWitness,memoNamespaceCodePredecessorProof as memoCodePredecessors,memoNamespaceCodePolicyProof as memoCodePolicy,memoNamespaceDecisionProof as memoDecision,memoNamespaceSourceEvidenceProof as memoEvidence} from './namespace-read-session.mjs';
 import {namespaceStoryValue} from './namespace-story-contract.mjs';
 import {LIFECYCLE_AUTHORITY_KEY,lifecycleAuthority} from './namespace-lifecycle-contract.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Story policy inspection was cancelled.','ENGINE_OPERATION_CANCELLED');}
 const readDomains=new WeakMap();
-const witnessMemos=new WeakMap(),decisionMemos=new WeakMap(),codePredecessorMemos=new WeakMap(),codePolicyMemos=new WeakMap(),localInputReaders=new WeakMap();
+const witnessMemos=new WeakMap(),decisionMemos=new WeakMap(),codePredecessorMemos=new WeakMap(),codePolicyMemos=new WeakMap(),localInputReaders=new WeakMap(),evidenceMemos=new WeakMap(),evidenceReaders=new WeakMap(),evidenceReadAliases=new WeakMap();
+let evidenceReaderSequence=0;
 /** Device bytes remain behind the explicit local content port, including historical review replay. */
 export async function namespaceLocalInputBytes(observer,reference,{signal}={}){
   const read=localInputReaders.get(observer);contentReference(reference);cancelled(signal);
@@ -35,6 +36,14 @@ export function memoNamespaceObservedWitness(observer,identity,observe,options={
 export function memoNamespaceObservedDecision(observer,identity,observe,options={}){
   return decisionMemos.get(observer)?.(identity,observe,options)??observe();
 }
+/** The actual captured inspection function is part of the read owner; decorated ports cannot borrow it. */
+export function memoNamespaceObservedEvidence(observer,inspection,identity,observe,options={}){
+  if(!inspection?.port||typeof inspection.method!=='function')throw error('Use the evidence reader\'s captured inspection method and receiver.','ENGINE_INPUT_INVALID');
+  const alias=evidenceReadAliases.get(inspection.port),owner=alias?.method===inspection.method?alias.owner:inspection;
+  let methods=evidenceReaders.get(owner.port);if(!methods){methods=new WeakMap();evidenceReaders.set(owner.port,methods);}
+  let channel=methods.get(owner.method);if(channel===undefined){channel=++evidenceReaderSequence;methods.set(owner.method,channel);}
+  return evidenceMemos.get(observer)?.({channel,identity},observe,options)??observe();
+}
 export function memoNamespaceObservedCodePredecessors(observer,identity,observe,options={}){
   return codePredecessorMemos.get(observer)?.(identity,observe,options)??observe();
 }
@@ -47,6 +56,7 @@ export function namespaceStoryReadDomain(observer){return readDomains.get(observ
 export function createNamespaceStoryObserver({records,content,localContent=null,scope,workId,authority}={}) {
   const witnessMemo=(identity,observe,options)=>memoWitness(records,content,{scope,workId,authority,identity},observe,options);
   const decisionMemo=(identity,observe,options)=>memoDecision(records,content,{scope,workId,authority,identity},observe,options);
+  const evidenceMemo=(identity,observe,options)=>memoEvidence(records,content,{scope,workId,authority,identity},observe,options);
   const codePredecessorMemo=(identity,observe,options)=>memoCodePredecessors(records,content,{scope,workId,authority,identity},observe,options);
   const codePolicyMemo=(identity,observe,options)=>memoCodePolicy(records,content,{scope,workId,authority,identity},observe,options);
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
@@ -54,7 +64,7 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
   const configured=createNamespaceConfigurationObserver({records,content,scope,authority});
   const codec=createNamespaceStoryCodec({scope,workId,authority,limits:namespaceLimits(records.descriptor.limits)});
   const receipts=createNamespaceLifecycleReceiptReader({records,content,scope,workId,authority});
-  const inspectOperation=records.inspectOperation.bind(records),recordId=records.descriptor.id,contentId=content.descriptor.id,proofs=new WeakMap(),workflowProofs=new WeakMap(),readScopes=new WeakMap();
+  const inspectMethod=records.inspectOperation,inspectOperation=inspectMethod.bind(records),recordId=records.descriptor.id,contentId=content.descriptor.id,proofs=new WeakMap(),workflowProofs=new WeakMap(),readScopes=new WeakMap();
   function activeScope(token){if(token===undefined)return null;const found=readScopes.get(token);
     if(!found)throw error('Use the active Story proof-reading scope.','ENGINE_INPUT_INVALID');
     if(found.parent!==undefined)activeScope(found.parent);return found.facts;}
@@ -137,7 +147,8 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
     const captured=await (active?base.capture(options):base.inspect(options));
     await approved(captured.snapshot,{...options,readScope});
     // Proof traversal cannot extend an earlier head or authority observation indefinitely.
-    const fresh=await base.record('state',codec.headKey,false,options?.signal),authorityRecord=await base.record('state',LIFECYCLE_AUTHORITY_KEY,false,options?.signal);
+    const [fresh,authorityRecord]=await base.recordPair([{namespace:'state',key:codec.headKey,immutable:false},
+      {namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,immutable:false}],options?.signal);
     cancelled(options?.signal);
     if(fresh.version!==captured.basis.headVersion||authorityRecord.version!==captured.basis.authorityVersion)throw error(
       'The Story or authority changed during its policy inspection.','ENGINE_CONTEXT_CHANGED',{workId});
@@ -178,17 +189,20 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
     readDomains.set(scoped,namespaceStoryReadDomain(observer));
     witnessMemos.set(scoped,(...args)=>{activeScope(token);return witnessMemo(...args);});
     decisionMemos.set(scoped,(...args)=>{activeScope(token);return decisionMemo(...args);});
+    evidenceMemos.set(scoped,async(...args)=>{activeScope(token);const result=await evidenceMemo(...args);activeScope(token);return result;});
     codePredecessorMemos.set(scoped,(...args)=>{activeScope(token);return codePredecessorMemo(...args);});
     codePolicyMemos.set(scoped,(...args)=>{activeScope(token);return codePolicyMemo(...args);});
     try{return await read(scoped);}finally{if(parent===undefined){cache.clear();facts.bytes=0;facts.proof=null;facts.pending=null;facts.receipts=null;}readScopes.set(token,null);}
   }
   // Original evidence readers need only receipt inspection and this observer's read capabilities.
-  const evidenceReads=Object.freeze({scope:Object.freeze({...scope}),workId,authority,
-    records:Object.freeze({descriptor:records.descriptor,inspectOperation})});
+  const evidenceRecords=Object.freeze({descriptor:records.descriptor,inspectOperation});
+  evidenceReadAliases.set(evidenceRecords,{method:inspectOperation,owner:{port:records,method:inspectMethod}});
+  const evidenceReads=Object.freeze({scope:Object.freeze({...scope}),workId,authority,records:evidenceRecords});
   const observer=Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted,evidenceReads,withReadScope});
   readDomains.set(observer,Object.freeze({}));
   witnessMemos.set(observer,witnessMemo);
   decisionMemos.set(observer,decisionMemo);
+  evidenceMemos.set(observer,evidenceMemo);
   codePredecessorMemos.set(observer,codePredecessorMemo);
   codePolicyMemos.set(observer,codePolicyMemo);
   if(localContent){validateContentStore(localContent);if(localContent.descriptor.binding.kind!=='machine-local')throw error('Input documents require an explicit device-bound store.','ENGINE_INPUT_INVALID');

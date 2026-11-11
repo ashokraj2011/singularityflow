@@ -1,4 +1,4 @@
-/** Frozen human-decision v1 adapter. Conditional persistence has one shared coordinator. */
+/** Versioned human decisions. Conditional persistence has one shared coordinator. */
 import {createNamespaceRecordedMutationPort} from './namespace-recorded-mutation.mjs';
 import {namespaceHumanDecisionContract} from './namespace-human-decision-contract.mjs';
 export function createNamespaceHumanDecisionPort(options,definition){

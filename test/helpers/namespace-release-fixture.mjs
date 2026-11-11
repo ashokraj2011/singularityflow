@@ -4,8 +4,8 @@ import {createNamespaceEngine} from '../../src/engine-storage/namespace-engine.m
 export const releasePublish={authored:'governed-agent',channel:'copilot-host'};
 export const releaseReport=(verdict='matched')=>'# Release conformance\n\n## Agent brief\n\nAccount for the approved clauses using the original Code execution; this phase did not run another test.\n\n'
   +'| Clause ID | Verdict |\n| --- | --- |\n| STORY-1:REQ-001 | '+verdict+' |\n| STORY-1:AC-001 | '+verdict+' |\n';
-export async function namespaceReleaseFixture(t,{backend='filesystem',loop=false,configure=()=>{}}={}){
-  const f=await namespaceTestWitnessFixture(t,{backend,configure:source=>{
+export async function namespaceReleaseFixture(t,{backend='filesystem',loop=false,approveScope=null,configure=()=>{}}={}){
+  const f=await namespaceTestWitnessFixture(t,{backend,approveScope,configure:source=>{
     source.definition.phases.release={label:'Release review',artifact:{path:'artifacts/release/conformance.md',kind:'conformance-report'},defaultTemplate:'intake.md',
       writeScope:'artifact-only',inputs:[{phase:'build'}],testEvidenceFrom:'build',specificationQuality:{mode:'off'},clarification:{mode:'off',markers:{mode:'off'}},
       approval:{authorities:['reviewers'],minimum:1,rejectTo:['build','release'],allowSelfApproval:false}};

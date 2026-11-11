@@ -1,8 +1,32 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createNamespaceReadSession,captureNamespaceReadBindings,memoNamespaceStoryOrigin,memoNamespaceWitnessProof,memoNamespaceCodePredecessorProof,memoNamespaceCodePolicyProof,memoNamespaceDecisionProof} from '../src/engine-storage/namespace-read-session.mjs';
+import {createNamespaceReadSession,captureNamespaceReadBindings,memoNamespaceStoryOrigin,memoNamespaceWitnessProof,memoNamespaceCodePredecessorProof,memoNamespaceCodePolicyProof,memoNamespaceDecisionProof,memoNamespaceLifecycleReceiptProof} from '../src/engine-storage/namespace-read-session.mjs';
 import {namespaceStoreDescriptor,NAMESPACE_STORE_METHODS} from '../src/sda/namespace/contract.mjs';
 import {contentStoreDescriptor,CONTENT_STORE_METHODS} from '../src/sda/content/contract.mjs';
 const scope={projectId:'P'},reference={namespace:'evidence',sha256:'a'.repeat(64),bytes:4};
+test('a completed accepted receipt displaces raw cache entries without increasing the entry or byte bounds',async()=>{
+  const f=fixture();let observed=0;
+  await f.session.run(async()=>{for(let n=0;n<256;n++)await f.session.records.read(scope,'evidence','raw-'+n);
+    const read=()=>memoNamespaceLifecycleReceiptProof(f.session.records,f.session.content,{scope,operationId:'accepted'},()=>({status:'committed',plan:{version:++observed}}));
+    const first=await read();first.plan.version=99;assert.equal((await read()).plan.version,1);assert.equal(observed,1);
+    await f.session.records.read(scope,'evidence','raw-0');await f.session.records.read(scope,'evidence','raw-0');assert.equal(f.counts().records,258);
+  });
+  const bytes=fixture();let proofs=0;
+  await bytes.session.run(async()=>{const large={...reference,bytes:7*1024*1024};await bytes.session.content.read(scope,large);
+    const read=()=>memoNamespaceCodePolicyProof(bytes.session.records,bytes.session.content,{scope,publication:reference},()=>({report:'p'.repeat(2*1024*1024),proof:++proofs}));
+    await read();await read();assert.equal(proofs,1);await bytes.session.content.read(scope,large);await bytes.session.content.read(scope,large);
+    assert.equal(bytes.counts().contents,3);await read();assert.equal(proofs,1);
+  });
+});
+test('pending receipts, failed reads, copied ports and later invocations cannot borrow a completed receipt proof',async()=>{
+  const session=createNamespaceReadSession({records:{transact:async()=>({status:'committed'})},content:{}});let reads=0,denied=false;
+  const failure=Object.assign(Error('The original conditional receipt is unreadable.'),{code:'EACCES',details:{path:'runtime/original'}}),
+    read=(records=session.records)=>memoNamespaceLifecycleReceiptProof(records,session.content,{scope,operationId:'immutable-receipt'},()=>{
+      reads++;if(denied)throw failure;return {status:reads===1?'prepared':'committed',record:{number:reads}};});
+  await session.run(async()=>{assert.equal((await read()).status,'prepared');const committed=await read();assert.equal(committed.status,'committed');
+    assert.deepEqual(await read(),committed);assert.equal(reads,2);await read({...session.records});assert.equal(reads,3);
+    await session.records.transact(scope,{});await read();assert.equal(reads,4);});
+  denied=true;for(let n=0;n<2;n++)await assert.rejects(session.run(()=>read()),error=>error===failure);assert.equal(reads,6);
+});
 test('genuine captured read bindings preserve their live invocation, while copied or substituted ports cannot enroll themselves',async()=>{
   const binding={kind:'shared'},forbidden=()=>{throw Error('Capturing read bindings cannot perform I/O.');},
     records={descriptor:namespaceStoreDescriptor({id:'capture-records',qualification:'test-only',binding}),...Object.fromEntries(NAMESPACE_STORE_METHODS.map(name=>[name,forbidden])),transact:async()=>({status:'committed'})},

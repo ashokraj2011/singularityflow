@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,NAMESPACE_UPSTREAM_PLAN_CORRECTION_PROFILE} from '../foundation/record-schema.mjs';
 import {upstreamOperationAdmission,upstreamOperationRequest} from '../kernel/decision-plan.mjs';
-import {raiseUpstreamIssue,decideUpstreamIssue,upstreamIssueStates,upstreamIssueAuthorities,planNamespaceUpstreamReturn,NAMESPACE_UPSTREAM_RETURN_PROFILE} from '../kernel/upstream-issues.mjs';
+import {raiseUpstreamIssue,decideUpstreamIssue,upstreamIssueStates,upstreamIssueAuthorities,planNamespaceUpstreamReturn,NAMESPACE_UPSTREAM_RETURN_PROFILE,NAMESPACE_UPSTREAM_BOUNDED_RETURN_PROFILE,isNamespaceUpstreamReturnProfile} from '../kernel/upstream-issues.mjs';
 import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
@@ -12,6 +12,8 @@ import {namespaceDecisionContract} from './namespace-decision-contract.mjs';
 import {createNamespaceUpstreamArtifactReader} from './namespace-upstream-artifact-reader.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {createNamespacePlanDecisionOwners} from './namespace-plan-decisions-reader.mjs';
+import {createNamespaceRepairBudgetReader} from './namespace-repair-budget-reader.mjs';
+import {memoNamespaceObservedDecision} from './namespace-story-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=null,artifactSelection=null,artifactReports=null}) {
@@ -38,7 +40,8 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
     for(const link of namespaceDecisionContract.receipts(snapshot.workflow).filter(row=>row.operation==='upstream.decide')){
       const proof=await readers.get('upstream.decide').accepted(link,{signal,policyTraversal});
       const {changeRequest,...decision}=proof.value.outcome.record;
-      if(!same(changeRequest&&proof.value.source.profile===NAMESPACE_UPSTREAM_RETURN_PROFILE?decision:proof.value.outcome.record,(snapshot.workflow.upstreamIssueDecisions??[]).findLast(row=>row.issue===proof.value.request.issueId)))continue;
+      const {repairBudget,...plain}=decision;
+      if(!same(changeRequest&&isNamespaceUpstreamReturnProfile(proof.value.source.profile)?plain:proof.value.outcome.record,(snapshot.workflow.upstreamIssueDecisions??[]).findLast(row=>row.issue===proof.value.request.issueId)))continue;
       results.push(proof);
     }
     return results;
@@ -58,7 +61,7 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
           publication,references:[binding.record,publication.artifact.content,...publications.policies.evidence(publication)]};
         if(operation==='upstream.decide'&&request.outcome==='return'){
           const required=[...(snapshot.workflow.resolution.presence?['person-presence']:[]),
-            ...(snapshot.workflow.resolution.testRecovery?.enabled||Object.keys(snapshot.workflow.repairBudgets??{}).length?['test-repair-budget']:[])];
+            ...(snapshot.workflow.resolution.testRecovery?.enabled?['test-recovery']:[])];
           if(required.length)throw error('This upstream return requires its actual additional authority owners.','ENGINE_PORT_UNAVAILABLE',{required});
           const issue=snapshot.workflow.upstreamIssues.find(row=>row.id===request.issueId);
           if(!issue)throw error('The upstream issue is not in this Story.','UPSTREAM_ISSUE_NOT_FOUND');
@@ -66,8 +69,11 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
           if(!producer)throw error('The original upstream producer has no retained publication.');
           const original=await publications.accepted(producer,issue.phase,{signal,policyTraversal}),artifacts=publications.artifacts(original);
           if(!issue.producerArtifacts.every(row=>artifacts.some(item=>item.path===row.path&&item.sha256===row.sha256)))throw error('The issue differs from its original producer artifacts.');
-          return {...base,issue,issueProducer:producer,identity:{...base.identity,profile:NAMESPACE_UPSTREAM_RETURN_PROFILE,
-            issueProducer:producer,issueSha256:hash(issue)},references:[...base.references,...admittedReferences,producer.record,original.artifact.content,...publications.policies.evidence(original)]};
+          const repairBudget=await createNamespaceRepairBudgetReader({observer,scope,workId}).inspect(snapshot,snapshot.workflow.currentPhase,issue.phase,{signal,policyTraversal});
+          return {...base,issue,issueProducer:producer,repairBudget,identity:{...base.identity,
+            profile:repairBudget.selection||repairBudget.prior?NAMESPACE_UPSTREAM_BOUNDED_RETURN_PROFILE:NAMESPACE_UPSTREAM_RETURN_PROFILE,
+            issueProducer:producer,issueSha256:hash(issue),...(repairBudget.selection||repairBudget.prior?{repairBudget:repairBudget.selection,priorBudget:repairBudget.prior}:{})},
+            references:[...base.references,...admittedReferences,producer.record,original.artifact.content,...publications.policies.evidence(original),...repairBudget.references]};
         }
         if(operation==='upstream.decide'&&request.outcome==='plan-correction'){
           const corrections=await plans().projection(snapshot,{signal,policyTraversal});
@@ -121,7 +127,10 @@ export function createNamespaceUpstreamOwners({observer,scope,workId,runtime=nul
         return {workflow:proposed,outcome:{currentPhase:proposed.currentPhase,record}};
       }
     };
-    owners.set(operation,owner);readers.set(operation,createNamespaceRecordedMutationReader({observer,scope,workId,operation,owner,contract:namespaceDecisionContract}));
+    owners.set(operation,owner);
+    const reader=createNamespaceRecordedMutationReader({observer,scope,workId,operation,owner,contract:namespaceDecisionContract});
+    readers.set(operation,operation==='upstream.decide'?Object.freeze({...reader,accepted:(link,options={})=>memoNamespaceObservedDecision(observer,
+      {profile:'sflow-namespace-accepted-upstream-disposition/v1',link},()=>reader.accepted(link,options),options)}):reader);
   }
   return Object.freeze({owners,readers,admitted,decisions,reports});
 }

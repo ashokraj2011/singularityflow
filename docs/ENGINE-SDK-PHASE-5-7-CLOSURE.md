@@ -180,3 +180,18 @@ The Story-command delivery passes 421 distinct affected Mac checks, including 79
 checks, 94 architecture checks and the unchanged 34-check installed qualifier in 42.4 seconds.
 Source validation passes 4,231 checks; VS Code types, the unchanged Git audit and all 13 original
 bundle ceilings pass. Native records, authority and configured-only check-plan v1 remain unchanged.
+
+Actual reviewer and upstream-owner returns now consume authenticated repair budgets, with
+separately versioned human/upstream return records. Resetting requires the pinned reset phase's
+actual approval; an allowed self-approval remains allowed and disclosed. Real Code repairs,
+fresh executions, replacement approvals, interruption and shared-only replay pass on all three
+stores. Invocation-local source/receipt proof reuse and private SDA batches preserve current
+source, index, identity and authority observations and all existing integrity scans. See
+[the bounded-return record](ENGINE-SDK-BOUNDED-RETURNS.md).
+
+This delivery passes 612 distinct affected Mac checks, including 79 native compatibility and
+95 architecture checks. The original installed-package qualifier passes all 34 checks in 47.5
+seconds, alone and within its unchanged 120/60-second limits. Source validation passes 4,240
+checks; VS Code types, the unchanged Git audit and all 13 original bundle ceilings pass.
+Automatic test-recovery agreements, targeted repair, convergence projection/advancement on
+namespace storage and the other owners above remain required; neither phase is complete.

@@ -3,6 +3,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {requireApprovalAuthority,rejectionTarget,assertRejectionComment} from './approval-policy.mjs';
 import {upstreamDispositionFacts} from './decision-plan.mjs';
 import {reopenPhaseRange} from './lifecycle-transitions.mjs';
+import {applyNamespaceRepairBudget} from './test-recovery.mjs';
 const fail=(message,code,details=null)=>{throw new SingularityFlowError(message,{code,details});};
 
 export function conformanceDecisionSelection(workflow,request,source,{at}) {
@@ -39,7 +40,9 @@ export function planNamespaceRejection(workflow,request,facts,source) {
   const {targetId}=rejectionTarget(workflow,phase,request.target);assertRejectionComment(phase,request.reason,false);
   const proposed=structuredClone(workflow),target=proposed.phases[targetId];
   if(!target)fail('Return to a phase in this pinned workflow.','LIFECYCLE_TRANSITION_INVALID');
-  const changeRequest={schemaVersion:1,id:'CR-'+String((proposed.changeRequests??[]).length+1).padStart(3,'0'),status:'open',
+  const changeRequestId='CR-'+String((proposed.changeRequests??[]).length+1).padStart(3,'0'),
+    repairBudget=applyNamespaceRepairBudget(proposed,source,request,facts,changeRequestId,'rejection');
+  const changeRequest={schemaVersion:1,id:changeRequestId,status:'open',
     sourcePhase:phase.id,sourceGeneration:phase.generation,targetPhase:targetId,clauseIds:[],comment:request.reason,
     requestedAt:facts.at,requestedBy:facts.actorId,agent:facts.agentId,channel:'engine-sdk',authorityGroup:facts.authorityGroup,
     identityAssurance:null,sourceArtifactSha256:(phase.artifacts??[]).map(row=>({path:row.path,sha256:row.sha256??null})),
@@ -51,5 +54,6 @@ export function planNamespaceRejection(workflow,request,facts,source) {
     identityAssurance:null,channel:'engine-sdk',generation:phase.generation,reviewPacketSha256:source.reviewPacket.sha256});
   proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'phase_rejected',phase:phase.id,
     detail:changeRequest.id+' returned to '+targetId+': '+request.reason});
-  return {workflow:proposed,outcome:{currentPhase:targetId,changeRequest}};
+  return {workflow:proposed,outcome:{currentPhase:targetId,changeRequest,
+    ...(source.identity?.profile==='sflow-namespace-reviewer-return/v2'?{repairBudget}:{})}};
 }

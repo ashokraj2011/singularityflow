@@ -13,7 +13,7 @@ import {inspectSourceChanges} from '../engine-compatibility/node-source-policy.m
 import {namespaceScope,namespaceIdentifier,namespaceRevision,namespaceKey,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
-import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
+import {createNamespaceStoryObserver,memoNamespaceObservedEvidence} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
 import {verifySourceFileChunks} from './namespace-source-content-reader.mjs';
 import {createNamespaceSourceObservations} from './namespace-source-observations.mjs';
@@ -30,7 +30,8 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
   const limits=namespaceLimits(records.descriptor.limits);
   const observations=createNamespaceSourceObservations({observer,scope});
   const codec=createNamespaceSourceRetentionCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
-  const lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS}),inspect=records.inspectOperation.bind(records);
+  const inspection=Object.freeze({port:records,method:records.inspectOperation}),
+    lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS}),inspect=inspection.method.bind(records);
   async function json(reference,kind,signal) {
     reference=contentReference(reference);const data=await observer.bytes(reference,reference.bytes,signal);
     try{const value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));return kind?sourceRetentionValue(kind,value):value;}
@@ -124,7 +125,7 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
     }
     return {value,totals};
   }
-  async function accepted(input,{signal}={}) {
+  async function acceptedObservation(input,{signal}={}) {
     const k=codec.keys(input),receipt=await inspect(scope,k.operation,{signal}),saved=await observer.record('evidence',k.manifest,true,signal,true);
     if(receipt?.status==='missing'&&receipt.receipt===null){if(saved)throw error('A source result has no accepted transaction.');return null;}
     if(!saved)throw error('The accepted source result metadata is missing.');
@@ -147,6 +148,12 @@ export function createNamespaceSourceRetentionReader({records,content,scope,work
       index:{key:codec.indexKey(prepared.plan),version:result.records.find(row=>row.key===codec.indexKey(prepared.plan)).version}});sourceRetentionBinding(binding);
     const value={...prepared,body,record:binding.result,binding,replayed:true};
     verified.set(value,hash(canonicalJson(value)));return value;
+  }
+  async function accepted(input,options={}){
+    codec.keys(input);const selected=structuredClone(input);
+    const value=await memoNamespaceObservedEvidence(observer,inspection,{profile:'sflow-namespace-source-retention-proof/v1',binding:codec.binding,limits,input:selected},
+      ()=>acceptedObservation(selected,options),options);
+    if(value)verified.set(value,hash(canonicalJson(value)));return value;
   }
   async function inspectDraft({phaseId,generation,baseRevision,draft,artifact,configuration},{signal}={}) {
     const key=codec.indexKey({input:{phaseId},generation,basis:{headVersion:baseRevision},draft});

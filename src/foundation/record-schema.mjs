@@ -286,7 +286,12 @@ export function namespacePublicationRecordProfile(input) {
     ...(storedVersion===4?{optionalSpecifications:true,policyEvidence:true}:{})});
 }
 export const SPECIFICATION_ANALYSIS_REPORT_SCHEMA=frozenFamily('specification-quality-analysis');
-export const NAMESPACE_HUMAN_DECISION_SCHEMA=frozenFamily('namespace-human-decision');
+export const REPAIR_BUDGET_STATE_SCHEMA=frozenFamily('repair-budget-state');
+export const NAMESPACE_REPAIR_BUDGET_SCHEMA=frozenFamily('namespace-repair-budget-source');
+export const NAMESPACE_HUMAN_DECISION_SCHEMA=Object.freeze({id:'namespace-human-decision',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+  unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'});
+export function namespaceHumanDecisionProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_HUMAN_DECISION_SCHEMA,value);
+  return Object.freeze({version:storedVersion,format:'sflow-namespace-human-decision/v'+storedVersion,repairBudget:storedVersion===2});}
 export const NAMESPACE_UPSTREAM_PLAN_CORRECTION_PROFILE='sflow-namespace-upstream-plan-correction-source/v1';
 export const NAMESPACE_PLAN_CORRECTION_SCHEMAS=Object.freeze({record:Object.freeze({id:'namespace-plan-row-correction',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
   unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),context:frozenFamily('namespace-plan-correction-context')});

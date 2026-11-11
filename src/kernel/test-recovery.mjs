@@ -1,7 +1,57 @@
 /** Shared TRP schemas, record identity and gate evaluation over explicit evidence/authority verifiers. */
-import {canonicalJson,textDigestCapability} from '../foundation/record-schema.mjs';
+import {canonicalJson,textDigestCapability,REPAIR_BUDGET_STATE_SCHEMA} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {TRP_RISK_CATEGORIES} from './configuration-path-policies.mjs';
+/** Value-only budget selection; native wrappers retain their original command presentation. */
+export function repairBudgetPhaseForRejection(workflow, sourcePhase, targetPhaseId) {
+  const sourceIndex=workflow.phaseOrder?.indexOf(sourcePhase.id)??-1,targetIndex=workflow.phaseOrder?.indexOf(targetPhaseId)??-1;
+  if(sourceIndex<0||targetIndex<0||targetIndex>sourceIndex)return null;
+  const declared=(workflow.resolution?.reworkLoops??[]).find(loop=>loop.from===sourcePhase.id&&loop.to===targetPhaseId);
+  if(declared){const target=workflow.phases?.[targetPhaseId];
+    if(!target?.repairBudget||target.repairBudget.maxAttempts!==declared.maxAttempts||target.repairBudget.resetOnPhase!==(declared.resetOnPhase??null))
+      throw new SingularityFlowError(`Declared rework loop '${sourcePhase.id}' to '${targetPhaseId}' differs from its pinned repair budget.`,{code:'REWORK_LOOP_POLICY_MISMATCH'});
+    return target;}
+  return workflow.phaseOrder.slice(targetIndex,sourceIndex+1).map(id=>workflow.phases?.[id]).filter(phase=>phase?.repairBudget)
+    .filter(phase=>phase.id!==sourcePhase.id||sourcePhase.validationVerdict==='failed').at(-1)??null;
+}
+export function repairBudgetResetTarget(workflow,policy,sourcePhase,targetPhase){
+  const reset=policy.resetOnPhase;if(!reset||!sourcePhase||reset===targetPhase)return null;
+  const allowed=sourcePhase.approvalPolicy?.rejectTo??[sourcePhase.id],order=workflow.phaseOrder??[];
+  return allowed.includes(reset)&&order.indexOf(reset)>=0&&order.indexOf(reset)<=order.indexOf(sourcePhase.id)?reset:null;
+}
+/** The namespace caller supplies a verified approved reset generation; native v1 keeps its old default. */
+export function consumeRepairAttemptValue(workflow,phase,{targetPhase,actor,at,changeRequestId,sourcePhase=null,resetGeneration=undefined}){
+  const policy=phase.repairBudget;if(!policy)return null;
+  resetGeneration??=policy.resetOnPhase?workflow.phases?.[policy.resetOnPhase]?.generation??0:0;
+  workflow.repairBudgets??={};let state=workflow.repairBudgets[phase.id];
+  if(!state||state.resetPhase!==policy.resetOnPhase||state.resetGeneration!==resetGeneration)state={schemaVersion:REPAIR_BUDGET_STATE_SCHEMA.currentVersion,phase:phase.id,
+    maximum:policy.maxAttempts,resetPhase:policy.resetOnPhase,resetGeneration,attempts:[]};
+  if(policy.resetOnPhase&&targetPhase===policy.resetOnPhase){workflow.repairBudgets[phase.id]=state;return {...structuredClone(state),resetRequested:true};}
+  if(state.attempts.length>=policy.maxAttempts)throw new SingularityFlowError('The pinned repair budget is exhausted.',{code:'REPAIR_BUDGET_EXHAUSTED',details:{
+    phase:phase.id,currentPhase:sourcePhase?.id??null,upstreamPhase:phase.id===sourcePhase?.id?null:phase.id,maximum:policy.maxAttempts,consumed:state.attempts.length,
+    resetPhase:policy.resetOnPhase??null,resetTarget:repairBudgetResetTarget(workflow,policy,sourcePhase,targetPhase),sourceSubmitted:sourcePhase?.status==='awaiting_approval'}});
+  state.attempts.push({number:state.attempts.length+1,targetPhase,actor,at,changeRequestId});workflow.repairBudgets[phase.id]=state;return structuredClone(state);
+}
+/** A distinct namespace history binds aggregate counters to original authenticated return receipts. */
+export function applyNamespaceRepairBudget(workflow,source,request,facts,changeRequestId,kind){
+  const budget=source.repairBudget;if(!budget?.selection)return null;
+  const phase=workflow.phases[budget.selection.phase],from=workflow.phases[budget.sourcePhase];
+  let result;try{result=consumeRepairAttemptValue(workflow,phase,{targetPhase:request.target,sourcePhase:from,actor:facts.actorId,at:facts.at,
+    changeRequestId,resetGeneration:budget.selection.resetGeneration});}
+  catch(cause){if(cause.code!=='REPAIR_BUDGET_EXHAUSTED')throw cause;
+    const reset=cause.details.resetTarget,review={operation:'phase.review',inputs:{workId:workflow.workItem.id,phaseId:from.id}},
+      actions=cause.details.sourceSubmitted?[review]:[{operation:'upstream.list',inputs:{workId:workflow.workItem.id}},
+        {operation:'upstream.decide',inputs:{workId:workflow.workItem.id,issueId:request.issueId},requiredInputs:['outcome','reason'],
+          prerequisites:['authenticated-human-issue-owner','outcome-specific-expiry-or-link']},
+        {operation:'phase.enter',inputs:{workId:workflow.workItem.id,phaseId:from.id},prerequisites:['phase-authoring-access']}];
+    if(reset&&cause.details.sourceSubmitted)actions.push({operation:'phase.reject',inputs:{workId:workflow.workItem.id,phaseId:from.id,target:reset,
+      ...(source.reviewPacket?{confirm:source.reviewPacket.sha256}:{})},requiredInputs:[...(!source.reviewPacket?['confirm']:[]),'reason'],prerequisites:['authenticated-human-phase-reviewer']});
+    throw new SingularityFlowError('The reviewed return has exhausted its pinned repair budget. Review the original submission or its permitted reset return.',{
+      code:cause.code,details:{profile:'sflow-namespace-repair-budget-refusal/v1',...cause.details,actions},cause});}
+  workflow.namespaceRepairBudgetHistory=[...(workflow.namespaceRepairBudgetHistory??[]),{profile:'sflow-namespace-repair-budget-transition/v1',
+    changeRequestId,kind,phase:kind==='upstream'?request.phaseId:from.id,generation:kind==='upstream'?source.generation:from.generation,budgetPhase:phase.id,recordedAt:facts.at}];
+  return result;
+}
 export {TRP_RISK_CATEGORIES} from './configuration-path-policies.mjs';
 export function testRecoveryPolicies(port) {
   const hashing=textDigestCapability(port),recordSha256=value=>hashing.sha256Utf8(canonicalJson(value));

@@ -11,7 +11,7 @@ import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {namespaceScope,namespaceRevision,namespaceIdentifier,namespaceKey,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
-import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
+import {createNamespaceStoryObserver,memoNamespaceObservedEvidence} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
 import {createNamespaceSourceObservations} from './namespace-source-observations.mjs';
 import {verifySourceFileChunks} from './namespace-source-content-reader.mjs';
@@ -24,7 +24,8 @@ export function createNamespaceSourceBaselineReader(options={}){
   const {records,content,workId,authority,observer:givenObserver}=options,scope=namespaceScope(options.scope),limits=namespaceLimits(records.descriptor.limits);
   const observer=givenObserver??createNamespaceStoryObserver({...options,scope}),observations=createNamespaceSourceObservations({observer,scope});
   const codec=createNamespaceSourceBaselineCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
-  const lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS}),inspect=records.inspectOperation.bind(records);
+  const inspection=Object.freeze({port:records,method:records.inspectOperation}),
+    lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS}),inspect=inspection.method.bind(records);
   async function json(reference,kind,signal){reference=contentReference(reference);const data=await observer.bytes(reference,reference.bytes,signal);
     try{const value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));return kind?sourceBaselineValue(kind,value):value;}
     catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;throw error('The required baseline JSON is invalid.','ENGINE_STORAGE_CORRUPT',cause);}}
@@ -77,7 +78,7 @@ export function createNamespaceSourceBaselineReader(options={}){
     }
     return {body,totals};
   }
-  async function accepted(input,{signal}={}){
+  async function acceptedObservation(input,{signal}={}){
     const k=codec.keys(input),receipt=await inspect(scope,k.operation,{signal}),saved=await observer.record('evidence',k.manifest,true,signal,true);
     if(receipt?.status==='missing'&&receipt.receipt===null){if(saved)throw error('The baseline result has no accepted transaction.');return null;}
     if(!saved)throw error('The accepted baseline result metadata is missing.');const prepared=await intent(input,{signal});if(!prepared)throw error('The baseline lost its accepted preparation.');
@@ -93,6 +94,9 @@ export function createNamespaceSourceBaselineReader(options={}){
     if(!same(body.totals,totals))throw error('The baseline summary contradicts its retained files.');
     return {...prepared,body,record:{key:k.manifest,version:saved.version,content:metadata.content},indexVersion:result.records.find(row=>row.key===codec.indexKey(input)).version,replayed:true};
   }
+  async function accepted(input,options={}){codec.keys(input);const selected=structuredClone(input);
+    return memoNamespaceObservedEvidence(observer,inspection,{profile:'sflow-namespace-source-baseline-proof/v1',binding:codec.binding,limits,input:selected},
+      ()=>acceptedObservation(selected,options),options);}
   async function inspectBinding(sourceBindingId,{signal}={}) {
     const key=codec.indexKey({sourceBindingId}),index=await observer.record('evidence',key,false,signal,true);if(!index)return null;
     const selected=codec.index(index.value,{sourceBindingId}),metadata=await observer.record('evidence',selected.manifestKey,true,signal);

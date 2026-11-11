@@ -1,0 +1,859 @@
+{
+  "capturedAtCommit": "41bc1f684d302884028ae2fa0e61e742d60614a6",
+  "cases": [
+    {
+      "scenario": "first",
+      "result": {
+        "schemaVersion": 1,
+        "phase": "build",
+        "maximum": 2,
+        "resetPhase": "scope",
+        "resetGeneration": 1,
+        "attempts": [
+          {
+            "number": 1,
+            "targetPhase": "build",
+            "actor": "reviewer",
+            "at": "2026-11-10T01:00:00.000Z",
+            "changeRequestId": "CR-003"
+          }
+        ]
+      },
+      "error": null,
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        },
+        "repairBudgets": {
+          "build": {
+            "schemaVersion": 1,
+            "phase": "build",
+            "maximum": 2,
+            "resetPhase": "scope",
+            "resetGeneration": 1,
+            "attempts": [
+              {
+                "number": 1,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T01:00:00.000Z",
+                "changeRequestId": "CR-003"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scenario": "second",
+      "result": {
+        "schemaVersion": 1,
+        "phase": "build",
+        "maximum": 2,
+        "resetPhase": "scope",
+        "resetGeneration": 1,
+        "attempts": [
+          {
+            "number": 1,
+            "targetPhase": "build",
+            "actor": "reviewer",
+            "at": "2026-11-10T00:00:00.000Z",
+            "changeRequestId": "CR-001"
+          },
+          {
+            "number": 2,
+            "targetPhase": "build",
+            "actor": "reviewer",
+            "at": "2026-11-10T01:00:00.000Z",
+            "changeRequestId": "CR-003"
+          }
+        ]
+      },
+      "error": null,
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        },
+        "repairBudgets": {
+          "build": {
+            "schemaVersion": 1,
+            "phase": "build",
+            "maximum": 2,
+            "resetPhase": "scope",
+            "resetGeneration": 1,
+            "attempts": [
+              {
+                "number": 1,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-001"
+              },
+              {
+                "number": 2,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T01:00:00.000Z",
+                "changeRequestId": "CR-003"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scenario": "exhausted",
+      "result": null,
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'build' repair budget is exhausted (2/2). Return the submission to 'scope' instead, which resets the budget once it has a new approved generation: singularity-flow reject verify --work-id BUDGET-1 --to scope --reason <reason>. Otherwise ask the approvers for direction.",
+        "code": "REPAIR_BUDGET_EXHAUSTED",
+        "details": {
+          "phase": "build",
+          "currentPhase": "verify",
+          "upstreamPhase": "build",
+          "maximum": 2,
+          "consumed": 2,
+          "resetPhase": "scope",
+          "resetCommand": "singularity-flow reject verify --work-id BUDGET-1 --to scope --reason <reason>"
+        }
+      },
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        },
+        "repairBudgets": {
+          "build": {
+            "schemaVersion": 1,
+            "phase": "build",
+            "maximum": 2,
+            "resetPhase": "scope",
+            "resetGeneration": 1,
+            "attempts": [
+              {
+                "number": 1,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-001"
+              },
+              {
+                "number": 2,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-002"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scenario": "in-progress",
+      "result": null,
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'build' repair budget is exhausted (2/2). Once 'verify' is submitted, its approvers may return it to 'scope', which resets the budget once it has a new approved generation; a return is refused before then. Otherwise ask the approvers for direction.",
+        "code": "REPAIR_BUDGET_EXHAUSTED",
+        "details": {
+          "phase": "build",
+          "currentPhase": "verify",
+          "upstreamPhase": "build",
+          "maximum": 2,
+          "consumed": 2,
+          "resetPhase": "scope",
+          "resetCommand": null
+        }
+      },
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "in_progress",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        },
+        "repairBudgets": {
+          "build": {
+            "schemaVersion": 1,
+            "phase": "build",
+            "maximum": 2,
+            "resetPhase": "scope",
+            "resetGeneration": 1,
+            "attempts": [
+              {
+                "number": 1,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-001"
+              },
+              {
+                "number": 2,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-002"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scenario": "reset-requested",
+      "result": {
+        "schemaVersion": 1,
+        "phase": "build",
+        "maximum": 2,
+        "resetPhase": "scope",
+        "resetGeneration": 1,
+        "attempts": [
+          {
+            "number": 1,
+            "targetPhase": "build",
+            "actor": "reviewer",
+            "at": "2026-11-10T00:00:00.000Z",
+            "changeRequestId": "CR-001"
+          },
+          {
+            "number": 2,
+            "targetPhase": "build",
+            "actor": "reviewer",
+            "at": "2026-11-10T00:00:00.000Z",
+            "changeRequestId": "CR-002"
+          }
+        ],
+        "resetRequested": true
+      },
+      "error": null,
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        },
+        "repairBudgets": {
+          "build": {
+            "schemaVersion": 1,
+            "phase": "build",
+            "maximum": 2,
+            "resetPhase": "scope",
+            "resetGeneration": 1,
+            "attempts": [
+              {
+                "number": 1,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-001"
+              },
+              {
+                "number": 2,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-002"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scenario": "generation-reset",
+      "result": {
+        "schemaVersion": 1,
+        "phase": "build",
+        "maximum": 2,
+        "resetPhase": "scope",
+        "resetGeneration": 2,
+        "attempts": [
+          {
+            "number": 1,
+            "targetPhase": "build",
+            "actor": "reviewer",
+            "at": "2026-11-10T01:00:00.000Z",
+            "changeRequestId": "CR-003"
+          }
+        ]
+      },
+      "error": null,
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 2
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        },
+        "repairBudgets": {
+          "build": {
+            "schemaVersion": 1,
+            "phase": "build",
+            "maximum": 2,
+            "resetPhase": "scope",
+            "resetGeneration": 2,
+            "attempts": [
+              {
+                "number": 1,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T01:00:00.000Z",
+                "changeRequestId": "CR-003"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scenario": "no-reset-route",
+      "result": null,
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'build' repair budget is exhausted (2/2). No allowed return resets it from here; ask the approvers for direction (approve the submission as it stands, or have a workflow maintainer change the budget for new Stories).",
+        "code": "REPAIR_BUDGET_EXHAUSTED",
+        "details": {
+          "phase": "build",
+          "currentPhase": "verify",
+          "upstreamPhase": "build",
+          "maximum": 2,
+          "consumed": 2,
+          "resetPhase": "scope",
+          "resetCommand": null
+        }
+      },
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "build"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        },
+        "repairBudgets": {
+          "build": {
+            "schemaVersion": 1,
+            "phase": "build",
+            "maximum": 2,
+            "resetPhase": "scope",
+            "resetGeneration": 1,
+            "attempts": [
+              {
+                "number": 1,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-001"
+              },
+              {
+                "number": 2,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-002"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "scenario": "declared-edge",
+      "result": {
+        "id": "build",
+        "repairBudget": {
+          "maxAttempts": 2,
+          "resetOnPhase": "scope"
+        }
+      },
+      "error": null,
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "scenario": "policy-mismatch",
+      "result": null,
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Declared rework loop 'verify' to 'build' differs from its pinned repair budget.",
+        "code": "REWORK_LOOP_POLICY_MISMATCH"
+      },
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 1,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "scenario": "passing-review",
+      "result": null,
+      "error": null,
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            },
+            "validationVerdict": "passed"
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": []
+        }
+      }
+    },
+    {
+      "scenario": "caller-reset",
+      "result": null,
+      "error": {
+        "name": "SingularityFlowError",
+        "message": "Phase 'build' repair budget is exhausted (2/2). Return the submission to 'scope' instead, which resets the budget once it has a new approved generation: singularity-flow reject verify --work-id BUDGET-1 --to scope --reason <reason>. Otherwise ask the approvers for direction.",
+        "code": "REPAIR_BUDGET_EXHAUSTED",
+        "details": {
+          "phase": "build",
+          "currentPhase": "verify",
+          "upstreamPhase": "build",
+          "maximum": 2,
+          "consumed": 2,
+          "resetPhase": "scope",
+          "resetCommand": "singularity-flow reject verify --work-id BUDGET-1 --to scope --reason <reason>"
+        }
+      },
+      "workflow": {
+        "workItem": {
+          "id": "BUDGET-1"
+        },
+        "phaseOrder": [
+          "scope",
+          "build",
+          "verify"
+        ],
+        "phases": {
+          "scope": {
+            "id": "scope",
+            "generation": 1
+          },
+          "build": {
+            "id": "build",
+            "repairBudget": {
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          },
+          "verify": {
+            "id": "verify",
+            "status": "awaiting_approval",
+            "approvalPolicy": {
+              "rejectTo": [
+                "scope",
+                "build",
+                "verify"
+              ]
+            }
+          }
+        },
+        "resolution": {
+          "reworkLoops": [
+            {
+              "from": "verify",
+              "to": "build",
+              "maxAttempts": 2,
+              "resetOnPhase": "scope"
+            }
+          ]
+        },
+        "repairBudgets": {
+          "build": {
+            "schemaVersion": 1,
+            "phase": "build",
+            "maximum": 2,
+            "resetPhase": "scope",
+            "resetGeneration": 1,
+            "attempts": [
+              {
+                "number": 1,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-001"
+              },
+              {
+                "number": 2,
+                "targetPhase": "build",
+                "actor": "reviewer",
+                "at": "2026-11-10T00:00:00.000Z",
+                "changeRequestId": "CR-002"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

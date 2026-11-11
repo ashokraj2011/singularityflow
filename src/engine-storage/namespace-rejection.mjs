@@ -18,6 +18,7 @@ export function createNamespaceRejectionPorts(options){
     const change=value.outcome.changeRequest;
     return {workId,phase:value.phase,generation:value.generation,revision,pushed:false,currentPhase:value.outcome.currentPhase,
       changeRequest:{id:change.id,status:change.status,sourcePhase:change.sourcePhase,sourceGeneration:change.sourceGeneration,targetPhase:change.targetPhase,
-        clauseIds:[],members:[],reason:change.comment,actorId:value.actor.principalId,authorityGroup:value.authorityGroup,reviewPacket:change.reviewPacketSha256},repairBudget:null};
+        clauseIds:[],members:[],reason:change.comment,actorId:value.actor.principalId,authorityGroup:value.authorityGroup,reviewPacket:change.reviewPacketSha256},
+      repairBudget:value.outcome.repairBudget?.attempts.length?{consumed:value.outcome.repairBudget.attempts.length,maximum:value.outcome.repairBudget.maximum}:null};
   }})};
 }

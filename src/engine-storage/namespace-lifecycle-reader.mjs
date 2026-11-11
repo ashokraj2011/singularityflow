@@ -9,6 +9,7 @@ import { validateNamespaceStore,namespaceLimits } from '../sda/namespace/contrac
 import { namespaceJson,namespaceIdentifier,namespaceScope,namespaceRevision,exactObject } from '../sda/namespace/values.mjs';
 import { contentReference,validateContentStore } from '../sda/content/contract.mjs';
 import { LIFECYCLE_AUTHORITY_KEY,LIFECYCLE_STATE_MAXIMUM_BYTES,lifecycleAuthority,lifecycleConfiguration,lifecycleHead,lifecycleState } from './namespace-lifecycle-contract.mjs';
+import {readNamespaceBatch} from '../sda/namespace/read-batch.mjs';
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const sameRef=(a,b)=>a.namespace===b.namespace&&a.sha256===b.sha256&&a.bytes===b.bytes;
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -26,8 +27,7 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
     catch (cause) { if (cause.code === 'ENGINE_STORAGE_UNSUPPORTED') throw cause;
       throw error('The persisted lifecycle record is invalid.', 'ENGINE_STORAGE_CORRUPT', { workId }, cause); }
   }
-  async function record(namespace, key, immutable, signal, missing = false) {
-    const result = await read(scope, namespace, key, { signal });
+  function recordResult(namespace,key,immutable,result,missing=false){
     if (result?.status === 'missing' && result.record === null) {
       if (missing) return null;
       throw error('A required lifecycle record is missing.', 'ENGINE_LIFECYCLE_RECORD_MISSING', { workId, namespace, key });
@@ -37,6 +37,12 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
       throw error('The namespace port returned a differently bound lifecycle record.', 'ENGINE_PORT_RESULT_INVALID', { namespace, key });
     }
     return { version: result.record.version, value: namespaceJson(result.record.value, { maxBytes: limits.maxValueBytes }) };
+  }
+  async function record(namespace,key,immutable,signal,missing=false){return recordResult(namespace,key,immutable,await read(scope,namespace,key,{signal}),missing);}
+  async function recordPair(requests,signal){
+    const batch=await readNamespaceBatch(records,scope,requests.map(row=>({kind:'record',namespace:row.namespace,key:row.key})),{signal});
+    const results=[];for(const [index,row]of requests.entries())results.push(batch?recordResult(row.namespace,row.key,row.immutable,batch.facts[index].result,row.missing)
+      :await record(row.namespace,row.key,row.immutable,signal,row.missing));return results;
   }
   function checkAuthority(value,requireActive) {
     stored(lifecycleAuthority, value);
@@ -78,14 +84,15 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
   }
   async function observe({ signal } = {},requireActive) {
     cancelled(signal);
-    const a = await record('state', LIFECYCLE_AUTHORITY_KEY, false, signal); checkAuthority(a.value,requireActive);
-    const h = await record('state', headKey, false, signal); stored(lifecycleHead, h.value, workId);
+    const initial=await readNamespaceBatch(records,scope,[{kind:'record',namespace:'state',key:LIFECYCLE_AUTHORITY_KEY},{kind:'record',namespace:'state',key:headKey}],{signal});
+    const a = initial?recordResult('state',LIFECYCLE_AUTHORITY_KEY,false,initial.facts[0].result):await record('state', LIFECYCLE_AUTHORITY_KEY, false, signal); checkAuthority(a.value,requireActive);
+    const h = initial?recordResult('state',headKey,false,initial.facts[1].result):await record('state', headKey, false, signal); stored(lifecycleHead, h.value, workId);
     if (h.value.authorityId !== authority.id || h.value.epoch !== authority.epoch) throw error('This Story uses another lifecycle authority.', 'ENGINE_AUTHORITY_FENCED');
     const c = await record('config', h.value.configuration.key, true, signal); stored(lifecycleConfiguration, c.value);
     if (!sameRef(c.value.content, h.value.configuration.content)) throw error('The Story configuration pin differs from its immutable record.', 'ENGINE_STORAGE_CORRUPT');
     const body = state(await bytes(h.value.state, h.value.state.bytes, signal), h.value);
     await bytes(c.value.content, 0, signal);
-    const fresh = await record('state', headKey, false, signal), active = await record('state', LIFECYCLE_AUTHORITY_KEY, false, signal);
+    const [fresh,active]=await recordPair([{namespace:'state',key:headKey,immutable:false},{namespace:'state',key:LIFECYCLE_AUTHORITY_KEY,immutable:false}],signal);
     cancelled(signal);
     if (fresh.version !== h.version || active.version !== a.version) throw error('The lifecycle snapshot changed while it was read.', 'ENGINE_CONTEXT_CHANGED');
     const snapshot = { workId, revision: h.version, workflow: body.workflow, configuration: structuredClone(h.value.configuration) };
@@ -93,6 +100,6 @@ export function createNamespaceLifecycleObserver({records,content,scope,workId,a
   }
   // Inspection can acknowledge retained facts while fenced; only capture is a writer basis.
   const capture=options=>observe(options,true),inspectState=options=>observe(options,false);
-  return Object.freeze({stored,record,assertAuthority,bytes,state,capture,inspect:inspectState,
+  return Object.freeze({stored,record,recordResult,recordPair,assertAuthority,bytes,state,capture,inspect:inspectState,
     inspectOperation:(operationId,options)=>inspect(scope,operationId,options)});
 }

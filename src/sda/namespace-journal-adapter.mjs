@@ -6,6 +6,7 @@ import {
   namespaceScope, namespaceStoreDescriptor, namespaceTransaction, namespaceTransactionIdentity
 } from './namespace/index.mjs';
 import { exactObject } from './namespace/values.mjs';
+import {attachNamespaceReadBatch,NAMESPACE_READ_BATCH_PROFILE} from './namespace/read-batch.mjs';
 import { namespaceJournalManifest, namespaceJournalObservation, namespaceJournalReceipt,
   namespaceJournalAcceptance, namespaceJournalRecord } from './namespace/journal-contract.mjs';
 
@@ -75,7 +76,7 @@ export function createJournalNamespaceStore({ descriptor: supplied, journal, sna
     return namespaceScope(scope);
   }
 
-  return Object.freeze({
+  const store=Object.freeze({
     descriptor,
     async read(scope, namespace, key, { signal } = {}) {
       const normalizedScope = preflight(scope, signal);
@@ -151,5 +152,21 @@ export function createJournalNamespaceStore({ descriptor: supplied, journal, sna
         throw error;
       }
     }
+  });
+  return attachNamespaceReadBatch(store,async(scope,requests,{signal}={})=>{
+    const normalizedScope=preflight(scope,signal);
+    for(const row of requests)if(row.kind==='record')assertNamespaceBinding(descriptor,row.namespace);
+    const view=await readView(normalizedScope,{signal});assertNamespaceNotCancelled(signal);let confirm=false;
+    const facts=requests.map(request=>{let result;
+      if(request.kind==='record'){const address=namespaceAddress({namespace:request.namespace,key:request.key}),record=view.state.records.get(addressIdentity(address));
+        result=record?{status:'present',record:namespaceJournalRecord(record,address,descriptor.limits)}:{status:'missing',record:null};
+      }else{const operation=view.state.operations.get(request.operationId);result={status:'missing',receipt:null};
+        if(operation){let receipt;try{receipt=namespaceJournalReceipt(operation.receipt,normalizedScope,request.operationId);}
+          catch(cause){throw namespaceError('The application journal returned an invalid operation receipt.','SDA_NAMESPACE_UNSUPPORTED',{
+            stage:'journal-receipt-read',operationId:request.operationId},cause);}
+          result={status:'committed',receipt};confirm=true;}}
+      return {request,result};});
+    if(confirm)await journal.confirm(normalizedScope);assertNamespaceNotCancelled(signal);
+    return detached({profile:NAMESPACE_READ_BATCH_PROFILE,scope:normalizedScope,snapshot:{sequence:view.sequence,sha256:view.sha256},facts});
   });
 }

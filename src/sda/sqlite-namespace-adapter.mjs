@@ -3,6 +3,7 @@ import { namespaceError, namespaceStoreDescriptor } from './namespace/index.mjs'
 import { exactObject } from './namespace/values.mjs';
 import { createJournalNamespaceStore } from './namespace-journal-adapter.mjs';
 import { openSqliteNamespaceJournal } from './sqlite-namespace-journal.mjs';
+import {bindNamespaceReadBatch} from './namespace/read-batch.mjs';
 
 export async function createSqliteNamespaceStore(options, { now = Date.now } = {}) {
   exactObject(options, ['filename', 'binding'], ['create', 'limits', 'snapshotTtlMs', 'maxConcurrencyRetries', 'busyTimeoutMs'], 'Database binding');
@@ -16,6 +17,6 @@ export async function createSqliteNamespaceStore(options, { now = Date.now } = {
   try {
     const adapter = createJournalNamespaceStore({ descriptor, journal, snapshotTtlMs, maxConcurrencyRetries,
       snapshotPrefix: 'sql', clockLabel: 'database' }, { now });
-    return Object.freeze({ ...adapter, close: () => journal.close() });
+    return bindNamespaceReadBatch(adapter,Object.freeze({ ...adapter, close: () => journal.close() }));
   } catch (cause) { try { journal.close(); } catch {} throw cause; }
 }

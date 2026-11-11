@@ -1,6 +1,6 @@
 /** Versioned human mutation receipts. Typed owners recompute source, authority and outcome. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,admitRecordSchemaVersion,NAMESPACE_HUMAN_DECISION_SCHEMA} from '../foundation/record-schema.mjs';
+import {canonicalJson,namespaceHumanDecisionProfile} from '../foundation/record-schema.mjs';
 import {namespaceIdentifier,namespaceRevision,namespaceKey,namespaceJson,exactObject} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {storyActorValue} from '../kernel/story-creation.mjs';
@@ -9,10 +9,10 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const digest=value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value);
 export function namespaceHumanDecisionValue(value,{projectId,workId}) {
   try{
-    admitRecordSchemaVersion(NAMESPACE_HUMAN_DECISION_SCHEMA,value);
+    const profile=namespaceHumanDecisionProfile(value);
     exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','operation','operationId','requestSha256',
       'baseRevision','configuration','source','request','actor','agentId','authorityGroup','recordedAt','outcome']);
-    if(value.format!=='sflow-namespace-human-decision/v1'||value.projectId!==projectId||value.workId!==workId
+    if(value.format!==profile.format||value.projectId!==projectId||value.workId!==workId
       ||!['conformance.decide','phase.reject'].includes(value.operation)||!digest(value.requestSha256)
       ||!Number.isSafeInteger(value.generation)||value.generation<1||namespaceRevision(value.baseRevision)===null)throw Error('Invalid decision identity.');
     for(const field of ['projectId','workId','phase','operationId','authorityGroup'])namespaceIdentifier(value[field]);
@@ -30,7 +30,8 @@ export function namespaceHumanDecisionValue(value,{projectId,workId}) {
         ||!['accept-risk','dismiss'].includes(value.request.outcome)||value.request.expires!==null&&typeof value.request.expires!=='string')throw Error('Invalid disposition.');
       exactObject(value.outcome,['currentPhase','clauseId','ownerPhase','verdict','outcome','reason','expiresAt']);
     }else{namespaceIdentifier(value.request.target);if(!digest(value.request.confirm))throw Error('Invalid submitted packet.');
-      exactObject(value.outcome,['currentPhase','changeRequest']);}
+      exactObject(value.outcome,['currentPhase','changeRequest',...(profile.repairBudget?['repairBudget']:[])]);}
+    if(profile.repairBudget&&(value.operation!=='phase.reject'||value.source?.profile!=='sflow-namespace-reviewer-return/v2'))throw Error('Another bounded-return profile.');
     if(!value.source||typeof value.source!=='object'||Array.isArray(value.source))throw Error('Invalid source.');
     namespaceJson(value);return value;
   }catch(cause){throw new SingularityFlowError('The retained human decision is invalid.',{cause,
@@ -39,8 +40,9 @@ export function namespaceHumanDecisionValue(value,{projectId,workId}) {
 export function namespaceHumanDecisionRecord(value){
   if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format'].some(key=>Object.hasOwn(value,key)))throw new SingularityFlowError(
     'The human decision wire version belongs to its registered owner.',{code:'ENGINE_INPUT_INVALID'});
-  try{return namespaceHumanDecisionValue({schemaVersion:NAMESPACE_HUMAN_DECISION_SCHEMA.currentVersion,
-    format:'sflow-namespace-human-decision/v1',...value},{projectId:value.projectId,workId:value.workId});}
+  const profile=namespaceHumanDecisionProfile({schemaVersion:value.source?.profile==='sflow-namespace-reviewer-return/v2'?2:1});
+  try{return namespaceHumanDecisionValue({schemaVersion:profile.version,
+    format:profile.format,...value},{projectId:value.projectId,workId:value.workId});}
   catch(cause){throw new SingularityFlowError('The human decision input does not satisfy its record contract.',{code:'ENGINE_INPUT_INVALID',cause});}
 }
 export function namespaceHumanDecisionReceipt(value,record){return {operation:value.operation,operationId:value.operationId,

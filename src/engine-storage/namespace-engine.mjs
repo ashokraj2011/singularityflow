@@ -41,10 +41,12 @@ import {createNamespaceWitnessPorts} from './namespace-witness-decisions.mjs';
 import {createNamespaceTestCommandPorts} from './namespace-test-commands.mjs';
 import {createNamespaceAssignmentPort} from './namespace-assignment.mjs';
 import {createNamespaceConstitutionExceptionPorts} from './namespace-constitution-exceptions.mjs';
+import {bindNamespaceReadBatch} from '../sda/namespace/read-batch.mjs';
 const invalid=message=>{throw new SingularityFlowError(message,{code:'ENGINE_INPUT_INVALID'});};
 function captured(port,validate,methods) {
   validate(port);
-  return Object.freeze({descriptor:structuredClone(port.descriptor),...Object.fromEntries(methods.map(name=>[name,port[name].bind(port)]))});
+  const result=Object.freeze({descriptor:structuredClone(port.descriptor),...Object.fromEntries(methods.map(name=>[name,port[name].bind(port)]))});
+  return methods===NAMESPACE_STORE_METHODS?bindNamespaceReadBatch(port,result):result;
 }
 /** Unused operation families do not construct additional readers or conditional writers. */
 function lazyPorts(factory,contracts){

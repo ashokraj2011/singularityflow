@@ -1351,10 +1351,16 @@ export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-d
   'conformance-gap', 'upstream-issue', 'visual-profile', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
   'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'approval-hold', 'transport-intent', 'approval']);
 
-/** The commands a person or script uses to record, with the packet digest. */
+/**
+ * The command that records choices. Only choices a /sf-decide turn records after the person's yes carry
+ * the packet digest, which that turn passes on. Any other choice is the person's, in their own terminal,
+ * which shows the summary and asks them to confirm, binding the digest it derives itself: a person never
+ * reads or types a digest [no hashes shown]. `digest: null` leaves it out.
+ */
 export function decisionRecordCommand(workId, { phaseId = null, choices = [], digest, values = {} } = {}) {
+  const inChat = choices.length > 0 && choices.every(([, option]) => DECISION_LIST_CHAT_OPTIONS.includes(option));
   return ['singularity-flow decisions record', workId, ...(phaseId ? [`--phase ${phaseId}`] : []),
-    ...choiceFlags(choices, values), `--confirm ${digest}`].join(' ');
+    ...choiceFlags(choices, values), ...(digest && inChat ? [`--confirm ${digest}`] : [])].join(' ');
 }
 
 /**
@@ -1374,7 +1380,7 @@ export function decisionChatSteps(packet, steps) {
 
 /** The same choices recorded with the step's approval, in its one commit [SPEC-OAP M4]: the flags approve adds. */
 export function decisionApprovalFlags({ choices = [], digest, values = {} } = {}) {
-  return [...choiceFlags(choices, values), `--decisions ${digest}`].join(' ');
+  return [...choiceFlags(choices, values), ...(digest ? [`--decisions ${digest}`] : [])].join(' ');
 }
 
 // POSIX single quotes, as canonicalDisplayToken in safe-command-guidance.mjs: a JSON double-quoted
@@ -1527,7 +1533,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
         copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : first.routeSkill ? `${first.routeSkill} ${workId}` : listRoute } : null,
     packetSha256: digest,
     record: {
-      form: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT] --confirm ${digest}`,
+      // In a person's own terminal it shows the summary and asks them to confirm; `packetSha256` is the digest a script passes as --confirm.
+      form: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''} --choose <ITEM>=<OPTION> [--reason <ITEM>=TEXT] [--expires <ITEM>=YYYY-MM-DD] [--cause <ITEM>=TEXT]`,
       recommended: recommended.length ? decisionRecordCommand(workId, { phaseId: phaseOption, choices: recommended, digest }) : null,
       interactive: `singularity-flow decisions record ${workId}${phaseOption ? ` --phase ${phaseOption}` : ''}`,
       // Beside the record commands: null when no choice left may be recorded in a /sf-decide turn.

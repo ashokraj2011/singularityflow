@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-terminal.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
@@ -260,6 +261,20 @@ test('the release-approval incident is one decision: recorded once, then approva
   const unconfirmed = attemptAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd1=reuse', '--json');
   assert.equal(json(unconfirmed).error.code, 'DECISIONS_CONFIRMATION_REQUIRED');
   assert.equal(json(unconfirmed).error.details.record.command, packet.record.recommended);
+  // A person's own record names the choices only: their terminal shows the summary and asks, binding the list it read [no hashes shown].
+  assert.equal(packet.record.recommended, `singularity-flow decisions record ${W} --choose d1=reuse`);
+  assert.doesNotMatch(json(unconfirmed).error.message, /sha256:|[0-9a-f]{12}/u, 'the refusal a person reads names no digest');
+  if (TYPED_TERMINAL_AVAILABLE) {
+    const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Decision Tester', SINGULARITY_FLOW_AGENT_OUTPUT: 'full',
+      SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(root, '.git/fixture-mode.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/fixture-selection.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/fixture-registry.json'), SINGULARITY_FLOW_GITHUB_ACTOR: 'release-reviewer' };
+    const declined = await typedInTerminal({ argv: [process.execPath, CLI, '--no-model', 'decisions', 'record', W, '--choose', 'd1=reuse'], cwd: root, env,
+      prompt: 'Record these decisions? [y/N]: ', answer: 'n' });
+    assert.equal(declined.status, 0, declined.output);
+    assert.match(declined.output, /Summary[\s\S]*d1\. [\s\S]*Nothing was recorded\./u);
+    assert.doesNotMatch(declined.output, /sha256:|[0-9a-f]{40}/u, 'the terminal shows the summary, never the digest');
+    assert.deepEqual((await workflow()).evidenceReuses ?? [], [], 'a no records nothing');
+  }
 
   // One confirmation records both effects through their own commands, each under its own group.
   const done = json(cliAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd1=reuse', '--confirm', packet.packetSha256, '--json'));

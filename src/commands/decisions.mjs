@@ -138,8 +138,12 @@ async function previewOf(workflow, packet, plan) {
   const withApproval = command && approval?.decidedBy?.allowed && !plan.refused.length && plan.steps.every((step) => {
     const item = listedItem(packet, step.item);
     return item.holdsApproval && recordableInApproval(item.options.find((option) => option.id === step.option));
-  }) ? { phase: packet.phase, flags: decisionApprovalFlags(chosen), recordInChat: recordInChat && plan.steps.every((step) => step.option !== 'return'),
-    command: `singularity-flow approve ${packet.phase} --work-id ${packet.workId} --fetch ${decisionApprovalFlags(chosen)}` } : null;
+  }) ? (() => {
+    const inChat = recordInChat && plan.steps.every((step) => step.option !== 'return');
+    // A person's own approval derives the list's digest itself and asks them to confirm; only a turn passes it on.
+    const flags = decisionApprovalFlags(inChat ? chosen : { ...chosen, digest: null });
+    return { phase: packet.phase, flags, recordInChat: inChat, command: `singularity-flow approve ${packet.phase} --work-id ${packet.workId} --fetch ${flags}` };
+  })() : null;
   const chatSteps = decisionChatSteps(packet, plan.steps);
   return {
     steps: plan.steps, refused: plan.refused, summary,
@@ -360,6 +364,20 @@ export async function promptDecisionAnswers(packet, { input = processInput, outp
   };
 }
 
+/** Only the y/N over the summary, for choices given on the command line in a person's own terminal. */
+function confirmDecisionAnswers({ input = processInput, output = processOutput } = {}) {
+  const reader = lineReader(input);
+  return {
+    confirm: async (summary) => {
+      output.write('Summary\n');
+      for (const line of summary) output.write(`  ${line}\n`);
+      output.write('Record these decisions? [y/N]: ');
+      return /^(?:y|yes)$/iu.test(String(await reader.next() ?? '').trim());
+    },
+    close: () => reader.close()
+  };
+}
+
 /** Write one effect with the function its own command uses; returns the record it wrote. */
 async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent }) {
   if (effect.kind === 'intent-amendment-draft') {
@@ -474,9 +492,16 @@ async function record(root, options, workId, io) {
   const packet = await readDecisionPacket(root, config, workflow, { phaseId, at });
   let answers = await answersFrom(options);
   let confirm = answers.confirm ?? optionString(options, 'confirm') ?? null;
-  const interactive = !answered(answers) && !confirm && !optionBoolean(options, 'json') && io.input.isTTY === true && io.output.isTTY === true;
-  const { decisionRecordPlan, runDecisionPlan, effectWords } = await import('../decision-list.mjs');
+  const terminal = !confirm && !optionBoolean(options, 'json') && io.input.isTTY === true && io.output.isTTY === true;
+  const interactive = terminal && !answered(answers);
+  const { decisionRecordPlan, runDecisionPlan, effectWords, ISSUE_ONLY_OPTIONS: chatOptions } = await import('../decision-list.mjs');
   let prompt = null;
+  // Choices named on the command line, in a person's own terminal: the summary and a y/N, bound to the
+  // list this process read, as the interactive form is, so a person never copies a digest [no hashes shown].
+  // Choices a /sf-decide turn records keep the digest that turn passes on (the guard holds it to the person's yes).
+  if (terminal && answered(answers) && ![...answers.choose.values()].every((option) => chatOptions.includes(option))) {
+    prompt = confirmDecisionAnswers(io);
+  }
   if (interactive) {
     if (!packet.items.length && !packet.offered?.length) {
       console.log(packet.headline);
@@ -503,11 +528,13 @@ async function record(root, options, workId, io) {
       confirm = packet.packetSha256;
     }
     if (!confirm) {
-      refused(`Recording needs the confirmation of the list it was chosen from. Review the summary, then run: ${preview.record?.command ?? packet.record.form}`,
+      refused(preview.record?.recordInChat
+        ? `Recording needs the confirmation of the list it was chosen from. Review the summary, then run: ${preview.record.command}`
+        : `These decisions are recorded in a person's own terminal, which shows the summary and asks them to confirm: ${preview.record?.command ?? packet.record.form}`,
         'DECISIONS_CONFIRMATION_REQUIRED', { summary: preview.summary, record: preview.record, packetSha256: packet.packetSha256,
           nextAction: { command: `singularity-flow decisions ${packet.workId}`, skill: '/sf-decide', label: 'Review the decision list and the summary of your choices.' } });
     }
-    if (!DIGEST.test(confirm)) refused(`--confirm takes the list's digest: sha256:<64 hexadecimal characters>; the current list's is ${packet.packetSha256}.`, 'DECISIONS_OPTIONS_INVALID', { packetSha256: packet.packetSha256 });
+    if (!DIGEST.test(confirm)) refused('--confirm takes the list\'s digest from its preview (`--json`, packetSha256). In your own terminal, leave --confirm out: it shows the summary and asks you to confirm.', 'DECISIONS_OPTIONS_INVALID', { packetSha256: packet.packetSha256 });
     if (!plan.steps.length) {
       const only = plan.refused.map((entry) => `${entry.item} (${entry.title}): ${entry.words} Share this with them: ${entry.share}`).join(' ');
       refused(`Nothing was recorded: you may not decide what you chose. ${only}`, 'DECISIONS_NOT_YOURS', { refused: plan.refused });

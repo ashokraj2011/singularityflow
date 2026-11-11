@@ -267,9 +267,18 @@ test('a copy runs in its workflow exactly as the step it replaces, in each packa
   // Every value naming the step should name the copy, except values that only look like a step ID
   // (an artifact kind, a knowledge view, a comparison identifier, an artifact-set role, a fixed
   // policy key) and what a copy changes on purpose (its name and artifact path).
-  const rename = (value, from, to) => (Array.isArray(value) ? value.map((entry) => rename(entry, from, to))
-    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, entry]) => [key === from ? to : key, rename(entry, from, to)]))
+  const renameValue = (value, from, to) => (Array.isArray(value) ? value.map((entry) => renameValue(entry, from, to))
+    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, entry]) => [key === from ? to : key, renameValue(entry, from, to)]))
       : value === from ? to : value);
+  // A source review's kinds are keyed by step, and each kind (specification, planning, document, code) only looks
+  // like a step ID: the copy keeps its step's kind under its own ID.
+  const rename = (value, from, to) => {
+    const renamed = renameValue(value, from, to);
+    if (value?.sourceReview?.kinds) {
+      renamed.sourceReview.kinds = Object.fromEntries(Object.entries(value.sourceReview.kinds).map(([key, kind]) => [key === from ? to : key, kind]));
+    }
+    return renamed;
+  };
   const differences = (a, b, at = '', out = []) => {
     if (JSON.stringify(a) === JSON.stringify(b)) return out;
     if (a && b && typeof a === 'object' && typeof b === 'object') { for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) differences(a[key], b[key], `${at}.${key}`, out); return out; }
@@ -841,7 +850,8 @@ test('a Story started after the copies runs each as the step it replaces: scope,
   assert.deepEqual(workflow.phaseOrder, [specification, planning, 'implementation', convergence, 'verification', 'release']);
   assert.equal(roles.scopeStepOf(workflow).id, specification, 'the copy defines the scope');
   assert.deepEqual([roles.sourceReviewKind(workflow, specification), roles.sourceReviewKind(workflow, planning)], ['specification', 'planning']);
-  assert.deepEqual(workflow.resolution.sourceReview.phases, [specification, planning], 'both copies are source-reviewed');
+  // From review level 2 every authored step is reviewed, both copies with it; convergence, which the engine builds, is not.
+  assert.deepEqual(workflow.resolution.sourceReview.phases, [specification, planning, 'implementation', 'verification', 'release'], 'both copies are source-reviewed');
   assert.equal(roles.convergencePhaseOf(workflow).id, convergence);
   assert.equal(generationSkillForPhase(workflow.phases[convergence], workflow), '/sflow-converge');
   // At the copy, guidance and the converge verb route the engine's deterministic convergence of it.

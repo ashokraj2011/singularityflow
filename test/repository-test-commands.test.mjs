@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { canonicalJson } from '../src/records.mjs';
 
 // One suite, two levels and two targets [RTC:REQ-001, RTC:REQ-011].
@@ -26,13 +25,43 @@ async function shipped(t) {
 const phase = (resolved, id) => resolved.phases.find((entry) => entry.id === id);
 const ids = (step) => (step.qualityCommands ?? []).map((entry) => entry.id);
 
-test('a configuration without tests: resolves byte for byte as before repository tests existed [RTC:REQ-002]', async (t) => {
+// This once pinned whole-resolution digests of two workflows, so any deliberate change to resolution moved them
+// (review level 2 did, a72215495) and said nothing about repository tests. It checks the property itself, byte
+// for byte, in every shipped workflow.
+test('a configuration without tests: gets nothing from repository tests, and adding them changes nothing but their commands [RTC:REQ-002]', async (t) => {
   const definition = await shipped(t);
-  const digest = (id) => createHash('sha256').update(canonicalJson(resolveWorkType(definition, id))).digest('hex');
-  // Computed on main 2e3e74c8c, before `tests:` existed. Only a deliberate change to these shipped
-  // workflows or to resolution itself moves them; repository tests must not.
-  assert.equal(digest('feature'), 'e294f39567509a24a669e9d9ce2b21ca547bdb84cc219a640056cb2982d32582');
-  assert.equal(digest('bugfix'), '43db7e0151bd9d861a9c198340b0dbf566dda8fe623a5458441a77891c9cf162');
+  assert.equal(Object.hasOwn(definition, 'tests'), false, 'the shipped configuration has no tests:');
+  // Repository tests reach a resolution in two places only: commands in a step's list, and the later steps'
+  // tests a code step also runs (laterStepTests). A step's choice of them (testLevels, testIds) never stays.
+  const repository = new Set([unit, local, relay].map((entry) => entry.id));
+  const withTests = validateDefinition({ ...structuredClone(definition), tests: [unit, local, relay] });
+  const emptyTests = validateDefinition({ ...structuredClone(definition), tests: [] });
+  const withoutRepositoryTests = (resolved) => ({
+    ...resolved,
+    phases: resolved.phases.map(({ laterStepTests, qualityCommands, ...step }) => {
+      const kept = (qualityCommands ?? []).filter((entry) => !repository.has(entry.id));
+      return kept.length ? { ...step, qualityCommands: kept } : step;
+    })
+  });
+  const gained = [];
+  for (const [workTypeId, workType] of Object.entries(definition.workTypes)) {
+    const plain = resolveWorkType(definition, workTypeId);
+    for (const step of plain.phases) {
+      // Each step runs exactly the commands its own configuration declares, and carries no repository-test field.
+      const declared = mergePhaseOverride(structuredClone(definition.phases[step.id]), structuredClone(workType.phaseOverrides?.[step.id] ?? {}));
+      assert.deepEqual(step.qualityCommands, declared.qualityCommands, `${workTypeId} ${step.id}: only the commands it declares`);
+      for (const field of ['laterStepTests', 'testLevels', 'testIds']) {
+        assert.equal(Object.hasOwn(step, field), false, `${workTypeId} ${step.id}: no ${field}`);
+      }
+    }
+    assert.equal(canonicalJson(resolveWorkType(emptyTests, workTypeId)), canonicalJson(plain), `${workTypeId}: an empty tests: is no tests:`);
+    // Taking the repository tests out again leaves the resolution without them, byte for byte: they move nothing else,
+    // so existing Stories and digests do not move for a configuration that has none.
+    const added = resolveWorkType(withTests, workTypeId);
+    assert.equal(canonicalJson(withoutRepositoryTests(added)), canonicalJson(withoutRepositoryTests(plain)), `${workTypeId}: tests: adds only its commands`);
+    if (added.phases.some((step) => (step.qualityCommands ?? []).some((entry) => repository.has(entry.id)))) gained.push(workTypeId);
+  }
+  assert.ok(gained.includes('feature') && gained.includes('bugfix'), `the comparison is not empty: ${gained.join(', ')}`);
 });
 
 test('steps that run tests get the repository tests they choose; a step with its own test command keeps it [RTC:REQ-002, RTC:REQ-011]', async (t) => {

@@ -273,8 +273,13 @@ test('a copy takes its step\'s place in source review and where Auto stops, so t
   const { loadDefinition, resolveWorkType } = await import('../src/config.mjs');
   const { reviewKindForResponsibilities } = await import('../src/phase-roles.mjs');
   const resolved = resolveWorkType(await loadDefinition(root), 'repo-spec-driven-standard');
-  assert.deepEqual(resolved.sourceReview.phases.map((id) => reviewKindForResponsibilities(
+  const copies = ['specification-repo-spec-driven-standard', 'planning-repo-spec-driven-standard'];
+  assert.deepEqual(copies.map((id) => reviewKindForResponsibilities(
     resolved.obligationGraph.nodes.find((node) => node.id === id).responsibilities)), ['specification', 'planning']);
+  // From review level 2 every authored step is reviewed: the copies as the scope and the plan, the code step for its
+  // code, the rest as documents; convergence, which the engine builds, is not.
+  assert.deepEqual(resolved.sourceReview.phases, [...copies, 'implementation', 'verification', 'release']);
+  assert.deepEqual(resolved.sourceReview.kinds, { [copies[0]]: 'specification', [copies[1]]: 'planning', implementation: 'code', verification: 'document', release: 'document' });
 });
 
 test('a copy of convergence is convergence: the engine knows it by its artifact kind, never by its name [E2G-001]', async () => {

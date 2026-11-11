@@ -24,6 +24,7 @@ import { REQUIREMENT_AUTHORING_PROTOCOL } from '../src/requirement-coverage.mjs'
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { CLARIFICATION_RESPONSE_FORMAT } from '../src/phase-staging-paths.mjs';
 
 // The agent view names a recovery action that repeats one of its next actions by `sameAs`.
 const recoveryAction = (entry, id) => {
@@ -430,6 +431,10 @@ test('a future user-created workflow composes a question-only checkpoint for its
   assert.deepEqual(recordAction.commandGuidance.argv, ['clarification', 'record', 'team-discovery',
     '--response-file', entry.clarification.responseStagingPath, '--for-agent', '--json'], 'the agent records replies through a bounded route');
   assert.equal(recordAction.commandGuidance.copilotCommand, '/sf-phase');
+  // The staged file's shape is given, never left to a guess: told only "the issued JSON", an agent
+  // asked its questions and stopped (Story anu-bin, 2026-11-11).
+  assert.equal(recordAction.responseFormat, CLARIFICATION_RESPONSE_FORMAT);
+  assert.ok(entry.context.text.includes(CLARIFICATION_RESPONSE_FORMAT), 'the composed guidance shows the same shape');
   assert.match(entry.context.text, /Formulating evidence-grounded questions is permitted/);
   // A real chat got its answers from ask_user, then ended the turn with no next action.
   assert.match(entry.context.text, /When `ask_user` returns, the person is done: in this same turn stage their answers/);
@@ -451,7 +456,10 @@ test('CLI recording retries preserve the receipt and re-entry does not restart c
     const staging = entry.clarification.responseStagingPath;
     const replies = [{ question: 'Is this interpretation complete?', answer: 'Yes; preserve the existing work.' }];
     await mkdir(path.dirname(staging), { recursive: true });
-    await writeFile(staging, JSON.stringify({ responses: replies }));
+    // Filled in from the shape the entry hands out, so it can never name one the record command refuses.
+    const shape = JSON.parse(entry.clarification.checkpoint.recordAction.responseFormat);
+    assert.deepEqual(Object.keys(shape.responses[0]), ['question', 'answer']);
+    await writeFile(staging, JSON.stringify({ responses: replies.map((reply) => ({ ...shape.responses[0], ...reply })) }));
     const args = entry.clarification.checkpoint.recordAction.commandGuidance.argv.filter(arg => arg !== '--json');
     const first = invokeJson(...args);
     assert.equal(first.data.reused, false);

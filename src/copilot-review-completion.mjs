@@ -2,6 +2,7 @@
 import { recordSha256 } from './records.mjs';
 import { readSourceReviewDraft } from './source-review-progress.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { CLARIFICATION_RESPONSE_FORMAT } from './phase-staging-paths.mjs';
 import { reviewCompletionTurn, workflowCompletionTurn, nativeFileReadCalls, nativeReadFailureRecovery, saveReviewCompletionTurn } from './copilot-mutation-guard.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
@@ -121,7 +122,7 @@ export async function workflowTaskAgentStop(payload = {}) {
     || !answers && !await reserveTaskContinuation(value, operation)) return {};
   return { decision: 'block', reason: `SFLOW_WORKFLOW_TASK_INCOMPLETE: ${operation.workId} ${operation.phaseId} generation ${operation.generation} has no verified completed publication from this task. `
     + 'If an issued command is still running, cut off or not yet observed complete, first run singularity-flow result last --wait --command "<the cut command\'s words>" --for-agent --json and follow that result; never replay the command. Otherwise: '
-    + (operation.state === 'record-answers' ? `The person has answered and nothing is recorded yet. Stage their answers as {"responses":[...]} at the --response-file path and run ${next.command} alone, then run singularity-flow phase enter --compose --for-agent --json once and do this step's own work from what it returns. If they declined or left a question open, say which and stop; never answer for them. `
+    + (operation.state === 'record-answers' ? `The person has answered and nothing is recorded yet. Stage their answers as ${CLARIFICATION_RESPONSE_FORMAT}, one entry per question, at the --response-file path and run ${next.command} alone, then run singularity-flow phase enter --compose --for-agent --json once and do this step's own work from what it returns. If they declined or left a question open, say which and stop; never answer for them. `
       : operation.state === 'refresh-entry' ? `The answers are recorded. Run ${next.command} once, then do this step's own work from what it returns. `
       : operation.state === 'load-context' ? `The admitted entry did not compose context. Run ${next.command} once, then use its delivered inputs and complete the current task. `
       : operation.state === 'prepare-successor' ? `Run only the returned successor preparation, ${next.command}; preserve prior publications and private drafts, then refresh phase entry once before authoring. `

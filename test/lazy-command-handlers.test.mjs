@@ -565,7 +565,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,587,900 (measured 9,587,867, commands/phase-lifecycle.mjs): a plan row short of the approved intent is the plan's own
     // correction first, the earlier step's route after it (phase-finding-policy.mjs planCorrectsFirst, phase-prepublish.mjs,
     // phase-resolution.mjs) [Story cplus, 2026-11-11]. No new eager file.
-    assert.ok(closure.bytes <= 9_587_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,588,500 (measured 9,588,487, commands/phase-lifecycle.mjs): the clarification reply file's exact shape on every
+    // route that records replies (phase-staging-paths.mjs, clarifications.mjs, phase-entry-authoring.mjs) [Story anu-bin]. No new eager file.
+    assert.ok(closure.bytes <= 9_588_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -815,7 +817,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,203,750 (measured 4,203,735): a code step's later steps' repository tests, resolved at Story start (config.mjs +2684) [PHR:REQ-007].
   // 4,208,500 (measured 4,208,463): a reviewer in every authored step of a new Story, code included, pinned at its start
   // [review level 2] (source-review-policy.mjs +3611, config.mjs +801, phase-roles.mjs +314). Its evaluator stays lazy.
-  assert.ok(current.bytes <= 4_208_500, `session current loads ${current.bytes} source bytes`);
+  // 4,209,100 (measured 4,209,083): the clarification reply file's exact shape on every route that records replies
+  // (phase-staging-paths.mjs CLARIFICATION_RESPONSE_FORMAT, clarifications.mjs) [Story anu-bin, 2026-11-11]. No new eager file.
+  assert.ok(current.bytes <= 4_209_100, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

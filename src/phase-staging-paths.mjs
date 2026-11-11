@@ -15,6 +15,13 @@ import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 const STAGING_DIRECTORIES = Object.freeze({ clarification: 'clarification-responses', 'source-review': 'source-reviews' });
 
 /**
+ * The clarification staging file's exact shape, given on every route that records replies. Told only
+ * "the issued JSON", an agent rightly refused to guess it, and the step stopped after the questions
+ * (Story anu-bin, 2026-11-11). A deferral adds "status":"deferred" with its reason as the answer.
+ */
+export const CLARIFICATION_RESPONSE_FORMAT = `{"responses":[{"question":"<the question as asked>","answer":"<the person's reply>"}]}`;
+
+/**
  * Which pinned clarification policy governs a step: the Story's resolved copy, then the step, then
  * the definition. One copy of this fallback, shared with clarifications.mjs, so the guard and the
  * checkpoint cannot disagree about what a Story pinned.

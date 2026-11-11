@@ -331,7 +331,8 @@ test('initial phase skills require interactive clarification instead of silently
     assert.match(content, /clarification\.responseStagingPath/i);
     assert.match(content, /Stage JSON, never governed records/);
     assert.match(content, /Remove staging only on success/i);
-    assert.match(content, /"responses"/);
+    // The exact shape is the entry's recordAction.responseFormat, never a guess (Story anu-bin, 2026-11-11).
+    assert.match(content, /File-edit `responseFormat` at `clarification\.responseStagingPath`/);
   }
   assert.match(workflowAgent, /skills\/sflow-phase\/SKILL.md/);
   assert.match(workflowAgent, /skills\/sflow-code\/SKILL.md/);

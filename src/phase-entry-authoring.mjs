@@ -19,7 +19,7 @@ import { phaseExecutionEvidence } from './phase-execution-evidence.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 import { endsStory, upstreamEntrySummary } from './upstream-entry-summary.mjs';
 import { measureCommandSpan } from './dx-timing-context.mjs';
-import { clarificationStagingPath } from './phase-staging-paths.mjs';
+import { CLARIFICATION_RESPONSE_FORMAT, clarificationStagingPath } from './phase-staging-paths.mjs';
 import { repositoryCheckStatus } from './repository-check-cache.mjs';
 
 /**
@@ -135,8 +135,8 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
       ?? clarification.record?.promptSha256 ?? null };
   checkpoint.recordAction = checkpoint.questioningAllowed && context ? recoveryActionGuidance({
     id: `record-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
-    scope: 'clarification-only', requiresActualHumanReplies: true,
-    detail: 'After matching actual human replies to answerBinding, stage the issued JSON with a file-edit tool and run this command alone. Recording failure does not require repeating the questions.',
+    scope: 'clarification-only', requiresActualHumanReplies: true, responseFormat: CLARIFICATION_RESPONSE_FORMAT,
+    detail: 'After matching actual human replies to answerBinding, write them as responseFormat (one entry per question; a deferral adds "status":"deferred") to the --response-file path with a file-edit tool, then run this command alone. Recording failure does not require repeating the questions.',
     ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
       '--response-file', clarification.responseStagingPath, '--json'] })
   }) : null;
@@ -147,8 +147,8 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   checkpoint.remainingQuestions = checkpoint.stage === 'complete' ? Math.max(0, checkpoint.maxQuestions - recordedQuestions) : null;
   checkpoint.newQuestionAction = checkpoint.stage === 'complete' && canCompose && checkpoint.remainingQuestions > 0 ? recoveryActionGuidance({
     id: `add-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
-    scope: 'clarification-only', requiresActualHumanReplies: true,
-    detail: 'Only for a new question that arose while authoring and that the person here can answer; never re-ask a recorded one. Stage only the new reply as {"responses":[...]} with a file-edit tool and run this command alone.',
+    scope: 'clarification-only', requiresActualHumanReplies: true, responseFormat: CLARIFICATION_RESPONSE_FORMAT,
+    detail: 'Only for a new question that arose while authoring and that the person here can answer; never re-ask a recorded one. Stage only the new reply as responseFormat with a file-edit tool and run this command alone.',
     ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
       '--response-file', clarification.responseStagingPath, '--json'] })
   }) : null;
@@ -159,8 +159,8 @@ export async function completePhaseEntry(entry, base, { compose, modelEnabled })
   checkpoint.rebindAction = checkpoint.stage === 'inspect-binding' && clarification.staleOnly && canCompose
     ? recoveryActionGuidance(context ? {
       id: `rebind-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
-      scope: 'clarification-only', requiresActualHumanReplies: true, skill: authoring.effectiveAuthoringSkill,
-      detail: 'The prompt was recomposed after these answers were recorded. Show the person each recorded question and answer (clarification.record.responses) against the current context; stage only the answers they confirm or change as {"responses":[...]} with a file-edit tool and run this command alone.',
+      scope: 'clarification-only', requiresActualHumanReplies: true, skill: authoring.effectiveAuthoringSkill, responseFormat: CLARIFICATION_RESPONSE_FORMAT,
+      detail: 'The prompt was recomposed after these answers were recorded. Show the person each recorded question and answer (clarification.record.responses) against the current context; stage only the answers they confirm or change as responseFormat with a file-edit tool and run this command alone.',
       ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
         '--response-file', clarification.responseStagingPath, '--replace', '--json'] })
     } : {

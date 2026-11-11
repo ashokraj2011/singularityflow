@@ -1,6 +1,6 @@
 import { nextPhaseGeneration, groundingRecordRelative } from './phase-generation.mjs';
 import { clarificationRecordRelative } from './story-paths.mjs';
-import { pinnedClarificationPolicy } from './phase-staging-paths.mjs';
+import { CLARIFICATION_RESPONSE_FORMAT, pinnedClarificationPolicy } from './phase-staging-paths.mjs';
 export { clarificationRecordRelative };
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
@@ -14,6 +14,7 @@ import {
 
 const CLARIFICATION_MODES = new Set(['off', 'when-needed', 'required']);
 const DEFAULT_MAX_QUESTIONS = 5;
+const FORMAT_NOTE = 'one entry per question; a deferral adds "status":"deferred" with its reason as the answer';
 
 /**
  * The pinned clarification policy for a phase.
@@ -493,7 +494,7 @@ export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSo
       : '- For intent conflicts, confirm the human change. After scope approval use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"` from an active step after the scope step (no convergence finding or loop required; a workflow with no scope step raises it with `upstream-issue raise --proposed amend`); have the authorized scope reviewer decide, acknowledge approval, then recompose. Before scope approval, record the human change in clarification and revise/review the scope draft normally. Never rewrite the pinned source.',
     '- Explain each question’s impact; offer an evidence-supported default. Accept explicit “unknown” or non-blocking deferral. Record confirmed decisions in the artifact and deferred items in Open questions with impact and owner.',
     '- When `ask_user` returns, the person is done: in this same turn stage their answers, run recordAction, refresh the entry once, then carry on with the step itself. Never end the turn between them.',
-    `- Use a file-edit tool to stage only {"responses":[...]} at the issued responseStagingPath (standalone discovery: \`git rev-parse --git-path singularity-flow/clarification-responses/${phaseId}-gen<N>.json\`). Every turn of this step may write that exact file, so a refusal from an earlier turn does not apply after this entry: write it now. Run the returned recordAction or standalone \`singularity-flow clarification record ${phaseId} --response-file <that-path>\`, without shell chains, then remove staging with a file-edit tool only after success. Never write response input to the CLI-owned \`singularity/work-items/**/context/clarifications-*.json\` durable path.`,
+    `- Use a file-edit tool to stage only ${CLARIFICATION_RESPONSE_FORMAT} (${FORMAT_NOTE}) at the issued responseStagingPath (standalone discovery: \`git rev-parse --git-path singularity-flow/clarification-responses/${phaseId}-gen<N>.json\`). Every turn of this step may write that exact file, so a refusal from an earlier turn does not apply after this entry: write it now. Run the returned recordAction or standalone \`singularity-flow clarification record ${phaseId} --response-file <that-path>\`, without shell chains, then remove staging with a file-edit tool only after success. Never write response input to the CLI-owned \`singularity/work-items/**/context/clarifications-*.json\` durable path.`,
     '- Material unresolved decisions block this step\'s publication; recommendations/placeholders cannot hide them.',
     '- If `ask_user` is unavailable, print numbered questions and stop before authoring or publication; never assume answers. When the person replies, stage their answers at responseStagingPath, run recordAction, then continue.',
     policy.mode === 'required'

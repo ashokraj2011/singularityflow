@@ -65,6 +65,29 @@ export function literalUrlCredential(value) {
   return named ? `the query parameter '${named}'` : null;
 }
 
+const WEB_URL = /\b(?:https?|wss?):\/\/[^\s'"`<>()]+/giu;
+const HOST_NAME = /^(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.?|\[[0-9a-f:.]+\])$/u;
+const localHost = (host) => host === 'localhost' || /\.(?:localhost|test)$/u.test(host)
+  || /^127(?:\.\d{1,3}){3}$/u.test(host) || ['0.0.0.0', '[::1]', '[::]'].includes(host);
+
+/**
+ * The deployed hosts a command's env, argv or shell text targets [PHR:REQ-007], item 8: http(s)/ws(s) URLs whose
+ * host is not this machine (localhost, 127.0.0.1, [::1], *.localhost, *.test). As `host[:port]` only, so no user
+ * name, password or query is ever shown; a placeholder (`$HOST`) is no host.
+ */
+export function literalDeployedHosts(command) {
+  const texts = [...Object.values(command?.env ?? {}), ...(Array.isArray(command?.argv) ? command.argv : []),
+    ...(typeof command?.command === 'string' ? [command.command] : [])];
+  const hosts = new Set();
+  for (const [match] of texts.flatMap((text) => [...String(text ?? '').matchAll(WEB_URL)])) {
+    let url;
+    try { url = new URL(match); } catch { continue; }
+    const host = url.hostname.toLowerCase().replace(/\.$/u, '');
+    if (HOST_NAME.test(url.hostname.toLowerCase()) && !localHost(host)) hosts.add(url.port ? `${host}:${url.port}` : host);
+  }
+  return [...hosts];
+}
+
 /**
  * A command's literal `env` [TCE]: unreserved UPPER_CASE names, none secret-like (environments.yml holds
  * those), short values, in name order. An older engine ignores it, like any key unknown here.

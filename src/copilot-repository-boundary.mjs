@@ -133,6 +133,13 @@ async function settleObservedEdits(payload) {
  * PATH: that skill's first command would otherwise fail with `command not found`.
  */
 export async function recordRepositoryBoundaryTurn(payload = {}, options = {}) {
+  // The review's own prompt, sent under the author's session by a host that names no sub-agent (review-subagent.mjs),
+  // is the reviewer's turn beside the author's; any other prompt ends a reviewer still launched there.
+  if (!options.reviewerSubagent) {
+    const framed = await reviewerFrame(payload, 'prompt');
+    payload = framed.payload;
+    if (framed.reviewer) options = { ...options, reviewerSubagent: true };
+  }
   const answer = await recordTurn(payload, options);
   const line = hookCliLine();
   return line && explicitSflowSkill(payload.prompt) && answer.decision !== 'block'
@@ -227,13 +234,30 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
   return captured ?? {};
 }
 
+/**
+ * A reviewer the author's turn launched under the author's own session (review-subagent.mjs): where an event of that
+ * session belongs, and the reviewer's turn ended once the author's side shows again. One lstat when none was launched;
+ * mirrors frameFile() there.
+ */
+async function reviewerFrame(payload, event) {
+  const id = sessionId(payload ?? {});
+  if (!id || [payload.agentId, payload.agent_id].some((value) => value != null && value !== '')) return { payload };
+  const boundaries = path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
+  if (!await lstat(path.join(boundaries, `${createHash('sha256').update(id).digest('hex')}.subagent.json`)).then(() => true, () => false)) return { payload };
+  const framed = await (await import('./review-subagent.mjs')).reviewerFramePayload(payload, boundaries, event).catch(() => ({ payload }));
+  if (framed.ended) await endRepositoryBoundaryTurn({ sessionId: framed.ended }).catch(() => {});
+  return framed;
+}
+
 /** A reviewer sub-agent started in an author's chat is checked under its own review turn (review-subagent.mjs). */
-async function ownTurnPayload(payload) {
-  if (!payload || [payload.agentId, payload.agent_id].every((value) => value == null || value === '')) return payload;
+async function ownTurnPayload(payload, event = 'tool') {
+  if (!payload) return payload;
+  if ([payload.agentId, payload.agent_id].every((value) => value == null || value === '')) return (await reviewerFrame(payload, event)).payload;
   return (await import('./review-subagent.mjs')).reviewerSubagentPayload(payload, path.join(path.dirname(copilotModeFile()), 'copilot-boundaries'));
 }
 
 export async function endRepositoryBoundaryTurn(payload = {}) {
+  await reviewerFrame(payload, 'stop');
   await settleObservedEdits(payload).catch(() => {});
   await attribute(payload, (recorder, directory) => recorder.sfGuardEndSession(payload, { directory }));
   await removeRecord(promptCopyPath(payload)).catch(() => {});
@@ -251,11 +275,16 @@ export async function endRepositoryBoundaryTurn(payload = {}) {
  * secret runs nothing [PCR:REQ-003].
  */
 export async function repositoryToolGuard(payload = {}) {
-  payload = await ownTurnPayload(payload);
+  payload = await ownTurnPayload(payload, 'tool');
   const explicitTurn = await hasBoundaryTurn(payload);
   const decision = await secretInPrompt(payload) ?? (explicitTurn ? await turnToolGuard(payload) : await plainChatGuard(payload));
   if (explicitTurn && decision.permissionDecision === 'deny') await (await import('./copilot-review-completion.mjs'))
     .noteTaskCompletionFailure(payload, decision).catch(() => {});
+  // The author's own turn starting its step's reviewer with the host's sub-agent tool (review-subagent.mjs).
+  if (explicitTurn && decision.permissionDecision !== 'deny' && !payload.authorSessionId
+      && /subagent|task/iu.test(JSON.stringify([payload.toolName ?? payload.tool_name ?? null, ...(payload.toolCalls ?? []).map((call) => call?.name ?? null)]))) {
+    await (await import('./review-subagent.mjs')).noteReviewerLaunch(payload, path.join(path.dirname(copilotModeFile()), 'copilot-boundaries')).catch(() => {});
+  }
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolCall(payload, decision, { directory, explicitTurn }));
   return decision;
 }
@@ -273,7 +302,7 @@ async function turnToolGuard(payload) {
 }
 
 export async function repositoryPostToolGuard(payload = {}) {
-  payload = await ownTurnPayload(payload);
+  payload = await ownTurnPayload(payload, 'after');
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolResult(payload, { directory }));
   if (!(await hasBoundaryTurn(payload))) return {};
   try { return await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
@@ -281,12 +310,12 @@ export async function repositoryPostToolGuard(payload = {}) {
 }
 
 export async function repositoryAgentStop(payload = {}) {
-  payload = await ownTurnPayload(payload);
+  payload = await ownTurnPayload(payload, 'stop');
   return (await import('./copilot-review-completion.mjs')).workflowTaskAgentStop(payload);
 }
 
 export async function repositoryToolFailure(payload = {}) {
-  payload = await ownTurnPayload(payload);
+  payload = await ownTurnPayload(payload, 'after');
   return (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload);
 }
 

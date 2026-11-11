@@ -17,6 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
@@ -64,6 +65,95 @@ export function reviewerSubagentPayload(payload, boundaries) {
   if (!id || !existsSync(path.join(boundaries, `${createHash('sha256').update(id).digest('hex')}.json`))) return payload;
   const { session_id: ignored, ...rest } = payload;
   return { ...rest, sessionId: id, authorSessionId: authorSession(payload) };
+}
+
+/*
+ * VS Code's runSubagent (1.145, live 2026-11-11) runs the reviewer under the author's own session and names no agent
+ * on any of its events: no SubagentStart, its task arrives as the prompt "/sf-review-source <step> …", and its calls
+ * carry the author's session alone. Recorded as a prompt of that session, the reviewer's turn replaced the author's.
+ * So the author's launch is noted beside the author's turn (`<session>.subagent.json`), the review's prompt that
+ * follows it is recorded under the reviewer's own key, and every event of that session goes to the reviewer's turn
+ * until the author's side shows again: the launcher call's own after-tool event (or its failure), the author's stop,
+ * or a prompt that is not the review's. The author's turn is never touched. Copilot CLI's task gives the sub-agent a
+ * session of its own, so its events never reach this.
+ */
+const LAUNCHERS = new Set(['runsubagent', 'run_subagent', 'task']);
+const FRAME_MAX_AGE_MS = 30 * 60 * 1000;
+const REVIEW_PROMPT = /^\s*\/sf(?:low)?-review-source(?:\s|$)/u;
+const hasAgent = (payload) => [payload?.agentId, payload?.agent_id].some((value) => value != null && value !== '');
+const sessionOf = (payload) => [payload?.sessionId, payload?.session_id].find((value) => typeof value === 'string' && value && value.length <= 200) ?? null;
+const frameFile = (boundaries, session) => path.join(boundaries, `${createHash('sha256').update(session).digest('hex')}.subagent.json`);
+
+/** The sub-agent launcher call a payload makes, as hosts spell it (VS Code runSubagent, Copilot CLI task), or null. */
+function launcherCall(payload) {
+  const calls = Array.isArray(payload?.toolCalls) ? payload.toolCalls
+    : [{ name: payload?.toolName ?? payload?.tool_name, args: payload?.toolArgs ?? payload?.tool_input, id: payload?.toolCallId ?? payload?.tool_use_id }];
+  for (const call of calls) {
+    const name = String(call?.name ?? call?.toolName ?? '').toLowerCase().split(/[.:]|__/u).at(-1);
+    if (!LAUNCHERS.has(name)) continue;
+    let args = call.args ?? call.arguments ?? call.input ?? {};
+    if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
+    return { args: args && typeof args === 'object' ? args : {}, id: typeof call.id === 'string' ? call.id : null };
+  }
+  return null;
+}
+
+async function readFrame(file) {
+  try {
+    const frame = JSON.parse(await readFile(file, 'utf8'));
+    return frame?.kind === 'reviewer-subagent' ? frame : null;
+  } catch { return null; }
+}
+
+/** The author's turn launched its step's reviewer with the host's sub-agent tool: noted, so the review's prompt is known. */
+export async function noteReviewerLaunch(payload, boundaries, now = Date.now()) {
+  const session = sessionOf(payload);
+  const call = !hasAgent(payload) && session ? launcherCall(payload) : null;
+  if (!call) return;
+  const agent = ownAgentName([call.args.agentName, call.args.agent_type, call.args.agentType, call.args.agent_name]
+    .find((entry) => typeof entry === 'string' && entry.trim()));
+  if (!REVIEW_PROMPT.test(String(call.args.prompt ?? '')) && !/reviewer/iu.test(String(agent ?? ''))) return;
+  // Machine-local and short-lived (gone when the review's turn ends, at most 30 minutes on): its kind names it.
+  const frame = { kind: 'reviewer-subagent', sessionId: session, launch: call.id,
+    reviewerSessionId: reviewerSessionId(session, NAME.test(String(agent ?? '')) ? agent : 'reviewer'), at: now, started: false };
+  await mkdir(boundaries, { recursive: true, mode: 0o700 });
+  const temporary = `${frameFile(boundaries, session)}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(frame)}\n`, { mode: 0o600 });
+  await rename(temporary, frameFile(boundaries, session));
+}
+
+/**
+ * Where a top-level event of a session with a launched reviewer belongs. `event` is 'prompt', 'tool', 'after' (an
+ * after-tool event or its failure) or 'stop'. Returns the payload to judge (under the reviewer's key while the review
+ * runs), `reviewer` when it is the review's own prompt, and `ended`: the reviewer's key whose turn is over, for the
+ * caller to end. Payloads naming an agent, and sessions with nothing launched, come back unchanged.
+ */
+export async function reviewerFramePayload(payload, boundaries, event, now = Date.now()) {
+  const session = sessionOf(payload);
+  if (!session || hasAgent(payload)) return { payload };
+  const file = frameFile(boundaries, session);
+  const frame = await readFrame(file);
+  if (!frame || frame.sessionId !== session) return { payload };
+  const end = async () => { await rm(file, { force: true }); return { payload, ended: frame.reviewerSessionId }; };
+  if (!(now - frame.at >= 0 && now - frame.at <= FRAME_MAX_AGE_MS)) return end();
+  const routed = () => {
+    const { session_id: ignored, ...rest } = payload;
+    return { payload: { ...rest, sessionId: frame.reviewerSessionId, authorSessionId: session } };
+  };
+  if (event === 'prompt') {
+    const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
+    if (!frame.started && REVIEW_PROMPT.test(prompt)) {
+      await writeFile(file, `${JSON.stringify({ ...frame, started: true, at: now })}\n`, { mode: 0o600 });
+      return { ...routed(), reviewer: true };
+    }
+    // A stop continuation of the review's own turn stays with it; any other prompt is the author's (or the person's).
+    if (frame.started && prompt.startsWith('SFLOW_SOURCE_REVIEW_INCOMPLETE:')) return routed();
+    return end();
+  }
+  const launcher = launcherCall(payload);
+  const ownLaunch = launcher && (!frame.launch || !launcher.id || launcher.id === frame.launch);
+  if (event === 'stop' || (event === 'after' && ownLaunch)) return end();
+  return frame.started ? routed() : { payload };
 }
 
 /**

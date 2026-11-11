@@ -231,6 +231,52 @@ test('a plain prepublish that keeps what the person asked for is SFlow\'s own co
   assert.match(JSON.stringify(hook('boundary-after', other)), /PHASE_MUTATION_SHELL_CHANGE_DETECTED[^"]*src\/value\.mjs/u);
 });
 
+test('VS Code runSubagent: the reviewer runs under the author\'s own session, its turn kept beside the author\'s, which is back when the launch returns', async (t) => {
+  // VS Code 1.145, live 2026-11-11: the model starts the reviewer with runSubagent; no SubagentStart is sent; the
+  // sub-agent's task arrives as a prompt under the author's session and its calls carry that session alone. Recorded
+  // as a prompt of that session, the review's turn replaced the author's.
+  const { root, sflow, sflowJson, hook, contracts } = await authorStory(t);
+  const chat = { session_id: 'vscode-author' };
+  hook('boundary-turn', { ...chat, prompt: '/sf-phase QF-1 make the exported value 2' });
+  const published = JSON.parse(sflow('phase', 'prepublish', 'intake', '--for-agent', '--json', '--publish-if-ready'));
+  assert.equal(published.publishIfReady.published, true, JSON.stringify(published.publishIfReady).slice(0, 2000));
+  const prompt = `/sf-review-source intake  Work ID QF-1, phase intake, generation 1. Repository root: ${root}`;
+  const launch = (id) => ({ ...chat, tool_name: 'runSubagent', tool_use_id: id,
+    tool_input: { prompt, description: 'Review intake', agentName: 'sflow-source-reviewer' } });
+  assert.equal(decisionOf(hook('boundary-guard', launch('call-review-1'))), 'allow', 'the author starts its step\'s reviewer');
+  hook('boundary-turn', { ...chat, prompt });
+  assert.deepEqual(await contracts(), { 'vscode-author': 'authoring', 'vscode-author#agent:sflow-source-reviewer': 'read-only-review' });
+  // The reviewer's calls, under the author's session, are judged as the reviewer's.
+  const packet = sflowJson('review-source', 'context', 'intake', '--for-agent').value;
+  const report = (who) => hook('boundary-guard', { ...who, tool_name: 'create_file', tool_use_id: 'call-write',
+    tool_input: { filePath: packet.stagingPath, content: JSON.stringify(documentReport(packet)) } });
+  assert.equal(decisionOf(report(chat)), 'allow', 'the reviewer writes its own report');
+  assert.equal(decisionOf(hook('boundary-guard', { ...chat, tool_name: 'replace_string_in_file', tool_use_id: 'call-edit',
+    tool_input: { filePath: path.join(root, 'src/value.mjs'), oldString: '1', newString: '2' } })), 'deny', 'the reviewer is read-only');
+  await writeFile(packet.stagingPath, JSON.stringify(documentReport(packet)));
+  sflowJson('review-source', 'submit', 'intake', '--report-file', packet.stagingPath);
+  // The launch returns to the author: its own after-tool event ends the reviewer's turn, and the author's turn is as it was.
+  hook('boundary-after', { ...launch('call-review-1'), tool_response: 'The review is retained.' });
+  assert.deepEqual(await contracts(), { 'vscode-author': 'authoring' });
+  assert.equal(decisionOf(report(chat)), 'deny', 'back with the author, who never writes the review of its own step');
+  assert.equal(sflowJson('review-source', 'status', 'intake', '--work-id', 'QF-1', '--for-agent').value.status, 'ready');
+
+  // Where the launch's own after-tool event never comes, the author's side still ends the reviewer's turn: its stop ...
+  hook('boundary-guard', launch('call-review-2'));
+  hook('boundary-turn', { ...chat, prompt });
+  assert.equal((await contracts())['vscode-author#agent:sflow-source-reviewer'], 'read-only-review');
+  hook('boundary-stop', { ...chat, stop_hook_active: false });
+  assert.deepEqual(await contracts(), { 'vscode-author': 'authoring' });
+  // ... or a prompt that is not the review's, which starts its own turn as any prompt does.
+  hook('boundary-guard', launch('call-review-3'));
+  hook('boundary-turn', { ...chat, prompt });
+  hook('boundary-turn', { ...chat, prompt: '/sf-next' });
+  assert.equal((await contracts())['vscode-author#agent:sflow-source-reviewer'], undefined);
+  // A person who types the review in the author's chat, with no launch, starts that review's turn there as before.
+  hook('boundary-turn', { ...chat, prompt: '/sf-review-source intake' });
+  assert.deepEqual(await contracts(), { 'vscode-author': 'read-only-review' });
+});
+
 test('Copilot CLI task: the reviewer named after SFlow\'s plugin gets its own review turn, and the author\'s is never replaced', async (t) => {
   // Copilot CLI 1.0.109, live 2026-11-12: a plugin's agent arrives as "<plugin>:<agent>"; the sub-agent's events carry a
   // session of its own (its agentId), the author's as parentAgentId; subagentStart and subagentStop the author's session.

@@ -66,7 +66,8 @@ const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'r
 // /sf-decide turn may record only these; the routes read the same list, so no surface sends another
 // choice to that turn.
 export { DECISION_LIST_CHAT_OPTIONS };
-const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
+// VS Code's own chat names its sub-agent tool runSubagent, which calls() spells runsubagent.
+const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent', 'runsubagent']);
 // A sub-agent call that starts a step's independent review: its prompt is the review's skill, or its agent a reviewer.
 const reviewerDelegation = (call) => /^\s*\/sf(?:low)?-review-source(?:\s|$)/u.test(String(call.args?.prompt ?? ''))
   || /reviewer/iu.test(String(call.args?.agent_type ?? call.args?.agentType ?? call.args?.agent_name ?? call.args?.agentName ?? ''));

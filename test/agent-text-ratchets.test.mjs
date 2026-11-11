@@ -288,3 +288,21 @@ test('every field act names in read, said or how is in the same result', () => {
     }
   }
 });
+
+test('every example a review schema description gives is a value that schema accepts', async () => {
+  // The schema said code:<path> while the real IDs are code:src:App.jsx, and the check answered only "Invalid input"
+  // (dda58fc6d). Any "such as X" in a description must itself pass the field it describes.
+  const { sourceReviewReportSchema } = await import('../src/source-review-contract.mjs');
+  const examples = [];
+  const walk = (node, trail) => {
+    if (!node || typeof node !== 'object') return;
+    for (const [, example] of String(node.description ?? '').matchAll(/\bsuch as ([^\s,;)]+)/gu)) examples.push({ trail, example, pattern: node.pattern ?? null, values: node.enum ?? null });
+    for (const [key, child] of Object.entries(node)) walk(child, `${trail}.${key}`);
+  };
+  for (const kind of ['specification', 'planning', 'document', 'code']) walk(sourceReviewReportSchema(kind), kind);
+  assert.ok(examples.length > 0, 'the code review schema names an example source ID');
+  for (const { trail, example, pattern, values } of examples) {
+    if (pattern) assert.match(example, new RegExp(pattern, 'u'), trail);
+    if (values) assert.ok(values.includes(example), trail);
+  }
+});

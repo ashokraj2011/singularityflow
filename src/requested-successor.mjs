@@ -124,7 +124,7 @@ export async function requestedSuccessorRollover(root, config, workflow, phase, 
     }
   }
   if (supplied !== expected) throw new SingularityFlowError(
-    `The rollover confirmation must equal ${expected}: what was asked for or the published bytes changed since the preview. Preview again.`,
+    `The rollover confirmation is not the current one: what was asked for or the published bytes changed since the preview. Preview again (its JSON carries the current confirmation).`,
     { code: 'GENERATION_ROLLOVER_STALE', details: preview });
   const intent = await storyDraftTransaction(root, config, workflow, `phase-rollover:${phase.id}`, async () => {
     const opened = await beginPhaseGeneration(root, config, workflow, { phaseId: phase.id });

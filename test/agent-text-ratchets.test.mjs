@@ -206,3 +206,25 @@ test('every skill line that starts a long-running command says how to wait for i
   }
   assert.deepEqual(missing, []);
 });
+
+test('every text that names ask_user also names VS Code\'s question tool', async () => {
+  // VS Code's own chat calls it vscode_askQuestions: a literal model found no ask_user there, took "unavailable: show
+  // them and stop" and ended the turn (agent-text audit, 2026-11-11).
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { QUESTION_TOOL_CONTRACT } = await import('../scripts/skill-policy.mjs');
+  const root = new URL('../plugin/skills/', import.meta.url);
+  const missing = [];
+  for (const name of await readdir(root)) {
+    let text;
+    try { text = await readFile(new URL(`${name}/SKILL.md`, root), 'utf8'); } catch { continue; }
+    if (text.includes('`ask_user`') && !text.includes(QUESTION_TOOL_CONTRACT)) missing.push(name);
+  }
+  assert.deepEqual(missing, []);
+  assert.match(QUESTION_TOOL_CONTRACT, /`vscode_askQuestions` in VS Code/u);
+  for (const file of ['src/copilot-answer-binding.mjs', 'src/clarifications.mjs', 'src/agent-output.mjs']) {
+    const text = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+    for (const line of text.split('\n').filter((entry) => /ask_user/u.test(entry) && !/^\s*(?:\/\/|\*)/u.test(entry))) {
+      assert.match(line, /vscode_askQuestions|`ask_user` returns|`ask_user` is unavailable/u, `${file}: ${line.trim().slice(0, 120)}`);
+    }
+  }
+});

@@ -483,7 +483,7 @@ export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSo
     topics,
     '',
     ...required.map((line) => `- ${line}`),
-    `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool.`,
+    `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool (in VS Code, \`vscode_askQuestions\`).`,
     '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository brief, or contradictions among them. Never reuse example questions or placeholder text from templates.',
     '- Formulating evidence-grounded questions is permitted while authoring awaits clarification. Never ask the human to supply the questions or generic answers; a menu promise to answer is not an answer.',
     '- Do not re-ask established facts or infer answers from generic knowledge. Label hypotheses/design proposals; they become acceptance or specification decisions only with human confirmation.',

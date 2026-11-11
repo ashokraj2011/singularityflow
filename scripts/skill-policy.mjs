@@ -60,6 +60,14 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * own chat, as a sub-agent (review-subagent.mjs). Engine-owned like the approved-inputs contract it follows, and
  * counted with it: fixed overhead on the skills that author and publish, not per-skill prose.
  */
+/**
+ * The skills name Copilot CLI's question tool, `ask_user`; VS Code's own chat calls its tool `vscode_askQuestions`
+ * (copilot-answer-binding.mjs), so a literal model there found no `ask_user`, took "unavailable: show them and stop"
+ * and ended the turn (agent-text audit, 2026-11-11). Engine-owned, on the skills that name the tool, counted as overhead.
+ */
+export const QUESTION_TOOL_CONTRACT = '`ask_user` here is your host\'s question tool: `ask_user` in the Copilot CLI, `vscode_askQuestions` in VS Code; it is unavailable only when neither exists.';
+const namesQuestionTool = (body) => body.includes('`ask_user`');
+
 export const REVIEW_SUBAGENT_CONTRACT = 'A publication returning `reviewSubagent` is reviewed next: start that reviewer as a sub-agent here, in the foreground, as its `instruction` says (no sub-agent tool: its new-chat route); relay no route while it runs, and ask a code offer only after a ready review; never review, retain or submit it yourself.';
 
 /**
@@ -510,7 +518,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT} ${REVIEW_SUBAGENT_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalContract ? ` ${refusalContract}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT}` : ''}${completeOutput ? ` ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT} ${REVIEW_SUBAGENT_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalContract ? ` ${refusalContract}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT}` : ''}${completeOutput ? ` ${COMPLETE_OUTPUT_CONTRACT}` : ''}${namesQuestionTool(sourceBody.replace(/\*\*Output contract:\*\*[^\n]*/u, '')) ? ` ${QUESTION_TOOL_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = `${executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)))} ${CLI_PATH_CONTRACT}`;
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -772,7 +780,10 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const pathContractTokens = skill.body.includes(pathContractText) ? bodyTokens - domainBodyTokens : 0;
     // So is the cwd rule's non-Git-folder clause (STORY_CWD), beyond the `cwd=` it replaced.
     const storyCwdTokens = skill.body.includes(STORY_CWD) ? estimatedTokens(STORY_CWD) - estimatedTokens('cwd=`repositoryPath`') : 0;
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens + gatewayToolsTokens + pathContractTokens + storyCwdTokens;
+    // Its own size, an upper bound of what it adds to the body, so naming the question tool never moves a skill's prose count.
+    const questionToolText = ` ${QUESTION_TOOL_CONTRACT}`;
+    const questionToolTokens = domainBody.includes(questionToolText) ? estimatedTokens(questionToolText) : 0;
+    const maximum = questionToolTokens + (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens + gatewayToolsTokens + pathContractTokens + storyCwdTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -882,6 +893,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       gatewayToolsTokens,
       pathContractTokens,
       storyCwdTokens,
+      questionToolTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,
       previewBytes: classPolicy.previewBytes,

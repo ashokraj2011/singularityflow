@@ -76,6 +76,12 @@ async function teamRepository() {
     const sources = structuredClone(definition.workTypes.feature);
     sources.label = 'Family sources flow';
     sources.phaseOverrides.intake = { clarification: { mode: 'when-needed', maxQuestions: 3, topics: ['problem', 'scope'] } };
+    // Only the scope goes unasked: a warning, and the workflow stays valid.
+    const quiet = structuredClone(definition.workTypes.feature);
+    quiet.label = 'Family quiet flow';
+    quiet.phaseOverrides.intake = { clarification: { mode: 'off' } };
+    quiet.phaseOverrides.requirements = { ...quiet.phaseOverrides.requirements, clarification: { mode: 'off' } };
+    definition.workTypes['fmly-quiet'] = quiet;
     definition.workTypes.fmly = fmly;
     definition.workTypes['fmly-sources'] = sources;
     files['singularity/templates/fmly/design.md'] = `${await readFile(path.join(root, 'singularity/templates/feature/design.md'), 'utf8')}\n`
@@ -162,7 +168,7 @@ test('a team\'s custom workflow: questions before the scope, markers nobody can 
   const inFmly = (entry) => entry.location.file === WORKFLOW && entry.location.line > fmlyLine;
 
   const [scope] = byCode(fmly.findings, 'CHECK_SCOPE_NOT_CLARIFIED');
-  assert.deepEqual([scope.severity, scope.area, scope.subject.step, scope.blocksStart, scope.stopsAt], ['problem', 'clarity', 'requirements', false, undefined]);
+  assert.deepEqual([scope.severity, scope.area, scope.subject.step, scope.blocksStart, scope.stopsAt], ['warning', 'clarity', 'requirements', false, undefined]);
   assert.equal(scope.title, 'Nobody is asked about the scope before Requirements defines it');
   assert.match(scope.detail, /, and neither it nor any step before it \(Intake\) asks the person a question: clarification is off\./u);
   assert.match(scope.fix.text, /clarification: \{ mode: required, maxQuestions: 5, topics: \[scope, acceptance criteria, constraints\] \}/u);
@@ -229,10 +235,16 @@ test('a team\'s custom workflow: questions before the scope, markers nobody can 
   assert.deepEqual([choice.decidedBy, choice.edits, choice.question.choices.map((entry) => [entry.id, entry.edits.map((edit) => [edit.from, edit.to])])],
     ['person', [], [['required', [['when-needed', 'required']]], ['when-needed', []]]]);
 
+  // A scope nobody is asked about is a warning: a workflow that runs today stays valid.
+  const quiet = json(root, ['workflow', 'validate', 'fmly-quiet']);
+  assert.equal(quiet.status, 0, quiet.stderr);
+  assert.deepEqual([quiet.report.valid, quiet.report.workflows[0].findings.filter((entry) => QUESTION_CODES.includes(entry.code)).map((entry) => [entry.code, entry.severity, entry.fix.data.decidedBy])],
+    [true, [['CHECK_SCOPE_NOT_CLARIFIED', 'warning', 'fixer']]]);
+
   // validate: not valid, every question finding listed with why and how to fix it, and who does what in each step.
   const validated = flow(root, ['workflow', 'validate', 'fmly']);
   assert.equal(validated.status, 1, validated.stderr);
-  assert.match(validated.stdout, /^ {2}problem {2}Nobody is asked about the scope before Requirements defines it {2}\(singularity\/workflow\.yml:\d+\)$/mu);
+  assert.match(validated.stdout, /^ {2}warning {2}Nobody is asked about the scope before Requirements defines it {2}\(singularity\/workflow\.yml:\d+\)$/mu);
   assert.match(validated.stdout, /^ {2}warning {2}Implementation stops for a person's answer before every change {2}\(singularity\/workflow\.yml:\d+\)$/mu);
   assert.match(validated.stdout, /^Who does what, where, in Family requirements flow \(fmly\):$/mu);
   assert.match(validated.stdout, /^ {5}Approval: one person from Product approvers \(its author may approve it\), in the chat with \/sf-approve/mu);

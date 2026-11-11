@@ -68,7 +68,7 @@ async function teamRepository(change = () => {}) {
   await initializeDefinition(root);
   const file = path.join(root, 'singularity', 'workflow.yml');
   const definition = YAML.parse(await readFile(file, 'utf8'));
-  // It asks the person about the scope it defines: a scope nobody is asked about is a problem of its own.
+  // It asks the person about the scope it defines; a scope nobody is asked about is a warning of its own.
   definition.phases['team-spec'] = { label: 'Team specification', defaultTemplate: 'team/spec.md',
     artifact: { path: 'artifacts/team-spec/spec.md', kind: 'requirements', minimumBytes: 200 },
     clarification: { mode: 'required', maxQuestions: 5, topics: ['scope', 'acceptance criteria'] },

@@ -316,7 +316,8 @@ async function questionPlacementFindings(workflow, resolved, { people, stepLabel
     const scope = order[scopeIndex];
     const setting = settingOf(scope.id);
     const earlier = order.slice(0, scopeIndex).map((phase) => stepLabel(phase.id));
-    findings.push({ code: 'CHECK_SCOPE_NOT_CLARIFIED', area: 'clarity', severity: 'problem',
+    // A warning: a Story still runs, and Workflow Studio's new steps start with clarification off.
+    findings.push({ code: 'CHECK_SCOPE_NOT_CLARIFIED', area: 'clarity', severity: 'warning',
       title: `Nobody is asked about the scope before ${stepLabel(scope.id)} defines it`,
       detail: `${stepLabel(scope.id)} defines the Story's scope (its requirement clauses), and ${earlier.length ? `neither it nor any step before it (${listWords(earlier)}) asks` : 'it does not ask'} the person a question: clarification is off. `
         + 'Its agent drafts the scope from the Story\'s sources alone, guessing wherever they are unclear, and every later step treats the approved scope as settled and is told never to ask about it again.',

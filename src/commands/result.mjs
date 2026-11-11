@@ -35,6 +35,8 @@ export function keptResultView(found, { command = null } = {}) {
   return { schemaVersion: 1, resultType: 'sflow-kept-result', status: found.status,
     ...(found.running ? { running: found.running } : {}), ...(found.interrupted ? { interrupted: found.interrupted } : {}),
     ...(found.status === 'running' ? { retry: retryFor(command) } : {}),
+    // Interrupted is where a host's timeout leaves a long publication: read where it left things before any rerun.
+    ...(found.status === 'interrupted' && safeReadFor(found.interrupted?.command) ? { safeRead: safeReadFor(found.interrupted.command) } : {}),
     ...(found.status === 'none' && command ? { command, ...(safeReadFor(command) ? { safeRead: safeReadFor(command) } : {}) } : {}) };
 }
 
@@ -71,6 +73,6 @@ export async function run(_argv, { positionals, options = {} }) {
     return console.log(found.kept.output.trimEnd());
   }
   console.log(found.status === 'running' ? `Still running: ${found.running.map((entry) => entry.command).join('; ')}. Run this read again; never run the command again.`
-    : found.status === 'interrupted' ? `${found.interrupted.command} ended without a result (interrupted or killed). Run it again once.`
+    : found.status === 'interrupted' ? `${found.interrupted.command} ended without a result (interrupted or killed). Read where it left things first (${safeReadFor(found.interrupted.command)}); run it again once only if that shows it took no effect.`
       : 'No result is kept for this checkout.');
 }

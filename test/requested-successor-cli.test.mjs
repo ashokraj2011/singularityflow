@@ -63,10 +63,10 @@ test('a change the person asks for after Code is published opens generation 2 in
   // No application is declared here: nothing to start, said in one line with the route that declares one.
   const publication = JSON.parse(story.published);
   assert.equal(publication.applicationStart.declared, false);
-  assert.match(publication.applicationStart.words, /declares no application to start; \/sf-run-app suggest/u);
+  assert.match(publication.applicationStart.words, /has no saved start entry yet; \/sf-run-app suggest \(singularity-flow app suggest\) detects one, asks you which to keep and saves it on this checkout only/u);
   const noApp = agentAct(publication);
   assert.equal(noApp.ask, undefined);
-  assert.match(noApp.said, /declares no application to start/u);
+  assert.match(noApp.said, /has no saved start entry yet/u);
 
   // Nothing asked for yet: rollover says how to ask, and Code is offered both ways after publication.
   const unasked = run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'implementation', '--json'], { allowFailure: true });
@@ -150,6 +150,9 @@ test('after Code is published with its tests passing, the person is asked once w
   // Not now: the step goes on, submit first, then its next generation for a change.
   assert.deepEqual(publication.applicationStart.choices[1].routes.map((route) => route.command),
     ['singularity-flow submit implementation', 'singularity-flow phase rollover implementation --reason "<what to change>" --json']);
+  // Its words name those routes, in order: "submit it" sat over a review route first (agent-text audit, 2026-11-11).
+  const onward = publication.applicationStart.choices[1].routes.map((route) => route.copilotCommand ?? route.command);
+  assert.equal(publication.applicationStart.choices[1].description, `Go on with the step: ${onward.join(', then ')}.`);
   // The agent view asks it first, in the first 400 bytes, and its last line names it.
   const view = await boundedAgentOutput(story.published, { cwd: root });
   const asked = JSON.parse(view);

@@ -140,7 +140,7 @@ test('/sf-explain: the longest topic reaches an agent bounded, with its text to 
   const bounded = cli(fixture, 'explain', 'workflow-authoring', '--for-agent', '--json');
   assert.ok(Buffer.byteLength(bounded.stdout) < 7500, `${Buffer.byteLength(bounded.stdout)} bytes`);
   const result = JSON.parse(bounded.stdout);
-  assert.equal(result.agentOutput.complete, false);
+  assert.equal(result.agentOutput.view, 'bounded');
   const text = result.omittedFields.flatMap((field) => field.textFiles ?? []).find((file) => file.field === 'data.served.text');
   assert.equal(text.need, true);
   assert.ok(text.read.length > 0);

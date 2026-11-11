@@ -154,6 +154,12 @@ test('validation chooses only ready local apps or free declared launch entries a
   ];
   const guide = buildOutcomeReview({ workflow, application: { status: 'declared', entries } }).validation;
   assert.deepEqual(guide.choices.filter(choice => choice.entryId).map(choice => choice.id), ['open:web', 'start:api']);
+  // `app start` stays attached until the application exits: a Start says to run it in the background, then poll
+  // status, never in the foreground where the host's timeout stopped it (agent-text audit, 2026-11-11).
+  const start = guide.choices.find(choice => choice.id === 'start:api');
+  assert.equal(start.runMode, 'background');
+  assert.match(start.how, /background \(async\) mode so it keeps running, then run singularity-flow app status --json until this entry is ready/u);
+  assert.match(guide.instruction, /a start in the background as its how says/u);
   const failure = buildOutcomeReview({ workflow, application: { status: 'unavailable', code: 'EACCES', message: 'EACCES: cannot read local profile' } });
   assert.equal(failure.validation.steps.find(step => step.id === 'application').detail, 'EACCES: cannot read local profile');
   assert.ok(!failure.validation.choices.some(choice => choice.id === 'configure'), 'a permission failure is not presented as absent configuration');

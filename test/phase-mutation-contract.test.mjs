@@ -1546,6 +1546,23 @@ test('a delegation skill takes the turn of the skill it delegates to, so the del
   }
 });
 
+test('a turn that may not start the reviewer says to end on its new-chat route, never to review the step itself', async t => {
+  // /sf-publish's publication handed back reviewSubagent; the refusal of its task call said "Do the work here
+  // yourself", the opposite of "do not review it yourself" (agent-text audit, 2026-11-11).
+  const f = await fixture(t);
+  for (const skill of ['/sf-publish', '/sf-next']) {
+    const payload = await f.enter(skill, `reviewer-${skill}`);
+    const reviewer = await mutationToolGuard({ ...payload, toolName: 'task',
+      toolArgs: { agent_type: 'sflow-source-reviewer', prompt: '/sf-review-source custom-step' } });
+    assert.equal(reviewer.permissionDecision, 'deny', skill);
+    assert.match(reviewer.permissionDecisionReason, /PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this turn cannot start the reviewer as a sub-agent, and never reviews its own step\. End with "Run this in a new chat:" and \/sf-review-source/u, skill);
+    assert.doesNotMatch(reviewer.permissionDecisionReason, /Do the work here yourself/u, skill);
+    // Any other delegation keeps its own refusal.
+    const other = await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'Work on the code step.' } });
+    assert.match(other.permissionDecisionReason, /Do the work here yourself/u, skill);
+  }
+});
+
 // The registry-wide check below reads every skill's own SFlow commands, fills their placeholders,
 // and asks the guard whether that skill's turn admits each one. A command is skipped when the guard
 // itself names it the person's or another turn's: a kernel-only turn refuses it with one of its specific

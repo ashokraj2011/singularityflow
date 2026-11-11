@@ -1159,7 +1159,10 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /Compare authored-content hashes/);
   assert.match(skill, /`canReview: false`: relay `continuation.actions`, stop/);
   assert.match(skill, /only the author prepares\/publishes successors/);
-  assert.match(skill, /End with the words `Run this in a new chat:` then `continuation.actions`, target generation\/owner/);
+  assert.match(skill, /Otherwise end with the words `Run this in a new chat:` then `continuation.actions`, target generation\/owner/);
+  // As the author's sub-agent it ended "Run this in a new chat:", which the author relayed instead of following the
+  // review's route in that same chat (agent-text audit, 2026-11-11).
+  assert.match(skill, /Started as a sub-agent in the author's chat: end with the retained status and findings only; the author follows `continuation` there\. Otherwise end/u);
   assert.match(skill, /three separate Markdown bullets, in order: "- Copilot: `<copilotCommand>`", "- Shell: `<command>`", "- VS Code \(model-free\): `<modelFreeCommand>`"/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
   for (const instructions of [skill, agent]) {

@@ -19,7 +19,7 @@ export async function applicationStartOffer(root, workflow, phase) {
     context = await (await import('./capability-application-context.mjs')).resolveCapabilityApplication(root, { subjectPath: '' });
   } catch { return null; }
   if (!context.application?.start?.length) return { declared: false,
-    words: 'This checkout declares no application to start; /sf-run-app suggest (singularity-flow app suggest) declares one.',
+    words: 'This checkout has no saved start entry yet; /sf-run-app suggest (singularity-flow app suggest) detects one, asks you which to keep and saves it on this checkout only (nothing shared changes).',
     route: { command: 'singularity-flow app suggest --json', copilotCommand: '/sf-run-app suggest' } };
   // Not now: the step's own next actions after publication, submit first and the next generation for a change.
   const onward = phaseHandoff(workflow, phase).filter((action) => action.command && !/ phase show /u.test(action.command)).slice(0, 2)
@@ -29,7 +29,8 @@ export async function applicationStartOffer(root, workflow, phase) {
     choices: [
       { id: 'start', label: 'Start the application', copilotCommand: '/sf-run-app start', command: 'singularity-flow app plan --json',
         description: 'The person chooses: /sf-run-app starts it in the environment they pick, and reports its address.' },
+      // Said from the routes themselves: "submit it" sat over a review route first (agent-text audit, 2026-11-11).
       { id: 'not-now', label: 'Not now', routes: onward,
-        description: onward.length > 1 ? 'Go on with the step: submit it, or start its next generation for a change.' : 'Go on with the step.' }
+        description: onward.length ? `Go on with the step: ${onward.map((route) => route.copilotCommand ?? route.command).join(', then ')}.` : 'Go on with the step.' }
     ] };
 }

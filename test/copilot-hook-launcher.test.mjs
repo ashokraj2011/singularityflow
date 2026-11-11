@@ -814,3 +814,23 @@ test('the PowerShell launcher, managed engine or not, marks an off-PATH CLI and 
   assert.deepEqual(turn({ managed: true }), { additionalContext: offPathLine(managedNode, entry) });
   assert.deepEqual(turn({ managed: true, onPath: true }), {});
 });
+
+test('a hook started in a chat folder that no longer exists still runs, never reads as an unavailable runtime', async (t) => {
+  // A chat whose folder was removed left the launcher with no working directory: every candidate read as unavailable,
+  // and the runtime-unavailable marker denied every later tool (session mining N6, 2026-11-11).
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-hook-gone-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const gone = path.join(directory, 'removed chat');
+  await mkdir(gone);
+  const wrapper = path.join(directory, 'in-removed-folder.mjs');
+  // Enter the folder, remove it, then run the launcher exactly as the shell launcher does.
+  await writeFile(wrapper, `import { rmSync } from 'node:fs';\nprocess.chdir(${JSON.stringify(gone)});\nrmSync(${JSON.stringify(gone)}, { recursive: true });\n`
+    + `process.argv.splice(2, process.argv.length, 'boundary-guard', ${JSON.stringify(cli)});\nawait import(${JSON.stringify(new URL(`file://${bootstrap}`).href)});\n`);
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(directory, 'mode.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(directory, 'workspace.json'), SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(directory, 'registry.json') };
+  const result = spawnSync(process.execPath, [wrapper], { cwd: directory, env, input: JSON.stringify({ toolName: 'view', toolArgs: { path: '/tmp/x' }, cwd: gone }),
+    encoding: 'utf8', timeout: childTimeout(60_000) });
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /SFLOW_HOOK_RUNTIME_UNAVAILABLE/u);
+  assert.equal(existsSync(path.join(directory, 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER)), false, 'no marker denies later tools');
+});

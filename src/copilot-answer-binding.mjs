@@ -106,10 +106,10 @@ export async function unboundAnswerReason(file, record, options, { localChat = f
   if (!ledger.answers.length && !words.every((text) => ledger.prompt.includes(text))) {
     return ledger.canned
       ? `${REFUSAL} The host answered the question itself ("the user is not available"), so no person has decided this. Do not choose for them: ask again when they are here, then run it with their own words. ${ROUTES}`
-      : `${REFUSAL} No person answered a question in this turn, so this decision has nobody's word behind it. Ask them with ask_user, then run it with their own words. ${ROUTES}`;
+      : `${REFUSAL} No person answered a question in this turn, so this decision has nobody's word behind it. Ask them with your question tool (ask_user; in VS Code, vscode_askQuestions), then run it with their own words. ${ROUTES}`;
   }
   if (!ledger.answers.length && !words.length && ledger.prompt.split(' ').length < 3) {
-    return `${REFUSAL} No person answered a question in this turn, so this decision has nobody's word behind it. Ask them with ask_user, then run it. ${ROUTES}`;
+    return `${REFUSAL} No person answered a question in this turn, so this decision has nobody's word behind it. Ask them with your question tool (ask_user; in VS Code, vscode_askQuestions), then run it. ${ROUTES}`;
   }
   const unsaid = words.filter((text) => !said.some((answer) => answer.includes(text)));
   return unsaid.length ? `${REFUSAL} This command's reason is not what the person answered. Run it again with exactly their words; their answer stands and they need not be asked again. Words not from them: "${unsaid[0].slice(0, 120)}".` : null;

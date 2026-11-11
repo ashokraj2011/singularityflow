@@ -52,6 +52,32 @@ test('combined utility entry is closed to mutations, effects, ambiguous flags an
   assert.equal(utilityResult({ repositoryPath: '/fixture' }, []).workId, undefined);
 });
 
+test('a utility read names its Story with --work-id too, and a refusal names the option and the read it admits', () => {
+  // /sf-status keeps an explicit Work ID; `status --work-id X --utility-entry` was refused, naming neither the option
+  // nor the form to run (session mining N3, 2026-11-11).
+  const flags = { json: true, 'for-agent': true, 'utility-entry': true };
+  for (const command of ['status', 'progress', 'nextsteps']) {
+    assert.doesNotThrow(() => validateUtilityEntry([command], { ...flags, 'work-id': 'PERF-001' }), command);
+    assert.deepEqual(withoutUtilityEntry([command, '--work-id', 'PERF-001', '--utility-entry', '--for-agent', '--json']),
+      [command, 'PERF-001', '--for-agent', '--json']);
+    assert.deepEqual(withoutUtilityEntry([command, '--work-id=PERF-001', '--utility-entry', '--for-agent', '--json']),
+      [command, 'PERF-001', '--for-agent', '--json']);
+  }
+  // Named twice, or on a read that takes no Story, it stays refused, and says what to run instead.
+  for (const [positionals, options, notAdmitted, command] of [
+    [['status', 'PERF-001'], { ...flags, 'work-id': 'OTHER' }, ['--work-id'], 'singularity-flow status PERF-001 --utility-entry --for-agent --json'],
+    [['skill', 'show', 'example'], { ...flags, 'work-id': 'other' }, ['--work-id'], 'singularity-flow skill show example --utility-entry --for-agent --json'],
+    [['status'], { ...flags, 'submit-if-ready': true }, ['--submit-if-ready'], 'singularity-flow status --utility-entry --for-agent --json']
+  ]) {
+    assert.throws(() => validateUtilityEntry(positionals, options), (error) => {
+      assert.equal(error.code, 'UTILITY_ENTRY_REQUEST_INVALID');
+      assert.deepEqual(error.details, { notAdmitted, command });
+      assert.match(error.message, new RegExp(`Not admitted in this read: ${notAdmitted.join(', ')}\\. The read it admits: ${command.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}$`, 'u'));
+      return true;
+    });
+  }
+});
+
 test('utility reads preserve outputs, pause before Git and share only one read invocation', async t => {
   const fixture = await createWarmReadFixture();
   t.after(fixture.cleanup);
@@ -68,6 +94,13 @@ test('utility reads preserve outputs, pause before Git and share only one read i
     cwd: fixture.repository, env: { ...fixture.env, SINGULARITY_FLOW_AGENT_OUTPUT: 'full', ...env },
     encoding: 'utf8', timeout: childTimeout(60_000), maxBuffer: 8 * 1024 * 1024
   });
+  // The Story named with --work-id reads the same as its operand.
+  for (const command of ['status', 'nextsteps', 'progress']) {
+    const operand = invoke([command, 'PERF-001', '--utility-entry', '--for-agent', '--json']);
+    const option = invoke([command, '--work-id', 'PERF-001', '--utility-entry', '--for-agent', '--json']);
+    assert.equal(option.status, 0, option.stderr);
+    assert.deepEqual(JSON.parse(option.stdout).data, JSON.parse(operand.stdout).data, command);
+  }
   for (const args of [['status', 'PERF-001'], ['nextsteps', 'PERF-001'], ['logs', '--tail', '10'],
     ['progress', 'PERF-001'], ['workflow', 'list', '--for-start'],
     ['agents', 'list'], ['agents', 'mappings'], ['agents', 'status'], ['skill', 'list'], ['instruction', 'list']]) {

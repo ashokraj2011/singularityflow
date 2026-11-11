@@ -351,7 +351,7 @@ export function clarificationCheckpoint(policy, verification, { slices = [] } = 
     instruction: questioningAllowed
       ? `Read the exact composed context, its approved phase inputs (the earlier steps\' outputs) first: what they state is settled, never asked again. ${slices.length
         ? `So is the specification slice in the pinned Story source (${slices.join(', ')}): its clauses and decided questions are never asked again or put up for confirmation; ask only what they leave open. `
-        : ''}A missing durable record is not an unanswered question. First reuse actual human replies in this conversation or the issued staging file only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Use a file-edit tool for issued JSON and the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. If required, no matching human reply exists, and evidence has no material ambiguity, ask once to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. ${mode === 'required'
+        : ''}A missing durable record is not an unanswered question. First reuse actual human replies in this conversation, or those already written at responseStagingPath, only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Write the replies with a file-edit tool at responseStagingPath as ${CLARIFICATION_RESPONSE_FORMAT} (${FORMAT_NOTE}), then run the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. If required, no matching human reply exists, and evidence has no material ambiguity, ask once to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. ${mode === 'required'
         ? 'Recording remains required before authoring.'
         : 'Record only answers to questions you asked; with no material ambiguity, continue without a record.'}`
       : stage === 'inspect-binding'
@@ -483,7 +483,7 @@ export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSo
     topics,
     '',
     ...required.map((line) => `- ${line}`),
-    `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool.`,
+    `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool (in VS Code, \`vscode_askQuestions\`).`,
     '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository brief, or contradictions among them. Never reuse example questions or placeholder text from templates.',
     '- Formulating evidence-grounded questions is permitted while authoring awaits clarification. Never ask the human to supply the questions or generic answers; a menu promise to answer is not an answer.',
     '- Do not re-ask established facts or infer answers from generic knowledge. Label hypotheses/design proposals; they become acceptance or specification decisions only with human confirmation.',

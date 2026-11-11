@@ -243,7 +243,11 @@ function agentPublication(route) {
   };
   const channel = flag('channel');
   if (AGENT_AUTHORSHIP.has(flag('authored')) && (!channel || AGENT_CHANNELS.has(channel))) return route;
-  const workId = flag('work-id');
+  return publishIfReadyRoute(route, tokens, flag('work-id'));
+}
+
+/** The publication `phase publish` names, as the one command that checks, publishes and hands back what follows. */
+function publishIfReadyRoute(route, tokens, workId) {
   const guidance = safeCommandGuidance({ argv: ['phase', 'prepublish', ...(tokens[3] && !tokens[3].startsWith('-') ? [tokens[3]] : []),
     ...(workId ? ['--work-id', workId] : []), '--for-agent', '--json', '--publish-if-ready'] });
   return guidance ? { ...route, shell: guidance.command, copilot: guidance.copilotCommand ?? null, vscode: null } : route;
@@ -307,8 +311,11 @@ export function agentAct(result) {
   if (result.resultType === 'sflow-kept-result') {
     if (result.status === 'running') return { state: 'wait', do: { reason: 'Read the result once the command ends.', copilot: null, shell: result.retry ?? null, vscode: null },
       said: oneLine(`Still running: ${(result.running ?? []).map((entry) => entry.command).join('; ')}. Run this same read again; never run the command itself again.`) };
-    if (result.status === 'interrupted') return { state: 'next', do: null,
-      said: oneLine(`${result.interrupted?.command ?? 'The command'} ended without a result (interrupted or killed). Run it again once, with --for-agent --json.`) };
+    // "Run it again once" replayed a publication a host had killed after it committed, against every "never replay"
+    // (agent-text audit, 2026-11-11): read where it left things first.
+    if (result.status === 'interrupted') return { state: 'read',
+      do: result.safeRead ? { reason: 'Read where the command left things before any rerun.', copilot: null, shell: result.safeRead, vscode: null } : null,
+      said: oneLine(`${result.interrupted?.command ?? 'The command'} ended without a result (interrupted or killed). ${result.safeRead ? 'Run do.shell to read where it left things' : 'Read where it left things with nextsteps'}; run the command again once, with --for-agent --json, only if that read shows it took no effect.`) };
     // Nothing kept for the command that was cut: its own safe read, never another command's result or a repeat of a mutation.
     if (result.status === 'none' && result.safeRead) return { state: 'read', do: { reason: 'Read where the command left things; never run it again.', copilot: null, shell: result.safeRead, vscode: null },
       said: oneLine(`No result is kept for ${result.command ?? 'that command'}. Run do.shell to read where it left things; never run the command itself again.`) };
@@ -408,6 +415,17 @@ export function agentAct(result) {
       && result.actions.some(action => action.id === 'working-tree')) return {
     state: 'await-human', do: null, read: ['actions', 'containment', 'blockers'],
     said: 'Review the exact changed paths. Keep intended Story edits through scope accounting and the returned same-phase correction/successor; preserve unrelated edits using the person’s hash-confirmed private-copy route. Do not commit submitted edits by hand, discard files or claim readiness because requiresRecovery is false. No approval is recorded.' };
+  // A reviewer to start here: its result is this turn's next step, so no route to relay while it runs (anu-bin, 2026-11-11).
+  // Before the code offer: asked first, the application and outcome questions made this unreachable for every reviewed
+  // code step, and their Not now routes relayed /sf-review-source while no reviewer ran (agent-text audit, 2026-11-11).
+  // A plain `phase publish` hands the same reviewer (Story anu-bin verification, 2026-11-11).
+  const plainPublication = result.resultType === 'sflow-phase-publication' && result.status === 'published';
+  const reviewer = result.publishIfReady?.published ? result.publishIfReady.reviewSubagent : plainPublication ? result.reviewSubagent : null;
+  const at = result.publishIfReady?.published ? 'publishIfReady.' : '';
+  if (reviewer) return { state: 'start-reviewer', do: null,
+    read: [`${at}reviewSubagent`, ...(at ? ['publishIfReady.output', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])] : [])],
+    said: `Published. Start the reviewer now as ${at}reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.${(at ? result.publishIfReady.outcomeReview : result.outcomeReview)
+      ? ` Ask the application and outcome questions (${['applicationStart', 'outcomeReview'].filter((key) => (at ? result.publishIfReady : result)[key]).map((key) => `${at}${key}`).join(', ')}) only after a ready review, never before it.` : ''}` };
   const codeOffer = result.publishIfReady?.published ? result.publishIfReady.outcomeReview
     : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
   // Published with its tests passing: ask once whether to start the application (application-start-offer.mjs).
@@ -425,17 +443,13 @@ export function agentAct(result) {
   if (result.data?.outcome?.resultType === 'sflow-outcome-review') return {
     state: 'await-human', do: null, read: ['data.outcome'],
     ...(result.data.outcome.validation ? { ask: { kind: 'choice', question: result.data.outcome.validation.question,
-      choices: result.data.outcome.validation.choices.map(({ id, label, description }) => ({ id, label, description })),
+      choices: result.data.outcome.validation.choices.map(({ id, label, description, how = null }) => ({ id, label, description, ...(how ? { how } : {}) })),
       tool: { name: 'sflowDeliveryValidation', input: { workId: result.data.outcome.workId,
         ...(result.data.outcome.application?.capability ? { capability: result.data.outcome.application.capability } : {}) } },
-      how: 'Ask now using the native tool or host question tool. Execute only the selected returned route if this skill permits it; otherwise relay its exact skill. Cancellation records nothing; do not repeat the question unchanged.' } } : {}),
+      how: 'Ask now using the native tool or host question tool. Execute only the selected returned route if this skill permits it (a Start in the terminal tool\'s background mode, as its choice says, never the foreground); otherwise relay its exact skill. Cancellation records nothing; do not repeat the question unchanged.' } } : {}),
     said: 'Show actual retained test results, diagnostic runs separately, application readiness and outstanding human checks. Ask the returned validation question now. Start or configure the app, run tests, or open evidence only after the person chooses. Continue preserves all existing sign-offs; never accept, submit or approve from this choice.' };
   const done = result.publishIfReady?.published ? result.publishIfReady.next : result.submitIfReady?.submitted ? result.submitIfReady.next : null;
   // The commit, hashes and artifact list. The review packet below them is the person's, and /sf-approve reads it.
-  // A reviewer to start here: its result is this turn's next step, so no route to relay while it runs (anu-bin, 2026-11-11).
-  if (done && result.publishIfReady?.published && result.publishIfReady.reviewSubagent) return { state: 'start-reviewer', do: null,
-    read: ['publishIfReady.reviewSubagent', 'publishIfReady.output', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])],
-    said: 'Published. Start the reviewer now as publishIfReady.reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.' };
   if (done) return { state: 'next', said: oneLine(done.instruction?.split('. ')[0] ?? 'Done.'),
     read: result.publishIfReady?.published ? [...(result.publishIfReady.reviewSubagent ? ['publishIfReady.reviewSubagent'] : []), 'publishIfReady.next', 'publishIfReady.output', 'publishIfReady.review.handoff', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : []), ...(result.artifacts ? ['artifacts'] : [])]
       : ['submitIfReady.next', 'submitIfReady.result'],
@@ -456,7 +470,10 @@ export function agentAct(result) {
     // The questions are one stage of this step: without what the task still owes, the turn ended at them.
     if (result.status === 'clarification-required') return { state: 'ask-person', do: null,
       read: ['clarification', 'context', ...(result.authoring ? ['authoring'] : []), ...(result.authoringProgress ? ['authoringProgress'] : []), ...(result.taskCompletion ? ['taskCompletion'] : []), ...openUpstream(result)],
-      said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.`) };
+      // taskCompletion says 'blocked' here, with "preserve its exact blocker and owner route": read as a stop, the turn
+      // ended at the questions (agent-text audit, 2026-11-11). It waits only on these answers.
+      said: oneLine(`Ask the unanswered questions now, as clarification.checkpoint says${result.context ? '' : ' after composing the context once'}; this is this skill's own step.${result.taskCompletion
+        ? ' taskCompletion is blocked only on these answers: once they are given, record them and author this step in this same turn.' : ''}`) };
     return withRoute({ state: 'next', said: oneLine(result.reason ?? `Phase entry status: ${result.status}.`), do: null }, firstNow(result.next));
   }
   if (result.resultType === 'sflow-phase-prepublish') {
@@ -475,9 +492,17 @@ export function agentAct(result) {
     if (result.publishIfReady?.reason === 'person-authored') return { state: 'confirm-in-terminal', read: ['scopeReview'],
       do: { ...routes({ command: result.commands.publish, reason: 'Publish this draft as their own or their tool\'s work.' }), copilot: null },
       said: 'Ready, and this step permits only a person\'s or an external tool\'s authorship: show them do.shell to run in their own terminal; never run it.' };
-    if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview', ...beforePublish(result)],
-      said: 'Ready: publish once with the returned command; it runs the required tests.' },
-      { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });
+    // Plain prepublish handed `phase publish`, whose result named no reviewer: generation 3 of a reviewed step was
+    // published and the turn ended with none started (Story anu-bin verification, 2026-11-11). --publish-if-ready runs
+    // the same publication and hands back the reviewer; after it, its own refusal keeps the plain command.
+    if (result.status === 'ready' && result.commands?.publish) {
+      const publish = { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' };
+      const act = withRoute({ state: 'publish', do: null, read: ['scopeReview', ...beforePublish(result)],
+        said: 'Ready: publish once with the returned command; it runs the required tests and hands back the reviewer to start when the step owes one.' }, publish);
+      const tokens = String(act.do?.shell ?? '').trim().split(/\s+/u);
+      return !result.publishIfReady && act.state === 'publish' && tokens[1] === 'phase' && tokens[2] === 'publish'
+        ? { ...act, do: publishIfReadyRoute(act.do, tokens, result.workId ?? null) } : act;
+    }
     const next = result.commands?.next ? { command: result.commands.next, ...(result.commandGuidance?.next ? { commandGuidance: result.commandGuidance.next } : {}),
       ...(result.correction?.skill ? { skill: result.correction.skill } : {}) } : null;
     // Already published: nothing to fix or publish; its next step (submission) is the route.
@@ -559,7 +584,10 @@ export function agentAct(result) {
     return { ...withRoute({ state: 'next', said: null, do: null }, action), read: ['data.preparation.scope'] };
   }
   const state = result.classification === 'convergence-advance-required' ? 'confirm-review' : 'next';
-  const said = oneLine(result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')) || null;
+  // The in-chat confirmation came only with the loop warning, on the third repeat; the first act gave only the
+  // generic reason, and the person was left to re-run the preview (session mining N4, 2026-11-11).
+  const said = oneLine(`${result.reason ?? result.agentInstruction ?? result.data?.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')}${state === 'confirm-review'
+    ? ' Run do.shell once to show the review and its digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once.' : ''}`) || null;
   const nextsteps = result.resultType === 'sflow-nextsteps'
     ? { read: ['contextBoundary', 'actions', 'pending', ...(/^\/sf(?:low)?-inputs(?:\s|$)/u.test(action?.commandGuidance?.copilotCommand ?? action?.copilotCommand ?? '') ? ['inputs'] : [])] } : {};
   return withRoute({ state: action ? state : 'read', said, do: null, ...nextsteps }, action);
@@ -574,7 +602,8 @@ function correctionList(findings) {
   if (!Array.isArray(findings) || !findings.length) return {};
   const MAXIMUM = 6;
   const fix = findings.slice(0, MAXIMUM).map((finding) => {
-    const where = finding?.path ? ` at ${finding.path}${finding.line ? `:${finding.line}` : ''}` : '';
+    // A review packet's findings name a `field`, not a path: their lines named no place to fix (agent-text audit, 2026-11-11).
+    const where = finding?.path ? ` at ${finding.path}${finding.line ? `:${finding.line}` : ''}` : finding?.field ? ` at ${finding.field}` : '';
     return oneLine(`${finding?.code ?? 'finding'}${where}: ${finding?.message ?? ''}`, 320);
   });
   if (findings.length > MAXIMUM) fix.push(`+${findings.length - MAXIMUM} more in findings`);
@@ -611,8 +640,11 @@ export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
     ? `This confirmation has come back ${count} times in a row and the person has not given it. Ask them now in this chat to confirm the exact value; only on an explicit yes run do.shell once. Do not offer the preview again.`
     : act.state === 'confirm-review'
       ? `This review has come back ${count} times in a row unconfirmed. Run do.shell once to show the digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once. Do not end with this route again.`
+    // A person's own step is shown, never run: "Do act.do now" contradicted next's "never run it" (agent-text audit, 2026-11-11).
+    : PERSON_STATES.has(act.state) && act.do && !act.ask
+      ? `This has come back ${count} times in a row: do.shell is the person's to run, never this turn's. Show it to them once more, say it is theirs to run, and stop; never run it.`
     : act.state === 'ask-person'
-      ? `The same questions have been due ${count} times in a row. Ask them now with ask_user (or print them and stop); do not load the context again.`
+      ? `The same questions have been due ${count} times in a row. Ask them now with your question tool (ask_user; in VS Code, vscode_askQuestions), or print them and stop; do not load the context again.`
     : act.state === 'correct'
       ? `The same findings have come back ${count} times unchanged, so the edits are not fixing them. Read what each finding quotes and the shape it asks for, change exactly that, or tell the person what is blocked and stop.`
       : `The same result has come back ${count} times in a row; repeating the command cannot change it. Do act.do now, or tell the person exactly what is blocked and stop.`;
@@ -965,9 +997,11 @@ function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   const reader = new Set(readerFields(ordered));
   const act = actReadingFields(given, reader);
   const reads = new Set((act?.read ?? []).map((field) => String(field).split('.')[0]));
-  const agentOutput = { complete: false, retained: false, state: 'detail-unavailable', bytes: bytes(agentJson(ordered)),
+  // What this display is, never what the work is: `complete: false` beside act read as "the draft is incomplete", and
+  // `retained: false` and a second `state` as the review not retained (Story cplus, agent-text audit, 2026-11-11).
+  const agentOutput = { view: 'detail-unavailable', fullResult: 'not-kept', bytes: bytes(agentJson(ordered)),
     ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_RESULT }
-      : { instruction: 'No repository was found from here to keep the full result; the omitted fields are not shown. Run the command from the Story checkout to read them.' }) };
+      : { instruction: `No repository was found from here to keep the full result; the omitted fields are not shown. ${ONLY_A_READ_AGAIN}` }) };
   const render = (kept) => agentJson({ ...(act ? { act } : {}), agentOutput,
     ...omittedList(keys.filter((key) => !kept.has(key)).map((key) => ({ field: key, bytes: size[key] })), null),
     ...Object.fromEntries(keys.filter((key) => kept.has(key)).map((key) => [key, ordered[key]])), ...nextOf(act, ordered) });
@@ -978,7 +1012,7 @@ function unretainedView(given, ordered, budget, agentJson, unkept = null) {
   // A reader's text with nowhere to keep the rest: its start, as much as fits, says so at its end.
   const text = [...reader].find((key) => !kept.has(key) && typeof ordered[key] === 'string');
   if (text) {
-    const cut = (shown) => `${shown}\n[Cut here: ${bytes(ordered[text]) - bytes(shown)} more bytes. Run the command without --for-agent to read all of it.]`;
+    const cut = (shown) => `${shown}\n[Cut here: ${bytes(ordered[text]) - bytes(shown)} more bytes. ${ONLY_A_READ_AGAIN}]`;
     const withText = (shown) => agentJson({ ...(act ? { act } : {}), agentOutput,
       ...omittedList(keys.filter((key) => !kept.has(key) && key !== text).map((key) => ({ field: key, bytes: size[key] })), null),
       ...Object.fromEntries(keys.filter((key) => kept.has(key) || key === text).map((key) => [key, key === text ? cut(shown) : ordered[key]])), ...nextOf(act, ordered) });
@@ -1025,12 +1059,12 @@ async function literalEnvelope(text, { cwd, budget, now, literal, unkept = null 
     await registerReadFiles(target.root, [file]);
     await prune(target.directory, path.basename(file, '.txt'), now);
     const relative = path.relative(target.root, file).split(path.sep).join('/');
-    agentOutput = { complete: false, literal, path: file, relativePath: relative, bytes: bytes(text), lines: text.split('\n').length - 1,
+    agentOutput = { view: 'preview', literal, path: file, relativePath: relative, bytes: bytes(text), lines: text.split('\n').length - 1,
       sha256: sha256(text), read: lineRanges(text), instruction: 'Literal output kept whole: request every agentOutput.read line range together in one response; nothing was truncated.' };
   } else {
-    agentOutput = { complete: false, literal, retained: false, state: 'detail-unavailable', bytes: bytes(text),
+    agentOutput = { view: 'detail-unavailable', literal, fullResult: 'not-kept', bytes: bytes(text),
       ...(unkept ? { writeError: errorCode(unkept), instruction: UNKEPT_LITERAL }
-        : { instruction: 'No repository was found from here to keep this output; only the preview is shown. Run the command from the Story checkout to read all of it.' }) };
+        : { instruction: `No repository was found from here to keep this output; only the preview is shown. ${ONLY_A_READ_AGAIN}` }) };
   }
   const envelope = (preview) => agentJson({ act: { state: 'read', said, do: null }, agentOutput, preview });
   const reserve = bytes(envelope('')) + 16;
@@ -1067,6 +1101,9 @@ export async function boundedAgentOutput(text, options = {}) {
   }
 }
 
+// "Run the command from the Story checkout to read them" sent an agent to run a publication or a record again just to
+// read its result (agent-text audit, 2026-11-11). Only a read runs again; what changed anything is read where it left things.
+const ONLY_A_READ_AGAIN = 'To see the rest of a read, run it again from the Story checkout; never run a command that changed anything again to read it: read where it left things (singularity-flow nextsteps --for-agent --json).';
 const UNKEPT_RESULT = 'The full result could not be written here; the omitted fields are not shown. The command ran: never run it again to read them.';
 const UNKEPT_LITERAL = 'This output could not be written here; only the preview is shown. The command ran: never run it again to read the rest.';
 const errorCode = (error) => String(error?.code ?? error?.name ?? 'Error');
@@ -1138,7 +1175,7 @@ async function keptAgentOutput(text, { cwd = process.cwd(), budget = agentOutput
     await prune(target.directory, base, now);
     return fullText;
   };
-  const describe = (fullText, instruction) => ({ complete: false, path: file,
+  const describe = (fullText, instruction) => ({ view: 'bounded', path: file,
     ...(relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? { relativePath: relative.split(path.sep).join('/') } : {}),
     bytes: bytes(fullText), lines: fullText.split('\n').length - 1, sha256: sha256(fullText), instruction });
   // Each instruction is one sentence under 200 bytes; the skills' output contract states the rule in
@@ -1282,7 +1319,7 @@ export async function boundedAgentText(text, { cwd = process.cwd(), budget = age
   // The bounded fallback: the start that fits, and what could not be kept. `[OUT:REQ-014]`
   const total = lineCount(text);
   const why = unkept ? 'The rest could not be written here; the command ran: never run it again to read the rest.'
-    : 'No repository was found from here to keep the rest; run the command from the Story checkout to read all of it.';
+    : `No repository was found from here to keep the rest. ${ONLY_A_READ_AGAIN}`;
   const footer = (shown) => `\n[Output not kept] Lines 1-${shown} of ${total} are above. ${why}\n`;
   const head = headLines(text, Math.max(0, budget - bytes(footer(total))));
   return `${head}${footer(head ? head.split('\n').length - 1 : 0)}`;
@@ -1315,7 +1352,9 @@ const isTextReference = (value) => value && typeof value === 'object' && !Array.
 /** The complete result behind a bounded view, with every long text read back; any other result as is. */
 export function completeAgentResult(output) {
   const view = typeof output === 'string' ? JSON.parse(output) : output;
-  if (view?.agentOutput?.complete !== false || typeof view.agentOutput.path !== 'string') return view;
+  // `complete: false` named a bounded view before 2026-11-11; a result kept then reads the same.
+  const shown = view?.agentOutput?.view;
+  if (!(['bounded', 'preview'].includes(shown) || view?.agentOutput?.complete === false) || typeof view.agentOutput.path !== 'string') return view;
   const inline = (value) => isTextReference(value) ? readFileSync(value.textFile, 'utf8')
     : Array.isArray(value) ? value.map(inline)
       : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, child]) => [key, inline(child)])) : value;

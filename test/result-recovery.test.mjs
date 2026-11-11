@@ -101,6 +101,22 @@ test('a command that ended without a result is named, to run once more; only the
   assert.equal(JSON.parse((await lastAgentResult({ cwd: root, env, command: 'nextsteps 3' })).kept.output).n, 3);
 });
 
+test('the command words an agent copies, executable and option values included, find its kept result', async (t) => {
+  // The skills say `--command "<its words>"`; the words as run carry `singularity-flow` and option values, which
+  // matched nothing, so the kept result read "none" and "never run it again" (agent-text audit, 2026-11-11).
+  const { root, env } = await checkout(t);
+  keepAgentResult(beginAgentResult(['phase', 'prepublish', 'implement', '--work-id', 'QF-1', '--for-agent', '--json', '--publish-if-ready'], { cwd: root, env }),
+    '{"published":true}', { now: 9_000 });
+  keepAgentResult(beginAgentResult(['nextsteps', '--json'], { cwd: root, env }), '{"other":true}', { now: 9_500 });
+  for (const command of ['singularity-flow phase prepublish implement --work-id QF-1 --for-agent --json --publish-if-ready',
+    'phase prepublish implement --work-id QF-1 --for-agent --json --publish-if-ready', 'sflow phase prepublish implement', 'phase prepublish']) {
+    const found = await lastAgentResult({ cwd: root, env, command });
+    assert.equal(found.status, 'kept', command);
+    assert.deepEqual(JSON.parse(found.kept.output), { published: true }, command);
+  }
+  assert.equal((await lastAgentResult({ cwd: root, env, command: 'singularity-flow phase show implement' })).status, 'none');
+});
+
 test('Copilot acts on a kept result as its command returned it; a running one is a wait, never a loop', () => {
   const kept = keptResultView({ status: 'kept', others: [], kept: { command: 'singularity-flow phase prepublish implementation --for-agent --json',
     startedAt: 'a', finishedAt: 'b', output: JSON.stringify({ resultType: 'sflow-phase-prepublish', status: 'draft-invalid',
@@ -113,8 +129,13 @@ test('Copilot acts on a kept result as its command returned it; a running one is
   assert.equal(running.state, 'wait');
   assert.equal(running.do.shell, 'singularity-flow result last --wait --for-agent --json');
   assert.match(running.said, /never run the command itself again/u);
-  assert.match(agentAct(keptResultView({ status: 'interrupted', interrupted: { command: 'singularity-flow tests run', startedAt: 'a' } })).said,
-    /singularity-flow tests run ended without a result[^.]*\. Run it again once/u);
+  // A host's timeout leaves a long publication interrupted: "Run it again once" replayed one that had committed
+  // (agent-text audit, 2026-11-11). Read where it left things first.
+  const interrupted = agentAct(keptResultView({ status: 'interrupted', interrupted: { command: 'singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready', startedAt: 'a' } }));
+  assert.deepEqual([interrupted.state, interrupted.do.shell], ['read', 'singularity-flow nextsteps --for-agent --json']);
+  assert.match(interrupted.said, /ended without a result[^.]*\. Run do\.shell to read where it left things; run the command again once, with --for-agent --json, only if that read shows it took no effect\./u);
+  assert.equal(agentAct(keptResultView({ status: 'interrupted', interrupted: { command: 'singularity-flow review-source submit implementation', startedAt: 'a' } })).do.shell,
+    'singularity-flow review-source status implementation --for-agent --json');
   assert.equal(agentAct(keptResultView({ status: 'none' })).state, 'read');
 });
 

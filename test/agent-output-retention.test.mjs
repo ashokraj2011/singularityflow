@@ -54,7 +54,7 @@ test('a result that cannot be written still shows the command ran, with what fit
   assert.ok(Buffer.byteLength(text) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(text)} bytes`);
   const view = JSON.parse(text);
   assert.deepEqual([view.act.state, view.act.said], ['done', 'Approved and committed.'], 'the result, not a refusal');
-  assert.deepEqual([view.agentOutput.retained, view.agentOutput.state, view.agentOutput.path], [false, 'detail-unavailable', undefined]);
+  assert.deepEqual([view.agentOutput.fullResult, view.agentOutput.view, view.agentOutput.path], ['not-kept', 'detail-unavailable', undefined]);
   assert.match(view.agentOutput.writeError, /^E[A-Z]+$/u);
   assert.match(view.agentOutput.instruction, /never run it again/u);
   assert.equal(view.commit, 'a'.repeat(40), 'small fields stay');
@@ -63,7 +63,7 @@ test('a result that cannot be written still shows the command ran, with what fit
 
   const literal = await captured(process.stderr, () => boundedAgentOutput(JSON.stringify(Array.from({ length: 4000 }, (_, index) => index)), { cwd: root }));
   const literalView = JSON.parse(literal.value);
-  assert.deepEqual([literalView.agentOutput.literal, literalView.agentOutput.state], ['json-array', 'detail-unavailable']);
+  assert.deepEqual([literalView.agentOutput.literal, literalView.agentOutput.view], ['json-array', 'detail-unavailable']);
   assert.match(literalView.agentOutput.instruction, /never run it again/u);
 
   const plain = await captured(process.stderr, () => boundedAgentText('a line of output\n'.repeat(5000), { cwd: root }));
@@ -174,7 +174,7 @@ test('a linked folder is never written through and its files are never cleaned u
   await symlink(elsewhere, path.join(root, '.sflow', 'out'), 'dir');
   const { value: text } = await captured(process.stderr, () => boundedAgentOutput(JSON.stringify(committed(root)), { cwd: root }));
   const view = JSON.parse(text);
-  assert.deepEqual([view.agentOutput.retained, view.agentOutput.writeError], [false, 'ELOOP']);
+  assert.deepEqual([view.agentOutput.fullResult, view.agentOutput.writeError], ['not-kept', 'ELOOP']);
   assert.equal((await readdir(elsewhere)).length, 60, 'nothing written there, nothing removed');
 });
 

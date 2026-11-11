@@ -67,6 +67,9 @@ const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'r
 // choice to that turn.
 export { DECISION_LIST_CHAT_OPTIONS };
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
+// A sub-agent call that starts a step's independent review: its prompt is the review's skill, or its agent a reviewer.
+const reviewerDelegation = (call) => /^\s*\/sf(?:low)?-review-source(?:\s|$)/u.test(String(call.args?.prompt ?? ''))
+  || /reviewer/iu.test(String(call.args?.agent_type ?? call.args?.agentType ?? call.args?.agent_name ?? call.args?.agentName ?? ''));
 const IMPORT_TEAM_COMMANDS = Object.freeze(['inspect', 'compile', 'status']);
 // `spec author` steps only a person takes (src/commands/spec-author.mjs SPEC_AUTHOR_PERSON_ACTIONS).
 const SPEC_AUTHOR_PERSON_STEPS = Object.freeze(['accept', 'reject', 'decide', 'settle', 'publish', 'discard']);
@@ -1923,6 +1926,10 @@ async function mutationToolDecision(payload, record) {
       if (correction) return correction;
     }
     // Real calls here asked a sub-agent to open a page or run a step's route: this turn does it, and this says so.
+    // A publication's reviewer in a turn that may not start one (/sf-publish, a kernel-only skill): "do the work here
+    // yourself" told the author to review its own step; the review's own fallback is a new chat (agent-text audit, 2026-11-11).
+    if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring' && reviewerDelegation(call)) return mutationDenial(contract,
+      `PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this turn cannot start the reviewer as a sub-agent, and never reviews its own step. End with "Run this in a new chat:" and /sf-review-source${contract.phaseId ? ` ${contract.phaseId}` : ''}`);
     if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring') return mutationDenial(contract, 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: a sub-agent does not run in this turn. Do the work here yourself with the route below; only this turn holds its contract');
     if (TERMINALS.has(call.name)) {
       const kernel = shellAllowed(call, contract.turnMode, value);

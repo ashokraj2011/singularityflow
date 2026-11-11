@@ -232,6 +232,43 @@ test('an occupied port never counts as readiness of a different Story process', 
   } finally { await new Promise(resolve => socket.close(resolve)); }
 });
 
+test('an occupied port names who holds it: another Story checkout\'s SFlow run with its exact stop, else the process', async t => {
+  // The refusal named nobody, run records are per checkout, and the skill's "never kill any other process" overrode
+  // the person's own "kill the app on 5173" (session mining N2, 2026-11-11).
+  const socket = net.createServer(); await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
+  const port = socket.address().port;
+  try {
+    const repo = await fixture(t, [entry('web', port)]);
+    await withMachineState(repo.env, async () => {
+      const c = await context(repo.root);
+      const refusal = async () => {
+        try { await startApplication(repo.root, c, c.application.start[0], { output: quiet, signals: [] }); } catch (error) { return error; }
+        assert.fail('the start was not refused');
+      };
+      // A process no SFlow run started: its pid (and name where the system says it), and the personal-port route.
+      if (process.platform !== 'win32') {
+        const plain = await refusal();
+        assert.equal(plain.code, 'APP_PORT_IN_USE');
+        if (plain.details.holder) {
+          assert.equal(plain.details.holder.pid, process.pid);
+          assert.match(plain.message, new RegExp(`process ${process.pid}\\b[^.]*no SFlow run started[^]*kill ${process.pid}`, 'u'));
+        }
+        assert.equal(plain.details.nextAction.copilotCommand, '/sf-run-app suggest');
+      }
+      // Another Story checkout's SFlow run of the same repository holds it: its exact stop, run from that checkout.
+      const other = path.join(path.dirname(appRecordPath(repo.root, 'web', 'web')), '..', 'worktrees', 'b'.repeat(32), 'web', 'web.json');
+      await mkdir(path.dirname(other), { recursive: true });
+      await writeFile(other, JSON.stringify({ format: 'sflow-app-run/v1', capability: 'web', id: 'web', pid: process.pid, runId: 'r',
+        checkout: '/elsewhere/story-checkout', url: `http://127.0.0.1:${port}/`, startedAt: new Date().toISOString(),
+        commandSha256: `sha256:${'0'.repeat(64)}`, processStartedAt: null, environment: null, readyAt: null }));
+      const held = await refusal();
+      assert.deepEqual(held.details.holder.sflowRun, { capability: 'web', startId: 'web', checkout: '/elsewhere/story-checkout' });
+      assert.equal(held.details.nextAction.command, 'singularity-flow app stop web --capability web --context-root /elsewhere/story-checkout');
+      assert.match(held.message, /SFlow's run of 'web' from the checkout \/elsewhere\/story-checkout \(pid \d+\) already listens there\. Stop it with singularity-flow app stop web --capability web --context-root \/elsewhere\/story-checkout/u);
+    });
+  } finally { await new Promise(resolve => socket.close(resolve)); }
+});
+
 
 test('the editor preview accepts a complete service graph and rejects cycles before saving', async () => {
   const { previewApplication } = await import('../src/run-configurations.mjs');

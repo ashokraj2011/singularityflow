@@ -75,7 +75,9 @@ test('act reads each result by its own fields and never invents a next action', 
     ['clarification', 'context', 'authoringProgress', 'taskCompletion']);
   const prepublish = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready', commands: { publish: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' } });
   assert.equal(prepublish.state, 'publish');
-  assert.equal(prepublish.do.shell, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host');
+  // Through --publish-if-ready, which runs the same publication and hands back the reviewer a reviewed step owes; plain
+  // `phase publish` named none (Story anu-bin verification, 2026-11-11).
+  assert.equal(prepublish.do.shell, 'singularity-flow phase prepublish intake --for-agent --json --publish-if-ready');
   assert.ok(prepublish.read.includes('scopeReview'), 'early scope advice is an explicit read, never a fabricated command');
   const scopeAdvice = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready',
     scopeReview: { status: 'repair-or-human-decision', blocking: false },
@@ -296,7 +298,8 @@ test('a small result keeps every field with act first; a large one is written wh
   // A cut view is the output's state, not the work's: in act it read as "the draft is unfinished" and an
   // agent stopped before drafting (Story cplus, 2026-11-11).
   assert.equal(Object.hasOwn(view.act, 'complete'), false);
-  assert.equal(view.agentOutput.complete, false);
+  assert.equal(view.agentOutput.view, 'bounded');
+  assert.equal(Object.hasOwn(view.agentOutput, 'complete'), false, 'a display flag named complete read as the work\'s state');
   assert.equal(view.act.paths, CLI_PATH_REFERENCE, 'the rule is named even when phase instructions are externalized');
   assert.deepEqual(view.clarification, large.clarification, 'the field act reads stays in the view');
   assert.equal(view.workId, 'W', 'small fields stay');
@@ -661,7 +664,7 @@ test('the bound has no gaps: literal output, no repository, many omitted fields 
   const arrayView = await boundedAgentOutput(array, { cwd: root });
   fits(arrayView);
   const literal = JSON.parse(arrayView);
-  assert.deepEqual([literal.act.state, literal.agentOutput.literal, literal.agentOutput.complete], ['read', 'json-array', false]);
+  assert.deepEqual([literal.act.state, literal.agentOutput.literal, literal.agentOutput.view], ['read', 'json-array', 'preview']);
   assert.equal(await readFile(literal.agentOutput.path, 'utf8'), array, 'kept byte for byte');
   assert.ok(literal.agentOutput.read.length > 0 && array.startsWith(literal.preview) && literal.preview.length > 0);
   const malformed = `{"partial": true}\n${'not json\n'.repeat(3000)}`;
@@ -672,12 +675,12 @@ test('the bound has no gaps: literal output, no repository, many omitted fields 
   const unkeptView = await boundedAgentOutput(JSON.stringify(big), { cwd: outside });
   fits(unkeptView);
   const unkept = JSON.parse(unkeptView);
-  assert.deepEqual([unkept.agentOutput.retained, unkept.agentOutput.state, unkept.agentOutput.path], [false, 'detail-unavailable', undefined]);
+  assert.deepEqual([unkept.agentOutput.fullResult, unkept.agentOutput.view, unkept.agentOutput.path], ['not-kept', 'detail-unavailable', undefined]);
   assert.deepEqual(unkept.omittedFields.map((entry) => entry.field).sort(), ['blob', 'other']);
   assert.equal(unkept.workId, 'W', 'small fields stay');
   const unkeptLiteral = await boundedAgentOutput(array, { cwd: outside });
   fits(unkeptLiteral);
-  assert.equal(JSON.parse(unkeptLiteral).agentOutput.state, 'detail-unavailable');
+  assert.equal(JSON.parse(unkeptLiteral).agentOutput.view, 'detail-unavailable');
   const unkeptText = await boundedAgentText('a line of output\n'.repeat(5000), { cwd: outside });
   fits(unkeptText);
   assert.match(unkeptText, /\[Output not kept\] Lines 1-\d+ of 5000 are above\. No repository was found from here/u);

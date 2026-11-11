@@ -39,7 +39,10 @@ test('the handoff starts the pinned reviewer as a sub-agent in this chat, then r
   assert.match(handoff.instruction, /do not review, edit or retain it yourself/u);
   // Started in the background, the author ended its turn on /sf-review-source while the reviewer ran (Story anu-bin, 2026-11-11).
   assert.match(handoff.instruction, /Run it in the foreground and wait for its result \(mode 'sync' where the tool has one, never 'background'\)/u);
-  assert.match(handoff.instruction, /never end the turn or offer \/sf-review-source implement while it runs/u);
+  // "wait for its completion notice" named no way to wait while the host said to end the response (agent-text audit, 2026-11-11).
+  assert.doesNotMatch(handoff.instruction, /wait for its completion notice/u);
+  assert.match(handoff.instruction, /If a host starts it in the background anyway: read or wait for that agent's result with the host's own tool when it has one; if ending your response is the only way to wait, end it saying only that the review is running and continues here when it returns, with no route or skill\./u);
+  assert.match(handoff.instruction, /never offer \/sf-review-source implement while it runs, and never end the turn before it returns but as just said/u);
   // A correction is confirmed by the person in this chat and corrected in the same turn, never left as "/sf-phase" (Story anu-bin, 2026-11-11).
   assert.match(handoff.instruction, /a correction: show the person its findings and ask now with ask_user whether to correct them in generation 3; on yes, run the route's command and correct the draft in this same turn, then prepublish; never end the turn on that route\. A ready review goes to submission\./u);
   assert.match(handoff.instruction, /No sub-agent tool: end with "Run this in a new chat:" and \/sf-review-source implement\.$/u);
@@ -54,6 +57,31 @@ test('the handoff starts the pinned reviewer as a sub-agent in this chat, then r
   assert.equal(reviewerSubagentPayload(top, '/nowhere'), top, 'a top-level call is the author\'s');
   const unknown = { sessionId: 'chat-1', agentId: 'a1', agentType: 'sflow-source-reviewer' };
   assert.equal(reviewerSubagentPayload(unknown, '/nowhere'), unknown, 'a sub-agent with no recorded review turn stays under the author\'s turn');
+});
+
+test('every way an agent publishes a reviewed step hands it the reviewer: the prepublish act and a plain phase publish', async (t) => {
+  // Story anu-bin verification (2026-11-11): plain prepublish acted 'publish' with `phase publish`, whose result named
+  // no reviewer; generation 3 was published and the turn ended with none started.
+  const repo = await repository(t, { implementCommands: false, reviews: true });
+  const { root, sflow, must } = repo;
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(repo.base, 'remote.git')], repo.base);
+  must('git', ['remote', 'add', 'origin', path.join(repo.base, 'remote.git')]);
+  must('git', ['push', '-q', '-u', 'origin', 'main']);
+  sflow('start', 'QF-1', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Change the value', '--description', 'Return 2.');
+  sflow('prepare', 'intake');
+  await writeFile(path.join(root, 'singularity/work-items/QF-1/artifacts/intake/intake.md'), INTAKE);
+  const checked = JSON.parse(sflow('phase', 'prepublish', 'intake', '--for-agent', '--json'));
+  assert.equal(checked.status, 'ready', JSON.stringify(checked.findings ?? checked).slice(0, 1500));
+  const publish = agentAct(checked);
+  assert.equal(publish.state, 'publish');
+  assert.match(publish.do.shell, /^singularity-flow phase prepublish intake (?:--work-id QF-1 )?--for-agent --json --publish-if-ready$/u,
+    'the act publishes through the command that hands back the reviewer');
+  // Run as it was given anyway, the plain publication names the reviewer too, and the agent view starts it.
+  const [, ...args] = checked.commands.publish.split(' ');
+  const published = JSON.parse(sflow(...args, '--json'));
+  assert.equal(published.status, 'published');
+  assert.equal(published.reviewSubagent?.prompt, '/sf-review-source intake');
+  assert.deepEqual([agentAct(published).state, agentAct(published).do, agentAct(published).read[0]], ['start-reviewer', null, 'reviewSubagent']);
 });
 
 test('in the author\'s chat, the reviewer sub-agent reviews read-only under its own contract while the author keeps authoring', async (t) => {

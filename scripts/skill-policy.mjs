@@ -65,7 +65,7 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * (copilot-answer-binding.mjs), so a literal model there found no `ask_user`, took "unavailable: show them and stop"
  * and ended the turn (agent-text audit, 2026-11-11). Engine-owned, on the skills that name the tool, counted as overhead.
  */
-export const QUESTION_TOOL_CONTRACT = '`ask_user` here is your host\'s question tool: `ask_user` in the Copilot CLI, `vscode_askQuestions` in VS Code; it is unavailable only when neither exists.';
+export const QUESTION_TOOL_CONTRACT = 'Where the steps say ask_user, use your host\'s question tool: ask_user in the Copilot CLI, vscode_askQuestions in VS Code; it is unavailable only when neither exists.';
 const namesQuestionTool = (body) => body.includes('`ask_user`');
 
 export const REVIEW_SUBAGENT_CONTRACT = 'A publication returning `reviewSubagent` is reviewed next: start that reviewer as a sub-agent here, in the foreground, as its `instruction` says (no sub-agent tool: its new-chat route); relay no route while it runs, and ask a code offer only after a ready review; never review, retain or submit it yourself.';

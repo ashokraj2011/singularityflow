@@ -220,7 +220,9 @@ test('every text that names ask_user also names VS Code\'s question tool', async
     if (text.includes('`ask_user`') && !text.includes(QUESTION_TOOL_CONTRACT)) missing.push(name);
   }
   assert.deepEqual(missing, []);
-  assert.match(QUESTION_TOOL_CONTRACT, /`vscode_askQuestions` in VS Code/u);
+  assert.match(QUESTION_TOOL_CONTRACT, /vscode_askQuestions in VS Code/u);
+  // Placed in the contract above the steps, it never counts as the steps' first question (plugin.test.mjs order checks).
+  assert.doesNotMatch(QUESTION_TOOL_CONTRACT, /`ask_user`/u);
   for (const file of ['src/copilot-answer-binding.mjs', 'src/clarifications.mjs', 'src/agent-output.mjs']) {
     const text = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
     for (const line of text.split('\n').filter((entry) => /ask_user/u.test(entry) && !/^\s*(?:\/\/|\*)/u.test(entry))) {

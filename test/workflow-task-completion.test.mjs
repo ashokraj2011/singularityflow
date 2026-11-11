@@ -400,6 +400,15 @@ test('human gates and permissions retain their route; ready is incomplete until 
   await recordPhaseTaskCheck(f.root, { ...result, status: 'ready',
     commands: { publish: 'singularity-flow phase publish planning --authored human --channel manual-in-place' } });
   assert.deepEqual(await f.stop(), {}, 'the checkpoint cannot impersonate human authorship');
+  // A real failure earlier in the turn is superseded by a later check that gives the author its own repair.
+  await f.start(); await f.arm();
+  await repositoryToolFailure({ ...f.payload, toolName: 'read', toolArgs: { path: f.workflowFile },
+    error: { code: 'EACCES', message: 'EACCES: permission denied' } });
+  await recordPhaseTaskCheck(f.root, { ...result, correction: { sameTurn: true },
+    commandGuidance: { next: safeCommandGuidance({ argv: ['phase', 'prepublish', 'planning', '--for-agent', '--json'] }) } });
+  saved = JSON.parse(await readFile(f.mutationFile));
+  assert.deepEqual([saved.taskOperation.state, saved.taskOperation.blocked, saved.taskOperation.failure], ['repair-draft', false, undefined]);
+  assert.equal((await f.stop()).decision, 'block', 'the author\'s own repair keeps the task continuable');
   await f.start(); await f.arm();
   const publication = 'singularity-flow phase publish planning --authored governed-agent --channel copilot-host';
   await recordPhaseTaskCheck(f.root, { ...result, workId: 'OTHER-STORY', status: 'ready', commands: { publish: publication } });

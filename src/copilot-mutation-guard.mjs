@@ -2381,6 +2381,9 @@ export async function recordPhaseTaskCheck(root, result) {
     const publish = Boolean(publication && ['governed-agent', 'deterministic'].includes(producer));
     operation.state = publish ? 'publish-ready' : repair ? 'repair-draft' : 'blocked';
     operation.nextAction = publication ?? result.commandGuidance?.next ?? operation.recovery;
+    // A later gate check supersedes an earlier tool failure in this turn: the author has its own repair or
+    // publication now, so the task stays continuable (Story anu-bin, 2026-11-11).
+    if (publish || repair) delete operation.failure;
     operation.blocked = Boolean(operation.failure) || !publish && !repair;
     await atomicRecord(file, value);
   }

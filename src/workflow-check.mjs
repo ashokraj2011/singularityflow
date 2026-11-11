@@ -15,12 +15,15 @@
  * that does not load); a problem that lets a Story start says where it would stop in `stopsAt`.
  * Each step's template is judged by the kernel's own readers (src/workflow-template-conformance.mjs).
  * Each step's explanation carries `people`: who drafts, asks, answers, reviews and approves it, and
- * where (src/workflow-step-people.mjs).
+ * where (src/workflow-step-people.mjs). Questions are checked against the clarification checkpoint
+ * (src/clarifications.mjs): asked before the scope is defined, never about what an approved scope
+ * settles, and never left as a marker nobody can answer (questionPlacementFindings).
  */
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { normalizeClarificationPolicy } from './clarifications.mjs';
 import { loadDefinition, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { guidanceConflicts, scanGuidanceText } from './guidance-scan.mjs';
@@ -219,8 +222,193 @@ const ROUTE_FIXES = Object.freeze({
   WORKFLOW_REJECTION_TARGET: "Send rejected work back only to the step itself or an earlier step: change the step's send-back targets (approval rejectTo)."
 });
 
+const listWords = (items, joiner = 'and') => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} ${joiner} ${items.at(-1)}`);
+
+/**
+ * Topics an approved scope settles. A later step's agent is told never to ask what an approved input
+ * states (the clarification checkpoint), so a later step that lists these would re-ask or be refused.
+ */
+const SCOPE_SETTLED_TOPICS = new Set(['scope', 'acceptance criteria', 'acceptance criterion', 'actors', 'users', 'problem', 'outcome', 'outcomes', 'goals',
+  'success criteria', 'user stories', 'use cases', 'boundary conditions', 'in scope', 'out of scope', 'scope boundaries']);
+const settledByScope = (topic) => {
+  const words = String(topic).trim().toLowerCase().replace(/\s+/gu, ' ');
+  return SCOPE_SETTLED_TOPICS.has(words) || /(?:^|[\s-])requirements?$/u.test(words);
+};
+
+/** Topics a step after the scope can usefully ask about, by what it produces: the shipped steps' own. */
+function topicsThatFit(step, phase) {
+  const kind = phase.artifact?.kind;
+  if (step.output === 'code') return ['approved deviations', 'implementation blockers'];
+  if (kind === 'visual-test-evidence') return ['visual tolerance', 'device evidence', 'deviations'];
+  if (kind === 'test-evidence') return ['test gaps', 'environment', 'evidence', 'deviations'];
+  if (kind === 'conformance-report') return ['approved deviations', 'missing evidence', 'unplanned work'];
+  if (kind === 'publication-review') return ['residual risk', 'final acceptance', 'operational handoff'];
+  return ['interfaces', 'failure behavior', 'migration', 'deviations'];
+}
+
+const MARKER = '[NEEDS CLARIFICATION';
+const CLARIFICATION_FIELDS = Object.freeze(['mode', 'maxQuestions', 'topics', 'markers']);
+
+/**
+ * Where one step's clarification is set for a workflow, as workflow.yml is written (`raw`): the
+ * workflow's own override when it sets one, else the step's own setting, which every workflow that
+ * uses the step without an override shares. `edit(key, to)` is one change a fixer applies.
+ *
+ * Every question finding's `fix.data` (what `workflow fix` applies without re-deriving anything):
+ *   { step, workflow, file,
+ *     setting: { path, line, scope: 'workflow'|'step', sharedWith: [workflow IDs], workflowPath },
+ *     decidedBy: 'fixer'|'person',
+ *     edits: [{ path, line, from, to, remove? }],      the recommended change, in order (empty when a person decides)
+ *     alternatives: [{ id, label, edits }],            other changes that also fix it
+ *     question: null | { text, choices: [{ id, label, edits }] },   asked when a person decides
+ *     ...the code's own facts (drop and suggested topics, the template and its line, the field) }
+ * A `path` is the key path from the file's root; `from` is null when the key is absent; `remove` deletes
+ * it. `workflowPath` is where this workflow's own override would go, for a fixer that must not change
+ * the workflows in `sharedWith`; an override replaces the step's whole clarification, so such a fixer
+ * starts from the step's value. Fixes of two findings on one step can touch one key: apply one, check again.
+ */
+function clarificationSetting(raw, locate, workflowId, stepId) {
+  const override = workflowId ? raw?.workTypes?.[workflowId]?.phaseOverrides?.[stepId] : null;
+  const own = Boolean(override && typeof override === 'object' && !Array.isArray(override) && Object.hasOwn(override, 'clarification'));
+  const path = own ? ['workTypes', workflowId, 'phaseOverrides', stepId, 'clarification'] : ['phases', stepId, 'clarification'];
+  const value = own ? override.clarification : raw?.phases?.[stepId]?.clarification;
+  const exists = own || Object.hasOwn(raw?.phases?.[stepId] ?? {}, 'clarification');
+  const sharedWith = own ? [] : Object.entries(raw?.workTypes ?? {}).filter(([id, type]) => id !== workflowId && (type?.phases ?? []).includes(stepId)
+    && !Object.hasOwn(type?.phaseOverrides?.[stepId] ?? {}, 'clarification')).map(([id]) => id);
+  const at = (keys = []) => locate(exists ? [...path, ...keys] : ['phases', stepId]);
+  const isMap = value && typeof value === 'object' && !Array.isArray(value);
+  const edit = (key, to) => {
+    // The short form (clarification: required) becomes a map that keeps its mode.
+    if (!isMap) return { path, line: at()?.line ?? null, from: value ?? null, to: key === 'mode' ? { mode: to } : { ...(typeof value === 'string' ? { mode: value } : {}), [key]: to } };
+    return { path: [...path, key], line: at([key])?.line ?? null, from: Object.hasOwn(value, key) ? value[key] : null, to };
+  };
+  const remove = (key) => ({ path: [...path, key], line: at([key])?.line ?? null, from: isMap ? value[key] ?? null : null, to: null, remove: true });
+  const data = ({ decidedBy = 'fixer', edits = [], alternatives = [], question = null, ...facts }) => ({
+    step: stepId, workflow: workflowId ?? null, file: WORKFLOW_PATH,
+    setting: { path, line: at()?.line ?? null, scope: own ? 'workflow' : 'step', sharedWith,
+      workflowPath: workflowId ? ['workTypes', workflowId, 'phaseOverrides', stepId, 'clarification'] : null },
+    decidedBy, edits, alternatives, question, ...facts
+  });
+  return { at, edit, remove, data, value, isMap };
+}
+
+/**
+ * Whether questions are asked in the right steps, judged as the clarification checkpoint runs them
+ * (src/clarifications.mjs): only an agent's draft is asked about (a step only a person or Singularity
+ * Flow writes asks nobody), an answer is recorded only while clarification is on, an approved input
+ * settles what it states, and a required checkpoint stops for at least one answer every time. An
+ * invalid policy never loads, so it is reported where the configuration is read (clarificationPolicyProblems).
+ */
+async function questionPlacementFindings(workflow, resolved, { people, stepLabel, settingOf, templates }) {
+  const findings = [];
+  const steps = new Map(workflow.steps.map((step) => [step.id, step]));
+  const order = (resolved.phases ?? []).filter((phase) => steps.has(phase.id));
+  const holds = new Map((resolved.obligationGraph?.nodes ?? []).map((node) => [node.id, node.responsibilities ?? []]));
+  const policyOf = (phase) => phase.clarification ?? { mode: 'off', topics: [], markers: { mode: 'off' } };
+  const agentMayDraft = (phase) => people.get(phase.id)?.author.by !== 'sflow' && (phase.generation?.allowedProducers ?? ['governed-agent']).includes('governed-agent');
+  const asks = (phase) => Boolean(people.get(phase.id)?.questions.asked);
+  const scopeIndex = order.findIndex((phase) => holds.get(phase.id)?.includes('scope'));
+  const finalScopeIndex = order.findLastIndex((phase) => holds.get(phase.id)?.includes('scope'));
+
+  // The scope is defined with nobody asked: every later step treats it as settled.
+  const scopeUnasked = scopeIndex >= 0 && agentMayDraft(order[scopeIndex]) && !order.slice(0, scopeIndex + 1).some(asks);
+  if (scopeUnasked) {
+    const scope = order[scopeIndex];
+    const setting = settingOf(scope.id);
+    const earlier = order.slice(0, scopeIndex).map((phase) => stepLabel(phase.id));
+    findings.push({ code: 'CHECK_SCOPE_NOT_CLARIFIED', area: 'clarity', severity: 'problem',
+      title: `Nobody is asked about the scope before ${stepLabel(scope.id)} defines it`,
+      detail: `${stepLabel(scope.id)} defines the Story's scope (its requirement clauses), and ${earlier.length ? `neither it nor any step before it (${listWords(earlier)}) asks` : 'it does not ask'} the person a question: clarification is off. `
+        + 'Its agent drafts the scope from the Story\'s sources alone, guessing wherever they are unclear, and every later step treats the approved scope as settled and is told never to ask about it again.',
+      fix: { text: `Turn clarification on for ${stepLabel(scope.id)}: in ${WORKFLOW_PATH}, clarification: { mode: required, maxQuestions: 5, topics: [scope, acceptance criteria, constraints] } asks the person to confirm the scope before it is drafted; `
+        + 'when-needed asks only when the sources leave something material open. In Workflow Studio it is the step\'s Clarifying questions.',
+      data: setting.data({
+        edits: [setting.edit('mode', 'required'), ...(policyOf(scope).topics?.length ? [] : [setting.edit('topics', ['scope', 'acceptance criteria', 'constraints'])])],
+        alternatives: [{ id: 'when-needed', label: 'Ask only when the sources leave something material open', edits: [setting.edit('mode', 'when-needed')] }],
+        earlierSteps: order.slice(0, scopeIndex).map((phase) => phase.id) }) },
+      subject: { step: scope.id }, location: setting.at(['mode']) });
+  }
+
+  for (const [index, phase] of order.entries()) {
+    const step = steps.get(phase.id);
+    const policy = policyOf(phase);
+    const label = stepLabel(phase.id);
+    const setting = settingOf(phase.id);
+    const markers = policy.markers?.mode ?? 'off';
+    // A marker is resolved only by an answer on record, and nothing is recorded while clarification is off.
+    if (policy.mode === 'off' && people.get(phase.id)?.author.by !== 'sflow') {
+      const source = phase.template && markers !== 'block' ? await templates(phase.template).catch(() => null) : null;
+      const line = source?.text ? source.text.split('\n').findIndex((text) => text.includes(MARKER)) + 1 : 0;
+      if (markers === 'block' || line > 0) {
+        findings.push({ code: 'CHECK_MARKERS_UNANSWERABLE', area: 'clarity', severity: 'problem',
+          title: markers === 'block' ? `${label} stops at an unanswered [NEEDS CLARIFICATION] marker that nobody can answer`
+            : `${label}'s template asks for [NEEDS CLARIFICATION] markers that nobody can answer`,
+          detail: (markers === 'block'
+            ? `Its markers mode is block, so a [NEEDS CLARIFICATION: ...] marker left in its document stops its publication until the marker is resolved, and a marker is resolved only by an answer on record. `
+            : `${source.file} (line ${line}) shows its author the [NEEDS CLARIFICATION: ...] marker for what the sources leave open. `)
+            + 'Its clarification is off, so nobody is asked and no answer can ever be recorded (clarification record and clarification answer are refused while it is off)'
+            + (markers === 'block' ? '.' : `: a marker its author writes stays open in the approved document${markers === 'warn' ? ', a warning at every publication' : ''}.`),
+          fix: { text: `Turn clarification on for ${label}: clarification: { mode: when-needed, maxQuestions: 3${markers === 'block' ? ', markers: { mode: block }' : ''} }`
+            + (markers === 'block' ? '; or set its markers mode to warn or off.' : '; or give it a template that does not ask for markers.'),
+          data: setting.data({
+            // On the scope step nobody is asked about, the same change answers that finding too.
+            edits: [setting.edit('mode', scopeUnasked && index === scopeIndex ? 'required' : 'when-needed')],
+            alternatives: markers === 'block'
+              ? [{ id: 'markers-warn', label: 'Only warn about an open marker', edits: [setting.edit('markers', { mode: 'warn' })] },
+                { id: 'markers-off', label: 'Do not check markers', edits: [setting.edit('markers', { mode: 'off' })] }]
+              : [{ id: 'template', label: 'Use a template that does not ask for markers', edits: [] }],
+            markers, ...(line > 0 ? { template: { file: source.file, line } } : {}) }) },
+          subject: { step: phase.id }, location: setting.at(markers === 'block' ? ['markers'] : []),
+          related: line > 0 ? [{ file: source.file, line }] : [],
+          ...(markers === 'block' ? { stopsAt: { step: phase.id, when: 'publication' } } : {}) });
+      }
+    }
+    if (!asks(phase)) continue;
+    // Asked after the scope is approved about what that scope settles.
+    const settled = index > finalScopeIndex && finalScopeIndex >= 0 ? (policy.topics ?? []).filter(settledByScope) : [];
+    if (settled.length) {
+      const fits = topicsThatFit(step, phase);
+      const kept = (policy.topics ?? []).filter((topic) => !settled.includes(topic));
+      findings.push({ code: 'CHECK_QUESTIONS_SETTLED_BY_SCOPE', area: 'clarity', severity: 'warning',
+        title: `${label} asks about ${listWords(settled)}, which the approved scope already settles`,
+        detail: `${stepLabel(order[finalScopeIndex].id)} defines the Story's scope before ${label}. An approved input settles what it states, so ${label}'s agent is told never to ask about it again: `
+          + `questions on ${listWords(settled)} would be put again to people who already approved the answer, or refused. A change of scope after approval is an intent amendment, not a question.`,
+        fix: { text: `Replace ${listWords(settled)} in ${label}'s clarification topics with what its own work leaves open, for example topics: [${fits.join(', ')}].`,
+          data: setting.data({ edits: [setting.edit('topics', [...kept, ...fits.filter((topic) => !kept.includes(topic))])], drop: settled, suggested: fits,
+            scopeStep: order[finalScopeIndex].id }) },
+        subject: { step: phase.id }, location: setting.at(['topics']) });
+    }
+    // A code step that must stop for an answer every time.
+    if (step.output === 'code' && policy.mode === 'required') {
+      findings.push({ code: 'CHECK_CODE_STEP_ALWAYS_ASKS', area: 'clarity', severity: 'warning',
+        title: `${label} stops for a person's answer before every change`,
+        detail: `${label} changes code with clarification required: its agent must get at least one answer from a person before it drafts, even when the approved inputs settle everything, `
+          + 'so on every run and every rework people are asked to confirm what they already approved.',
+        fix: { text: `Set ${label}'s clarification to when-needed, for example clarification: { mode: when-needed, maxQuestions: 3, topics: [${topicsThatFit(step, phase).join(', ')}] }. It then asks only when a real ambiguity remains.`,
+          data: setting.data({ edits: [setting.edit('mode', 'when-needed')], suggested: topicsThatFit(step, phase) }) },
+        subject: { step: phase.id }, location: setting.at(['mode']) });
+    }
+    // A step drafting from the Story's own sources that may skip confirming its reading.
+    const scope = holds.get(phase.id)?.includes('scope');
+    if (policy.mode === 'when-needed' && step.output !== 'code' && (scope || !(phase.inputs ?? []).length)) {
+      findings.push({ code: 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', area: 'clarity', severity: 'note',
+        title: `${label} drafts from the Story's own sources without always confirming its reading`,
+        detail: `${label} ${scope ? 'defines the Story\'s scope' : 'reads only the Story\'s own sources'}, and its clarification is when-needed: when its agent finds nothing materially unclear it drafts without asking, `
+          + 'so nobody confirms how the sources were read until the document is reviewed. required makes it confirm a short reading of the outcome, boundaries and acceptance criteria first.',
+        fix: { text: `If people should always confirm the reading first, set ${label}'s clarification mode to required; when-needed suits short, well-specified work.`,
+          // Whether the reading is confirmed every time is the team's choice, not a defect: a person decides.
+          data: setting.data({ decidedBy: 'person', question: {
+            text: `Should ${label} always confirm its reading of the Story's sources with a person before it drafts?`,
+            choices: [{ id: 'required', label: 'Yes: always ask first (required)', edits: [setting.edit('mode', 'required')] },
+              { id: 'when-needed', label: 'No: ask only when something material is unclear (keep when-needed)', edits: [] }] } }) },
+        subject: { step: phase.id }, location: setting.at(['mode']) });
+    }
+  }
+  return findings;
+}
+
 /** Check one workflow of the model; returns its findings. */
-async function checkWorkflow(workflow, { definition, model, locate, guidance, groups, templates, unmapped = new Set() }) {
+async function checkWorkflow(workflow, { definition, raw = {}, model, locate, guidance, groups, templates, unmapped = new Set() }) {
   const findings = [];
   const stepLabel = (id) => workflow.steps.find((step) => step.id === id)?.label ?? id;
   const decisionOf = (id) => (workflow.decisions ?? []).find((entry) => entry.id === id);
@@ -240,6 +428,8 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
     findings.push(finding({ ...entry, subject, location: entry.location === undefined ? at(subject) : entry.location }));
   };
 
+  // A step's clarification where this workflow sets it, as workflow.yml is written.
+  const settingOf = (stepId) => clarificationSetting(raw, locate, workflow.id, stepId);
   let resolved = null;
   let people = new Map();
   // Steps the engine already says can reach the end unreviewed; the sign-off check does not repeat it.
@@ -332,8 +522,9 @@ async function checkWorkflow(workflow, { definition, model, locate, guidance, gr
       const { step, template, kernelCode, ...rest } = entry;
       add({ ...rest, area: 'guidance', subject: { step, template, file: entry.location?.file ?? null } });
     }
-    // Who drafts, asks, reviews and approves each step, and where.
+    // Who drafts, asks, reviews and approves each step, and where; then whether questions are asked in the right steps.
     people = workflowStepPeople(model, workflow, resolved);
+    for (const entry of await questionPlacementFindings(workflow, resolved, { people, stepLabel, settingOf, templates })) add(entry);
   }
 
   // Who owns each step: an agent to draft it, people to sign it off.
@@ -577,15 +768,117 @@ async function agentMappingFindings(problems, { model, definition, locate, confi
   return findings;
 }
 
-/** A configuration that does not load: every located problem, each refusing every Story. */
-function unreadableConfiguration(base, error) {
-  const located = error?.details?.configurationProblems ?? [];
-  const findings = located.length
-    ? located.map((problem) => finding({ code: problem.code ?? error.code ?? 'CONFIGURATION_INVALID', area: 'flow', severity: 'problem',
+const CLARIFICATION_MODE_WORDS = 'off (never), when-needed (only when something material is unclear) or required (always, before drafting)';
+const CLARIFICATION_MODES = Object.freeze(['off', 'when-needed', 'required']);
+const CLARIFICATION_MODE_LABELS = Object.freeze({ off: 'Never ask (off)', 'when-needed': 'Ask only when something material is unclear (when-needed)', required: 'Always ask before drafting (required)' });
+
+/** How many single-letter edits turn one word into the other: a misspelled field is a short distance from the one meant. */
+function editDistance(left, right) {
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= right.length; column += 1) {
+      current[column] = Math.min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[right.length];
+}
+
+/**
+ * Every step clarification in workflow.yml that does not load (normalizeClarificationPolicy, which the
+ * validator runs on each step and each workflow's override), located at the setting itself. The
+ * validator's own refusal names no step and no line.
+ */
+function clarificationPolicyProblems(text) {
+  let raw;
+  try { raw = YAML.parse(String(text ?? '')); } catch { return []; }
+  if (!raw || typeof raw !== 'object') return [];
+  const locate = yamlLocator(text, WORKFLOW_PATH);
+  const findings = [];
+  const judge = (stepId, workflowId, value) => {
+    try { normalizeClarificationPolicy(value); return; } catch (error) {
+      const setting = clarificationSetting(raw, locate, workflowId, stepId);
+      const label = (workflowId ? raw.workTypes?.[workflowId]?.phaseOverrides?.[stepId]?.label : null) ?? raw.phases?.[stepId]?.label ?? stepId;
+      const policy = typeof value === 'string' ? { mode: value } : value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+      const mode = policy?.mode ?? 'off';
+      const field = /^clarification\.(\w+)/u.exec(error.message)?.[1] ?? null;
+      const unknown = /unknown field '([^']+)'/u.exec(error.message)?.[1] ?? null;
+      const modeChoices = (edits) => CLARIFICATION_MODES.map((choice) => ({ id: choice, label: CLARIFICATION_MODE_LABELS[choice], edits: edits(choice) }));
+      let why = `${error.message}`;
+      let fix = `Correct ${label}'s clarification: mode is ${CLARIFICATION_MODE_WORDS}; maxQuestions is 1 to 10; topics are distinct words; markers is off, warn or block.`;
+      // What a fixer applies, or the one question a person answers when only they know what was meant.
+      let data;
+      if (!policy) {
+        why = `Its clarification must be a mode (${CLARIFICATION_MODE_WORDS}) or a map of mode, maxQuestions, topics and markers.`;
+        data = setting.data({ decidedBy: 'person', question: { text: `How should ${label} ask questions?`, choices: modeChoices((choice) => [setting.edit('mode', choice)]) } });
+      } else if (field === 'mode') {
+        why = `Its clarification mode is '${mode}'. A step asks ${CLARIFICATION_MODE_WORDS}.`;
+        fix = `Set ${label}'s clarification mode to off, when-needed or required.`;
+        data = setting.data({ decidedBy: 'person', field: 'mode', question: { text: `'${mode}' is not a questions mode. How should ${label} ask questions?`,
+          choices: modeChoices((choice) => [setting.edit('mode', choice)]) } });
+      } else if (field === 'maxQuestions') {
+        why = policy.maxQuestions === 0 && mode !== 'off'
+          ? `Its clarification is ${mode} but may ask at most 0 questions, so ${mode === 'required' ? 'it must stop for an answer it can never ask for' : 'it could never ask'}.`
+          : `Its clarification maxQuestions is ${JSON.stringify(policy.maxQuestions)}; it must be a whole number from 1 to 10.`;
+        fix = `Set ${label}'s maxQuestions from 1 to 10 (5 when it is left out)${mode !== 'off' ? ', or its mode to off if it should ask nothing' : ''}.`;
+        data = setting.data({ field: 'maxQuestions', edits: [setting.edit('maxQuestions', 5)],
+          alternatives: mode !== 'off' ? [{ id: 'off', label: 'Ask nothing', edits: [setting.edit('mode', 'off')] }] : [] });
+      } else if (field === 'markers') {
+        data = setting.data({ decidedBy: 'person', field: 'markers', question: { text: `What should an unanswered [NEEDS CLARIFICATION] marker in ${label}'s document do?`,
+          choices: [['off', 'Nothing'], ['warn', 'Warn at publication'], ['block', 'Stop publication until it is answered']]
+            .map(([id, words]) => ({ id, label: words, edits: [setting.edit('markers', { mode: id })] })) } });
+      } else if (field === 'topics') {
+        const topics = Array.isArray(policy.topics) ? [...new Set(policy.topics.filter((topic) => typeof topic === 'string' && topic.trim()).map((topic) => topic.trim()))] : [];
+        data = setting.data({ field: 'topics', edits: [setting.edit('topics', topics)] });
+      } else if (unknown) {
+        const meant = CLARIFICATION_FIELDS.find((name) => !Object.hasOwn(policy, name) && editDistance(name.toLowerCase(), unknown.toLowerCase()) <= 2) ?? null;
+        why = `Its clarification has a field '${unknown}' this release does not know; it knows ${listWords(CLARIFICATION_FIELDS)}.`;
+        fix = meant ? `Rename '${unknown}' in ${label}'s clarification to ${meant}, or remove it.`
+          : `Remove '${unknown}' from ${label}'s clarification. If it is a field of a newer release of Singularity Flow, upgrade instead.`;
+        data = setting.data({ decidedBy: 'person', field: unknown, question: { text: `${label}'s clarification has a field '${unknown}' this release does not know. What was meant?`,
+          choices: [...(meant ? [{ id: 'rename', label: `It is ${meant}`, edits: [setting.remove(unknown), setting.edit(meant, policy[unknown])] }] : []),
+            { id: 'remove', label: 'Remove it', edits: [setting.remove(unknown)] }] } });
+      } else data = setting.data({ decidedBy: 'person', question: { text: `How should ${label} ask questions?`, choices: modeChoices((choice) => [setting.edit('mode', choice)]) } });
+      findings.push(finding({ code: 'CHECK_CLARIFICATION_INVALID', area: 'clarity', severity: 'problem',
+        title: `The questions setting of ${label} cannot be read`,
+        detail: `${why}${workflowId ? ` It is workflow ${workflowId}'s own setting for the step.` : ''}`,
+        fix: { text: fix, data }, subject: { step: stepId, ...(workflowId ? { workflow: workflowId } : {}), file: WORKFLOW_PATH },
+        location: setting.at(field && policy && Object.hasOwn(policy, field) ? [field] : unknown ? [unknown] : []), blocksStart: true }));
+    }
+  };
+  for (const [id, phase] of Object.entries(raw.phases ?? {})) {
+    if (phase && typeof phase === 'object' && Object.hasOwn(phase, 'clarification')) judge(id, null, phase.clarification);
+  }
+  for (const [workflowId, type] of Object.entries(raw.workTypes ?? {})) {
+    for (const [id, override] of Object.entries(type?.phaseOverrides ?? {})) {
+      if (override && typeof override === 'object' && Object.hasOwn(override, 'clarification')) {
+        judge(id, workflowId, override.clarification);
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * A configuration that does not load: every located problem, each refusing every Story. A step's
+ * clarification that does not load is said at its own line instead of the validator's bare refusal.
+ */
+function unreadableConfiguration(base, error, text = null) {
+  const clarity = clarificationPolicyProblems(text);
+  const replaced = (message) => clarity.length > 0 && /^clarification\b/u.test(String(message ?? ''));
+  const problems = error?.details?.configurationProblems ?? [];
+  const located = problems.filter((problem) => !replaced(problem.message));
+  const findings = [
+    ...located.map((problem) => finding({ code: problem.code ?? error.code ?? 'CONFIGURATION_INVALID', area: 'flow', severity: 'problem',
       title: firstSentence(problem.message), detail: problem.message, fix: problem.fix ?? null, subject: { file: problem.file ?? WORKFLOW_PATH },
-      location: problem.line ? { file: problem.file ?? WORKFLOW_PATH, line: problem.line } : null, blocksStart: true }))
-    : [finding({ code: error?.code ?? 'CONFIGURATION_INVALID', area: 'flow', severity: 'problem', title: 'The workflow configuration cannot be read',
-      detail: error.message, subject: { file: WORKFLOW_PATH }, blocksStart: true })];
+      location: problem.line ? { file: problem.file ?? WORKFLOW_PATH, line: problem.line } : null, blocksStart: true })),
+    ...clarity
+  ];
+  if (!findings.length || (!problems.length && !replaced(error?.message))) {
+    findings.unshift(finding({ code: error?.code ?? 'CONFIGURATION_INVALID', area: 'flow', severity: 'problem', title: 'The workflow configuration cannot be read',
+      detail: error.message, subject: { file: WORKFLOW_PATH }, blocksStart: true }));
+  }
   return { ...base, configuration: { valid: false }, counts: countsOf(findings), workflows: [], repository: { counts: countsOf(findings), findings } };
 }
 
@@ -605,10 +898,10 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
   let unmappedRefusal = null;
   try { definition = await loadDefinition(root); }
   catch (error) {
-    if (!AGENT_MAPPING_CODES.includes(error?.code) || !Array.isArray(error.details?.problems)) return unreadableConfiguration(base, error);
+    if (!AGENT_MAPPING_CODES.includes(error?.code) || !Array.isArray(error.details?.problems)) return unreadableConfiguration(base, error, text);
     // Agents are what refused; the workflows themselves load (agents are read after them).
     definition = await loadDefinition(root, { storyBootstrap: true }).catch(() => null);
-    if (!definition) return unreadableConfiguration(base, error);
+    if (!definition) return unreadableConfiguration(base, error, text);
     unmappedRefusal = error;
   }
   const model = await buildStudioModel(root);
@@ -621,6 +914,8 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
     }
   }
   const locate = yamlLocator(text, WORKFLOW_PATH);
+  // workflow.yml as written: where each setting a fix changes lives.
+  const raw = (() => { try { return YAML.parse(String(text ?? '')) ?? {}; } catch { return {}; } })();
   const groups = new Map(model.groups.map((group) => [group.id, group]));
   const guidance = new GuidanceReader(configRoot, model);
   const templates = templateReader(configRoot, definition.templatesRoot ?? model.templatesRoot);
@@ -629,7 +924,7 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
   const results = [];
   for (const workflow of model.workflows) {
     if (only && !only.includes(workflow.id)) continue;
-    const { findings, resolved, explanationGuidance, people } = await checkWorkflow(workflow, { definition, model, locate, guidance, groups, templates, unmapped });
+    const { findings, resolved, explanationGuidance, people } = await checkWorkflow(workflow, { definition, raw, model, locate, guidance, groups, templates, unmapped });
     results.push({
       id: workflow.id, label: workflow.label, readOnly: Boolean(workflow.readOnly),
       explanation: explainWorkflow(model, workflow.id, { resolved, guidance: explanationGuidance, people }),

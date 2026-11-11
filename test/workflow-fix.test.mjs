@@ -66,8 +66,10 @@ async function fmlyRepository({ skillLines = [], security = null } = {}) {
   const config = YAML.parse(await readFile(file, 'utf8'));
   const step = (label, template, artifact, kind, approval, extra = {}) => ({ label, defaultTemplate: template,
     artifact: { path: artifact, kind, minimumBytes: 200 }, clarification: { mode: 'off' }, writeScope: 'artifact-only', approval, ...extra });
+  // Its scope step asks the person first, as a team's workflow should: the fixes here are the template, links and descriptions.
   config.phases['fmly-requirements'] = step('QA requirements', 'fmly/requirements.md', 'artifacts/fmly-requirements/requirements.md', 'requirements',
-    { authorities: ['product-approvers'], minimum: 1, rejectTo: ['fmly-requirements'] });
+    { authorities: ['product-approvers'], minimum: 1, rejectTo: ['fmly-requirements'] },
+    { clarification: { mode: 'required', maxQuestions: 5, topics: ['scope', 'acceptance criteria', 'constraints'] } });
   config.phases['fmly-code'] = step('Test code', 'fmly/code.md', 'artifacts/fmly-code/implementation-summary.md', 'implementation-summary',
     { authorities: ['engineering-reviewers'], minimum: 1, rejectTo: ['fmly-requirements', 'fmly-code'] }, { generation: { task: 'code' }, writeScope: 'source-and-artifact', qualityCommands: [] });
   config.phases['fmly-testing'] = step('Test evidence', 'fmly/testing.md', 'artifacts/fmly-testing/test-evidence.md', 'test-evidence',
@@ -111,7 +113,11 @@ test('every finding code workflow check or validate can raise has a fixer or a d
   assert.equal(fixerFor({ code: 'YAML_BAD_INDENT' }, { configurationLoads: false }), CONFIGURATION_FIXER);
   assert.equal(fixerFor({ code: 'CHECK_NOT_A_CODE' }, { configurationLoads: true }), null);
   const agentCodes = new Set(literals(await read('agents.mjs'), /code: '(AGENT_[A-Z0-9_]+)'/gu));
-  const stale = Object.keys(WORKFLOW_FIXERS).filter((code) => !raised.includes(code) && !agentCodes.has(code));
+  // The question-placement check's codes (the wf1 track) are fixed from its fix.data; until that
+  // check is merged nothing here raises them, and once it is they are raised like the rest.
+  const arriving = new Set(['CHECK_CLARIFICATION_INVALID', 'CHECK_MARKERS_UNANSWERABLE', 'CHECK_SCOPE_NOT_CLARIFIED', 'CHECK_CODE_STEP_ALWAYS_ASKS',
+    'CHECK_QUESTIONS_SETTLED_BY_SCOPE', 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED']);
+  const stale = Object.keys(WORKFLOW_FIXERS).filter((code) => !raised.includes(code) && !agentCodes.has(code) && !arriving.has(code));
   assert.deepEqual(stale, [], 'a fixer for a code nothing raises any more');
 });
 
@@ -292,6 +298,53 @@ test('a workflow.yml a YAML 1.1 writer broke is repaired as text, through config
   assert.equal(await readFile(result.configurationFiles[0].written, 'utf8'), text);
   assert.match(result.next[0], /^Propose for review: singularity-flow configuration save singularity\/workflow\.yml --propose < /u);
   assert.notEqual(await readFile(file, 'utf8'), text, 'the repository keeps its file until the proposal is applied');
+});
+
+test('a questions-setting finding is fixed from the check\'s own fix data, for one workflow when the step is shared', async () => {
+  const root = await fmlyRepository();
+  const file = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(file, 'utf8'));
+  config.phases['fmly-code'].clarification = { mode: 'required', maxQuestions: 3, topics: ['implementation blockers'] };
+  config.workTypes['fmly-copy'] = { label: 'QA copy', phases: ['fmly-requirements', 'fmly-code'], phaseOverrides: { 'fmly-code': { inputs: ['fmly-requirements'] } } };
+  await writeFile(file, YAML.stringify(config));
+  run('git', ['commit', '-am', 'a shared code step that always asks'], root);
+  const { fixContext, WORKFLOW_FIXERS } = await import('../src/workflow-fix/index.mjs');
+  const { FixDraft } = await import('../src/workflow-fix/draft.mjs');
+  const { planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const ctx = await fixContext(root);
+  const fresh = () => { ctx.draft = new FixDraft({ configRoot: ctx.configRoot, templatesRoot: ctx.templatesRoot, raw: ctx.raw, agents: ctx.model.agents }); };
+  const at = ['phases', 'fmly-code', 'clarification'];
+  const data = (extra) => ({ step: 'fmly-code', workflow: WORKFLOW, file: 'singularity/workflow.yml',
+    setting: { path: at, line: 1, scope: 'step', sharedWith: ['fmly-copy'], workflowPath: ['workTypes', WORKFLOW, 'phaseOverrides', 'fmly-code', 'clarification'] },
+    alternatives: [], question: null, ...extra });
+  // The fixer decides: when-needed, for this workflow alone, starting from the step's own setting.
+  fresh();
+  const finding = { id: 'f-1', code: 'CHECK_CODE_STEP_ALWAYS_ASKS', title: 'Test code stops for a person\'s answer before every change', subject: { workflow: WORKFLOW, step: 'fmly-code' },
+    fix: { text: 'Set it to when-needed.', data: data({ decidedBy: 'fixer', edits: [{ path: [...at, 'mode'], line: 1, from: 'required', to: 'when-needed' }] }) } };
+  await ctx.draft.record(() => WORKFLOW_FIXERS.CHECK_CODE_STEP_ALWAYS_ASKS.fix([finding], ctx));
+  const ops = ctx.draft.studioChanges();
+  assert.deepEqual(ops, [{ op: 'phase.update', id: 'fmly-code', workflow: WORKFLOW, clarification: { mode: 'when-needed', maxQuestions: 3, topics: ['implementation blockers'] } }]);
+  const plan = await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: ops });
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  const written = plan.files.find((entry) => entry.path === 'singularity/workflow.yml').diff;
+  assert.match(written, /^\+ {8}clarification:\n\+ {10}mode: when-needed$/mu, 'the override is this workflow\'s own');
+  assert.doesNotMatch(written, /^-.*mode: required/mu, 'the step\'s own setting, which QA copy uses, stays');
+  // A second finding on the same step in the same round waits for the next round's check.
+  await ctx.draft.record(() => WORKFLOW_FIXERS.CHECK_QUESTIONS_SETTLED_BY_SCOPE.fix([{ ...finding, code: 'CHECK_QUESTIONS_SETTLED_BY_SCOPE',
+    fix: { data: data({ decidedBy: 'fixer', edits: [{ path: [...at, 'topics'], to: ['approved deviations'] }] }) } }], ctx));
+  assert.equal(ctx.draft.studioChanges().length, 1);
+  // A person decides: the question and its choices are the check's own.
+  fresh();
+  const { value } = await ctx.draft.record(() => WORKFLOW_FIXERS.CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED.fix([{ ...finding, code: 'CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED',
+    fix: { data: data({ decidedBy: 'person', edits: [], question: { text: 'Should Test code always confirm its reading first?',
+      choices: [{ id: 'required', label: 'Yes', edits: [{ path: [...at, 'mode'], to: 'required' }] }, { id: 'when-needed', label: 'No', edits: [] }] } }) } }], ctx));
+  assert.equal(ctx.draft.studioChanges().length, 0, 'nothing changes until a person answers');
+  const [question] = value.questions;
+  assert.equal(question.ask, 'Should Test code always confirm its reading first?');
+  assert.deepEqual(question.choices.map((choice) => choice.id), ['required', 'when-needed']);
+  assert.match(question.why, /team's choice/u);
+  question.choices[0].apply(ctx.draft, {});
+  assert.equal(ctx.draft.studioChanges()[0].clarification.mode, 'required');
 });
 
 test('every fixer runs on a finding of its code, and every question it asks has choices and says why', async () => {

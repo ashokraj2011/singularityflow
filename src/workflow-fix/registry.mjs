@@ -840,6 +840,63 @@ async function unreadable([finding]) {
     answer: { kind: 'text' }, choices: [keep('Fix it by hand in Workflow Studio')] }] };
 }
 
+/**
+ * A step's questions setting (clarification), from the check's own `fix.data` (src/workflow-check.mjs,
+ * above clarificationSetting): `edits` when the fixer decides, `question` when a person does. Each
+ * edit's `path` is a key path in workflow.yml under the setting's `path`; the result is written as the
+ * step's whole setting, for this workflow alone when other workflows share the step (`sharedWith`;
+ * an override replaces the step's whole setting, so it starts from the step's value). Two findings
+ * on one step can set one key, so only the first is applied in a round; the next round checks again.
+ */
+function clarificationValue(ctx, data, workflowScoped) {
+  const { setting } = data;
+  const drafted = ctx.draft.clarification(data.step, workflowScoped ? data.workflow : null);
+  if (drafted !== undefined) return drafted;
+  const read = (keys) => keys.reduce((value, key) => (value && typeof value === 'object' ? value[key] : undefined), ctx.raw);
+  const own = read(setting.path);
+  return own !== undefined ? own : workflowScoped ? read(['phases', data.step, 'clarification']) : undefined;
+}
+
+function clarificationEdits(ctx, data, edits) {
+  const { setting } = data;
+  const workflowScoped = Boolean(data.workflow) && (setting.scope === 'workflow' || (setting.sharedWith ?? []).length > 0);
+  const current = clarificationValue(ctx, data, workflowScoped);
+  let value = typeof current === 'string' ? { mode: current } : current && typeof current === 'object' && !Array.isArray(current) ? structuredClone(current) : {};
+  for (const edit of edits) {
+    const key = edit.path.length > setting.path.length ? edit.path[setting.path.length] : null;
+    if (!key) value = edit.to && typeof edit.to === 'object' && !Array.isArray(edit.to) ? { ...value, ...structuredClone(edit.to) } : { mode: edit.to };
+    else if (edit.remove) delete value[key];
+    else value[key] = structuredClone(edit.to);
+  }
+  ctx.draft.phase(data.step, { clarification: value }, { workflow: workflowScoped ? data.workflow : null });
+  return { workflowScoped, value };
+}
+
+async function clarificationFix(findings, ctx) {
+  const questions = [];
+  const done = [];
+  for (const finding of findings) {
+    const data = finding.fix?.data;
+    if (!data?.setting || !data.step) {
+      questions.push({ ask: `${finding.title}: ${finding.detail ?? ''} ${finding.fix?.text ?? ''}`.trim(), why: 'workflow check gave no change to apply here, so a person sets it.', choices: [keep()] });
+      continue;
+    }
+    if (data.decidedBy === 'person' || !(data.edits ?? []).length) {
+      if (!data.question) continue;
+      questions.push({ ask: data.question.text, why: WORKFLOW_FIXERS[finding.code]?.why ?? NOTICE_WHY,
+        choices: data.question.choices.map((choice) => ({ id: choice.id, label: choice.label, effect: (choice.edits ?? []).length ? `${choice.edits.map((edit) => `${edit.path.join('.')}${edit.remove ? ' goes' : `: ${JSON.stringify(edit.to)}`}`).join('; ')}.` : 'Nothing changes.',
+          apply: (draft) => { if ((choice.edits ?? []).length) clarificationEdits({ ...ctx, draft }, data, choice.edits); } })) });
+      continue;
+    }
+    // One fix per step and workflow in a round: two findings can set one key, so the next round checks again.
+    if (ctx.draft.clarification(data.step, data.workflow) !== undefined || ctx.draft.clarification(data.step, null) !== undefined) continue;
+    const { workflowScoped, value } = clarificationEdits(ctx, data, data.edits);
+    const label = ctx.model.phases.find((phase) => phase.id === data.step)?.label ?? data.step;
+    done.push(`${label}'s questions setting becomes ${JSON.stringify(value)}${workflowScoped ? ` for ${data.workflow} alone` : ''}${(data.alternatives ?? []).length ? ` (also possible: ${data.alternatives.map((entry) => entry.label.toLowerCase()).join('; ')})` : ''}`);
+  }
+  return { summary: done.length ? `${done.join('; ')}.` : null, questions };
+}
+
 /** A configuration that does not load: its own diagnosis's fix, applied to the exact line, or the person's corrected line. */
 async function configurationProblem(findings, ctx) {
   const results = { questions: [] };
@@ -1007,6 +1064,13 @@ export const WORKFLOW_FIXERS = Object.freeze({
   CHECK_BROWSER_TARGET_REQUIRED: question(70, 'Which live site a Story checks is chosen per Story by the person who starts it; no configuration can know it.', browserTarget),
   CHECK_WORKFLOW_UNREADABLE: question(72, 'The engine refused the workflow; what it should be instead is not written anywhere a fixer can read.', unreadable),
   CHECK_ROUTES_UNREADABLE: question(72, 'The engine refused the workflow\'s routes; what they should be instead is not written anywhere a fixer can read.', unreadable),
+  // Questions: where each step asks, from the check's own fix data (fix.data, see clarificationFix).
+  CHECK_CLARIFICATION_INVALID: either(6, 'The setting cannot be read and could mean several things; which one the team meant is its decision.', clarificationFix),
+  CHECK_MARKERS_UNANSWERABLE: change(74, clarificationFix),
+  CHECK_SCOPE_NOT_CLARIFIED: change(75, clarificationFix),
+  CHECK_CODE_STEP_ALWAYS_ASKS: change(76, clarificationFix),
+  CHECK_QUESTIONS_SETTLED_BY_SCOPE: change(77, clarificationFix),
+  CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED: question(78, 'Whether a step always confirms its reading of the sources with a person is the team\'s choice, not a defect.', clarificationFix),
   // Clarity last: descriptions read the explanation, labels the steps.
   CHECK_STEP_LABEL_DUPLICATE: change(80, duplicateLabel),
   CHECK_STEPS_UNDESCRIBED: change(90, undescribedSteps)

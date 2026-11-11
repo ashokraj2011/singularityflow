@@ -101,6 +101,12 @@ export class FixDraft {
     this.touch(key);
   }
 
+  /** The questions setting (clarification) a fix already drafted for this step, here or for one workflow; undefined when none. */
+  clarification(id, workflow = null) {
+    const fields = this.phases.get(`phase:${id}\0${workflow ?? ''}`)?.fields;
+    return fields && Object.hasOwn(fields, 'clarification') ? structuredClone(fields.clarification) : undefined;
+  }
+
   /** Whether a fix already asks for a sign-off on this step. */
   signedOff(id) {
     return [...this.phases.values()].some((entry) => entry.id === id && entry.fields.approval && entry.fields.approval !== 'none');

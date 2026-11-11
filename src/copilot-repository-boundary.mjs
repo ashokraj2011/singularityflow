@@ -362,7 +362,8 @@ export async function resolveCopilotHookRoot(payload = {}, {
   if (readCopilotMode().paused) return null;
   const cwd = typeof payload.cwd === 'string' ? payload.cwd : process.cwd();
   try { return await rootFor(cwd); } catch { /* An SDK chat folder is deliberately not a repository. */ }
-  if (!BUNDLED_AGENTS.has(payload.agentName ?? payload.agent_name) && !await currentTurn(payload)) return null;
+  const agent = payload.agentName ?? payload.agent_name;
+  if (!(agent && BUNDLED_AGENTS.has((await import('./review-subagent.mjs')).ownAgentName(agent))) && !await currentTurn(payload)) return null;
   const selected = await resolveSelected(cwd);
   return selected?.selectionStatus === 'ready' && selected.repositoryPath ? selected.repositoryPath : null;
 }

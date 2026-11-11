@@ -2016,6 +2016,13 @@ async function mutationToolDecision(payload, record) {
         // A piped or chained SFlow command is a tool form fixed in this turn: the exact command to run alone, and no
         // recovery route. Given only /sf-recover, an agent told the person to recover to continue (office, 2026-11-11).
         if (mentionsKernelExecution(call, value)) {
+          // Already one standalone command, which this turn does not run: "run it on its own" sent it straight back.
+          // A model told so about `singularity-flow --help` handed the whole step to sub-agents (Copilot CLI live
+          // probe, 2026-11-12), which then published it with no reviewer started.
+          const standalone = verifiedShellForm(call, value);
+          if (standalone) return mutationDenial(contract, ['--help', '-h'].includes(standalone.argv.join(' '))
+            ? 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: run `singularity-flow help` (or `singularity-flow help <command>`) instead; this turn does not run the bare --help form'
+            : 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this turn does not run this SFlow command. Follow the exact action the last SFlow result returned; nothing needs recovering', [], { routes: [] });
           const alone = standaloneSflowCommand(call, value);
           return mutationDenial(contract,
             `PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains, pipes or wrappers${alone

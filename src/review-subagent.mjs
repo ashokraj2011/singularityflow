@@ -20,12 +20,24 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
+// Copilot CLI (1.0.109) names a plugin's agents after the plugin: SFlow's reviewer arrives as
+// "singularity-flow:sflow-source-reviewer" (live probe, 2026-11-12). Only SFlow's own plugin is read past its name:
+// another plugin's agent of the same name is not SFlow's.
+const OWN_PLUGIN = 'singularity-flow:';
+
+/** An agent name as SFlow knows it: SFlow's own plugin agents without the host's plugin prefix; anything else as is. */
+export function ownAgentName(value) {
+  if (typeof value !== 'string') return value;
+  const name = value.trim();
+  return name.startsWith(OWN_PLUGIN) ? name.slice(OWN_PLUGIN.length) : name;
+}
 
 /** The name of the agent a sub-agent payload belongs to, or null for the top-level chat. */
 export function subagentName(payload = {}) {
   const value = [payload.agentType, payload.agent_type, payload.agentName, payload.agent_name]
     .find((entry) => typeof entry === 'string' && entry.trim());
-  return value && NAME.test(value.trim()) ? value.trim() : null;
+  const name = ownAgentName(value);
+  return name && NAME.test(name) ? name : null;
 }
 
 /** The session id a reviewer sub-agent's turn is recorded under: the author's chat, and the reviewer's name. */

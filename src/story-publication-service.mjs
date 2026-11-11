@@ -460,6 +460,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   if (workflow[Symbol.for('singularity-flow.state-revision')]) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;
   }
+  // This process committed to the Story: the CLI boundary moves a Copilot turn's shell baseline past it (cli-entry.mjs).
+  globalThis[Symbol.for('singularity-flow.story-committed')] = true;
   let pendingCleanup = { status: 'not-required' };
   if (result.pushed && !publicationTail) {
     try {

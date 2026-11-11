@@ -178,3 +178,104 @@ test('in the author\'s chat, the reviewer sub-agent reviews read-only under its 
     toolArgs: { path: stagingPath, file_text: '{}' } });
   assert.equal(decision(unnamed), 'deny', 'an unnamed sub-agent cannot write the review: the handoff says to run it in a new chat');
 });
+
+/** A quick-fix Story at intake with its draft written, and the hook commands as a host runs them from the checkout. */
+async function authorStory(t) {
+  const repo = await repository(t, { implementCommands: false, reviews: true });
+  const { root, sflow, must, env } = repo;
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(repo.base, 'remote.git')], repo.base);
+  must('git', ['remote', 'add', 'origin', path.join(repo.base, 'remote.git')]);
+  must('git', ['push', '-q', '-u', 'origin', 'main']);
+  sflow('start', 'QF-1', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Change the value', '--description', 'Return 2.');
+  sflow('prepare', 'intake');
+  await writeFile(path.join(root, 'singularity/work-items/QF-1/artifacts/intake/intake.md'), INTAKE);
+  const hook = (event, payload) => {
+    const result = spawnSync(process.execPath, [CLI, 'hook', event], { cwd: root, env, input: JSON.stringify({ cwd: root, ...payload }),
+      encoding: 'utf8', timeout: childTimeout(60_000) });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout || '{}');
+  };
+  const boundaries = path.join(path.dirname(env.SINGULARITY_FLOW_COPILOT_MODE_FILE), 'copilot-boundaries');
+  const contracts = async () => {
+    const found = {};
+    for (const name of (await readdir(boundaries)).filter((entry) => entry.endsWith('.mutation.json'))) {
+      const value = JSON.parse(await readFile(path.join(boundaries, name), 'utf8'));
+      found[value.sessionId] = value.contract?.turnMode ?? null;
+    }
+    return found;
+  };
+  return { ...repo, hook, contracts, boundaries };
+}
+const decisionOf = (answer) => answer.permissionDecision ?? answer.hookSpecificOutput?.permissionDecision ?? 'allow';
+
+test('a plain prepublish that keeps what the person asked for is SFlow\'s own commit, also after a shell command took a baseline', async (t) => {
+  // Copilot CLI live probe (2026-11-12, Haiku 5.5): the author read three files with one chained shell command, which
+  // took the turn's shell baseline; the plain prepublish then committed what the person asked for, the after-tool check
+  // called that commit a change made outside SFlow, and the author stopped before publishing.
+  const { root, sflow, must, hook } = await authorStory(t);
+  hook('boundary-turn', { sessionId: 'author-chat', prompt: '/sf-phase QF-1 make the exported value 2' });
+  const read = { sessionId: 'author-chat', toolName: 'bash', toolArgs: { command: 'cat src/value.mjs; ls test* tests 2>/dev/null; cat package.json 2>/dev/null | head -30' } };
+  assert.equal(decisionOf(hook('boundary-guard', read)), 'allow');
+  assert.deepEqual(hook('boundary-after', read), {});
+  const before = must('git', ['rev-parse', 'HEAD']).trim();
+  const prepublish = { sessionId: 'author-chat', toolName: 'bash', toolArgs: { command: 'singularity-flow phase prepublish intake --work-id QF-1 --for-agent --json' } };
+  assert.equal(decisionOf(hook('boundary-guard', prepublish)), 'allow');
+  const checked = JSON.parse(sflow('phase', 'prepublish', 'intake', '--work-id', 'QF-1', '--for-agent', '--json'));
+  assert.equal(checked.status, 'ready', JSON.stringify(checked.findings ?? checked).slice(0, 1500));
+  assert.match(must('git', ['log', '-1', '--format=%s']), /^\[QF-1\]\[asked-for\] intake generation 1$/mu, 'the prepublish kept what the person asked for');
+  assert.notEqual(must('git', ['rev-parse', 'HEAD']).trim(), before);
+  assert.deepEqual(hook('boundary-after', prepublish), {}, 'its own commit is no change made outside SFlow');
+  // A change no SFlow command made is still caught against the baseline moved past that commit.
+  await writeFile(path.join(root, 'src/value.mjs'), 'export const value = 2;\n');
+  const other = { sessionId: 'author-chat', toolName: 'bash', toolArgs: { command: 'node tools/bump.mjs' } };
+  assert.match(JSON.stringify(hook('boundary-after', other)), /PHASE_MUTATION_SHELL_CHANGE_DETECTED[^"]*src\/value\.mjs/u);
+});
+
+test('Copilot CLI task: the reviewer named after SFlow\'s plugin gets its own review turn, and the author\'s is never replaced', async (t) => {
+  // Copilot CLI 1.0.109, live 2026-11-12: a plugin's agent arrives as "<plugin>:<agent>"; the sub-agent's events carry a
+  // session of its own (its agentId), the author's as parentAgentId; subagentStart and subagentStop the author's session.
+  assert.equal(subagentName({ agentType: 'singularity-flow:sflow-source-reviewer' }), 'sflow-source-reviewer');
+  assert.equal(subagentName({ agentType: 'another-plugin:sflow-source-reviewer' }), null, 'another plugin\'s agent is not SFlow\'s');
+  const { root, sflow, sflowJson, hook, contracts } = await authorStory(t);
+  const author = 'cli-author';
+  hook('boundary-turn', { sessionId: author, prompt: '/sf-phase QF-1 make the exported value 2' });
+  const published = JSON.parse(sflow('phase', 'prepublish', 'intake', '--for-agent', '--json', '--publish-if-ready'));
+  assert.equal(published.publishIfReady.published, true, JSON.stringify(published.publishIfReady).slice(0, 2000));
+  const agentType = 'singularity-flow:sflow-source-reviewer';
+  const task = { sessionId: author, toolCallId: 'toolu_review', toolName: 'task',
+    toolArgs: { name: 'review-intake', agent_type: agentType, description: 'Review intake', prompt: '/sf-review-source intake', mode: 'sync' } };
+  assert.equal(decisionOf(hook('boundary-guard', task)), 'allow');
+  const started = hook('agent-start', { sessionId: author, agentName: agentType, agentDisplayName: 'sflow-source-reviewer',
+    agentDescription: 'Independently reviews an exact Story step', agentId: 'reviewer-own', agentType, parentAgentId: author });
+  assert.match(JSON.stringify(started), /independent read-only reviewer of QF-1 intake generation 1/u);
+  const subagent = { sessionId: 'reviewer-own', agentId: 'reviewer-own', agentType, parentAgentId: author };
+  hook('boundary-turn', { ...subagent, prompt: `${started.additionalContext}\n\n/sf-review-source intake` });
+  assert.deepEqual(await contracts(), { [author]: 'authoring', [`${author}#agent:sflow-source-reviewer`]: 'read-only-review' });
+  const packet = sflowJson('review-source', 'context', 'intake', '--for-agent').value;
+  const write = (who) => hook('boundary-guard', { ...who, toolCallId: 'toolu_write', toolName: 'create', toolArgs: { path: packet.stagingPath, file_text: JSON.stringify(documentReport(packet)) } });
+  assert.equal(decisionOf(write(subagent)), 'allow', 'the reviewer writes its own report');
+  assert.equal(decisionOf(hook('boundary-guard', { ...subagent, toolCallId: 'toolu_edit', toolName: 'edit',
+    toolArgs: { path: path.join(root, 'src/value.mjs'), old_str: '1', new_str: '2' } })), 'deny', 'the reviewer is read-only');
+  assert.equal(decisionOf(write({ sessionId: author })), 'deny', 'the author never writes the review');
+  hook('boundary-stop', { ...subagent, stopReason: 'end_turn', stop_hook_active: false });
+  hook('boundary-after', { ...task, toolResult: 'The review is retained.' });
+  assert.equal((await contracts())[author], 'authoring', 'the author\'s turn is its own throughout');
+});
+
+test('a standalone SFlow command the author\'s turn does not run is never sent back to be run on its own', async (t) => {
+  // Copilot CLI live probe (2026-11-12, Haiku 5.5): `singularity-flow --help` in /sf-phase was refused with "Run
+  // `singularity-flow --help` on its own"; it already was, so the model handed the step to sub-agents, which published
+  // it with no reviewer started.
+  const { hook } = await authorStory(t);
+  hook('boundary-turn', { sessionId: 'author-chat', prompt: '/sf-phase QF-1' });
+  const guard = (command) => hook('boundary-guard', { sessionId: 'author-chat', toolName: 'bash', toolArgs: { command } });
+  for (const command of ['singularity-flow --help', 'singularity-flow -h']) {
+    const answer = guard(command);
+    assert.equal(decisionOf(answer), 'deny', command);
+    assert.match(answer.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: run `singularity-flow help` \(or `singularity-flow help <command>`\) instead/u, command);
+    assert.doesNotMatch(answer.permissionDecisionReason, /on its own/u, command);
+  }
+  assert.equal(decisionOf(guard('singularity-flow help')), 'allow', 'the route it names runs');
+  // A real chain still gets the one command to run alone.
+  assert.match(guard('singularity-flow help | head -5').permissionDecisionReason, /Run `singularity-flow help` on its own in this turn/u);
+});

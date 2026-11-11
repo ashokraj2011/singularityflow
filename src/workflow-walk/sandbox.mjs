@@ -98,20 +98,32 @@ async function configurationFiles(from, policy, { isConfigurationAssetPath, conf
  * (repository-relative path → bytes) and where they came from. Reads only.
  */
 export async function readRepositoryConfiguration(root) {
-  const YAML = (await import('yaml')).default;
-  const assets = await import('../configuration-assets.mjs');
   const { withApprovedConfigurationRead } = await import('../approved-configuration-reader.mjs');
   const { configurationReadRoot } = await import('../configuration-read-scope.mjs');
-  return withApprovedConfigurationRead(root, async (authority) => {
-    const from = configurationReadRoot(root);
-    const parse = async (relative) => YAML.parse(await readFile(path.join(from, relative), 'utf8').catch(() => '')) ?? {};
-    const workflow = await parse('singularity/workflow.yml');
-    const policy = assets.configurationAssetPolicy(workflow, await parse('singularity/portfolio.yml'));
-    const files = new Map();
-    for (const relative of await configurationFiles(from, policy, assets)) files.set(relative, await readFile(path.join(from, relative)));
-    const source = authority?.commit ? { kind: 'approved', ref: authority.ref ?? 'sflow/config', commit: authority.commit } : { kind: 'checkout' };
-    return { files, source };
-  }, { preferAuthority: true });
+  return withApprovedConfigurationRead(root, async (authority) => ({
+    files: await configurationFilesIn(configurationReadRoot(root)),
+    source: authority?.commit ? { kind: 'approved', ref: authority.ref ?? 'sflow/config', commit: authority.commit } : { kind: 'checkout' }
+  }), { preferAuthority: true });
+}
+
+/**
+ * The workflow configuration in a folder an in-process caller names (`walkWorkflows({ configurationRoot })`),
+ * by the same policy: a workflow build's staged copy, so the walk drives the workflow the build would
+ * propose, which the repository does not have yet. Reads only.
+ */
+export async function readConfigurationFolder(folder) {
+  return { files: await configurationFilesIn(path.resolve(folder)), source: { kind: 'staged' } };
+}
+
+/** Every configuration file under `from` (repository-relative path → bytes). */
+async function configurationFilesIn(from) {
+  const YAML = (await import('yaml')).default;
+  const assets = await import('../configuration-assets.mjs');
+  const parse = async (relative) => YAML.parse(await readFile(path.join(from, relative), 'utf8').catch(() => '')) ?? {};
+  const policy = assets.configurationAssetPolicy(await parse('singularity/workflow.yml'), await parse('singularity/portfolio.yml'));
+  const files = new Map();
+  for (const relative of await configurationFiles(from, policy, assets)) files.set(relative, await readFile(path.join(from, relative)));
+  return files;
 }
 
 // Folders a walk is still using: an interrupted walk removes them before it exits, as a finished one does.

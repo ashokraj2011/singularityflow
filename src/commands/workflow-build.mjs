@@ -105,8 +105,9 @@ function printCandidates(build) {
 function printVerification(result) {
   console.log(`${result.build.label} (${result.build.workflow})${result.build.from ? `, simpler than ${result.build.from}` : ''}: checked with workflow validate${result.walk.available ? ' and workflow walk' : ''} on what it would propose.`);
   if (!result.walk.available) console.log(`  ${result.walk.reason ?? 'workflow walk did not run.'}`);
+  else console.log(`  The walk ${result.walk.outcome ? `${result.walk.outcome}` : 'ran'}${result.walk.reused ? ' (kept from the last verify; nothing changed since)' : ''}.`);
   for (const item of result.remaining) {
-    console.log(`  ${(item.source === 'walk' ? 'stop' : 'problem').padEnd(8)} ${item.title}${where2(item.location)}  [${item.id}${item.acceptable ? '' : ', cannot be accepted'}${result.accepted.includes(item.id) ? ', accepted' : ''}]`);
+    console.log(`  ${(item.source === 'walk' ? (item.kind === 'not-judged' ? 'unjudged' : 'stop') : 'problem').padEnd(8)} ${item.title}${where2(item.location)}  [${item.id}${item.acceptable ? '' : ', cannot be accepted'}${result.accepted.includes(item.id) ? ', accepted' : ''}]`);
     if (item.fix) console.log(`           Fix: ${item.fix}`);
   }
   console.log(result.ready ? `Nothing remains. Finish: ${result.finish}`
@@ -179,6 +180,8 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
     return;
   }
   if (action === 'verify') {
+    // A walk drives a throwaway Story through every step: minutes, so the person hears why it waits.
+    if (!json) process.stderr.write('Checking what the build would propose with workflow validate, and workflow walk where this SFlow has it (a walk takes minutes)...\n');
     const result = await (await import('../workflow-build/simplify.mjs')).verifyBuild(id, { root });
     if (!result.ready) process.exitCode = 1;
     if (json) return console.log(JSON.stringify(result, null, 2));

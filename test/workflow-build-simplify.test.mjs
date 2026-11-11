@@ -4,6 +4,8 @@
  * each, and the build finishes only once `workflow validate` (and `workflow walk`, where present)
  * find nothing left in what it would propose, or the person accepts each remaining one by ID. The
  * original workflow is never changed. Also: template fixes are placeholders, never one Story's wording.
+ * A real walk takes minutes per workflow: the fast lane gives verify a stand-in for it, and the
+ * slow-lane test walks the staged simpler copy for real.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -99,25 +101,33 @@ test('simplify offers each candidate it checked, located with why; finish waits 
   assert.match(h.flow(root, ['workflow', 'build', 'status', '--build', started.id]).stdout, /^Ways to make fmly simpler \(4\):$/mu);
 
   // Before any is accepted, the result has the original's problems: verify lists them, finish refuses.
-  const before = h.flow(root, ['workflow', 'build', 'verify', '--build', started.id, '--json'], { allowFailure: true });
-  assert.equal(before.status, 1);
-  const verification = JSON.parse(before.stdout);
-  assert.deepEqual([verification.resultType, verification.ready, verification.walk.available, verification.build.from], ['workflow-build-verification', false, false, 'fmly']);
+  // A real walk takes minutes per workflow, so this test stands in for it (the slow-lane test walks for real).
+  const { verifyBuild } = await import('../src/workflow-build/simplify.mjs');
+  const { finishBuild } = await import('../src/workflow-build/engine.mjs');
+  const env = { ...process.env, ...h.engineEnv };
+  const walked = [];
+  const walk = async ({ candidate, workflow }) => {
+    walked.push([workflow, YAML.parse(await readFile(path.join(candidate, 'singularity/workflow.yml'), 'utf8')).workTypes[workflow]?.label]);
+    return { available: true, command: `singularity-flow workflow walk ${workflow} --json`, outcome: 'completed', stops: [] };
+  };
+  const verification = await verifyBuild(started.id, { root, env, walk });
+  assert.deepEqual(walked, [['family-delivery-simpler', 'Family delivery (simpler)']], 'the walk is given the staged copy, which has the new workflow');
+  assert.deepEqual([verification.resultType, verification.ready, verification.walk.available, verification.build.from], ['workflow-build-verification', false, true, 'fmly']);
   assert.ok(verification.remaining.length >= 1 && verification.remaining.every((entry) => entry.source === 'validate' && entry.acceptable));
   assert.ok(verification.remaining.some((entry) => entry.code === 'WORKFLOW_ROUTE_NO_END'), JSON.stringify(verification.remaining));
   assert.equal(verification.validation.workflows[0].id, 'family-delivery-simpler');
   assert.equal(verification.nextAction.copilotCommand, '/sf-fix-workflow fmly');
-  const refused = h.flow(root, ['workflow', 'build', 'finish', '--build', started.id, '--propose'], { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr + refused.stdout, /Family delivery \(simpler\) is not finished: \d+ problems or stops remain in what it would propose \(workflow validate on the result\):\n {2}f-[a-f0-9]{12} {2}problem {2}/u);
-  assert.match(refused.stderr + refused.stdout, /Only if the person accepts one as it is, finish with --accept-problem <ID> for each\./u);
-  const bogus = h.flow(root, ['workflow', 'build', 'finish', '--build', started.id, '--propose', '--accept-problem', 'f-000000000000'], { allowFailure: true });
-  assert.match(bogus.stderr + bogus.stdout, /'f-000000000000' is not a problem or stop the simpler workflow has that can be accepted/u);
+  const refused = await finishBuild(started.id, { propose: true, root, env, walk }).then(() => null, (error) => error);
+  assert.equal(refused?.code, 'WORKFLOW_BUILD_NOT_VERIFIED');
+  assert.match(refused.message, /^Family delivery \(simpler\) is not finished: \d+ problems or stops remain in what it would propose \(workflow validate and workflow walk on the result\):\n {2}f-[a-f0-9]{12} {2}problem {2}/u);
+  assert.match(refused.message, /Only if the person accepts one as it is, finish with --accept-problem <ID> for each\./u);
+  const bogus = await finishBuild(started.id, { propose: true, root, env, walk, acceptProblems: ['f-000000000000'] }).then(() => null, (error) => error);
+  assert.match(bogus.message, /'f-000000000000' is not a problem or stop the simpler workflow has that can be accepted/u);
   assert.equal(h.run('git', ['for-each-ref', 'refs/heads/sflow/config-change'], root).stdout, '', 'nothing was proposed');
 
   // A person accepts each; SFlow checks each again against what was accepted before it.
   for (const candidate of candidates) h.json(root, ['workflow', 'build', 'decide', '--build', started.id, '--proposal', candidate.proposal, '--accept']);
-  const after = h.json(root, ['workflow', 'build', 'verify', '--build', started.id]);
+  const after = await verifyBuild(started.id, { root, env, walk });
   assert.deepEqual([after.ready, after.remaining, after.validation.valid, after.validation.workflows[0].valid], [true, [], true, true], JSON.stringify(after.remaining));
   const check = h.json(root, ['workflow', 'build', 'check', '--build', started.id]);
   assert.deepEqual(check.draft.workflow.phases, ['intake', 'fmly-requirements', 'fmly-build', 'fmly-testing', 'fmly-release']);
@@ -126,20 +136,25 @@ test('simplify offers each candidate it checked, located with why; finish waits 
   assert.match(h.flow(root, ['workflow', 'build', 'check', '--build', started.id]).stdout, /^No problem in the check\. Before finishing, verify it: singularity-flow workflow build verify --build wb_[a-f0-9]{16}$/mu);
   // Verified, it finishes: here as a portable bundle (one reviewed proposal: the slow-lane test below).
   const out = path.join(base, 'simpler.sflow-workflows.json');
-  assert.equal(h.json(root, ['workflow', 'build', 'finish', '--build', started.id, '--out', out]).kind, 'bundle');
+  assert.equal((await finishBuild(started.id, { out, root, env, walk })).kind, 'bundle');
   assert.deepEqual(await readFile(path.join(root, 'singularity/workflow.yml')), original, 'workflow.yml in the checkout is byte for byte unchanged');
   assert.equal(h.run('git', ['status', '--porcelain'], root).stdout, '');
 });
 
-test('a verified simpler workflow becomes one reviewed proposal that leaves the original exactly as it was', slowLane(), async () => {
+test('the real walk drives the staged simpler copy to its end; finishing keeps that walk and makes one reviewed proposal that leaves the original as it was', slowLane({ timeout: 1_800_000 }), async () => {
   const h = await harness();
   const { root, bare, base } = await familyRepository(h, { remote: true });
   const original = await readFile(path.join(root, 'singularity/workflow.yml'));
   const started = h.json(root, ['workflow', 'build', 'start', '--simplify', 'fmly']).build;
-  const early = h.flow(root, ['workflow', 'build', 'finish', '--build', started.id, '--propose'], { allowFailure: true });
-  assert.match(early.stderr + early.stdout, /is not finished: \d+ problems or stops remain/u);
-  assert.equal(h.run('git', ['--git-dir', bare, 'for-each-ref', 'refs/heads/sflow/config-change'], base).stdout, '', 'nothing was proposed');
   for (const proposal of started.proposals) h.json(root, ['workflow', 'build', 'decide', '--build', started.id, '--proposal', proposal.id, '--accept']);
+  // The walk is given the staged copy: it walks the new workflow, which the repository does not have yet.
+  const verified = h.json(root, ['workflow', 'build', 'verify', '--build', started.id]);
+  assert.deepEqual([verified.walk.available, verified.walk.command, verified.walk.outcome, verified.walk.reused ?? false],
+    [true, 'singularity-flow workflow walk family-delivery-simpler --json', 'completed', false], JSON.stringify(verified.walk));
+  assert.deepEqual([verified.ready, verified.remaining], [true, []]);
+  assert.equal(h.run('git', ['--git-dir', bare, 'for-each-ref', 'refs/heads/sflow/config-change'], base).stdout, '', 'verifying proposes nothing');
+  const again = h.json(root, ['workflow', 'build', 'verify', '--build', started.id]);
+  assert.deepEqual([again.walk.reused, again.walk.outcome, again.ready], [true, 'completed', true], 'an unchanged build keeps its walk');
   const proposed = h.json(root, ['workflow', 'build', 'finish', '--build', started.id, '--propose']);
   assert.match(proposed.branch, /^sflow\/config-change\/workflow\/studio-/u);
   const proposedYaml = h.run('git', ['--git-dir', bare, 'show', `${proposed.branch}:singularity/workflow.yml`], base).stdout;
@@ -149,7 +164,8 @@ test('a verified simpler workflow becomes one reviewed proposal that leaves the 
   assert.deepEqual(await readFile(path.join(root, 'singularity/workflow.yml')), original, 'workflow.yml in the checkout is byte for byte unchanged');
   assert.equal(h.run('git', ['status', '--porcelain'], root).stdout, '');
   const finished = h.json(root, ['workflow', 'build', 'status', '--build', started.id]).build;
-  assert.deepEqual(finished.conversation.slice(-2).map((turn) => [turn.by, turn.kind]), [['sflow', 'verified'], ['sflow', 'finished']]);
+  assert.deepEqual(finished.conversation.slice(-2).map((turn) => [turn.by, turn.kind, turn.text.startsWith('Verified with workflow validate and workflow walk')]),
+    [['sflow', 'verified', true], ['sflow', 'finished', false]]);
 });
 
 test('a walk stop holds the finish until the person accepts it by ID; no move may change the original', async () => {
@@ -176,9 +192,10 @@ test('a walk stop holds the finish until the person accepts it by ID; no move ma
   const { readWorkflowBuild } = await import('../src/workflow-build/store.mjs');
   const turns = (await readWorkflowBuild(started.id, { env })).conversation.slice(-3).map((turn) => [turn.by, turn.kind, turn.text]);
   assert.deepEqual(turns[0], ['you', 'accepted', 'Accepted as it is: walk-build-check (Family build waits for a check result nobody records).']);
-  // Without `workflow walk` in the command registry, only workflow validate decides, and says so.
-  assert.deepEqual(await walkCandidate({ repository: root, candidate: root, workflow: 'family-lite' }),
-    { available: false, reason: 'This SFlow has no `workflow walk`, so only `workflow validate` checked the result.', stops: [] });
+  // `workflow walk` is in the command registry, so verify walks what the build would propose (the slow-lane test runs it).
+  const { operationById } = await import('../src/command-registry.mjs');
+  assert.ok(operationById('workflow.walk'), 'workflow walk is feature-detected through the command registry');
+  assert.equal(typeof walkCandidate, 'function');
   // Questions are this workflow's own: step.clarify on a step the original shares writes the copy's override only.
   const { checkBuild, decideInBuild } = await import('../src/workflow-build/engine.mjs');
   const clarify = { move: 'step.clarify', id: 'fmly-build', mode: 'when-needed', maxQuestions: 3, topics: ['implementation blockers'] };
@@ -276,6 +293,21 @@ test('candidates are deterministic: groups with the same people, settings findin
     ['CHECK_SOURCE_STEP_ASKS_ONLY_WHEN_NEEDED', [], 'A person decides: Should team-spec always confirm its reading?']], 'without the steps\' policies (no definition here) nothing is guessed');
   assert.deepEqual(walkStops({ stops: [{ at: 'team-check', message: 'Waits for inputs' }, { step: 'team-build', title: 'A person approves', personDecision: true }] }, 'team')
     .map((stop) => [stop.step, stop.title, /^walk-[a-f0-9]{10}$/u.test(stop.id)]), [['team-check', 'Waits for inputs', true]]);
+  // `workflow walk`'s own result (schemaVersion 1): a workflow's stops, the steps it could not judge, a workflow it did not walk.
+  const walkResult = (folder) => ({ schemaVersion: 1, resultType: 'workflow-walk', workflows: [
+    { id: 'team', label: 'Team', outcome: 'stopped', steps: [
+      { id: 'team-check', label: 'Team check', stops: [], notJudged: [{ class: 'not-judged', command: 'submit team-check', code: 'WORKFLOW_WALK_OUT_OF_TIME', message: 'The step ran out of its time.' }] },
+      { id: 'team-build', label: 'Team build', stops: [], notJudged: [] }],
+    stops: [{ step: 'team-build', class: 'stop', command: 'submit team-build --work-id WALK-1', code: 'QUALITY_COMMAND_MISSING', message: `No test command runs in ${folder}/repository.`, cause: 'The step names no test command.' }] },
+    { id: 'other', label: 'Other', outcome: 'not-walked', reason: 'The walk ran out of its total time before this workflow.', steps: [], stops: [] }] });
+  const first = walkStops(walkResult('/tmp/sflow-workflow-walk-a1'), 'team');
+  assert.deepEqual(first.map((stop) => [stop.kind, stop.step, stop.code, stop.title, stop.detail]), [
+    ['stop', 'team-build', 'QUALITY_COMMAND_MISSING', 'No test command runs in /tmp/sflow-workflow-walk-a1/repository.', 'The step names no test command.'],
+    ['not-judged', 'team-check', 'WORKFLOW_WALK_OUT_OF_TIME', 'The walk could not judge Team check: The step ran out of its time.', null]]);
+  assert.deepEqual(walkStops(walkResult('/tmp/sflow-workflow-walk-b2'), 'team').map((stop) => stop.id), first.map((stop) => stop.id),
+    'the same stop has the same ID on the next walk, so the one verify shows is the one finish accepts');
+  assert.deepEqual(walkStops(walkResult('/tmp/x'), 'other').map((stop) => [stop.kind, stop.title]),
+    [['not-judged', 'The walk did not walk Other: The walk ran out of its total time before this workflow.']]);
 });
 
 test('a template fix is placeholders the step\'s author fills for each Story, and the template drafted from it validates', async () => {
@@ -307,6 +339,12 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
   assert.deepEqual([fixed.workflows[0].simplify.nextAction.copilotCommand, fixed.workflows[0].simplify.nextAction.command],
     ['/sf-build-workflow --simplify fmly', 'singularity-flow workflow build start --simplify fmly']);
   assert.deepEqual(fixed.workflows[0].simplify.found.map((entry) => entry.kind), ['duplicate-step', 'unneeded-step']);
+  // The walk reads a folder an in-process caller names (a build's staged copy) by the same policy it reads the repository with.
+  const { readConfigurationFolder, readRepositoryConfiguration } = await import('../src/workflow-walk/sandbox.mjs');
+  const [folder, checkout] = [await readConfigurationFolder(root), await readRepositoryConfiguration(root)];
+  assert.deepEqual([folder.source, checkout.source], [{ kind: 'staged' }, { kind: 'checkout' }]);
+  assert.deepEqual([...folder.files.keys()], [...checkout.files.keys()]);
+  assert.ok(folder.files.has('singularity/workflow.yml') && folder.files.has('.github/agents/fmly-engineer.agent.md'));
   // An agent nothing uses is the repository's: it makes no workflow heavy.
   const seeded = JSON.parse(h.flow(root, ['workflow', 'validate', 'repo-feature', '--json']).stdout);
   assert.deepEqual([seeded.valid, seeded.workflows[0].simplify], [true, undefined]);

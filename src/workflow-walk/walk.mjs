@@ -5,7 +5,7 @@
  * every place it would stop that is not a real decision a person is meant to make (refusals.mjs).
  *
  * Result (schemaVersion 1, resultType `workflow-walk`):
- *   { ok, source: { kind: shipped|approved|checkout, ref?, commit? }, actionsLeftOut: [{ where, actions }],
+ *   { ok, source: { kind: shipped|approved|checkout|staged, ref?, commit? }, actionsLeftOut: [{ where, actions }],
  *     budget: { stepSeconds, totalSeconds },
  *     counts: { workflows, completed, stopped, notJudged, stops, expectedPersonSteps, expectedReviews },
  *     workflows: [{ id, label, outcome: completed|stopped|not-judged|not-walked, reason?, seconds,
@@ -26,7 +26,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { answerSections, clauseSection, codeChange, definedClauses, fillDocument, hasPlannedClaimsTable, plannedClaimsSection, scenarioSection } from './author.mjs';
 import { likelyCause, MET_REFUSALS, NOT_JUDGED_REFUSALS, shortMessage } from './refusals.mjs';
 import { reviewReport } from './reviewer.mjs';
-import { copySandbox, createSandbox, readRepositoryConfiguration, WALK_IDENTITY } from './sandbox.mjs';
+import { copySandbox, createSandbox, readConfigurationFolder, readRepositoryConfiguration, WALK_IDENTITY } from './sandbox.mjs';
 
 export const WALK_WORK_ID = 'WALK-1';
 const TITLE = 'Return the approved value';
@@ -679,12 +679,15 @@ async function storyWorkflows(template) {
 /**
  * Walks `workflow` (or every Story workflow) of the repository at `root`, or of the shipped
  * configuration with `shipped`. Bounded by `stepSeconds` per step and `totalSeconds` in all.
+ * `configurationRoot` (for in-process callers; the CLI never sets it) walks the configuration in that
+ * folder instead of the repository's: a workflow build's staged copy, with a workflow the repository
+ * does not have yet.
  */
-export async function walkWorkflows(root, { workflow = null, shipped = false, stepSeconds = 240, totalSeconds = 3600, keep = false, onWorkflow = null } = {}) {
+export async function walkWorkflows(root, { workflow = null, shipped = false, configurationRoot = null, stepSeconds = 240, totalSeconds = 3600, keep = false, onWorkflow = null } = {}) {
   const deadline = Date.now() + totalSeconds * 1000;
   let configuration = null;
   if (!shipped) {
-    configuration = await readRepositoryConfiguration(root);
+    configuration = configurationRoot ? await readConfigurationFolder(configurationRoot) : await readRepositoryConfiguration(root);
     if (!configuration.files.has('singularity/workflow.yml')) {
       throw new SingularityFlowError('This repository has no workflow configuration (singularity/workflow.yml) to walk. Run singularity-flow workflow walk --source shipped to walk the shipped workflows, or initialize the repository first.',
         { code: 'WORKFLOW_WALK_NO_CONFIGURATION' });

@@ -31,7 +31,7 @@ import path from 'node:path';
 import { normalizeClarificationPolicy } from '../clarifications.mjs';
 import { resolveWorkType } from '../config.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { applyMoves, validateMoves } from './moves.mjs';
+import { applyMoves, lowerDraft, validateMoves } from './moves.mjs';
 import { draftOf, planFor, repositoryOf, targetWorkflow, withRepository, workflowFingerprint } from './engine.mjs';
 import { readWorkflowBuild, saveWorkflowBuild } from './store.mjs';
 
@@ -527,58 +527,60 @@ export async function candidateStillFits(record, proposal, { repository, model }
 // Verification: `workflow validate` (and `workflow walk`) on the workflow as the build leaves it.
 
 /**
- * The stops `workflow walk --json` reports for `workflowId`, as `[{ id, step, title, detail }]`.
- * Fields used (the contract with `workflow walk`): `stops[]`, or `workflows[].stops[]` for the
- * entry whose `id` is the workflow; each stop's `id`, `step`/`at`, `title`/`message`/`reason`,
- * `detail`, and `personDecision` (a stop with `personDecision: true` is a person's real decision and
- * is not counted).
+ * What `workflow walk` (src/workflow-walk/walk.mjs, result schemaVersion 1) leaves in the way for
+ * `workflowId`, as `[{ id, step, title, detail, kind }]`. Fields used: `workflows[]` (the entry whose
+ * `id` is the workflow: its `outcome` and `reason`, and its `steps[].notJudged[]` with `code` and
+ * `message`), and its `stops[]` (or the result's own `stops[]`) with `step`, `code`, `command`,
+ * `message` and `cause`; a stop with `personDecision: true` is a person's real decision and is not
+ * counted. A stop's ID comes from its step, code and command, so the one `verify` shows is the one
+ * `finish --accept-problem` names.
  */
 export function walkStops(result, workflowId) {
   const entry = Array.isArray(result?.workflows) ? result.workflows.find((item) => item?.id === workflowId) : null;
   const stops = Array.isArray(entry?.stops) ? entry.stops : Array.isArray(result?.stops) ? result.stops : [];
-  return stops.filter((stop) => stop && stop.personDecision !== true).map((stop, index) => {
+  const idOf = (basis) => `walk-${createHash('sha256').update(JSON.stringify(basis)).digest('hex').slice(0, 10)}`;
+  // A refusal's message can name the walk's own temporary folder; the ID never depends on it.
+  const steady = (text) => String(text ?? '').replace(/\S*sflow-workflow-walk-\S*/gu, '<walk>');
+  const found = stops.filter((stop) => stop && stop.personDecision !== true).map((stop) => {
     const step = stop.step ?? stop.at ?? stop.phase ?? null;
     const title = String(stop.title ?? stop.message ?? stop.reason ?? `A Story stops${step ? ` at ${step}` : ''}`);
-    const id = typeof stop.id === 'string' && stop.id ? stop.id
-      : `walk-${createHash('sha256').update(JSON.stringify([step, title, index])).digest('hex').slice(0, 10)}`;
-    return { id, step, title, detail: stop.detail ?? null, ...(stop.kind ? { kind: stop.kind } : {}) };
+    const id = typeof stop.id === 'string' && stop.id ? stop.id : idOf(stop.code ? [step, stop.code, stop.command ?? null] : [step, steady(title)]);
+    return { id, step, title, detail: stop.cause ?? stop.detail ?? null, kind: 'stop', ...(stop.code ? { code: stop.code } : {}) };
   });
+  // A step the walk could not judge, or a workflow it did not walk, is not a pass either.
+  for (const step of entry?.steps ?? []) {
+    for (const item of step?.notJudged ?? []) {
+      found.push({ id: idOf([step.id, 'not-judged', item.code ?? null]), step: step.id, title: `The walk could not judge ${step.label ?? step.id}: ${item.message ?? item.code ?? 'no reason given'}`,
+        detail: null, kind: 'not-judged', ...(item.code ? { code: item.code } : {}) });
+    }
+  }
+  if (entry?.outcome === 'not-walked') found.push({ id: idOf([workflowId, 'not-walked']), step: null, title: `The walk did not walk ${entry.label ?? workflowId}: ${entry.reason ?? 'no reason given'}`, detail: null, kind: 'not-judged' });
+  return found;
 }
 
 /**
- * `workflow walk --json` for the workflow as the build leaves it, when this SFlow has the command:
- * feature-detected in the command registry (operation `workflow.walk`). It runs in this process,
- * through the workflow command's own handler, with configuration reads pointed at the staged copy
- * the build's change set makes; never a child process, which would act as this machine's CLI from a
- * temporary folder. Without the command the result says so and only `workflow validate` decides.
+ * `workflow walk` on the workflow as the build leaves it, when this SFlow has the command:
+ * feature-detected in the command registry (operation `workflow.walk`). It runs the walk's own module
+ * in this process with `configurationRoot` set to the staged copy the build's change set makes, so it
+ * walks the new workflow, which the repository does not have yet; the walk copies that configuration
+ * into its own throwaway folder and touches nothing else. Without the command the result says so and
+ * only `workflow validate` decides.
  */
 export async function walkCandidate({ repository, candidate, workflow }) {
   const { operationById } = await import('../command-registry.mjs');
   if (!operationById('workflow.walk')) return { available: false, reason: 'This SFlow has no `workflow walk`, so only `workflow validate` checked the result.', stops: [] };
-  const { withConfigurationReadRoot } = await import('../configuration-read-scope.mjs');
-  const { parseArgs } = await import('../util.mjs');
-  const workflowCommand = await import('../commands/workflow.mjs');
-  const argv = ['workflow', 'walk', workflow, '--json'];
-  const lines = [];
-  const log = console.log;
-  const exitCode = process.exitCode;
-  const previous = process.cwd();
-  console.log = (...values) => { lines.push(values.join(' ')); };
+  const command = `singularity-flow workflow walk ${workflow} --json`;
   try {
-    process.chdir(repository);
-    await withConfigurationReadRoot(repository, candidate, { kind: 'working-tree', ref: null, commit: null }, () => workflowCommand.run(argv, parseArgs(argv)));
+    const { walkWorkflows } = await import('../workflow-walk/walk.mjs');
+    const result = await walkWorkflows(repository, { workflow, configurationRoot: candidate, totalSeconds: WALK_TOTAL_SECONDS });
+    return { available: true, command, outcome: result.workflows?.[0]?.outcome ?? null, stops: walkStops(result, workflow) };
   } catch (error) {
-    return { available: true, command: `singularity-flow ${argv.join(' ')}`, error: error.message, stops: [{ id: 'walk-failed', step: null, title: `workflow walk could not run: ${error.message}`, detail: null }] };
-  } finally {
-    console.log = log;
-    process.exitCode = exitCode;
-    process.chdir(previous);
+    return { available: true, command, error: error.message, outcome: null,
+      stops: [{ id: 'walk-failed', step: null, title: `The walk could not run: ${error.message}`, detail: null, kind: 'not-judged' }] };
   }
-  let result;
-  try { result = JSON.parse(lines.join('\n')); }
-  catch { return { available: true, command: `singularity-flow ${argv.join(' ')}`, error: 'its output was not JSON', stops: [{ id: 'walk-unreadable', step: null, title: 'workflow walk --json returned no JSON', detail: null }] }; }
-  return { available: true, command: `singularity-flow ${argv.join(' ')}`, stops: walkStops(result, workflow), result };
 }
+// One workflow, walked once per verification (and kept for finishing while the build is unchanged).
+const WALK_TOTAL_SECONDS = 1800;
 
 /**
  * The problems a validation reports for one workflow: its own findings, and anything that stops the
@@ -602,7 +604,9 @@ function validationProblems(validation, workflowId, policyOf = () => null) {
  * Verify what a build would propose: `workflow validate`'s own engine (validateWorkflows, the JSON
  * `workflow validate --json` prints) and `workflow walk` (when present) on the configuration as the
  * build's change set leaves it, and the original workflow unchanged. `remaining` lists every problem
- * and stop, each by ID; one that changes the original can never be accepted.
+ * and stop, each by ID; one that changes the original can never be accepted. A walk takes minutes,
+ * so the build keeps its last one, keyed by the exact change set (the configuration's own digests
+ * included): finishing an unchanged build reuses it rather than walking again.
  */
 export async function verifyBuild(id, { root = null, env = process.env, walk = walkCandidate, accepted = [] } = {}) {
   const record = await readWorkflowBuild(id, { env });
@@ -615,17 +619,19 @@ export async function verifyBuild(id, { root = null, env = process.env, walk = w
     const draft = draftOf(record, model);
     const workflowId = draft.workflow.id;
     const before = originalId ? workflowFingerprint(model.workflows.find((workflow) => workflow.id === originalId)) : null;
+    const walkKey = `sha256:${createHash('sha256').update(JSON.stringify(lowerDraft(draft, model))).digest('hex')}`;
+    const kept = walk === walkCandidate && record.verification?.walkKept?.key === walkKey ? record.verification.walkKept.walk : null;
     const { changeSet, plan } = await planFor(repository, draft, model, { inspect: async (candidate) => {
       const validation = await validateWorkflows(candidate, { workflow: workflowId, env });
       const { loadDefinition } = await import('../config.mjs');
       const resolved = await loadDefinition(candidate).then((definition) => resolveWorkType(definition, workflowId), () => null);
       const policies = Object.fromEntries((resolved?.phases ?? []).map((phase) => [phase.id, phase.clarification ?? null]));
-      return { validation, policies, walk: await walk({ repository, candidate, workflow: workflowId }),
+      return { validation, policies, walk: kept ? { ...kept, reused: true } : await walk({ repository, candidate, workflow: workflowId }),
         original: originalId ? workflowFingerprint((await buildStudioModel(candidate)).workflows.find((workflow) => workflow.id === originalId)) : null };
     } });
-    return { workflowId, label: draft.workflow.label, changeSet, plan, before };
+    return { workflowId, label: draft.workflow.label, changeSet, plan, before, walkKey };
   });
-  const { workflowId, changeSet, plan, before } = outcome;
+  const { workflowId, changeSet, plan, before, walkKey } = outcome;
   const inspection = plan.inspection ?? null;
   const remaining = [];
   if (!plan.valid) remaining.push(...plan.problems.map((problem, index) => ({ id: `plan-${index + 1}`, source: 'plan', code: problem.code, title: problem.message, detail: null, location: null, acceptable: false })));
@@ -647,14 +653,18 @@ export async function verifyBuild(id, { root = null, env = process.env, walk = w
     schemaVersion: 1, resultType: 'workflow-build-verification',
     build: { id: record.id, label: record.goal.label, workflow: workflowId, ...(originalId ? { from: originalId } : {}) },
     validation: inspection?.validation ? validation : null,
-    walk: { available: Boolean(walked.available), ...(walked.command ? { command: walked.command } : {}), ...(walked.reason ? { reason: walked.reason } : {}), ...(walked.error ? { error: walked.error } : {}), stops: walked.stops ?? [] },
+    walk: { available: Boolean(walked.available), ...(walked.command ? { command: walked.command } : {}), ...(walked.outcome ? { outcome: walked.outcome } : {}),
+      ...(walked.reused ? { reused: true } : {}), ...(walked.reason ? { reason: walked.reason } : {}), ...(walked.error ? { error: walked.error } : {}), stops: walked.stops ?? [] },
     remaining, accepted: remaining.filter((entry) => entry.acceptable && acceptedIds.has(entry.id)).map((entry) => entry.id),
     ready: !open.length,
     finish: `singularity-flow workflow build finish --build ${record.id} --propose`,
     ...(fixRoute ? { nextAction: { label: `Fix ${originalId} itself (this build picks the fix up)`, command: fixRoute.command, skill: '/sf-fix-workflow',
       copilotCommand: fixRoute.copilotCommand, modelFreeCommand: fixRoute.modelFreeCommand ?? null } } : {})
   };
-  record.verification = { at: new Date().toISOString(), ready: result.ready, remaining: remaining.map((entry) => entry.id), walk: result.walk.available };
+  const { reused, ...walkResult } = walked;
+  record.verification = { at: new Date().toISOString(), ready: result.ready, remaining: remaining.map((entry) => entry.id), walk: result.walk.available,
+    // A real walk that ran is kept for this exact change set; a walk that failed to run is not.
+    ...(walk === walkCandidate && walked.available && !walked.error ? { walkKept: { key: walkKey, walk: walkResult } } : {}) };
   await saveWorkflowBuild(record, { env });
   return result;
 }

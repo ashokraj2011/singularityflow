@@ -10,7 +10,9 @@
  * findings, never a bare refusal.
  *
  * Read-only. The fixes are drafted elsewhere: Copilot's /sf-fix-workflow turns the findings into one
- * Workflow Studio change set at `fixDraft.changeSetPath` and proposes it for review.
+ * Workflow Studio change set at `fixDraft.changeSetPath` and proposes it for review. A workflow the
+ * platform sees could be simpler carries `simplify`: what it found, and the route that builds a
+ * simpler copy (`workflow build start --from-workflow ID --simplify`).
  */
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
@@ -63,6 +65,41 @@ function fixAction(workflowId) {
 }
 
 /**
+ * What would make a workflow simpler, as the platform sees it (src/workflow-build/simplify.mjs), and
+ * the route that builds a simpler copy from it: each candidate checked and offered there, the person
+ * accepting each one, and the original never changed. Null when nothing is found.
+ */
+async function simplifyHint(workflowId, { model, findings, repositoryFindings, definition }) {
+  const workflow = model?.workflows.find((entry) => entry.id === workflowId);
+  if (!workflow) return null;
+  const { simplificationCandidates, packagedPhaseIds } = await import('./workflow-build/simplify.mjs');
+  const candidates = simplificationCandidates({ model, workflow, findings, repositoryFindings, definition, packaged: await packagedPhaseIds() });
+  if (!candidates.length) return null;
+  const command = `singularity-flow workflow build start --from-workflow ${workflowId} --simplify`;
+  const commandGuidance = safeCommandGuidance({ command, skill: '/sf-build-workflow' });
+  return {
+    candidates: candidates.length,
+    found: candidates.map((entry) => ({ kind: entry.kind, title: entry.title, location: entry.location })),
+    nextAction: {
+      label: 'Build a simpler copy', command, skill: '/sf-build-workflow',
+      copilotCommand: commandGuidance?.copilotCommand ?? `/sf-build-workflow --from-workflow ${workflowId} --simplify`,
+      modelFreeCommand: commandGuidance?.modelFreeCommand ?? null, commandGuidance,
+      reviewed: 'Each change is checked before it is offered and you accept or decline it; the result is a new workflow in one reviewed proposal. The original is never changed.'
+    }
+  };
+}
+
+/**
+ * `workflow fix` drafts each finding's exact change, or the one question a person must answer, where
+ * this SFlow has the command: feature-detected in the command registry (operation `workflow.fix`), so
+ * /sf-fix-workflow runs it only when it exists and otherwise drafts the fixes itself.
+ */
+async function fixDrafter(workflowId) {
+  const { operationById } = await import('./command-registry.mjs');
+  return operationById('workflow.fix') ? { fixCommand: `singularity-flow workflow fix${workflowId ? ` ${workflowId}` : ''} --json` } : {};
+}
+
+/**
  * Validate the workflows at `root` (all, or `workflow`). Throws only for an unknown workflow
  * (WORKFLOW_UNKNOWN, naming the workflows there).
  */
@@ -74,6 +111,10 @@ export async function validateWorkflows(root, { workflow = null, env = process.e
   const catalog = definition ? await validateWorkflowCatalog(root, workflow, { definition }) : { valid: false, workflows: [] };
   const checked = new Map(check.workflows.map((entry) => [entry.id, entry]));
   const repositoryFindings = check.repository.findings;
+  const hints = new Map();
+  for (const entry of catalog.workflows) {
+    hints.set(entry.id, await simplifyHint(entry.id, { model: check.studioModel, findings: checked.get(entry.id)?.findings ?? [], repositoryFindings, definition }).catch(() => null));
+  }
   const workflows = catalog.workflows.map((entry) => {
     const own = checked.get(entry.id);
     // A finding about the repository (a step no agent drafts) belongs to every workflow that uses the step.
@@ -84,7 +125,8 @@ export async function validateWorkflows(root, { workflow = null, env = process.e
       ...entry,
       valid: entry.status !== 'migration-required' && entry.obligations.startable && counts.problem === 0,
       counts, findings,
-      roles: stepRoles(entry, own?.explanation)
+      roles: stepRoles(entry, own?.explanation),
+      ...(hints.get(entry.id) ? { simplify: hints.get(entry.id) } : {})
     };
   });
   const all = uniqueById([...workflows.flatMap((entry) => entry.findings), ...repositoryFindings]);
@@ -102,7 +144,7 @@ export async function validateWorkflows(root, { workflow = null, env = process.e
     repository: { counts: countsOf(repositoryFindings), findings: repositoryFindings },
     ...(valid ? {} : {
       nextAction: fixAction(target),
-      fixDraft: { workflow: target, schema: STUDIO_CHANGE_SET_SCHEMA, changeSetPath: workflowFixDraftPath(root, target, { env }) }
+      fixDraft: { workflow: target, schema: STUDIO_CHANGE_SET_SCHEMA, changeSetPath: workflowFixDraftPath(root, target, { env }), ...await fixDrafter(target) }
     })
   };
 }

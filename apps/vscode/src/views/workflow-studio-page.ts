@@ -6562,7 +6562,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var status = { pending: 'waiting for you', accepted: 'accepted', declined: 'declined', stale: 'no longer fits' }[proposal.status] || proposal.status;
     return el('article', { class: 'build-proposal status-' + proposal.status + (previewing ? ' previewing' : ''), 'data-proposal': proposal.id },
       el('div', { class: 'studio-row spread' }, el('strong', { text: proposal.title }), el('span', { class: 'pill' + (pending ? ' new' : ''), text: waiting && !pending ? 'not used' : status })),
-      el('div', { class: 'muted', text: (proposal.by === 'you' ? 'You' : 'Copilot') + ': ' + proposal.why }),
+      el('div', { class: 'muted', text: (proposal.by === 'you' ? 'You' : proposal.by === 'sflow' ? 'SFlow' : 'Copilot') + ': ' + proposal.why }),
       el('ul', { class: 'build-moves' }, proposal.moves.map(function (move) { return el('li', { text: moveText(move) }); })),
       (proposal.evidence || []).length ? el('div', { class: 'studio-row' }, el('span', { class: 'muted', text: 'From' }), proposal.evidence.map(function (span) { return evidenceButton(span); })) : null,
       proposal.status === 'stale' && proposal.findings && proposal.findings.length ? el('div', { class: 'callout wait', text: proposal.findings[0].message + ' Ask Copilot for a new proposal.' }) : null,

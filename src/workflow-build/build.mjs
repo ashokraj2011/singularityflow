@@ -155,7 +155,9 @@ function summaryText(record) {
   if (base) {
     lines.push(base.change
       ? `Changing ${base.label} in place: ${base.steps} steps, kept as they are until you change them. Stories already running keep the workflow they started with.`
-      : `Starting from ${base.label}: ${base.steps} steps, kept as they are until you change them.`);
+      : base.simplify
+        ? `Simplifying ${base.label} into a new workflow, ${record.goal.label}: ${base.steps} steps, kept as they are until you accept a change. ${base.label} itself is never changed, and Stories already running keep the workflow they started with.`
+        : `Starting from ${base.label}: ${base.steps} steps, kept as they are until you change them.`);
   }
   if (files) lines.push(`Read ${files} file${files === 1 ? '' : 's'}: ${parts.join(', ') || 'nothing recognised yet'}.`);
   if (withheld) lines.push(`${withheld} ${withheld === 1 ? 'file was' : 'files were'} withheld because they look like credentials, and never read.`);
@@ -170,8 +172,11 @@ function reconcile(items, previous) {
 }
 
 /** Start a build; see the module comment. */
-export async function startWorkflowBuild({ root = null, fromWorkflow = null, change = null, folders = [], files = [], notes = [], describe = null, name = null } = {}, { env = process.env } = {}) {
+export async function startWorkflowBuild({ root = null, fromWorkflow = null, change = null, folders = [], files = [], notes = [], describe = null, name = null, simplify = false } = {}, { env = process.env } = {}) {
   if (fromWorkflow && change) fail('WORKFLOW_BUILD_USAGE', 'Copy a workflow with --from-workflow ID, or change one in place with --change ID; not both.');
+  // A simpler workflow is always a new one: the workflow it starts from is never changed in place.
+  if (simplify && !fromWorkflow) fail('WORKFLOW_BUILD_USAGE', `--simplify makes a new, simpler workflow from one the repository has: singularity-flow workflow build start --from-workflow ${change ?? 'ID'} --simplify. It never changes a workflow in place.`);
+  if (simplify && (folders.length || files.length || notes.length || describe)) fail('WORKFLOW_BUILD_USAGE', '--simplify works from the workflow alone; add material to a build started without it.');
   if (!fromWorkflow && !change && !folders.length && !files.length && !notes.length && !describe) {
     fail('WORKFLOW_BUILD_USAGE', 'Start from something: --from-workflow ID, --folder DIR, --file FILE, --notes FILE or --describe TEXT; or change a workflow in place with --change ID.');
   }
@@ -186,24 +191,26 @@ export async function startWorkflowBuild({ root = null, fromWorkflow = null, cha
   const uploads = await addUploads(paths, { files, notes }, {});
   const { capture, items } = await captureMaterial(paths, resolvedFolders, uploads, root);
   const startedFrom = [
-    ...(base ? [{ ...base.workflow, ...(change ? { change: true } : {}) }] : []),
+    ...(base ? [{ ...base.workflow, ...(change ? { change: true } : {}), ...(simplify ? { simplify: true } : {}) }] : []),
     ...(resolvedFolders.length || uploads.files.length || uploads.notes ? [{ kind: 'material', folders: resolvedFolders, files: uploads.files.map((entry) => entry.name), notes: uploads.notes }] : []),
     ...(describe ? [{ kind: 'description', text: describe }] : [])
   ];
-  const label = String(name ?? '').trim() || (base ? (change ? base.workflow.label : `${base.workflow.label} (new)`) : resolvedFolders[0] ? path.basename(resolvedFolders[0]) : describe ? describe.split(/\s+/u).slice(0, 6).join(' ') : 'New workflow');
+  const label = String(name ?? '').trim() || (base ? (change ? base.workflow.label : `${base.workflow.label} (${simplify ? 'simpler' : 'new'})`) : resolvedFolders[0] ? path.basename(resolvedFolders[0]) : describe ? describe.split(/\s+/u).slice(0, 6).join(' ') : 'New workflow');
   const now = new Date().toISOString();
   const record = {
     id, createdAt: now,
     repository: root ? { root, label: path.basename(root) } : null,
     // A change build makes no new workflow: it changes the one it names, in place.
-    goal: { label: label.slice(0, 120), startedFrom, ...(change ? { workflow: change, change: true } : {}) },
+    goal: { label: label.slice(0, 120), startedFrom, ...(change ? { workflow: change, change: true } : {}), ...(simplify ? { simplify: { from: fromWorkflow } } : {}) },
     sources: { folders: resolvedFolders, uploads },
     capture,
     items: [...(base?.items ?? []), ...items],
     proposals: [], questions: [], conversation: []
   };
   record.conversation.push({ at: now, by: 'sflow', kind: 'found', text: summaryText(record) });
-  return saveWorkflowBuild(record, { env });
+  const saved = await saveWorkflowBuild(record, { env });
+  // What could be simpler, each candidate checked before it is offered (src/workflow-build/simplify.mjs).
+  return simplify ? (await import('./simplify.mjs')).offerSimplifications(saved, { root, env }) : saved;
 }
 
 /** Add folders, files or notes to a build, capture everything again, and keep what was decided. */
@@ -240,7 +247,9 @@ export function workflowBuildView(record) {
       capture: record.capture ? { sha256: record.capture.sha256, roots: record.capture.roots, files: record.capture.files.length, excludedCount: record.capture.excludedCount } : null,
       counts: itemCounts(record.items),
       items: record.items, proposals: record.proposals, questions: record.questions, conversation: record.conversation,
-      finished: record.finished ?? null
+      finished: record.finished ?? null,
+      ...(record.goal.simplify ? { simplify: { from: record.goal.simplify.from, candidates: record.simplify?.candidates ?? [], verification: record.verification ?? null,
+        verify: `singularity-flow workflow build verify --build ${record.id}` } } : {})
     },
     kinds: ITEM_KIND_LABELS,
     kindOne: Object.fromEntries(Object.entries(ITEM_KIND_WORDS).map(([kind, [one]]) => [kind, one])),

@@ -1,7 +1,7 @@
 /**
  * `workflow build start | add | status` — start a progressive workflow build from a workflow the
- * repository has (changed in place with --change, or copied), from a team's material, or from a
- * description, and see what it holds
+ * repository has (changed in place with --change, copied, or copied --simplify: a simpler new one,
+ * checked before it finishes with `verify`), from a team's material, or from a description, and see what it holds
  * (src/workflow-build/). Builds are machine-local; nothing here changes a repository.
  */
 import { readFile, writeFile } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString, optionStrings } from '../util.mjs';
 
 const OPTIONS = {
-  start: new Set(['change', 'from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'json']),
+  start: new Set(['change', 'from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'simplify', 'json']),
   add: new Set(['build', 'folder', 'file', 'notes', 'json']),
   status: new Set(['build', 'json']),
   propose: new Set(['build', 'proposal', 'by', 'accept', 'json']),
@@ -17,7 +17,8 @@ const OPTIONS = {
   decide: new Set(['build', 'proposal', 'accept', 'decline', 'reason', 'json']),
   answer: new Set(['build', 'question', 'choice', 'json']),
   check: new Set(['build', 'include', 'json']),
-  finish: new Set(['build', 'propose', 'out', 'json']),
+  verify: new Set(['build', 'json']),
+  finish: new Set(['build', 'propose', 'out', 'accept-problem', 'json']),
   export: new Set(['build', 'out', 'json']),
   import: new Set(['file', 'json'])
 };
@@ -74,9 +75,42 @@ function printBuild(view) {
     }
     if (items.length > SHOWN_PER_KIND) console.log(`  … and ${items.length - SHOWN_PER_KIND} more (--json lists every item)`);
   }
+  if (build.simplify) printCandidates(build);
   console.log(`Kept on this computer until ${build.expiresAt.slice(0, 10)}. Nothing was run, fetched or changed in a repository.`);
   console.log(`  Add more: singularity-flow workflow build add --build ${build.id} --folder <DIR> | --file <FILE> | --notes <FILE>`);
   console.log(`  See it again: singularity-flow workflow build status --build ${build.id}`);
+}
+
+const where2 = (location) => (location ? `  (${location.file}${location.line ? `:${location.line}` : ''})` : '');
+
+/** A simplify build's candidates: each located, with why; offered ones wait for the person's decision. */
+function printCandidates(build) {
+  const { candidates } = build.simplify;
+  const status = (candidate) => {
+    const proposal = build.proposals.find((entry) => entry.id === candidate.proposal);
+    return proposal ? `${proposal.id} ${proposal.status}` : 'not offered';
+  };
+  console.log(candidates.length ? `Ways to make ${build.simplify.from} simpler (${candidates.length}):` : `Nothing the platform can see makes ${build.simplify.from} simpler.`);
+  for (const candidate of candidates) {
+    console.log(`  ${status(candidate).padEnd(14)} ${candidate.title}${where2(candidate.location)}`);
+    console.log(`                 Why: ${candidate.why}`);
+    if (candidate.notOffered) console.log(`                 Not offered: ${candidate.notOffered}`);
+  }
+  const pending = build.proposals.filter((entry) => entry.status === 'pending' && entry.by === 'sflow');
+  if (pending.length) console.log(`  Decide each: singularity-flow workflow build decide --build ${build.id} --proposal <P> --accept | --decline --reason <TEXT>`);
+  console.log(`  Before finishing: ${build.simplify.verify}`);
+}
+
+/** What `workflow build verify` found in the workflow the build would propose. */
+function printVerification(result) {
+  console.log(`${result.build.label} (${result.build.workflow})${result.build.from ? `, simpler than ${result.build.from}` : ''}: checked with workflow validate${result.walk.available ? ' and workflow walk' : ''} on what it would propose.`);
+  if (!result.walk.available) console.log(`  ${result.walk.reason ?? 'workflow walk did not run.'}`);
+  for (const item of result.remaining) {
+    console.log(`  ${(item.source === 'walk' ? 'stop' : 'problem').padEnd(8)} ${item.title}${where2(item.location)}  [${item.id}${item.acceptable ? '' : ', cannot be accepted'}${result.accepted.includes(item.id) ? ', accepted' : ''}]`);
+    if (item.fix) console.log(`           Fix: ${item.fix}`);
+  }
+  console.log(result.ready ? `Nothing remains. Finish: ${result.finish}`
+    : `Not ready to finish: ${result.remaining.length} problem${result.remaining.length === 1 ? '' : 's'} or stop${result.remaining.length === 1 ? '' : 's'} remain. Accept a change that fixes each; only if the person accepts one as it is, finish with --accept-problem <ID>.`);
 }
 
 /** What the build adds, removes, moves or changes in the workflow it starts from; a removed step names what leaves with it. */
@@ -120,6 +154,7 @@ function printCheck(result) {
       : `Finished: ${result.landed.label} is in the approved configuration. To change it in place: singularity-flow workflow build start --change ${result.landed.workflow}`);
     return;
   }
+  if (result.simplify && result.ready) return console.log(`No problem in the check. Before finishing, verify it: ${result.simplify.verify}`);
   console.log(result.ready ? 'Ready to finish: singularity-flow workflow build finish --build ' + result.build.id + ' --propose'
     : result.unchanged ? 'Not ready to finish: nothing is changed yet.'
       : `Not ready to finish: ${result.counts.problem} problem${result.counts.problem === 1 ? '' : 's'}${result.questions.some((question) => question.blocking) ? ', questions waiting for an answer' : ''}.`);
@@ -143,9 +178,16 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
     if (result.next) console.log(`… ${result.totalLines - result.endLine} more lines: --from ${result.next}`);
     return;
   }
+  if (action === 'verify') {
+    const result = await (await import('../workflow-build/simplify.mjs')).verifyBuild(id, { root });
+    if (!result.ready) process.exitCode = 1;
+    if (json) return console.log(JSON.stringify(result, null, 2));
+    return printVerification(result);
+  }
   if (action === 'finish') {
     const out = optionString(options, 'out');
-    const result = await engine.finishBuild(id, { root, propose: optionBoolean(options, 'propose'), out: out ? commandLineFile(root, out) : null, json });
+    const result = await engine.finishBuild(id, { root, propose: optionBoolean(options, 'propose'), out: out ? commandLineFile(root, out) : null, json,
+      acceptProblems: optionStrings(options, 'accept-problem') });
     if (result.kind === 'bundle') {
       if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'workflow-build-finish', kind: 'bundle', path: result.path, bundleSha256: result.bundleSha256 }, null, 2));
       console.log(`Wrote ${result.path} (${result.bundleSha256}). Import it in Workflow Studio, or: singularity-flow workflow import ${result.path} --dry-run`);
@@ -206,7 +248,7 @@ export async function run(argv, { positionals, options }) {
     return;
   }
   const buildId = () => optionString(options, 'build') ?? refuse(`Name the build: workflow build ${action} --build <ID>.`);
-  if (['propose', 'decide', 'answer', 'check', 'finish', 'source'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
+  if (['propose', 'decide', 'answer', 'check', 'verify', 'finish', 'source'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
   if (action === 'export') {
     // One file to go on with the build on another computer: its record and screened copies.
     const id = buildId();
@@ -225,7 +267,7 @@ export async function run(argv, { positionals, options }) {
     record = await api.importWorkflowBuild(transfer, { root });
   } else if (action === 'start') {
     record = await api.startWorkflowBuild({ root, fromWorkflow: optionString(options, 'from-workflow') ?? null, change: optionString(options, 'change') ?? null, ...(await material()),
-      describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null });
+      describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null, simplify: optionBoolean(options, 'simplify') });
   } else if (action === 'add') {
     const id = optionString(options, 'build');
     if (!id) refuse('Name the build: workflow build add --build <ID> --folder <DIR>.');

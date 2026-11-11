@@ -1394,6 +1394,12 @@ const KNOWN = Object.freeze({
   WORKFLOW_UNKNOWN: () => [
     step('list-workflows', 'See the workflows this repository has, then name one of them.', 'singularity-flow workflow list', 'diagnostic')
   ],
+  // A simplify build finishes once nothing remains in what it would propose; verify lists each one by ID.
+  WORKFLOW_BUILD_NOT_VERIFIED: (argv) => {
+    const build = argv?.[argv.indexOf('--build') + 1];
+    return [step('verify-workflow-build', 'List every problem and stop left in what the build would propose, each with its ID, where it is and its fix: accept a change that fixes it, or accept it as it is.',
+      /^wb_[a-f0-9]{16}$/u.test(build ?? '') ? `singularity-flow workflow build verify --build ${build}` : 'singularity-flow workflow build status', 'diagnostic', '/sf-build-workflow')];
+  },
   MCP_AGENT_TOOLS_MISMATCH: () => [
     step('preview-packaged-configuration-repair',
       'Preview the approved configuration refresh; exact historical packaged agents can be upgraded while repository customizations remain preserved.',

@@ -637,7 +637,7 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
   const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
   const repository = [...mapping, ...await checkAssets({ model, definition, guidance, configRoot, attachmentsText })];
   const all = [...results.flatMap((entry) => entry.findings), ...repository];
-  return {
+  const result = {
     ...base,
     authority: model.authority,
     configuration: unmappedRefusal ? { valid: false, code: unmappedRefusal.code, checked: 'without-agents' } : { valid: true },
@@ -645,4 +645,6 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
     workflows: results,
     repository: { counts: countsOf(repository), findings: repository }
   };
+  // The Studio model the check read, for a caller in this process (workflow validate); never in the JSON.
+  return Object.defineProperty(result, 'studioModel', { value: model, enumerable: false });
 }

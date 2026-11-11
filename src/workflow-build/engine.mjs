@@ -31,21 +31,21 @@ function fail(code, message, details = undefined) {
 const kebab = (value) => String(value ?? '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 60);
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-async function withRepository(root, fn) {
+export async function withRepository(root, fn) {
   const { withApprovedConfigurationRead } = await import('../approved-configuration-reader.mjs');
   const { buildStudioModel } = await import('../workflow-studio.mjs');
   return withApprovedConfigurationRead(root, async () => fn(await buildStudioModel(root)), { preferAuthority: true });
 }
 
 /** The repository a build is for: the one it was started in, else the one this command runs in. */
-function repositoryOf(record, root) {
+export function repositoryOf(record, root) {
   const chosen = record.repository?.root ?? root;
   if (!chosen) fail('WORKFLOW_BUILD_REPOSITORY_REQUIRED', 'This build has no repository yet. Run this inside the repository the workflow is for.');
   return chosen;
 }
 
 /** The ID of the workflow the build makes: from its name, not one the repository has. */
-function targetWorkflow(record, model) {
+export function targetWorkflow(record, model) {
   if (record.goal.workflow) return record.goal.workflow;
   const taken = new Set(model.workflows.map((workflow) => workflow.id));
   const stem = kebab(record.goal.label) || 'new-workflow';
@@ -238,7 +238,7 @@ function planFindings(problems, model) {
 }
 
 /** The plan for a draft, refused with the Studio's own problems when it could not be saved. */
-async function planFor(root, draft, model, { inspect = null } = {}) {
+export async function planFor(root, draft, model, { inspect = null } = {}) {
   const { planStudioChangeSet } = await import('../workflow-studio.mjs');
   const changeSet = lowerDraft(draft, model);
   if (!changeSet.changes.length) return { changeSet, plan: { valid: true, changed: false, problems: [], warnings: [], summary: [], files: [] } };
@@ -265,6 +265,8 @@ export async function proposeToBuild(id, payload, { root = null, by = 'copilot',
     refuseLanded(record, model);
     const draft = draftOf(record, model);
     const findings = validateMoves(moves, { model, draft });
+    // A simpler workflow is a new one: no move may change the workflow it simplifies.
+    if (record.goal.simplify) findings.push(...(await import('./simplify.mjs')).originalMoveFindings(moves, { model, record }));
     if (findings.length) throw invalidMoves(findings);
     if (moves.some((move) => !move.move.startsWith('item.'))) {
       const { plan } = await planFor(repository, applyMoves(draft, moves), model);
@@ -311,9 +313,17 @@ export async function decideInBuild(id, proposalId, { accept, reason = null, roo
     refuseLanded(record, model);
     const draft = draftOf(record, model);
     const findings = validateMoves(proposal.moves, { model, draft });
-    if (!findings.length && proposal.moves.some((move) => !move.move.startsWith('item.'))) {
+    if (record.goal.simplify) findings.push(...(await import('./simplify.mjs')).originalMoveFindings(proposal.moves, { model, record }));
+    // SFlow offered a simplification because it fit and added no problem; checked again (its plan
+    // included) against what was accepted since.
+    const offered = Boolean(proposal.candidate && record.goal.simplify);
+    if (!findings.length && !offered && proposal.moves.some((move) => !move.move.startsWith('item.'))) {
       const { plan } = await planFor(repository, applyMoves(draft, proposal.moves), model);
       if (!plan.valid) findings.push(...planFindings(plan.problems, model));
+    }
+    if (!findings.length && offered) {
+      const why = await (await import('./simplify.mjs')).candidateStillFits(record, proposal, { repository, model });
+      if (why) findings.push({ at: 'moves', code: 'BUILD_SIMPLIFY_CANDIDATE_STALE', message: why });
     }
     if (findings.length) stale = findings;
   });
@@ -496,7 +506,7 @@ function onboardingFindings(record) {
  * What a workflow is, as one digest: its steps in order with what each does, reads, runs and needs
  * signed off, and its decisions. Equal digests mean the approved workflow is the one a build proposed.
  */
-function workflowFingerprint(workflow) {
+export function workflowFingerprint(workflow) {
   if (!workflow) return null;
   const steps = (workflow.steps ?? []).map((step) => ({ id: step.id, label: step.label, description: step.description ?? '', agent: step.agent ?? null,
     output: step.output ?? null, approval: step.approval ?? null, inputs: step.inputs ?? [], qualityCommands: step.qualityCommands ?? [], afterStep: step.afterStep ?? [] }));
@@ -590,21 +600,55 @@ export async function checkBuild(id, { root = null, include = null, env = proces
     pending: record.proposals.filter((proposal) => proposal.status === 'pending').map((proposal) => ({ id: proposal.id, title: proposal.title, by: proposal.by })),
     questions: openQuestions,
     ready: ready && !extra,
+    // A simplify build is verified (workflow validate, and workflow walk where present) before it finishes.
+    ...(record.goal.simplify ? { simplify: { from: record.goal.simplify.from, verify: `singularity-flow workflow build verify --build ${record.id}` } } : {}),
     preview: plan.inspection?.preview ?? null,
     guide: (await import('./moves.mjs')).movesGuide()
   };
 }
 
+/**
+ * A simplify build finishes only once `workflow validate` (and `workflow walk`, where this SFlow has
+ * it) find nothing left in what it would propose, or the person accepts each problem or stop that
+ * remains, by its ID. A change that would alter the original workflow is never accepted.
+ */
+async function verifiedForFinish(record, { root, env, acceptProblems, walk }) {
+  const { verifyBuild } = await import('./simplify.mjs');
+  const verification = await verifyBuild(record.id, { root, env, accepted: acceptProblems, ...(walk ? { walk } : {}) });
+  const unknown = acceptProblems.filter((entry) => !verification.remaining.some((item) => item.id === entry && item.acceptable));
+  if (unknown.length) {
+    fail('WORKFLOW_BUILD_USAGE', `'${unknown[0]}' is not a problem or stop the simpler workflow has that can be accepted. ${verification.remaining.length
+      ? `What remains: ${verification.remaining.map((item) => `${item.id} (${item.title})`).join('; ')}.` : 'Nothing remains: finish without --accept-problem.'}`);
+  }
+  const open = verification.remaining.filter((item) => !verification.accepted.includes(item.id));
+  if (open.length) {
+    const listed = open.slice(0, 8).map((item) => `\n  ${item.id}  ${item.source === 'walk' ? 'stop   ' : 'problem'}  ${item.title}${item.location ? `  (${item.location.file}${item.location.line ? `:${item.location.line}` : ''})` : ''}${item.acceptable ? '' : '  [cannot be accepted]'}`).join('');
+    fail('WORKFLOW_BUILD_NOT_VERIFIED', `${record.goal.label} is not finished: ${open.length} ${open.length === 1 ? 'problem or stop remains' : 'problems or stops remain'} in what it would propose (workflow validate${verification.walk.available ? ' and workflow walk' : ''} on the result):${listed}${open.length > 8 ? `\n  … and ${open.length - 8} more` : ''}\n`
+      + `Accept a change that fixes each one (singularity-flow workflow build verify --build ${record.id} lists them). Only if the person accepts one as it is, finish with --accept-problem <ID> for each.`,
+    { remaining: open });
+  }
+  const current = await readWorkflowBuild(record.id, { env });
+  const checkedBy = `workflow validate${verification.walk.available ? ' and workflow walk' : ''}`;
+  if (verification.accepted.length) {
+    current.conversation.push(turn('you', 'accepted', `Accepted as ${verification.accepted.length === 1 ? 'it is' : 'they are'}: ${verification.remaining
+      .filter((item) => verification.accepted.includes(item.id)).map((item) => `${item.id} (${item.title})`).join('; ')}.`));
+  }
+  current.conversation.push(turn('sflow', 'verified', verification.accepted.length ? `Verified with ${checkedBy}: nothing else remains.` : `Verified with ${checkedBy}: nothing remains.`));
+  return current;
+}
+
 /** Finish: one reviewed proposal through Workflow Studio's apply, or a portable bundle. */
-export async function finishBuild(id, { propose = false, out = null, root = null, json = false, env = process.env } = {}) {
+export async function finishBuild(id, { propose = false, out = null, root = null, json = false, env = process.env, acceptProblems = [], walk = null } = {}) {
   if (Boolean(propose) === Boolean(out)) fail('WORKFLOW_BUILD_USAGE', 'Finish with --propose (one reviewed proposal) or --out FILE (a portable workflow bundle).');
   const result = await checkBuild(id, { root, env });
-  const record = await readWorkflowBuild(id, { env });
+  let record = await readWorkflowBuild(id, { env });
   if (result.landed) fail('WORKFLOW_BUILD_FINISHED', finishedMessage(record, result.landed.label));
   if (!result.plan.valid || !result.changeSet.changes.length) {
     fail('WORKFLOW_BUILD_NOT_READY', result.changeSet.changes.length ? `The workflow cannot be saved yet: ${result.plan.problems[0]?.message}`
       : record.goal.change ? `Nothing in ${result.draft.workflow.label} is changed yet; accept a proposal that changes it first.` : 'The build has no steps yet; accept a proposal that adds them first.');
   }
+  if (record.goal.simplify) record = await verifiedForFinish(record, { root, env, acceptProblems, walk });
+  else if (acceptProblems.length) fail('WORKFLOW_BUILD_USAGE', '--accept-problem is for a simplify build, which is verified before it finishes; this build is not one.');
   const repository = repositoryOf(record, root);
   const paths = await workflowBuildPaths(id, { env });
   if (out) {

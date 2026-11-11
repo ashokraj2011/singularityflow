@@ -482,11 +482,12 @@ Usage:
                                                         why and how to fix it; exits 1 when one is not. /sf-fix-workflow in Copilot
                                                         drafts the fixes as one reviewed configuration proposal
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
-  singularity-flow workflow build start [--change ID | --from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
+  singularity-flow workflow build start [--change ID | --from-workflow ID [--simplify]] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
     [--describe TEXT] [--name LABEL] [--json]
                                                         start a progressive build: what a workflow or a team's material holds, each item
                                                         with its file and lines (screened, never run or fetched; kept on this computer);
-                                                        --change changes that workflow in place, --from-workflow copies it
+                                                        --change changes that workflow in place, --from-workflow copies it; --simplify
+                                                        copies it under a new ID and offers each simplification it can check, located with why
   singularity-flow workflow build add --build ID [--folder DIR]... [--file FILE]... [--notes FILE|-]... [--json]
   singularity-flow workflow build status [--build ID] [--json]
   singularity-flow workflow build source --build ID --path FILE [--from LINE] [--json]
@@ -495,8 +496,12 @@ Usage:
   singularity-flow workflow build answer --build ID --question Q --choice TEXT [--json]
   singularity-flow workflow build check --build ID [--include P] [--json]
                                                         the workflow as the accepted proposals leave it: explained and checked
-  singularity-flow workflow build finish --build ID (--propose | --out FILE) [--json]
-                                                        one reviewed proposal through Workflow Studio's apply, or a portable bundle
+  singularity-flow workflow build verify --build ID [--json]
+                                                        workflow validate (and workflow walk where present) on what the build would propose;
+                                                        exits 1 while a problem or stop remains
+  singularity-flow workflow build finish --build ID (--propose | --out FILE) [--accept-problem ID]... [--json]
+                                                        one reviewed proposal through Workflow Studio's apply, or a portable bundle; a simplify
+                                                        build finishes once verify finds nothing, or with each remaining one accepted by ID
   singularity-flow workflow build export --build ID --out FILE [--json]
   singularity-flow workflow build import --file FILE [--json]
                                                         move a build to another computer: export it here, import it there inside the repository

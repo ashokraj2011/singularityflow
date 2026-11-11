@@ -1008,6 +1008,7 @@ Every public operation is classified before its implementation module is importe
 | workflow.build.source | read | never | — | — |
 | workflow.build.start | read | never | — | — |
 | workflow.build.status | read | never | — | — |
+| workflow.build.verify | read | never | — | — |
 | workflow.check | read | never | — | — |
 | workflow.copy | mutation | never | — | — |
 | workflow.copy.preview | read | never | — | — |

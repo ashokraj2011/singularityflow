@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 97
+version: 100
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1743,6 +1743,63 @@ It never fixes a finding by removing a review, lowering approvals, or declaring 
 without your reason and group, and it never approves or activates: review the proposal in
 Workflow Studio → Changes, or run `singularity-flow configuration approve <BRANCH>` in your own
 terminal.
+
+### Walk a workflow before a team uses it (`workflow walk`)
+
+`workflow check` and `workflow validate` judge the configuration as written. `workflow walk` runs it:
+a model-free dry run that drives one throwaway Story through every step and reports every place it
+would stop that is not a real decision a person is meant to make.
+
+```bash
+singularity-flow workflow walk                        # every Story workflow of this repository
+singularity-flow workflow walk team-delivery --json
+singularity-flow workflow walk --source shipped       # the shipped workflows, from anywhere
+```
+
+It reads this repository's workflow configuration (the approved `sflow/config` copy where there is
+one, else the checkout) and changes nothing here. Everything else happens in a temporary folder that
+it removes afterwards (`--keep` leaves it and names it): a small Node project with a `node --test`
+test, the configuration copied in and initialized, a local bare repository as its remote, and a home
+folder and machine state of its own. It never runs a model, never pushes anywhere but that local
+remote, and never contacts a remote service: its commands see none of your environment's tokens, and
+each step's after-step actions are left out of its copy (the result lists them as `actionsLeftOut`),
+so nothing is sent to Jira or a webhook.
+
+For each step it uses the kernel's own commands as an agent and a person would: `prepare`; a stub
+author that fills the step's own template (every TODO and placeholder, the clause anchors where the
+step defines clauses, the planned-claims table where it plans, a tagged source change and a passing
+tagged test in a code step); a clarification answer in the record form where the step asks; one
+`[NEEDS CLARIFICATION: …]` marker answered and removed where the step's markers warn or block;
+`phase prepublish` and the publish it returns; the step's review, written by a stub reviewer and
+retained through `review-source stage | check | submit` (a real review is model-backed, so it is
+reported as the reviewer's step); `submit` with the values the step's decisions read; the decision
+list; and `approve` as a test approver (a member the approval group lists when the walk's own
+identity may not approve).
+
+Every refusal or hold it meets is classed as one of:
+
+| Class | Meaning |
+|---|---|
+| `expected-person-step` | a real decision: an answer, a scope or plan decision, an approval, a sign-off, a step in the person's own terminal |
+| `expected-review` | the step's independent reviewer reviews here |
+| `stop` | anything else: a gate the stub could not satisfy because the configuration makes it impossible or contradictory, a missing route, a refusal with no usable repair |
+| `not-judged` | the walk ran out of time, or met a step its stub cannot author: a gap in the walk, not a verdict |
+
+The text lists, per workflow and step, what a person will be asked to do there and where, then each
+stop with its command, refusal code, message and most likely configuration cause. `--json` returns
+`schemaVersion: 1`, `resultType: workflow-walk`, `ok`, `source`, `actionsLeftOut`, `budget`, `counts` (`workflows`,
+`completed`, `stopped`, `notJudged`, `stops`, `expectedPersonSteps`, `expectedReviews`) and
+`workflows[]`, each with `id`, `label`, `outcome` (`completed`, `stopped`, `not-judged`,
+`not-walked`), `seconds`, `steps[]` (`id`, `label`, `outcome`, `people[]`, `stops[]`,
+`notJudged[]`, `notes[]`, `commands[]`) and `stops[]` (each with its `step`, `command`, `code`,
+`message`, `cause` and the `routes` SFlow offered). It exits 1 when any step stops, 2 when nothing
+stopped but a step could not be judged, else 0. `--step-seconds` (default 240) and
+`--total-seconds` (default 3600) bound it.
+
+What it cannot judge yet: a step a model must author well (the stub writes for one small Node
+change), visual evidence and screenshots, Initiative workflows, a route a decision does not take
+(the walk follows the route that walks on), a test runner other than `node --test`, and whether a
+person can actually be reached (it approves as a listed member).
 
 ### Responsibilities every route owes
 

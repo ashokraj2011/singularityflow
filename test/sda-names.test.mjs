@@ -34,7 +34,8 @@ export const SDA_NAMES = Object.freeze({
   'sda-shared-state/': ['src/sda/shared-state-contract.mjs'],
   // M2: the read index
   INDEX_COMMAND_INVALID: ['src/commands/read-index.mjs'],
-  SINGULARITY_FLOW_INDEX_REFRESH: ['src/index-refresh-launcher.mjs', 'src/projection-refresh.mjs', 'src/repository-check-cache.mjs', 'scripts/test-machine-state.mjs'],
+  // The isolation switch itself lives with the machine-state list (src/machine-state-locations.mjs), which the test runner and workflow walk apply.
+  SINGULARITY_FLOW_INDEX_REFRESH: ['src/index-refresh-launcher.mjs', 'src/projection-refresh.mjs', 'src/repository-check-cache.mjs', 'src/machine-state-locations.mjs'],
   'sflow-index-': ['src/commands/read-index.mjs', 'src/help-pages.mjs', 'src/narration/migration-status.mjs'],
   'refresh.json': ['src/repository-check-cache.mjs'],
   // Sweep batch 4: the read index answers from the right repository, replaces its records, and names
@@ -95,7 +96,7 @@ export const SDA_NAMES = Object.freeze({
   draftsUnavailable: ['src/cli.mjs', 'src/commands/agents.mjs', 'src/commands/instruction.mjs', 'src/commands/skill-master.mjs'],
   STUDIO_NOTHING_TO_PROPOSE: ['src/cli.mjs', 'src/refusal-remediation.mjs'],
   // M3: lease-proven lock recovery
-  SINGULARITY_FLOW_MACHINE_ID_FILE: ['scripts/test-machine-state.mjs', 'src/lease-liveness.mjs'],
+  SINGULARITY_FLOW_MACHINE_ID_FILE: ['src/machine-state-locations.mjs', 'src/lease-liveness.mjs'],
   SUBJECT_LOCK_RELEASE_: ['src/refusal-remediation.mjs', 'src/subject-lock.mjs'],
   WORKSPACE_REGISTRY_RELEASE_: ['src/file-lease.mjs', 'src/refusal-remediation.mjs'],
   SGOS_AUTHORITY_LOCK_RELEASE_: ['src/refusal-remediation.mjs', 'src/sgos/platform/authority-store.mjs'],

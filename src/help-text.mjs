@@ -482,6 +482,11 @@ Usage:
                                                         why and how to fix it; exits 1 when one is not. /sf-fix-workflow in Copilot
                                                         drafts the fixes as one reviewed configuration proposal. With WORKFLOW, who
                                                         drafts, asks, reviews and approves each step, and where
+  singularity-flow workflow walk [WORKFLOW] [--source repository|shipped] [--step-seconds N] [--total-seconds N] [--keep] [--json]
+                                                        a model-free dry run: drives a throwaway Story through every step on an isolated
+                                                        copy (stub author, stub reviewer, test approver) and lists each step's person
+                                                        steps and every stop no person decision clears, with its likely cause; reads
+                                                        only this repository's configuration; exits 1 on a stop, 2 when a step was not judged
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
   singularity-flow workflow build start [--change ID | --from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
     [--describe TEXT] [--name LABEL] [--json]

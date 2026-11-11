@@ -1701,6 +1701,12 @@
       },
       "digest": "7c4d1320684555f03ad8930df7a396076ff2c8e11dbc140efb891e90c2bc5254"
     },
+    "src/workflow-walk/sandbox.mjs": {
+      "counts": {
+        "command-git-literal": 1
+      },
+      "digest": "a04d29ef0f4019e8366b0b5579aeebfb0ffde876d0da3aa93260c908c5acdbd9"
+    },
     "src/workspace-bootstrap.mjs": {
       "counts": {
         "command-runCommand": 4

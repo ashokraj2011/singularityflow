@@ -9,11 +9,12 @@
  * `~/.singularity-flow/cache/session-listings`, because nothing redirected the repository-check
  * preferences that the listing cache sits beside.
  *
- * The suite runner and the VS Code host tests both apply every entry here. Locations derived from
+ * The suite runner and the VS Code host tests both apply every entry of src/machine-state-locations.mjs,
+ * the one list (`workflow walk` applies it too). Locations derived from
  * one of these follow it: caches beside the lead registry, the outbox, journal and bootstrap state
  * beside the workspace registry, Copilot boundaries beside the Copilot mode file, and session
  * listings beside the repository-check preferences. test/test-machine-state.test.mjs fails when
- * src/ or apps/vscode/src gains a home-directory default that no entry here redirects.
+ * src/ or apps/vscode/src gains a home-directory default that no entry there redirects.
  *
  * Everything else under the home directory is covered by giving the run a home of its own (see
  * isolatedHomeEnvironment).
@@ -22,34 +23,9 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const MACHINE_STATE_LOCATIONS = Object.freeze({
-  SINGULARITY_FLOW_WORKSPACE_REGISTRY: 'workspaces.json',
-  SINGULARITY_FLOW_ACTIVE_WORKSPACE: 'active-workspace.json',
-  // The Story index (src/story-index.mjs) follows the workspace registry when this is unset.
-  SINGULARITY_FLOW_STORY_INDEX: 'story-index.json',
-  SINGULARITY_FLOW_LEAD_REGISTRY: 'leads.json',
-  SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES: 'repository-checks.json',
-  SINGULARITY_FLOW_COPILOT_MODE_FILE: 'copilot-mode.json',
-  SINGULARITY_FLOW_PRESENTATION_PROFILE_FILE: 'presentation-profile.json',
-  SINGULARITY_FLOW_AST_PREFERENCE_FILE: 'ast-preference.json',
-  SINGULARITY_FLOW_AST_PACK_ROOT: 'ast-packs',
-  SINGULARITY_FLOW_COPILOT_TELEMETRY_SETUP_FILE: 'copilot-otel.sh',
-  SINGULARITY_FLOW_TELEMETRY_PREFERENCES: 'telemetry-preferences.json',
-  SINGULARITY_FLOW_COPILOT_CHAT_OTEL_FILE: 'copilot-chat-otel.jsonl',
-  SINGULARITY_FLOW_TEAM_IMPORT_STATE: 'team-imports',
-  // Every --for-agent result a test's commands keep (src/agent-result-keeper.mjs).
-  SINGULARITY_FLOW_AGENT_RESULTS: 'agent-results',
-  SINGULARITY_FLOW_WORKFLOW_BUILD_STATE: 'workflow-builds',
-  SINGULARITY_FLOW_REPOSITORY_CATALOG: 'repository-catalog',
-  SINGULARITY_FLOW_LOCAL_MODE_ROOT: 'local-mode',
-  SINGULARITY_FLOW_LOCAL_EXPORT_ROOT: 'local-mode-exports',
-  SINGULARITY_FLOW_VSCODE_RESET_MARKER: 'vscode-fresh-reset-pending.json',
-  // The install record and the build-currency answer every session entry reads (src/build-currency.mjs).
-  SINGULARITY_FLOW_INSTALLATIONS_DIR: 'installations',
-  // The machine ID every lease owner records (src/lease-liveness.mjs).
-  SINGULARITY_FLOW_MACHINE_ID_FILE: 'machine-id',
-  SINGULARITY_FLOW_HOME: 'home'
-});
+import { ISOLATED_RUN_SWITCHES, MACHINE_STATE_LOCATIONS } from '../src/machine-state-locations.mjs';
+
+export { MACHINE_STATE_LOCATIONS };
 
 /** Every machine-wide location under `root`, as the variables that redirect them. */
 export function isolatedMachineEnvironment(root) {
@@ -111,8 +87,7 @@ export function isolatedHomeEnvironment(root, env = process.env) {
  */
 export function isolatedTestEnvironment(root, env = process.env) {
   const { set, unset } = isolatedHomeEnvironment(root, env);
-  const isolated = { ...env, ...isolatedMachineEnvironment(root), ...set, SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off',
-    SINGULARITY_FLOW_INDEX_REFRESH: 'off' };
+  const isolated = { ...env, ...isolatedMachineEnvironment(root), ...set, ...ISOLATED_RUN_SWITCHES };
   for (const name of unset) delete isolated[name];
   return isolated;
 }

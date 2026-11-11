@@ -189,6 +189,7 @@ test('a team\'s custom workflow: questions before the scope, markers nobody can 
   assert.match(markers[0].detail, /no answer can ever be recorded/u);
   // On the scope step nobody is asked about, its fix is the scope finding's own change; markers can also be eased instead.
   assert.deepEqual(markers[0].fix.data.edits.map((edit) => [edit.path.at(-1), edit.from, edit.to]), [['mode', 'off', 'required']]);
+  assert.match(markers[0].fix.text, /^Turn clarification on for Requirements: clarification: \{ mode: required, maxQuestions: 5, markers: \{ mode: block \} \}; or set its markers mode to warn or off\.$/u);
   assert.deepEqual(markers[0].fix.data.alternatives.map((entry) => [entry.id, entry.edits[0].from, entry.edits[0].to]),
     [['markers-warn', { mode: 'block' }, { mode: 'warn' }], ['markers-off', { mode: 'block' }, { mode: 'off' }]]);
   assert.deepEqual(markers[1].fix.data.edits.map((edit) => [edit.path.at(-1), edit.from, edit.to]), [['mode', 'off', 'when-needed']]);

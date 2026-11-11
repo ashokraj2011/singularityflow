@@ -340,6 +340,8 @@ async function questionPlacementFindings(workflow, resolved, { people, stepLabel
       const source = phase.template && markers !== 'block' ? await templates(phase.template).catch(() => null) : null;
       const line = source?.text ? source.text.split('\n').findIndex((text) => text.includes(MARKER)) + 1 : 0;
       if (markers === 'block' || line > 0) {
+        // On the scope step nobody is asked about, the scope finding's own change answers this one too.
+        const turnOn = scopeUnasked && index === scopeIndex ? 'required' : 'when-needed';
         findings.push({ code: 'CHECK_MARKERS_UNANSWERABLE', area: 'clarity', severity: 'problem',
           title: markers === 'block' ? `${label} stops at an unanswered [NEEDS CLARIFICATION] marker that nobody can answer`
             : `${label}'s template asks for [NEEDS CLARIFICATION] markers that nobody can answer`,
@@ -348,11 +350,10 @@ async function questionPlacementFindings(workflow, resolved, { people, stepLabel
             : `${source.file} (line ${line}) shows its author the [NEEDS CLARIFICATION: ...] marker for what the sources leave open. `)
             + 'Its clarification is off, so nobody is asked and no answer can ever be recorded (clarification record and clarification answer are refused while it is off)'
             + (markers === 'block' ? '.' : `: a marker its author writes stays open in the approved document${markers === 'warn' ? ', a warning at every publication' : ''}.`),
-          fix: { text: `Turn clarification on for ${label}: clarification: { mode: when-needed, maxQuestions: 3${markers === 'block' ? ', markers: { mode: block }' : ''} }`
+          fix: { text: `Turn clarification on for ${label}: clarification: { mode: ${turnOn}, maxQuestions: ${turnOn === 'required' ? 5 : 3}${markers === 'block' ? ', markers: { mode: block }' : ''} }`
             + (markers === 'block' ? '; or set its markers mode to warn or off.' : '; or give it a template that does not ask for markers.'),
           data: setting.data({
-            // On the scope step nobody is asked about, the same change answers that finding too.
-            edits: [setting.edit('mode', scopeUnasked && index === scopeIndex ? 'required' : 'when-needed')],
+            edits: [setting.edit('mode', turnOn)],
             alternatives: markers === 'block'
               ? [{ id: 'markers-warn', label: 'Only warn about an open marker', edits: [setting.edit('markers', { mode: 'warn' })] },
                 { id: 'markers-off', label: 'Do not check markers', edits: [setting.edit('markers', { mode: 'off' })] }]

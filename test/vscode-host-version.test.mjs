@@ -11,6 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { answerOfQuestion } from '../src/copilot-answer-binding.mjs';
 import { vscodeVersionCheck } from '../src/doctor.mjs';
 import { vscodeEditorVersion, vscodeVersionLimits, vscodeVersionWarning } from '../src/vscode-host-version.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
@@ -69,4 +70,15 @@ test('doctor warns on a VS Code older than 1.141, passes a newer one, and says n
   };
   assert.equal(doctor('1.114.0').status, 'warn');
   assert.equal(doctor('1.146.0').status, 'pass');
+});
+
+test('on another VS Code than 1.145, a question\'s answer in another shape is still read by the person\'s own words', () => {
+  // Read as JSON text, its escaping made the person's own words read as not theirs: "\\"retry\\"" is not "retry".
+  const words = 'rework: the "retry" path\nis wrong';
+  assert.deepEqual(answerOfQuestion({ tool_name: 'vscode_askQuestions', tool_response: JSON.stringify({ 'Which way?': { answer: words, skipped: false } }) }),
+    { canned: false, texts: ['rework: the "retry" path is wrong'] });
+  // VS Code 1.145's own shape, and Copilot CLI's text, read as before.
+  assert.deepEqual(answerOfQuestion({ tool_response: JSON.stringify({ answers: { A: { selected: ['Yes'], freeText: 'Because.', skipped: false } } }) }),
+    { texts: ['yes', 'because'], canned: false });
+  assert.deepEqual(answerOfQuestion({ toolResult: { textResultForLlm: 'User responded: rework' } }), { texts: ['rework'], canned: false });
 });

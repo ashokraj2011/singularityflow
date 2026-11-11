@@ -12,7 +12,7 @@
  * each raise or decision is one appended entry. Pure: no I/O.
  */
 import { z } from 'zod';
-import { discrepancyItemSha256 } from './records.mjs';
+import { agentInputIssues, discrepancyItemSha256, knownChoiceWords, nearestKnown } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -146,11 +146,17 @@ export function raiseUpstreamIssue(workflow, {
   const current = workflow.currentPhase ?? null;
   const ids = order(workflow);
   const target = workflow.phases?.[phase];
-  if (!target) refused(`${phase || 'That phase'} is not a step of this Story.`);
   // A Story that finished has no current phase; an issue then is about any step before its end.
   const limit = current ? ids.indexOf(current) : ids.length;
+  // The steps an issue may be about, named whenever the one given is not one of them [agent input repairs].
+  const earlier = ids.slice(0, Math.max(0, limit)).filter((id) => Number(workflow.phases?.[id]?.generation) > 0 && workflow.phases[id].status !== 'not_started');
+  if (!target) {
+    const near = nearestKnown(phase, earlier);
+    refused(`${phase || 'That phase'} is not a step of this Story; ${knownChoiceWords(near)} (an earlier step that has run).`, undefined,
+      { phase: phase ?? null, ...(near.value ? { proposedEdit: { field: 'phase', value: near.value } } : { allowed: near.allowed }) });
+  }
   if (ids.indexOf(phase) < 0 || ids.indexOf(phase) >= limit) {
-    refused(`An upstream issue is about an earlier step; ${phase} is not before ${current ?? 'the end of the Story'}.`, 'UPSTREAM_ISSUE_NOT_EARLIER');
+    refused(`An upstream issue is about an earlier step; ${phase} is not before ${current ?? 'the end of the Story'}. The earlier steps that have run: ${earlier.join(', ') || 'none'}.`, 'UPSTREAM_ISSUE_NOT_EARLIER', { allowed: earlier });
   }
   if (!(Number(target.generation) > 0) || target.status === 'not_started') {
     refused(`${phase} has not produced anything yet, so there is nothing upstream to raise.`, 'UPSTREAM_ISSUE_NOT_EARLIER');
@@ -186,9 +192,10 @@ export function raiseUpstreamIssue(workflow, {
   };
   const checked = UpstreamIssueSchema.safeParse(issue);
   if (!checked.success) {
-    const field = checked.error.issues[0]?.path?.join('.') ?? 'issue';
-    refused(`The upstream issue is not well formed (${field}): ${checked.error.issues[0]?.message ?? 'invalid'}. `
-      + `Name --about (1-200 characters) and --problem (20-${UPSTREAM_ISSUE_PROBLEM_MAXIMUM} characters).`);
+    // Every problem at once, in words: one per round spent the repair budget a field at a time.
+    const findings = agentInputIssues(checked.error.issues, issue, { schema: UpstreamIssueSchema });
+    refused(`The upstream issue is not well formed: ${findings.map((entry) => entry.message).join(' ')} `
+      + `Name --about (1-200 characters) and --problem (20-${UPSTREAM_ISSUE_PROBLEM_MAXIMUM} characters).`, undefined, { findings });
   }
   workflow.upstreamIssues.push(checked.data);
   return checked.data;

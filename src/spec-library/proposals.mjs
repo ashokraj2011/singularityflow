@@ -62,9 +62,12 @@ function citedSpan(root, ref, citation) {
   const all = bytes.toString('utf8').split(/\r?\n/u);
   if (lines[1] > all.length) return { reason: `${file} has ${all.length} lines, so ${lines[0]}-${lines[1]} is not a span of it` };
   const sha = spanSha256(all, lines[0], lines[1]);
-  if (citation.spanSha256 !== undefined && citation.spanSha256 !== sha) return { reason: `${file}:${lines[0]}-${lines[1]} does not hash to the given spanSha256` };
+  if (citation.spanSha256 !== undefined && citation.spanSha256 !== sha) return { reason: `${file}:${lines[0]}-${lines[1]} does not hash to the given spanSha256; that span's is ${sha} (leave spanSha256 out to have it computed)` };
   if (citation.quote !== undefined && !words(all.slice(lines[0] - 1, lines[1]).join('\n')).includes(words(citation.quote))) {
-    return { reason: `${file}:${lines[0]}-${lines[1]} does not contain the quoted text` };
+    // Where the quote is, when it is on one line of the file: the span to cite instead.
+    const found = all.map((line, index) => (words(line).includes(words(citation.quote)) ? index + 1 : 0)).filter(Boolean);
+    return { reason: `${file}:${lines[0]}-${lines[1]} does not contain the quoted text${found.length === 1 ? `; it is on line ${found[0]}: cite lines [${found[0]}, ${found[0]}]`
+      : found.length > 1 ? `; it is on lines ${found.slice(0, 10).join(', ')}: cite the one you mean` : ''}` };
   }
   return { citation: { path: file, lines: [lines[0], lines[1]], spanSha256: sha } };
 }
@@ -76,12 +79,23 @@ function citedSpan(root, ref, citation) {
 export function applyFocusedEdits(spec, patches) {
   if (!Array.isArray(patches) || !patches.length || patches.length > 16) fail('Use 1 to 16 exact text changes.', 'SPEC_PROPOSAL_PATCH_INVALID');
   let next = spec;
-  for (const patch of patches) {
+  for (const [index, patch] of patches.entries()) {
     if (!plain(patch) || Object.keys(patch).some(key => !['before', 'after'].includes(key))
         || typeof patch.before !== 'string' || !patch.before || typeof patch.after !== 'string'
-        || patch.before === patch.after) fail('Every change needs different before and after text.', 'SPEC_PROPOSAL_PATCH_INVALID');
+        || patch.before === patch.after) fail(`Change ${index + 1}: every change needs different before and after text.`, 'SPEC_PROPOSAL_PATCH_INVALID');
     const at = next.indexOf(patch.before);
-    if (at < 0 || next.indexOf(patch.before, at + 1) >= 0) fail('The selected wording changed or is ambiguous. Compare the proposal with the current draft.', 'SPEC_PROPOSAL_STALE');
+    // Copied wording that is not in the draft is a copying slip, not a changed draft: say which change,
+    // how many times it occurs, and the draft line it nearly matches [agent input repairs].
+    if (at < 0 || next.indexOf(patch.before, at + 1) >= 0) {
+      const count = at < 0 ? 0 : next.split(patch.before).length - 1;
+      const lines = next.split(/\r?\n/u);
+      const squash = (value) => value.replace(/\s+/gu, ' ').replace(/[\u2018\u2019]/gu, "'").replace(/[\u201c\u201d]/gu, '"').trim();
+      const near = count ? -1 : lines.findIndex((line) => squash(patch.before).length >= 8 && squash(line).includes(squash(patch.before).split(/\n/u)[0].slice(0, 120)));
+      fail(count
+        ? `Change ${index + 1}: its before text occurs ${count} times in the draft; quote enough of the surrounding words to name one.`
+        : `Change ${index + 1}: its before text is not in the draft${near >= 0 ? `; draft line ${near + 1} nearly matches it (spacing or quotes differ): copy that line exactly` : '; copy it exactly from the current draft'}.`,
+      'SPEC_PROPOSAL_STALE', { change: index + 1, matches: count, ...(near >= 0 ? { line: near + 1 } : {}) });
+    }
     next = next.slice(0, at) + patch.after + next.slice(at + patch.before.length);
     if (Buffer.byteLength(next) > MAXIMUM_SPEC_BYTES) fail('The changed draft exceeds 256 KiB. Split the specification before accepting it.', 'SPEC_PROPOSAL_TOO_LARGE');
   }

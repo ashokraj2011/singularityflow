@@ -541,6 +541,17 @@ function tableHeader(cells) {
   return cells?.map((cell) => cell.toLowerCase().replace(/\s+/g, ' '));
 }
 
+/**
+ * "use X exactly" for a clause written without its namespace or in another case, else the clauses there
+ * are (at most 12). Kept here, not in records.mjs, so the VS Code panels bundle does not grow a module.
+ */
+function clauseChoiceWords(id, known) {
+  const list = [...known];
+  const upper = String(id ?? '').toUpperCase();
+  const matches = list.filter((entry) => entry === upper || entry.endsWith(`:${upper}`) || upper.endsWith(`:${entry.split(':').at(-1)}`) && entry.split(':').at(-1) === upper.split(':').at(-1));
+  return matches.length === 1 ? `use ${matches[0]} exactly` : `use one of: ${list.slice(0, 12).join(', ')}${list.length > 12 ? ', …' : ''}`;
+}
+
 function parseClauseCell(cell, known, label) {
   let value = String(cell ?? '').trim();
   if (value.startsWith('`') && value.endsWith('`') && value.indexOf('`', 1) === value.length - 1) {
@@ -550,7 +561,7 @@ function parseClauseCell(cell, known, label) {
   const match = value.match(new RegExp(`^(${NAMESPACE}:(?:REQ|BEH|IFC|AC|CON)-\\d{3})$`, 'i'));
   if (!match) throw new SingularityFlowError(`${label} must contain exactly one namespace-qualified clause ID, such as \`ORDER:REQ-001\`: the Story's namespace, a colon, REQ, BEH, IFC, AC or CON, and three digits.`);
   const id = match[1].toUpperCase();
-  if (!known.has(id)) throw new SingularityFlowError(`${label} references unknown clause ${id}.`);
+  if (!known.has(id)) throw new SingularityFlowError(`${label} references unknown clause ${id}; ${clauseChoiceWords(id, known)}.`);
   return id;
 }
 
@@ -984,8 +995,8 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, pl
     const id = rawId.toUpperCase();
     if (claims[id]) throw new SingularityFlowError(`${kind} claim map defines clause ${id} more than once using different letter casing.`);
     if (known.size && !known.has(id)) {
-      throw new SingularityFlowError(`${kind} claim map references unknown clause ${id}. Cite only clauses this Story defines.`, {
-        code: 'SPEC_CLAIM_MAP_UNKNOWN_CLAUSE', details: { kind, clause: id }
+      throw new SingularityFlowError(`${kind} claim map references unknown clause ${id}. Cite only clauses this Story defines; ${clauseChoiceWords(id, known)}.`, {
+        code: 'SPEC_CLAIM_MAP_UNKNOWN_CLAUSE', details: { kind, clause: id, allowed: [...known].slice(0, 12) }
       });
     }
     if (!claim || typeof claim !== 'object' || Array.isArray(claim)) throw new SingularityFlowError(`${kind} claim ${id} must be an object.`);

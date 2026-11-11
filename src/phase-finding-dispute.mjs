@@ -10,7 +10,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { canonicalJson } from './records.mjs';
+import { agentInputIssues, canonicalJson } from './records.mjs';
 import { humanReviewOriginPresent } from './human-review-origin.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { nowIso, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
@@ -112,7 +112,8 @@ export async function prepareCodeDeliveryDispute(root, config, workflow, phase, 
     transitions: ['publish'], expiresAt, reason: typeof reason === 'string' ? reason.trim() : reason,
     observationSha256: digest(problems) };
   const parsed = FindingDisputePacketSchema.safeParse({ ...core, packetSha256: digest(core) });
-  if (!parsed.success) fail(`The dispute is incomplete: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'packet'} ${issue.message}`).join('; ')}. Give a reason of at least 20 characters.`);
+  // Each problem in its own words; "give a reason of at least 20 characters" followed every one, a long reason with a line break too.
+  if (!parsed.success) fail(`The dispute is incomplete: ${agentInputIssues(parsed.error.issues, core).map((entry) => entry.message).join(' ')}`);
   return parsed.data;
 }
 
@@ -254,7 +255,8 @@ export async function preparePlanIntentDispute(root, config, workflow, phase, { 
     transitions: ['publish'], expiresAt, reason: typeof reason === 'string' ? reason.trim() : reason,
     observationSha256: digest(problems) };
   const parsed = FindingDisputePacketSchema.safeParse({ ...core, packetSha256: digest(core) });
-  if (!parsed.success) fail(`The dispute is incomplete: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'packet'} ${issue.message}`).join('; ')}. Give a reason of at least 20 characters.`);
+  // Each problem in its own words; "give a reason of at least 20 characters" followed every one, a long reason with a line break too.
+  if (!parsed.success) fail(`The dispute is incomplete: ${agentInputIssues(parsed.error.issues, core).map((entry) => entry.message).join(' ')}`);
   return parsed.data;
 }
 

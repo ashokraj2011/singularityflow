@@ -876,9 +876,36 @@ export function scopedSourceReviewerSession(input, authorSession) {
     agent: input.reviewerAgentId, agentSha256: input.reviewerAgentSha256 };
 }
 
+/** The value at a report field path such as `rows[1].tests[0].sourceId`, or undefined. */
+function reportValueAt(report, field) {
+  return String(field).split(/\.|(?=\[)/u).filter(Boolean).reduce((value, part) => {
+    const index = /^\[(\d+)\]$/u.exec(part);
+    return value == null ? undefined : index ? value[Number(index[1])] : value[part];
+  }, report);
+}
+
+/**
+ * A source written as its path (code:src/App.jsx) rather than its ID (code:src:App.jsx): the exact ID to copy.
+ * "Invalid input" alone left a reviewer guessing four forms until its repairs ran out (Story anu-bin, 2026-11-11).
+ */
+function namedSourceIds(report, input, findings) {
+  const known = [...(input.sources ?? []), ...(input.visualSources ?? [])].map((source) => source?.id).filter((id) => typeof id === 'string');
+  const loose = (value) => value.toLowerCase().replace(/[^a-z0-9._-]/gu, ':');
+  return findings.map((entry) => {
+    if (entry.code !== 'review-format-invalid' || !/(?:^sourcesReviewed\[\d+\]|\.sourceId)$/u.test(entry.field ?? '')) return entry;
+    const value = reportValueAt(report, entry.field);
+    if (typeof value !== 'string' || !known.length) return entry;
+    const matches = known.filter((id) => loose(id) === loose(value));
+    return matches.length === 1
+      ? { ...entry, message: `${value.slice(0, 200)} is not a source ID; copy ${matches[0]} exactly from sources[].id.`, proposedEdit: { field: entry.field, value: matches[0] } }
+      : { ...entry, message: `${value.slice(0, 200)} is not a source ID; copy one from sources[].id: ${known.slice(0, 12).join(', ')}${known.length > 12 ? ', …' : ''}.` };
+  });
+}
+
 /** Read-only format, citation and binding preflight. No reviewer authority or human decision is granted. */
 export function checkSourceReviewReport(report, input) {
-  const format = validateSourceReviewReport(report, input.kind);
+  const validated = validateSourceReviewReport(report, input.kind);
+  const format = { ...validated, findings: namedSourceIds(report, input, validated.findings) };
   // The pure evaluator also reads historical, malformed packets. New packets use a strict format
   // preflight first, so incidental JS errors cannot hide a field-level format error.
   const evaluation = format.status === 'ready' ? evaluateSourceGroundedReview(report, {

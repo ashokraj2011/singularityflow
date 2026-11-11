@@ -82,8 +82,8 @@ rollback work where the approved specification calls for it.
 For a `document`, give each pinned source (the Story, its documents and the approved inputs the step
 reads) at least one cited row: `consistent`, `inconsistent` or `question`, with a note for the last two.
 
-For `code`, the sources are the changed files exactly as published; cite their lines as `code:<path>`
-sources. Do all four checks in `citationGuide.checks`: (a) each delivered clause is implemented where
+For `code`, the sources are the changed files exactly as published; cite their lines by each file's exact
+`sources[].id` (`code:` and its path with each `/` as `:`), never the path. Do all four checks in `citationGuide.checks`: (a) each delivered clause is implemented where
 the approved plan says, and each changed path no plan row names is `supporting` or `out-of-scope`;
 (b) each delivered clause has its own planned test that ran and passed and that proves the behaviour;
 (c) acknowledge every `code.quality` result ID in `qualityReviewed`; (d) readability and design are

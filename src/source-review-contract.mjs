@@ -38,7 +38,7 @@ const documentRow = z.strictObject({
   outcome: z.enum(['consistent', 'inconsistent', 'question']).describe('Consistent: the document agrees with this source line. Inconsistent or question holds the step until its author corrects it.'),
   note: text().optional().describe('For inconsistent or question: what differs or what is unclear.')
 });
-const fileCitation = z.strictObject({ sourceId: id.describe('A changed file\'s source ID (code:<path>).'), line: citation.line, quote: citation.quote });
+const fileCitation = z.strictObject({ sourceId: id.describe('A changed file\'s exact sources[].id (code: and its path with each / as :, such as code:src:App.jsx); copy it, never write the path.'), line: citation.line, quote: citation.quote });
 // A code step's row: one clause it delivers, where it is implemented and which test proves it [review level 2].
 const codeRow = z.strictObject({
   id: id.optional(),
@@ -155,7 +155,7 @@ export function sourceReviewCitationGuide(input) {
         '(c) Quality and security: acknowledge every context.code.quality result ID in qualityReviewed; raise a blocking quality finding for one that must be fixed.',
         '(d) Readability and design: your judgement, proportionate. Advisory by default; blocking only for a real maintainability defect, named in defect.'
       ],
-      findingRule: 'Every finding names its check and cites a changed file: sourceId (code:<path>), line and an exact quote; name the clauseId for plan and tests findings.'
+      findingRule: 'Every finding names its check and cites a changed file: sourceId (its exact sources[].id, such as code:src:App.jsx), line and an exact quote; name the clauseId for plan and tests findings.'
     } : {}),
     ...(input.kind === 'document' ? {
       mappingRule: 'Give each pinned source at least one cited row: consistent where the document agrees with it, inconsistent (with note) where it does not, question (with note) where it is unclear.'
@@ -201,6 +201,9 @@ export function sourceReviewRepairGuide(report, input, checked) {
           : 'No exact single-line match. Read the pinned source and independently recite it; no paraphrase or fuzzy replacement is allowed.' }),
       ...(current !== undefined ? { suppliedLineText: current.slice(0, 1024), suppliedLineTruncated: current.length > 1024 } : {}) };
   });
+  // A source written as its path: the exact ID (Story anu-bin, 2026-11-11).
+  const sourceIds = (checked.findings ?? []).filter(entry => entry.code === 'review-format-invalid' && entry.proposedEdit)
+    .slice(0, 25).map(entry => ({ field: entry.field, proposedEdit: entry.proposedEdit }));
   // A slip in copying the binding: the exact values, never a reload (the inputs did not change).
   const binding = (checked.evaluation?.findings ?? []).filter(entry => entry.code === 'review-binding-mistyped')
     .flatMap(entry => entry.slips ?? []).slice(0, 25).map(slip => ({ field: slip.field, proposedEdit: { field: slip.field, value: slip.value } }));
@@ -213,8 +216,8 @@ export function sourceReviewRepairGuide(report, input, checked) {
       ? mappingTasks.length
         ? 'Independently resolve the listed missing mappings now: add genuinely supported rows and recheck changed bytes within the repair budget, or retain already-reviewed genuine gaps with blocking findings. Never invent coverage or require an author successor for a reviewer mapping omission. Retention is not approval.'
         : 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
-      : `${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment. ' : ''}Repair this private packet in the same review turn, then check it. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
-    ...(binding.length ? { binding } : {}), citations, omittedCitations: Math.max(0, candidates.length - citations.length),
+      : `${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment. ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}Repair this private packet in the same review turn, then check it. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
+    ...(binding.length ? { binding } : {}), ...(sourceIds.length ? { sourceIds } : {}), citations, omittedCitations: Math.max(0, candidates.length - citations.length),
     mappingTasks: mappingTasks.slice(0, 25), omittedMappingTasks: Math.max(0, mappingTasks.length - 25),
     mappingRule: 'Add a covered row only when the pinned source genuinely supports the scenario/clause, reconciling pinned answers. Otherwise retain a blocking finding; an unmapped scenario alone does not prevent retention. Never mark a gap supported to pass.' };
 }

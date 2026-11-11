@@ -75,7 +75,9 @@ test('act reads each result by its own fields and never invents a next action', 
     ['clarification', 'context', 'authoringProgress', 'taskCompletion']);
   const prepublish = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready', commands: { publish: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host' } });
   assert.equal(prepublish.state, 'publish');
-  assert.equal(prepublish.do.shell, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host');
+  // Through --publish-if-ready, which runs the same publication and hands back the reviewer a reviewed step owes; plain
+  // `phase publish` named none (Story anu-bin verification, 2026-11-11).
+  assert.equal(prepublish.do.shell, 'singularity-flow phase prepublish intake --for-agent --json --publish-if-ready');
   assert.ok(prepublish.read.includes('scopeReview'), 'early scope advice is an explicit read, never a fabricated command');
   const scopeAdvice = agentAct({ resultType: 'sflow-phase-prepublish', status: 'ready',
     scopeReview: { status: 'repair-or-human-decision', blocking: false },

@@ -243,7 +243,11 @@ function agentPublication(route) {
   };
   const channel = flag('channel');
   if (AGENT_AUTHORSHIP.has(flag('authored')) && (!channel || AGENT_CHANNELS.has(channel))) return route;
-  const workId = flag('work-id');
+  return publishIfReadyRoute(route, tokens, flag('work-id'));
+}
+
+/** The publication `phase publish` names, as the one command that checks, publishes and hands back what follows. */
+function publishIfReadyRoute(route, tokens, workId) {
   const guidance = safeCommandGuidance({ argv: ['phase', 'prepublish', ...(tokens[3] && !tokens[3].startsWith('-') ? [tokens[3]] : []),
     ...(workId ? ['--work-id', workId] : []), '--for-agent', '--json', '--publish-if-ready'] });
   return guidance ? { ...route, shell: guidance.command, copilot: guidance.copilotCommand ?? null, vscode: null } : route;
@@ -403,10 +407,14 @@ export function agentAct(result) {
   // A reviewer to start here: its result is this turn's next step, so no route to relay while it runs (anu-bin, 2026-11-11).
   // Before the code offer: asked first, the application and outcome questions made this unreachable for every reviewed
   // code step, and their Not now routes relayed /sf-review-source while no reviewer ran (agent-text audit, 2026-11-11).
-  if (result.publishIfReady?.published && result.publishIfReady.reviewSubagent) return { state: 'start-reviewer', do: null,
-    read: ['publishIfReady.reviewSubagent', 'publishIfReady.output', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])],
-    said: `Published. Start the reviewer now as publishIfReady.reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.${result.publishIfReady.outcomeReview
-      ? ' Ask the application and outcome questions (publishIfReady.applicationStart, publishIfReady.outcomeReview) only after a ready review, never before it.' : ''}` };
+  // A plain `phase publish` hands the same reviewer (Story anu-bin verification, 2026-11-11).
+  const plainPublication = result.resultType === 'sflow-phase-publication' && result.status === 'published';
+  const reviewer = result.publishIfReady?.published ? result.publishIfReady.reviewSubagent : plainPublication ? result.reviewSubagent : null;
+  const at = result.publishIfReady?.published ? 'publishIfReady.' : '';
+  if (reviewer) return { state: 'start-reviewer', do: null,
+    read: [`${at}reviewSubagent`, ...(at ? ['publishIfReady.output', ...(result.publishIfReady.review?.testEvidence ? ['publishIfReady.review.testEvidence'] : [])] : [])],
+    said: `Published. Start the reviewer now as ${at}reviewSubagent says, in the foreground, and wait for its result in this turn, then read its status once. /sf-review-source is only the fallback with no sub-agent tool, never a next action while the reviewer runs.${(at ? result.publishIfReady.outcomeReview : result.outcomeReview)
+      ? ` Ask the application and outcome questions (${at}applicationStart, ${at}outcomeReview) only after a ready review, never before it.` : ''}` };
   const codeOffer = result.publishIfReady?.published ? result.publishIfReady.outcomeReview
     : result.resultType === 'sflow-phase-publication' && result.status === 'published' ? result.outcomeReview : null;
   // Published with its tests passing: ask once whether to start the application (application-start-offer.mjs).
@@ -470,9 +478,17 @@ export function agentAct(result) {
     if (result.publishIfReady?.reason === 'person-authored') return { state: 'confirm-in-terminal', read: ['scopeReview'],
       do: { ...routes({ command: result.commands.publish, reason: 'Publish this draft as their own or their tool\'s work.' }), copilot: null },
       said: 'Ready, and this step permits only a person\'s or an external tool\'s authorship: show them do.shell to run in their own terminal; never run it.' };
-    if (result.status === 'ready' && result.commands?.publish) return withRoute({ state: 'publish', do: null, read: ['scopeReview', ...beforePublish(result)],
-      said: 'Ready: publish once with the returned command; it runs the required tests.' },
-      { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });
+    // Plain prepublish handed `phase publish`, whose result named no reviewer: generation 3 of a reviewed step was
+    // published and the turn ended with none started (Story anu-bin verification, 2026-11-11). --publish-if-ready runs
+    // the same publication and hands back the reviewer; after it, its own refusal keeps the plain command.
+    if (result.status === 'ready' && result.commands?.publish) {
+      const publish = { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' };
+      const act = withRoute({ state: 'publish', do: null, read: ['scopeReview', ...beforePublish(result)],
+        said: 'Ready: publish once with the returned command; it runs the required tests and hands back the reviewer to start when the step owes one.' }, publish);
+      const tokens = String(act.do?.shell ?? '').trim().split(/\s+/u);
+      return !result.publishIfReady && act.state === 'publish' && tokens[1] === 'phase' && tokens[2] === 'publish'
+        ? { ...act, do: publishIfReadyRoute(act.do, tokens, result.workId ?? null) } : act;
+    }
     const next = result.commands?.next ? { command: result.commands.next, ...(result.commandGuidance?.next ? { commandGuidance: result.commandGuidance.next } : {}),
       ...(result.correction?.skill ? { skill: result.correction.skill } : {}) } : null;
     // Already published: nothing to fix or publish; its next step (submission) is the route.

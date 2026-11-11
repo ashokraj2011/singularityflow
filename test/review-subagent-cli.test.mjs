@@ -59,6 +59,31 @@ test('the handoff starts the pinned reviewer as a sub-agent in this chat, then r
   assert.equal(reviewerSubagentPayload(unknown, '/nowhere'), unknown, 'a sub-agent with no recorded review turn stays under the author\'s turn');
 });
 
+test('every way an agent publishes a reviewed step hands it the reviewer: the prepublish act and a plain phase publish', async (t) => {
+  // Story anu-bin verification (2026-11-11): plain prepublish acted 'publish' with `phase publish`, whose result named
+  // no reviewer; generation 3 was published and the turn ended with none started.
+  const repo = await repository(t, { implementCommands: false, reviews: true });
+  const { root, sflow, must } = repo;
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(repo.base, 'remote.git')], repo.base);
+  must('git', ['remote', 'add', 'origin', path.join(repo.base, 'remote.git')]);
+  must('git', ['push', '-q', '-u', 'origin', 'main']);
+  sflow('start', 'QF-1', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Change the value', '--description', 'Return 2.');
+  sflow('prepare', 'intake');
+  await writeFile(path.join(root, 'singularity/work-items/QF-1/artifacts/intake/intake.md'), INTAKE);
+  const checked = JSON.parse(sflow('phase', 'prepublish', 'intake', '--for-agent', '--json'));
+  assert.equal(checked.status, 'ready', JSON.stringify(checked.findings ?? checked).slice(0, 1500));
+  const publish = agentAct(checked);
+  assert.equal(publish.state, 'publish');
+  assert.match(publish.do.shell, /^singularity-flow phase prepublish intake (?:--work-id QF-1 )?--for-agent --json --publish-if-ready$/u,
+    'the act publishes through the command that hands back the reviewer');
+  // Run as it was given anyway, the plain publication names the reviewer too, and the agent view starts it.
+  const [, ...args] = checked.commands.publish.split(' ');
+  const published = JSON.parse(sflow(...args, '--json'));
+  assert.equal(published.status, 'published');
+  assert.equal(published.reviewSubagent?.prompt, '/sf-review-source intake');
+  assert.deepEqual([agentAct(published).state, agentAct(published).do, agentAct(published).read[0]], ['start-reviewer', null, 'reviewSubagent']);
+});
+
 test('in the author\'s chat, the reviewer sub-agent reviews read-only under its own contract while the author keeps authoring', async (t) => {
   const repo = await repository(t, { implementCommands: false, reviews: true });
   const { root, sflow, sflowJson, must, env } = repo;

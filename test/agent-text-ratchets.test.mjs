@@ -41,3 +41,23 @@ test('a returned reviewer comes first, whatever else the publication offers', ()
   // Without a reviewer to start, the code step's question stays where it was.
   assert.equal(agentAct(published({ review: false, start: declared })).state, 'ask-person');
 });
+
+test('every publish result of a reviewed step acts start-reviewer, and the publish act goes through the route that hands one back', () => {
+  // Story anu-bin verification (2026-11-11): plain prepublish acted 'publish' with `phase publish`, whose result named no
+  // reviewer, so generation 3 was published and the turn ended with none started.
+  const plain = { schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'published', workId: 'QF-1', phase: 'implement', generation: 1 };
+  for (const result of [published(), published({ outcome: false }), published({ start: declared }),
+    { ...plain, reviewSubagent: handoff }, { ...plain, reviewSubagent: handoff, outcomeReview, applicationStart: declared }]) {
+    const act = agentAct(result);
+    assert.deepEqual([act.state, act.do], ['start-reviewer', null], JSON.stringify(Object.keys(result)));
+    assert.match(act.read[0], /(?:^|\.)reviewSubagent$/u);
+  }
+  const ready = { resultType: 'sflow-phase-prepublish', status: 'ready', workId: 'QF-1', phase: 'verification',
+    commands: { publish: 'singularity-flow phase publish verification --authored governed-agent --channel copilot-host' } };
+  const act = agentAct(ready);
+  assert.equal(act.state, 'publish');
+  assert.equal(act.do.shell, 'singularity-flow phase prepublish verification --work-id QF-1 --for-agent --json --publish-if-ready');
+  // Once --publish-if-ready itself could not run it, its own command stays, so nothing loops.
+  const refused = agentAct({ ...ready, publishIfReady: { published: false, reason: 'publish-command-not-recognized', command: ready.commands.publish } });
+  assert.equal(refused.do.shell, ready.commands.publish);
+});

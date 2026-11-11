@@ -575,6 +575,12 @@ export async function phaseCommand(positionals, options) {
   const outcomeReview = codeOutcomeReviewOffer(workflow, phase);
   // Asked once, here: start the application to try it now, or go on (application-start-offer.mjs).
   const applicationStart = outcomeReview ? await (await import('../application-start-offer.mjs')).applicationStartOffer(root, workflow, phase) : null;
+  // A step that owes its review hands the agent that published it its reviewer, as --publish-if-ready does: a plain
+  // `phase publish` named none, and the turn ended with no reviewer started (Story anu-bin verification, 2026-11-11).
+  const reviewSubagent = ['governed-agent', 'deterministic'].includes(authorshipOptions.producer)
+    && (await import('../source-review-policy.mjs')).sourceReviewRequired(workflow, phase.id)
+    ? (await import('../review-subagent.mjs')).reviewSubagentHandoff({ workId: workflow.workItem.id, phase: phase.id,
+      generation: Number(phase.generation ?? 0), reviewerAgent: workflow.resolution?.sourceReview?.reviewerAgent }) : null;
   // What the findings loop let through: findings that remain, scanners that could not run [CQF:REQ-043].
   const qualityFindings = (await import('../findings/presentation.mjs')).publishedFindingsSummary(phase.deliveryEvidence?.qualityFindings);
   if (optionBoolean(options, 'json')) {
@@ -586,6 +592,7 @@ export async function phaseCommand(positionals, options) {
       commit: result.sha, pushed: result.pushed === true,
       effects: { committed: true, pushed: result.pushed === true },
       artifact: phase.requiredArtifact.path,
+      ...(reviewSubagent ? { reviewSubagent } : {}),
       ...(applicationStart ? { applicationStart } : {}),
       ...(outcomeReview ? { outcomeReview } : {}),
       ...(applicationReview ? { applicationReview } : {}),
@@ -596,6 +603,7 @@ export async function phaseCommand(positionals, options) {
   }
   if (qualityFindings?.words) console.log(`Warning: ${qualityFindings.words}`);
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
+  if (reviewSubagent) console.log(`Next, in this turn: ${reviewSubagent.instruction}`);
   if (applicationStart?.declared) console.log(`${applicationStart.question} Start it with /sf-run-app start, or go on with the step.`);
   else if (applicationStart) console.log(applicationStart.words);
   if (outcomeReview) for (const line of commandGuidanceLines(outcomeReview, 'Try and review this Story')) console.log(line);

@@ -1422,6 +1422,11 @@ test('visual editor agent selection remains local and requires the active work b
   const session = await selectEditorAgent(root, 'DESK-2', 'architect');
   assert.equal(session.agent, 'architect');
   assert.equal(session.workId, 'DESK-2');
+  // The override is for the Story's current step: the session stays on it, so that step's own
+  // review can still be retained and the next attach keeps the chosen agent.
+  const { currentPhase } = JSON.parse(await readFile(path.join(root, 'singularity/work-items/DESK-2/workflow.json'), 'utf8'));
+  assert.ok(currentPhase);
+  assert.equal(session.phaseId, currentPhase);
   await assert.rejects(() => selectEditorAgent(root, 'DESK-2', 'unknown'), /Unknown agent/);
 });
 

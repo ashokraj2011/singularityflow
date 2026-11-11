@@ -2336,7 +2336,7 @@ export async function selectEditorAgent(root, workId, agent) {
   if (workId) {
     const { definition, workflow } = await loadAcceptedStoryExecution(root, workId);
     if (branch(root) !== workflow.workItem.branch) throw new SingularityFlowError(`Current branch is ${branch(root)}; resume ${workflow.workItem.branch} before overriding its phase agent.`);
-    return setAgentSession(root, definition, identity(root), agent, workId);
+    return setAgentSession(root, definition, identity(root), agent, workId, { phaseId: workflow.currentPhase ?? null });
   }
   const definition = await loadDefinition(root);
   return setAgentSession(root, definition, identity(root), agent, workId || null);

@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan }
   from '../src/initialization/runtime-readiness.mjs';
+import { reviewStep } from './helpers/step-review.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -217,6 +218,14 @@ test('registered child branches publish hash-bound review packets and unknown br
       .replace(/\bTODO\b/g, 'Complete')
   );
   flow(root, ['phase', 'publish', 'intake']);
+  // A new Story reviews every authored step [review level 2], so the published intake on the child
+  // branch gets its independent review before submission, as a real Story's would. Retaining it needs
+  // the session on the Story's current step, which creating the child branch keeps.
+  const refusedUnreviewed = flow(root, ['story', 'submit'], { allowFailure: true });
+  assert.notEqual(refusedUnreviewed.status, 0);
+  assert.match(refusedUnreviewed.stderr, /independent review is ready/);
+  const { status: reviewed } = reviewStep((args) => JSON.parse(flow(root, args).stdout), 'intake');
+  assert.equal(reviewed.status, 'ready');
   const submitted = flow(root, ['story', 'submit']);
   assert.match(submitted.stdout, /Review packet:/);
 

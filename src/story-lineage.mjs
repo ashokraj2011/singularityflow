@@ -275,7 +275,9 @@ function childRecord(workflow, name, actor, baseCommit) {
 async function preserveAgent(root, config, workflow) {
   const session = await loadSession(root, { required: false });
   if (session?.agent && config.agents?.[session.agent]) {
-    await setAgentSession(root, config, identity(root), session.agent, workflow.workItem.id);
+    // Same Story, same step: the session keeps its phase.
+    await setAgentSession(root, config, identity(root), session.agent, workflow.workItem.id,
+      { phaseId: workflow.currentPhase ?? null });
   }
 }
 

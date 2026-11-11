@@ -570,7 +570,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,588,900 (measured 9,588,868, commands/phase-lifecycle.mjs): a reviewer started after publication is waited for, not
     // relayed (agent-output.mjs), a mistyped review binding gets its exact values (refusal-remediation.mjs), and a planned
     // file short only of its binding is the author's to bind (phase-finding-policy.mjs) [Story anu-bin]. No new eager file.
-    assert.ok(closure.bytes <= 9_588_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,589,000 (measured 9,588,977, commands/phase-lifecycle.mjs): a child branch keeps the session on the Story's current
+    // step, so that step's own review can be retained there (story-lineage.mjs preserveAgent +109). No new eager file.
+    assert.ok(closure.bytes <= 9_589_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -32,9 +32,13 @@ test('workflow guide recommends the valid next skill for each lifecycle state', 
 
   guide = workflowGuide(workflow('in_progress', 1));
   assert.equal(guide.nextActions[0].skill, '/sf-submit');
-  assert.equal(guide.nextActions[1].skill, '/sf-phase-documents');
-  assert.equal(guide.nextActions[1].copilotCommand, '/sf-phase-documents intake');
+  // A published draft can also be changed in its own step: its next draft for what the person asks.
+  assert.equal(guide.nextActions[1].command, 'singularity-flow phase rollover intake --reason "<what to change>" --json');
+  assert.equal(guide.nextActions[1].copilotCommand, '/sf-phase intake <what to change>');
   assert.equal(guide.nextActions[1].optional, true);
+  assert.equal(guide.nextActions[2].skill, '/sf-phase-documents');
+  assert.equal(guide.nextActions[2].copilotCommand, '/sf-phase-documents intake');
+  assert.equal(guide.nextActions[2].optional, true);
   assert.match(guideText(guide), /View the documents produced|view the documents produced/i);
 
   guide = workflowGuide(workflow('awaiting_approval', 1));

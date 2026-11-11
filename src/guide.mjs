@@ -1,7 +1,7 @@
 import { intentAmendmentSource, isConvergencePhase } from './phase-roles.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
-import { copilotAction } from './copilot-guidance.mjs';
+import { copilotAction, directCopilotSkill } from './copilot-guidance.mjs';
 import { safeCommandGuidance, commandRouteLines } from './safe-command-guidance.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
@@ -19,16 +19,23 @@ function currentPhase(workflow) {
 }
 
 /**
- * Whether a published code generation is its own step's to change, for a change the person asks for
- * (requested-successor.mjs): current and in progress, consumed by publication, not submitted, and not
- * returned or reopened for rework (those prepare their next generation already).
+ * Whether a published generation is its own step's to change, for a change the person asks for
+ * (requested-successor.mjs): current and in progress, published and not submitted, and not returned or
+ * reopened for rework (those prepare their next generation already). Every authored step: code, consumed
+ * by publication; a document its author drafts, not one the kernel builds (convergence, deterministic).
  */
 export function requestedSuccessorEligible(workflow, phase) {
-  return Boolean(phase) && phaseRequiresCodeDelivery(phase)
-    && workflow?.status === 'in_progress' && workflow.currentPhase === phase.id && phase.status === 'in_progress'
-    && Number(phase.generation ?? 0) > 0 && phase.generationIntent?.status === 'consumed'
-    && Number(phase.generationIntent.generation) === Number(phase.generation)
-    && !phaseExplicitlyReopened(workflow, phase);
+  if (!phase || workflow?.status !== 'in_progress' || workflow.currentPhase !== phase.id || phase.status !== 'in_progress'
+      || !(Number(phase.generation ?? 0) > 0) || phaseExplicitlyReopened(workflow, phase)) return false;
+  if (phaseRequiresCodeDelivery(phase)) return phase.generationIntent?.status === 'consumed'
+    && Number(phase.generationIntent.generation) === Number(phase.generation);
+  return !isConvergencePhase(phase) && !phaseUsesDeterministicGeneration(phase)
+    && phase.generationPolicy?.requirement !== 'none' && !phaseNeedsGeneration(workflow, phase);
+}
+
+/** The skill a person types what to change after: /sf-code for code, the step's own drafting skill otherwise. */
+function changeSkill(workflow, phase) {
+  return phaseRequiresCodeDelivery(phase) ? '/sf-code' : directCopilotSkill(generationSkillForPhase(phase, workflow)) ?? '/sf-phase';
 }
 
 /**
@@ -39,15 +46,18 @@ export function requestedSuccessorEligible(workflow, phase) {
 export function requestedSuccessorAction(workflow, phase, { requested = false, changedPaths = [] } = {}) {
   if (!requestedSuccessorEligible(workflow, phase)) return null;
   const next = Math.max(Number(phase.generation ?? 0), Number(phase.generationHighWatermark ?? 0)) + 1;
-  const kept = `Generation ${phase.generation}, its evidence and its test results stay as published; nothing changes until the person confirms.`;
+  const kept = phaseRequiresCodeDelivery(phase)
+    ? `Generation ${phase.generation}, its evidence and its test results stay as published; nothing changes until the person confirms.`
+    : `Draft ${phase.generation} and its review stay as published; nothing changes until the person confirms.`;
   // Files changed after publication (changes-after-publication.mjs): the next generation starts with them, or the person sets them aside (N7).
   if (changedPaths.length) return copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
     reason: `${changedPaths.slice(0, 5).join(', ')}${changedPaths.length > 5 ? ` and ${changedPaths.length - 5} more` : ''} changed after generation ${phase.generation} was published: preview starting generation ${next} of ${phase.id} that includes the change, then ask the person to confirm it, or to set the change aside. ${kept}` });
+  const word = phaseRequiresCodeDelivery(phase) ? 'generation' : 'draft';
   if (requested) return copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
-    reason: `The person asked for a change: preview starting generation ${next} of ${phase.id} for it, then ask them to confirm. ${kept}` });
+    reason: `The person asked for a change: preview starting ${word} ${next} of ${phase.id} for it, then ask them to confirm. ${kept}` });
   return { ...copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --reason "<what to change>" --json`,
-    reason: `Or, for a change before submitting: start generation ${next} of ${phase.id} with what to change (/sf-code ${phase.id} <what to change>). ${kept}` }),
-  copilotCommand: `/sf-code ${phase.id} <what to change>`, optional: true };
+    reason: `Or, for a change before submitting: start ${word} ${next} of ${phase.id} with what to change (${changeSkill(workflow, phase)} ${phase.id} <what to change>). ${kept}` }),
+  copilotCommand: `${changeSkill(workflow, phase)} ${phase.id} <what to change>`, optional: true };
 }
 
 /**

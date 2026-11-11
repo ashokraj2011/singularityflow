@@ -63,10 +63,10 @@ test('a change the person asks for after Code is published opens generation 2 in
   // No application is declared here: nothing to start, said in one line with the route that declares one.
   const publication = JSON.parse(story.published);
   assert.equal(publication.applicationStart.declared, false);
-  assert.match(publication.applicationStart.words, /declares no application to start; \/sf-run-app suggest/u);
+  assert.match(publication.applicationStart.words, /has no saved start entry yet; \/sf-run-app suggest \(singularity-flow app suggest\) detects one, asks you which to keep and saves it on this checkout only/u);
   const noApp = agentAct(publication);
   assert.equal(noApp.ask, undefined);
-  assert.match(noApp.said, /declares no application to start/u);
+  assert.match(noApp.said, /has no saved start entry yet/u);
 
   // Nothing asked for yet: rollover says how to ask, and Code is offered both ways after publication.
   const unasked = run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'implementation', '--json'], { allowFailure: true });

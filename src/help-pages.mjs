@@ -1265,7 +1265,8 @@ const PAGES = Object.freeze({
   app: {
     summary: 'Start (or debug), check and stop the application a delivery capability declares, preview typed run configurations, and suggest them from IDE run configurations.',
     description: [
-      'Reads application.start from singularity/capabilities.yml (changed through the reviewed capability proposal).',
+      'Reads application.start from singularity/capabilities.yml, or the start entries saved on this checkout with app config save-local',
+      '(what /sf-run-app saves after app suggest; nothing shared changes). Sharing them with the team is a capability proposal.',
       'Each start entry is a shell-free argv run from a repository-relative working directory, a loopback URL',
       '(127.0.0.1, localhost or [::1]) and a readiness rule: an HTTP answer below 500 on a path, or literal text in',
       'its output. app plan shows every entry, its environments with their binding status, and the command identity',

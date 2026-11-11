@@ -19,7 +19,7 @@ export async function applicationStartOffer(root, workflow, phase) {
     context = await (await import('./capability-application-context.mjs')).resolveCapabilityApplication(root, { subjectPath: '' });
   } catch { return null; }
   if (!context.application?.start?.length) return { declared: false,
-    words: 'This checkout declares no application to start; /sf-run-app suggest (singularity-flow app suggest) declares one.',
+    words: 'This checkout has no saved start entry yet; /sf-run-app suggest (singularity-flow app suggest) detects one, asks you which to keep and saves it on this checkout only (nothing shared changes).',
     route: { command: 'singularity-flow app suggest --json', copilotCommand: '/sf-run-app suggest' } };
   // Not now: the step's own next actions after publication, submit first and the next generation for a change.
   const onward = phaseHandoff(workflow, phase).filter((action) => action.command && !/ phase show /u.test(action.command)).slice(0, 2)

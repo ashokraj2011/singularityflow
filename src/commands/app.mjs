@@ -92,8 +92,9 @@ export async function run(_argv, { positionals, options = {} }) {
       application: block && typeof block === 'object' ? structuredClone(block) : { start: [], tests: [] } };
     if (json) console.log(JSON.stringify(result, null, 2));
     else if (!plans.length) {
-      console.log(`Capability '${application.capabilityId}' declares no application start entry.`);
-      console.log('Add application.start to singularity/capabilities.yml through a capability proposal (see singularity-flow help app).');
+      // The same light route as the start refusal (700eaaf95): read as a governed proposal, it stopped agents.
+      console.log(`Capability '${application.capabilityId}' has no saved start entry yet.`);
+      console.log('/sf-run-app detects one from the repository, asks you which to keep, saves it on this checkout only (nothing shared changes) and starts it; sharing it with the team is a capability proposal. (singularity-flow app suggest drafts it; see singularity-flow help app.)');
     } else {
       console.log(`Application of ${application.capabilityId}:`);
       for (const [index, plan] of plans.entries()) {

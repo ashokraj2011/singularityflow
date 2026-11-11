@@ -126,3 +126,16 @@ test('the loop warning never tells an agent to run what is the person\'s, nor to
     assert.match(seen[2].loop.instruction, /never run it/u, act.state);
   }
 });
+
+test('no app-start text offers only the governed proposal: each one says the local save that needs none', async () => {
+  // "Add application.start … through a capability proposal" read as a governed change, and the agent stopped instead
+  // of offering /sf-run-app (700eaaf95); the same words stayed in app plan, help and the start offer (2026-11-11).
+  const { readFile } = await import('node:fs/promises');
+  for (const file of ['src/commands/app.mjs', 'src/help-pages.mjs', 'src/application-start-offer.mjs', 'src/application-run.mjs']) {
+    const text = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+    for (const line of text.split('\n').filter((entry) => /application\.start|start entry|no application to start/iu.test(entry) && /proposal|declares one/iu.test(entry))) {
+      const window = text.slice(text.indexOf(line), text.indexOf(line) + line.length + 400);
+      assert.match(window, /this checkout only|save-local|saved on this checkout/u, `${file}: ${line.trim()}`);
+    }
+  }
+});

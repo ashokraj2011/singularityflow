@@ -3208,6 +3208,7 @@ uses JSON-aware and textual secret redaction before content-addressed storage. U
 ```bash
 singularity-flow workflow list
 singularity-flow workflow validate
+singularity-flow workflow walk quick-fix
 singularity-flow workflow simulate figma-mobile
 singularity-flow workflow diff figma-mobile
 singularity-flow workflow add figma-mobile --dry-run
@@ -3270,6 +3271,10 @@ The selected directory must contain `SKILL.md`; local Markdown links must resolv
 captured package. Current limits are 256 files, 256 KiB for `SKILL.md`, 1 MiB per other file, and
 8 MiB per package. Inspection refuses links, unsafe portable paths, missing resources, oversized
 packages, and capture drift.
+
+`workflow walk [WORKFLOW]` is the dry run beside it: with no model, it drives a throwaway Story through
+every step on an isolated copy and lists each step's person steps and every stop no person decision
+clears, with its likely cause (exit 1 on a stop); see the workflow-authoring topic.
 
 `workflow validate [TYPE]` proves every code phase has an authoritative clause source and an earlier
 reviewed planned-claim owner, and that every route guarantees scope, plan, implementation,

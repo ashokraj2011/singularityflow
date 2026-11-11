@@ -1042,6 +1042,7 @@ Every public operation is classified before its implementation module is importe
 | workflow.simulate | read | never | — | — |
 | workflow.skills-recipe | read | never | — | — |
 | workflow.validate | read | never | — | — |
+| workflow.walk | read | never | — | — |
 | workspace.adopt | mutation | never | — | — |
 | workspace.archive | mutation | never | — | — |
 | workspace.archive-status | read | never | — | — |

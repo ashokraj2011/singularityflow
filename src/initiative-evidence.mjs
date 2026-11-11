@@ -28,6 +28,7 @@ import { harvestInitiativeKnowledge } from './knowledge.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
+import { stripTemplateGuidance } from './template-guidance.mjs';
 import {
   artifactPlaceholderFindings, authoredArtifactFingerprint
 } from './publication-preflight.mjs';
@@ -1087,6 +1088,20 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { agen
     });
   }
 
+  // Every check passed: the template's guidance leaves each authored output now, so the published
+  // bytes, their recorded digest and everything later read are what the author wrote.
+  for (const definition of phaseDefinition(initiative, phaseId).outputs) {
+    const output = phase.outputs[definition.id];
+    if (definition.generator || output.generation !== nextGeneration || !/\.md$/iu.test(output.path)) continue;
+    const target = await secureInitiativePath(root, portfolio, initiativeId, output.path, {
+      label: `Initiative output '${phaseId}/${output.id}'`, type: 'file'
+    });
+    const stripped = stripTemplateGuidance(await readFile(target.absolute, 'utf8'));
+    if (!stripped.removed) continue;
+    await writeText(target.absolute, stripped.text);
+    const published = await snapshot(target.absolute);
+    Object.assign(output, { sha256: published.sha256, bytes: published.size });
+  }
   phase.generation = nextGeneration;
   phase.status = 'awaiting_approval';
   phase.submittedAt = nowIso();

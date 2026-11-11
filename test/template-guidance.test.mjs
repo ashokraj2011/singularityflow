@@ -167,3 +167,22 @@ test('an agent quoting a guidance paragraph as one line matches the specificatio
     }
   }
 });
+
+test('conformance never counts guidance: not a clause, not a placeholder, not a section\'s text, not its size', () => {
+  const spec = [
+    '# Spec', '',
+    '## Actors', '',
+    '<!-- sflow:guidance Who uses this, and what authority does each hold? Write <role> TODO. -->', '',
+    '## Requirements', '',
+    '<!-- sflow:guidance For example: - The export includes every row. [DEMO:REQ-001] -->', '',
+    '- The export includes every row. [DEMO:REQ-002]', ''
+  ].join('\n');
+  assert.deepEqual(extractClauses(spec, { namespace: 'DEMO' }).map((clause) => clause.id), ['DEMO:REQ-002']);
+  const contract = { validation: { requiredHeadings: ['Actors', 'Requirements'] }, minimumBytes: 1 };
+  const { findings } = inspectArtifactContent(spec, { contract });
+  assert.deepEqual(findings.map((finding) => [finding.code, finding.value]), [['artifact.heading.empty', 'Actors']]);
+  // Size is what publication keeps: guidance does not make a short document long enough.
+  const short = inspectArtifactContent(spec, { contract: { ...contract, minimumBytes: 150 } });
+  assert.ok(short.findings.some((finding) => finding.code === 'artifact.required.too-short'));
+  assert.equal(short.bytes, Buffer.byteLength(stripTemplateGuidance(spec).text));
+});

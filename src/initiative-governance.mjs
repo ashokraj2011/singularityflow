@@ -22,7 +22,7 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
     const sources = await verifyEpicSources(root, initiativeId, { materialize: true });
     for (const source of sources.results) {
       if (source.status !== 'verified') errors.push(`Epic source ${source.sourceId} is ${source.status}${source.error ? `: ${source.error}` : ''}`);
-      else passes.push(`Epic source ${source.sourceId}@${source.expectedSha256.slice(0, 12)}`);
+      else passes.push(`Epic source ${source.sourceId}`);
     }
     const traceability = await verifyEpicTraceability(root, portfolio, initiative);
     errors.push(...traceability.errors.map((message) => `Epic traceability: ${message}`));
@@ -44,19 +44,19 @@ export async function runInitiativeGate(root, initiativeId, { terminal = false }
       errors.push(...context.errors.map((message) => `${phaseId}: ${message}`));
       warnings.push(...context.warnings.map((message) => `${phaseId}: ${message}`));
       if (context.record && !context.errors.length && !context.warnings.length) {
-        passes.push(`${phaseId} Copilot prompt ${context.record.renderedSha256.slice(0, 12)}`);
+        passes.push(`${phaseId} Copilot prompt`);
       }
     }
     if (['approved', 'awaiting_approval'].includes(phase.status)) {
       const gate = await evaluateInitiativePhase(root, portfolio, initiative, phaseId);
       errors.push(...gate.errors.map((message) => `${phaseId}: ${message}`));
       warnings.push(...gate.warnings.map((message) => `${phaseId}: ${message}`));
-      if (!gate.errors.length) passes.push(`${phaseId} bundle ${gate.bundleSha256.slice(0, 12)}`);
+      if (!gate.errors.length) passes.push(`${phaseId} bundle`);
     }
   }
   for (const contract of await interfaceContractStatus(root, initiativeId)) {
     if (contract.integrity !== 'verified') errors.push(`contract ${contract.key} is ${contract.integrity}`);
-    else passes.push(`contract ${contract.key}@${contract.sha256.slice(0, 12)}`);
+    else passes.push(`contract ${contract.key}`);
   }
   if (terminal) {
     for (const phaseId of initiative.phaseOrder) if (initiative.phases[phaseId].status !== 'approved') errors.push(`terminal: phase ${phaseId} is ${initiative.phases[phaseId].status}`);

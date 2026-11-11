@@ -71,8 +71,8 @@ export async function decisionWitnessExceptionCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded ${record.id}: ${phaseId}'s witness exception for ${record.clauseId} now expires ${record.expiresAt.slice(0, 10)}, decided through ${record.authorityGroup}.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.witness-exception', classification: 'mutation' },

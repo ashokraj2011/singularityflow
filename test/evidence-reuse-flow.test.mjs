@@ -113,7 +113,7 @@ test('a verify approver reuses the run implement recorded, and it always reads a
   assert.deepEqual(record.clauses, ['QF-1:AC-001']);
   assert.equal(record.actor, 'release-reviewer');
   assert.equal(record.authorityGroup, 'quality-reviewers');
-  const label = `reused: ${attemptId} recorded by implement at ${record.source.commit.slice(0, 12)}; approved for verify by release-reviewer (ERU-001), not a run by verify`;
+  const label = `reused: ${attemptId} recorded by implement; approved for verify by release-reviewer (ERU-001), not a run by verify`;
   assert.equal(accepted.data.label, label);
   const stored = JSON.parse(await readFile(workflowPath, 'utf8'));
   assert.deepEqual(stored.evidenceReuses, [record], 'recorded append-only in workflow.json');
@@ -152,7 +152,7 @@ test('a verify approver reuses the run implement recorded, and it always reads a
   const changed = refused('release-reviewer', ...reuse());
   assert.equal(changed.error.code, 'EVIDENCE_REUSE_SOURCE_CHANGED');
   assert.deepEqual(changed.error.details.paths, ['src/value.mjs']);
-  assert.match(changed.error.message, /changed after implement recorded it at [0-9a-f]{12}: src\/value\.mjs\./u);
+  assert.match(changed.error.message, /changed after implement recorded it: src\/value\.mjs\./u);
   assert.match(changed.error.message, /Repair: /u);
   assert.match(changed.error.message, /Fresh recorded run: /u);
   assert.ok(changed.remediationPlan.steps.some((step) => typeof step.command === 'string'), JSON.stringify(changed.remediationPlan));

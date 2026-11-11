@@ -146,8 +146,8 @@ export async function decisionFindingRiskCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(record.revokes ? `Revoked ${record.revokes} on ${record.phase}.`
       : `Recorded ${record.id}: ${record.phase} may keep ${record.tool} ${record.rule ?? ''} finding ${record.findingId ?? record.fingerprint} until ${record.expiresAt.slice(0, 10)}, accepted through ${record.authorityGroup}. The same finding from another rule, tool or tool version is not covered.`);
-    console.log(publication.pushed ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+    console.log(publication.pushed ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.finding-risk', classification: 'mutation' },

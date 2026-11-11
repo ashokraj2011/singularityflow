@@ -370,7 +370,7 @@ test('every approval creates and pushes its own atomic decision commit', async (
   // Both current command surfaces are shown without implying a second approval.
   assert.match(approval.stdout, /Shell: singularity-flow approve intake --work-id APPROVAL-1 --fetch/);
   assert.match(approval.stdout, /Copilot: \/sf-approve/);
-  assert.match(approval.stdout, /Approval decision committed [0-9a-f]{8} and pushed to origin\/APPROVAL-1/);
+  assert.match(approval.stdout, /Approval decision committed and pushed to origin\/APPROVAL-1/);
 
   const local = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   const published = run('git', ['ls-remote', 'origin', 'refs/heads/APPROVAL-1'], root).stdout.split(/\s+/)[0];

@@ -117,7 +117,7 @@ test('an unchanged source lets a step approver reuse the recorded run, bound and
   assert.equal(decision.actor, person.actor);
   assert.equal(decision.authorityGroup, 'quality-reviewers');
 
-  const label = `reused: ${ATTEMPT} recorded by implementation at ${item.producer.generationCommit.slice(0, 12)};`
+  const label = `reused: ${ATTEMPT} recorded by implementation;`
     + ` approved for verification by ${person.actor} (ERU-001), not a run by verification`;
   const reuse = await evidenceReuseFor(item.root, item.config, item.workflow, 'verification');
   assert.equal(reuse.active.length, 1);
@@ -164,7 +164,7 @@ test('a source file changed after the attempt refuses reuse, naming the path, wi
     assert.equal(error.code, 'EVIDENCE_REUSE_SOURCE_CHANGED');
     assert.deepEqual(error.details.paths, ['app.js']);
     assert.equal(error.details.sourcePhase, 'implementation');
-    assert.match(error.message, /changed after implementation recorded it at [0-9a-f]{12}: app\.js\./u);
+    assert.match(error.message, /changed after implementation recorded it: app\.js\./u);
     assert.match(error.message, /Repair: return the change to implementation/u);
     assert.match(error.message, /Fresh recorded run: verification has no test command of its own/u);
     assert.equal(error.details.recoveryCommands[0].command, 'singularity-flow reject verification --to implementation --repair --reason <REASON>');
@@ -186,7 +186,7 @@ test('a decision lapses when the source changes after it, and the step is never 
   assert.equal(reuse.active.length, 0);
   assert.deepEqual(reuse.clauseIds, [], 'a lapsed decision covers nothing');
   assert.equal(reuse.lapsed[0].state, 'source-changed');
-  assert.match(reuse.lapsed[0].label, new RegExp(`^ERU-001 no longer applies \\(the application source or its test inputs changed after that run\\): ${ATTEMPT} was recorded by implementation at [0-9a-f]{12}, and no run by verification is recorded\\.`, 'u'));
+  assert.match(reuse.lapsed[0].label, new RegExp(`^ERU-001 no longer applies \\(the application source or its test inputs changed after that run\\): ${ATTEMPT} was recorded by implementation, and no run by verification is recorded\\.`, 'u'));
   const evidence = await phaseExecutionEvidence(item.root, item.config, item.workflow, item.phase);
   assert.equal(evidence.reusedTestEvidence[0].state, 'source-changed');
   assert.match(renderEvidenceConsistency(projectEvidenceConsistency({ workflow: item.workflow, phase: item.phase, executionEvidence: evidence })),

@@ -823,7 +823,7 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'source-review.submitted': {
-    headline: (s) => `Retained independent source review ${slot(s.reportSha256)} for ${slot(s.workId)} / ${slot(s.phase)}.`,
+    headline: (s) => `Retained the independent source review for ${slot(s.workId)} / ${slot(s.phase)}.`,
     preserves: false
   },
   'source-review.decided': {

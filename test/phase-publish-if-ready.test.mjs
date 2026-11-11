@@ -48,9 +48,9 @@ test('only the exact publication command prepublish returns for the same phase i
   }
   // What submit did, not the end of what it printed: the commit comes first there, and its last lines give
   // next steps from before the holds were read, so a model said nothing was committed.
-  const printed = ['', 'Submitted code phase for approval.', 'Commit: 1a2b3c4d — request approval (A-1)', 'Push: origin/a-1', 'Review packet: p.json (aaaaaaaaaaaa)',
+  const printed = ['', 'Submitted code phase for approval.', 'Committed: request approval (A-1)', 'Push: origin/a-1', 'Review packet: kept with code generation 1',
     ...Array.from({ length: 60 }, (_, index) => `[${index}] a document`), 'Submitted code for approval with 60 generated document(s).', '  NOW   Approve code', '        Shell: singularity-flow approve code'].join('\n');
-  assert.equal(submitReport(printed), 'Submitted code phase for approval.\nCommit: 1a2b3c4d — request approval (A-1)\nPush: origin/a-1\nReview packet: p.json (aaaaaaaaaaaa)\nSubmitted code for approval with 60 generated document(s).');
+  assert.equal(submitReport(printed), 'Submitted code phase for approval.\nCommitted: request approval (A-1)\nPush: origin/a-1\nReview packet: kept with code generation 1\nSubmitted code for approval with 60 generated document(s).');
   assert.equal(submitReport('something else\nentirely\n'), 'something else\nentirely');
   const status = (options) => resolveOperation({ requestedCommand: 'status', positionals: ['status', 'A-1'], options });
   assert.equal(status({ 'submission-readiness': true, json: true }).classification, 'read');

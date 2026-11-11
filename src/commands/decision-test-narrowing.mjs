@@ -106,8 +106,8 @@ export async function decisionTestNarrowingCommand(positionals, options) {
       : `Recorded ${record.id}: ${record.phase} test command ${record.commandId} may pass narrowed (${narrowingWords(record.narrowing)})`
         + `${record.expiresAt ? ` until ${record.expiresAt.slice(0, 10)}` : ' until the Story ends'}, accepted through ${record.authorityGroup}. `
         + 'A run narrowed further, or under a changed pin, is refused again.');
-    console.log(publication.pushed ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+    console.log(publication.pushed ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.test-narrowing', classification: 'mutation' },

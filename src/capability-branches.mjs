@@ -296,8 +296,12 @@ export function recordStoryRepositoryBases(repositories = [], {
 }
 
 /** One repository's base for reading: `repository: branch @ short commit`, marked when it was an override. */
-export function storyRepositoryBaseText({ repositoryId, baseBranch, baseCommit, source } = {}) {
-  return `${repositoryId}: ${baseBranch} @ ${String(baseCommit).slice(0, 12)}${source === 'override' ? ' (override)' : ''}`;
+/**
+ * One repository's base as a person reads it: the repository and its branch. Its commit is a record's
+ * (`--json`, the receipt's Markdown record), never a person's to read (owner, 2026-11-11: no SHA shown).
+ */
+export function storyRepositoryBaseText({ repositoryId, baseBranch, baseCommit, source } = {}, { commit = false } = {}) {
+  return `${repositoryId}: ${baseBranch}${commit ? ` @ ${String(baseCommit).slice(0, 12)}` : ''}${source === 'override' ? ' (override)' : ''}`;
 }
 
 /** The recorded bases worth listing: only a Story with more than one repository has any to tell apart. */

@@ -99,7 +99,7 @@ test('initiative evidence is content-addressed and exact bundle approvals advanc
   assert.equal(phaseApproval.initiative.phases.plan.status, 'in_progress');
   gate = await evaluateInitiativePhase(root, phaseApproval.portfolio, phaseApproval.initiative, 'define');
   assert.equal(gate.ready, true);
-  assert.match(gate.passes.join('\n'), /phase bundle approval: define@/);
+  assert.match(gate.passes.join('\n'), /phase bundle approval: define/);
 
   const evidence = await readInitiativeRecords(root, loaded.portfolio, 'INIT-EVIDENCE', 'evidence');
   const approvals = await readInitiativeRecords(root, loaded.portfolio, 'INIT-EVIDENCE', 'approvals');

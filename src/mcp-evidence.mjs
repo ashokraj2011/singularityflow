@@ -539,7 +539,7 @@ export async function verifyMcpEvidence(root, workflow, { itemDirectory = null }
             errors.push(`[MCP_EVIDENCE_OUTPUT_RECEIPT_MISMATCH] ${prefix} output does not match its host observation receipt.`);
           }
         }
-        passes.push(`MCP evidence output: ${record.server}/${record.tool}@${current.sha256.slice(0, 8)}`);
+        passes.push(`MCP evidence output: ${record.server}/${record.tool}`);
       }
     } else if (configured.evidence.captureResults) warnings.push(`${prefix} has no durable output although result capture is requested by policy.`);
   }

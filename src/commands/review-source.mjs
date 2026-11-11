@@ -23,6 +23,9 @@ import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { sourceReviewCheckProgress, sourceReviewProgress } from '../source-review-progress.mjs';
 
+/** The folder a report is kept in: its file name is its digest, which a person never reads. */
+const reportFolder = (relative) => String(relative ?? '').replace(/[^/\\]*$/u, '') || 'the Story';
+
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
     () => withCommandConfirmation(options, () => reviewSourceCommand(positionals, options)),
@@ -95,7 +98,8 @@ export async function reviewSourceCommand(positionals, options) {
     const status = await readSourceReviewStatus(root, config, workflow, phaseId);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
     console.log(`Source review: ${status.status} for ${status.workId} ${phaseId} generation ${status.generation}`);
-    if (status.reportSha256) console.log(`Report: ${status.reportSha256} · ${status.reportPath}`);
+    // The report's file is named by its digest: a person reads where it is kept (owner, 2026-11-11: no hash shown).
+    if (status.reportSha256) console.log(`Report: kept in ${reportFolder(status.reportPath)}`);
     for (const finding of status.findings) console.log(`- ${finding.code}: ${finding.message}`);
     for (const pending of status.pendingDispositions) console.log(`- Human decision pending: ${pending.id} — ${pending.reason}`);
     return emitReview('status', noop('source-review.status-reported', {
@@ -204,8 +208,8 @@ export async function reviewSourceCommand(positionals, options) {
       { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });
     const result = { ...status, commit: publication.sha, pushed: publication.pushed };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Source review retained: ${retained.reportSha256} · ${retained.path}`);
-    console.log(`Commit: ${publication.sha}${publication.pushed ? ' (pushed)' : ' (local)'}`);
+    console.log(`Source review retained for ${workflow.workItem.id} ${phaseId} generation ${phase.generation}, in ${reportFolder(retained.path)}`);
+    console.log(`Committed${publication.pushed ? ' and pushed' : ' locally'}.`);
     console.log(`Status: ${status.status}; ${status.findings.length} finding(s), ${status.pendingDispositions.length} human decision(s) pending.`);
     return emitReview('submit', succeeded('source-review.submitted', {
       workId: workflow.workItem.id, phase: phaseId, reportSha256: retained.reportSha256
@@ -233,7 +237,7 @@ export async function reviewSourceCommand(positionals, options) {
   const decisionPacket = sourceReviewDecisionPacket({ workflow, phaseId, status, findingId: id, reason, actor, authority });
   if (action === 'decision-context') {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(decisionPacket, null, 2));
-    console.log(`${decisionPacket.instruction}\nReport: ${status.reportSha256}\nFinding: ${id}\nReason: ${reason}\nAuthority: ${authority.authorityGroup}`);
+    console.log(`${decisionPacket.instruction}\nReport: the review of ${phaseId} generation ${status.generation}\nFinding: ${id}\nReason: ${reason}\nAuthority: ${authority.authorityGroup}`);
     console.log(commandRouteLines(decisionPacket.commandGuidance).join('\n'));
     return;
   }
@@ -265,8 +269,8 @@ export async function reviewSourceCommand(positionals, options) {
   const result = { ...updated, decision: retained, commit: publication.sha, pushed: publication.pushed,
     turnBoundary: 'end', effects: { decisionRecorded: true, phaseAdvanced: false, approvalRecorded: false } };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  console.log(`Human source review decision retained: ${id} · ${retained.recordSha256}`);
-  console.log(`Commit: ${publication.sha}${publication.pushed ? ' (pushed)' : ' (local)'}`);
+  console.log(`Human source review decision retained: ${id}`);
+  console.log(`Committed${publication.pushed ? ' and pushed' : ' locally'}.`);
   console.log(`Status: ${updated.status}; ${updated.findings.length} finding(s) remain.`);
   return emitReview('decide', succeeded('source-review.decided', {
     workId: workflow.workItem.id, phase: phaseId, findingId: id

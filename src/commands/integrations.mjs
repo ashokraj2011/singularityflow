@@ -268,7 +268,7 @@ async function recordCommand(root, config, options, operation, json) {
   const { written, publication } = await commitStepActionReceipts(root, config, workflow);
   if (!json) {
     for (const { receipt } of written) console.log(`${'recorded'.padEnd(14)} ${receipt.action.id} → ${receipt.action.target} (${receipt.phaseId}, ${receipt.trigger})`);
-    console.log(`Committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
+    console.log(`Committed${publication.pushed ? ' and pushed' : ''}.`);
   }
   return report(succeeded('integrations.recorded', { count: written.length, pending: 0, recorded: plan.recorded + written.length, skipped: plan.skipped.length, dryRun: false, commit: publication.sha }), {
     receipts: written.map(({ path, receipt }) => ({ path, ...receipt })),

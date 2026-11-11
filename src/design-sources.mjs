@@ -229,7 +229,7 @@ export async function verifyDesignSourceSet(root, workflow, binding, { itemDirec
     if (!record) errors.push(`Approved design-source record is missing: ${reference.recordId}`);
     else if (recordSha256(record) !== reference.recordSha256 || record.outputSha256 !== reference.outputSha256) errors.push(`Approved design-source record changed: ${reference.recordId}`);
   }
-  if (!errors.length) passes.push(`design sources: ${sourceSet.records?.length ?? 0} record(s) @${binding.setSha256.slice(0, 8)}`);
+  if (!errors.length) passes.push(`design sources: ${sourceSet.records?.length ?? 0} record(s)`);
   return { errors, warnings, passes, sourceSet };
 }
 

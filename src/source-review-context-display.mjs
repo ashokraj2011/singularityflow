@@ -12,13 +12,11 @@ export function sourceReviewContextText(packet) {
     ...(packet.progress ? [`Review progress: ${packet.progress.state}`, packet.progress.instruction,
       ...(packet.progress.error ? [`${packet.progress.error.code}: ${packet.progress.error.message}`] : []),
       ...(packet.progress.nextAction ? ['', ...formatCommandRouteLines(packet.progress.nextAction), ''] : [])] : []),
-    `Artifact: ${packet.artifact.path} · authored-content SHA-256 ${packet.artifact.authoredContentSha256}`,
-    `Registered full-file SHA-256: ${packet.artifact.registeredFileSha256} (includes managed metadata; verified)`,
-    ...packet.sources.map(source => `Source: ${source.id} · ${source.path} · ${source.originalSha256}`),
-    ...(packet.visualSources ?? []).map(source => `Inspect: ${source.id} · ${source.absolutePath} · ${source.originalSha256}`),
-    ...(packet.upstreamSpec ? [
-      `Approved specification: ${packet.upstreamSpec.path} · authored-content SHA-256 ${packet.upstreamSpec.authoredContentSha256} · registered full-file SHA-256 ${packet.upstreamSpec.registeredFileSha256}`
-    ] : []),
+    // Files by name; each digest stays in the packet's JSON, which the reviewer reads (owner, 2026-11-11: no hash shown).
+    `Artifact: ${packet.artifact.path} (its registered bytes verified)`,
+    ...packet.sources.map(source => `Source: ${source.id} · ${source.path}`),
+    ...(packet.visualSources ?? []).map(source => `Inspect: ${source.id} · ${source.absolutePath}`),
+    ...(packet.upstreamSpec ? [`Approved specification: ${packet.upstreamSpec.path}`] : []),
     `Independent reviewer: ${packet.requiredReviewerAgentId} (${packet.reviewer.activation}; operation-scoped; no agent setup)`,
     ...(packet.recovery?.actions ?? []).map(action => `Recovery: ${action.command}`),
     `Report staging path: ${packet.stagingPath}`

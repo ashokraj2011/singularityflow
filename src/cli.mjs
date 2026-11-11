@@ -1670,7 +1670,7 @@ async function impactCommand(positionals, options) {
       })
     );
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ disposition: value, publication }, null, 2));
-    console.log(`Recorded ${value.disposition} for ${value.path}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}.`);
+    console.log(`Recorded ${value.disposition} for ${value.path}. Committed${publication.pushed ? ' and pushed' : ' locally'}.`);
     return;
   }
   if (action === 'status' && String(positionals[2] ?? '').startsWith('cfp-')) {
@@ -1766,7 +1766,7 @@ async function impactCommand(positionals, options) {
         reason: optionString(options, 'reason')
       })
     );
-    console.log(`${optOut ? 'Opted out of' : 'Confirmed enrollment in'} impact study '${value.study.id}'. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}.`);
+    console.log(`${optOut ? 'Opted out of' : 'Confirmed enrollment in'} impact study '${value.study.id}'. Committed${publication.pushed ? ' and pushed' : ' locally'}.`);
     return;
   }
   if (action === 'exposure') {
@@ -2308,7 +2308,7 @@ async function documentsCommand(positionals, options) {
     const result = { ...detached, publication, next };
     if (json) return console.log(JSON.stringify(result, null, 2));
     console.log(`Decision: ${detached.decision.sha256}`);
-    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
+    console.log(`Commit: ${publication.pushed ? 'pushed' : 'retained locally'}`);
     if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
     console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
     if (detached.reopenedPhase) console.log(`Reopened phase: ${detached.reopenedPhase}`);
@@ -2364,7 +2364,7 @@ async function documentsCommand(positionals, options) {
     const pendingPrompt = records.some((record) => documentOfferedToPhase(record, workflow.currentPhase))
       ? await pendingPromptRelative(root, config, workflow) : null;
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result, pendingPrompt }, null, 2));
-    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`); if (records.some((record) => record.storage?.kind === 'local')) console.log('Kept on this machine only: anyone continuing this Story on another machine needs the original file to restore it (singularity-flow documents restore), so keep it, or upload it to the repository instead.');
+    records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.url ?? record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`)); console.log(`Committed${result.pushed ? ' and pushed' : ''}.`); if (records.some((record) => record.storage?.kind === 'local')) console.log('Kept on this machine only: anyone continuing this Story on another machine needs the original file to restore it (singularity-flow documents restore), so keep it, or upload it to the repository instead.');
     if (pendingPrompt) console.log(`The prompt already composed for ${workflow.currentPhase} (${pendingPrompt}) does not include ${records.length === 1 ? 'this document' : 'these documents'} yet; it is recomposed with them the next time it is composed (singularity-flow wm compose --phase ${workflow.currentPhase}).`);
     return;
   }
@@ -2428,7 +2428,7 @@ async function documentsCommand(positionals, options) {
     );
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ documents: records, publication: result }, null, 2));
     records.forEach((record) => console.log(`${record.id}\t${record.type}\t${record.remote?.providerId ?? ''}\t${record.path ?? documentLocation({ ...record, availability: 'available' })}\t${record.name ?? ''}\t${documentPhasesLabel(record, workflow.phaseOrder)}`));
-    console.log(`Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+    console.log(`Committed${result.pushed ? ' and pushed' : ''}.`);
     return;
   }
   if (subcommand === 'scope') return documentsScopeCommand(root, positionals, options);
@@ -2454,7 +2454,7 @@ async function documentsCommand(positionals, options) {
     );
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ document: stored, publication }, null, 2));
     console.log(`${documentTitle(stored)} is committed to Git at ${stored.path}; its ID and SHA-256 are unchanged.`);
-    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
+    console.log(`Commit: ${publication.pushed ? 'pushed' : 'retained locally'}`);
     if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
     return;
   }
@@ -2516,7 +2516,7 @@ async function documentsScopeCommand(root, positionals, options) {
   const result = { ...scoped, publication, next };
   if (json) return console.log(JSON.stringify(result, null, 2));
   console.log(`Decision: ${scoped.decision.sha256}`);
-  console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
+  console.log(`Commit: ${publication.pushed ? 'pushed' : 'retained locally'}`);
   if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
   printCommandRoutes('singularity-flow nextsteps', { label: 'Continue' });
 }
@@ -3385,7 +3385,7 @@ async function mcpCommand(positionals, options) {
       const output = { ...promoted, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
       console.log(`Promoted ${candidateRecordId}; reopened ${promoted.capturePhase} and invalidated ${promoted.invalidatedPhases.join(', ')}.`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}. Publish and approve a new capture generation before continuing.`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}. Publish and approve a new capture generation before continuing.`);
       return;
     }
     if (action !== 'status') throw new SingularityFlowError(`Unknown mcp design-sources action: ${action}`);
@@ -4154,8 +4154,8 @@ async function decisionApplicabilityCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded that ${responsibility} does not apply to ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
     const open = applicabilityStatus(workflow).filter((row) => !row.satisfied);
     if (open.length) console.log(`Still to decide before the Story can finish: ${open.map((row) => row.responsibility).join(', ')}.`);
   }
@@ -4199,8 +4199,8 @@ async function decisionScopeCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded that ${item} is ${disposition} for ${id}, decided by ${decision.actor} through ${decision.authorityGroup}.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.scope', classification: 'mutation' },
@@ -4245,8 +4245,8 @@ async function decisionRiskCommand(positionals, options) {
       ? `Revoked ${record.revokes} on ${record.obligationId}.`
       : `Recorded ${record.id}: the ${record.category} risk of ${record.obligationId} is accepted until ${record.expiresAt.slice(0, 10)} through ${record.authorityGroup}.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.risk', classification: 'mutation' },
@@ -4353,8 +4353,8 @@ async function decisionWitnessCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded ${record.id}: the ${record.method} of ${record.file} ${record.outcome === 'met' ? 'witnesses' : 'does not witness'} ${record.clauseId} slot ${record.slot}, bound to its current bytes.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.witness', classification: 'mutation' },
@@ -4404,8 +4404,8 @@ async function decisionPlanCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded plan amendment ${amendment.id} for ${id} through ${amendment.authorityGroup}.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.plan', classification: 'mutation' },
@@ -4442,8 +4442,8 @@ async function decisionCompletenessCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded that ${review.actor} reviewed the scope of ${id} for completeness through ${review.authorityGroup}.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.completeness', classification: 'mutation' },
@@ -4485,8 +4485,8 @@ async function decisionChooseCommand(positionals, options) {
     console.log(`Decision '${pending.label}': ${outcome.routeLabel} → ${where}, chosen by ${actorKey(actor)} through ${authority.authorityGroup}.`);
     if (outcome.skipped?.length) console.log(`Skipped: ${outcome.skipped.map((id) => workflow.phases[id]?.label ?? id).join(', ')}.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
     formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   }
   // An `end` route finishes the Story only after its transaction passed the final evaluation.
@@ -4610,8 +4610,8 @@ async function reopenCommand(positionals, options) {
   });
   console.log(`Reopened ${workflow.workItem.id} at ${result.phase.id} with ${result.changeRequest.id}.`);
   console.log(publication.pushed
-    ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-    : `Decision committed ${publication.sha.slice(0, 8)} locally.`);
+    ? `Decision committed and pushed.`
+    : `Decision committed locally.`);
 }
 
 async function cancelCommand(positionals, options) {
@@ -4695,8 +4695,8 @@ async function cancelCommand(positionals, options) {
   console.log(`Cancelled ${workflow.workItem.id} during ${result.phase.id}: ${result.cancellation.reason}`);
   console.log(`All generated artifacts and approvals remain on ${workflowPublicationBranch(root, workflow)}.`);
   console.log(publication.pushed
-    ? `Cancellation committed ${publication.sha.slice(0, 8)} and pushed; the Story is now archived.`
-    : `Cancellation committed ${publication.sha.slice(0, 8)} locally; the Story is now archived.`);
+    ? `Cancellation committed and pushed; the Story is now archived.`
+    : `Cancellation committed locally; the Story is now archived.`);
   const remainingChanges = changedFiles(root);
   if (remainingChanges.length) {
     console.log(`${remainingChanges.length} uncommitted path(s) remain on the archived branch.`);
@@ -5661,7 +5661,7 @@ async function assignCommand(positionals) {
     `[${workflow.workItem.id}][phase:${phaseId}][assign] ${assignee}`,
     (aggregate) => assignPhase(aggregate, phaseId, assignee, session)
   );
-  console.log(`Assigned ${phaseId} to ${record.assignee}. Committed ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+  console.log(`Assigned ${phaseId} to ${record.assignee}. Committed${result.pushed ? ' and pushed' : ''}.`);
 }
 
 async function watchCommand(positionals, options) {
@@ -7596,7 +7596,7 @@ async function initiativeCommand(positionals, options) {
     }
     console.log(`Initiative ${initiativeId} started as ${profile}.`);
     console.log(initiativeFlowText(progress));
-    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+    console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
     // The next step depends on the profile: Epic planning prepares requirements, others their first step.
     if (usesEpicPlanningLifecycle(current.initiative.resolution)) printCommandRoutes('singularity-flow epic requirements prepare', { label: 'Prepare requirements' });
     else printCommandRoutes(`singularity-flow initiative phase ${current.initiative.currentPhase} --initiative ${initiativeId}`, { label: 'Prepare the first phase' });
@@ -7727,7 +7727,7 @@ async function initiativeCommand(positionals, options) {
         agent: session?.agent ?? null
       })
     );
-    console.log(`${initiativeId} restarted at ${initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`${initiativeId} restarted at ${initiative.currentPhase}. ${result.removed.length} artifact${result.removed.length === 1 ? '' : 's'} discarded; Epic branch and sources kept, Story-branch world models unchanged. Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
   }
   if (subcommand === 'applicability') {
@@ -7764,7 +7764,7 @@ async function initiativeCommand(positionals, options) {
     if (optionBoolean(options, 'json')) {
       return console.log(JSON.stringify({ policyId, applicable: result.applicable, publication }, null, 2));
     }
-    console.log(`${result.policy.label} is ${result.applicable ? 'applicable' : 'not applicable'} to ${initiativeId}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`${result.policy.label} is ${result.applicable ? 'applicable' : 'not applicable'} to ${initiativeId}. Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
   }
   if (subcommand === 'outputs') {
@@ -7794,7 +7794,7 @@ async function initiativeCommand(positionals, options) {
         { reason: optionString(options, 'reason') ?? null, agent: session?.agent ?? null }
       )
     );
-    console.log(`${phaseId} will produce ${result.included.join(', ') || 'nothing'}${result.adopted.length ? ` (adopted ${result.adopted.join(', ')})` : ''}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`${phaseId} will produce ${result.included.join(', ') || 'nothing'}${result.adopted.length ? ` (adopted ${result.adopted.join(', ')})` : ''}. Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
   }
   if (subcommand === 'phase') {
@@ -7878,8 +7878,8 @@ async function initiativeCommand(positionals, options) {
         references = registered.value.references;
         referencePublication = registered.publication;
       }
-      console.log(`Published ${phaseId} generation ${result.phase.generation}. Commit ${generationPublication.sha.slice(0, 8)}${generationPublication.pushed ? ' pushed' : ''}.`);
-      if (referencePublication) console.log(`Registered ${references.length} reference(s). Commit ${referencePublication.sha.slice(0, 8)}${referencePublication.pushed ? ' pushed' : ''}.`);
+      console.log(`Published ${phaseId} generation ${result.phase.generation}. Committed${generationPublication.pushed ? ' and pushed' : ''}.`);
+      if (referencePublication) console.log(`Registered ${references.length} reference(s). Committed${referencePublication.pushed ? ' and pushed' : ''}.`);
     } else {
       const generation = Number(initiative.phases[phaseId].generation) + 1;
       const { value: prepared, publication } = await transactInitiativeCommand(
@@ -7898,7 +7898,7 @@ async function initiativeCommand(positionals, options) {
       );
       const { context, ...result } = prepared;
       await issueInitiativeDrafts(root, result.outputs.filter((document) => !document.generated && !document.awaitingUpload));
-      console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+      console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Committed${publication.pushed ? ' and pushed' : ''}.`);
       console.log(`Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
       result.outputs.forEach((document) => {
@@ -8012,7 +8012,7 @@ async function initiativeCommand(positionals, options) {
         { appendOnly: true }
       );
       const appended = value.appended;
-      console.log(`Evidence ${appended.sha256.slice(0, 12)} committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
+      console.log(`Evidence ${appended.sha256.slice(0, 12)} committed${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
     if (action === 'list') {
@@ -8082,7 +8082,7 @@ async function initiativeCommand(positionals, options) {
     );
     // Spent once the approval has landed, not before it is attempted.
     if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
-    console.log(`Approved ${phaseId}:${subject}. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`Approved ${phaseId}:${subject}. Committed${publication.pushed ? ' and pushed' : ''}.`);
     if (result.knowledge?.harvested?.length) {
       console.log(`Recorded ${result.knowledge.harvested.length} knowledge ${result.knowledge.harvested.length === 1 ? 'entry' : 'entries'} from the editorroved artifacts.`);
     }
@@ -8115,7 +8115,7 @@ async function initiativeCommand(positionals, options) {
         agent: session?.agent ?? null
       })
     );
-    console.log(`Rejected ${result.target.type}/${result.target.id}; invalidated ${result.invalidation.affected.length} dependent nodes. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`Rejected ${result.target.type}/${result.target.id}; invalidated ${result.invalidation.affected.length} dependent nodes. Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
   }
   if (subcommand === 'breakdown') {
@@ -8150,7 +8150,7 @@ async function initiativeCommand(positionals, options) {
     });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'adopt', epicKey } }, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
     console.log(`Adopted ${epicKey} as ${result.breakdown.epics.length} Epic and ${result.breakdown.stories.length} stories.`);
-    console.log(`Source snapshot: ${result.sourceSha256.slice(0, 12)} · Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`Source snapshot: ${result.sourceSha256.slice(0, 12)} · Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
   }
   if (subcommand === 'jira-plan') {
@@ -8168,7 +8168,7 @@ async function initiativeCommand(positionals, options) {
         { key: 'id', label: 'OPERATION' }, { key: 'action', label: 'ACTION' },
         { key: 'target', label: 'TARGET' }, { key: 'fields', label: 'FIELDS' }
       ]));
-      console.log(`Committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}. Review the plan before applying it.`);
+      console.log(`Committed${publication.pushed ? ' and pushed' : ''}. Review the plan before applying it.`);
     }
     return;
   }
@@ -8182,7 +8182,7 @@ async function initiativeCommand(positionals, options) {
       actor: identity(root).email?.toLowerCase() ?? identity(root).name
     });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'apply', planSha256 } }, `[${initiativeId}][initiative:jira-apply] ${planSha256.slice(0, 12)}`);
-    console.log(`Applied ${result.results.length} Jira operations. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`Applied ${result.results.length} Jira operations. Committed${publication.pushed ? ' and pushed' : ''}.`);
     result.results.forEach((receipt) => console.log(`- ${receipt.operationId}: ${receipt.jiraKey}`));
     return;
   }
@@ -8197,7 +8197,7 @@ async function initiativeCommand(positionals, options) {
     const result = await materializeInitiative(root, initiativeId, { confirmation: initiativeId });
     const fresh = await loadInitiativeAggregate(root, initiativeId);
     const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'materialize', status: result.attempt.status } }, `[${initiativeId}][initiative:materialize] ${result.attempt.status}`);
-    console.log(`Materialization ${result.attempt.status}: ${result.attempt.stories.length - result.failures.length}/${result.attempt.stories.length} ready. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+    console.log(`Materialization ${result.attempt.status}: ${result.attempt.stories.length - result.failures.length}/${result.attempt.stories.length} ready. Committed${publication.pushed ? ' and pushed' : ''}.`);
     result.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
     return;
   }
@@ -8208,7 +8208,7 @@ async function initiativeCommand(positionals, options) {
     const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'repository-sync' } }, `[${initiativeId}][initiative:sync] repository evidence`);
     // Per-Story results let a caller stop only on a returned failing status, never on a guess.
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ initiativeId, results: result.results, commit: publication.sha, pushed: publication.pushed }, null, 2));
-    console.log(`Synchronized ${result.results.filter((item) => item.status === 'synchronized').length}/${result.results.length} stories. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.${pending.pushed ? ` Retried ${pending.pushed.slice(0, 8)} first.` : ''}`);
+    console.log(`Synchronized ${result.results.filter((item) => item.status === 'synchronized').length}/${result.results.length} stories. Committed${publication.pushed ? ' and pushed' : ''}.${pending.pushed ? ` Retried ${pending.pushed.slice(0, 8)} first.` : ''}`);
     return;
   }
   if (subcommand === 'contracts') {
@@ -8227,7 +8227,7 @@ async function initiativeCommand(positionals, options) {
       });
       const fresh = await loadInitiativeAggregate(root, initiativeId);
       const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, payload: { contractId: result.contract.id, contractVersion: result.contract.version } }, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
-      console.log(`Registered ${result.contract.id}@${result.contract.version} (${result.contract.sha256.slice(0, 12)}). Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.`);
+      console.log(`Registered ${result.contract.id}@${result.contract.version} (${result.contract.sha256.slice(0, 12)}). Committed${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
     const contracts = await interfaceContractStatus(root, initiativeId);
@@ -10257,7 +10257,7 @@ async function epicCommand(positionals, options) {
       const result = { ...detached, publication };
       if (json) return console.log(JSON.stringify(result, null, 2));
       console.log(`Decision: ${detached.decision.sha256}`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' retained locally'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'retained locally'}`);
       if (!publication.pushed) {
         printCommandRoutes(`singularity-flow initiative sync ${initiativeId}`, { label: 'Publish the retained commit' });
       }
@@ -10285,7 +10285,7 @@ async function epicCommand(positionals, options) {
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ record: result.record, publication }, null, 2));
       console.log(`Registered text ${result.record.sourceId}: ${result.record.name}`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
     if (action === 'add') {
@@ -10302,7 +10302,7 @@ async function epicCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
       console.log(`Registered ${result.record.sourceId}: ${result.record.name}`);
       console.log(`Provider: ${result.record.provider} · ${result.record.bytes} bytes · ${result.record.sha256}`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
     if (action === 'verify' || action === 'materialize') {
@@ -10332,7 +10332,7 @@ async function epicCommand(positionals, options) {
           { key: 'version', label: 'VERSION' },
           { key: 'cachePath', label: 'LOCAL CACHE', kind: 'path' }
         ]));
-        if (publication) console.log(`Verification evidence committed ${publication.sha.slice(0, 8)}${publication.pushed ? ' and pushed' : ''}.`);
+        if (publication) console.log(`Verification evidence committed${publication.pushed ? ' and pushed' : ''}.`);
       }
       if (!result.valid) process.exitCode = 2;
       return;
@@ -10443,7 +10443,7 @@ async function epicCommand(positionals, options) {
       const { updated, publication } = await publishEpicStoryUpdate(root, initiativeId, planId, changes, `update ${planId}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: updated.story, publication }, null, 2));
       console.log(`Updated ${planId}; Planning approval was invalidated and Story specifications were refreshed.`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
     if (action === 'metadata') {
@@ -10481,7 +10481,7 @@ async function epicCommand(positionals, options) {
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: updated.story, publication }, null, 2));
       console.log(`Updated ${planId} metadata; Planning approval was invalidated for renewed UI review.`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
     if (action === 'tasks') {
@@ -10532,7 +10532,7 @@ async function epicCommand(positionals, options) {
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: updated.story, publication }, null, 2));
       console.log(`${operation === 'remove' ? 'Removed' : operation === 'add' ? 'Added' : 'Updated'} task ${taskId} on ${planId}; Planning approval was invalidated.`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
     if (action === 'add') {
@@ -10550,7 +10550,7 @@ async function epicCommand(positionals, options) {
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: added.story, publication }, null, 2));
       console.log(`Added ${added.story.planId}: ${added.story.title} (${added.story.repository}).`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
     if (action === 'split') {
@@ -10566,7 +10566,7 @@ async function epicCommand(positionals, options) {
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: split.story, publication }, null, 2));
       console.log(`Split ${planId} into ${split.story.planId}. Planning approval was invalidated for renewed UI review.`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
     if (action === 'adopt') {
@@ -10587,7 +10587,7 @@ async function epicCommand(positionals, options) {
       );
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ story: adopted.story, publication }, null, 2));
       console.log(`Adopted Jira ${issue.key} as ${adopted.story.planId}; its existing Jira parent remains unchanged.`);
-      console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+      console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
     throw new SingularityFlowError(`Unknown Epic stories action '${action}'. Use list, show, update, metadata, tasks, split, adopt, or validate.`);
@@ -10790,7 +10790,7 @@ async function epicCommand(positionals, options) {
     console.log(`Epic ${initiativeId} marked complete.`);
     console.log(`Spec-to-code report: ${result.reportPath}`);
     console.log(`Decision: ${result.record.sha256}`);
-    console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+    console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
     return;
   }
   if (subcommand === 'review-choice') {
@@ -11225,7 +11225,7 @@ export async function finalizeCommand(options) {
   console.log(`Packet hash: ${result.packet.packetSha256}`);
   if (result.impact) console.log(`Impact receipt: ${result.impact.path} · ${result.impact.receipt.integrity.sha256.slice(0, 12)}`);
   console.log(`Source: ${result.packet.sourceCommit.slice(0, 12)} · tree ${result.packet.sourceTreeSha256.slice(0, 12)}`);
-  console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
+  console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
 }
 
 /**

@@ -213,8 +213,8 @@ export async function storyTargetOriginCommand(positionals, options) {
   if (!json) {
     console.log(`Pinned ${plan.origin} to Story ${id} for ${plan.servers.join(', ')}, through ${record.authorityGroup}. Smoke receipts and browser evidence for any other origin are refused.`);
     console.log(publication.pushed
-      ? `Committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Committed and pushed.`
+      : `Committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'story.target-origin', classification: 'mutation' },

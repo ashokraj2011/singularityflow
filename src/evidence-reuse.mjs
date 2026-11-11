@@ -51,7 +51,6 @@ const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const MAX_RECEIPT_BYTES = 16 * 1024 * 1024;
 
 const bare = (value) => String(value ?? '').replace(/^sha256:/u, '');
-const shortCommit = (commit) => String(commit ?? '').slice(0, 12);
 
 function textBetween(value, minimum, maximum, option, what) {
   const text = String(value ?? '').trim();
@@ -104,9 +103,9 @@ export function evidenceReuseState(workflow, decision, { at, observed = null } =
   return 'active';
 }
 
-/** The honest label of an active decision: whose run it is, at which commit, and who reused it for what. */
+/** The honest label of an active decision: whose run it is and who reused it for what (its commit stays in the record). */
 export function evidenceReuseLabel(decision) {
-  return `reused: ${decision.attempt.id} recorded by ${decision.attempt.phase} at ${shortCommit(decision.source.commit)};`
+  return `reused: ${decision.attempt.id} recorded by ${decision.attempt.phase};`
     + ` approved for ${decision.phase} by ${decision.actor} (${decision.id}), not a run by ${decision.phase}`;
 }
 
@@ -122,7 +121,7 @@ const LAPSED = {
 /** What a lapsed decision says: why it no longer applies, and that the reusing step still has no run of its own. */
 export function lapsedEvidenceReuseLabel(decision, state) {
   return `${decision.id} no longer applies (${(LAPSED[state] ?? LAPSED.unobserved)(decision)}):`
-    + ` ${decision.attempt.id} was recorded by ${decision.attempt.phase} at ${shortCommit(decision.source.commit)},`
+    + ` ${decision.attempt.id} was recorded by ${decision.attempt.phase},`
     + ` and no run by ${decision.phase} is recorded. A fresh recorded run, or a new decision on an unchanged source, is needed.`;
 }
 
@@ -447,7 +446,7 @@ export async function prepareEvidenceReuse(root, config, workflow, { phaseId, at
   const { producer, consumer, source } = verified;
   const { commitIsAncestor } = await import('./git.mjs');
   if (!commitIsAncestor(root, source.commit, 'HEAD')) {
-    throw new SingularityFlowError(`${attemptId} ran on ${shortCommit(source.commit)}, which is not in this branch's history, so its source cannot be compared.`, {
+    throw new SingularityFlowError(`${attemptId} ran on a commit that is not in this branch's history, so its source cannot be compared.`, {
       code: 'EVIDENCE_REUSE_SOURCE_UNAVAILABLE', details: { phase: phaseId }
     });
   }
@@ -465,7 +464,7 @@ export async function prepareEvidenceReuse(root, config, workflow, { phaseId, at
       ? `: ${changed.paths.join(', ')}${changed.omitted ? ` and ${changed.omitted} more` : ''}`
       : changed.available ? ' (the tree digests differ, though no single changed application path could be named)' : ' (the changed paths could not be listed)';
     throw new SingularityFlowError(
-      `${attemptId} cannot be reused for ${phaseId}: the application source changed after ${producer.id} recorded it at ${shortCommit(source.commit)}${named}.`
+      `${attemptId} cannot be reused for ${phaseId}: the application source changed after ${producer.id} recorded it${named}.`
         + ` A recorded run stands only for the exact source it tested. ${routes.repair.label} Shell: ${routes.repair.command}.`
         + ` ${routes.fresh.label}${routes.fresh.command === routes.repair.command ? '' : ` Shell: ${routes.fresh.command}.`}`,
       { code: 'EVIDENCE_REUSE_SOURCE_CHANGED', details: {

@@ -394,6 +394,6 @@ async function syncReplayCommand(root, config, requestedId, options) {
   }
   console.log(`Replayed commit ${result.from.slice(0, 8)} onto the published Story; it is kept at ${result.preservedRef}.`);
   for (const document of result.documents) console.log(`  ${document.previousId} → ${document.id ?? '?'} — ${document.name}`);
-  console.log(`Commit: ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' pushed' : ' retained locally'}`);
+  console.log(`Commit: ${result.publication.pushed ? 'pushed' : 'retained locally'}`);
   if (!result.publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
 }

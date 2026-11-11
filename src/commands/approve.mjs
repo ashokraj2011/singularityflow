@@ -1,7 +1,7 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { stdin as processInput, stdout as processOutput } from 'node:process';
 import { optionBoolean, SingularityFlowError, optionString, optionStrings } from '../util.mjs';
-import { WITNESS_NAME } from '../witness-names.mjs';
+import { WITNESS_NAME } from '../wel-review.mjs';
 import { decisionWorkflow } from './shared/decision-workflow.mjs';
 import { printPhaseReview } from './shared/print-phase-review.mjs';
 // Human document rendering is not part of the compact agent approval path.

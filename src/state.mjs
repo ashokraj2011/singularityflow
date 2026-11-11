@@ -274,7 +274,7 @@ import { admitTestAttempts, recordRunsBeforeRefusal, recordTestAttempt, unchange
 import { describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { parseVerificationContracts } from './verification/contracts.mjs';
 import { assertPlannedTestsRunnable, assertStoryBaselineDisposition, sealStoryTestPolicy } from './verification/test-policy.mjs';
-import { evaluateWitnessMappingReview } from './wel-review.mjs';
+import { evaluateWitnessMappingReview, namedWitnessText, resolveWitnessNames } from './wel-review.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateProtectedPaths,
   repositoryCaseInsensitivePaths
@@ -7271,7 +7271,6 @@ export async function evaluateApproval(root, config, workflow, {
         const stale = submittedWitnessMappings.find((mapping) =>
           currentClauses.get(mapping.clauseId) !== mapping.clauseBodySha256);
         if (stale) {
-          const { namedWitnessText } = await import('./witness-names.mjs');
           throw new SingularityFlowError(
             `Witness ${namedWitnessText(stale.mappingSha256, submittedWitnessMappings)} no longer matches the active bytes for clause '${stale.clauseId}'. Re-submit the phase after reconciling the specification evidence.`,
             { code: 'WEL_WITNESS_MAPPING_STALE' }
@@ -7283,7 +7282,6 @@ export async function evaluateApproval(root, config, workflow, {
       // Approving accepts every submitted witness as adequate unless the reviewer decided otherwise; an
       // earlier decision on an identical witness carries forward [E2G-014].
       // A witness named as the review shows it is the submitted mapping that name stands for [no hashes shown].
-      const { namedWitnessText, resolveWitnessNames } = await import('./witness-names.mjs');
       const witnessReview = evaluateWitnessMappingReview({
         mappings: submittedWitnessMappings,
         decisions: resolveWitnessNames(witnessMappings, submittedWitnessMappings),

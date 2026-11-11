@@ -2,7 +2,7 @@
 import * as style from '../../style.mjs';
 import { approvalCheckLines, blockingCommitLines, owedDecisionLines } from '../../owed-decisions.mjs';
 import { printCommandRoutes } from './print-command-routes.mjs';
-import { witnessNames } from '../../witness-names.mjs';
+import { witnessNames } from '../../wel-review.mjs';
 
 /**
  * Report the artifacts a phase produced.
@@ -69,7 +69,7 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log(`\n${style.heading('SF Guard labels')} ${style.detail('who wrote the changed lines, as recorded; a label decides nothing')}`);
     for (const line of review.attributionLabels) console.log(`  ${line}`);
   }
-  // Each witness by the name approve takes (witness-names.mjs): its criterion, numbered among several.
+  // Each witness by the name approve takes (wel-review.mjs witnessNames): its criterion, numbered among several.
   const witnessName = witnessNames(review.witnessReview?.mappings);
   for (const mapping of review.witnessReview?.mappings ?? []) {
     const safe = (value) => String(value ?? 'unavailable')

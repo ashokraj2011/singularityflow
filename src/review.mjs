@@ -1,6 +1,6 @@
 import { recap } from './narration/recap.mjs';
 import { witnessMappingReview } from './witness-review-read.mjs';
-import { witnessNames } from './witness-names.mjs';
+import { witnessNames } from './wel-review.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';

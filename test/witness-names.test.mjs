@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { namedWitnessText, resolveWitnessNames, WITNESS_NAME, witnessNames } from '../src/witness-names.mjs';
+import { namedWitnessText, resolveWitnessNames, WITNESS_NAME, witnessNames } from '../src/wel-review.mjs';
 
 const digest = (letter) => `sha256:${letter.repeat(64)}`;
 const mappings = [

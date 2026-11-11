@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readdirSync, realpathSync, renameSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -52,6 +52,15 @@ function evict(gitDirectory) {
   return () => { for (const [file, copy] of moved) { rmSync(file); renameSync(copy, file); } };
 }
 
+// An agent's view is bounded: a long field such as the table is kept in the result file the view
+// names for reading, as the agent reads it.
+async function withOmittedFields(stdout) {
+  const view = JSON.parse(stdout);
+  if (!view.agentOutput?.path || !view.omittedFields?.length) return view;
+  const kept = JSON.parse(await readFile(view.agentOutput.path, 'utf8'));
+  return { ...view, ...Object.fromEntries(view.omittedFields.map(({ field }) => [field, kept[field]])) };
+}
+
 test('a clone whose Git files cannot be read still lists its Stories from the remote, and says what is blocked',
   slowLane({ skip: !posix, timeout: 300_000 }), async (t) => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-remote-listing-'));
@@ -95,7 +104,7 @@ test('a clone whose Git files cannot be read still lists its Stories from the re
     const listed = sflow(['session', 'open', '--for-agent', '--json']);
     assert.equal(listed.status, 0, `${listed.stdout}\n${listed.stderr}`);
     assert.ok(listed.elapsedMs < 60_000, `listed in ${Math.round(listed.elapsedMs)} ms`);
-    const choose = JSON.parse(listed.stdout);
+    const choose = await withOmittedFields(listed.stdout);
     assert.equal(choose.status, 'choose');
     assert.match(choose.table, /\| LIST-101 \|/);
     assert.match(choose.table, /Local clone: unavailable\. Git cannot read this repository's own files/);
@@ -130,7 +139,7 @@ test('a clone whose Git files cannot be read still lists its Stories from the re
     restored = true;
     const again = sflow(['session', 'open', '--for-agent', '--json']);
     assert.equal(again.status, 0, again.stderr);
-    const fresh = JSON.parse(again.stdout);
+    const fresh = await withOmittedFields(again.stdout);
     assert.equal(fresh.localClone, undefined);
     assert.doesNotMatch(fresh.table, /Local clone: unavailable/);
     assert.match(fresh.table, /\| LIST-101 \|/);

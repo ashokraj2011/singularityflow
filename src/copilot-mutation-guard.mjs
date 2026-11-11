@@ -1319,6 +1319,16 @@ const TARGET_ORIGIN_PIN_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a Story\
   + 'a person who approves the step that smoke-checks it confirms the pin in their own terminal, never this turn. '
   + 'Show the user the preview (story target-origin <WORK-ID> --url <URL>, which is allowed) and its plan digest; do not retry it';
 
+/** The SFlow command a piped, chained or redirected shell call wraps, as it runs alone; null when there is none to name. */
+function standaloneSflowCommand(call, value) {
+  const text = String(scopedShellCommand(call, value) ?? call.args.command ?? call.args.cmd ?? call.args.script ?? '')
+    .replace(/\s\d*(?:>{1,2}|<)&?\s*[^\s;&|]*/gu, ' ');
+  const found = /(?:^|[\s;&|(])((?:singularity-flow|sflow)\s[^|;&<>`$()\n]*)/u.exec(text);
+  if (!found) return null;
+  const command = found[1].replace(/\s+/gu, ' ').trim();
+  return command.length > 4 && command.length <= 300 ? command : null;
+}
+
 function mentionsKernelExecution(call, value) {
   const command = scopedShellCommand(call, value) ?? call.args.command ?? call.args.cmd ?? call.args.script ?? '';
   // A directory or file prefixed with sflow/singularity-flow is not a CLI invocation.
@@ -2003,8 +2013,15 @@ async function mutationToolDecision(payload, record) {
         // A gate under another Node on PATH: refused as ever, since only the gate's own run counts, with the command that answers what it was asking.
         const otherNode = commandUnderAnotherNode(call, contract);
         if (otherNode) return mutationDenial(contract, otherNode.reason, [], { routes: otherNode.routes });
-        if (mentionsKernelExecution(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains or wrappers. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions');
+        // A piped or chained SFlow command is a tool form fixed in this turn: the exact command to run alone, and no
+        // recovery route. Given only /sf-recover, an agent told the person to recover to continue (office, 2026-11-11).
+        if (mentionsKernelExecution(call, value)) {
+          const alone = standaloneSflowCommand(call, value);
+          return mutationDenial(contract,
+            `PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains, pipes or wrappers${alone
+              ? `. Run \`${alone}\` on its own in this turn and read its output with your file tools; nothing needs recovering` : ''}. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions`,
+            [], { routes: [] });
+        }
       }
       // Baseline BEFORE execution, refreshed after kernel-owned operations at the CLI boundary. A
       // command that only reads changes nothing, so it needs none.

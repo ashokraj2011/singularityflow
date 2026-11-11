@@ -2624,6 +2624,13 @@ test('the launcher\'s verified Node and CLI entry, quoted for the shell, meet ev
   // In an authoring turn the pair inside a chain is still the kernel, never an ordinary shell command.
   const authoring = await f.enter('/sf-phase', 'verified-cli-chain');
   assert.match((await shell(authoring, `echo start && ${posix} phase publish custom-step --authored governed-agent --channel copilot-host`)).permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/u);
+  // A piped read is a tool form fixed in this turn: the exact command alone, no recovery route. Given only /sf-recover,
+  // an agent told the person to recover to continue (office, 2026-11-11).
+  const piped = await shell(authoring, `singularity-flow story show PMC-1 --json 2>&1 | jq '.workflow.phases[]' | head -50`);
+  assert.equal(piped.permissionDecision, 'deny');
+  assert.match(piped.permissionDecisionReason, /Run `singularity-flow story show PMC-1 --json` on its own in this turn and read its output with your file tools; nothing needs recovering/u);
+  assert.doesNotMatch(piped.permissionDecisionReason, /\/sf-recover/u);
+  assert.deepEqual(piped.next, []);
   // A person's own step through it is read as the CLI too, and refused for what it is.
   assert.equal((await shell(authoring, `echo start && ${posix} approve custom-step`)).next[0].command, 'singularity-flow approve custom-step');
   // Before a Story is bound: a setup skill's own family and a session attach, as with the bare CLI.

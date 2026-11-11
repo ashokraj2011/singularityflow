@@ -152,6 +152,9 @@ test('an application with no start entry names app suggest', () => {
   });
   assert.equal(refusalRemediationPlan(refusal, ['app', 'start']).steps[0].command,
     'singularity-flow app suggest --capability web-app --json');
+  // Not a governed proposal first: the setup saves on this checkout only, then starts it (Story anu-bin, 2026-11-11).
+  assert.match(refusal.message, /\/sf-run-app detects one from the repository, asks you which to keep, saves it on this checkout only/u);
+  assert.equal(refusalRemediationPlan(refusal, ['app', 'start']).steps[0].copilotCommand, '/sf-run-app');
 });
 
 test('unreadable state records name the ledger doctor, and a newer build\'s records keep their upgrade code', () => {

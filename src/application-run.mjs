@@ -249,10 +249,12 @@ export function selectStartEntry(context, startId = null) {
   const entries = context.application.start;
   if (!entries.length) {
     throw new SingularityFlowError(
-      `Capability '${context.capabilityId}' declares no application start entry. Add application.start to singularity/capabilities.yml through a capability proposal; app suggest drafts it from the repository.`,
+      // It read as a governed proposal, so an agent asked to start the app stopped instead of offering the
+      // two-minute setup: suggest, confirm, save on this checkout only (Story anu-bin, 2026-11-11).
+      `Capability '${context.capabilityId}' has no saved start entry yet. /sf-run-app detects one from the repository, asks you which to keep, saves it on this checkout only (nothing shared changes) and starts it; sharing it with the team is a capability proposal.`,
       { code: 'APP_START_NOT_DECLARED', details: { capabilityId: context.capabilityId,
         nextAction: { command: `singularity-flow app suggest --capability ${context.capabilityId} --json`,
-          label: 'Draft the application block from the repository, then propose it for the capability.' } } });
+          label: 'Run /sf-run-app: it detects the start command, asks you to confirm it, saves it on this checkout only and starts the app.' } } });
   }
   if (startId == null) {
     if (entries.length === 1) return entries[0];

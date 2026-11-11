@@ -228,3 +228,23 @@ test('every text that names ask_user also names VS Code\'s question tool', async
     }
   }
 });
+
+test('a skill never stops or relays where the act its command returns says to go on', async () => {
+  // Skill text that disagreed with act: /sf-phase relayed `handoff` while act said start-reviewer; /sf-review-source,
+  // loaded by the reviewer sub-agent, ended "Run this in a new chat:"; and it stopped on a check's reload-context where
+  // act said to read a fresh context and review again (agent-text audit, 2026-11-11).
+  const { readFile } = await import('node:fs/promises');
+  const skill = async (name) => readFile(new URL(`../plugin/skills/${name}/SKILL.md`, import.meta.url), 'utf8');
+  const clause = (text, word) => text.split(/(?<=[.;])\s+/u).filter((sentence) => sentence.includes(word));
+  const review = await skill('sflow-review-source');
+  const reload = agentAct({ resultType: 'source-review-check', repair: { status: 'reload-context', instruction: 'Inputs changed. Read a fresh context and independently review it.' },
+    continuation: { nextAction: { command: 'singularity-flow review-source context implement --json' } } });
+  assert.equal(reload.state, 'next');
+  for (const sentence of clause(review, '`reload-context`')) assert.doesNotMatch(sentence, /\bstop\b|report the exact blocker/u, sentence);
+  for (const sentence of clause(review, '`Run this in a new chat:`')) assert.match(sentence, /^Otherwise\b|^As a sub-agent|new-chat/u, sentence);
+  for (const name of ['sflow-phase', 'sflow-code']) {
+    const text = await skill(name);
+    for (const sentence of clause(text, "Relay `handoff`")) assert.match(text.slice(Math.max(0, text.indexOf(sentence) - 160), text.indexOf(sentence)), /`reviewSubagent`/u, `${name}: ${sentence}`);
+    assert.match(text, /`reviewSubagent`/u, name);
+  }
+});

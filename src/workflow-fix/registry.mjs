@@ -892,9 +892,9 @@ async function clarificationFix(findings, ctx) {
     if (ctx.draft.clarification(data.step, data.workflow) !== undefined || ctx.draft.clarification(data.step, null) !== undefined) continue;
     const { workflowScoped, value } = clarificationEdits(ctx, data, data.edits);
     const label = ctx.model.phases.find((phase) => phase.id === data.step)?.label ?? data.step;
-    done.push(`${label}'s questions setting becomes ${JSON.stringify(value)}${workflowScoped ? ` for ${data.workflow} alone` : ''}${(data.alternatives ?? []).length ? ` (also possible: ${data.alternatives.map((entry) => entry.label.toLowerCase()).join('; ')})` : ''}`);
+    done.push(`the questions setting of ${label} becomes ${JSON.stringify(value)}${workflowScoped ? ` for ${data.workflow} alone` : ''}${(data.alternatives ?? []).length ? ` (also possible: ${data.alternatives.map((entry) => entry.label.toLowerCase()).join('; ')})` : ''}`);
   }
-  return { summary: done.length ? `${done.join('; ')}.` : null, questions };
+  return { summary: done.length ? `${done.join('; ').replace(/^t/u, 'T')}.` : null, questions };
 }
 
 /** A configuration that does not load: its own diagnosis's fix, applied to the exact line, or the person's corrected line. */

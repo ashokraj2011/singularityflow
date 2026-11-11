@@ -176,7 +176,8 @@ test('progress and document commands upload, list, and view files, images, and F
   // artifact body unconditionally ran one publish to several hundred lines.
   assert.match(publication.stdout, /Generated documents ready for review DOCS-1 · intake · generation 1/);
   assert.match(publication.stdout, /singularity\/work-items\/DOCS-1\/artifacts\/intake\/intake\.md/);
-  assert.match(publication.stdout, /sha256:[0-9a-f]{12}/);
+  assert.match(publication.stdout, /intake · text\/markdown · \d+ bytes\n/u, 'each document by kind, type and size');
+  assert.doesNotMatch(publication.stdout, /sha256:/u, 'never its digest (owner, 2026-11-11)');
   assert.doesNotMatch(publication.stdout, /--- BEGIN /);
   assert.match(publication.stdout, /Add --show-artifact to print/);
   assert.match(publication.stdout, /View phase documents before submitting/);
@@ -199,7 +200,7 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.match(review.stdout, /Generated documents ready for review DOCS-1 · intake · generation 1/);
   assert.match(review.stdout, /PHASE-INTAKE/);
   assert.match(review.stdout, /artifacts\/intake\/intake\.md/);
-  assert.match(review.stdout, /sha256:[0-9a-f]{12}/);
+  assert.doesNotMatch(review.stdout, /sha256:/u, 'the review names documents, never their digests');
   assert.doesNotMatch(review.stdout, /Complete intake evidence/, 'the body is opt-in, not the default');
   // ...and --show-artifact still prints it in full, delimiters and all.
   const full = flow(root, ['phase', 'show', 'intake', '--show-artifact']);

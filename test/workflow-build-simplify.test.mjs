@@ -326,7 +326,17 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
   assert.match(anchors, /^- TODO: one observable requirement per line\. \[\{\{work\.id\}\}:REQ-001\]$/mu);
   assert.match(anchors, /^- TODO: one testable criterion per line\. \[\{\{work\.id\}\}:AC-001\]$/mu);
   assert.match(table, /^\| `\{\{work\.id\}\}:REQ-001` \| TODO: exact backticked source paths \| TODO: exact backticked test paths \| new \| TODO: what a person observes \|$/mu);
-  assert.equal(report.fixDraft.fixCommand, undefined, 'without `workflow fix` in the command registry, /sf-fix-workflow drafts the fixes itself');
+  // `workflow fix` is in the command registry: one command for every reader, the skill's being the --json form of the next action's.
+  assert.deepEqual([report.nextAction.draftCommand, report.fixDraft.fixCommand], ['singularity-flow workflow fix fmly --write', 'singularity-flow workflow fix fmly --write --json']);
+  // /sf-fix-workflow's path: the fix command writes its drafted changes to the issued draft file, and only questions are left for a person.
+  const drafted = JSON.parse(h.flow(root, report.fixDraft.fixCommand.split(' ').slice(1)).stdout);
+  assert.deepEqual([drafted.draft.written, drafted.draft.path], [true, report.fixDraft.changeSetPath]);
+  assert.deepEqual(drafted.changes.filter((change) => change.code.startsWith('CHECK_TEMPLATE_')).map((change) => change.code).sort(), ['CHECK_TEMPLATE_CLAUSE_ANCHORS', 'CHECK_TEMPLATE_PLANNED_TABLE']);
+  assert.ok(drafted.questions.every((question) => question.ask && question.choices.length), JSON.stringify(drafted.questions));
+  const confirmed = JSON.parse(h.flow(root, ['workflow', 'check', 'fmly', '--change-set', report.fixDraft.changeSetPath, '--json']).stdout);
+  assert.deepEqual(confirmed.workflows[0].findings.filter((entry) => entry.severity === 'problem'), [], 'the written draft clears both template problems');
+  const planned = JSON.parse(await readFile(report.fixDraft.changeSetPath, 'utf8')).changes.find((change) => change.op === 'template.update');
+  assert.match(planned.content, /\[\{\{work\.id\}\}:REQ-001\]/u, 'the drafted template keeps the work-id anchor variable');
   // The template drafted from the fix texts alone, exactly as they read, validates.
   const lines = (text, prefix) => text.split('\n').filter((line) => line.startsWith(prefix));
   const [requirement, criterion] = lines(anchors, '- TODO');
@@ -359,7 +369,8 @@ test('the skills walk the person through simplify and never ask for template wor
     assert.match(build, pattern);
   }
   for (const pattern of [/With `simplify` it is correct but heavy: name `simplify\.found` and offer `simplify\.nextAction`/u,
-    /With `fixDraft\.fixCommand`, run it: each `change` it returns goes into the draft as given, asking nothing; ask only its `question`s, one at a time/u,
+    /With `fixDraft\.fixCommand`, run it: it writes every change it drafts to `fixDraft\.changeSetPath`, asking nothing; ask only its `questions`, one at a time, with `ask_user`, and write each answer into that draft/u,
+    /Keep every fix in one change set/u,
     /Never ask for template content/u, /say in one line that it adds placeholders each Story's author fills/u]) {
     assert.match(fix, pattern);
   }

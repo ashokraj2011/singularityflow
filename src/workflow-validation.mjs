@@ -54,7 +54,7 @@ function stepRoles(entry, explanation) {
 }
 
 /** The route to the fixes: Copilot drafts them, Workflow Studio shows them, the Shell lists them again. */
-function fixAction(workflowId) {
+function fixAction(workflowId, draftCommand = null) {
   const command = `singularity-flow workflow validate${workflowId ? ` ${workflowId}` : ''}`;
   const commandGuidance = safeCommandGuidance({ command, skill: '/sf-fix-workflow' });
   return {
@@ -65,7 +65,7 @@ function fixAction(workflowId) {
     commandGuidance,
     workflowStudio: 'In VS Code, open Workflow Studio (Singularity Flow: Workflow Studio), choose the workflow and press Check.',
     // Every finding as a drafted change or a question only a person can answer (src/workflow-fix/index.mjs).
-    draftCommand: `singularity-flow workflow fix${workflowId ? ` ${workflowId}` : ''} --write`,
+    ...(draftCommand ? { draftCommand } : {}),
     reviewed: 'Copilot drafts every fix as one configuration proposal; nothing changes until it is reviewed and activated.'
   };
 }
@@ -98,15 +98,17 @@ async function simplifyHint(workflowId, { model, findings, definition, packaged 
 }
 
 /**
- * `workflow fix` drafts each finding's exact change, or the one question a person must answer, where
- * this SFlow has the command: feature-detected in the command registry (operation `workflow.fix`), so
- * /sf-fix-workflow runs it only when it exists and otherwise drafts the fixes itself. The skill reads
- * from its JSON only each fix's `change` (Studio change set ops, put into the draft as given, asking
- * nothing) and `question` (asked one at a time); the command must be a read for the fix turn to run it.
+ * `workflow fix <WORKFLOW> --write` drafts each finding's exact change into the fix draft file, and
+ * returns the questions only a person can answer, where this SFlow has the command: feature-detected
+ * in the command registry (operation `workflow.fix`). One command for every reader: the next action's
+ * `draftCommand` names it, and the fix draft's `fixCommand` is the same command with --json, which
+ * /sf-fix-workflow runs (a read, so its turn may). Without the command neither is given and the skill
+ * drafts the fixes itself. Fields the skill reads from its JSON: `questions[]` (`id`, `ask`, `why`,
+ * `choices[]`) and `draft.written`.
  */
-async function fixDrafter(workflowId) {
+async function fixDraftCommand(workflowId) {
   const { operationById } = await import('./command-registry.mjs');
-  return operationById('workflow.fix') ? { fixCommand: `singularity-flow workflow fix${workflowId ? ` ${workflowId}` : ''} --json` } : {};
+  return operationById('workflow.fix') ? `singularity-flow workflow fix${workflowId ? ` ${workflowId}` : ''} --write` : null;
 }
 
 /**
@@ -153,10 +155,14 @@ export async function validateWorkflows(root, { workflow = null, env = process.e
     blocksStart: all.some((entry) => entry.blocksStart && entry.severity === 'problem'),
     workflows,
     repository: { counts: countsOf(repositoryFindings), findings: repositoryFindings },
-    ...(valid ? {} : {
-      nextAction: fixAction(target),
-      fixDraft: { workflow: target, schema: STUDIO_CHANGE_SET_SCHEMA, changeSetPath: workflowFixDraftPath(root, target, { env }), ...await fixDrafter(target) }
-    })
+    ...(valid ? {} : await (async () => {
+      const draftCommand = await fixDraftCommand(target);
+      return {
+        nextAction: fixAction(target, draftCommand),
+        fixDraft: { workflow: target, schema: STUDIO_CHANGE_SET_SCHEMA, changeSetPath: workflowFixDraftPath(root, target, { env }),
+          ...(draftCommand ? { fixCommand: `${draftCommand} --json` } : {}) }
+      };
+    })())
   };
 }
 

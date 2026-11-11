@@ -40,6 +40,6 @@ export async function run(argv, { positionals, options }) {
   console.log(`${result.workflows.length || lines.length ? '\n' : ''}Validated ${result.workflows.length} Story workflow(s): ${result.valid ? 'valid' : 'not valid'}.`);
   if (!result.valid) {
     console.log(`Copilot can draft the fixes with ${result.nextAction.copilotCommand} as one reviewed configuration proposal (Workflow Studio's Check shows the same findings); nothing changes until it is reviewed and activated.`);
-    console.log(`Or draft them here: ${result.nextAction.draftCommand} (what only a person can decide comes back as questions).`);
+    if (result.nextAction.draftCommand) console.log(`Or draft them here: ${result.nextAction.draftCommand} (what only a person can decide comes back as questions).`);
   }
 }

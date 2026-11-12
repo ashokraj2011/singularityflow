@@ -196,3 +196,52 @@ export function parseMarkdownStructure(value) {
     unclosedComments: Object.freeze(frozenComments.filter((entry) => !entry.closed))
   });
 }
+
+/**
+ * Template guidance (src/template-guidance.mjs writes it): an HTML comment whose text starts with
+ * `sflow:guidance`. Every reader here already skips it as a comment; publication removes it.
+ */
+export const TEMPLATE_GUIDANCE_MARKER = 'sflow:guidance';
+export const TEMPLATE_GUIDANCE_COMMENT = /^<!--[ \t]*sflow:guidance(?=[\s]|-->)/u;
+
+/** Each closed guidance comment in `text`, as `{ start, end, line }` offsets; comments in code are not comments. */
+export function templateGuidanceComments(text) {
+  const source = String(text ?? '');
+  return parseMarkdownStructure(source).comments
+    .filter((comment) => comment.closed && TEMPLATE_GUIDANCE_COMMENT.test(source.slice(comment.start, comment.end)));
+}
+
+/**
+ * The text without its guidance. A guidance comment alone on its lines takes those lines with it,
+ * and the blank line it leaves between two paragraphs; one inside a line leaves the rest of the line.
+ * Everything else, the author's own comments included, keeps its exact bytes.
+ */
+export function stripTemplateGuidance(text) {
+  const source = String(text ?? '');
+  const comments = templateGuidanceComments(source);
+  if (!comments.length) return { text: source, removed: 0 };
+  let output = '';
+  let cursor = 0;
+  for (const comment of comments) {
+    if (comment.start < cursor) continue;
+    const lineStart = source.lastIndexOf('\n', comment.start - 1) + 1;
+    const newline = source.indexOf('\n', comment.end);
+    const lineEnd = newline < 0 ? source.length : newline + 1;
+    const wholeLines = lineStart >= cursor
+      && !source.slice(lineStart, comment.start).trim()
+      && !source.slice(comment.end, lineEnd).trim();
+    if (!wholeLines) {
+      output += source.slice(cursor, comment.start);
+      cursor = comment.end + (/[ \t]$/u.test(output) && /^[ \t]/u.test(source.slice(comment.end)) ? 1 : 0);
+      continue;
+    }
+    output += source.slice(cursor, lineStart);
+    cursor = lineEnd;
+    // The blank line between the paragraphs around it is enough: drop the second one.
+    const blankBefore = output === '' || /(?:^|\n)[ \t]*\r?\n$/u.test(output);
+    const blankAfter = /^[ \t]*\r?\n/u.exec(source.slice(cursor));
+    if (blankBefore && blankAfter) cursor += blankAfter[0].length;
+  }
+  output += source.slice(cursor);
+  return { text: output, removed: comments.length };
+}

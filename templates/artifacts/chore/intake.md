@@ -1,9 +1,6 @@
 # {{work.id}} — Chore scope and plan
 
-This checkpoint states the maintenance outcome and the changes that deliver it before any file
-changes. A chore may change dependencies, build and CI configuration, repository metadata and
-documentation. A change to application source, tests or migrations needs a workflow with a code
-step, such as quick-fix.
+<!-- sflow:guidance This checkpoint states the maintenance outcome and the changes that deliver it before any file changes. A chore may change dependencies, build and CI configuration, repository metadata and documentation. A change to application source, tests or migrations needs a workflow with a code step, such as quick-fix. -->
 
 ## Objective
 
@@ -11,8 +8,7 @@ TODO: Describe the maintenance outcome.
 
 ## Maintenance outcomes
 
-Give every outcome a stable, fully qualified ID. Replace the example; do not approve this draft
-while placeholders remain.
+<!-- sflow:guidance Give every outcome a stable, fully qualified ID. Replace the example; do not approve this draft while placeholders remain. -->
 
 | Clause | Observable outcome |
 |---|---|
@@ -20,10 +16,7 @@ while placeholders remain.
 
 ## Supporting files
 
-The plan: one bullet for each file this chore changes, with an exact backticked repository path and
-why it changes, for example - `go.sum` — pins the patched release, or - `pom.xml` — raises the
-library version. Dependency locks, build and CI configuration, repository metadata and
-documentation qualify; the class comes from the path.
+<!-- sflow:guidance The plan: one bullet for each file this chore changes, with an exact backticked repository path and why it changes, for example - `go.sum` — pins the patched release, or - `pom.xml` — raises the library version. Dependency locks, build and CI configuration, repository metadata and documentation qualify; the class comes from the path. -->
 
 - TODO: `<exact repository path>` — why this file changes.
 

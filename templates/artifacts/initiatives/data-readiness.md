@@ -4,8 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-Whether the test data actually exists yet, per entity and per condition. The inventory said what was
-needed; this says what is there — and the difference is usually the thing that delays a test phase.
+<!-- sflow:guidance Whether the test data actually exists yet, per entity and per condition. The inventory said what was needed; this says what is there — and the difference is usually the thing that delays a test phase. -->
 
 ## Readiness
 
@@ -20,7 +19,7 @@ needed; this says what is there — and the difference is usually the thing that
 
 ## Quality
 
-Data that exists but is wrong is worse than data that is missing, because the test passes.
+<!-- sflow:guidance Data that exists but is wrong is worse than data that is missing, because the test passes. -->
 
 | Entity | Issue | Effect on tests | Resolution |
 |---|---|---|---|
@@ -32,7 +31,7 @@ Data that exists but is wrong is worse than data that is missing, because the te
 
 ## Sign-off
 
-Testing may begin when these are true.
+<!-- sflow:guidance Testing may begin when these are true. -->
 
 | Criterion | Met | Confirmed by |
 |---|---|---|

@@ -6,7 +6,7 @@
 
 ## Evidence reviewed
 
-List every uploaded `DOC-nnn`, directory-relative source path, and hash used for this inventory. Do not infer a screen or state that is absent from the exported package.
+<!-- sflow:guidance List every uploaded `DOC-nnn`, directory-relative source path, and hash used for this inventory. Do not infer a screen or state that is absent from the exported package. -->
 
 ## Screen and state matrix
 
@@ -14,7 +14,7 @@ List every uploaded `DOC-nnn`, directory-relative source path, and hash used for
 |---|---|---|---|---|---|---|---|
 | SCREEN-001 | FLOW-001 | TODO | DOC-001 / TODO | TODO | TODO | TODO | complete/missing/ambiguous |
 
-Include loading, empty, populated, error, offline, disabled, permission, keyboard, validation, destructive-confirmation, and accessibility states when present or required.
+<!-- sflow:guidance Include loading, empty, populated, error, offline, disabled, permission, keyboard, validation, destructive-confirmation, and accessibility states when present or required. -->
 
 ## Navigation and interaction inventory
 

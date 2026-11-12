@@ -2,8 +2,7 @@
 
 ## Reproduction steps
 
-TODO: Record deterministic setup and steps. If it cannot be reproduced here, record the attempts,
-the environment gap and the evidence used, and state that reproduction is not established.
+TODO: Record deterministic setup and steps. If it cannot be reproduced here, record the attempts, the environment gap and the evidence used, and state that reproduction is not established.
 
 ## Observed and expected results
 

@@ -4,10 +4,9 @@
 
 {{inputs}}
 
-Describe the detected Playwright configuration, language, package manager, fixtures, Page Object
-Model convention, test root, reporting, and CI pattern. Explain how the implementation follows
-those existing boundaries. If no convention exists, record the smallest proposed layout and obtain
-engineering approval rather than inventing a framework migration.
+<!-- sflow:guidance Describe the detected Playwright configuration, language, package manager, fixtures, Page Object Model convention, test root, reporting, and CI pattern. Explain how the implementation follows those existing boundaries. If no convention exists, record the smallest proposed layout and obtain engineering approval rather than inventing a framework migration. -->
+
+TODO: Describe the Playwright configuration and conventions this repository already uses, and how the generated tests follow them.
 
 ## Files changed
 
@@ -15,8 +14,7 @@ engineering approval rather than inventing a framework migration.
 |---|---|---|---|
 | Exact repository-relative path | created/updated | POM, spec, fixture, config, or helper | scenario / evidence reference |
 
-Keep all changes on the isolated Story branch. Generated source must not contain credentials,
-environment-specific tokens, mutable repository URLs, or direct commands that push or create PRs.
+<!-- sflow:guidance Keep all changes on the isolated Story branch. Generated source must not contain credentials, environment-specific tokens, mutable repository URLs, or direct commands that push or create PRs. -->
 
 ## Scenario traceability
 
@@ -24,16 +22,16 @@ environment-specific tokens, mutable repository URLs, or direct commands that pu
 |---|---|---|---|
 | `[POC:AC-nnn]` or impact item | exact spec location | observable expectations | exact variants or not applicable |
 
-Every automated claim must trace to approved intent or observed risk. Do not weaken an expectation,
-add arbitrary waits, or catch an exception merely to produce a passing run.
+<!-- sflow:guidance Every automated claim must trace to approved intent or observed risk. Do not weaken an expectation, add arbitrary waits, or catch an exception merely to produce a passing run. -->
 
 ## Locator and test-data strategy
 
-Document role/name/test-id locators, Page Object responsibilities, fixture lifecycle, isolation,
-cleanup, determinism, network handling, and parallel-safety. Explain every less-stable locator and
-the evidence that made it necessary. Secret values remain host-managed.
+<!-- sflow:guidance Document role/name/test-id locators, Page Object responsibilities, fixture lifecycle, isolation, cleanup, determinism, network handling, and parallel-safety. Explain every less-stable locator and the evidence that made it necessary. Secret values remain host-managed. -->
+
+TODO: Describe the locators, Page Objects, fixtures and test data, and why each is stable.
 
 ## Deviations and residual risk
 
-Record deviations from repository conventions, scenarios left manual or not-run, and assumptions
-that validation must test. A generated file is an implementation candidate, not passing evidence.
+<!-- sflow:guidance Record deviations from repository conventions, scenarios left manual or not-run, and assumptions that validation must test. A generated file is an implementation candidate, not passing evidence. -->
+
+TODO: List deviations from repository conventions, scenarios left manual or not run, and assumptions validation must test.

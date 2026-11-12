@@ -4,8 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-What went to production, when, by whom, and from which commit. Written so that someone investigating
-an incident three months from now can establish exactly what changed without asking anybody.
+<!-- sflow:guidance What went to production, when, by whom, and from which commit. Written so that someone investigating an incident three months from now can establish exactly what changed without asking anybody. -->
 
 ## Release
 
@@ -23,16 +22,14 @@ an incident three months from now can establish exactly what changed without ask
 
 ## Order and dependencies
 
-The sequence deployments had to follow, and why. A record that lists components without their order
-cannot be replayed.
+<!-- sflow:guidance The sequence deployments had to follow, and why. A record that lists components without their order cannot be replayed. -->
 
 | # | Component | Must follow | Reason |
 |---|---|---|---|
 
 ## Configuration and migration
 
-Changes outside the code: schema migrations, feature flags, configuration, infrastructure. These are
-the changes that do not roll back with the artifact.
+<!-- sflow:guidance Changes outside the code: schema migrations, feature flags, configuration, infrastructure. These are the changes that do not roll back with the artifact. -->
 
 | Change | Applied at | Reversible | How it reverses |
 |---|---|---|---|
@@ -40,7 +37,7 @@ the changes that do not roll back with the artifact.
 
 ## Verification at release
 
-The checks run immediately after deployment, and their results.
+<!-- sflow:guidance The checks run immediately after deployment, and their results. -->
 
 | Check | Result | Run by | At |
 |---|---|---|---|
@@ -52,8 +49,7 @@ The checks run immediately after deployment, and their results.
 
 ## Rollback position
 
-What the rollback would be, and until when it stays available. A migration that has run usually
-changes this answer.
+<!-- sflow:guidance What the rollback would be, and until when it stays available. A migration that has run usually changes this answer. -->
 
 ## Open questions
 

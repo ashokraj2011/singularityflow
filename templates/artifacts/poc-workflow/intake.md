@@ -2,12 +2,11 @@
 
 ## Objective and scope
 
-State the user-visible behavior this proof of concept must validate, the reason it matters, the
-expected demonstration outcome, and explicit exclusions. Separate confirmed intent from
-assumptions. This workflow automates regression evidence; it does not authorize product changes,
-environment changes, or production traffic.
+<!-- sflow:guidance State the user-visible behavior this proof of concept must validate, the reason it matters, the expected demonstration outcome, and explicit exclusions. Separate confirmed intent from assumptions. This workflow automates regression evidence; it does not authorize product changes, environment changes, or production traffic. -->
 
 {{inputs}}
+
+TODO: State the behavior this proof of concept must validate, why it matters, the expected demonstration outcome and what is excluded.
 
 ## Repository and branch context
 
@@ -21,8 +20,7 @@ environment changes, or production traffic.
 | Language and compile check | Record the existing Playwright language and its exact local compile check; the seeded gate runs TypeScript `npx --no-install tsc --noEmit` |
 | Playwright validation | Record approved overrides; the seeded gate runs `npx --no-install playwright test --reporter=json` |
 
-Do not accept a local-only base branch or silently choose a default. The normal Story-start
-preflight owns remote access, ancestry, branch creation, and publication of the isolated Story ref.
+<!-- sflow:guidance Do not accept a local-only base branch or silently choose a default. The normal Story-start preflight owns remote access, ancestry, branch creation, and publication of the isolated Story ref. -->
 
 ## Target environment
 
@@ -35,9 +33,7 @@ preflight owns remote access, ancestry, branch creation, and publication of the 
 | Access method | Name a secret reference or host-managed login; never record a secret value |
 | MCP readiness | Record scaffold, attestation, and live-smoke receipt status for this exact origin |
 
-Intake records readiness only; the intake agent never browses the target. Before intake is
-approved, the contributor runs these host checks on their own machine, and this intake records the
-status they report:
+<!-- sflow:guidance Intake records readiness only; the intake agent never browses the target. Before intake is approved, the contributor runs these host checks on their own machine, and this intake records the status they report: -->
 
 ```text
 singularity-flow mcp scaffold playwright
@@ -45,24 +41,17 @@ singularity-flow mcp attest playwright --confirm playwright
 singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>
 ```
 
-The smoke receipt is machine-local and becomes stale whenever the host entry or governed MCP policy
-changes. If the repository's Playwright suite is not TypeScript, or uses a nonstandard compile or
-Playwright command, record it here as a blocker: the POC phase quality commands change through
-governed configuration before starting the Story. Never silently skip either executable gate.
+<!-- sflow:guidance The smoke receipt is machine-local and becomes stale whenever the host entry or governed MCP policy changes. If the repository's Playwright suite is not TypeScript, or uses a nonstandard compile or Playwright command, record it here as a blocker: the POC phase quality commands change through governed configuration before starting the Story. Never silently skip either executable gate. -->
 
 ## Test intent and acceptance criteria
 
-Create stable acceptance criteria such as `[POC:AC-001]` from the contributor's actual request.
-Each criterion must name an observable journey, state, or quality property and its expected result.
-Include positive, negative, accessibility, visual, and boundary behavior only when applicable; do
-not manufacture scenarios merely to fill categories.
+<!-- sflow:guidance Create stable acceptance criteria such as `[POC:AC-001]` from the contributor's actual request. Each criterion must name an observable journey, state, or quality property and its expected result. Include positive, negative, accessibility, visual, and boundary behavior only when applicable; do not manufacture scenarios merely to fill categories. -->
 
 | Authoritative clause | Observable journey or property | Expected result | In scope |
 |---|---|---|---|
 | [POC:AC-001] | TODO: replace with the approved observable journey or quality property | TODO: replace with its measurable expected result | yes/no |
 
-Add, remove, and renumber rows to match the approved POC intent. Keep every anchor fully qualified
-as `POC:AC-nnn`; later exploration, generated tests, validation, and review must cite these exact IDs.
+<!-- sflow:guidance Add, remove, and renumber rows to match the approved POC intent. Keep every anchor fully qualified as `POC:AC-nnn`; later exploration, generated tests, validation, and review must cite these exact IDs. -->
 
 ## Safety and access
 

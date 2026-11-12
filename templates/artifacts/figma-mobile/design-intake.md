@@ -10,20 +10,17 @@
 | Exported at | TODO |
 | Imported commit | TODO |
 
-Confirm that the complete exported directory was imported with `singularity-flow documents upload <DIRECTORY> --kind figma-export --name "<NAME>"`. Record missing or intentionally excluded content.
+<!-- sflow:guidance Confirm that the complete exported directory was imported with `singularity-flow documents upload <DIRECTORY> --kind figma-export --name "<NAME>"`. Record missing or intentionally excluded content. -->
 
-The upload is the package reviewers read; it pins no Figma file version, so it is not a design
-source. Publishing this step also needs one: save the Figma MCP `get_metadata` result for the
-approved frames to a repository file, then record it with its file key and version before publishing:
+<!-- sflow:guidance The upload is the package reviewers read; it pins no Figma file version, so it is not a design source. Publishing this step also needs one: save the Figma MCP `get_metadata` result for the approved frames to a repository file, then record it with its file key and version before publishing: -->
 
 ```text
 singularity-flow mcp record figma --kind design-source --tool get_metadata --phase design-intake --output <METADATA-XML-PATH> --file-key <FIGMA-FILE-KEY> --file-version <FIGMA-FILE-VERSION> --node <NODE-ID>
 ```
 
-`singularity-flow phase prepublish design-intake` reports a missing design source. Without a Figma
-MCP connection there is no design-source record to make; never name a tool that did not produce the file.
+<!-- sflow:guidance `singularity-flow phase prepublish design-intake` reports a missing design source. Without a Figma MCP connection there is no design-source record to make; never name a tool that did not produce the file. -->
 
-The committed, SHA-recorded PNG exports are the canonical design baseline for later visual-verification approval. A Figma URL may be recorded as convenient live context, but it can change after intake and never replaces the pinned exports.
+<!-- sflow:guidance The committed, SHA-recorded PNG exports are the canonical design baseline for later visual-verification approval. A Figma URL may be recorded as convenient live context, but it can change after intake and never replaces the pinned exports. -->
 
 ## Mobile target
 
@@ -35,7 +32,7 @@ The committed, SHA-recorded PNG exports are the canonical design baseline for la
 | Orientation | TODO |
 | Reference device sizes | TODO |
 
-The platform selection is immutable after this artifact is approved unless the workflow is rejected to design intake.
+<!-- sflow:guidance The platform selection is immutable after this artifact is approved unless the workflow is rejected to design intake. -->
 
 ## User flows and delivery slices
 

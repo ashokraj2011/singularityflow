@@ -473,3 +473,19 @@ test('publication records its own machine evidence, so every surface can approve
   // commit a version of state.json that is missing the evidence they just recorded.
   assert.equal(published.phase.status, 'awaiting_approval');
 });
+
+test('a published initiative output carries none of its template\'s guidance, and its digest is of what remains', async () => {
+  const root = await repository();
+  const businessCase = path.join(root, 'singularity/initiatives/INIT-EVIDENCE/artifacts/define/business-case.md');
+  const draft = await readFile(businessCase, 'utf8');
+  assert.match(draft, /<!-- sflow:guidance /u, 'the prepared output starts with its template guidance');
+  await writeFile(businessCase, `${draft}\nThe approved outcome, owner, and measurable benefit are recorded.\n`);
+  await publishInitiativePhase(root, 'INIT-EVIDENCE', 'define', { agent: 'product-owner' });
+  const published = await readFile(businessCase, 'utf8');
+  assert.doesNotMatch(published, /sflow:guidance/u);
+  assert.match(published, /The approved outcome, owner, and measurable benefit are recorded\./u);
+  const { initiative } = await loadInitiative(root, 'INIT-EVIDENCE');
+  const output = Object.values(initiative.phases.define.outputs).find((entry) => entry.path.endsWith('business-case.md'));
+  const current = await snapshot(businessCase);
+  assert.deepEqual([output.sha256, output.bytes], [current.sha256, current.size]);
+});

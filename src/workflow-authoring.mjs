@@ -240,8 +240,7 @@ async function writeStarterTemplate(root, phaseId, label) {
   await writeFile(file, [
     `# ${label}`,
     '',
-    `A starter for the ${phaseId} phase. Replace this with what the stage actually has to answer;`,
-    'the engine checks that the artifact is at least a couple of hundred bytes, not that it is good.',
+    `<!-- sflow:guidance A starter for the ${phaseId} phase: write what the stage actually has to answer under each heading. The engine checks that the artifact is at least a couple of hundred bytes, not that it is good. -->`,
     '',
     '## What this stage decides',
     '',

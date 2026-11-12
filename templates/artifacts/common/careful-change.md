@@ -1,19 +1,19 @@
 # Careful change
 
-What the user-defined agent changed, for the person who approves this step.
+<!-- sflow:guidance What the user-defined agent changed, for the person who approves this step. -->
 
 ## Plan
 
-The behaviour that had to change, the files touched and how it was checked.
+TODO: Write the behaviour that had to change, the files touched and how it was checked.
 
 ## What changed
 
-Each changed file, what changed in it and why.
+TODO: List each changed file, what changed in it and why.
 
 ## Tests
 
-The tests added or changed, the command that ran them and its real result.
+TODO: List the tests added or changed, the command that ran them and its real result.
 
 ## Risks and follow-ups
 
-Anything that failed, was skipped or looks risky, and what is left to do.
+TODO: List anything that failed, was skipped or looks risky, and what is left to do.

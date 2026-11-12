@@ -10,13 +10,9 @@ TODO: Record the inspected source and test revision.
 
 ## Traceability comparison
 
-Use one exact namespace-qualified approved clause ID per Criterion row (for example,
-`{{work.id}}:AC-001`), not a bare or combined display label. Cite the planned source
-`@clause:` witness and executable `@ac:` test where applicable; tags alone do not prove behavior.
+<!-- sflow:guidance Use one exact namespace-qualified approved clause ID per Criterion row (for example, `{{work.id}}:AC-001`), not a bare or combined display label. Cite the planned source `@clause:` witness and executable `@ac:` test where applicable; tags alone do not prove behavior. -->
 
-The clause table is the only place a verdict is stated. Under `## Upstream discrepancies`, describe each
-problem and its owner, never a verdict; the engine-written Verdict summary lists each gap with the
-upstream issue that covers it.
+<!-- sflow:guidance The clause table is the only place a verdict is stated. Under `## Upstream discrepancies`, describe each problem and its owner, never a verdict; the engine-written Verdict summary lists each gap with the upstream issue that covers it. -->
 
 | Criterion | Intake evidence | Design evidence | Code evidence | Test evidence | Verdict |
 |---|---|---|---|---|---|

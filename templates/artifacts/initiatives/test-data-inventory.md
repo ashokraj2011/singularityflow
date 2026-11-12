@@ -4,8 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-The data this initiative needs in order to be tested, identified early because obtaining it is
-routinely slower than building the thing it tests.
+<!-- sflow:guidance The data this initiative needs in order to be tested, identified early because obtaining it is routinely slower than building the thing it tests. -->
 
 ## Entities required
 
@@ -15,8 +14,7 @@ routinely slower than building the thing it tests.
 
 ## Conditions to cover
 
-The states each entity must be available in. Test data that only exists in the happy state tests
-only the happy path.
+<!-- sflow:guidance The states each entity must be available in. Test data that only exists in the happy state tests only the happy path. -->
 
 | Entity | Condition | Why it is needed |
 |---|---|---|
@@ -28,15 +26,14 @@ only the happy path.
 
 ## Constraints on use
 
-Restrictions carried by the data itself: what may not be copied, what must be masked, where it may
-not leave.
+<!-- sflow:guidance Restrictions carried by the data itself: what may not be copied, what must be masked, where it may not leave. -->
 
 | Entity | Constraint | Source of the constraint |
 |---|---|---|
 
 ## Refresh and lifecycle
 
-How this data stays usable: who refreshes it, how often, and what happens to it afterwards.
+<!-- sflow:guidance How this data stays usable: who refreshes it, how often, and what happens to it afterwards. -->
 
 ## Open questions
 

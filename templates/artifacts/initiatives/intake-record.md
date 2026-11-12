@@ -4,9 +4,7 @@
 
 # {{initiative.id}} — {{output.label}}
 
-What was accepted into delivery, and on what understanding. This is the record that later phases are
-measured against, so it captures the request as it was received rather than as it was later
-convenient to remember it.
+<!-- sflow:guidance What was accepted into delivery, and on what understanding. This is the record that later phases are measured against, so it captures the request as it was received rather than as it was later convenient to remember it. -->
 
 ## Request
 
@@ -20,30 +18,28 @@ convenient to remember it.
 
 ## What was asked for
 
-The request in the requester's own words, before it was interpreted.
+<!-- sflow:guidance The request in the requester's own words, before it was interpreted. -->
 
 ## What was accepted
 
-The request as delivery understands it. Where these two sections differ, the difference was
-negotiated and should be visible here rather than smoothed over.
+<!-- sflow:guidance The request as delivery understands it. Where these two sections differ, the difference was negotiated and should be visible here rather than smoothed over. -->
 
 ## Conditions of acceptance
 
-What had to be true for this to be accepted, and who confirmed each.
+<!-- sflow:guidance What had to be true for this to be accepted, and who confirmed each. -->
 
 | Condition | Confirmed by | Date |
 |---|---|---|
 
 ## Sources pinned at intake
 
-The documents this initiative is entitled to cite. Anything not pinned is not evidence, and
-requirements derived from it will not survive review.
+<!-- sflow:guidance The documents this initiative is entitled to cite. Anything not pinned is not evidence, and requirements derived from it will not survive review. -->
 
 {{inputs}}
 
 ## Not accepted
 
-Parts of the original request that were declined or deferred at intake, with the reason.
+<!-- sflow:guidance Parts of the original request that were declined or deferred at intake, with the reason. -->
 
 | Requested | Outcome | Reason |
 |---|---|---|

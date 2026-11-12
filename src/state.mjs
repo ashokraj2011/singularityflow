@@ -287,6 +287,7 @@ import {
   validatePhaseAuthoredReviewContent as validatePhaseAuthoredReviewContentPreflight
 } from './publication-preflight.mjs';
 import { artifactBytesAreText, artifactTextCheckoutMatches } from './artifact-review-read.mjs';
+import { stripTemplateGuidance } from './markdown-structure.mjs';
 import {
   assertConvergencePublicationReady, loadVerifiedConvergenceProjection
 } from './convergence-context.mjs';
@@ -1434,6 +1435,20 @@ export { currentPhase };
  */
 
 
+
+/**
+ * The template's guidance never reaches a published document (src/template-guidance.mjs). Every
+ * check before this reads the document without its comments, so removing it changes no verdict;
+ * a reviewer, an approver and every later step then read only what the author wrote.
+ */
+async function removePublishedTemplateGuidance(root, relative) {
+  const target = await secureRepositoryPath(root, relative, { label: 'Required phase artifact' });
+  if (!target.exists) return;
+  const bytes = await readFile(target.absolute);
+  if (!artifactBytesAreText(bytes)) return;
+  const stripped = stripTemplateGuidance(bytes.toString('utf8'));
+  if (stripped.removed) await writeText(target.absolute, stripped.text);
+}
 
 /** The artifact's text, or empty when it is not there yet — a missing artifact is `validatePhase`'s. */
 async function readArtifactText(root, relative) {
@@ -3908,6 +3923,7 @@ export async function publishGeneration(root, config, workflow, {
   dependencies.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   const { clarification } = dependencies;
   await preparePhaseInputs(root, config, workflow, phase.id);
+  await removePublishedTemplateGuidance(root, requiredRepoPath(config, workflow, phase));
   // Grounding and telemetry preserve the existing legacy behavior. Clarification is narrower:
   // only explicit governed-agent authorship proves that an interactive model path ran and must
   // therefore carry a generation-bound human response. Never guess that from legacy provenance.

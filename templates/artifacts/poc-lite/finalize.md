@@ -1,8 +1,6 @@
 # POC Lite finish decision
 
-This checkpoint summarizes the bounded change, exact validation evidence, residual risk, and
-rollback information. Completion requires the configured human authority; generating this record
-does not approve it, merge it, or update a base branch.
+This checkpoint summarizes the bounded change, exact validation evidence, residual risk, and rollback information. Completion requires the configured human authority; generating this record does not approve it, merge it, or update a base branch.
 
 ## Work item
 
@@ -14,14 +12,11 @@ FINALIZE is artifact-only. The candidate change set remains the one published by
 
 ## Configured checks
 
-The record carries forward repository-native validation evidence without rerunning a hosted tool or
-presenting stale evidence as current.
+The record carries forward repository-native validation evidence without rerunning a hosted tool or presenting stale evidence as current.
 
 ## Specification claims
 
-POC Lite makes no clause-level conformance claim. The human reviewer decides whether the bounded
-change, executable evidence, residual risk, and rollback are sufficient, and records why scope does
-not apply to this Story.
+POC Lite makes no clause-level conformance claim. The human reviewer decides whether the bounded change, executable evidence, residual risk, and rollback are sufficient, and records why scope does not apply to this Story.
 
 ## Governed inputs
 

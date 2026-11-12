@@ -1,13 +1,8 @@
 # Requirements Specification — {{workId}}
 
-This specification follows the structure of ISO/IEC/IEEE 29148 adapted to Epic
-scope. It is the approved input to Story planning: the planning phase allocates
-these exact `REQ-nnn` and `AC-nnn` identifiers to Stories, so identifiers must
-stay stable across regenerations. Renumbering breaks approved traceability.
+<!-- sflow:guidance This specification follows the structure of ISO/IEC/IEEE 29148 adapted to Epic scope. It is the approved input to Story planning: the planning phase allocates these exact `REQ-nnn` and `AC-nnn` identifiers to Stories, so identifiers must stay stable across regenerations. Renumbering breaks approved traceability. -->
 
-Every requirement and acceptance criterion must cite a pinned source ID plus a
-page, frame, or section. A requirement with no citation is an assumption and
-belongs in the assumptions table until it is sourced.
+<!-- sflow:guidance Every requirement and acceptance criterion must cite a pinned source ID plus a page, frame, or section. A requirement with no citation is an assumption and belongs in the assumptions table until it is sourced. -->
 
 ## Executive summary
 
@@ -19,8 +14,7 @@ belongs in the assumptions table until it is sourced.
 
 ## Definitions and glossary
 
-Define every domain term, abbreviation, and role used below. Ambiguous vocabulary
-is the most common cause of a requirement being implemented incorrectly.
+<!-- sflow:guidance Define every domain term, abbreviation, and role used below. Ambiguous vocabulary is the most common cause of a requirement being implemented incorrectly. -->
 
 | Term | Definition | Source |
 | --- | --- | --- |
@@ -51,9 +45,7 @@ is the most common cause of a requirement being implemented incorrectly.
 
 ## Requirements
 
-Each requirement states a single testable capability. Use "shall" for obligations.
-Priority uses MoSCoW; verification uses the ISO/IEC/IEEE 29148 methods
-(inspection, analysis, demonstration, or test).
+<!-- sflow:guidance Each requirement states a single testable capability. Use "shall" for obligations. Priority uses MoSCoW; verification uses the ISO/IEC/IEEE 29148 methods (inspection, analysis, demonstration, or test). -->
 
 ### REQ-001
 
@@ -68,8 +60,7 @@ Priority uses MoSCoW; verification uses the ISO/IEC/IEEE 29148 methods
 
 ## Business rules
 
-Rules constrain behaviour across many requirements; state them once and reference
-them rather than repeating the logic in each requirement.
+<!-- sflow:guidance Rules constrain behaviour across many requirements; state them once and reference them rather than repeating the logic in each requirement. -->
 
 ### BR-001
 
@@ -81,9 +72,7 @@ them rather than repeating the logic in each requirement.
 
 ## Acceptance criteria
 
-Written in Given/When/Then so they are directly executable as tests. Every
-criterion must map to at least one requirement, and every Must requirement must
-have at least one criterion.
+<!-- sflow:guidance Written in Given/When/Then so they are directly executable as tests. Every criterion must map to at least one requirement, and every Must requirement must have at least one criterion. -->
 
 ### AC-001
 
@@ -97,8 +86,7 @@ have at least one criterion.
 
 ## Non-functional requirements
 
-State a measurable threshold and how it will be verified. "Fast" and "secure" are
-not requirements; a percentile latency budget and a named control are.
+<!-- sflow:guidance State a measurable threshold and how it will be verified. "Fast" and "secure" are not requirements; a percentile latency budget and a named control are. -->
 
 ### NFR-001
 
@@ -115,8 +103,7 @@ not requirements; a percentile latency budget and a named control are.
 | --- | --- | --- | --- | --- | --- | --- |
 | DR-001 | | Public / Internal / Confidential / Restricted | | | | |
 
-Record new entities, changed fields, migration needs, and any personal data that
-triggers a privacy assessment.
+<!-- sflow:guidance Record new entities, changed fields, migration needs, and any personal data that triggers a privacy assessment. -->
 
 ## Integration requirements
 
@@ -146,8 +133,7 @@ triggers a privacy assessment.
 
 ## Open questions and decisions
 
-Carry forward anything still unresolved from source gaps, plus decisions taken
-while writing this specification.
+<!-- sflow:guidance Carry forward anything still unresolved from source gaps, plus decisions taken while writing this specification. -->
 
 | ID | Question or decision | Status | Resolution | Decided by | Date |
 | --- | --- | --- | --- | --- | --- |
@@ -155,9 +141,7 @@ while writing this specification.
 
 ## Requirements coverage
 
-Every requirement must appear here with its criteria, and every source that
-justified a requirement must be accounted for. Unsourced requirements and unused
-sources are both defects.
+<!-- sflow:guidance Every requirement must appear here with its criteria, and every source that justified a requirement must be accounted for. Unsourced requirements and unused sources are both defects. -->
 
 | Requirement | Priority | Acceptance criteria | Source citations | Verification |
 | --- | --- | --- | --- | --- |
@@ -171,7 +155,7 @@ sources are both defects.
 
 ## Quality checklist
 
-The requirements phase should not be submitted until each row holds.
+<!-- sflow:guidance The requirements phase should not be submitted until each row holds. -->
 
 | Check | Status |
 | --- | --- |

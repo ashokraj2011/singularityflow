@@ -3,7 +3,7 @@ export { reviewArtifactIdentityDecision, reviewArtifactBytesStable, authoredArti
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
-import { normalizeMarkdownHeading, parseMarkdownStructure } from './markdown-structure.mjs';
+import { normalizeMarkdownHeading, parseMarkdownStructure, stripTemplateGuidance } from './markdown-structure.mjs';
 import { qualifiedClauseMatches } from './traceability-ids.mjs';
 export { inspectManagedArtifactMetadata };
 
@@ -202,7 +202,8 @@ export function inspectArtifactContent(text, {
   const authored = authoredArtifactText(text);
   const inspectionText = authoredArtifactText(text, { preserveLines: true });
   const structure = parseMarkdownStructure(inspectionText);
-  const bytes = Buffer.byteLength(authored);
+  // Guidance is removed when the document is published, so it never counts toward its size.
+  const bytes = Buffer.byteLength(stripTemplateGuidance(authored).text);
   const fingerprint = authoredArtifactFingerprint(authored);
   const findings = [];
 

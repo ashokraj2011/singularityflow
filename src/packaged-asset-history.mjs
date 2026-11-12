@@ -38,27 +38,37 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/figma-mobile/mobile-spec.md': Object.freeze([
     '18c583c10c597c595cd0be9c11ddf16e92a0b85147efcd4fd3fb1a9bbd96fc44',
     'cdb4cc328b7a60c87fe5e00818f6b04ee8f066ed7dd2840c56bd5c78d413b4e4',
-    '9a8203f044109f068ea6282a7352ac6a69eb8cc90139252610f60e106cb6b521'
+    '9a8203f044109f068ea6282a7352ac6a69eb8cc90139252610f60e106cb6b521',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '5f25f3417be372a7073ac5ba2676b0e47ea302ff54d1db64270448d635db6d98'
   ]),
   'singularity/templates/bugfix/fix-spec.md': Object.freeze([
     'c1bbc5602eded66e1387f3fa95a835d7bb49f05a2fd813b193c0cada7c420c87',
     '22558a91a03dbb58569863c24b4d25aee092d1a04138e0285d587d0dab267343',
-    'fceed5a1f12fc2be09ec56f0bd1c165efabe8f335df4cf88e6258694bb513e18'
+    'fceed5a1f12fc2be09ec56f0bd1c165efabe8f335df4cf88e6258694bb513e18',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'f62cb2f1e2d275d6826b2f47c356db23a006594b3673d3727af387169851067d'
   ]),
   'singularity/templates/feature/implementation-spec.md': Object.freeze([
     'adc2b93c3cf849c4b335237cea68c05fc2fdeb4ef087a8b4236493be574a0a37',
     '39f379c3e28aad96d421aa179a2478457f6903a86ba01aa642bf55791fa5c2fb',
-    '033e2f8d2af5e8d762fb1cdbd1bcb5fcb8ba7ec629d158761be832f875cc6014'
+    '033e2f8d2af5e8d762fb1cdbd1bcb5fcb8ba7ec629d158761be832f875cc6014',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '775affeb36ab41074d9953109f7459efca860c5d31465c8d5592ad986f311adf'
   ]),
   'singularity/templates/quick-fix/intake.md': Object.freeze([
     '275f44dee383c77be256be2e070b901d053b1a0a95a2ae92e0c44289c3576983',
     '0b69eba907e67c38617d1ced288986f9ce13a5e9c9ceb2e2be7f942d362d54d9',
-    'a1dae2da960302a152df2c87c90673222a9a8a671752ef38d13fe75e94598950'
+    'a1dae2da960302a152df2c87c90673222a9a8a671752ef38d13fe75e94598950',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '3a90e48c46e2fa39dbf8c382d1a278f97d58807f8670b4d27b0008c6da6a8e23'
   ]),
   'singularity/templates/classic-delivery/intake.md': Object.freeze([
     'd91d55500e7dbc30a388633bce723623157619bca0bbc9bbaf8e64dfd85308a8',
     '556120c9a16a8b6b57df8e001b27a8c769a4ee1c9a783251b1e9f4c47146310e',
-    '8e60e4d8551c8a84056ac4e8e30f6d7b95c1639408f65668a55e3ae3ae6b0bb9'
+    '8e60e4d8551c8a84056ac4e8e30f6d7b95c1639408f65668a55e3ae3ae6b0bb9',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '54e29e22388aebec1dfd70e9046dfd3f88b60b6479b2ee4a58b93200fbd581eb'
   ]),
   'singularity/templates/spec-code-test-loop/specification.md': Object.freeze([
     'cc407b7192e181456f1ba6e8af2ddfb81ae4329efa2dc829d2aa060cd4e66c1d',
@@ -66,17 +76,23 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     '15a6f55c50ed316695a172dbeda36594a2c345af7817d50b3244d1dcf119a41e',
     '28e2b5462c1fc7bc77cfea42c875b69e3f9eb1f9c3374cf37a2a5aa2aeba2547',
     'df84e819635791295f1fd6e30e42f8233959966bbac5c3b4f1a52eeba8ceb41c',
-    '5965d2f0454046cc19c3bcfc079028bfc90ce308992f439da2c3daaab0c5398b'
+    '5965d2f0454046cc19c3bcfc079028bfc90ce308992f439da2c3daaab0c5398b',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '13c535747dc428cd0a9a4f31a4f4fdce29d4f8fd4f43a8062579f96e0d37c6fe'
   ]),
   'singularity/templates/poc-workflow/ui-exploration.md': Object.freeze([
     '14d107cc9778b9e737327e363e84e60975076a7003016d0798e92496ef1d61f5',
     'f0b14cf81aa72451e3cbf0de71a2dad050200177d66622d0f575541066d6ddf9',
-    '43e53c4476249bdd4a9b8af681ca77529d163ec66680d6c4514b0731b9cb1182'
+    '43e53c4476249bdd4a9b8af681ca77529d163ec66680d6c4514b0731b9cb1182',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'ba1d1918737d8753d51c1d59b368eab9980dbf0b587ddaab88174c68bdd986b1'
   ]),
   'singularity/templates/benchmark/design.md': Object.freeze([
     '92ba1c0684e20d201a7bfa1c9ae7b61a87001ca0c724ff0a61af2d387b23f9ba',
     'e0bf570cf7f35a123025a41d7b3d3b3977fdc17acc06d8ab85399cb233345fdc',
-    '9c06dcf0182701345b6f4f6af8fe4b7740fc080afe23776d4a6d8749196cca26'
+    '9c06dcf0182701345b6f4f6af8fe4b7740fc080afe23776d4a6d8749196cca26',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'fe3cdb987ebbe39d1e42464cf176f437e45287b589ffc66456c7ba4438bc025d'
   ]),
   // Retired v1 persona prompts. They are no longer installed, but exact hashes are required to
   // prove that a v1-to-v2 migration is retiring framework bytes rather than orphaning a
@@ -116,7 +132,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/common/implementation.md': Object.freeze([
     '5d0478b18c8fd14221e14c68e6238b909bccd6802a70262c416005354716c62c',
     'cf46a21cdcb12035defbb5b6a74c7acd6c6d1e751556964f416f27bb5acb5482',
-    'f1be0acd9f9a81812cb8703f90046512a1519c0c7cebccd676367c41f037bbde'
+    'f1be0acd9f9a81812cb8703f90046512a1519c0c7cebccd676367c41f037bbde',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54'
   ]),
   // First released SKP starter. Exact previous bytes can be upgraded without claiming any
   // repository-customized starter file as framework-owned.
@@ -136,21 +154,29 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/release.md': Object.freeze([
     'bd63555c657657c238da547e8794ca053affbf14c45bd4322a51401bd09fb82f',
     'a78b2eb703b2dfc70ccb33d30d94b24fe39247ca06ba79e6a988054e94a737b7',
-    '3d6717eace80085585d04c9c3f5c67f10d7a2e9c4e535a862c8b5aa900d556fe'
+    '3d6717eace80085585d04c9c3f5c67f10d7a2e9c4e535a862c8b5aa900d556fe',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '8f3e84e8e19dfc851d9948f20fbd48c0e43e5d8df9c747404d602106930e14fe'
   ]),
   // Before the chore intake said which files a chore may change, and before it became the chore's
   // scope-and-plan checkpoint.
   'singularity/templates/chore/intake.md': Object.freeze([
     'd4632690fa411f3926eee1bfd474f5907aae5efdd31313576acdac04e8934441',
     '3eb548ff9d465a536d6108c59f920f9ea62e1c16112c06561ce7a6c0ff856240',
-    '18db52fe527c00d8520463524acd6c2858d93564883b7d024a648ea5b2a7b457'
+    '18db52fe527c00d8520463524acd6c2858d93564883b7d024a648ea5b2a7b457',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '7fe95857aaee8f87eb8762e362a2c09bb3d9c7d62d02a4b6a161f0dabecd59d8'
   ]),
   // Before POC Lite declared that it omits scope instead of opting out of planned claims.
   'singularity/templates/poc-lite/plan.md': Object.freeze([
-    'cac46909b752b8d14cb4bab3399dd9d57da540e5ba443f171b4c1fb4695882c6'
+    'cac46909b752b8d14cb4bab3399dd9d57da540e5ba443f171b4c1fb4695882c6',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'b4748d5dca1e0fdef282f9f679c32ed360d5534a975a4361a2e925dfb1beca8e'
   ]),
   'singularity/templates/poc-lite/finalize.md': Object.freeze([
-    '6e46b121db6e48206916719e66b927c19e3db86bb829c661bff89db74e814940'
+    '6e46b121db6e48206916719e66b927c19e3db86bb829c661bff89db74e814940',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '7e9e55b2d7199199b757780b78c83abcc35c0f9a48b6760e68b106282ef9cc57'
   ]),
   // Before the plan could list supporting files that change without a clause, before it said which
   // files may be supporting, before it showed a fenced verification contract example (2026-10-29),
@@ -168,7 +194,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'b953f12ef6b7162f71af438e5af18c9e37aac265e15d2fe73f9cf23aff0a182c',
     '05669e614c330ba9fd17124327203fba971310883db115935c6107f4f3d2bbb9',
     // Before entry-point touchpoint review and current-phase reconciliation (2026-11-04).
-    '502d705077ebbb399de79a9523b3cb2d377e17ba1fc05acbb43fd106a5c2fd84'
+    '502d705077ebbb399de79a9523b3cb2d377e17ba1fc05acbb43fd106a5c2fd84',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '589ff56b9968fba0b7feb05abb0d0f974fad2d2747df16c5a485f52e23744914'
   ]),
   // Before the specification cited its supporting documents under Sources.
   'singularity/templates/spec-driven/spec.md': Object.freeze([
@@ -177,7 +205,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'b370347adeca20bb560827843acb2330e90e9fa875e760611ef752ee38765cab',
     '8845017e5a12bf3b59ea955324f999f9b51f4a6a6606c3808f7e516adf1d2cce',
     '16b14ed5980306d956ebab2701eaa015d1a4a3adb7046cd2bab93a58152182ac',
-    'c6e1ea9cb3d43631d47fedc023295faf39204e7efa40da81db1a51c3d4c0f1d9'
+    'c6e1ea9cb3d43631d47fedc023295faf39204e7efa40da81db1a51c3d4c0f1d9',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'fbb7f5f29844d24836c6b918e2796940cbc21c24ae0a7aa252d4e1207588e2cb'
   ]),
   // Before the instruction demo agents carried the active-repository boundary.
   '.github/agents/demo-instruction-analyst.agent.md': Object.freeze(['5c527291e89f935e0586657bcffc3a8317dfdddfa140f2701d2fe4a7eea3a478', 'b54384818163336db79044d2fb1ac84d609f3ffbd742e1cf4fd213af3584d8bb']),
@@ -188,7 +218,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/figma-mobile/design-intake.md': Object.freeze([
     'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453',
     // Before the intake named the design-source record publication requires (2026-10-22).
-    '5cb9495b64189d9f73d6aae23201197d7634cbf46d03176544badfc7683518ef'
+    '5cb9495b64189d9f73d6aae23201197d7634cbf46d03176544badfc7683518ef',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '39e83b9ecf10bad9249070d4f3267e8d2ec2412bfbfb6e46ead396e888f682b3'
   ]),
   '.github/agents/architect.agent.md': Object.freeze([
     '41052a47c867dfe1eaae3f0ab8686912efc3ae00e42cb0c9198131a19dc5bc88',
@@ -392,29 +424,138 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   ]),
   // Before the 2026-10-19 template audit: kernel-accepted planned tables, test-run risk and
   // not-applicable routes, visible Agent briefs and repository-neutral examples.
-  'singularity/templates/bugfix/reproduction.md': Object.freeze(['083e0361f6ffe9e84905b21558554c8335ab1a036719cb37f104e03f255f3567']),
+  'singularity/templates/bugfix/reproduction.md': Object.freeze(['083e0361f6ffe9e84905b21558554c8335ab1a036719cb37f104e03f255f3567',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'f134541a5c15fdd80e958741e0576df94bf0de63a3d095717ede84e6fd0adbfb'
+  ]),
   'singularity/templates/classic-delivery/code-checking.md': Object.freeze(['cb2a69e08768ab6d38ef3ee3e4326f47f854ec80d9012362d5765f88f58ecda1',
     // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
-    'bd0074995046a178f5bbb89135789a7be7fc941894009129d41a1b52ef175ccf']),
-  'singularity/templates/classic-delivery/testing.md': Object.freeze(['d84b65e54ff4210a7fab6cc1af3a2ea45bbba61fbee383a1ef985f31848ff177']),
-  'singularity/templates/common/verification.md': Object.freeze(['31e8dc7c915c96c7bce79e3138af0537875f077350a13af5250e50c4c571728b']),
-  'singularity/templates/demo-check-repair-close/intake.md': Object.freeze(['b711a8f37bebf0dda05a99d4bf3efdcbb1bfc424d70d8f69d5c9289c2a6e2b2f']),
-  'singularity/templates/demo-web-e2e-testing/intake.md': Object.freeze(['937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7']),
-  'singularity/templates/document-test-repair/intake.md': Object.freeze(['93554c5483a2b117dfb48612a432531950b6c0c96c122d83d023344b23e37906']),
+    'bd0074995046a178f5bbb89135789a7be7fc941894009129d41a1b52ef175ccf',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '16a83f4541e9267591ae6b08204b8746f9a2a3271b0e35bc24b422025a273796'
+  ]),
+  'singularity/templates/classic-delivery/testing.md': Object.freeze(['d84b65e54ff4210a7fab6cc1af3a2ea45bbba61fbee383a1ef985f31848ff177',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'af701aa3de1057e07f62f88753dfdd633185e7e66d83bc6ae7c66e93ed507bd9'
+  ]),
+  'singularity/templates/common/verification.md': Object.freeze(['31e8dc7c915c96c7bce79e3138af0537875f077350a13af5250e50c4c571728b',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'fdda5ab9e701142bd6d1f12e90b85b4e24dddffb0f4f5d89c5b534bd9137e4e0'
+  ]),
+  'singularity/templates/demo-check-repair-close/intake.md': Object.freeze(['b711a8f37bebf0dda05a99d4bf3efdcbb1bfc424d70d8f69d5c9289c2a6e2b2f',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '7fb9e7b8f42b328702d386d5c99d9dc56bae106dc4b8f3a38297a4e073076d8f'
+  ]),
+  'singularity/templates/demo-web-e2e-testing/intake.md': Object.freeze(['937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '90c4f1684bdb932884707041d8787f5f9225963994e2605098cc74b0218c57b1'
+  ]),
+  'singularity/templates/document-test-repair/intake.md': Object.freeze(['93554c5483a2b117dfb48612a432531950b6c0c96c122d83d023344b23e37906',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'aba7b2017e29b11d89d5b3cc3d1eb0457a8177321904dc0fd2c20d9ae4d3bcd9'
+  ]),
   'singularity/templates/figma-mobile/visual-verification.md': Object.freeze(['aca2f864d6cc1b5321e466f80d0751ab4874049271b2fabab03dde7b0ec0e835',
     // Before the native capture route and the not-applicable decision replaced asking the workflow owner (2026-10-19).
     'bea4365e84a67ba60a2c77b60cebac1e947372eaec45684dc3660d900ab0448a',
     // Before publication checked coverage and visual compare took document and capture IDs (2026-10-22).
-    '9722e4980eba29f331161c7902cc600400443957c918dfcbf596598799001c3e']),
-  'singularity/templates/poc-workflow/intake.md': Object.freeze(['511fa3a7c281bf8a4c84977668478392b5f73d14273d3149db6392eeba3b805d']),
+    '9722e4980eba29f331161c7902cc600400443957c918dfcbf596598799001c3e',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '0c732adf496717a4c2034cff347408d9e6e4bb5f9556152b226fa1e376e48bf5'
+  ]),
+  'singularity/templates/poc-workflow/intake.md': Object.freeze(['511fa3a7c281bf8a4c84977668478392b5f73d14273d3149db6392eeba3b805d',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '48c577ec3df824a95022a4abdd02a09f0c1040ed7f057b1150bd05a0beff4a14'
+  ]),
   'singularity/templates/spec-code-test-loop/conformance.md': Object.freeze(['b22de4f73720b8bf645faef0e2484031838d511fe4ea06810c6bf9b16c8bae1a',
     // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
-    'b86045aa0edc066a83733e08afc5f5313a7d6a69bb51eaf2f0515cce4ed29bc7']),
-  'singularity/templates/spec-code-test-loop/testing.md': Object.freeze(['eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284']),
+    'b86045aa0edc066a83733e08afc5f5313a7d6a69bb51eaf2f0515cce4ed29bc7',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'bb2f9e6d23b3814949db9e1538ae140a8b24d47e2debe4cc54682c95851a1ebc'
+  ]),
+  'singularity/templates/spec-code-test-loop/testing.md': Object.freeze(['eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'dfc7d52ec93a94c33507ba76bada5459577895d714160136f4ec46bfcf0660d2'
+  ]),
   // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
-  'singularity/templates/benchmark/conformance.md': Object.freeze(['6a767297e22cab241d2dfff38c6c5b3fe8298e21c65399825c657f014411ced8']),
-  'singularity/templates/common/conformance.md': Object.freeze(['4d0d9502b65b257e2d8b315634b7e6c17c64c531a9efe42849c37be1b3366b1b']),
-  'singularity/templates/figma-mobile/conformance.md': Object.freeze(['f96e5271156d2dadca7cbf5687599724c4e47e328db6635ccf46b4adacaac147'])
+  'singularity/templates/benchmark/conformance.md': Object.freeze(['6a767297e22cab241d2dfff38c6c5b3fe8298e21c65399825c657f014411ced8',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    '417aeb68ea4af698cbfbdf4b2b1aa17fa5d12c447bc1a1f8a1b9ed300402ff0a'
+  ]),
+  'singularity/templates/common/conformance.md': Object.freeze(['4d0d9502b65b257e2d8b315634b7e6c17c64c531a9efe42849c37be1b3366b1b',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'be71314c915f967e1f1c3d5789fed1d192fda5ed33371cb1aff94b665669b9da'
+  ]),
+  'singularity/templates/figma-mobile/conformance.md': Object.freeze(['f96e5271156d2dadca7cbf5687599724c4e47e328db6635ccf46b4adacaac147',
+    // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
+    'bc82839bff97575e16deddd8beb1a35a110180651ac2f78aeedbd95aee45b185'
+  ]),
+  // Before each template's guidance was one line per paragraph, marked for publication to remove
+  // (2026-11-12). Templates with earlier history carry this revision in their own entry above.
+  'singularity/templates/benchmark/intake.md': Object.freeze(['49107281e2e461ede0e000edb51bf9f22aec85ddc84acbd1781680076f795f5c']),
+  'singularity/templates/common/careful-change.md': Object.freeze(['28de53a2eec7fb9d0cb495102e1e064a8b201615d9a599038064d2524d403dfc']),
+  'singularity/templates/demo-check-repair-close/check.md': Object.freeze(['cbde6d2812b782f32589db7f95f33c44586ce6e552ce636541326e912c3a1663']),
+  'singularity/templates/demo-check-repair-close/close.md': Object.freeze(['9070bc1135edfa168c5c63b43df230dd5997f527e7b7a2931311eb8cca78a2d6']),
+  'singularity/templates/demo-check-repair-close/repair.md': Object.freeze(['66af2bad38c83317e4ccd2d96c7713234f64149e7d7015235b98047770f7df30']),
+  'singularity/templates/demo-web-e2e-testing/check.md': Object.freeze(['31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5']),
+  'singularity/templates/demo-web-e2e-testing/repair.md': Object.freeze(['5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f']),
+  'singularity/templates/document-test-repair/check.md': Object.freeze(['2dcb5121d1577a3a26ca6527f9107336b632600dab21c5fe4c215c23cb84f438']),
+  'singularity/templates/document-test-repair/repair.md': Object.freeze(['51f9d673c5614e202ff9e40aa5e5dd2ba8042fbe87354dd502a0e5497bca2628']),
+  'singularity/templates/figma-mobile/component-mapping.md': Object.freeze(['cdea8a1e3defa73ade72bdaaac162ecd9b8b43817aa319d7e712e2de2eb296a3']),
+  'singularity/templates/figma-mobile/design-inventory.md': Object.freeze(['822ea61a75a25ec5a6b42dd887c842d5126233b36f7f0fc875402f9a43125079']),
+  'singularity/templates/findings-remediation/intake.md': Object.freeze(['006a191fc00c3fb3a02286cc4c97bfd4bf97d478c42018948b15c91bc7864e50']),
+  'singularity/templates/findings-remediation/remediation-plan.md': Object.freeze(['d7cea4e52ea5f07ae744807487a92c15c67dc6fb48cbc8de8e0d0ca960fa04a8']),
+  'singularity/templates/initiatives/adr-log.md': Object.freeze(['4ece55ac194e15395cbc331d382d6464f76e013b33576050895092a5dcebce12']),
+  'singularity/templates/initiatives/business-case.md': Object.freeze(['155faec79961574f8dd12556f0874ec8bb396f5a546ca792b2ab41dc34aa6a17']),
+  'singularity/templates/initiatives/cicd-readiness.md': Object.freeze(['98222239a8e316ff1413f827f1fe400d90345bb0759db5d06fe49f859e2aa754']),
+  'singularity/templates/initiatives/compliance-assessment.md': Object.freeze(['88645356dc868b46a78dabc50f2605b28e0ed0d9b78549e7cf9fef6536ea2296']),
+  'singularity/templates/initiatives/data-readiness.md': Object.freeze(['9b39c24e75f253e461fdf45150378a62599ba5782fb1a1721b1b6f66ba9b2dfe']),
+  'singularity/templates/initiatives/data-source-decision.md': Object.freeze(['49b76f3f576c6660696a6504e7bfdd78737089c26b540be5ea7f638ea800189c']),
+  'singularity/templates/initiatives/dependency-matrix.md': Object.freeze(['890fef7b2cae6c11927137161755c4a9cfba8f13fdd7aca73b58ba8ef5ff1b7e']),
+  'singularity/templates/initiatives/deployment-record.md': Object.freeze(['1898365f596234fa78fd9b6330c9cc5e7ed50be566b998e7f8ec8f76f294db85']),
+  'singularity/templates/initiatives/design-specification.md': Object.freeze(['341c2ebad1e5945a011906e451c2b7290fc806e35e6a531bbc39a9b87bf11a5e']),
+  'singularity/templates/initiatives/epic/materialization-report.md': Object.freeze(['18bdd184358ac5f1f08f4e0edda9e09bab7dab8b8dcbfe7a65a2e4196e99001c']),
+  'singularity/templates/initiatives/epic/parent-spec.md': Object.freeze(['4c80b3cb91962fd1b1fe64f01bd7dc4b0ed14ec7fb889750cabf1522eaabfa72']),
+  'singularity/templates/initiatives/epic/requirements.md': Object.freeze(['174d57ca16c5b43a23c6292873c683335f9fb08c6efd6d0a7bf6e6594aa5ec0b']),
+  'singularity/templates/initiatives/eta-register.md': Object.freeze(['adeda18823f2d52d82f17c5c029bd883a504205cf8757f2a7ee5237e5d1cd109']),
+  'singularity/templates/initiatives/feasibility-report.md': Object.freeze(['10fe5879b55d78b9a06b24589328fb2517eb0defd4f6e465b23ca0f6f833b63b']),
+  'singularity/templates/initiatives/functional-tests.md': Object.freeze(['760e46dd617e449ff8993dad3a98ce8c4e95e928dbf63c1b00017bff1d3ebdf3']),
+  'singularity/templates/initiatives/generic-output.md': Object.freeze(['67e01f4cc8cfd624400128a7f16e50ab62a98d52a920b0f5e9a0fcea2607759a']),
+  'singularity/templates/initiatives/implementation-index.md': Object.freeze(['8d3c8cdf27fe2aebf9991858836fc3bb7b37d902afa5638616c67a9c9961dca0']),
+  'singularity/templates/initiatives/initiative-conformance.md': Object.freeze(['d5270e19131d7c2a1bdb6d447a1ed04017f80ba77ad3703f35c5462ee67a2801']),
+  'singularity/templates/initiatives/initiative-scope.md': Object.freeze(['142478e091855e712667f23038ffd40a92e4f86b0e665427f27361d74b1ab489']),
+  'singularity/templates/initiatives/intake-record.md': Object.freeze(['1dbd17ccf123ef632b1248963cc1ad36786b96efa8879278322e77aecc2eeabb']),
+  'singularity/templates/initiatives/interface-contract.md': Object.freeze(['fb047de3b81b417eb257862840e7cd9b07d533d70711301bf904272124954053']),
+  'singularity/templates/initiatives/measurement-plan.md': Object.freeze(['dac7671ee00e4207d5b25a520935fe536767b66219b21cf405872affb0d16187']),
+  'singularity/templates/initiatives/nfr-assessment.md': Object.freeze(['fdbdd138b0a6c1d3ae03acf1a624c42aa074c802a5c25dc8c36ceadb8db3e46a']),
+  'singularity/templates/initiatives/nfr-specification.md': Object.freeze(['b98bb5b743576d4cc55f1f508b5d7489a9a85eee72c9af4f93ce71b396fc454c']),
+  'singularity/templates/initiatives/observability-handoff.md': Object.freeze(['41787345e0e77b79e0d3ff5878d3d61f018e42cf65d66681d14fdfa014e2750a']),
+  'singularity/templates/initiatives/operational-readiness.md': Object.freeze(['d8890590723c5cdff0ffe5225f5e88e8d2d5cde8f7b3805e3568393162ff5c31']),
+  'singularity/templates/initiatives/opportunity-brief.md': Object.freeze(['1896ad72afd98908b599e3ae5d81de6843df2601e91b6bd4e813a0768dff7b6a']),
+  'singularity/templates/initiatives/poc-results.md': Object.freeze(['40aba41fdfc6b2f4c748976082801e85e1bef84b80fe300980cc50fa3d0c89f7']),
+  'singularity/templates/initiatives/prfaq.md': Object.freeze(['b2dcba973be8992f52373720ba5af959b233e3a6059bfa07e26a9797a23cc22f']),
+  'singularity/templates/initiatives/product-roadmap.md': Object.freeze(['34a3df88bd97e0637cab02564f54ff98cccc776d5267ad6d85a3d063849e6cd1']),
+  'singularity/templates/initiatives/production-learning.md': Object.freeze(['5e090b0e8a4821698af7b86052d43c970e009b8c64bcb3ddfb8b5ac8bf57c50f']),
+  'singularity/templates/initiatives/production-validation.md': Object.freeze(['8ce5dd20813d422778c1921a7658793b0b63640fe2b00af3ecca1a15cc08f56f']),
+  'singularity/templates/initiatives/release-scope.md': Object.freeze(['56ef6617316bbbe052a595dafed210f5acf854d7426cb9420e89e1269038552d']),
+  'singularity/templates/initiatives/requirement-impact.md': Object.freeze(['f3afdcc90c5bd4e7d8c8218070b6bdac58f22d5dd787d288b515495e883dd1ff']),
+  'singularity/templates/initiatives/sequencing-plan.md': Object.freeze(['832d7d8e9820482b7263b87e9305a98037bd971e4a34a5c65e7d8c5cd5fd30b3']),
+  'singularity/templates/initiatives/service-blueprint.md': Object.freeze(['36424028305ca3a95f355249783090907e9fab5620eed93a9537b777af33ccbf']),
+  'singularity/templates/initiatives/solution-architecture.md': Object.freeze(['699d6646a25f65bb7967081dced900e3c5235e16613089e54bb002f184e67862']),
+  'singularity/templates/initiatives/solution-validation.md': Object.freeze(['9e025f84f9ebdcc5a56d1a0ae5aa044e5e0f04ec3857ba72c18afee2a209052a']),
+  'singularity/templates/initiatives/stakeholder-raci.md': Object.freeze(['7aa9d81064f4e41f5756ab2d0df1e1777c7b83530ff54f994823c359292f20c7']),
+  'singularity/templates/initiatives/technical-poc-results.md': Object.freeze(['7fbe8d0159e55a79548d6a56cbb5e1990086c5abb821735c3a197bb95f9922de']),
+  'singularity/templates/initiatives/test-attestation.md': Object.freeze(['28fe58500e6d21aa1816494ce8ef6c15b16c30da9d5f04c30f8c1f97554be822']),
+  'singularity/templates/initiatives/test-data-inventory.md': Object.freeze(['3377bd930d736890c16ecff4c1f1ec81ee83636e609aa61e95d29a5449793419']),
+  'singularity/templates/initiatives/ux-concept.md': Object.freeze(['d12e90b0412fcf41cf07fec6bcfe8c83d80949fc01fec2973d23a24a62e73b89']),
+  'singularity/templates/poc-lite/act.md': Object.freeze(['f9c3c015c593a51b7d3fd11ba5ec9fc104eaf00f45e2c78ea50a9b78d061c383']),
+  'singularity/templates/poc-lite/verify.md': Object.freeze(['c31624345a1b3803f1cfe267b670e570e1ad1ae3742e88898d123f962b913a58']),
+  'singularity/templates/poc-workflow/impact-analysis.md': Object.freeze(['16b58133b53c74c225f9e0a10b36301678d3ae5cd1a2686f23d1cbe414ec6c93']),
+  'singularity/templates/poc-workflow/publication-review.md': Object.freeze(['e5d0e59595e5dd01899883adf781a728bdc6636a07efe4290b57c55b808288d1']),
+  'singularity/templates/poc-workflow/test-generation.md': Object.freeze(['6fa0c17056fe263eb9f47699a84a0759a899b8e67c35a3d53df8961f1ca59b25']),
+  'singularity/templates/poc-workflow/validation.md': Object.freeze(['b1d121afbd49c09538d221cbac60b352a21f7eb7699bc4cba08d35b88ba47fb6']),
+  'singularity/templates/quick-fix/implement.md': Object.freeze(['dff093133a1be4c93115cfbbb0d994c8ce391fc19279caee30b441ec27a05c0a']),
+  'singularity/templates/quick-fix/verify.md': Object.freeze(['a21900d99d044d35de501f0e43888a8a3ebcfe860e702a5d1b3eec61fdd06f27']),
+  'singularity/templates/spec-driven/convergence.md': Object.freeze(['eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2'])
 });
 
 // Exact profiles shipped before native entry reuse; preserve upgrade provenance, not custom edits.
@@ -448,12 +589,12 @@ const AGENTS_BEFORE_NATIVE_ENTRY_REUSE = Object.freeze({
 /** Current release digests, kept separate so a known current file is never offered as repairable. */
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   // The findings-remediation workflow's two starter templates (CQF M6).
-  'singularity/templates/findings-remediation/intake.md': '006a191fc00c3fb3a02286cc4c97bfd4bf97d478c42018948b15c91bc7864e50',
-  'singularity/templates/findings-remediation/remediation-plan.md': 'd7cea4e52ea5f07ae744807487a92c15c67dc6fb48cbc8de8e0d0ca960fa04a8',
+  'singularity/templates/findings-remediation/intake.md': '10a4a0a215e3aae28286540bb16a6bb56c5f2cbe43d07080f65716e5feaef4a1',
+  'singularity/templates/findings-remediation/remediation-plan.md': '8406dd2bb25ad3c26abfac6c8fd42361841f14f093a0bcb73239f786c771e40a',
   // The sample user-defined agent (careful-change): its agent, its step's starter template, and
   // its folder and manifest under singularity/user-defined/.
   '.github/agents/careful-change.agent.md': '2c10baa768720e6eeed2d2ed34b00fed58d94959561a4b468b51221c113fd94c',
-  'singularity/templates/common/careful-change.md': '28de53a2eec7fb9d0cb495102e1e064a8b201615d9a599038064d2524d403dfc',
+  'singularity/templates/common/careful-change.md': 'e1e7055af5d4da3003e4471d4bd20757ad9afb3a5eec74a506320b79fb88e469',
   'singularity/user-defined/careful-change/README.md': '07ef0ea5d847e239a34efd4a0d21a4010e51419364363fced33171d6c1640604',
   'singularity/user-defined/careful-change/careful-change.agent.md': 'bddfc3272ede5e9e1ca7d1383cff3293edf90d66c7608a4dc1535c7ad572877a',
   'singularity/user-defined/careful-change/skills/plan-change/SKILL.md': 'd722a9ff6f6a48ead05382b1b9e282da45ac83d4a1c33948abd0debcc3618521',
@@ -475,10 +616,10 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/demo-code-checker.agent.md': '84b88558925115c78d36f691b9678879db0c6d9a4d0f12388d482abdbb21f33c',
   '.github/agents/demo-code-repairer.agent.md': '36887859ed9a33e6837ab30d8c4358f3a8aecdb52805f1e7e993986aa72799fa',
   '.github/agents/demo-story-closer.agent.md': '52ac7cdd12286d489df7255a358d9f4aa7f14a102617126842031808267468a8',
-  'singularity/templates/demo-check-repair-close/intake.md': '7fb9e7b8f42b328702d386d5c99d9dc56bae106dc4b8f3a38297a4e073076d8f',
-  'singularity/templates/demo-check-repair-close/check.md': 'cbde6d2812b782f32589db7f95f33c44586ce6e552ce636541326e912c3a1663',
-  'singularity/templates/demo-check-repair-close/repair.md': '66af2bad38c83317e4ccd2d96c7713234f64149e7d7015235b98047770f7df30',
-  'singularity/templates/demo-check-repair-close/close.md': '9070bc1135edfa168c5c63b43df230dd5997f527e7b7a2931311eb8cca78a2d6',
+  'singularity/templates/demo-check-repair-close/intake.md': '15fcceb1c3be771afd89b42071686a59b054159dfaa0b3a3c1117cf246d3c84d',
+  'singularity/templates/demo-check-repair-close/check.md': '31590fe1e0292a0b19c4d077f5a89c51d7df8147c53bf6f4926dd99d5c3a597a',
+  'singularity/templates/demo-check-repair-close/repair.md': 'f34a916c6f16192042fc77230b3515884c16ce6f38acbf5f6cd9f5d4d086037b',
+  'singularity/templates/demo-check-repair-close/close.md': 'd506d6c235084669f554806639a83c10669a7e85a468ed3a1098c3186636cb63',
   'singularity/skill-library/demo-acceptance-intake/SKILL.md': '0ca1d2e0fec9b529070e7ec7128e632e2efc9c6e8089b05443ea928190304896',
   'singularity/skill-library/demo-code-acceptance-check/SKILL.md': '57cd19310b68568853ac9339b4d4d73cece27ff2df57b2fc1110a4e26e7c8870',
   'singularity/skill-library/demo-scoped-code-repair/SKILL.md': '8b5dad40926ef0f95a9d1c9295b2cdcbe9a43f1182636b1d82ff3fa69c2c9871',
@@ -490,9 +631,9 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/skill-library/demo-web-defect-repair/SKILL.md': 'c968f300ac02c798ec54a9b7c83744534b529372fdb60539f164effd251416fb',
   'singularity/skill-library/demo-web-screenshot-check/SKILL.md': '77a7ca8a6afb9a73cbbfda626ce72cec6d07d6b82287b3deaf61159785b0ee5f',
   'singularity/skill-library/demo-web-screenshot-intake/SKILL.md': '225d981bbf356ccbe63033940b4c81172d5985f9453330af275bdd21c4510a63',
-  'singularity/templates/demo-web-e2e-testing/check.md': '31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5',
-  'singularity/templates/demo-web-e2e-testing/intake.md': '90c4f1684bdb932884707041d8787f5f9225963994e2605098cc74b0218c57b1',
-  'singularity/templates/demo-web-e2e-testing/repair.md': '5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f',
+  'singularity/templates/demo-web-e2e-testing/check.md': '10e17dfe84cf8b469025cdc52a34e8c71a026eda693fcbce47aedd37bf5c5c67',
+  'singularity/templates/demo-web-e2e-testing/intake.md': 'a01c0ed028158443e51ad0c008bc5fd025e1bc9187b8c5ebe931d8dc02bbc0ea',
+  'singularity/templates/demo-web-e2e-testing/repair.md': '1f652e4cb4a19004de7fb33ba1d5c372bc1417f6bcc7701aeea0421a3a368581',
   '.github/agents/architect.agent.md': '1a6832345721bb2530cba9e9da6944fb2a6714fddd73b0a8dd18a1d1140625e0',
   '.github/agents/developer.agent.md': 'a88a659a79439033c4eb7f43fee9223fe9cf10c013265bbe33fb08da3196047b',
   '.github/agents/document-analyst.agent.md': 'ec617bc402986620a35e86d8417fe1da5226432a4073678bd4cadb17430bafeb',
@@ -514,109 +655,109 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/impact.yml': 'e91000c4f19ba8f8c08812ebea1d3e825919f5b31dadd1f3e22f1749e3b05313',
   'singularity/modelTiers.yml': 'da16ef4023221a14aba0b5a87fd80b395d3ea7d48b0ecf65481c291180aec23a',
   'singularity/prompts/copilot-planning.md': '4128acc6930949e4ba1e50e8b8c7c4f7beb23f4361c2e8428475b081712b77db',
-  'singularity/templates/benchmark/conformance.md': '417aeb68ea4af698cbfbdf4b2b1aa17fa5d12c447bc1a1f8a1b9ed300402ff0a',
-  'singularity/templates/benchmark/design.md': 'fe3cdb987ebbe39d1e42464cf176f437e45287b589ffc66456c7ba4438bc025d',
+  'singularity/templates/benchmark/conformance.md': '15a9dad17dc047ccc88beaf8a7309e72aad7d940d600e0755469aed7fb0a9173',
+  'singularity/templates/benchmark/design.md': '3d5cc15acfe3a956225fc4a450d5af23e74597c6cf2375d0c631fdb65160c80f',
   'singularity/templates/benchmark/implementation.md': 'e25ab3d9104c4ddaef541191d544ea032c35f551b9538ad77a38628ca1a58db6',
-  'singularity/templates/benchmark/intake.md': '49107281e2e461ede0e000edb51bf9f22aec85ddc84acbd1781680076f795f5c',
+  'singularity/templates/benchmark/intake.md': 'cf841655fc9a24e615dde7f7030032dcae671d28244b9b72ae1b52157d109fd3',
   'singularity/templates/benchmark/testing.md': 'a9338f04dbe1be3ad988c331f9b45bab335a4661fb367f2c4f110609049fb9a8',
   'singularity/templates/bugfix/fix-design.md': 'cee7774777fd55a3740ebd9f2cafd100702d52617ae307f80e35764229c7867e',
-  'singularity/templates/bugfix/fix-spec.md': 'f62cb2f1e2d275d6826b2f47c356db23a006594b3673d3727af387169851067d',
+  'singularity/templates/bugfix/fix-spec.md': 'fdcff65d4553e9fc95d29c14dbfde50ce9ab64daac23980934e4e7066b5eba05',
   'singularity/templates/bugfix/intake.md': 'c0aa89555e400e9c78c782021b1928175607f32ad20773c70fae04b28ced320c',
-  'singularity/templates/bugfix/reproduction.md': 'f134541a5c15fdd80e958741e0576df94bf0de63a3d095717ede84e6fd0adbfb',
-  'singularity/templates/chore/intake.md': '7fe95857aaee8f87eb8762e362a2c09bb3d9c7d62d02a4b6a161f0dabecd59d8',
-  'singularity/templates/classic-delivery/code-checking.md': '16a83f4541e9267591ae6b08204b8746f9a2a3271b0e35bc24b422025a273796',
-  'singularity/templates/classic-delivery/intake.md': '54e29e22388aebec1dfd70e9046dfd3f88b60b6479b2ee4a58b93200fbd581eb',
-  'singularity/templates/classic-delivery/testing.md': 'af701aa3de1057e07f62f88753dfdd633185e7e66d83bc6ae7c66e93ed507bd9',
-  'singularity/templates/common/conformance.md': 'be71314c915f967e1f1c3d5789fed1d192fda5ed33371cb1aff94b665669b9da',
-  'singularity/templates/common/implementation.md': '2d1d1dc1ab8e94760cda8df39cf07aef51ef7ce191d76218558d19a6ffcc1a54',
+  'singularity/templates/bugfix/reproduction.md': 'a7506d0d9b76e376fa50bc3ba469824ee244be8df539cf3a825450a9e0e3d039',
+  'singularity/templates/chore/intake.md': 'bf318cc5e977b9dee20c7fdac7180c48fe14536ccfe3f5404fc5ff038a23565f',
+  'singularity/templates/classic-delivery/code-checking.md': '2e6050d9985b9af3316f5b951ee22efe8b5daa060d18020dd59ea1c26939afad',
+  'singularity/templates/classic-delivery/intake.md': '45dd8abdb11b650614f169c284af70f96aab5224504eccb2d486bb6a78232ae9',
+  'singularity/templates/classic-delivery/testing.md': '334381b545b52a967f15110b093803985851eddeeb30660645d46bc23ffe37fd',
+  'singularity/templates/common/conformance.md': '8c342771cb590be4960267ca307ea181647a7415006994686acc2a04dd8e7fea',
+  'singularity/templates/common/implementation.md': 'ba0749ab3997579949fc836a839af6606f995c2012a90b410597ebadf211298d',
   'singularity/templates/common/intake.md': 'e16cd8b47f472973823a1a53294c77ac6551285c4df75e916c739611c3bc1d23',
-  'singularity/templates/common/verification.md': 'fdda5ab9e701142bd6d1f12e90b85b4e24dddffb0f4f5d89c5b534bd9137e4e0',
-  'singularity/templates/document-test-repair/check.md': '2dcb5121d1577a3a26ca6527f9107336b632600dab21c5fe4c215c23cb84f438',
-  'singularity/templates/document-test-repair/intake.md': 'aba7b2017e29b11d89d5b3cc3d1eb0457a8177321904dc0fd2c20d9ae4d3bcd9',
-  'singularity/templates/document-test-repair/repair.md': '51f9d673c5614e202ff9e40aa5e5dd2ba8042fbe87354dd502a0e5497bca2628',
+  'singularity/templates/common/verification.md': '4f559684330b34b509cd27e959615ef48fdbda1bf0c44e05456bf70cb7754532',
+  'singularity/templates/document-test-repair/check.md': 'c49126eed2d5539bd79048cf20da1579f4ff86fafccf7afab84555988eefa604',
+  'singularity/templates/document-test-repair/intake.md': 'f7f02ba44629015042e844ccf218a571ae1f441769fff62085fdf6e3f7fb81c1',
+  'singularity/templates/document-test-repair/repair.md': 'cb3f4ba1bfe974693f036246add60a6399d09f5b4a912d99d095b659760dc0a2',
   'singularity/templates/feature/design.md': '8b7455f464a7025efa92942c272a04e3c0a3ab2a4d3eb438703cc14e230bc856',
-  'singularity/templates/feature/implementation-spec.md': '775affeb36ab41074d9953109f7459efca860c5d31465c8d5592ad986f311adf',
+  'singularity/templates/feature/implementation-spec.md': '272a9a9b7a5da042e467b068ae581e4224a5c868a3cdebe37bb96e9e2449394c',
   'singularity/templates/feature/intake.md': 'eb53814f46f12ea3d93d1629164bd7ff22a3a54feceff7f7dd55670caeb5dbab',
   'singularity/templates/feature/requirements.md': '32016db8ed6fadd6596e7dc702647cff95cdee1a203b38395d7ba5626dd8134e',
-  'singularity/templates/figma-mobile/component-mapping.md': 'cdea8a1e3defa73ade72bdaaac162ecd9b8b43817aa319d7e712e2de2eb296a3',
-  'singularity/templates/figma-mobile/conformance.md': 'bc82839bff97575e16deddd8beb1a35a110180651ac2f78aeedbd95aee45b185',
-  'singularity/templates/figma-mobile/design-intake.md': '39e83b9ecf10bad9249070d4f3267e8d2ec2412bfbfb6e46ead396e888f682b3',
-  'singularity/templates/figma-mobile/design-inventory.md': '822ea61a75a25ec5a6b42dd887c842d5126233b36f7f0fc875402f9a43125079',
+  'singularity/templates/figma-mobile/component-mapping.md': 'f549e291f0b355420bad0a55ab1538ecc95feadecc5282d9812f969e69ac5a7d',
+  'singularity/templates/figma-mobile/conformance.md': 'f795eca206230eb9ddf139e3ac0c511c4622b34bdb521e9d8d1f7cf4139be2de',
+  'singularity/templates/figma-mobile/design-intake.md': '8ad13c36d8e9a4c0b2b7da66f2885a2e2d3c5d98e1d1883eef3fc41adc451aec',
+  'singularity/templates/figma-mobile/design-inventory.md': 'e4c2e093fa102892ca159ac8969e0b94e4310690cfbef98320e9b7a9ce305aa4',
   'singularity/templates/figma-mobile/implementation.md': '69b5b75886dcc41da4e3063c7ceb6ff805251f98dd40ee41b2bf5de660dc74da',
-  'singularity/templates/figma-mobile/mobile-spec.md': '5f25f3417be372a7073ac5ba2676b0e47ea302ff54d1db64270448d635db6d98',
-  'singularity/templates/figma-mobile/visual-verification.md': '0c732adf496717a4c2034cff347408d9e6e4bb5f9556152b226fa1e376e48bf5',
-  'singularity/templates/initiatives/adr-log.md': '4ece55ac194e15395cbc331d382d6464f76e013b33576050895092a5dcebce12',
-  'singularity/templates/initiatives/business-case.md': '155faec79961574f8dd12556f0874ec8bb396f5a546ca792b2ab41dc34aa6a17',
-  'singularity/templates/initiatives/cicd-readiness.md': '98222239a8e316ff1413f827f1fe400d90345bb0759db5d06fe49f859e2aa754',
-  'singularity/templates/initiatives/compliance-assessment.md': '88645356dc868b46a78dabc50f2605b28e0ed0d9b78549e7cf9fef6536ea2296',
-  'singularity/templates/initiatives/data-readiness.md': '9b39c24e75f253e461fdf45150378a62599ba5782fb1a1721b1b6f66ba9b2dfe',
-  'singularity/templates/initiatives/data-source-decision.md': '49b76f3f576c6660696a6504e7bfdd78737089c26b540be5ea7f638ea800189c',
-  'singularity/templates/initiatives/dependency-matrix.md': '890fef7b2cae6c11927137161755c4a9cfba8f13fdd7aca73b58ba8ef5ff1b7e',
-  'singularity/templates/initiatives/deployment-record.md': '1898365f596234fa78fd9b6330c9cc5e7ed50be566b998e7f8ec8f76f294db85',
-  'singularity/templates/initiatives/design-specification.md': '341c2ebad1e5945a011906e451c2b7290fc806e35e6a531bbc39a9b87bf11a5e',
+  'singularity/templates/figma-mobile/mobile-spec.md': 'd5009c1fedb6cf3fd5a42c9e94dd8ff33f904686e32e0c74980a4b6211da1c2b',
+  'singularity/templates/figma-mobile/visual-verification.md': '51e94dd4869bbeaccde25a0b0b10422611c038aa85d05089bbce64568be5d58c',
+  'singularity/templates/initiatives/adr-log.md': '8a99d6c77b4a170289e8f565cbc0c1b837f3428962ff4d65712dc3cfe8ed756f',
+  'singularity/templates/initiatives/business-case.md': '92e374064a04d48481e421b99739a93fef2eaf03b7fa55ef9e0e91478e436c6f',
+  'singularity/templates/initiatives/cicd-readiness.md': '62466777b698091951f8bf14129581814c3020bf13813e50722396401cba6062',
+  'singularity/templates/initiatives/compliance-assessment.md': '11ca40776d701122d393bf5e1ea2af6dd1cecab488f83e523bda5103403fdb57',
+  'singularity/templates/initiatives/data-readiness.md': '186ea9d458f8c77730e4084b4c7ca24b7f5071ca3627f579ab46ffa0e5f5ae23',
+  'singularity/templates/initiatives/data-source-decision.md': 'db972acf5e822ead3cec02e5703e9360a33ee7f66e8c6f7c65451f2edd7fc375',
+  'singularity/templates/initiatives/dependency-matrix.md': 'a883d51fb9723086eb98a1f817bf25ae811b422d682c69635a42d5c16d20771a',
+  'singularity/templates/initiatives/deployment-record.md': '10eaf9456e561f9ba36ae01f903296a4c828370d331134ecb90df9f937f08090',
+  'singularity/templates/initiatives/design-specification.md': '97edfa88e4272fa4484a0b891e8f461e1c65ef2caeb251dd7318babedd0f1b97',
   'singularity/templates/initiatives/epic-record.yml': '9ca4bdb695a7cd07633746cbe8245a2e170315e09b3dd10a252684a25671ad94',
   'singularity/templates/initiatives/epic/impact-analysis.yml': '25a9ebf19c65ea0144ff23a0c2222380f0e61ef9c97c0b3cd4fde66ab9c46ca2',
   'singularity/templates/initiatives/epic/jira-write-plan.yml': '176c8c177d77e61df465472bdb5b9bfb67a9a3183e13e4704aafa1f4931e48e9',
-  'singularity/templates/initiatives/epic/materialization-report.md': '18bdd184358ac5f1f08f4e0edda9e09bab7dab8b8dcbfe7a65a2e4196e99001c',
-  'singularity/templates/initiatives/epic/parent-spec.md': '4c80b3cb91962fd1b1fe64f01bd7dc4b0ed14ec7fb889750cabf1522eaabfa72',
+  'singularity/templates/initiatives/epic/materialization-report.md': '02ec0607eb0adc6ef68e9f7425db2bb6ea6fee2639e8d73a432cac7bda407a8d',
+  'singularity/templates/initiatives/epic/parent-spec.md': '362a54994213a9a184b7f97d9df2a5294b61aebcfafe631e864be8eba96a949a',
   'singularity/templates/initiatives/epic/repository-map.yml': 'fc948774dce5b0263cd0823cd71f446a7c9c165b8e68a7ea6a4588486adfd328',
   'singularity/templates/initiatives/epic/requirements-traceability.yml': '672a8ccb13f2945e9043e325f7fe0538bddfe8a43d3bf07864bee7937b680b73',
-  'singularity/templates/initiatives/epic/requirements.md': '174d57ca16c5b43a23c6292873c683335f9fb08c6efd6d0a7bf6e6594aa5ec0b',
+  'singularity/templates/initiatives/epic/requirements.md': '3f4dd8ee6b3775753fce7d75101a7b90d9878950ef3898ec01d1489cf398faa8',
   'singularity/templates/initiatives/epic/story-plan.yml': '9ff2b979d06de8302c36ef0e1898c1c74df6f0dd92df64c1b68accdf360b555f',
   'singularity/templates/initiatives/epic/story-spec-index.yml': '3aeff575724e8b53fd1bf7cb0a01a41280c99ee714920b637c317aaf5cf88526',
   'singularity/templates/initiatives/epic/story-spec.md': 'ee2791700162ce5b843ce9458bd8e2b6580b97d2e6db4343fafc5cc64ec9bfe4',
-  'singularity/templates/initiatives/eta-register.md': 'adeda18823f2d52d82f17c5c029bd883a504205cf8757f2a7ee5237e5d1cd109',
-  'singularity/templates/initiatives/feasibility-report.md': '10fe5879b55d78b9a06b24589328fb2517eb0defd4f6e465b23ca0f6f833b63b',
-  'singularity/templates/initiatives/functional-tests.md': '760e46dd617e449ff8993dad3a98ce8c4e95e928dbf63c1b00017bff1d3ebdf3',
-  'singularity/templates/initiatives/generic-output.md': '67e01f4cc8cfd624400128a7f16e50ab62a98d52a920b0f5e9a0fcea2607759a',
+  'singularity/templates/initiatives/eta-register.md': '5f4a3351e4d76a4808266cdbcdc33f4385f947251461e39383bfa2aa2daea4ec',
+  'singularity/templates/initiatives/feasibility-report.md': '53230c9ff2a3257f38ebd15550fae3fffc2868dbc5a879df80e01f0acc9e6bb5',
+  'singularity/templates/initiatives/functional-tests.md': '904937aeee28a10b4462269e7f2d1a3acbcc7402450194b9f7b381d40301200f',
+  'singularity/templates/initiatives/generic-output.md': '72b59f924feb515d4fb68cbd3cfce7aac4f144e0c3de7ec304c80a59d1220363',
   'singularity/templates/initiatives/generic-output.yml': '6d57e9ed847259d3671f61f737eaad7604c2952cb5268da25f701b1facffcdd4',
-  'singularity/templates/initiatives/implementation-index.md': '8d3c8cdf27fe2aebf9991858836fc3bb7b37d902afa5638616c67a9c9961dca0',
-  'singularity/templates/initiatives/initiative-conformance.md': 'd5270e19131d7c2a1bdb6d447a1ed04017f80ba77ad3703f35c5462ee67a2801',
-  'singularity/templates/initiatives/initiative-scope.md': '142478e091855e712667f23038ffd40a92e4f86b0e665427f27361d74b1ab489',
-  'singularity/templates/initiatives/intake-record.md': '1dbd17ccf123ef632b1248963cc1ad36786b96efa8879278322e77aecc2eeabb',
-  'singularity/templates/initiatives/interface-contract.md': 'fb047de3b81b417eb257862840e7cd9b07d533d70711301bf904272124954053',
-  'singularity/templates/initiatives/measurement-plan.md': 'dac7671ee00e4207d5b25a520935fe536767b66219b21cf405872affb0d16187',
-  'singularity/templates/initiatives/nfr-assessment.md': 'fdbdd138b0a6c1d3ae03acf1a624c42aa074c802a5c25dc8c36ceadb8db3e46a',
-  'singularity/templates/initiatives/nfr-specification.md': 'b98bb5b743576d4cc55f1f508b5d7489a9a85eee72c9af4f93ce71b396fc454c',
-  'singularity/templates/initiatives/observability-handoff.md': '41787345e0e77b79e0d3ff5878d3d61f018e42cf65d66681d14fdfa014e2750a',
-  'singularity/templates/initiatives/operational-readiness.md': 'd8890590723c5cdff0ffe5225f5e88e8d2d5cde8f7b3805e3568393162ff5c31',
-  'singularity/templates/initiatives/opportunity-brief.md': '1896ad72afd98908b599e3ae5d81de6843df2601e91b6bd4e813a0768dff7b6a',
-  'singularity/templates/initiatives/poc-results.md': '40aba41fdfc6b2f4c748976082801e85e1bef84b80fe300980cc50fa3d0c89f7',
-  'singularity/templates/initiatives/prfaq.md': 'b2dcba973be8992f52373720ba5af959b233e3a6059bfa07e26a9797a23cc22f',
-  'singularity/templates/initiatives/product-roadmap.md': '34a3df88bd97e0637cab02564f54ff98cccc776d5267ad6d85a3d063849e6cd1',
-  'singularity/templates/initiatives/production-learning.md': '5e090b0e8a4821698af7b86052d43c970e009b8c64bcb3ddfb8b5ac8bf57c50f',
-  'singularity/templates/initiatives/production-validation.md': '8ce5dd20813d422778c1921a7658793b0b63640fe2b00af3ecca1a15cc08f56f',
-  'singularity/templates/initiatives/release-scope.md': '56ef6617316bbbe052a595dafed210f5acf854d7426cb9420e89e1269038552d',
-  'singularity/templates/initiatives/requirement-impact.md': 'f3afdcc90c5bd4e7d8c8218070b6bdac58f22d5dd787d288b515495e883dd1ff',
-  'singularity/templates/initiatives/sequencing-plan.md': '832d7d8e9820482b7263b87e9305a98037bd971e4a34a5c65e7d8c5cd5fd30b3',
-  'singularity/templates/initiatives/service-blueprint.md': '36424028305ca3a95f355249783090907e9fab5620eed93a9537b777af33ccbf',
-  'singularity/templates/initiatives/solution-architecture.md': '699d6646a25f65bb7967081dced900e3c5235e16613089e54bb002f184e67862',
-  'singularity/templates/initiatives/solution-validation.md': '9e025f84f9ebdcc5a56d1a0ae5aa044e5e0f04ec3857ba72c18afee2a209052a',
-  'singularity/templates/initiatives/stakeholder-raci.md': '7aa9d81064f4e41f5756ab2d0df1e1777c7b83530ff54f994823c359292f20c7',
-  'singularity/templates/initiatives/technical-poc-results.md': '7fbe8d0159e55a79548d6a56cbb5e1990086c5abb821735c3a197bb95f9922de',
-  'singularity/templates/initiatives/test-attestation.md': '28fe58500e6d21aa1816494ce8ef6c15b16c30da9d5f04c30f8c1f97554be822',
-  'singularity/templates/initiatives/test-data-inventory.md': '3377bd930d736890c16ecff4c1f1ec81ee83636e609aa61e95d29a5449793419',
-  'singularity/templates/initiatives/ux-concept.md': 'd12e90b0412fcf41cf07fec6bcfe8c83d80949fc01fec2973d23a24a62e73b89',
-  'singularity/templates/poc-lite/act.md': 'f9c3c015c593a51b7d3fd11ba5ec9fc104eaf00f45e2c78ea50a9b78d061c383',
-  'singularity/templates/poc-lite/finalize.md': '7e9e55b2d7199199b757780b78c83abcc35c0f9a48b6760e68b106282ef9cc57',
-  'singularity/templates/poc-lite/plan.md': 'b4748d5dca1e0fdef282f9f679c32ed360d5534a975a4361a2e925dfb1beca8e',
-  'singularity/templates/poc-lite/verify.md': 'c31624345a1b3803f1cfe267b670e570e1ad1ae3742e88898d123f962b913a58',
-  'singularity/templates/poc-workflow/impact-analysis.md': '16b58133b53c74c225f9e0a10b36301678d3ae5cd1a2686f23d1cbe414ec6c93',
-  'singularity/templates/poc-workflow/intake.md': '48c577ec3df824a95022a4abdd02a09f0c1040ed7f057b1150bd05a0beff4a14',
-  'singularity/templates/poc-workflow/publication-review.md': 'e5d0e59595e5dd01899883adf781a728bdc6636a07efe4290b57c55b808288d1',
-  'singularity/templates/poc-workflow/test-generation.md': '6fa0c17056fe263eb9f47699a84a0759a899b8e67c35a3d53df8961f1ca59b25',
-  'singularity/templates/poc-workflow/ui-exploration.md': 'ba1d1918737d8753d51c1d59b368eab9980dbf0b587ddaab88174c68bdd986b1',
-  'singularity/templates/poc-workflow/validation.md': 'b1d121afbd49c09538d221cbac60b352a21f7eb7699bc4cba08d35b88ba47fb6',
-  'singularity/templates/quick-fix/implement.md': 'dff093133a1be4c93115cfbbb0d994c8ce391fc19279caee30b441ec27a05c0a',
-  'singularity/templates/quick-fix/intake.md': '3a90e48c46e2fa39dbf8c382d1a278f97d58807f8670b4d27b0008c6da6a8e23',
-  'singularity/templates/quick-fix/verify.md': 'a21900d99d044d35de501f0e43888a8a3ebcfe860e702a5d1b3eec61fdd06f27',
-  'singularity/templates/spec-code-test-loop/conformance.md': 'bb2f9e6d23b3814949db9e1538ae140a8b24d47e2debe4cc54682c95851a1ebc',
-  'singularity/templates/spec-code-test-loop/specification.md': '13c535747dc428cd0a9a4f31a4f4fdce29d4f8fd4f43a8062579f96e0d37c6fe',
-  'singularity/templates/spec-code-test-loop/testing.md': 'dfc7d52ec93a94c33507ba76bada5459577895d714160136f4ec46bfcf0660d2',
-  'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
-  'singularity/templates/spec-driven/plan.md': '589ff56b9968fba0b7feb05abb0d0f974fad2d2747df16c5a485f52e23744914',
-  'singularity/templates/spec-driven/release.md': '8f3e84e8e19dfc851d9948f20fbd48c0e43e5d8df9c747404d602106930e14fe',
-  'singularity/templates/spec-driven/spec.md': 'fbb7f5f29844d24836c6b918e2796940cbc21c24ae0a7aa252d4e1207588e2cb',
+  'singularity/templates/initiatives/implementation-index.md': '6a2682bc0886d37e67d57e51102b1f70bf2347c7fdf8c47f76cb61fa8bfb3426',
+  'singularity/templates/initiatives/initiative-conformance.md': 'a8fb5501884f801112c2c271366b0536ec2b8f64ec695fca56dd45afc38c4acf',
+  'singularity/templates/initiatives/initiative-scope.md': 'eed478104dd8f1275216a488d8d4dbf5d4e35691164e462699aa6c70cd42ec0b',
+  'singularity/templates/initiatives/intake-record.md': '9de271c3547f355a38999d6e7187de6823d8c856f1706fd52b4f1cc5e50eeab1',
+  'singularity/templates/initiatives/interface-contract.md': '6b097816ddade4e49c61aaf022eed20f00f245fbdbb84bff16039d9220a41cd7',
+  'singularity/templates/initiatives/measurement-plan.md': 'df8ef58c7158f3fc057496a50b952f29f80a867c642b72656239fe65be26ccf7',
+  'singularity/templates/initiatives/nfr-assessment.md': '4e96a76f4e10ba92dbc3971613a36d8b46022da0264ef322e6a782ff10146a27',
+  'singularity/templates/initiatives/nfr-specification.md': 'ed55e31f2ff5aa798357a340f6b46af01efb797ca81f5a1a969a9a33e16f4d91',
+  'singularity/templates/initiatives/observability-handoff.md': '78c0faf0fb982b3df902cfd7348f3240b0ad97a611c7289409cbd2c1979b2686',
+  'singularity/templates/initiatives/operational-readiness.md': '0f8dab29bec99a536b66462157bca8fe9cacff7f740ad57383a7acc9eae305b7',
+  'singularity/templates/initiatives/opportunity-brief.md': 'dfd43129c4b640d734ff1726fe5f07e3befde20f7b894c7c3250ec633dc7e797',
+  'singularity/templates/initiatives/poc-results.md': '3fc36e6eef1993e6b4dcfe759ec6af3f393574e9b54041bb53063f5fd905158e',
+  'singularity/templates/initiatives/prfaq.md': '102b63d25d5a8930762771b5257becc242c8199595d7d4dda0f679be836857b7',
+  'singularity/templates/initiatives/product-roadmap.md': '744535b255707067aa026a7f15f5a506bef0630bc05608a9a4d55cd314d2896e',
+  'singularity/templates/initiatives/production-learning.md': 'e34b48ba311d1995c6b89b7bdb9fae56e58bde9437036b8dedb2a3a4494b3d41',
+  'singularity/templates/initiatives/production-validation.md': '2ab1828243980d2b9211f28e64ec2359c4ad198a36f23347c5d4c1b195f17571',
+  'singularity/templates/initiatives/release-scope.md': '16c25bca5a462cc70285d8368297add5f3fadc6cc2e7d9b1fc026d794d3344cd',
+  'singularity/templates/initiatives/requirement-impact.md': '12bf724dd853cbcd510331a3ebc1520047314187a1119f9426e5efcd6996ae11',
+  'singularity/templates/initiatives/sequencing-plan.md': 'f0af9d69da908444df53efad6d1da192c2b04f95969f4b44ebc6e9f1f816b506',
+  'singularity/templates/initiatives/service-blueprint.md': 'e7a1e7b618ec241ab417b417309364656bacf1123021c87b9e6fc6375be1715e',
+  'singularity/templates/initiatives/solution-architecture.md': '261f098b927ee5967d102301c9eb2635d420cf907026353abfe18bb48e377290',
+  'singularity/templates/initiatives/solution-validation.md': 'a735f499342a87b5f6c3976b36d12f0c3a0bcb3b89d3624a2ae28dab4a7fe8b0',
+  'singularity/templates/initiatives/stakeholder-raci.md': 'ac85aba4cace4aa5f96683ceecc3e963574f7314675306e9b2d11e4e9aa57d22',
+  'singularity/templates/initiatives/technical-poc-results.md': '3355c70fbf78992aecb7f52929cddf4b715bddaf9d400a293dbc20423b39eb07',
+  'singularity/templates/initiatives/test-attestation.md': 'c6bd43bdd4f839bc85cb050ac8a02288e45181938d2734349628a680d7c58a25',
+  'singularity/templates/initiatives/test-data-inventory.md': '2647a173b34950a2612d82b47d6b556d95080b7d62e4b5684c934843804c8e74',
+  'singularity/templates/initiatives/ux-concept.md': 'e8418ed898fbd11791e3d1149c8f744089cd77bd1aff1510aba80f3b592bf87d',
+  'singularity/templates/poc-lite/act.md': '2167869c4ca421c12027d066f883e8950014c2cc6b8a7ac5338ecc585a3fe33e',
+  'singularity/templates/poc-lite/finalize.md': '7e0f82599de4dbe35f391e0ed1b34d266bdcde712ae77b43d1306bd0d32673e2',
+  'singularity/templates/poc-lite/plan.md': '347f3de8f838d6c0ac57a535d79a2d21096fb50c0b65d2faf37d162e412b7b0c',
+  'singularity/templates/poc-lite/verify.md': '1fd14ad56daddc335cbb26d23ad3fb2e616b87b6ebc7ff0e67aef499963c8426',
+  'singularity/templates/poc-workflow/impact-analysis.md': 'e064cb953fe74b9ff472c30b021de4419327e92596b2a77e10ac7f4332f99e80',
+  'singularity/templates/poc-workflow/intake.md': 'e48da83e3d4139a42da68f69a3ba48d52d574817195b19331eee25ef41464a34',
+  'singularity/templates/poc-workflow/publication-review.md': '41973e2ec380ff8b6e933516adf5d7aa11effacabf5e418db67c7a0361012582',
+  'singularity/templates/poc-workflow/test-generation.md': 'f01f9dd2668d4b6e4df5c15fdea58bcdacba096c9e1141d56a436c6f125beba5',
+  'singularity/templates/poc-workflow/ui-exploration.md': 'cd97cd1b49710ed2c80cfd766320694f887099d4283ad17a96cf7b290b10824b',
+  'singularity/templates/poc-workflow/validation.md': '56d2f39844aa4ef48926a0b0f78ff807839b0a63ad746a1089f8fe5f56568224',
+  'singularity/templates/quick-fix/implement.md': 'a252cd732cfb91a944f9c38b01c02710191291fccca5a190d9008ecff4f4459a',
+  'singularity/templates/quick-fix/intake.md': '5fc0dfa8dbd78cb24656d72962d5e67bd13d6d407b550d7dba28b5bd85cf8493',
+  'singularity/templates/quick-fix/verify.md': 'f54cccabc38f645bcd987cb3096070f7ea18732c689bb8c1ee90d4222b966632',
+  'singularity/templates/spec-code-test-loop/conformance.md': '105059f473d71491e044e6c17ee1d02cf538a7c3b382aed6d41228acedd7a388',
+  'singularity/templates/spec-code-test-loop/specification.md': 'aaa206553da4ff106a1668a7aceaa7b0a9e3aa926f6628285f6ce14e0d5f539f',
+  'singularity/templates/spec-code-test-loop/testing.md': '30010a1180ec6d7212c745a53a0fe49fad624d4212d476071088c74dfddea916',
+  'singularity/templates/spec-driven/convergence.md': '922df3ebcd5e081ca202606f29f640f1b0439d9b9c17a94a2ff2478aad2a4d5a',
+  'singularity/templates/spec-driven/plan.md': '8ac870c047c0155d5ca4ca7391a11acb7310b52aae746d66f40e1d77ecdb14ec',
+  'singularity/templates/spec-driven/release.md': '8f7c0be1d576e781de1724a50bc906ad8f511807e665328e753bf40fd4e881a6',
+  'singularity/templates/spec-driven/spec.md': 'bf74e36ca2163588de73b18cd91340c54f4ddcba78a8c4bb4cc05bf2c0691f06',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',
   'singularity/templates/starter-packs/skp-team-notes/draft-input.json': 'fbc136911e7dfecf14be06091b6d759770fa72c133c39de74710511bfee57410'
 });

@@ -1,15 +1,10 @@
 # Implementation plan — {{work.id}}
 
-Derived from the approved specification. Cite the clause each decision serves, so convergence can
-join intent to implementation at requirement altitude rather than by path `[SPK:REQ-071]`.
+<!-- sflow:guidance Derived from the approved specification. Cite the clause each decision serves, so convergence can join intent to implementation at requirement altitude rather than by path `[SPK:REQ-071]`. -->
 
 ## Agent brief
 
-<!--
-Summarize the selected approach, affected surfaces, sequencing, proof strategy, and principal risks
-for downstream agents. Keep exact commands and source paths when they are operationally important.
-The complete approved plan remains available through its hash-bound expansion reference.
--->
+<!-- sflow:guidance Summarize the selected approach, affected surfaces, sequencing, proof strategy, and principal risks for downstream agents. Keep exact commands and source paths when they are operationally important. The complete approved plan remains available through its hash-bound expansion reference. -->
 
 TODO: Summarize the selected implementation approach, affected surfaces, proof strategy, and principal risks.
 
@@ -19,14 +14,9 @@ TODO: Explain how this will be built and why this approach was selected.
 
 ## Affected surfaces
 
-TODO: Identify the modules, contracts, data, and interfaces this touches. Expected paths are a
-planning aid; the authority on what actually changed remains reconciliation `[SPK:CON-031]`.
+TODO: Identify the modules, contracts, data, and interfaces this touches. Expected paths are a planning aid; the authority on what actually changed remains reconciliation `[SPK:CON-031]`.
 
-Inspect relevant entry points, page/layout shells, assets, data/contracts, manifests and test/runtime
-setup. A browser title or theme may touch an entry HTML file as well as component styles; an API or
-CLI has different entry points. Map product changes to approved clauses and configuration to
-supporting files. Newly discovered implementation paths are reconciled in that phase through a
-narrow plan amendment or private preservation; they never require rewriting this approved plan.
+<!-- sflow:guidance Inspect relevant entry points, page/layout shells, assets, data/contracts, manifests and test/runtime setup. A browser title or theme may touch an entry HTML file as well as component styles; an API or CLI has different entry points. Map product changes to approved clauses and configuration to supporting files. Newly discovered implementation paths are reconciled in that phase through a narrow plan amendment or private preservation; they never require rewriting this approved plan. -->
 
 | Surface | Change | Serves |
 |---|---|---|
@@ -38,43 +28,18 @@ TODO: State the implementation order and what each step unblocks.
 
 ## Test strategy
 
-TODO: Explain how each authoritative clause will be proved. Add exactly one row per clause, using its
-fully qualified ID (for example, `{{work.id}}:REQ-001`, never only `REQ-001`). `Expected paths` and
-`Planned tests` must contain exact repository-relative paths in backticks; directories, globs, module
-names, and prose are not paths. Multiple exact paths may be listed as separate backticked values.
-For new/modified delivery, `Expected paths` contains product source only and `Planned tests` contains
-test files only; never repeat a test file in both columns. A test-only obligation uses fulfillment
-`test-only`, an unquoted dash (-) in Expected paths, and its exact tests under `Planned tests`.
-Never backtick the empty dash: that names a file. Retained screenshots/documents use fulfillment
-`evidence` and exact paths under `{{work.id}}`'s Story evidence directory, not product source.
-A planned test never saves its capture straight to that path, because every later run would replace
-the reviewed file: it saves under its runner's output (for example `test-results/`), and the code
-step copies the image to the evidence path once, when it produces the evidence.
-For a genuinely non-testable clause, write `not-applicable:` followed by your concrete reviewed
-explanation in `Planned tests`. Do not use it to defer a test or to replace an unknown path.
-For approved visual/inspection proof without an executable test, write `verification: <AC-ID>`
-instead, naming its exact approved Criterion, and define the primary witness below. This is proof,
-not an exemption; human visual acceptance remains separate. Inherit all Specification methods.
+TODO: Explain how each authoritative clause will be proved. Add exactly one row per clause, using its fully qualified ID (for example, `{{work.id}}:REQ-001`, never only `REQ-001`). `Expected paths` and `Planned tests` must contain exact repository-relative paths in backticks; directories, globs, module names, and prose are not paths. Multiple exact paths may be listed as separate backticked values. For new/modified delivery, `Expected paths` contains product source only and `Planned tests` contains test files only; never repeat a test file in both columns. A test-only obligation uses fulfillment `test-only`, an unquoted dash (-) in Expected paths, and its exact tests under `Planned tests`. Never backtick the empty dash: that names a file. Retained screenshots/documents use fulfillment `evidence` and exact paths under `{{work.id}}`'s Story evidence directory, not product source. A planned test never saves its capture straight to that path, because every later run would replace the reviewed file: it saves under its runner's output (for example `test-results/`), and the code step copies the image to the evidence path once, when it produces the evidence. For a genuinely non-testable clause, write `not-applicable:` followed by your concrete reviewed explanation in `Planned tests`. Do not use it to defer a test or to replace an unknown path. For approved visual/inspection proof without an executable test, write `verification: <AC-ID>` instead, naming its exact approved Criterion, and define the primary witness below. This is proof, not an exemption; human visual acceptance remains separate. Inherit all Specification methods.
 
 | Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
 | `{{work.id}}:REQ-001` | TODO: replace with exact backticked repository-relative source paths | TODO: replace with exact backticked repository-relative test paths | new | TODO: what a person can observe when it works |
 
-<!-- Fulfillment: new, modified, existing (behaviour already at the listed paths), removed, test-only (tests are the whole delivery; Expected paths is -), document, configuration, or evidence (retained files under this Story's evidence/ directory). Do not put screenshots in Planned tests or product-source rows. An evidence AC needs a primary visual/inspection Verification contract; file presence is not a visual pass. Observable result states what is observed. Multi-code-step plans add Steps to allocate each row. -->
+<!-- sflow:guidance Fulfillment: new, modified, existing (behaviour already at the listed paths), removed, test-only (tests are the whole delivery; Expected paths is -), document, configuration, or evidence (retained files under this Story's evidence/ directory). Do not put screenshots in Planned tests or product-source rows. An evidence AC needs a primary visual/inspection Verification contract; file presence is not a visual pass. Observable result states what is observed. Multi-code-step plans add Steps to allocate each row. -->
 
 ## Verification contracts
 
-<!-- Optional for default automated tests, required for retained screenshot/inspection criteria.
-Use a Criterion | Slot | Method | Witness | Role | Required assurance table. For a screenshot AC,
-its Test strategy row has Fulfillment evidence and the exact Story evidence path under Expected
-paths. The contract has a primary visual (screen/scenario) or inspection (exact path) witness,
-with source-bound assurance. Prose describing a "primary visual verification contract" is not
-a contract row. Criterion must be an exact approved AC ID, Slot a lower-hyphen identifier,
-Method test/inspection/visual, and Role primary/supporting; scenario/reviewer prose belongs
-outside these cells. Never classify the screenshot as product source or an executable test.
-The Witness cell holds one backticked value and nothing else. Required assurance holds one word
-or stays empty: module-observed or exact-local-observed for a test, declared or source-bound for
-an inspection or visual witness. For example (a fenced example is never read as a contract):
+<!-- sflow:guidance
+Optional for default automated tests, required for retained screenshot/inspection criteria. Use a Criterion | Slot | Method | Witness | Role | Required assurance table. For a screenshot AC, its Test strategy row has Fulfillment evidence and the exact Story evidence path under Expected paths. The contract has a primary visual (screen/scenario) or inspection (exact path) witness, with source-bound assurance. Prose describing a "primary visual verification contract" is not a contract row. Criterion must be an exact approved AC ID, Slot a lower-hyphen identifier, Method test/inspection/visual, and Role primary/supporting; scenario/reviewer prose belongs outside these cells. Never classify the screenshot as product source or an executable test. The Witness cell holds one backticked value and nothing else. Required assurance holds one word or stays empty: module-observed or exact-local-observed for a test, declared or source-bound for an inspection or visual witness. For example (a fenced example is never read as a contract):
 ```text
 | Criterion | Slot | Method | Witness | Role | Required assurance |
 |---|---|---|---|---|---|
@@ -86,7 +51,7 @@ an inspection or visual witness. For example (a fenced example is never read as 
 
 ## Supporting files
 
-<!-- Optional. List each file the code may change that cannot carry a @clause tag (a manifest, a lockfile, CI configuration, repository metadata, documentation): one exact backticked repository path per bullet, then its reason, for example: - `go.mod` — adds the ledger client, or - `.github/workflows/ci.yml` — runs the new job. Application source, tests and migrations are never supporting files: give them a clause row. Approval refuses any other changed path no clause claims. Delete this section when there are none. -->
+<!-- sflow:guidance Optional. List each file the code may change that cannot carry a @clause tag (a manifest, a lockfile, CI configuration, repository metadata, documentation): one exact backticked repository path per bullet, then its reason, for example: - `go.mod` — adds the ledger client, or - `.github/workflows/ci.yml` — runs the new job. Application source, tests and migrations are never supporting files: give them a clause row. Approval refuses any other changed path no clause claims. Delete this section when there are none. -->
 
 ## Constitution articles
 

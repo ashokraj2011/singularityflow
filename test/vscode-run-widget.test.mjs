@@ -286,7 +286,7 @@ test('results: each case passed, failed with its message, or skipped; a totals-o
   assert.deepEqual(model.commandOutcome({ ...parsed.commands[1], status: 'failed', note: null, exitCode: 2 }), { outcome: 'failed', message: 'lint failed with exit code 2.' });
   assert.deepEqual(model.runOutputLines(parsed), [
     'Local preview, not evidence [local-preview]',
-    'Run RUN-7, environment dev, commit abc1234def56, with uncommitted changes: 2 passed, 1 failed, 1 flaky, 1 skipped of 5.',
+    'Run RUN-7, environment dev, with uncommitted changes: 2 passed, 1 failed, 1 flaky, 1 skipped of 5.',
     'lint: This exit-code report gives totals only.',
     'integration-tests: qa is not bound on this computer.'
   ], 'the engine\'s label and class lead: the Testing view never calls a local preview evidence');

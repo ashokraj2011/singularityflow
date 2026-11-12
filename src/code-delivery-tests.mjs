@@ -1610,11 +1610,12 @@ export function environmentDoesNotCountWords(linked) {
 
 /**
  * The label every surface shows for a local-integration run [RUN evidence classes]: who ran it, in
- * which environment, on which commit, that values were never recorded, and when the run does not
- * count for the step because the step requires another environment.
+ * which environment, that values were never recorded, and when the run does not count for the step
+ * because the step requires another environment. Its commit stays in the run's record: a person never
+ * reads a SHA (owner, 2026-11-11).
  */
-export function localIntegrationLabel({ ranBy = null, environment, commit = null, countsForStep = true, linked = null }) {
-  return `Local integration run by ${ranBy ?? 'an unrecorded identity'}, environment \`${environment}\`, commit \`${String(commit ?? 'unknown').slice(0, 7)}\`; values never recorded`
+export function localIntegrationLabel({ ranBy = null, environment, countsForStep = true, linked = null }) {
+  return `Local integration run by ${ranBy ?? 'an unrecorded identity'}, environment \`${environment}\`; values never recorded`
     + (countsForStep || !linked ? '' : `; ${environmentDoesNotCountWords(linked)}`);
 }
 

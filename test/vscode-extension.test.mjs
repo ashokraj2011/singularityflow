@@ -3490,7 +3490,8 @@ test('a submitted Story phase appears in the same approval inbox with its exact 
   assert.equal(approvals.pending[0].reviewPacketSha256, 'b'.repeat(64));
   assert.equal(approvals.pending[0].submittedSourceCommit, 'c'.repeat(40));
   assert.deepEqual(approvals.pending[0].rejectTo, ['intake', 'design']);
-  assert.match(approvals.pending[0].detail, /packet b{12}/);
+  assert.match(approvals.pending[0].detail, /submitted for review/u);
+  assert.doesNotMatch(approvals.pending[0].detail, /b{12}/u, 'the packet is named, never its digest');
 
   const inbox = buildInbox(shot);
   assert.equal(inbox.subjectId, 'STORY-42');

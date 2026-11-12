@@ -11,7 +11,7 @@ test('VS Code renders the CLI summary verbatim and escaped; it does not recomput
   for (const line of lines.slice(0, 3)) assert.ok(html.includes(`<li>${line}</li>`));
   assert.match(html, /&lt;script&gt;unsafe\(\)&lt;\/script&gt;/u);
   assert.doesNotMatch(html, /<script>|<input|<button|\bchecked\b/u);
-  assert.match(html, /sha256:abc/u);
+  assert.doesNotMatch(html, /sha256:abc/u, 'a person reads the lines, never the projection digest (owner, 2026-11-11)');
   assert.equal(evidenceConsistencyHtml(null), '');
 });
 

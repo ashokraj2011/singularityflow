@@ -6894,6 +6894,85 @@ test('an open Workspaces panel follows the active workspace instead of retaining
   assert.match(panel.webview.html, /<h3>[\s\S]*?alpha<\/h3>[\s\S]*?active/);
 });
 
+test('a Story selected in Copilot is offered once, and Refresh switches this window to it [office, 2026-11-12]', async (t) => {
+  if (!requireBundle(t)) return;
+  const source = await demoRepository();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-selection-'));
+  const registry = path.join(base, 'registry.json');
+  const selection = path.join(base, 'active-workspace.json');
+  const workspaces = path.join(base, 'workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+  const cli = (args) => {
+    const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], { encoding: 'utf8', env: process.env });
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const created = new Map();
+  for (const id of ['alpha', 'beta']) {
+    created.set(id, JSON.parse(cli(['workspace', 'create', '--local', '--json', '--id', id, '--base', workspaces,
+      '--lead', 'lead', '--repository', `lead=${source}`, '--default-branch', 'lead=INIT-CHECKOUT', '--confirm', id, '--clone'])));
+  }
+  const alphaRoot = path.join(created.get('alpha').workspace.path, created.get('alpha').workspace.repositories.lead.path);
+  const beta = created.get('beta');
+  const betaRoot = path.join(beta.workspace.path, beta.workspace.repositories.lead.path);
+  const portfolio = YAML.parse(await readFile(path.join(betaRoot, 'singularity/portfolio.yml'), 'utf8'));
+  const betaState = JSON.parse(await readFile(path.join(initiativeDir(betaRoot, portfolio, 'INIT-CHECKOUT'), 'state.json'), 'utf8'));
+  betaState.initiative.title = 'Selected in Copilot';
+  await saveInitiative(betaRoot, portfolio, betaState);
+  run('git', ['add', '.'], { cwd: betaRoot });
+  run('git', ['-c', `user.email=${EMAIL}`, '-c', 'user.name=Initiative Owner', 'commit', '-m', 'Distinguish the selected workspace'], { cwd: betaRoot });
+
+  cli(['workspace', 'use', 'alpha', '--json']);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: betaRoot } }];
+  const extension = loadExtension(api);
+  await extension.activate(context(new Map(), new Map([['singularityFlow.executionRoot', alphaRoot]])));
+  const lifecycle = section(registered, 'lifecycle');
+  assert.equal(lifecycle.getTreeItem(lifecycle.getChildren()[0]).description, 'One-tap checkout');
+  const selectionWatcher = registered.watchers.find((watcher) =>
+    path.resolve(watcher.pattern.base.fsPath) === path.dirname(selection) && watcher.pattern.pattern === path.basename(selection));
+
+  // /sf-session (or a terminal) selects beta: this window keeps its own Story and offers to switch, once.
+  // After the window has read the selection it starts from: a change before that read is its starting point.
+  await until(() => registered.output.some((line) => /"command":"workspace","subcommand":"current"/u.test(String(line))) || null,
+    { what: 'the window to read the selection it starts from' });
+  await settle();
+  registered.informationAnswer = undefined;
+  cli(['workspace', 'use', 'beta', '--json']);
+  selectionWatcher.change.fire({ fsPath: selection });
+  const offer = await until(() => registered.infos.find((message) => /was selected in Copilot or a terminal\. This window still shows its own\./u.test(message)) ?? null,
+    { what: 'the offer to switch to the Story selected elsewhere' });
+  assert.match(offer, /^Workspace beta was selected in Copilot or a terminal\./u, 'it names what was selected: the Story, else the workspace');
+  const offers = () => registered.infos.filter((message) => message === offer).length;
+  const offered = offers();
+  selectionWatcher.change.fire({ fsPath: selection });
+  await settle();
+  assert.equal(offers(), offered, 'one offer per selection, not one per file event');
+  assert.equal(lifecycle.getTreeItem(lifecycle.getChildren()[0]).description, 'One-tap checkout', 'nothing switched without being asked');
+
+  // The Navigator's Refresh button shows the selection made in Copilot.
+  const menus = JSON.parse(await readFile(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8')).contributes.menus['view/title'];
+  assert.ok(menus.some((entry) => entry.command === 'singularityFlow.refresh' && entry.when === 'view == singularityFlow.navigation' && /^navigation@/u.test(entry.group)),
+    'Refresh is a button in the Navigator\'s title bar');
+  await registered.commands.get('singularityFlow.refresh')();
+  await until(() => {
+    const root = lifecycle.getChildren()[0];
+    return lifecycle.getTreeItem(root).description === 'Selected in Copilot' ? root : null;
+  }, { what: 'Refresh to switch this window to the Story selected in Copilot' });
+  assert.ok(registered.output.some((line) => line.includes('Refresh: switching this window to')));
+  assert.ok(registered.output.some((line) => line.includes(`Repository: ${path.resolve(betaRoot)}`)), 'every repository-bound screen followed');
+  assert.equal(registered.executedCommands.some((entry) => entry.id === 'vscode.openFolder'), false, 'beta was already open here, so it rebinds in place');
+});
+
 test('a selection changed outside VS Code leaves this window until the workspace is chosen here', async (t) => {
   if (!requireBundle(t)) return;
   const source = await demoRepository();

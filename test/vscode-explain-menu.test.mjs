@@ -53,6 +53,8 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   assert.ok(placed('scm/resourceState/context', 'singularityFlow.explainFileChanges'), 'right-click a changed file');
   const navigator = (menus['view/title'] ?? []).filter((entry) => /view == singularityFlow\.navigation\b/.test(entry.when));
   assert.deepEqual(navigator.map((entry) => [entry.command, entry.group.split('@')[0]]), [
+    // Refresh shows the Story selected in Copilot or a terminal [office, 2026-11-12].
+    ['singularityFlow.refresh', 'navigation'],
     ['singularityFlow.openChangeExplorer', 'navigation'],
     ['singularityFlow.openCodeExplainer', 'navigation'],
     ['singularityFlow.openCodeExplanation', '1_explain'],
@@ -64,8 +66,9 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
 
   // Outside a governed repository none of this appears; inside one, every entry is gated the same way.
   // Upgrade or Repair… is the exception on purpose: with no repository open it still offers the
-  // registered workspaces and repair by Git URL, which is when a person most needs them.
-  const repositoryFree = new Set(['singularityFlow.upgradeOrRepair']);
+  // registered workspaces and repair by Git URL, which is when a person most needs them. Refresh is the
+  // other: in a window with no repository open it brings the Story selected in Copilot here [office, 2026-11-12].
+  const repositoryFree = new Set(['singularityFlow.upgradeOrRepair', 'singularityFlow.refresh']);
   for (const menu of ['editor/context', 'explorer/context', 'editor/title', 'scm/title', 'scm/resourceState/context', 'view/title']) {
     for (const entry of (menus[menu] ?? []).filter((item) => !repositoryFree.has(item.command))) {
       assert.match(entry.when ?? '', new RegExp(`\\b${REPOSITORY.replace('.', '\\.')}\\b`), `${menu}: ${entry.command ?? entry.submenu}`);

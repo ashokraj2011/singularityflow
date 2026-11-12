@@ -6145,7 +6145,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     };
   };
-  const reconcileActiveWorkspaceSelection = async (): Promise<boolean> => {
+  /**
+   * Show a selection the CLI already verified in this window: open its checkout when the window cannot show it in
+   * place, else rebind the views. Shared by the Copilot follower and Refresh, so both switch the same way.
+   */
+  const adoptVerifiedSelection = async (selection: SelectedWorkspace, isCurrent: () => Promise<boolean>,
+    { windowSwitchNote = null }: { windowSwitchNote?: string | null } = {}): Promise<void> => {
+    if (!await isCurrent()) return;
+    if (await storyCheckoutNeedsWindowSwitch(selection.repositoryPath,
+      (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath))) {
+      if (!await isCurrent()) return;
+      if (windowSwitchNote) output.appendLine(windowSwitchNote);
+      // No new chat, branch checkout, reset, or pending Copilot handoff. VS Code owns unsaved
+      // editor handling; opening the already-visible Story is an idempotent no-op.
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(selection.repositoryPath), false);
+      // The replacement host resolves the opened Story. If the user cancels an unsaved-file
+      // prompt, retain this window's old UI context rather than creating another split binding.
+      return;
+    }
+    if (!sameStoryAttachPath(repository, selection.repositoryPath)) {
+      for (const follow of workspaceSelected) await follow({ ...selection, navigationIsCurrent: isCurrent });
+    }
+  };
+
+  // A Story selected elsewhere (Copilot's /sf-session, a terminal): Refresh switches to it; otherwise this window
+  // offers to, once per selection, and keeps its own until asked [office, 2026-11-12].
+  let offeredSelectionRevision: string | null | undefined;
+  // A change seen while a check is already running is checked again after it: that check read the older file.
+  let reconcileAgain = false;
+  const reconcileActiveWorkspaceSelection = async ({ follow = false }: { follow?: boolean } = {}): Promise<boolean> => {
     if (navigationHolds) {
       if (!navigationDeferred) {
         output.appendLine('The active selection changed during a Story start; it is followed once the start finishes.');
@@ -6153,10 +6181,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       navigationDeferred = true;
       return false;
     }
-    if (selectionReconciliation) return selectionReconciliation;
+    if (selectionReconciliation && !follow) { reconcileAgain = true; return selectionReconciliation; }
+    // An explicit Refresh waits for a background check already running, then makes its own.
+    if (selectionReconciliation) await selectionReconciliation.catch(() => false);
     const reconciliation = (async (): Promise<boolean> => {
       const observedSelectionRevision = await machineSelectionRevision(activeSelectionFile);
-      if (observedSelectionRevision !== undefined
+      if (!follow && observedSelectionRevision !== undefined
         && observedSelectionRevision === activeSelectionRevision) return false;
       try {
         const current = await activeSelectionClient.run<{
@@ -6172,8 +6202,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!current.repositoryPath || !current.workspacePath) return false;
         const target = path.resolve(current.repositoryPath);
         if (target === path.resolve(repository)) return false;
-        output.appendLine(`The profile selection changed elsewhere to ${target}; this window retains ${repository}. Use Select Story or Select Workspace here to switch.`);
+        const label = current.storyId ? `Story ${current.storyId}` : `Workspace ${current.workspaceName ?? current.workspaceId ?? path.basename(current.workspacePath)}`;
+        if (follow) {
+          const navigationGeneration = workspaceNavigationGeneration;
+          const isCurrent = async (): Promise<boolean> => navigationGeneration === workspaceNavigationGeneration
+            && await machineSelectionRevision(activeSelectionFile) === observedSelectionRevision;
+          output.appendLine(`Refresh: switching this window to ${label}, the selection made in Copilot or a terminal.`);
+          await adoptVerifiedSelection({
+            workspaceId: current.workspaceId ?? current.workspacePath, workspacePath: current.workspacePath,
+            workspaceName: current.workspaceName ?? path.basename(current.workspacePath),
+            repositoryId: current.repositoryId ?? null, repositoryPath: target, forIntake: true
+          }, isCurrent);
+          return true;
+        }
+        output.appendLine(`The profile selection changed elsewhere to ${target}; this window retains ${repository}. Refresh here to switch.`);
         await refreshWorkspaceTree();
+        if (vscode.window.state.focused && observedSelectionRevision !== offeredSelectionRevision) {
+          offeredSelectionRevision = observedSelectionRevision;
+          void Promise.resolve(showCompactInformationMessage(`${label} was selected in Copilot or a terminal. This window still shows its own.`, 'Switch to it'))
+            .then((choice) => { if (choice) void vscode.commands.executeCommand('singularityFlow.refresh'); }, () => {});
+        }
         return false;
       } catch (error) {
         // A background synchronization failure must not interrupt editing. The explicit Refresh
@@ -6187,6 +6235,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return await reconciliation;
     } finally {
       if (selectionReconciliation === reconciliation) selectionReconciliation = null;
+      if (reconcileAgain && !selectionReconciliation) { reconcileAgain = false; void reconcileActiveWorkspaceSelection(); }
     }
   };
 
@@ -6253,21 +6302,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     apply: async ({ notice, navigationGeneration, selection }, noticeIsCurrent) => {
       const isCurrent = async (): Promise<boolean> => navigationGeneration === workspaceNavigationGeneration
         && await noticeIsCurrent();
-      if (!await isCurrent()) return;
-      if (await storyCheckoutNeedsWindowSwitch(selection.repositoryPath,
-        (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath))) {
-        if (!await isCurrent()) return;
-        output.appendLine(`Following Copilot Story ${notice.workId} in its verified checkout.`);
-        // No new chat, branch checkout, reset, or pending Copilot handoff. VS Code owns unsaved
-        // editor handling; opening the already-visible Story is an idempotent no-op.
-        await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(selection.repositoryPath), false);
-        // The replacement host resolves the opened Story. If the user cancels an unsaved-file
-        // prompt, retain this window's old UI context rather than creating another split binding.
-        return;
-      }
-      if (!sameStoryAttachPath(repository, selection.repositoryPath)) {
-        for (const follow of workspaceSelected) await follow({ ...selection, navigationIsCurrent: isCurrent });
-      }
+      await adoptVerifiedSelection(selection, isCurrent, { windowSwitchNote: `Following Copilot Story ${notice.workId} in its verified checkout.` });
     },
     onError: error => output.appendLine(`Could not follow Copilot's Story: ${error.message}`)
   });
@@ -8844,7 +8879,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.detachEvidence': detachEvidence as never,
     'singularityFlow.addSource': addSource,
     'singularityFlow.refresh': async () => {
-      await reconcileActiveWorkspaceSelection();
+      // An explicit Refresh shows the Story selected last on this machine, in Copilot or a terminal.
+      if (await reconcileActiveWorkspaceSelection({ follow: true })) return;
       try {
         await refreshRemoteStories();
       } catch (error) {

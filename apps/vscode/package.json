@@ -1241,7 +1241,7 @@
       },
       {
         "command": "singularityFlow.refresh",
-        "title": "Singularity Flow: Refresh",
+        "title": "Singularity Flow: Refresh (show the Story selected in Copilot)",
         "icon": "$(refresh)"
       },
       {
@@ -1671,6 +1671,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "singularityFlow.refresh",
+          "when": "view == singularityFlow.navigation",
+          "group": "navigation@0"
+        },
         {
           "command": "singularityFlow.openChangeExplorer",
           "when": "view == singularityFlow.navigation && singularityFlow.repositoryActive",

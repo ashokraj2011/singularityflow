@@ -4,11 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "d7c61de356c4597872430e980b23ebc61c3b37e4",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-09-STOPPED-GROUPS.md",
+    "reviewedAtCommit": "92c7d042e88968a099b002284c54a3dd8603d55a",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-12-READABLE-TERMINAL-CARD.md",
     "companionIds": [
-      "candidate-custody",
-      "sgos-execution-unit-v1"
+      "action-authorization"
     ]
   },
   "companions": [
@@ -90,7 +89,7 @@
     {
       "id": "action-authorization",
       "path": "src/action-authorization.mjs",
-      "sha256": "sha256:9b62f5d1749d94a97223844181b893e32fe0b07c228fde74ad0d703c1b2eb44e"
+      "sha256": "sha256:e2784c495f83113b26ae5c7edefd2a352a9de4d106258f039b76bf5b7dff4b04"
     },
     {
       "id": "migration-registry",

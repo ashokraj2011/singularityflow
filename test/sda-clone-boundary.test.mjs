@@ -45,6 +45,7 @@ const CLONES = Object.freeze({
   'workspace.mjs#cloneOnce': `${APPLICATION} A workspace member's working checkout.`,
   'workspace-impact.mjs#materializeSandbox': `${APPLICATION} A sandbox copy the impact analysis cannot write through.`,
   'sgos/candidate-lifecycle.mjs#verifySgosCandidate': `${APPLICATION} A separate object store, so a verifier cannot change application refs.`,
+  'workflow-walk/walk.mjs#referenceRepository': `${APPLICATION} A workflow walk's synthetic reference repository, a bare copy in the walk's own throwaway folder.`,
   'organisation.mjs#authorGovernanceProposal': 'A local shared clone of the application commit: the first governance proposal, without touching the worktree.',
   'session-remote-url-discovery.mjs#cloneBloblessBranch': 'Story discovery reads the ledger state branch when this checkout lacks it; blobless, no source.',
   'cli.mjs#stageTrustedFreshInstallSource': 'A product install: the admitted product commit, frozen into a private copy.',

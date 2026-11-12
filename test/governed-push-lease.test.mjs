@@ -26,7 +26,9 @@ const FAST_FORWARD_ONLY = Object.freeze({
   'state.mjs#unleased':
     'Story recovery of a pending publication saved before exact leases existed; it keeps fast-forward protection.',
   'publication-pending.mjs#unleased':
-    'The same recovery for a pending publication saved before exact leases existed.'
+    'The same recovery for a pending publication saved before exact leases existed.',
+  'workflow-walk/sandbox.mjs#createSandbox':
+    'A workflow walk\'s throwaway project, pushed once to its own empty local remote: no governed state, nothing to replace.'
 });
 
 async function sourceFiles(directory, output = []) {

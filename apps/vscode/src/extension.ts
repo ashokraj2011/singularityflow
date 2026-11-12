@@ -377,7 +377,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const olderEditor = vscodeVersionLimits(vscode.version);
   if (olderEditor) {
     output.appendLine(vscodeVersionWarning(vscode.version) ?? olderEditor.summary);
-    void Promise.resolve(vscode.window.showWarningMessage(olderEditor.summary, 'Show details'))
+    void Promise.resolve(showCompactWarningMessage(olderEditor.summary, 'Show details'))
       .then((choice) => { if (choice) output.show(true); }, () => {});
   }
   /**

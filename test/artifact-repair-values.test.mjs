@@ -40,5 +40,5 @@ test('new document-only Code profiles keep repository coverage and visual author
     assert.equal(isCodePolicyEvidence(profile.kind),true);
     assert.equal(namespaceCodePreflightVersion({history:{profile:'sflow-namespace-code-history/v9'},...(repositoryCoverage?{repositoryScope:{profile:'sflow-namespace-repository-coverage/v1'}}:{})}),repositoryCoverage?22:20);
   }
-  assert.equal(isCodePolicyEvidence('code-delivery/v24'),false);assert.equal(isCodePolicyEvidence('code-delivery/v020'),false);
+  assert.equal(isCodePolicyEvidence('code-delivery/v28'),false);assert.equal(isCodePolicyEvidence('code-delivery/v020'),false);
 });

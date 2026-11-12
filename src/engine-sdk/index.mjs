@@ -8,7 +8,7 @@ import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
 import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmission,standaloneDecisionRequest,planCorrectionOwner,
-  upstreamOperationAdmission,upstreamOperationRequest,decisionContextSelection,decisionContextManifest} from '../kernel/decision-plan.mjs';
+  upstreamOperationAdmission,upstreamOperationRequest,decisionContextSelection,decisionContextManifest,decisionListManifest} from '../kernel/decision-plan.mjs';
 import {runDecisionPlan} from './decision-execution.mjs';
 import {phaseReviewSelection,phaseReviewManifest,phaseReviewResourcesManifest,phaseBeginSelection,phaseBeginResult,
   phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation,
@@ -136,6 +136,8 @@ const definitions = [
     stages:Object.freeze(['load','prepare','commit','finish']),validate:'singleDecisionInput',execute:'recordSingleDecision'},
   {id:'decision.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'decisionContext',
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectDecisionContext'},
+  {id:'decisions.list',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'decisionList',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectDecisionList'},
   {id:'scope.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'scopeContext',
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectScopeContext'},
   {id:'test-command.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testCommandContext',
@@ -1112,6 +1114,21 @@ async function inspectDecisionContext(port,inputs,signal) {
     manifest:decisionContextManifest(binding,facts)});
 }
 
+async function inspectDecisionList(port,inputs,signal){
+  notCancelled(signal);const context=await port.load(inputs,{signal});notCancelled(signal);
+  if(context?.subject?.kind!=='story'||!context.subject.id||context.subject.id!==context.workflow?.workItem?.id)throw new SingularityFlowError(
+    'The decision-list port did not bind a Story.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  if(inputs.workId!=null&&inputs.workId!==context.subject.id)throw new SingularityFlowError('Use the bound Story.',{code:'ACTIVE_SUBJECT_MISMATCH'});
+  const binding={workId:context.subject.id,phase:inputs.phaseId??context.workflow.currentPhase??null},
+    observed=await port.read(context,{...binding},{signal});notCancelled(signal);
+  const manifest=decisionListManifest(binding,data(observed));
+  for(const action of manifest.actions){const target=ENGINE_OPERATIONS.find(row=>row.id===action.operation);
+    if(!target||Object.keys(action.inputs).some(key=>!target.inputFields.includes(key))||action.requiredInputs?.some(key=>!target.inputFields.includes(key)))throw new SingularityFlowError(
+      'The decision list action is outside the registered vocabulary.',{code:'ENGINE_PORT_RESULT_INVALID'});}
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'decisions.list',status:'inspected',subject:{kind:'story',id:binding.workId},
+    phase:binding.phase,revision:manifest.revision,effects:{committed:false,pushed:false,humanDecisionRecorded:false},manifest});
+}
+
 /** Copy JSON data without executing accessors/toJSON or retaining caller-owned mutable values. */
 function data(value, state = { nodes: 0, bytes: 0, parents: new Set() }, depth = 0) {
   if (++state.nodes > 100_000 || depth > 32) invalid('Engine input exceeds its structural limit.');
@@ -1813,7 +1830,7 @@ export function createEngine(options = {}) {
     inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
-    documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,
+    documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectDecisionList, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
     preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
     recordSingleDecision, recordStoryDocument, storyDocumentInput, inspectConformanceContext, inspectScopeContext, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,

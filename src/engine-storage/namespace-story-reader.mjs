@@ -122,7 +122,8 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
       'The original lifecycle state has another creation binding.','ENGINE_STORAGE_CORRUPT',{workId});
     assertStoryPolicy(workflow,workflow);
     await base.bytes(plan.source,plan.source.bytes,signal);cancelled(signal);
-    return {workflow,configuration:plan.configuration,approval};
+    return {workflow,configuration:plan.configuration,approval,initialHead:codec.firstHead(plan),
+      initialHeadVersion:committed.records.find(row=>row.namespace==='state'&&row.key===codec.headKey)?.version};
   }
   async function approved(snapshot,{signal,readScope}={}) {
     cancelled(signal);const scoped=activeScope(readScope);let proof=proofs.get(snapshot)??workflowProofs.get(snapshot.workflow)??scoped?.proof;
@@ -198,7 +199,8 @@ export function createNamespaceStoryObserver({records,content,localContent=null,
   const evidenceRecords=Object.freeze({descriptor:records.descriptor,inspectOperation});
   evidenceReadAliases.set(evidenceRecords,{method:inspectOperation,owner:{port:records,method:inspectMethod}});
   const evidenceReads=Object.freeze({scope:Object.freeze({...scope}),workId,authority,records:evidenceRecords});
-  const observer=Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted,evidenceReads,withReadScope});
+  const observer=Object.freeze({...base,capture:options=>observe(options,true),inspect:options=>observe(options,false),approved,state,accepted,evidenceReads,withReadScope,
+    originalHead:async({signal}={})=>{const proof=await original(signal);return structuredClone({head:proof.initialHead,version:proof.initialHeadVersion});}});
   readDomains.set(observer,Object.freeze({}));
   witnessMemos.set(observer,witnessMemo);
   decisionMemos.set(observer,decisionMemo);

@@ -34,7 +34,7 @@ export function createNamespaceWitnessOwners({observer,scope,workId}){
     if(!same(rows,last.accepted.state.workflow.witnessRecords))throw error('The witness list differs from its last accepted human transition.');
     return {rows,references:links.map(row=>row.record)};
   }
-  async function context(snapshot,request,{signal,policyTraversal}={}){
+  async function candidateContext(snapshot,request,{signal,policyTraversal}={}){
     const workflow=snapshot.workflow,plans=[],published=[],references=[],eligible=[],files=[];
     for(const id of workflow.phaseOrder){const phase=workflow.phases[id],ownerId=workflow.resolution.plannedClaims?.owners?.[id];
       if(!ownerId||workflow.phases[ownerId]?.status!=='approved')continue;
@@ -63,12 +63,19 @@ export function createNamespaceWitnessOwners({observer,scope,workId}){
     const records=plans.flatMap(row=>row.records),claim=mergePlannedClaimRecords(records)[request.clauseId],contract=effectiveContract(request.clauseId,mergedVerificationContracts(records),claim),
       slot=contract?.slots.find(row=>row.slot===request.slotName);
     if(!slot||!['inspection','visual'].includes(slot.method))throw error('Select one approved inspection or visual slot. Test slots use their execution records.','WITNESS_RECORD_INVALID');
+    return {plans,published,references,eligible,files,slot,claim};
+  }
+  function candidateIdentity(request,{plans,published},file){
+    const contextBinding='sha256:'+hash({profile:'sflow-namespace-witness-candidate/v1',workId,plans:plans.map(row=>row.proof),published});
+    return {profile:'sflow-namespace-witness-source/v1',plans:plans.map(row=>row.proof),published,clauseId:request.clauseId,slotName:request.slotName,file,contextBinding};
+  }
+  async function context(snapshot,request,options={}){
+    const source=await candidateContext(snapshot,request,options),{files,eligible,references,slot,claim}=source;
     sourceRelativePath(request.file);const file=files.findLast(row=>row.path===request.file);
     if(!file)throw error('Publish the exact retained output before asking a human to witness it.','WITNESS_EVIDENCE_UNPUBLISHED',{
       file:request.file,actions:eligible.flatMap(phaseId=>[{operation:'phase.review',inputs:{workId,phaseId}},{operation:'phase.artifact.inspect',inputs:{workId,phaseId},prerequisites:['machine-local-working-store']}])});
-    await observer.bytes(file.content,file.content.bytes,signal);
-    const contextBinding='sha256:'+hash({profile:'sflow-namespace-witness-candidate/v1',workId,plans:plans.map(row=>row.proof),published}),
-      identity={profile:'sflow-namespace-witness-source/v1',plans:plans.map(row=>row.proof),published,clauseId:request.clauseId,slotName:request.slotName,file,contextBinding};
+    await observer.bytes(file.content,file.content.bytes,options.signal);
+    const identity=candidateIdentity(request,source,file);
     return {identity,slot,claim,eligible,references:[...new Map(references.map(ref=>[canonicalJson(ref),ref])).values()]};
   }
   const owner={
@@ -93,6 +100,14 @@ export function createNamespaceWitnessOwners({observer,scope,workId}){
   async function status(snapshot,request,options={}){const prior=await admitted(snapshot,options),source=await context(snapshot,request,options),digest='sha256:'+source.identity.file.content.sha256,
     result=values.witnessRecordResults(prior.rows,new Map([[request.file,digest]]),{contextBinding:source.identity.contextBinding}).find(row=>row.clauseId===request.clauseId&&row.slot===request.slotName);
     return {...source,result:result??{clauseId:request.clauseId,slot:request.slotName,method:source.slot.method,status:'missing'},references:[...prior.references,...source.references]};}
+  async function candidates(snapshot,request,options={}){
+    const prior=await admitted(snapshot,options),source=await candidateContext(snapshot,request,options),files=[...new Map(source.files.map(row=>[row.path,row])).values()],
+      rows=files.map(file=>{const identity=candidateIdentity(request,source,file),digest='sha256:'+file.content.sha256,
+        result=values.witnessRecordResults(prior.rows,new Map([[file.path,digest]]),{contextBinding:identity.contextBinding})
+          .find(row=>row.clauseId===request.clauseId&&row.slot===request.slotName);
+        return {identity,result:result??{clauseId:request.clauseId,slot:request.slotName,method:source.slot.method,status:'missing'}};});
+    return {rows,eligible:source.eligible,references:[...prior.references,...source.references]};
+  }
   async function assertAcceptance(snapshot,publication,proof,{signal,policyTraversal,reached=true,reworkTarget=null}={}){
     if(!reached||reworkTarget||!namespaceCodePolicyProfile('codeReport',proof.report).humanAcceptance)return [];
     const prior=await admitted(snapshot,{signal,policyTraversal}),references=[...prior.references],open=[];
@@ -117,5 +132,5 @@ export function createNamespaceWitnessOwners({observer,scope,workId}){
     if(open.length)throw error('Complete the approved verification contract with actual test results and human inspection decisions.','ENGINE_WITNESS_DECISION_REQUIRED',{phase:publication.phase,criteria:open});
     return [...new Map(references.map(ref=>[canonicalJson(ref),ref])).values()];
   }
-  return Object.freeze({owner,reader,admitted,context,status,assertAcceptance});
+  return Object.freeze({owner,reader,admitted,context,status,candidates,assertAcceptance});
 }

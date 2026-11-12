@@ -21,7 +21,7 @@ obsolete-access removal and final distribution remain separate.
 - [ ] Finish artifact sets, constitution, comparison, visual acceptance and document/test risks.
 - [ ] Finish actual test recovery, command amendments and bounded repeated execution.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
-  assignment, assurance, signing, integration and automated-execution owners through explicit
+  assurance, signing, integration and automated-execution owners through explicit
   execution and evidence ports. Configured requirements cannot become successful flags.
 - [ ] Qualify application journeys on filesystem, SQLite and application storage with real
   source changes, actual tests, independent human decisions, interruption and cross-agent takeover.
@@ -124,7 +124,7 @@ custom phases, expiry/renewal, interruption and offline shared-only replay are q
 
 - The remaining native query/rule inventory and parity audit.
 - Artifact-only/repository-qualified evidence correction,
-  late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
+  late-publication plan revalidation and obligation/evidence/test decisions,
   plus live application-review and witness-exception profiles.
 - Upstream amend outcomes and forward amendments.
 - The remaining combined evidence-correction and application-revalidation variants; exact artifact
@@ -253,3 +253,27 @@ consumer, plus native rejection/entry parity and schema/architecture checks. The
 Source validation passes 4,282 checks; VS Code types, the unchanged Git audit and all 13 original
 bundle ceilings pass. Gateway remains 851/852 modules. Remaining policy, decision and execution
 owners keep both phases open. No Windows, main merge or production installation is part of this work.
+
+## Registered decisions and repeated Code returns
+
+The registry now has a read-only decision-list operation and namespace recording over the same
+Engine's actual domain operations. Explicit packet confirmation, original source and human
+authority are retained through per-item commits, interruption, concurrent acknowledgement and
+shared-only replay. Linked partial verdicts retain one original upstream owner. Witness and
+approval actions remain separate human ceremonies. See [the batch record](ENGINE-SDK-DECISION-BATCHES.md).
+
+Repeated Code returns across different unapproved generations now authenticate every original
+request and select the current target generation. The latest return controls the scope; older
+targeted restrictions cannot leak into a later complete repair. History v10 and Code v24–v27
+are explicit new profiles, with v1–v23 unchanged. See
+[the return record](ENGINE-SDK-REPEATED-CODE-RETURNS.md).
+
+Mac qualification passes 273 distinct affected checks across 28 files with no skips or cancellations.
+The original 34-check package qualifier ran alone in 64.7 seconds within its unchanged 120/60-second
+limits. Source validation passes 4,297 checks; VS Code types, the unchanged Git audit and all 13
+original bundle ceilings pass. Gateway remains 851/852 modules. The vocabulary has 83 operations;
+the native default binds 42 and namespace with private working stores binds 70 before optional
+execution. No Windows or production installation ran.
+
+Neither phase is complete while the remaining policy, amendment and execution owners above
+are open. Phase 8/9 cutover remains separate; main is not merged by this delivery.

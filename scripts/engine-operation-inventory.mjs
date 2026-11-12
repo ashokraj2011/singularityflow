@@ -6,7 +6,7 @@ import {createNamespaceEngine} from '../src/engine-storage/namespace-engine.mjs'
 import {namespaceStoreDescriptor,NAMESPACE_STORE_METHODS} from '../src/sda/namespace/contract.mjs';
 import {contentStoreDescriptor,CONTENT_STORE_METHODS} from '../src/sda/content/contract.mjs';
 const parity=Object.freeze({publication:['engine-publication-parity'],submission:['engine-submission-parity'],approval:['engine-approval-parity'],
-  rejection:['engine-rejection-parity'],decisions:['engine-decisions-parity'],advancement:['engine-advancement'],planCorrection:['engine-plan-correction-parity'],
+  rejection:['engine-rejection-parity'],decisions:['engine-decisions-parity'],decisionList:['engine-decision-list-parity'],advancement:['engine-advancement'],planCorrection:['engine-plan-correction-parity'],
   decisionRecord:['engine-decision-record-parity','engine-witness-decisions-parity'],testDecisionRecord:['engine-test-decisions-parity'],upstream:['engine-upstream-parity'],
   storyGuide:['engine-guide-parity'],storyNext:['engine-next-plan-parity'],storyStatus:['engine-story-status-parity'],phaseReview:['engine-phase-review-parity'],
   documentRead:['engine-document-read-parity'],phaseEntry:['engine-phase-entry-parity'],phaseBegin:['engine-phase-begin-parity'],

@@ -45,18 +45,6 @@ function refused(message, code, details = undefined) {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
 }
 
-async function storyContext(root, workId, { record, fetch }) {
-  const [{ loadAcceptedStoryExecution }, { loadConfig }] = await Promise.all([
-    import('../accepted-story-execution.mjs'), import('../state-stores.mjs')]);
-  if (record && workId) {
-    // The Story's own branch, which need not be named after its ID; the records commit there.
-    const { checkoutStoryBranch } = await import('../story-branch-name.mjs');
-    await checkoutStoryBranch(root, await loadConfig(root), workId, { fetch });
-  }
-  const accepted = await loadAcceptedStoryExecution(root, workId ?? undefined);
-  return { config: accepted.definition, workflow: accepted.workflow };
-}
-
 /** The list as it stands now, for the current Git identity. */
 export async function readDecisionPacket(root, config, workflow, { phaseId = null, at = nowIso(), card = true } = {}) {
   return (await import('../decision-list-reads.mjs')).readPendingList(root, config, workflow, { phaseId, at, card });
@@ -397,10 +385,11 @@ export function decisionRecordingCommandResult(receipt,context) {
 }
 
 async function show(root, options, workId) {
-  const { config, workflow } = await storyContext(root, workId, { record: false });
   const phaseId = optionString(options, 'phase') ?? null;
-  const at = nowIso();
-  const packet = await readDecisionPacket(root, config, workflow, { phaseId, at, card: options.card !== false });
+  const {createGitQueryEngine}=await import('../engine-compatibility/git-query.mjs'),
+    bound=createGitQueryEngine({root,decisionListOptions:{card:options.card!==false}});
+  await bound.engine.run('decisions.list',{workId,phaseId});
+  const {workflow,at,packet}=bound.presentation();
   const answers = await answersFrom(options);
   if (answered(answers)) {
     const { decisionRecordPlan } = await import('../decision-list.mjs');

@@ -372,6 +372,12 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       return (await decisionOwner)[stage](...args);
     };
   }
+  let decisionListOwner;
+  const decisionList=Object.fromEntries(['load','read'].map(stage=>[stage,async(...args)=>{
+    decisionListOwner??=import('./git-query.mjs').then(({createGitDecisionListPort})=>createGitDecisionListPort({root,
+      onContext:value=>{presentation=value;}})).catch(error=>{decisionListOwner=undefined;throw error;});
+    return (await decisionListOwner)[stage](...args);
+  }]));
   let advancementOwner;
   const advancement={notice,async withReview(...args){
     advancementOwner ??= import('./git-advancement.mjs')
@@ -537,7 +543,7 @@ export function createGitEngine({ root, notice = () => {}, approvalInteraction =
       createGitStoryNextPort({root,onContext:value=>{presentation=value;}})).catch(error=>{storyNextOwner=undefined;throw error;});
     return (await storyNextOwner).load(...args);
   }};
-  const engine = createEngine({ports:{publication:port, submission, approval, rejection, decisions, advancement, decisionRecord, testDecisionRecord, planCorrection, upstream, phaseReview, documentRead, phaseEntry, phaseBegin, phasePrepublish, phaseDraftCheck, phaseRollover, phasePreparation, phaseInputs, storyStatus, storyGuide, storyNext, invocation: {
+  const engine = createEngine({ports:{publication:port, submission, approval, rejection, decisions, decisionList, advancement, decisionRecord, testDecisionRecord, planCorrection, upstream, phaseReview, documentRead, phaseEntry, phaseBegin, phasePrepublish, phaseDraftCheck, phaseRollover, phasePreparation, phaseInputs, storyStatus, storyGuide, storyNext, invocation: {
     // A long-lived SDK host can call from an advisory read or configuration preview. Each writer
     // starts without that caller's mutable observations; authenticated operation context remains.
     run: callback => withoutConfigurationReadScope(() => withoutReadScope(callback))

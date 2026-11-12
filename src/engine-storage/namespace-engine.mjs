@@ -41,6 +41,8 @@ import {createNamespaceStoryQueryPorts} from './namespace-story-queries.mjs';
 import {createNamespaceWorkflowAssetsPort} from './namespace-workflow-assets.mjs';
 import {createNamespaceWitnessPorts} from './namespace-witness-decisions.mjs';
 import {createNamespaceTestCommandPorts} from './namespace-test-commands.mjs';
+import {createNamespaceDecisionListPorts} from './namespace-decision-list.mjs';
+import {createNamespaceDecisionBatchPort} from './namespace-decision-batch.mjs';
 import {createNamespaceAssignmentPort} from './namespace-assignment.mjs';
 import {createNamespaceConstitutionExceptionPorts} from './namespace-constitution-exceptions.mjs';
 import {bindNamespaceReadBatch} from '../sda/namespace/read-batch.mjs';
@@ -103,7 +105,10 @@ export function createNamespaceEngine(options={}) {
       :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
     return port[stage](...parameters);
   }]))};
+  let engine,executeOperation;
   const ports={...lazyPorts(()=>sourceReviews(),{sourceReviewContext:['load','read']}),...createNamespaceReadPorts(common,{authority}),
+    ...lazyPorts(()=>createNamespaceDecisionListPorts(common,runtime),{decisionList:['load','read']}),
+    ...lazyPorts(()=>({decisions:createNamespaceDecisionBatchPort(common,runtime,executeOperation)}),{decisions:['load','prepare','apply','finish']}),
     convergenceContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>convergence().convergenceContext[stage](...args)])),
     ...lazyPorts(()=>({advancement:createNamespaceConvergenceAdvancementPort(common)}),{advancement:['withReview']}),
     constitutionExceptionContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>constitutionExceptions().context[stage](...args)])),
@@ -130,5 +135,5 @@ export function createNamespaceEngine(options={}) {
     ...lazyPorts(()=>createNamespaceConformanceDecisionPorts(common),{conformanceDecision:['load','prepare','commit','finish'],conformanceContext:['load','read']}),
     ...lazyPorts(()=>createNamespaceRejectionPorts(common),{rejection:['load','prepare','commit','finish']}),
     ...(options.checks?{phaseChecks:createNamespacePhaseChecksPort(common,runtime)}:{})};
-  return createEngine({ports:{...ports,invocation:{run:readSession.run}}});
+  engine=createEngine({ports:{...ports,invocation:{run:readSession.run}}});executeOperation=engine.run.bind(engine);return engine;
 }

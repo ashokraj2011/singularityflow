@@ -14,7 +14,7 @@ import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-r
 import {createNamespaceUpstreamReturnReader,namespaceReturnGenesis} from './namespace-upstream-return-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),error=(message,code='ENGINE_STORAGE_CORRUPT')=>new SingularityFlowError(message,{code});
 export function createNamespaceCodeReturnReader({observer,scope,workId}){
-  async function accepted(snapshot,request,phaseId,{signal,policyTraversal,inherited=null,historical=false}={}){
+  async function accepted(snapshot,request,phaseId,{signal,policyTraversal,inherited=null,historical=false,includeEarlier=false}={}){
     const workflow=snapshot.workflow,phase=workflow.phases[phaseId],links=namespaceApprovalReceipts(workflow,{projectId:scope.projectId,workId}).filter(row=>row.phase===request.sourcePhase&&row.generation===request.sourceGeneration);
     const checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),
       votes=createNamespaceApprovalReader({observer,scope,workId,checks});let route=null;
@@ -60,10 +60,10 @@ export function createNamespaceCodeReturnReader({observer,scope,workId}){
     if(!route)throw error('A copied change request cannot authorize Code rework.','ENGINE_CODE_REWORK_REQUIRED');
     const {binding,value,accepted,selected,proof}=route,actualRequest=accepted.state.workflow.changeRequests?.find(row=>row.id===request.id),
       reviewPacket=route.kind==='upstream'?null:route.kind==='rejection'?value.source.reviewPacket.sha256:proof.binding.record.sha256;
-    const restored=accepted.state.workflow.phases[phaseId],originalReset=restored?.reworkRevalidation,
-      resetMatches=historical?restored?.generation<phase.generation&&originalReset?.generation===restored.generation&&originalReset.invalidatedAt===value.recordedAt
+    const restored=accepted.state.workflow.phases[phaseId],originalReset=restored?.reworkRevalidation,isEarlier=includeEarlier&&restored?.generation<phase.generation,
+      resetMatches=historical||isEarlier?restored?.generation<phase.generation&&originalReset?.generation===restored.generation&&originalReset.invalidatedAt===value.recordedAt
         :phase.reworkRevalidation?.invalidatedAt===value.recordedAt&&same(originalReset,phase.reworkRevalidation);
-    if(!actualRequest||!(inherited||historical?same(namespaceReturnGenesis(actualRequest),namespaceReturnGenesis(request)):same(actualRequest,request))
+    if(!actualRequest||!(inherited||historical||isEarlier?same(namespaceReturnGenesis(actualRequest),namespaceReturnGenesis(request)):same(actualRequest,request))
       ||request.reviewPacketSha256!==reviewPacket||!resetMatches
       ||!['rejection','upstream'].includes(route.kind)&&(request.decision?.id!==selected.outcome.decision||request.decision?.round!==selected.outcome.round))
       throw error('The Code return differs from its original accepted request.');

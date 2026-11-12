@@ -11,6 +11,7 @@ import {createNamespaceSourceRetentionReader} from './namespace-source-retention
 import {createNamespaceTargetedRepairReader} from './namespace-targeted-repair-reader.mjs';
 import {assertTargetedCodeRepairDelta,assertArtifactOnlyCodeRepairDelta} from '../kernel/conformance-decisions.mjs';
 import {createNamespaceCodeReturnReader} from './namespace-code-return-reader.mjs';
+import {selectCurrentCodeReturn} from '../kernel/code-delivery-evidence.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceCodeHistoryReader({observer,scope,workId}){
   async function predecessor(scoped,snapshot,phaseId,generation,{signal,policyTraversal}={}){
@@ -20,12 +21,20 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
     if(!requests.length){requests=(workflow.changeRequests??[]).filter(row=>row.status==='resolved'&&workflow.phaseOrder.indexOf(row.targetPhase)<workflow.phaseOrder.indexOf(phaseId)
         &&row.requestedAt===phase.reworkRevalidation?.invalidatedAt);
       if(requests.length===1)inherited=await createNamespaceInitialCodeHistoryReader({observer:scoped,scope,workId}).inspectAffected(snapshot,phaseId,{signal,policyTraversal});}
-    const returns=createNamespaceCodeReturnReader({observer:scoped,scope,workId});
+    const returns=createNamespaceCodeReturnReader({observer:scoped,scope,workId});let earlierReturns=[];
     if(requests.length>1&&phase.surgicalReopen?.profile==='sflow-namespace-artifact-reopen/v1'){
       const current=requests.find(row=>row.id===phase.surgicalReopen.changeRequestId);
       if(!current)throw error('The current output return has no matching Code change request.');
       for(const earlier of requests.filter(row=>row!==current))await returns.accepted(snapshot,earlier,phaseId,{signal,policyTraversal,historical:true});
       requests=[current];
+    }else if(requests.length>1){
+      const observed=[];
+      for(const request of requests){const route=await returns.accepted(snapshot,request,phaseId,{signal,policyTraversal,includeEarlier:true});
+        observed.push({request,route,generation:route.accepted.state.workflow.phases[phaseId].generation});}
+      const selected=selectCurrentCodeReturn(phase.generation,observed.map(row=>({id:row.request.id,generation:row.generation})));
+      earlierReturns=selected.earlier.map(id=>{const row=observed.find(row=>row.request.id===id);return {changeRequestId:id,generation:row.generation,
+        kind:row.route.kind??'loop',binding:row.route.binding,references:[row.route.binding.record,...(row.route.references??[])]};});
+      requests=requests.filter(row=>row.id===selected.current);
     }
     if(generation!==phase.generation+1||previous?.length!==1||requests.length!==1||phase.reworkRevalidation?.generation!==phase.generation)throw error(
       'A Code successor needs its exact prior publication and one authenticated return.','ENGINE_CODE_REWORK_REQUIRED');
@@ -40,7 +49,7 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
     if(!original||original.plan.sourceBinding.operationId!==workflow.sourceBindings?.current?.operationId)throw error('Code rework must retain its original Story source selection.','ENGINE_PORT_UNAVAILABLE',{required:['namespace-code-rework-source-selection']});
     if(!same(original.workflow.sourceBindings.current,workflow.sourceBindings.current))throw error('The Code successor changed its original source selection.');
     return {request,binding,kind:route.kind??'loop',previous:previous[0],code,inherited,upstreamReferences:route.kind==='upstream'?route.references??[]:[],
-      targeted:route.kind==='rejection'?value.source.targeted??null:null,artifactRepair:route.kind==='rejection'&&value.source.artifactRepair?.phase===phaseId?value.source.artifactRepair:null};
+      targeted:route.kind==='rejection'?value.source.targeted??null:null,artifactRepair:route.kind==='rejection'&&value.source.artifactRepair?.phase===phaseId?value.source.artifactRepair:null,earlierReturns};
   }
   async function opening(snapshot,phaseId,{signal,policyTraversal}={}){
     return observer.withReadScope(async scoped=>{
@@ -62,7 +71,8 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
     if(!selected)return null;
     return observer.withReadScope(async scoped=>{
       const prior=await predecessor(scoped,snapshot,phaseId,phase.generation+1,{signal,policyTraversal});
-      if(!prior.targeted||prior.request.id!==selected.id)throw error('The targeted authoring entry lost its original accepted return.');
+      if(!prior.targeted)return null;
+      if(prior.request.id!==selected.id)throw error('The targeted authoring entry lost its original accepted return.');
       const current=await createNamespaceTargetedRepairReader({observer:scoped,scope,workId}).current(snapshot,phaseId,prior.targeted.scope.clauseIds,
         prior.code.sources.map(row=>row.repository.id),{signal});
       return {profile:'sflow-namespace-targeted-code-entry/v1',phase:phaseId,generation:phase.generation+1,changeRequestId:prior.request.id,
@@ -74,7 +84,7 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
     return observer.withReadScope(async scoped=>{
       const retention=createNamespaceSourceRetentionReader({...scoped.evidenceReads,observer:scoped}),verified=current?.plan?.input?await retention.accepted(current.plan.input,{signal}):null;
       if(!verified||!same(verified,current))throw error('A Code successor needs its unchanged accepted source archive.');
-      const {request,binding,kind,previous,code,inherited,upstreamReferences,targeted,artifactRepair}=await predecessor(scoped,snapshot,phaseId,verified.plan.generation,{signal,policyTraversal}),workflow=snapshot.workflow,
+      const {request,binding,kind,previous,code,inherited,upstreamReferences,targeted,artifactRepair,earlierReturns}=await predecessor(scoped,snapshot,phaseId,verified.plan.generation,{signal,policyTraversal}),workflow=snapshot.workflow,
         definition=(await scoped.approved(snapshot,{signal})).compiled.definition,repositories=[];
       for(const source of current.plan.sources){const earlier=code.sources.find(row=>row.repository.id===source.repository.id);
         if(!earlier||!same(earlier.repository,source.repository))throw error('The Code successor changed its original repository binding.');
@@ -93,9 +103,11 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
       const changed=repositories.some(row=>row.changes.length),extended=kind==='choice'||!changed;
       const documentRepair=artifactRepair&&!targeted;
       if(documentRepair)assertArtifactOnlyCodeRepairDelta(repositories,{workId,phaseId});
-      return {profile:documentRepair?'sflow-namespace-code-history/v9':repair?'sflow-namespace-code-history/v8':inherited?'sflow-namespace-code-history/v7':kind==='upstream'?'sflow-namespace-code-history/v5':extended?'sflow-namespace-code-history/v3':kind==='rejection'?'sflow-namespace-code-history/v2':'sflow-namespace-code-history/v1',
+      const sourceProfile=documentRepair?'sflow-namespace-code-history/v9':repair?'sflow-namespace-code-history/v8':inherited?'sflow-namespace-code-history/v7':kind==='upstream'?'sflow-namespace-code-history/v5':extended?'sflow-namespace-code-history/v3':kind==='rejection'?'sflow-namespace-code-history/v2':'sflow-namespace-code-history/v1';
+      return {profile:earlierReturns.length?'sflow-namespace-code-history/v10':sourceProfile,
+        ...(earlierReturns.length?{sourceProfile,earlierReturns}:{}),
         ...(repair?{targeted:repair}:{}),
-        ...(documentRepair?{artifactRepair}:{}),...(repair||extended||inherited||kind==='upstream'?{mode:changed?'changed':'revalidated'}:{}),...(inherited?{returns:inherited.returns}:{}),predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
+        ...(documentRepair?{artifactRepair}:{}),...(earlierReturns.length||repair||extended||inherited||kind==='upstream'?{mode:changed?'changed':'revalidated'}:{}),...(inherited?{returns:inherited.returns}:{}),predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
         return:{[kind==='upstream'?'upstream':kind==='choice'?'choice':kind==='rejection'?'rejection':'approval']:binding,request:structuredClone(request),...(upstreamReferences.length?{references:upstreamReferences}:{})},repositories};
     });
   }

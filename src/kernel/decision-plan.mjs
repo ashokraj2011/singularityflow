@@ -2,7 +2,7 @@
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {MAX_PLAN_AMENDMENT_CHANGES,DECISION_CAUSE_LIMITS as CAUSE} from './decision-limits.mjs';
 import {isVisualVerificationPhase} from './phase-policy.mjs';
-import {canonicalJson} from '../foundation/record-schema.mjs';
+import {canonicalJson,textDigestCapability} from '../foundation/record-schema.mjs';
 import {decisionAfter,decisionOutcomeFacts,pendingDecisionPayload,reopenableSteps} from './workflow-decisions.mjs';
 function refused(message, code, details = undefined) {
   throw new SingularityFlowError(message, {code, ...(details ? {details} : {})});
@@ -239,6 +239,52 @@ export function decisionPolicyPacket(packet) {
   return {workId: packet.workId, phase: packet.phase ?? null, packetSha256: packet.packetSha256,
     items: packet.items.map(item), offered: (packet.offered ?? []).map(item)};
 }
+
+/** Read-only policy list. Commands, card markup and display authority stay in the host projection. */
+export function decisionListManifest(binding,facts){
+  const packet=facts?.policy,text=value=>typeof value==='string'&&value.length>0&&value.length<=4096,
+    ids=new Set();
+  if(!facts||Object.keys(facts).some(key=>!['revision','policy','actions'].includes(key))||!text(facts.revision)
+    ||!packet||packet.workId!==binding.workId||packet.phase!==binding.phase||!/^sha256:[a-f0-9]{64}$/u.test(packet.packetSha256??'')
+    ||!Array.isArray(packet.items)||!Array.isArray(packet.offered))refused(
+      'The decision list returned another Story, phase or policy binding.','ENGINE_PORT_RESULT_INVALID');
+  for(const item of [...packet.items,...packet.offered]){
+    if(!item||!/^d[0-9]+$/u.test(item.id??'')||ids.has(item.id)||!text(item.kind)||!text(item.title)||!Array.isArray(item.options)||!item.options.length)refused(
+      'The decision list contains an invalid or duplicated item.','ENGINE_PORT_RESULT_INVALID');ids.add(item.id);
+    const options=new Set();for(const option of item.options){
+      if(!option||!text(option.id)||options.has(option.id)||!text(option.label)||typeof option.recordable!=='boolean'
+        ||!option.needs||typeof option.needs!=='object'||Array.isArray(option.needs)||!Array.isArray(option.effects)
+        ||typeof option.decidedBy?.allowed!=='boolean'||!Array.isArray(option.decidedBy.groups)||!option.decidedBy.groups.every(text))refused(
+          'The decision list contains an invalid choice.','ENGINE_PORT_RESULT_INVALID');options.add(option.id);
+    }
+  }
+  const actions=facts.actions??[];
+  if(!Array.isArray(actions)||actions.some(action=>!action||Object.keys(action).some(key=>!['item','option','operation','inputs','requiredInputs','prerequisites'].includes(key))
+    ||!packet.items.concat(packet.offered).some(item=>item.id===action.item&&item.options.some(option=>option.id===action.option&&option.recordable===false))
+    ||!text(action.operation)||!action.inputs||typeof action.inputs!=='object'||Array.isArray(action.inputs)
+    ||action.requiredInputs!==undefined&&(!Array.isArray(action.requiredInputs)||!action.requiredInputs.every(text))
+    ||action.prerequisites!==undefined&&(!Array.isArray(action.prerequisites)||!action.prerequisites.every(text))))refused(
+      'The decision list returned an invalid structured action.','ENGINE_PORT_RESULT_INVALID');
+  return {schemaVersion:1,profile:'sflow-decision-list/v1',workId:binding.workId,phase:binding.phase,
+    revision:facts.revision,policy:decisionPolicyPacket(packet),actions:structuredClone(actions)};
+}
+
+/** Namespace lists bind admitted observations and identity; a rendered choice never grants authority. */
+export function namespaceDecisionListPolicy({workId,phase,revision,actor,source,observations},digests){
+  const {sha256Utf8}=textDigestCapability(digests);
+  if(observations.length>999)refused('The decision list exceeds this bounded profile.','ENGINE_STORAGE_LIMIT');
+  const ordered=namespaceDecisionObservations(observations),all=ordered.map((row,index)=>({id:'d'+(index+1),kind:row.kind,title:row.key,
+    options:row.options.map(option=>({id:option.id,label:option.id,recordable:option.recordable!==false,
+      needs:option.needs??{},effects:option.recordable===false?[]:[{kind:option.operation==='decision.choose'?'routing':row.kind==='upstream-issue'?'upstream-issue-decision':row.kind,
+        operation:option.operation,inputs:{...option.inputs},key:row.key}],
+      decidedBy:{allowed:option.allowed===true,groups:[...(option.groups??[])]}}))}));
+  const required=observations.filter(row=>!row.offered).length,items=all.slice(0,required),offered=all.slice(required),
+    core={profile:'sflow-namespace-decision-list/v1',workId,phase,revision,actor,source,items,offered};
+  return {workId,phase,items,offered,packetSha256:'sha256:'+sha256Utf8(canonicalJson(core))};
+}
+function namespaceDecisionObservations(observations){return [...observations.filter(row=>!row.offered),...observations.filter(row=>row.offered)];}
+export function namespaceDecisionListActions(observations){return namespaceDecisionObservations(observations).flatMap((row,index)=>row.options.filter(option=>option.recordable===false&&option.action)
+  .map(option=>({item:'d'+(index+1),option:option.id,...structuredClone(option.action)})));}
 
 export function assertDecisionConfirmation(expected, actual) {
   if (actual == null) refused('Recording decisions requires confirmation of the exact reviewed list.',

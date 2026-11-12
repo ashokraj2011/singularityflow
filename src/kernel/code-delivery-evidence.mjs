@@ -1274,3 +1274,14 @@ export function otherStoryTagsNote(tags = [], noun = 'clause') {
 }
 
 export const CANONICAL_FINDING_ID=/^FND-[a-f0-9]{24}$/u;
+
+/** Select only from authenticated return observations, retaining every earlier unresolved return. */
+export function selectCurrentCodeReturn(generation,returns){
+  if(!Number.isSafeInteger(generation)||generation<1||!Array.isArray(returns)||returns.length>256
+    ||returns.some(row=>typeof row?.id!=='string'||!row.id||!Number.isSafeInteger(row.generation)||row.generation<0||row.generation>generation)
+    ||new Set(returns.map(row=>row.id)).size!==returns.length)throw new SingularityFlowError(
+      'The Code return inventory has invalid or duplicated original identities.',{code:'ENGINE_STORAGE_CORRUPT'});
+  const current=returns.filter(row=>row.generation===generation);
+  if(current.length!==1)throw new SingularityFlowError('A Code successor needs exactly one authenticated return for its actual predecessor generation.',{code:'ENGINE_CODE_REWORK_REQUIRED'});
+  return {current:current[0].id,earlier:returns.filter(row=>row.generation<generation).map(row=>row.id)};
+}

@@ -328,7 +328,7 @@ export async function runTestCommandProposal(options) {
   const adopt = workId ? `singularity-flow story test-policy amend --work-id ${workId}${step ? ` --phase ${step}` : ''} --reason "Adopt the activated test command${ids.length === 1 ? '' : 's'}" --json` : null;
   const nextCommand = typeof proposal?.nextAction === 'string' ? proposal.nextAction : proposal?.nextAction?.command ?? null;
   if (!json) {
-    console.log(`Proposed ${named} for ${plan.label} for review: ${proposal.branch ?? 'no change'}${proposal.commit ? ` (${proposal.commit})` : ''}.`);
+    console.log(`Proposed ${named} for ${plan.label} for review: ${proposal.branch ?? 'no change'}.`);
     if (activation) {
       console.log(`Activate it yourself: ${activation.command}`);
       console.log(`  ${activation.acknowledgement}`);

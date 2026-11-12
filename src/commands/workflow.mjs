@@ -58,7 +58,7 @@ export async function run(argv, { positionals, options }) {
     if (!value.length) return console.log('No workflow configuration proposals are waiting.');
     for (const proposal of value) {
       const subjects = (proposal.workflows ?? []).map(entry => `${entry.id} (${entry.change})`).join(', ');
-      console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  ${proposal.merged ? 'merged' : proposal.valid ? 'pending review' : 'blocked'}`);
+      console.log(`${proposal.branch}  ${proposal.merged ? 'merged' : proposal.valid ? 'pending review' : 'blocked'}`);
       if (subjects) console.log(`  workflows: ${subjects}`);
       // The repository's own test commands belong to no workflow [RTC:REQ-007].
       if (proposal.repositoryTests) console.log(`  ${repositoryTestsWords(proposal.repositoryTests)} (${proposal.repositoryTests.change})`);
@@ -66,8 +66,8 @@ export async function run(argv, { positionals, options }) {
     }
     return;
   }
-  console.log(`${value.branch} (${value.proposalCommit})`);
-  console.log(`  target: ${value.targetBranch}@${value.targetCommit}`);
+  console.log(`${value.branch}`);
+  console.log(`  target: ${value.targetBranch}`);
   console.log(`  status: ${value.merged ? 'already merged' : value.valid ? 'ready for review' : 'invalid'}`);
   for (const workflow of value.workflows) console.log(`  ${workflow.change.padEnd(8)} ${workflow.governs} workflow ${workflow.id}`);
   if (value.repositoryTests) console.log(`  ${value.repositoryTests.change.padEnd(8)} ${repositoryTestsWords(value.repositoryTests)}`);

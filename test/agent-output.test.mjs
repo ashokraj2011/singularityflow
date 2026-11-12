@@ -14,6 +14,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
+import { confirmCode } from '../src/confirm-code.mjs';
 import { agentAct, agentOutputGoverned, boundedAgentOutput, boundedAgentText, completeAgentResult, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, OMITTED_FIELDS_SHOWN, READ_CHUNK_BYTES, READ_PLAN_CHUNKS, returnsAgentPaths, withAgentRoutes } from '../src/agent-output.mjs';
 import { CLI_PATH_REFERENCE } from '../src/safe-command-guidance.mjs';
 import { approvalHoldContinuation } from '../src/copilot-guidance.mjs';
@@ -170,13 +171,14 @@ test('an agent is given its own publication route wherever SFlow names a bare, p
   assert.equal(relayed.remediationPlan.steps[0].command, 'singularity-flow phase publish intake');
 });
 
-test('a returned confirmation becomes an ask with its exact value, and its Copilot route carries it', () => {
+test('a returned confirmation becomes an ask with its exact value, and its Copilot route is its short code', () => {
   const act = agentAct({ classification: 'convergence-advance-required', reason: 'Review it.',
     nextCommand: `singularity-flow story advance --work-id W --confirm ${digest}`, nextSkill: '/sf-submit' });
   assert.equal(act.state, 'confirm');
   assert.equal(act.ask.value, digest);
   assert.match(act.ask.how, /ask the person in this chat, and only on an explicit yes run do\.shell once/u);
-  assert.ok(act.do.copilot.includes(digest), act.do.copilot);
+  // The route a person types names the code that stands for this exact command, never the digest.
+  assert.equal(act.do.copilot, `/sf-confirm ${confirmCode(`singularity-flow story advance --work-id W --confirm ${digest}`)}`);
 });
 
 test('document handoff asks for files, never requirements again, and reports restore without claiming advancement', () => {

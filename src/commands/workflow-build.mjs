@@ -193,7 +193,7 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
       acceptProblems: optionStrings(options, 'accept-problem') });
     if (result.kind === 'bundle') {
       if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'workflow-build-finish', kind: 'bundle', path: result.path, bundleSha256: result.bundleSha256 }, null, 2));
-      console.log(`Wrote ${result.path} (${result.bundleSha256}). Import it in Workflow Studio, or: singularity-flow workflow import ${result.path} --dry-run`);
+      console.log(`Wrote ${result.path}. Import it in Workflow Studio, or: singularity-flow workflow import ${result.path} --dry-run`);
     }
     return;
   }

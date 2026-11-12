@@ -54,7 +54,7 @@ function printInspection(result) {
 }
 
 function printCompile(result) {
-  console.log(`State: ${result.state}${result.bundleSha256 ? `  bundle ${result.bundleSha256}` : ''}`);
+  console.log(`State: ${result.state}`);
   if (result.workflow) {
     console.log(`Workflow ${result.workflow.id}: ${result.workflow.phases.map((phase) => phase.id).join(' -> ')}`);
     if (result.workflow.decisions.length) console.log(`Decisions: ${result.workflow.decisions.map((decision) => `${decision.kind} after ${decision.after}`).join(', ')}`);
@@ -63,7 +63,7 @@ function printCompile(result) {
   for (const finding of result.findings.slice(0, 30)) console.log(`  ${finding.code} at ${finding.at}: ${finding.message}`);
   if (result.findings.length > 30) console.log(`  … ${result.findings.length - 30} more (use --json)`);
   for (const question of result.questions) console.log(`  question ${question.id}: ${question.question} [${question.choices.join(' | ')}]`);
-  if (result.destination) console.log(`Destination ${result.destination.root}: ${result.destination.status} plan ${result.destination.planSha256}`);
+  if (result.destination) console.log(`Destination ${result.destination.root}: ${result.destination.status}`);
   if (result.output) console.log(`Wrote ${result.output.path}${result.output.ready ? '' : ' (NOT READY)'}`);
   if (result.repair.stop) console.log(`Repair stopped after attempt ${result.repair.attempt}${result.repair.unchanged ? ' (findings unchanged)' : ''}.`);
   console.log(result.meaning);

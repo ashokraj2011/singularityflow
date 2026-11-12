@@ -346,7 +346,7 @@ function removeAt(document, keys) {
 export async function applyWorkflowDelete(target, { selector, newDefault = null, expectedPlanSha256 }) {
   const plan = await planWorkflowDelete(target, { selector, newDefault });
   if (!expectedPlanSha256 || plan.planSha256 !== expectedPlanSha256) {
-    fail(`The delete plan changed or was not confirmed. Preview again and confirm exact plan ${plan.planSha256}.`,
+    fail('The delete plan changed or was not confirmed. Nothing changed. Preview it again and confirm it by the code it gives.',
       'WORKFLOW_DELETE_PLAN_STALE', { expected: expectedPlanSha256 ?? null, actual: plan.planSha256 });
   }
   const retained = RETIREMENT_PLANS.get(plan);
@@ -491,7 +491,7 @@ export function workflowDeleteProposal(plan, { expectedPlanSha256, requireApprov
   const retained = RETIREMENT_PLANS.get(plan);
   if (!retained) fail('A workflow delete needs a freshly captured plan. Preview it again.', 'WORKFLOW_DELETE_PLAN_INVALID');
   if (!expectedPlanSha256 || plan.planSha256 !== expectedPlanSha256) {
-    fail(`The delete plan changed or was not confirmed. Preview again and confirm exact plan ${plan.planSha256}.`,
+    fail('The delete plan changed or was not confirmed. Nothing changed. Preview it again and confirm it by the code it gives.',
       'WORKFLOW_DELETE_PLAN_STALE', { expected: expectedPlanSha256 ?? null, actual: plan.planSha256 });
   }
   const { destination } = retained;

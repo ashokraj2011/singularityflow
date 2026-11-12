@@ -694,8 +694,6 @@ async function showCapabilityInScope(root, subject, {
     : `${capability.name} is the most specific approved capability for this path.`}`);
   if (verbose) {
     console.log(`\nMode: ${capability.mode}`);
-    console.log(`Resolution: ${record.resolutionSha256 ?? 'unavailable'}`);
-    console.log(`Explanation: ${record.explanationSha256}`);
   }
   if (gitShadowSummary) {
     console.log(`Git shadow: ${gitShadowSummary.equivalent}/${gitShadowSummary.comparisons} equivalent · reference remains authoritative`);

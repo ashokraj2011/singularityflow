@@ -219,10 +219,10 @@ async function storySkillVersionCommand(positionals, options, root) {
     console.log(`Story ${result.workId} · accepted workflow snapshot revision ${result.snapshotRevision ?? 'legacy'}`);
     if (!result.selectedPackages.length) console.log('No selected skill phases are pinned in this Story.');
     for (const selected of result.selectedPackages) {
-      console.log(`${selected.skillId ?? 'unknown'} @ ${selected.packageSha256 ?? 'unavailable'}`);
+      console.log(`${selected.skillId ?? 'unknown'}: ${selected.packageSha256 ? 'pinned package' : 'package unavailable'}`);
     }
     for (const proposal of result.proposals) {
-      console.log(`${proposal.id}: ${proposal.status} · ${proposal.skillId} @ ${proposal.packageSha256 ?? 'unavailable'}`);
+      console.log(`${proposal.id}: ${proposal.status} · ${proposal.skillId}${proposal.packageSha256 ? '' : ' (package unavailable)'}`);
     }
     if (result.proposalsOmitted) console.log(`${result.proposalsOmitted} older proposal(s) omitted from this status summary.`);
     return;
@@ -251,12 +251,11 @@ async function storySkillVersionCommand(positionals, options, root) {
       console.log(`Reviewed skill-version proposal preview ${result.proposalId} for Story ${workflow.workItem.id}.`);
       const selectedPhase = workflow.resolution?.phases?.find((phase) =>
         phase.kind === 'skill' && phase.skillBinding?.bindingRefs?.skill?.id === skillId);
-      console.log(`Current package: ${selectedPhase?.skillBinding?.bindingRefs?.skill?.packageSha256 ?? 'unavailable'}`);
-      console.log(`Proposed package: ${result.proposal?.to?.packageSha256 ?? 'unavailable'}`);
-      console.log(`Approved configuration: ${result.proposal?.to?.configurationCommit ?? 'unavailable'}`);
+      // The packages by where they come from; their digests and the configuration commit stay in --json.
+      console.log(`Current package: ${selectedPhase?.skillBinding?.bindingRefs?.skill?.packageSha256 ? 'the one this Story pinned' : 'unavailable'}`);
+      console.log(`Proposed package: ${result.proposal?.to?.packageSha256 ? 'the one in the approved configuration as it is now' : 'unavailable'}`);
       console.log(`Affected phases: ${result.affectedPhaseIds.join(', ') || 'none'}`);
       console.log(`Preserved phases: ${result.preservedPhaseIds.join(', ') || 'none'}`);
-      console.log(`Exact confirmation digest: ${result.planSha256}`);
       console.log('No Story state, files, commits, or external systems were changed.');
       printSkillVersionGuidance(nextArgv, 'After human review, propose');
       return;
@@ -303,7 +302,6 @@ async function storySkillVersionCommand(positionals, options, root) {
     console.log(`Will adopt a new snapshot now: ${result.willApply ? 'yes' : 'no'}`);
     console.log(`Affected phases: ${result.affectedPhaseIds.join(', ') || 'none'}`);
     console.log(`Preserved phases: ${result.preservedPhaseIds.join(', ') || 'none'}`);
-    console.log(`Exact confirmation digest: ${result.planSha256}`);
     console.log('No Story state, files, commits, or external systems were changed.');
     printSkillVersionGuidance(nextArgv, 'After human review, record decision');
     return;
@@ -736,7 +734,7 @@ async function storyReturnCommand(positionals, options, root) {
   const local = envelope.data?.localChanges;
   console.log(`Singularity Flow return — ${workId}`);
   console.log(`${work.id} returns to ${work.phaseLabel ?? work.phase ?? 'its workflow'} (${work.status ?? 'active'}).`);
-  console.log(`Branch: ${repository.branch ?? 'unavailable'} @ ${(repository.head ?? 'unavailable').slice(0, 12)}`);
+  console.log(`Branch: ${repository.branch ?? 'unavailable'}${repository.head ? '' : ' (no commit)'}`);
   console.log(`Working tree: ${local === null ? 'unread' : local?.dirty ? `${local.files} changed path(s)` : 'clean'}`);
   console.log(`Progress: ${envelope.data?.lifecycle?.approved ?? 0}/${envelope.data?.lifecycle?.total ?? 0} phases approved`);
   if (envelope.data?.recovery?.required) console.warn('Recovery: a pending publication must be resolved first.');
@@ -904,7 +902,7 @@ export async function storyCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log('Reference repository preflight (read-only, provisional)');
     for (const entry of repositories) {
-      console.log(`✓ ${entry.id} · ${entry.requestedBranch} @ ${entry.commit.slice(0, 12)}`);
+      console.log(`✓ ${entry.id} · ${entry.requestedBranch}`);
     }
     console.log('Story start resolves every branch again and records the final immutable pins.');
     return;
@@ -951,7 +949,7 @@ export async function storyCommand(positionals, options) {
     console.log(`Story reference repositories — ${workflow.workItem.id}`);
     if (!references.length) return console.log('No reference repositories were pinned at intake.');
     for (const entry of verification.repositories) {
-      console.log(`${entry.status === 'ready' ? '✓' : entry.status === 'missing' ? '○' : '✗'} ${entry.id} · ${entry.requestedBranch} @ ${entry.commit.slice(0, 12)} · ${entry.localPath}`);
+      console.log(`${entry.status === 'ready' ? '✓' : entry.status === 'missing' ? '○' : '✗'} ${entry.id} · ${entry.requestedBranch} · ${entry.localPath}`);
       if (entry.reason) console.warn(`  ${entry.reason}`);
     }
     if (verification.nextAction) printCommandRoutes(
@@ -1046,8 +1044,8 @@ export async function storyCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       if (!current) return console.log(`Story ${workflow.workItem.id} has no open work interval${workflow.currentPhase ? ` in phase ${workflow.currentPhase}` : ''}.`);
       console.log(`Story ${workflow.workItem.id} · ${current.phaseId} generation ${current.generation}`);
-      console.log(`Baseline: ${current.baselineSha256.slice(0, 12)} · source ${current.sourceBaseCommit.slice(0, 12)} · ${current.status}`);
-      if (current.finalReconciliation) console.log(`Final reconciliation: ${current.finalReconciliation.reconciliationSha256.slice(0, 12)}`);
+      console.log(`Baseline: held at the base this Story started from · ${current.status}`);
+      if (current.finalReconciliation) console.log('Final reconciliation: recorded');
       // Each section says "quiet" rather than printing an empty list, so a calm return reads as calm.
       console.log(`Since you left: ${packet.sinceYouLeft.quiet ? 'nothing changed' : `${packet.sinceYouLeft.changedPaths.length} path(s) changed`}`);
       console.log(`Stale: ${packet.stale.quiet ? 'nothing drifted' : packet.stale.drift.map((entry) => entry.fact).join(', ')}`);
@@ -1087,7 +1085,7 @@ export async function storyCommand(positionals, options) {
         note: optionString(options, 'note')
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Local checkpoint ${result.checkpointSha256.slice(0, 12)} recorded for ${workflow.workItem.id}.`);
+      console.log(`Local checkpoint recorded for ${workflow.workItem.id}.`);
       console.log(`Files fingerprinted: ${result.files.length}. No source file was staged, committed, or pushed.`);
       console.log(`Record: ${result.path}`);
       return;
@@ -1097,7 +1095,7 @@ export async function storyCommand(positionals, options) {
         itemDirectory: workDir(root, config, workflow.workItem.id)
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Reconciliation ${result.reconciliationSha256.slice(0, 12)} · ${result.decision.status}`);
+      console.log(`Reconciliation: ${result.decision.status}`);
       console.log(`Changed: ${result.summary.changedPaths} · planned: ${result.summary.planned} · unplanned: ${result.summary.unplanned} · protected: ${result.summary.protected}`);
       result.decision.reasons.forEach((reason) => console.warn(`Escalation: ${reason}`));
       console.log(`Local report: ${result.localPath}`);
@@ -1107,7 +1105,7 @@ export async function storyCommand(positionals, options) {
     if (action === 'escalate') {
       const result = escalationPlan(config, workflow, { target: optionString(options, 'to') });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Escalation plan ${result.planSha256.slice(0, 12)}: ${result.fromWorkType} → ${result.toWorkType}`);
+      console.log(`Escalation plan: ${result.fromWorkType} → ${result.toWorkType}`);
       console.log(`Preserves: ${result.preserves.join(', ')}.`);
       console.log(`Next: ${result.action}.`);
       console.log('No branch, source, workflow state, commit, or remote was changed.');
@@ -1134,7 +1132,7 @@ export async function storyCommand(positionals, options) {
       const workflow = await loadStoryAggregate(root, config, optionString(options, 'parent'));
       const result = await promoteStoryBranch(root, config, workflow, { mode: optionString(options, 'mode') });
       if (result.requiresPullRequest) console.log(`Open a pull request from ${result.branch} to ${result.canonicalBranch}. Epic progress advances only after merge.`);
-      else console.log(`Promoted ${result.branch} to ${result.canonicalBranch} at ${result.commit.slice(0, 8)}.`);
+      else console.log(`Promoted ${result.branch} to ${result.canonicalBranch}.`);
       return;
     }
     if (action !== 'status') throw new SingularityFlowError(`Unknown Story branch action '${action}'.`);
@@ -1152,7 +1150,7 @@ export async function storyCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else {
-      console.log(`Story checks ${result.evidence.ready ? 'passed' : 'need attention'} for ${result.evidence.packetSha256.slice(0, 12)}.`);
+      console.log(`Story checks ${result.evidence.ready ? 'passed' : 'need attention'} for the current review packet.`);
       console.log(`Repository checks: ${result.evidence.github.required.map((entry) => `${entry.name}=${entry.status}`).join(', ') || 'no required checks configured'}`);
       result.evidence.governance.errors.forEach((error) => console.warn(`BLOCK: ${error}`));
       console.log(`Evidence committed${result.publication.pushed ? ' and pushed' : ''}.`);
@@ -1596,7 +1594,7 @@ export async function storyConvergeCommand(positionals, options) {
 
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
   console.log(`Convergence iteration ${projection.iteration} — ${workflow.workItem.id}`);
-  console.log(`  bound to: reconciliation ${bindings.reconciliation.sha256.slice(0, 12)}, source ${String(bindings.sourceTargetCommit ?? '').slice(0, 8)}, ${bindings.clauseIndexSha256.length} clause index/es`);
+  console.log(`  bound to: this iteration's reconciliation, the source it read, ${bindings.clauseIndexSha256.length} clause index/es`);
   console.log(`  facts:    ${facts.length}`);
   for (const item of facts) console.log(`    ${item.id} ${item.kind}: ${item.detail}`);
   for (const item of projection.settledByPlan ?? []) console.log(`    ${item.id} settled by the plan: ${item.paths.join(', ')} (${settledEntryWords(item.settledBy)})`);
@@ -2450,7 +2448,7 @@ export async function storyIntentAmendmentCommand(positionals, options) {
   if (action === 'propose') {
     const result = await proposeIntentAmendment(root, config, workflow, options);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; commit ${result.publication.sha.slice(0, 8)}.`);
+    console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; committed${result.publication.pushed ? ' and pushed' : ''}.`);
     for (const carried of result.proposal.planCorrections ?? []) {
       console.log(`It carries ${carried.ownerPhase}'s rows (${carried.operations.map((operation) => `${operation.op === 'add-row' ? 'adds' : operation.op === 'remove-row' ? 'removes' : operation.op === 'keep-row' ? 'keeps' : 'updates'} ${operation.clauseId}`).join(', ')}): `
         + `an approver of ${carried.ownerPhase} signs them by deciding it, and ${carried.ownerPhase} keeps its approval.`);
@@ -2634,7 +2632,7 @@ export async function storyReworkCommand(positionals, options) {
     const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, rebound.config, rebound.workflow);
   });
-  console.log(`Returned ${workflow.workItem.id} to implementation for ${rework.length} convergence finding(s); commit ${returned.sha.slice(0, 8)}.`);
+  console.log(`Returned ${workflow.workItem.id} to implementation for ${rework.length} convergence finding(s); committed${returned.pushed ? ' and pushed' : ''}.`);
   console.log(`Clauses: ${clauseIds.join(', ') || 'none recorded'}`);
   console.log('Prior convergence records, findings and approvals are preserved. The next implementation publication opens iteration '
     + `${projection.iteration + 1}.`);
@@ -2657,7 +2655,7 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Rework roll-forward preview for ${preview.workId} / ${preview.changeRequestId}`);
     console.log(`Return being abandoned: ${preview.sourcePhase} -> ${preview.targetPhase}`);
-    console.log(`Forward checkpoint: ${preview.checkpointId} at ${preview.sourceCommit}`);
+    console.log(`Forward checkpoint: ${preview.checkpointId}`);
     console.log(`Paths restored: ${preview.paths.length}`);
     preview.paths.forEach((candidate) => console.log(`  ${candidate}`));
     if (preview.stagedPaths.length) {
@@ -2739,7 +2737,7 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
   };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(`Abandoned ${result.changeRequestId} and safely returned ${result.workId} to ${result.phase ?? 'its closed state'}.`);
-  console.log(`Restored ${result.restoredPaths.length} path(s) in commit ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+  console.log(`Restored ${result.restoredPaths.length} path(s) in a new commit${result.pushed ? ' and pushed it' : ''}.`);
   console.log(`The discarded working bytes remain recoverable from local backup: ${result.backupPath}`);
 }
 

@@ -22,7 +22,7 @@ const lines = {
   cleanups: (entry) => `${entry.kind}${entry.steps ? `: ${entry.steps.join(', ')}` : entry.to ? `: ${entry.from} → ${entry.to}` : ''}`
 };
 
-function printDeletePlan(plan, stories) {
+async function printDeletePlan(plan, stories, options = {}) {
   console.log(`Delete preview: ${plan.selector}. Nothing is changed until you confirm and the proposal is activated.`);
   for (const [key, label] of [['removed', 'Removed'], ['kept', 'Kept'], ['trimmed', 'Trimmed'], ['cleanups', 'References cleaned']]) {
     if (!plan[key].length) continue;
@@ -35,7 +35,11 @@ function printDeletePlan(plan, stories) {
     if (stories.unchecked.length) console.log(`  Stories whose copy could not be checked here: ${stories.unchecked.map((story) => story.id).join(', ')}`);
     if (stories.unpinned.length) console.log(`  Blocking: unfinished Stories with no pinned copy: ${stories.unpinned.map((story) => story.id).join(', ')}`);
   } else if (stories) console.log(`  Stories were not checked: ${stories.reason}`);
-  console.log(`  Confirm plan: ${plan.planSha256}`);
+  // Confirmed by the plan's short code, never its digest (confirm-code.mjs).
+  const { renderPlatformCommand, safeCommandGuidance, commandRouteLines } = await import('../safe-command-guidance.mjs');
+  const command = renderPlatformCommand(['singularity-flow', 'workflow', 'delete', plan.selector,
+    ...(options.newDefault ? ['--new-default', options.newDefault] : []), '--confirm', plan.planSha256]);
+  console.log(['Delete it:', ...commandRouteLines(safeCommandGuidance({ command }) ?? {})].join('\n'));
 }
 
 async function deleteStories(root, plan) {
@@ -87,7 +91,7 @@ export async function run(root, positionals, options, { author, printProposal, w
   const stories = await deleteStories(root, plan);
   if (optionBoolean(options, 'dry-run')) {
     if (json) return console.log(JSON.stringify({ ...plan, stories }, null, 2));
-    return printDeletePlan(plan, stories);
+    return printDeletePlan(plan, stories, { newDefault });
   }
   const expectedPlanSha256 = optionString(options, 'confirm');
   if (!expectedPlanSha256) {
@@ -96,7 +100,7 @@ export async function run(root, positionals, options, { author, printProposal, w
     });
   }
   if (plan.planSha256 !== expectedPlanSha256) {
-    throw new SingularityFlowError(`The delete plan changed since its preview. Preview again and confirm exact plan ${plan.planSha256}.`, {
+    throw new SingularityFlowError(`The delete plan changed since its preview. Nothing changed. Preview again (singularity-flow workflow delete ${selector} --dry-run) and confirm it by the code it gives.`, {
       code: 'WORKFLOW_DELETE_PLAN_STALE', details: { expected: expectedPlanSha256, actual: plan.planSha256,
         nextAction: { command: `singularity-flow workflow delete ${selector} --dry-run --json` } }
     });

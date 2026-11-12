@@ -21,7 +21,9 @@ const human = { mode: 'required', minimum: 1, authorities: ['quality-reviewers']
 const none = { mode: 'none' };
 const approvals = [{ decision: 'approved', actor: { login: 'qa' }, authorityGroup: 'quality-reviewers', at: '2026-10-02T00:00:00Z' }];
 
-function pocStory({ finalize = 'approved', status = 'in_progress', applicability = undefined, endpoints = undefined, decisionLog = undefined } = {}) {
+// `scopeStep`: a step that may hold scope (its route can skip it), so an approver decides each Story that ends without
+// it; without one, no step holds scope and the workflow's own declared reason settles it [owner, 2026-11-12].
+function pocStory({ finalize = 'approved', status = 'in_progress', applicability = undefined, endpoints = undefined, decisionLog = undefined, scopeStep = false } = {}) {
   return {
     workItem: { id: W, title: 'Lifecycle demonstration' },
     status,
@@ -33,7 +35,7 @@ function pocStory({ finalize = 'approved', status = 'in_progress', applicability
       plannedClaims: { mode: 'omitted', clausePhases: [], owners: {} },
       obligationGraph: {
         nodes: [
-          { id: 'plan', responsibilities: ['plan'] },
+          { id: 'plan', responsibilities: scopeStep ? ['scope', 'plan'] : ['plan'] },
           { id: 'act', responsibilities: ['implement', 'verify'] },
           { id: 'verify', responsibilities: ['verify'] },
           { id: 'finalize', responsibilities: ['review'] }
@@ -92,7 +94,7 @@ test('the end a Story takes is the decision route that finished it, or else the 
 });
 
 test('only the group an omission names may decide it, with a real reason, and a later decision replaces the earlier', () => {
-  const workflow = pocStory();
+  const workflow = pocStory({ scopeStep: true });
   assert.throws(() => decide(workflow, { responsibility: 'verify' }), (error) => error.code === 'APPLICABILITY_NOT_OMITTED');
   assert.throws(() => decide(workflow, { authorityGroup: 'engineering-reviewers' }),
     (error) => error.code === 'APPLICABILITY_AUTHORITY_REQUIRED' && /Only quality-reviewers may decide/.test(error.message));
@@ -111,7 +113,7 @@ test('only the group an omission names may decide it, with a real reason, and a 
 });
 
 test('an omitted responsibility nobody decided blocks the final evaluation; once decided it is not applicable', () => {
-  const undecided = evaluate(pocStory({ status: 'closed' }));
+  const undecided = evaluate(pocStory({ status: 'closed', scopeStep: true }));
   const scope = undecided.rows.find((row) => row.id === 'story:scope');
   assert.equal(scope.result, 'pending');
   assert.equal(scope.obligations[0].id, 'OBL:POC-1:scope:story');
@@ -121,7 +123,7 @@ test('an omitted responsibility nobody decided blocks the final evaluation; once
   assert.equal(undecided.decision.gate, 'block');
   assert.ok(!undecided.findings.some((entry) => entry.code === 'EVIDENCE_NO_CRITERIA'), 'an omitted scope is not a missing one');
 
-  const workflow = pocStory({ status: 'closed' });
+  const workflow = pocStory({ status: 'closed', scopeStep: true });
   decide(workflow);
   const decided = evaluate(workflow);
   assert.equal(decided.rows.find((row) => row.id === 'story:scope').result, 'not-applicable');
@@ -133,6 +135,17 @@ test('an omitted responsibility nobody decided blocks the final evaluation; once
   assert.equal(decided.decision.gate, 'allow');
   assert.equal(decided.summary.assuranceFloor, 'module-observed');
   assert.notEqual(decided.inputSha256, undecided.inputSha256, 'the decision is part of what the evaluation was made over');
+});
+
+test('a responsibility no step holds is settled by the workflow\'s declared reason: the final evaluation allows it and offers nothing [owner, 2026-11-12]', () => {
+  const settled = evaluate(pocStory({ status: 'closed' }));
+  const scope = settled.rows.find((row) => row.id === 'story:scope');
+  assert.equal(scope.result, 'not-applicable');
+  assert.deepEqual(scope.actions, [], 'nobody is asked');
+  assert.ok(!settled.findings.some((entry) => entry.code === 'APPLICABILITY_DECISION_REQUIRED'));
+  assert.equal(settled.decision.gate, 'allow');
+  const [status] = applicabilityStatus(pocStory());
+  assert.deepEqual([status.satisfied, status.decision.source, status.decision.reason], [true, 'workflow', omitScope.reason]);
 });
 
 test('a Story without clauses still owes its route: unreviewed or untested work is not complete', () => {

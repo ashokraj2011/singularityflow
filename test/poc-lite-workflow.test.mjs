@@ -11,6 +11,7 @@ import { initializeDefinition, loadDefinition, resolveWorkType, validateDefiniti
 import { phaseRequiresCodeDelivery, resolveDeliveryQualityCommands } from '../src/delivery-evidence.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
+import { reviewStep } from './helpers/step-review.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin', 'singularity-flow.mjs');
@@ -161,6 +162,13 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   const publish = (phase) => lifecycle(
     'phase', 'publish', phase, '--authored', 'deterministic', '--channel', 'kernel-generator'
   );
+  // Every authored step of a new Story has its independent review before it is submitted [review level 2]; a step
+  // whose packet has nothing to review is skipped by the CLI, and the helper only retains what the CLI judges ready.
+  const json = (args) => JSON.parse(lifecycle(...args).stdout);
+  const reviewed = (phase) => {
+    const status = json(['review-source', 'status', phase, '--json']);
+    if (status.required !== false && status.status !== 'ready' && status.status !== 'not-required') reviewStep(json, phase);
+  };
   const preparedPlan = lifecycle('prepare', 'poc-lite-plan');
   // Preparation already ran: its route checks the prepared deterministic artifact and publishes it
   // only when ready (/sf-publish), never as a human import.
@@ -190,10 +198,12 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   ].join('\n'));
   lifecycle('prepare', 'poc-lite-act');
   publish('poc-lite-act');
+  reviewed('poc-lite-act');
   lifecycle('submit', 'poc-lite-act');
 
   lifecycle('prepare', 'poc-lite-verify');
   publish('poc-lite-verify');
+  reviewed('poc-lite-verify');
   lifecycle('submit', 'poc-lite-verify');
   await assert.rejects(
     readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'),
@@ -201,69 +211,28 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
     'a deterministic next phase must not synthesize a governed-agent session'
   );
   lifecycle('prepare', 'poc-lite-finalize');
-  // Before the last step is published, prepublish and nextsteps already name what its submission
-  // would refuse, each with its exact command; publishing itself is not blocked [gate parity].
+  // POC Lite omits scope and no step of it holds scope, so the reason the workflow declares, approved with the
+  // workflow, settles it for every Story: nobody is asked again, and the last step publishes and submits with no
+  // applicability decision [owner, 2026-11-12]. A workflow where some step may hold what an end omits still asks.
   const preview = JSON.parse(lifecycle('phase', 'prepublish', 'poc-lite-finalize', '--json').stdout);
   assert.equal(preview.status, 'ready', JSON.stringify(preview.findings));
-  assert.equal(preview.finalGate.status, 'blocked');
-  assert.equal(preview.finalGate.blocksPublication, false);
-  assert.match(preview.finalGate.blockers.join('\n'), /ends without scope; someone in quality-reviewers must record why it does not apply/);
-  assert.ok(preview.finalGate.recovery.some((command) => /decision applicability .*--responsibility scope/.test(command)), JSON.stringify(preview.finalGate));
-  assert.match(preview.warnings.join('\n'), /submitting poc-lite-finalize ends the Story and would be refused/);
-  const previewText = lifecycle('phase', 'prepublish', 'poc-lite-finalize').stdout;
-  assert.match(previewText, /Before poc-lite-finalize can be submitted \(publishing is not blocked\):\n  - This Story ends without scope/);
-  assert.match(previewText, /Run: singularity-flow decision applicability/);
+  assert.doesNotMatch(JSON.stringify(preview.finalGate ?? {}), /ends without scope|decision applicability/u, JSON.stringify(preview.finalGate));
   const beforePublish = JSON.parse(lifecycle('nextsteps', '--json').stdout).actions;
-  assert.ok(beforePublish.some((entry) => entry.timing === 'then'
-    && entry.command === 'singularity-flow decision applicability POC-LITE-1 --responsibility scope --reason <reason>'),
-  JSON.stringify(beforePublish.map((entry) => [entry.timing, entry.command])));
+  assert.ok(!beforePublish.some((entry) => /decision applicability/u.test(entry.command ?? '')), JSON.stringify(beforePublish.map((entry) => [entry.timing, entry.command])));
   publish('poc-lite-finalize');
-
-  // POC Lite omits scope; submitting its final step is refused until someone in the omission's
-  // group says why scope does not apply to this Story, and the refusal writes nothing. The terminal
-  // evaluation runs at the final submission, before anyone is asked to approve.
+  reviewed('poc-lite-finalize');
   const statePath = path.join(root, 'singularity/work-items/POC-LITE-1/workflow.json');
-  const stateBefore = await readFile(statePath, 'utf8');
-  const headBefore = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-  const refused = run(process.execPath, [CLI, '--no-model', 'submit', 'poc-lite-finalize'], root, { allowFailure: true });
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stdout + refused.stderr, /cannot finish yet[\s\S]*ends without scope; someone in quality-reviewers must record why it does not apply/);
-  assert.match(refused.stdout + refused.stderr, /decision applicability --responsibility scope/);
-  assert.equal(await readFile(statePath, 'utf8'), stateBefore, 'a refused ending must not change the Story');
-  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), headBefore);
-  assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
-
-  // An identical retry is answered from memory, in the one refusal shape every surface renders.
-  const unchanged = run(process.execPath, [CLI, '--no-model', 'submit', 'poc-lite-finalize', '--json'], root, { allowFailure: true });
-  assert.notEqual(unchanged.status, 0);
-  const envelope = JSON.parse(unchanged.stdout);
-  assert.equal(envelope.error.code, 'REFUSAL_UNCHANGED');
-  const gate = envelope.error.details.gate;
-  assert.equal(gate.schema, 'gate-refusal/v1');
-  assert.equal(gate.gate, 'terminal');
-  assert.equal(gate.recoveryClass, 'decide-applicability');
-  assert.deepEqual(gate.obligations.map((entry) => [entry.id, entry.status]), [['OBL:POC-LITE-1:scope:story', 'pending']]);
-  assert.match(gate.actions[0].command, /decision applicability --responsibility scope/);
-  assert.equal(await readFile(statePath, 'utf8'), stateBefore);
-  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), headBefore);
-
-  // The guidance offers the decision before the submission it unblocks.
-  const next = JSON.parse(lifecycle('nextsteps', '--json').stdout).actions;
-  const decide = next.find((entry) => entry.timing === 'now');
-  assert.equal(decide.command, 'singularity-flow decision applicability POC-LITE-1 --responsibility scope --reason <reason>');
-  assert.ok(next.some((entry) => entry.timing === 'then' && entry.command === 'singularity-flow submit poc-lite-finalize'), JSON.stringify(next.map((entry) => [entry.timing, entry.command])));
   const shown = JSON.parse(lifecycle('decision', 'show', '--json').stdout);
-  assert.deepEqual(shown.applicability.map((entry) => [entry.responsibility, entry.authority, entry.satisfied]), [['scope', 'quality-reviewers', false]]);
-  const short = run(process.execPath, [CLI, '--no-model', 'decision', 'applicability', '--responsibility', 'scope', '--reason', 'n/a'], root, { allowFailure: true });
-  assert.notEqual(short.status, 0);
-  assert.match(short.stdout + short.stderr, /20 to 1000 characters/);
+  assert.deepEqual(shown.applicability.map((entry) => [entry.responsibility, entry.authority, entry.satisfied, entry.decision?.source]),
+    [['scope', 'quality-reviewers', true, 'workflow']]);
+  assert.equal(shown.applicability[0].decision.reason, 'POC Lite demonstrates the governed lifecycle on one bounded local change and defines no requirement clauses.');
+  // A responsibility no end omits is still refused, and a short reason is still refused for one that is.
   const notOmitted = run(process.execPath, [CLI, '--no-model', 'decision', 'applicability', '--responsibility', 'verify', '--reason', 'Verification always applies to this Story.'], root, { allowFailure: true });
   assert.notEqual(notOmitted.status, 0);
   assert.match(notOmitted.stdout + notOmitted.stderr, /No end of this Story's workflow omits verify/);
-  const decided = lifecycle('decision', 'applicability', '--responsibility', 'scope',
-    '--reason', 'This POC demonstrates the lifecycle on one local change and has no requirements.');
-  assert.match(decided.stdout, /Recorded that scope does not apply to POC-LITE-1, decided by .+ through quality-reviewers/);
-  assert.equal(JSON.parse(lifecycle('decision', 'show', '--json').stdout).applicability[0].satisfied, true);
+  const short = run(process.execPath, [CLI, '--no-model', 'decision', 'applicability', '--responsibility', 'scope', '--reason', 'n/a'], root, { allowFailure: true });
+  assert.notEqual(short.status, 0);
+  assert.match(short.stdout + short.stderr, /20 to 1000 characters/);
 
   lifecycle('submit', 'poc-lite-finalize');
   const awaitingDecision = JSON.parse(await readFile(statePath, 'utf8'));
@@ -278,7 +247,7 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   assert.equal(completed.currentPhase, null, 'the final human decision must complete the workflow');
   assert.equal(completed.completion.label, 'Complete');
   assert.equal(completed.completion.mode, 'decision');
-  assert.equal(completed.applicability.length, 1);
+  assert.equal(completed.applicability?.length ?? 0, 0, 'nobody recorded a scope decision for this Story');
   const matrix = JSON.parse(lifecycle('evidence', 'matrix', '--json').stdout).data.matrix;
   assert.equal(matrix.evaluation.completion.label, 'Complete', JSON.stringify(matrix.evaluation.findings));
   assert.equal(matrix.page.rows.find((row) => row.id === 'story:scope').result, 'not-applicable');

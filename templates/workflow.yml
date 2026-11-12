@@ -642,7 +642,8 @@ workTypes:
   # A sample user-defined agent, as `call add` makes one: the folder in
   # singularity/user-defined/careful-change/ runs as this one step (start <WORK-ID> --agent
   # careful-change, then /sf-call careful-change). One code step defines no requirement clauses and
-  # plans itself, so its approvers record why scope and plan do not apply before the Story finishes.
+  # plans itself: no step holds scope or plan, so the reasons below, approved with the workflow, settle
+  # them for every Story and nobody is asked again.
   careful-change:
     label: Careful change
     description: Careful change, run as one step (user-defined agent).
@@ -654,6 +655,23 @@ workTypes:
       - responsibility: plan
         reason: Careful change plans and makes the change itself, in its one step, from its own instructions.
         authority: engineering-reviewers
+
+  # Runs the repository's tests and has a quality reviewer sign off the report; nothing is changed. No step
+  # holds scope, a plan or a code change, so the reasons below settle them for every Story [owner, 2026-11-12].
+  test-run:
+    label: Test run
+    description: Runs the repository's own tests and has a quality reviewer sign off what they found; nothing is changed.
+    phases: [test-run]
+    omits:
+      - responsibility: scope
+        reason: A test run checks the product as it is; it defines no new requirements.
+        authority: quality-reviewers
+      - responsibility: plan
+        reason: A test run changes no code, so there is no change to plan.
+        authority: quality-reviewers
+      - responsibility: implement
+        reason: A test run changes no code; a failure it finds is fixed in a Story of its own.
+        authority: quality-reviewers
 
   classic-delivery:
     label: Classic delivery
@@ -904,8 +922,8 @@ workTypes:
     label: POC Lite — local governed change
     description: A model-free four-checkpoint demonstration with repository-native validation and one explicit human finish decision; it imposes no MCP, tracker, or hosted-service dependency.
     phases: [poc-lite-plan, poc-lite-act, poc-lite-verify, poc-lite-finalize]
-    # A model-free demonstration defines no requirement clauses, so it omits scope; the final reviewer
-    # records why scope does not apply before the Story finishes.
+    # A model-free demonstration defines no requirement clauses, so it omits scope; no step holds scope, so the
+    # reason below, approved with the workflow, settles it for every Story and nobody is asked again.
     omits:
       - responsibility: scope
         reason: POC Lite demonstrates the governed lifecycle on one bounded local change and defines no requirement clauses.
@@ -1282,6 +1300,22 @@ phases:
     qualityCommands: []
     # As for verification. A review of one code step's committed test receipt (testEvidenceFrom)
     # does not run them again.
+    repositoryTests: run
+  # Test run's one step: the repository's own tests run when it is submitted, and its report cites what they
+  # found. It writes only its report. A step that runs some of them names testLevels or testIds (see tests:).
+  test-run:
+    label: Run the tests
+    description: Runs the repository's own tests and records what they found.
+    defaultTemplate: test-run/run.md
+    artifact:
+      path: artifacts/test-run/test-report.md
+      kind: test-evidence
+      minimumBytes: 200
+      validation: { requiredHeadings: [What ran, Results, Failures and follow-up] }
+    clarification: { mode: off }
+    writeScope: artifact-only
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [test-run] }
+    qualityCommands: []
     repositoryTests: run
   visual-verification:
     label: Mobile visual verification

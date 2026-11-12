@@ -425,7 +425,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'd9c946f4065ce087cb0c8ee2e47231a2bc2a308dee97a991297b4b2032ddd65a',
     'e4b50c0b7fa8c2cc84d9cfd5794a9406d91216a024e4b44200b276032d1822ad',
     'e87beaaad02bacff42a0fe75165d46037fc596312fc5085e5ffa8a88b3a6da57',
-    'fb292e36fbcf2d741e2493a4677a589c1d16db458c44489e02534b1e56252209'
+    'fb292e36fbcf2d741e2493a4677a589c1d16db458c44489e02534b1e56252209',
+    // Before it wrote Test run's one step (2026-11-12).
+    '913904d9f5bbc2dae081b7e44f4bf21806ddfeffc02bdf47f81e8ffd920fac02'
   ]),
   // Before the 2026-10-19 template audit: kernel-accepted planned tables, test-run risk and
   // not-applicable routes, visible Agent briefs and repository-neutral examples.
@@ -667,7 +669,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/poc-validator.agent.md': '466d8266770df2613784d0dc353fb370fab4900945893084a476c16f2c4ce192',
   '.github/agents/product-designer.agent.md': '01b6714c5e933cbee9a53dbb680b6166d2b83caa15fd38f28500c5dcbd4e438e',
   '.github/agents/product-owner.agent.md': '781dbe6c8ce3c8cfdfc894b5796a6e5d5c62c8737d03364ad6459c2cf3b6fb8a',
-  '.github/agents/qa.agent.md': '913904d9f5bbc2dae081b7e44f4bf21806ddfeffc02bdf47f81e8ffd920fac02',
+  '.github/agents/qa.agent.md': '0e255fe098bdf64629605d449db145d180e8a7f5c8c9da3efab956422a393018',
   '.github/agents/scenario-developer.agent.md': '9ac24c7c72a73839a3c5b19816670bfaed0d5f71147ee3c4e8a70a87b323ec16',
   '.github/agents/scenario-tester.agent.md': 'f0e7ecd9c0c537459720f37fd25188e7819391616870bd8f7fa2c813a3085f48',
   'singularity/agent-mappings.yml': '1b39a4f4caa3242749889a291e2259a361c815712bd762abde3db3cbe9f8a688',
@@ -770,6 +772,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/quick-fix/implement.md': 'a252cd732cfb91a944f9c38b01c02710191291fccca5a190d9008ecff4f4459a',
   'singularity/templates/quick-fix/intake.md': '5fc0dfa8dbd78cb24656d72962d5e67bd13d6d407b550d7dba28b5bd85cf8493',
   'singularity/templates/quick-fix/verify.md': 'f54cccabc38f645bcd987cb3096070f7ea18732c689bb8c1ee90d4222b966632',
+  'singularity/templates/test-run/run.md': 'db3a2ab7f202df79ef93ea75a326be7456ad7dfe86b3682ce85057e8849fae6a',
   'singularity/templates/spec-code-test-loop/conformance.md': '105059f473d71491e044e6c17ee1d02cf538a7c3b382aed6d41228acedd7a388',
   'singularity/templates/spec-code-test-loop/specification.md': 'aaa206553da4ff106a1668a7aceaa7b0a9e3aa926f6628285f6ce14e0d5f539f',
   'singularity/templates/spec-code-test-loop/testing.md': '30010a1180ec6d7212c745a53a0fe49fad624d4212d476071088c74dfddea916',

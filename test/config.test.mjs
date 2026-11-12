@@ -517,7 +517,7 @@ test('every shipped Story workflow phase renders a contract-consistent guarded a
   const example = YAML.parse(await readFile(new URL('../examples/workflow-with-quality-gates.yml', import.meta.url), 'utf8'));
   validateDefinition(example);
   const matrices = [
-    { name: 'starter', definition: starter, expectedProfiles: 19, expectedPhases: 90 },
+    { name: 'starter', definition: starter, expectedProfiles: 20, expectedPhases: 91 },
     { name: 'quality-gates-example', definition: example, expectedProfiles: 1, expectedPhases: 6 }
   ];
 

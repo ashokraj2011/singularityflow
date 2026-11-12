@@ -5,8 +5,8 @@ model: [auto]
 tools: [read, search, edit, execute, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "QA"
-  sflow-phases: "reproduction,verify,verification,testing,visual-verification,conformance,release"
-  sflow-default-for: "reproduction,verify,verification,testing,visual-verification,conformance,release"
+  sflow-phases: "reproduction,verify,verification,testing,test-run,visual-verification,conformance,release"
+  sflow-default-for: "reproduction,verify,verification,testing,test-run,visual-verification,conformance,release"
   sflow-model-task: "analyze"
 ---
 

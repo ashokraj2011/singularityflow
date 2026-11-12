@@ -261,6 +261,7 @@ const PHASES_BEFORE_WORLD_MODEL_REMOVAL = Object.freeze({
 export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   workTypes: Object.freeze({
     'careful-change': 'a6ea3be48cf4ece09dee0adf5f9088ad99cc02826fd2fe54bbdc29feb6baaeda',
+    'test-run': '17a4c04485f1515b786e3d06595f36f05d6f707bad3c167274bfb084e53f000d',
     'demo-instruction-test-loop': '37355eeff7baba479e08f925b068343f6b53f277906cf7f0d8a0627ba6fbbb1a',
     'benchmarking-a': '683792ad3e475d6150b924c42fef6a78c8df657b331fd6dde45417db2797491a',
     'benchmarking-b': '96868ea267f0f37892d70bca6b527dfbf378b7892c9abdb062e2375b0acb104d',
@@ -281,6 +282,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'findings-remediation': '34e975e5c19105aba55707169ec1cc8ab75d9db7601d9d062741a81b458c0499'
   }),
   phases: Object.freeze({
+    'test-run': '7fecbf9f931ba41decfe666646cce84428b715e2964bb191ceff08a87151f845',
     'careful-change': 'f1d09fc9b2581f97a19b8b6557810ba62d3f98bb92b2a26a4edd1c09d55c5cef',
     'findings-intake': '8f096ce5c0680bff417bf0861a69b974bdeef710e5fcfad90cf2918b90a88859',
     'remediation-plan': '7689d8b7ab5c10c31e09f9fa807e82a3e6b1886c9ca4d31e2f2081eceef45213',

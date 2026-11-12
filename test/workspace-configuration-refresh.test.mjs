@@ -1853,8 +1853,8 @@ test('configuration refresh refuses a cross-file-invalid preserved agent and acc
   const qaFile = path.join(root, '.github/agents/qa.agent.md');
   const currentQa = await readFile(qaFile, 'utf8');
   const olderQa = currentQa.replaceAll(
-    'reproduction,verify,verification,testing,visual-verification,conformance,release',
-    'reproduction,verify,verification,visual-verification,conformance,release'
+    'reproduction,verify,verification,testing,test-run,visual-verification,conformance,release',
+    'reproduction,verify,verification,test-run,visual-verification,conformance,release'
   );
   assert.notEqual(olderQa, currentQa, 'the fixture removes the default for the testing phase');
   await writeFile(qaFile, olderQa);
@@ -1886,8 +1886,8 @@ test('workspace refresh preview returns an actionable packaged-agent repair inst
   git(publisher, ['config', 'user.email', 'configuration@example.test']);
   const currentQa = await readFile(path.join(ROOT, 'templates/agents/qa.agent.md'), 'utf8');
   const olderQa = currentQa.replaceAll(
-    'reproduction,verify,verification,testing,visual-verification,conformance,release',
-    'reproduction,verify,verification,visual-verification,conformance,release'
+    'reproduction,verify,verification,testing,test-run,visual-verification,conformance,release',
+    'reproduction,verify,verification,test-run,visual-verification,conformance,release'
   );
   await mkdir(path.join(publisher, '.github/agents'), { recursive: true });
   await writeFile(path.join(publisher, '.github/agents/qa.agent.md'), olderQa);

@@ -599,7 +599,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // owed-decisions.mjs, scope/extract.mjs, scope/authoring.mjs). No new eager file [office, 2026-11-12].
     // 9,651,700 (measured 9,651,687): the POC workflow's six templates take each Story's Work ID in their clause anchors,
     // and their released bytes stay registered (packaged-asset-history.mjs +1,062) [office, 2026-11-12].
-    assert.ok(closure.bytes <= 9_651_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,653,300 (measured 9,653,223): a responsibility no step of a workflow holds is settled by the workflow's own
+    // declared reason, not asked of each Story (evidence/applicability.mjs), and Test run ships (its step, template and
+    // QA agent registered in packaged-workflow-history.mjs and packaged-asset-history.mjs) [owner, 2026-11-12].
+    assert.ok(closure.bytes <= 9_653_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -869,7 +872,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,244,150 (measured 4,244,138): a confirmation route's short code (confirm-code.mjs, the one new file above).
   // 4,245,250 (measured 4,245,212): the POC workflow templates' released bytes stay registered after their clause
   // anchors took each Story's Work ID (packaged-asset-history.mjs +1,062) [office, 2026-11-12]. No new eager file.
-  assert.ok(current.bytes <= 4_245_250, `session current loads ${current.bytes} source bytes`);
+  // 4,246,800 (measured 4,246,748): the same, the applicability rule and Test run's registered assets [owner, 2026-11-12].
+  assert.ok(current.bytes <= 4_246_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

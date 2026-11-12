@@ -34,6 +34,8 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
   'quick-fix': { mode: 'required', clausePhases: ['intake'], owners: { implement: 'intake' } },
   // The sample user-defined agent: one code step that omits scope (and plan), like POC Lite.
   'careful-change': { mode: 'omitted', omits: ['scope', 'plan'] },
+  // Test run [owner, 2026-11-12]: it runs the repository's tests and changes no code, so it plans no claims.
+  'test-run': { mode: 'disabled' },
   'classic-delivery': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'intake' }
   },

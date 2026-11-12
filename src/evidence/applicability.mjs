@@ -42,19 +42,38 @@ export function applicabilityDecision(workflow, responsibility) {
 }
 
 /**
+ * Whether the Story's pinned workflow never holds `responsibility`: no step of it does, and every end of its graph
+ * omits it. It then applies to no Story the workflow runs, and the reason its omits declare, approved with the
+ * workflow, settles it [owner, 2026-11-12]. A responsibility some step holds (a repair step a Story may or may not
+ * reach) stays a person's decision for each Story that ends without it.
+ */
+export function omittedByEveryRoute(workflow, responsibility) {
+  const graph = workflow?.resolution?.obligationGraph;
+  const endpoints = graph?.endpoints ?? [];
+  return endpoints.length > 0
+    && !(graph?.nodes ?? []).some((node) => (node.responsibilities ?? []).includes(responsibility))
+    && endpoints.every((endpoint) => (endpoint.omits ?? []).some((entry) => entry.responsibility === responsibility));
+}
+
+/**
  * What the end a Story reached still needs: each omitted responsibility with its decision, if any,
- * and whether that decision was made by the group the omission names.
+ * and whether that decision was made by the group the omission names. One the workflow omits on every
+ * route is settled by the workflow's own declared reason (`decision.source: 'workflow'`), and nobody is
+ * asked again for each Story; a person's recorded decision still stands over it.
  */
 export function applicabilityStatus(workflow, endpoint = endpointTaken(workflow)) {
   return (endpoint?.omits ?? []).map((entry) => {
     const decision = applicabilityDecision(workflow, entry.responsibility);
     const authorized = Boolean(decision) && decision.authorityGroup === entry.authority;
+    const byWorkflow = !authorized && omittedByEveryRoute(workflow, entry.responsibility);
     return {
       responsibility: entry.responsibility,
       authority: entry.authority,
       declaredReason: entry.reason,
-      decision: decision ? { reason: decision.reason, actor: decision.actor, authorityGroup: decision.authorityGroup, at: decision.at } : null,
-      satisfied: authorized
+      decision: decision
+        ? { reason: decision.reason, actor: decision.actor, authorityGroup: decision.authorityGroup, at: decision.at }
+        : byWorkflow ? { reason: entry.reason, actor: null, authorityGroup: entry.authority, at: null, source: 'workflow' } : null,
+      satisfied: authorized || byWorkflow
     };
   });
 }

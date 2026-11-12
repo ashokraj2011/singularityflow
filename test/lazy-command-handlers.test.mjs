@@ -602,7 +602,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,653,300 (measured 9,653,223): a responsibility no step of a workflow holds is settled by the workflow's own
     // declared reason, not asked of each Story (evidence/applicability.mjs), and Test run ships (its step, template and
     // QA agent registered in packaged-workflow-history.mjs and packaged-asset-history.mjs) [owner, 2026-11-12].
-    assert.ok(closure.bytes <= 9_653_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,654,700 (measured 9,654,685): every confirmation route a person reads is its short code, which now also stands
+    // for a commit or a plan ID (confirm-code.mjs, command-skills.mjs routes, +1,414), and each decision says what it
+    // holds (decision-list.mjs, +48) [owner, "fix the remaining hash screens" and the decision map, 2026-11-12]. No new eager file.
+    assert.ok(closure.bytes <= 9_654_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -873,7 +876,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,245,250 (measured 4,245,212): the POC workflow templates' released bytes stay registered after their clause
   // anchors took each Story's Work ID (packaged-asset-history.mjs +1,062) [office, 2026-11-12]. No new eager file.
   // 4,246,800 (measured 4,246,748): the same, the applicability rule and Test run's registered assets [owner, 2026-11-12].
-  assert.ok(current.bytes <= 4_246_800, `session current loads ${current.bytes} source bytes`);
+  // 4,247,750 (measured 4,247,717): confirmation routes read as short codes for commits and plan IDs too (confirm-code.mjs
+  // and the route words, +969) [owner, "fix the remaining hash screens", 2026-11-12]. No new eager file.
+  assert.ok(current.bytes <= 4_247_750, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

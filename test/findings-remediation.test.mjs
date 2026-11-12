@@ -43,7 +43,7 @@ test('the seeded findings-remediation workflow has its five steps, reuses the se
     assert.match(text, new RegExp(`sflow-default-for: "[^"]*\\b${phase}\\b`, 'u'), `${agent} writes ${phase}`);
   }
   const plan = await readFile(path.join(engine, 'templates', 'artifacts', 'findings-remediation', 'remediation-plan.md'), 'utf8');
-  assert.match(plan, /## Major upgrades for a person\n\nA major upgrade is never made by itself\./u);
+  assert.match(plan, /## Major upgrades for a person\n\n<!-- sflow:guidance A major upgrade is never made by itself\./u);
   const { seededWorkflowProtection } = await import('../src/seeded-workflow-protection.mjs');
   const protectedIds = await seededWorkflowProtection(workflow, {}, []);
   assert.ok(protectedIds.workflows.includes('findings-remediation'), 'protected like the other seeded workflows');

@@ -202,7 +202,7 @@ test('the guard reads the exact tree a commit admits and tells a change made whi
 test('planning and capture guidance say a test never saves its capture at a retained evidence path', async () => {
   // The plan template and the planning prompt, where a planner reads how evidence is planned.
   const template = await readFile(new URL('../templates/artifacts/spec-driven/plan.md', import.meta.url), 'utf8');
-  assert.match(template, /A planned test never saves its capture straight to that path, because every later run would replace\nthe reviewed file: it saves under its runner's output \(for example `test-results\/`\), and the code\nstep copies the image to the evidence path once/u);
+  assert.match(template, /A planned test never saves its capture straight to that path, because every later run would replace the reviewed file: it saves under its runner's output \(for example `test-results\/`\), and the code step copies the image to the evidence path once/u);
   const planner = { id: 'planning', generationPolicy: { requirement: 'required', producer: 'governed-agent', allowedProducers: ['governed-agent'] } };
   const planned = { workItem: { id: 'PLAN-1' }, phases: { planning: planner, build: { id: 'build', generationPolicy: { task: 'code' } } },
     resolution: { phases: [], plannedClaims: { mode: 'required', owners: { build: 'planning' } } } };

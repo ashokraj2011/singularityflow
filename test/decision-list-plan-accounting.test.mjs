@@ -92,14 +92,14 @@ test('files that changed together for how tests run are one decision, and each i
   const [setup] = items;
   assert.match(setup.why, /changed together for how tests run.*one change, so you decide once, and each is recorded by name/u);
   assert.deepEqual(setup.details.paths, ['package-lock.json', 'playwright.config.js', 'src/test/setup.js']);
-  assert.match(effectWords(story(), setup.options[0].effects[0]), /list package-lock\.json as a supporting change, dependency-lock, list playwright\.config\.js as a supporting change, build-configuration, add src\/test\/setup\.js to REQ-001 \(plan amendment\)/u);
-  // The setup file is under a test folder, so it needs a row; the rest are supporting. One choice does all of it.
-  const [row] = setup.options;
-  assert.deepEqual(row.effects, [{ kind: 'plan-amendment', changes: [
+  // The setup file is test support in a test folder, so it is a supporting change like the rest: one choice does all of it.
+  assert.match(effectWords(story(), setup.options[0].effects[0]), /list package-lock\.json as a supporting change, dependency-lock, list playwright\.config\.js as a supporting change, build-configuration, list src\/test\/setup\.js as a supporting change, test-support \(plan amendment\)/u);
+  assert.deepEqual(setup.options.map((option) => option.id), ['supporting']);
+  const [supporting] = setup.options;
+  assert.deepEqual(supporting.effects, [{ kind: 'plan-amendment', changes: [
     { kind: 'add-supporting', path: 'package-lock.json', class: 'dependency-lock' }, { kind: 'add-supporting', path: 'playwright.config.js', class: 'build-configuration' },
-    { kind: 'add-location', clauseId: 'W-1:REQ-001', path: 'src/test/setup.js' }] }]);
-  assert.match(row.label, /src\/test\/setup\.js under REQ-001.*the rest as supporting changes/u);
-  assert.equal(row.chat.command, 'singularity-flow decision plan W-1 --fetch --add-supporting package-lock.json=dependency-lock --supporting-reason "<REASON>" --add-supporting playwright.config.js=build-configuration --supporting-reason "<REASON>" --add-location W-1:REQ-001=src/test/setup.js --reason "<REASON>"');
+    { kind: 'add-supporting', path: 'src/test/setup.js', class: 'test-support' }] }]);
+  assert.equal(supporting.chat.command, 'singularity-flow decision plan W-1 --fetch --add-supporting package-lock.json=dependency-lock --supporting-reason "<REASON>" --add-supporting playwright.config.js=build-configuration --supporting-reason "<REASON>" --add-supporting src/test/setup.js=test-support --supporting-reason "<REASON>" --reason "<REASON>"');
   // Nothing needs a row: one supporting choice.
   const [all] = planHold(['package-lock.json', 'package.json', 'vite.config.js']).filter((item) => item.kind === 'plan-accounting');
   assert.deepEqual(all.options.map((option) => [option.id, option.effects[0].changes.map((change) => change.path)]), [['supporting', ['package-lock.json', 'package.json', 'vite.config.js']]]);

@@ -67,11 +67,13 @@ export async function reportCliFailure(error, argv = []) {
   // code page (code-page-safe-json.mjs).
   const printJson = async (text) => {
     const kept = globalThis.__SFLOW_AGENT_RESULT_RUN;
-    if (kept) (await import('./agent-result-keeper.mjs')).keepAgentResult(kept, text);
     const governed = forAgent && (await import('./agent-output.mjs'));
     const { agentViewOrOutput } = await import('./cli-json-output.mjs');
     const { codePageSafeJson } = await import('./code-page-safe-json.mjs');
-    console.log(codePageSafeJson(governed && governed.agentOutputGoverned() ? (await agentViewOrOutput(governed.boundedAgentOutput, text)).trimEnd() : text));
+    const shown = governed && governed.agentOutputGoverned() ? (await agentViewOrOutput(governed.boundedAgentOutput, text)).trimEnd() : text;
+    // Kept with the view the agent is shown, for a host that shows it nothing (unread-result.mjs).
+    if (kept) (await import('./agent-result-keeper.mjs')).keepAgentResult(kept, text, { view: shown });
+    console.log(codePageSafeJson(shown));
   };
   if (relayed && json) {
     await printJson(JSON.stringify(relayed, null, 2));

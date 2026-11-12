@@ -87,7 +87,7 @@ export async function withCliJsonOutput(json, execute, { forAgent = false, kind 
   const compact = forAgent && agentOutputGoverned();
   const rendered = compact ? await agentViewOrOutput(boundedAgentOutput, output) : output;
   const renderedAt = timed ? performance.now() : 0;
-  keeper?.keepAgentResult(kept, output);
+  keeper?.keepAgentResult(kept, output, { view: rendered });
   const safe = codePageSafeJson(rendered);
   if (compact || safe !== rendered) write.call(stream, safe);
   else if (utilityEntry || route) write.call(stream, output);

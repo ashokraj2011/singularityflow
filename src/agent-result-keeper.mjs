@@ -91,15 +91,20 @@ export function beginAgentResult(argv, { cwd = process.cwd(), env = process.env,
   } catch { return null; }
 }
 
-/** Keep the complete result `text` of `run`, clear its running marker, and keep only the newest few. */
-export function keepAgentResult(run, text, { now = Date.now() } = {}) {
+/**
+ * Keep the complete result `text` of `run`, clear its running marker, and keep only the newest few. `view` is what
+ * the agent was shown (its bounded view, agent-output.mjs), kept so a host that showed nothing can be given it
+ * (unread-result.mjs) without building it again.
+ */
+export function keepAgentResult(run, text, { now = Date.now(), view = null } = {}) {
   // A nested step's own output or refusal is never the composite's result.
   if (!run || run.kept || globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH > 0) return;
   run.kept = true;
   try {
     const keptDirectory = path.join(run.directory, 'kept');
     writePrivate(path.join(keptDirectory, `${String(now).padStart(15, '0')}-${run.id}.json`), `${JSON.stringify({ schema: KEPT_RESULT_SCHEMA,
-      id: run.id, command: run.command, startedAt: run.startedAt, finishedAt: new Date(now).toISOString(), output: String(text) })}\n`);
+      id: run.id, command: run.command, startedAt: run.startedAt, finishedAt: new Date(now).toISOString(), output: String(text),
+      ...(typeof view === 'string' && view !== String(text) ? { view } : {}) })}\n`);
     rmSync(path.join(run.directory, 'running', `${run.id}.json`), { force: true });
     const names = readdirSync(keptDirectory).filter((name) => name.endsWith('.json')).sort();
     for (const name of names.slice(0, Math.max(0, names.length - KEPT_RESULTS_PER_CHECKOUT))) rmSync(path.join(keptDirectory, name), { force: true });

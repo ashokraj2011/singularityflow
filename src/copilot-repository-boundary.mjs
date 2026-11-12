@@ -317,9 +317,26 @@ async function turnToolGuard(payload) {
 export async function repositoryPostToolGuard(payload = {}) {
   payload = await ownTurnPayload(payload, 'after');
   await attribute(payload, (recorder, directory) => recorder.sfGuardNoteToolResult(payload, { directory }));
-  if (!(await hasBoundaryTurn(payload))) return {};
-  try { return await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
-  catch { const refusal = boundaryGuardUnavailable(); return { ...refusal, continue: false, additionalContext: refusal.permissionDecisionReason }; }
+  const unread = await unreadResult(payload);
+  if (!(await hasBoundaryTurn(payload))) return unread ? unread.withUnreadResult({}, unread.context) : {};
+  let answer;
+  try { answer = await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
+  catch { const refusal = boundaryGuardUnavailable(); answer = { ...refusal, continue: false, additionalContext: refusal.permissionDecisionReason }; }
+  return unread ? unread.withUnreadResult(answer, unread.context) : answer;
+}
+
+/**
+ * An SFlow `--for-agent` result the host never showed, from what the CLI kept (unread-result.mjs). The module loads
+ * only for a call that names one; a paused SFlow adds nothing, and a failure here never changes the hook's answer.
+ */
+async function unreadResult(payload) {
+  try {
+    const text = JSON.stringify(payload.toolCalls ?? payload.toolArgs ?? payload.tool_input ?? '');
+    if (!/(?:singularity-flow|sflow)\b/u.test(text) || !text.includes('--for-agent') || readCopilotMode().paused) return null;
+    const module = await import('./unread-result.mjs');
+    const context = await module.unreadResultContext(payload);
+    return context ? { context, withUnreadResult: module.withUnreadResult } : null;
+  } catch { return null; }
 }
 
 export async function repositoryAgentStop(payload = {}) {
@@ -329,7 +346,9 @@ export async function repositoryAgentStop(payload = {}) {
 
 export async function repositoryToolFailure(payload = {}) {
   payload = await ownTurnPayload(payload, 'after');
-  return (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload);
+  const unread = await unreadResult(payload);
+  const answer = await (await import('./copilot-review-completion.mjs')).noteTaskCompletionFailure(payload);
+  return unread ? unread.withUnreadResult(answer, unread.context) : answer;
 }
 
 /**

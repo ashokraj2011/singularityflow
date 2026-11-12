@@ -70,7 +70,9 @@ const FAMILIES = Object.freeze([
     'accepted-story-execution.mjs', 'delivery-evidence.mjs', 'worktree-fingerprint.mjs',
     // The step's reviewer started as a sub-agent (agent-start) and its guarded calls. Unclaimed, every
     // agent-start loaded the compatibility chunk and models (22 files against the hook's 16).
-    'review-subagent.mjs']],
+    'review-subagent.mjs',
+    // A --for-agent result the host never showed, added by the post-tool hook from what the CLI kept.
+    'unread-result.mjs']],
   // The test-module walk's other-ecosystem build files and the node --test fallback's runner check load
   // only where a gate maps a changed path to its command, which already loads every static import of this
   // slot; claimed here they stay outside every ceilinged closure instead of falling into compatibility.

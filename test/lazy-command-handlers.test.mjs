@@ -682,7 +682,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // classified as SFlow's own mutation so a live turn's baseline moves past it (command-registry.mjs) [2026-11-12].
   // 865,250 (measured 865,237): `confirm <CODE>` is registered and the entry swaps it for its command before dispatch
   // (command-registry.mjs, cli-entry.mjs); the expansion itself loads lazily [owner, 2026-11-12].
-  assert.ok(root.bytes <= 865_250, `root dispatch loads ${root.bytes} source bytes`);
+  // 865,300 (measured 865,257): every kept --for-agent result also keeps the view the agent was shown, for the
+  // post-tool hook to hand over when a host showed nothing (cli-json-output.mjs +20) [office, 2026-11-12].
+  assert.ok(root.bytes <= 865_300, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.

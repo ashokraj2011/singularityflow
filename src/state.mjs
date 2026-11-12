@@ -5660,6 +5660,10 @@ async function submitPhaseTransition(root, config, workflow, {
         { code: 'CODE_DELIVERY_RECEIPT_MISSING' }
       );
     }
+    // Files changed after the published draft are this step's to repair, before it is submitted (N7).
+    const changed = await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'changes-after-publication.mjs')).href);
+    const after = await changed.changesAfterPublication(root, config, workflow, phase);
+    if (after) throw changed.changesAfterPublicationError(workflow, phase, after);
     const currentTree = await sourceTreeHash(root, config, workflow);
     const currentTestInput = await testInputTreeHash(root, config, workflow);
     if (evidence.sourceTreeSha256 !== currentTree || (currentTestInput && evidence.testInputSha256 !== currentTestInput)) {
@@ -8937,10 +8941,16 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       ? await (await import('./amendment-plan-corrections.mjs')).carriedPlanBinding(root, config, workflow, phase, specification.id) : null;
     if (retaining && !directlyAffected && retentionCandidates.has(phase.id) && (!carriedRows.has(phase.id) || planBinding)) {
       if (planBinding) planBindings.push(planBinding);
+      // Decisions recorded after its approval that name nothing it cites or the step itself (phase-retention.mjs).
+      const later = retentionCandidates.laterDecisions?.get(phase.id) ?? [];
       phase.retention = { rule: 'E8', at, generation: phase.generation, amendment: proposal.id,
-        ...retainedByRule('E8', { amendment: proposal.id, approvalAt: phase.approvedAt }) };
+        ...retainedByRule('E8', { amendment: proposal.id, approvalAt: phase.approvedAt }),
+        ...(later.length ? { laterDecisions: later } : {}) };
+      const named = later.map((entry) => entry.id ?? entry.list);
       workflow.history.push({ at, actor: key, agent: agent ?? null, event: 'phase_retained', phase: phase.id,
-        detail: `Retained by rule E8: approved intent amendment ${proposal.id} changed none of the clauses its artifacts cite, and nothing else it decided over had changed.` });
+        detail: later.length
+          ? `Retained by rule E8: approved intent amendment ${proposal.id} changed none of the clauses its artifacts cite; ${named.join(', ')} ${named.length === 1 ? 'was' : 'were'} recorded after its approval and ${named.length === 1 ? 'names' : 'name'} nothing it cites or decided over, and nothing else it decided over had changed.`
+          : `Retained by rule E8: approved intent amendment ${proposal.id} changed none of the clauses its artifacts cite, and nothing else it decided over had changed.` });
       retainedPhases.push(phase.id);
       continue;
     }

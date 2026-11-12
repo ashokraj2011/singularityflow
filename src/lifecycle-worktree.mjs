@@ -56,7 +56,18 @@ export async function withSetAsideRoute(error, root, config, workflow) {
     const action = plan.actions.find((entry) => entry.id === 'set-aside-worktree');
     if (action?.command) error.details = { ...error.details, setAside: { command: action.command, paths: action.paths } };
   } catch { /* The refusal stands on its own words. */ }
-  return error;
+  return withChangesAfterPublication(error, root, config, workflow);
+}
+
+/**
+ * The current code step's own files changed after its publication lead the hold with its in-step repair (N7).
+ * Read from the CLI source, so the editor bundles that approve do not carry the check.
+ */
+export async function withChangesAfterPublication(error, root, config, workflow) {
+  if (error?.code !== 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED') return error;
+  const [{ pathToFileURL }, { PACKAGE_ROOT }] = await Promise.all([import('node:url'), import('./package-root.mjs')]);
+  return (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'changes-after-publication.mjs')).href))
+    .withChangesAfterPublicationRoutes(error, root, config, workflow);
 }
 
 export function assertLifecycleWorktreeClean(root, config = null, workflow = null, { workId = null } = {}) {

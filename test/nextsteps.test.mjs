@@ -73,9 +73,12 @@ test('active generation plan includes current, subsequent, alternative, and foll
 test('generated and approval-pending phases return only valid next transitions', () => {
   const generated = workflowNextSteps(workflow({ generation: 1 }));
   assert.equal(generated[0].skill, '/sf-submit');
-  assert.equal(generated[1].skill, '/sf-phase-documents');
+  // Its next draft for a change the person asks for, in the same step, as for code.
+  assert.equal(generated[1].command, 'singularity-flow phase rollover intake --reason "<what to change>" --json');
   assert.equal(generated[1].timing, 'alternative');
-  assert.equal(generated[1].copilotCommand, '/sf-phase-documents intake');
+  assert.equal(generated[2].skill, '/sf-phase-documents');
+  assert.equal(generated[2].timing, 'alternative');
+  assert.equal(generated[2].copilotCommand, '/sf-phase-documents intake');
   assert.equal(generated.filter((item) => item.skill === '/sf-submit').length, 1);
 
   const awaiting = workflowNextSteps(workflow({ generation: 1, phaseStatus: 'awaiting_approval' }));

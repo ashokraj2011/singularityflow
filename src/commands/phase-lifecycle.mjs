@@ -94,7 +94,9 @@ export async function phaseCommand(positionals, options) {
         repositoryRoot, config, workflow, selectedPhase
       )
         ? selectedPhase.generationIntent.publication.resultDigest
-        : generationResultDigest(repositoryRoot, config, workflow, selectedPhase)
+        : generationResultDigest(repositoryRoot, config, workflow, selectedPhase),
+      // Files changed after the published draft outside every plan start the next draft with them (N7).
+      { unboundChanges: true }
     );
     if (plan?.action.id === `return-submitted-generation:${phase.id}`) throw new SingularityFlowError(
       'Return the submitted packet through authorized rejection before opening a successor; direct rollover is not legal while awaiting approval.',

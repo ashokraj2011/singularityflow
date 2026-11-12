@@ -218,6 +218,15 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       phaseId: active.id
     });
   }
+  // Files changed after the published code, which submission refuses: its in-step repair leads (N7).
+  let changedAfterPublication = null;
+  if (consumedGenerationChanged && active.status === 'in_progress') {
+    // Read from the CLI source, so the editor bundles that read next steps do not carry the check.
+    const { PACKAGE_ROOT } = await import('../package-root.mjs');
+    const changed = await import((await import('node:url')).pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'changes-after-publication.mjs')).href);
+    const after = await changed.changesAfterPublication(root, definition, workflow, active).catch(() => null);
+    if (after) changedAfterPublication = { phase: active.id, paths: after.paths, include: changed.changesAfterPublicationRoutes(workflow, active, after).include };
+  }
   // Decisions approval would refuse for: the list replaces that approval (parity with the engine).
   const pendingDecisions = active ? await measureCommandSpan('nextsteps.pending-decisions', async () =>
     (await import('../decision-list-facts.mjs')).pendingDecisionSummary(root, definition, workflow, active)).catch(() => undefined) : undefined;
@@ -280,7 +289,8 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       modelMode,
       mcpHold,
       pending,
-      sheet
+      sheet,
+      changedAfterPublication
     }),
     evidence: evidenceSummary(workflow),
     repositoryChecks: repositoryCheckStatus(root),

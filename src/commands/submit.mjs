@@ -128,6 +128,11 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   // A failed required push is a transport recovery. Preserve the established sequence-gate refusal
   // (including its structured recovery command and exit code) before submission opens.
   await assertNoPendingPublication(root, config, workflow, 'submit');
+  // Files changed after the published draft: refused before anything opens, with the person's set-aside route (N7).
+  const changed = await import('../changes-after-publication.mjs');
+  const target = workflow.phases[requestedPhase ?? workflow.currentPhase];
+  const after = await changed.changesAfterPublication(root, config, workflow, target);
+  if (after) throw changed.changesAfterPublicationError(workflow, target, after, await changed.setAsideFor(root, config, workflow));
   // Copilot usage is never read during the work; `singularity-flow telemetry reconcile` records it.
   const workflowBeforeSubmission = structuredClone(workflow);
   const phaseId = requestedPhase ?? workflow.currentPhase;

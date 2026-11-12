@@ -8,6 +8,7 @@ import {createNamespaceApprovalReader} from './namespace-approval-reader.mjs';
 import {assertSubmittedRoutingSelection} from '../kernel/submission-routing.mjs';
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 import {withCodePolicyTraversal} from './namespace-code-policy.mjs';
+import {verifyConvergenceSubmission} from './namespace-convergence-submission.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
 
@@ -25,6 +26,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     const published=await publications.accepted(value.publication,value.phase,options);
     if(!same(published.configuration,value.configuration))throw error('The review packet has another configuration pin.','ENGINE_STORAGE_CORRUPT');
     if(!same(published.checks??null,value.checks??null))throw error('The review packet differs from its published check evidence.','ENGINE_STORAGE_CORRUPT');
+    verifyConvergenceSubmission(publications,published,value,options?.snapshot?.workflow??null);
     return published;
   }
   async function inspectOne(snapshot,phaseId,signal,cache) {
@@ -56,7 +58,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
       if(!review||!same(review.binding,value.sourceReview)||!review.references.every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error('The submitted review differs from its actual accepted review and human dispositions.','ENGINE_STORAGE_CORRUPT');
     }
     publications.assertArtifacts(published,phase);
-    if(publications.policies.owners(published).includes('artifact-set')&&!publications.policies.evidence(published).every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error(
+    if(publications.policies.owners(published).some(owner=>['artifact-set','convergence-projection'].includes(owner))&&!publications.policies.evidence(published).every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error(
       'The typed output bundle was not retained by its exact submission.','ENGINE_STORAGE_CORRUPT');
     await routingProof(snapshot,phaseId,value,signal,cache);
     return {binding,value,published,review:{workId,phase:phaseId,generation:phase.generation,packetSha256:binding.record.sha256,

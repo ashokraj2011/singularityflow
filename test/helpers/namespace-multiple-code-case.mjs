@@ -12,7 +12,7 @@ const phases=['build','extend','finish'],items=[{file:'converter',name:'convert'
 const plan='# Delivery plan\n\n## Agent brief\n\nImplement each independently allocated converter and its own executed regression without claiming another phase\'s work.\n\n'
   +'| Clause | Expected paths | Planned tests | Steps |\n| --- | --- | --- | --- |\n'
   +items.flatMap((item,index)=>['REQ','AC'].map(kind=>'| STORY-1:'+kind+'-00'+(index+1)+' | `src/'+item.file+'.js` | `test/'+item.file+'.test.js` | '+phases[index]+' |')).join('\n')+'\n';
-export async function namespaceMultipleCodeCase(t,backend,{mixed=false,repositories=1,removal=false,release=false}={}){
+export async function namespaceMultipleCodeCase(t,backend,{mixed=false,repositories=1,removal=false,release=false,convergence=false}={}){
   let qualified=repositories===2?plan.replaceAll(/`(src|test)\/([^`]+)`/gu,(_match,folder,file)=>'`frontend/'+folder+'/'+file+'`, `backend/'+folder+'/'+file+'`')
     +'\n## Repository roots\n\n| Repository | Plan root |\n| --- | --- |\n| app | frontend |\n| service-1 | backend |\n':plan;
   if(removal)qualified=qualified.replace('| Planned tests | Steps |','| Planned tests | Steps | Fulfillment |')
@@ -32,6 +32,8 @@ export async function namespaceMultipleCodeCase(t,backend,{mixed=false,repositor
         writeScope:'artifact-only',inputs:phases.map(phase=>({phase})),testEvidenceFrom:'finish',specificationQuality:{mode:'off'},clarification:{mode:'off',markers:{mode:'off'}},
         approval:{authorities:['reviewers'],minimum:1,rejectTo:['finish','release'],allowSelfApproval:false}};
         source.definition.workTypes.simple.phases.push('release');source.agents.push({...source.agents[0],id:'release-reviewer',label:'Release author',phases:['release'],defaultFor:['release']});}
+      if(release&&convergence){source.definition.phases.release.artifact.kind='convergence-report';
+        source.definition.phases.release.generation={requirement:'required',producer:'deterministic',task:'analyze'};}
     }});
   await f.engine.run('phase.publish',{phaseId:'build',...publish});
   let starts=f.starts();const units=[...f.checks.bindings];

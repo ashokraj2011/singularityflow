@@ -214,3 +214,24 @@ passed. The larger multi-Code/visual combination and generation-bound fresh-outp
 SQLite; the other targeted journeys cover all three stores. No Windows or production installation
 was run. Artifact-member repair, convergence and the other owners above remain open, so neither
 Phase 5 nor Phase 7 is complete.
+
+## Namespace convergence qualification
+
+Deterministic convergence now has registered context, human adjudication, private preparation,
+publication and confirmed advancement over original Code, plan, execution and approval proofs.
+Human answers retain their original input basis; a replacement Code delivery needs a fresh answer.
+Source, authority and conditional-head checks run again at publication and submission. Native
+values, historical seals, hashes, errors and CLI output retain their original compatibility path.
+See [the convergence record](ENGINE-SDK-NAMESPACE-CONVERGENCE.md).
+
+Mac qualification passes 356 distinct affected checks, including 134 native/value/parity checks,
+98 architecture checks, all-three-store repair journeys, a three-Code/two-repository journey,
+existing submission/approval/source-review/conformance regressions, offline types and installed
+consumers. The unchanged 34-check package qualifier ran alone in 83 seconds within its original
+120/60-second limits. Source validation passes 4,273 checks; VS Code types, the unchanged Git
+audit and all 13 original bundle ceilings pass. Gateway is 851/852 modules. The registry has
+82 operations; the default native host binds 41, and the namespace host with private working
+stores binds 68 before optional execution. No Windows or production installation was run.
+
+This closes the convergence owner named in the earlier historical entries. Targeted artifact-member
+repair and the other owners in the active pending list remain required; neither phase is complete.

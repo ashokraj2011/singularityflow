@@ -12,7 +12,7 @@ function readOnly(f){return f.make({records:{...f.records,transact:cannotWrite},
   working:{records:{...f.local.records,transact:cannotWrite},content:{...f.local.content,put:cannotWrite}}});}
 test('a missing standalone decision owner cannot fall through to routing or read another context',async t=>{
   const f=await namespaceEngineFixture(t,{working:false}),engine=f.make({records:{...f.records,read:cannotWrite,transact:cannotWrite},content:{...f.content,read:cannotWrite,put:cannotWrite}}),
-    implemented=new Set(['decision.constitution-exception','source-review.record','source-review.decide','phase.assign','decision.scope','decision.completeness','decision.applicability','decision.plan','plan.correction.record','decision.choose','decision.witness']);
+    implemented=new Set(['convergence.adjudicate','decision.constitution-exception','source-review.record','source-review.decide','phase.assign','decision.scope','decision.completeness','decision.applicability','decision.plan','plan.correction.record','decision.choose','decision.witness']);
   for(const operation of ENGINE_OPERATIONS.filter(row=>row.port==='decisionRecord'&&!implemented.has(row.id)))await assert.rejects(
     engine.run(operation.id,{workId:f.workId}),error=>error.code==='ENGINE_PORT_UNAVAILABLE'&&error.details.operation===operation.id);
 });

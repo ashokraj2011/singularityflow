@@ -37,6 +37,7 @@ export function primaryDocumentPublicationRequirements(workflow,phase,{definitio
   need('workflow-semantics',resolved.phaseSemantics?.profile!=='sflow-phase-semantics/v1');
   need('workflow-responsibility-policy',!Array.isArray(roles)||roles.length!==1||roles[0]!=='review');
   need('code-delivery',phase.writeScope==='source-and-artifact');
+  need('convergence-projection',isConvergencePhase(phase));
   need('artifact-set',Boolean(pinned?.artifactSet||phase.artifactSet||phase.surgicalReopen));
   need('specification-analysis',pinned?.specificationQuality?.mode!=='off'||pinned?.clarification?.markers?.mode!=='off');
   need('clarification-record',pinned?.clarification?.mode!=='off');
@@ -82,6 +83,12 @@ export function codePublicationInputPhases(workflow,phase){
   return [...new Set([...approvedInputPhases(workflow,phase).filter(id=>phaseRequiresCodeDelivery(workflow.phases[id])),...(source?[source]:[])])];
 }
 export const CODE_INPUT_PUBLICATION_OWNERS=Object.freeze(['code-delivery-inputs','workflow-responsibility-policy','specification-claims','planned-claims']);
+export const CONVERGENCE_PUBLICATION_OWNERS=Object.freeze([...CODE_INPUT_PUBLICATION_OWNERS,'convergence-projection']);
+export function convergencePublicationPolicy(workflow,phase){
+  if(!phase||!isConvergencePhase(phase)||phase.writeScope!=='artifact-only'||phase.approvalPolicy?.mode!=='required'
+    ||workflow.resolution?.phaseSemantics?.profile!=='sflow-phase-semantics/v1')return null;
+  return {profile:'sflow-namespace-convergence-policy/v1',owners:CONVERGENCE_PUBLICATION_OWNERS};
+}
 /** This profile carries an approved Code proof; conformance rows still need their own rules. */
 export function codeInputPublicationPolicy(workflow,phase){
   return artifactCodeInputPolicy(workflow,phase,false);

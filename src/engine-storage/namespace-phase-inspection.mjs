@@ -6,7 +6,7 @@ import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {phaseNeedsGeneration,effectivePhasePublicationProducer,phaseAssignmentRequired} from '../kernel/phase-policy.mjs';
 import {artifactBytesAreText,artifactContentObservation,inspectRequiredArtifactObservation,inspectBinaryArtifactSize} from '../kernel/artifact-content.mjs';
 import {primaryDocumentPublicationRequirements,publicationAuthorshipIntent,codePublicationPolicy,CODE_PUBLICATION_OWNERS,
-  codeInputPublicationPolicy,CODE_INPUT_PUBLICATION_OWNERS,conformancePublicationPolicy,CONFORMANCE_PUBLICATION_OWNERS} from '../kernel/publication-intent.mjs';
+  codeInputPublicationPolicy,CODE_INPUT_PUBLICATION_OWNERS,conformancePublicationPolicy,CONFORMANCE_PUBLICATION_OWNERS,convergencePublicationPolicy,CONVERGENCE_PUBLICATION_OWNERS} from '../kernel/publication-intent.mjs';
 import {specificationPublicationPolicy,SPECIFICATION_PUBLICATION_OWNERS} from '../kernel/specification-publication.mjs';
 import {specificationAnalysisPublicationPolicy} from '../kernel/specification-analysis.mjs';
 import {resolvedClarificationPolicy} from '../kernel/clarification-responses.mjs';
@@ -22,7 +22,8 @@ const error=(message,code,details=null)=>new SingularityFlowError(message,{code,
 const repairable=new Set(['ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
   'ENGINE_SOURCE_EVIDENCE_REQUIRED','ENGINE_SOURCE_BASELINE_REQUIRED','CODE_DELIVERY_TEST_COVERAGE_INCOMPLETE',
   'CODE_TEST_WITNESS_INCOMPLETE','SPEC_PLANNED_TEST_BINDING_REQUIRED','SPEC_PLANNED_ALLOCATION_INVALID',
-  'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE','ENGINE_ASSIGNMENT_REQUIRED','CONSTITUTION_POLICY_REQUIRED']);
+  'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE','ENGINE_ASSIGNMENT_REQUIRED','CONSTITUTION_POLICY_REQUIRED',
+  'CONVERGENCE_REVIEW_REQUIRED','CONVERGENCE_ARTIFACT_MISMATCH']);
 const finding=(row,phase)=>({code:row.code??'artifact.authoring.incomplete',sourceCode:row.sourceCode??null,category:row.category??null,
   message:row.message??'',phaseId:row.phaseId??phase,path:row.path??null,line:row.line??null,clauseId:row.clauseId??null,
   upstreamDecisionComplete:false,coverageReviewRequired:false,riskEligible:false});
@@ -65,7 +66,7 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
       if(prepublish){
         if(published.checks)fresh.push(()=>checks.freshSources(published.checks,phase.id,sources,{signal}));
         if(codePublicationPolicy(workflow,phase))fresh.push(()=>publications.policies.freshCodeSources(published,sources,{signal}));
-        if(codeInputPublicationPolicy(workflow,phase)||conformancePublicationPolicy(workflow,phase))fresh.push(()=>publications.policies.freshInputSources(published,sources,{signal}));
+        if(convergencePublicationPolicy(workflow,phase)||codeInputPublicationPolicy(workflow,phase)||conformancePublicationPolicy(workflow,phase))fresh.push(()=>publications.policies.freshInputSources(published,sources,{signal}));
       }
     }else{
       if(!runtime)throw error('Bind the private working store before inspecting the authored draft.','ENGINE_PORT_UNAVAILABLE',{
@@ -83,10 +84,10 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
           :inspectBinaryArtifactSize(data.byteLength,configured,{path:p.artifact.key})).map(row=>finding(row,phase.id)));
         const spec=specificationPublicationPolicy(workflow,phase),analysis=specificationAnalysisPublicationPolicy(definition,workflow,phase),
           clarification=resolvedClarificationPolicy(definition,workflow,phase),code=codePublicationPolicy(workflow,phase),
-          inputs=codeInputPublicationPolicy(workflow,phase),conformance=conformancePublicationPolicy(workflow,phase),bundle=artifactSets.declaration(definition,workflow,phase),assignment=phaseAssignmentRequired(workflow,definition),
+          convergence=convergencePublicationPolicy(workflow,phase),inputs=convergence?null:codeInputPublicationPolicy(workflow,phase),conformance=conformancePublicationPolicy(workflow,phase),bundle=artifactSets.declaration(definition,workflow,phase),assignment=phaseAssignmentRequired(workflow,definition),
           available=[...(spec?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysis?['specification-analysis']:[]),
             ...(clarification.mode!=='off'?['clarification-record']:[]),...(code?CODE_PUBLICATION_OWNERS:[]),
-            ...(inputs?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformance?CONFORMANCE_PUBLICATION_OWNERS:[]),...(bundle?['artifact-set']:[]),...(assignment?['assignment-record']:[]),...(workflow.resolution.constitution?.mode!=='off'?['constitution-policy']:[]),'check-execution'];
+            ...(convergence?CONVERGENCE_PUBLICATION_OWNERS:[]),...(inputs?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformance?CONFORMANCE_PUBLICATION_OWNERS:[]),...(bundle?['artifact-set']:[]),...(assignment?['assignment-record']:[]),...(workflow.resolution.constitution?.mode!=='off'?['constitution-policy']:[]),'check-execution'];
         if(prepublish){const pending=primaryDocumentPublicationRequirements(workflow,phase,{definition}).filter(owner=>!available.includes(owner));
           if(pending.length)throw error('Bind the actual required policy/execution owners before publication inspection.','ENGINE_PORT_UNAVAILABLE',{
             operation,phase:phase.id,required:pending});}
@@ -96,6 +97,8 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             artifact:{key:p.artifact.key,sourceKey:(definition.workItemRoot??'singularity/work-items')+'/'+workId+'/'+p.artifact.key,
               kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content,fingerprint},inputs:facts.resources};
         if(spec)await attempt(()=>publications.specifications.derive(candidate,snapshot,{signal,artifactBytes:data}));
+        if(convergence){const result=await attempt(()=>publications.policies.convergenceCandidate(candidate,snapshot,{signal,artifactBytes:data}));
+          if(prepublish&&result)fresh.push(()=>publications.policies.freshConvergenceCandidate(result,sources,{signal}));}
         if(workflow.resolution.constitution?.mode!=='off'){const observed=await attempt(()=>publications.policies.constitutionCandidate(candidate,snapshot,{signal,artifactBytes:data}));
           for(const message of observed?.report.warnings??[])advisories.push({code:'constitution.policy.advisory',category:'constitution-policy',message,requiredBefore:null,ownerPhase:phase.id,clauseId:null,issueRefs:[],status:'advisory'});}
         if(assignment)await attempt(()=>publications.policies.assignmentCandidate(candidate,snapshot,{signal}));
@@ -128,7 +131,8 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
     if(token)await runtime.revalidateInspectionDraft(token,{signal});
     await authorize(operation,signal,principal);
     const final=(await observer.inspect({signal})).snapshot;if(final.revision!==snapshot.revision)throw error('The Story changed during phase inspection.','ENGINE_CONTEXT_CHANGED');
-    const correction=findings.length?{class:'author-correction',sameTurn:true,requiresNewGeneration:false}:{class:null,sameTurn:false,requiresNewGeneration:false};
+    const humanConvergence=findings.some(row=>row.code==='CONVERGENCE_REVIEW_REQUIRED');
+    const correction=findings.length?{class:humanConvergence?'human-convergence-review':'author-correction',sameTurn:!humanConvergence,requiresNewGeneration:false}:{class:null,sameTurn:false,requiresNewGeneration:false};
     return {workId,phase:phase.id,generation:binding.generation,phaseStatus:binding.phaseStatus,inspectionStage,producer,
       qualityDisposition:findings.length?'correction-required':'ready',draftFingerprint:fingerprint,findings,advisories,warningCount:advisories.length,correction,task:null,
       ...(prepublish?{readiness:{lifecycle:binding.current&&binding.phaseStatus==='in_progress',authoring:findings.length===0,

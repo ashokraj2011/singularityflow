@@ -17,6 +17,7 @@
     "./scope": { "types": "./dist/scope.d.mts", "import": "./dist/scope.mjs" },
     "./plans": { "types": "./dist/plans.d.mts", "import": "./dist/plans.mjs" },
     "./constitution": { "types": "./dist/constitution.d.mts", "import": "./dist/constitution.mjs" },
+    "./convergence": { "types": "./dist/convergence.d.mts", "import": "./dist/convergence.mjs" },
     "./specifications/node": { "types": "./dist/specifications/node.d.mts", "import": "./dist/specifications/node.mjs" },
     "./source": { "types": "./dist/source.d.mts", "import": "./dist/source.mjs" },
     "./source-control": { "types": "./dist/source-control.d.mts", "import": "./dist/source-control.mjs" },

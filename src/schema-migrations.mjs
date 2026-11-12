@@ -1,3 +1,5 @@
+import {convergenceSealCore} from './foundation/record-schema.mjs';
+export {convergenceSealCore} from './foundation/record-schema.mjs';
 import {CONSTITUTION_RECORD_SCHEMA,SOURCE_GROUNDED_REVIEW_SCHEMA} from './foundation/record-schema.mjs';
 /**
  * Pure, in-memory schema migration for durable records.
@@ -171,14 +173,6 @@ function assistedConvergenceV1ToV2(source) {
  * that seal, so a new one would turn the report into a mismatch for a Story still waiting on its approval.
  * Only a record holding what v6 adds, a replaced answer, seals as v6.
  */
-export function convergenceSealCore(record) {
-  const core = clone(record);
-  delete core.convergenceSha256;
-  delete core.candidateSnapshot;
-  const holdsReplaced = Array.isArray(record.findings) && record.findings.some((finding) => finding?.decision?.replaced);
-  if (record.schemaVersion >= 5 && !holdsReplaced) core.schemaVersion = record.settledByPlan === undefined ? 4 : 5;
-  return core;
-}
 
 // A convergence step verifies the stored seal (its core: no convergenceSha256, no candidateSnapshot),
 // applies `fields` and re-seals. v1 candidate source receipts had no digests, so v2 migrates them to an

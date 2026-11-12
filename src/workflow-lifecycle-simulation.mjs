@@ -5,7 +5,7 @@ import { recordSha256 } from './records.mjs';
 import { sequenceAdmission as evaluateSequence, sequenceGateMode } from './kernel/lifecycle-transitions.mjs';
 import { approvalPolicyCapacity, approvalRequirementsMet, normalizeApprovalSecurity,
   remainingRequiredAuthorities } from './kernel/approval-policy.mjs';
-import { repairBudgetPhaseForRejection, consumeRepairAttempt } from './repair-budget.mjs';
+import {repairBudgetPhaseForRejection,consumeRepairAttemptValue as consumeRepairAttempt} from './kernel/test-recovery.mjs';
 import { normalizeReworkLoops, normalizeRepairBudget } from "./kernel/configuration-policy.mjs";
 import { advanceCompletedPhase, reopenPhaseRange } from './kernel/lifecycle-transitions.mjs';
 import { validateSkillPhaseBindingHeader } from './kernel/skill-binding-header.mjs';

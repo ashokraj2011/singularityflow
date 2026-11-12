@@ -1,6 +1,27 @@
 /** Pure durable-record format, identity capabilities and version admission. */
 import { SingularityFlowError } from './failures.mjs';
 
+/** Historical convergence seals retain the bytes printed by their original published report. */
+export function convergenceSealCore(record) {
+  const core = structuredClone(record);
+  delete core.convergenceSha256;
+  delete core.candidateSnapshot;
+  const holdsReplaced = Array.isArray(record.findings) && record.findings.some((finding) => finding?.decision?.replaced);
+  if (record.schemaVersion >= 5 && !holdsReplaced) core.schemaVersion = record.settledByPlan === undefined ? 4 : 5;
+  return core;
+}
+export const CONVERGENCE_VALUE_SCHEMA=Object.freeze({id:'convergence-record',currentVersion:6,
+  minimumReadableVersion:1,maximumReadableVersion:6,immutable:true,unversionedAs:null});
+
+const convergenceFamily=id=>Object.freeze({id,currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
+export const NAMESPACE_CONVERGENCE_SCHEMAS=Object.freeze({
+  projection:convergenceFamily('namespace-convergence-projection'),decision:convergenceFamily('namespace-convergence-adjudication'),
+  policy:convergenceFamily('namespace-convergence-policy'),report:convergenceFamily('namespace-convergence-policy-report'),
+  context:convergenceFamily('namespace-convergence-context'),confirmation:convergenceFamily('namespace-convergence-confirmation')
+});
+export function namespaceConvergenceContextProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_CONVERGENCE_SCHEMAS.context,value);
+  return {version:storedVersion,profile:'sflow-namespace-convergence-context/v'+storedVersion};}
+
 export const CONSTITUTION_RECORD_SCHEMA=Object.freeze({id:'constitution-record',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
 export const SOURCE_GROUNDED_REVIEW_SCHEMA=Object.freeze({id:'source-grounded-review',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
 export const MULTI_SCOPE_REVIEW_SCHEMA=Object.freeze({id:'source-grounded-multi-scope-review',currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
@@ -187,12 +208,12 @@ export const NAMESPACE_PREPARATION_SCHEMAS = Object.freeze({
     minimumReadableVersion:1,maximumReadableVersion:3,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})
 });
 /** Legacy private payload bytes remain unversioned v1; typed output members have their own v2. */
-export const NAMESPACE_PREPARED_PAYLOAD_SCHEMA=Object.freeze({id:'namespace-prepared-phase',currentVersion:2,
-  minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:1,immutable:true,migrationPolicy:'preserve-versions'});
+export const NAMESPACE_PREPARED_PAYLOAD_SCHEMA=Object.freeze({id:'namespace-prepared-phase',currentVersion:3,
+  minimumReadableVersion:1,maximumReadableVersion:3,unversionedAs:1,immutable:true,migrationPolicy:'preserve-versions'});
 /** Unversioned v1 keeps its exact old shape, including refusal of extra wire fields. */
 export function namespacePreparedPayloadProfile(value){const storedVersion=value?.format==='sflow-namespace-prepared-phase/v1'?1
   :admitRecordSchemaVersion(NAMESPACE_PREPARED_PAYLOAD_SCHEMA,value).storedVersion;
-  return Object.freeze({version:storedVersion,format:'sflow-namespace-prepared-phase/v'+storedVersion,members:storedVersion===2});}
+  return Object.freeze({version:storedVersion,format:'sflow-namespace-prepared-phase/v'+storedVersion,members:storedVersion>=2,...(storedVersion===3?{convergence:true}:{})});}
 export const NAMESPACE_ARTIFACT_SET_SCHEMAS=Object.freeze({manifest:frozenFamily('namespace-artifact-set-policy'),report:frozenFamily('namespace-artifact-set-report')});
 export const NAMESPACE_WITNESS_CONTEXT_SCHEMA=frozenFamily('namespace-witness-context');
 export function namespaceWitnessContextProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_WITNESS_CONTEXT_SCHEMA,value);
@@ -363,17 +384,18 @@ export function namespaceSourceReviewRecordProfile(kind,input){const entry=NAMES
   return Object.freeze({version:storedVersion,profile:(kind==='context'?'sflow-namespace-source-review-context/v':'sflow-namespace-submitted-source-review/v')+storedVersion});}
 export const NAMESPACE_SUBMISSION_SCHEMAS = Object.freeze({
   binding: frozenFamily('namespace-phase-submission-binding'),
-  packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:4,minimumReadableVersion:1,maximumReadableVersion:4,
+  packet:Object.freeze({id:'namespace-phase-review-packet',currentVersion:5,minimumReadableVersion:1,maximumReadableVersion:5,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   routing:frozenFamily('namespace-submission-routing'),input:frozenFamily('phase-decision-input-record')
 });
 export function namespaceSubmissionRecordProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_SUBMISSION_SCHEMAS.packet,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-review-packet/v${storedVersion}`,
-    profile:`sflow-primary-document-submission/v${storedVersion}`,routing:storedVersion>1,...(storedVersion>2?{checks:true}:{}),...(storedVersion===4?{sourceReview:true}:{})});
+    profile:`sflow-primary-document-submission/v${storedVersion}`,routing:storedVersion>1,...(storedVersion>2?{checks:true}:{}),
+    ...(storedVersion>=4?{sourceReview:true}:{}),...(storedVersion===5?{convergence:true}:{})});
 }
-export function namespaceSubmissionWriterProfile({routing=false,checks=false,sourceReview=false}={}) {
-  return namespaceSubmissionRecordProfile({schemaVersion:sourceReview?4:checks?3:routing?2:1});
+export function namespaceSubmissionWriterProfile({routing=false,checks=false,sourceReview=false,convergence=false}={}) {
+  return namespaceSubmissionRecordProfile({schemaVersion:convergence?5:sourceReview?4:checks?3:routing?2:1});
 }
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
   vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,

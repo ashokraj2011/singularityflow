@@ -134,7 +134,7 @@ test('only explicit storage adapters consume namespace contracts outside their p
   // Phase 3 composes the existing owners without selecting a generic namespace store. CLI/SDK
   // routing is a later vertical slice; adding a direct host dependency must fail this guard.
   const compatibility = new Set(['src/sda/git-compatibility-contract.mjs', 'src/sda/git-compatibility-adapter.mjs']);
-  const namespaceAdapters = new Set(['src/engine-storage/namespace-repair-budget-reader.mjs','src/engine-storage/namespace-test-command-reader.mjs','src/engine-storage/namespace-constitution-exceptions.mjs','src/engine-storage/namespace-constitution-exception-reader.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-artifact-set-reader.mjs','src/engine-storage/namespace-phase-inspection.mjs','src/engine-storage/namespace-story-queries.mjs','src/engine-storage/namespace-generation-reader.mjs','src/engine-storage/namespace-plan-decisions-reader.mjs','src/engine-storage/namespace-decision-contract.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-human-decision-contract.mjs','src/engine-storage/namespace-conformance.mjs','src/engine-storage/namespace-code-inputs.mjs','src/engine-storage/namespace-code-policy.mjs','src/engine-storage/namespace-phase-entry.mjs','src/engine-storage/namespace-clarifications.mjs','src/engine-storage/namespace-clarification-reader.mjs','src/engine-storage/namespace-policy-contract.mjs','src/engine-storage/namespace-policy-reader.mjs','src/engine-storage/namespace-policy-retention.mjs','src/engine-storage/namespace-specifications.mjs','src/engine-storage/namespace-specification-retention.mjs','src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-source-control.mjs','src/engine-storage/namespace-source-control-reader.mjs','src/engine-storage/namespace-source-control-contract.mjs','src/engine-storage/namespace-source-origins.mjs',
+  const namespaceAdapters = new Set(['src/engine-storage/namespace-convergence-policy.mjs','src/engine-storage/namespace-convergence-contract.mjs','src/engine-storage/namespace-repair-budget-reader.mjs','src/engine-storage/namespace-test-command-reader.mjs','src/engine-storage/namespace-constitution-exceptions.mjs','src/engine-storage/namespace-constitution-exception-reader.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-artifact-set-reader.mjs','src/engine-storage/namespace-phase-inspection.mjs','src/engine-storage/namespace-story-queries.mjs','src/engine-storage/namespace-generation-reader.mjs','src/engine-storage/namespace-plan-decisions-reader.mjs','src/engine-storage/namespace-decision-contract.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-human-decision-contract.mjs','src/engine-storage/namespace-conformance.mjs','src/engine-storage/namespace-code-inputs.mjs','src/engine-storage/namespace-code-policy.mjs','src/engine-storage/namespace-phase-entry.mjs','src/engine-storage/namespace-clarifications.mjs','src/engine-storage/namespace-clarification-reader.mjs','src/engine-storage/namespace-policy-contract.mjs','src/engine-storage/namespace-policy-reader.mjs','src/engine-storage/namespace-policy-retention.mjs','src/engine-storage/namespace-specifications.mjs','src/engine-storage/namespace-specification-retention.mjs','src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-source-control.mjs','src/engine-storage/namespace-source-control-reader.mjs','src/engine-storage/namespace-source-control-contract.mjs','src/engine-storage/namespace-source-origins.mjs',
     'src/engine-storage/namespace-output-retention.mjs','src/engine-storage/namespace-output-retention-reader.mjs','src/engine-storage/namespace-output-retention-contract.mjs','src/engine-storage/namespace-read-session.mjs',
     'src/engine-storage/namespace-delivery-inspection.mjs','src/engine-storage/namespace-test-witnesses.mjs','src/engine-storage/namespace-source-baseline.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-source-baseline-contract.mjs',
     'src/engine-storage/namespace-source-retention.mjs','src/engine-storage/namespace-source-retention-reader.mjs','src/engine-storage/namespace-source-retention-contract.mjs',
@@ -718,7 +718,7 @@ test('namespace policy proof is read-only, versioned, and independent of Story c
   }
   const rule='src/kernel/story-policy.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[rule],allowed:[rule,...await sourceFiles('src/foundation')]});
   assert.deepEqual(pure.problems,[]);
-  const owners=new Set([reader,'src/engine-storage/namespace-test-commands.mjs','src/engine-storage/namespace-output-retention-reader.mjs','src/engine-storage/namespace-constitution-exceptions.mjs','src/engine-storage/namespace-code-predecessors.mjs','src/engine-storage/namespace-source-review.mjs','src/engine-storage/namespace-source-review-reader.mjs','src/engine-storage/namespace-assignment.mjs','src/engine-storage/namespace-witness-reader.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-workflow-assets.mjs','src/engine-storage/namespace-phase-inspection.mjs','src/engine-storage/namespace-story-queries.mjs','src/engine-storage/namespace-plan-decisions.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs','src/engine-storage/namespace-upstream-reader.mjs','src/engine-storage/namespace-input-documents.mjs','src/engine-storage/namespace-code-policy.mjs','src/engine-storage/namespace-code-preflight.mjs','src/engine-storage/namespace-phase-entry.mjs','src/engine-storage/namespace-clarifications.mjs','src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-delivery-inspection.mjs','src/engine-storage/namespace-test-witnesses.mjs',
+  const owners=new Set([reader,'src/engine-storage/namespace-convergence-advancement.mjs','src/engine-storage/namespace-convergence.mjs','src/engine-storage/namespace-test-commands.mjs','src/engine-storage/namespace-output-retention-reader.mjs','src/engine-storage/namespace-constitution-exceptions.mjs','src/engine-storage/namespace-code-predecessors.mjs','src/engine-storage/namespace-source-review.mjs','src/engine-storage/namespace-source-review-reader.mjs','src/engine-storage/namespace-assignment.mjs','src/engine-storage/namespace-witness-reader.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-workflow-assets.mjs','src/engine-storage/namespace-phase-inspection.mjs','src/engine-storage/namespace-story-queries.mjs','src/engine-storage/namespace-plan-decisions.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs','src/engine-storage/namespace-upstream-reader.mjs','src/engine-storage/namespace-input-documents.mjs','src/engine-storage/namespace-code-policy.mjs','src/engine-storage/namespace-code-preflight.mjs','src/engine-storage/namespace-phase-entry.mjs','src/engine-storage/namespace-clarifications.mjs','src/engine-storage/namespace-reader.mjs','src/engine-storage/namespace-source.mjs','src/engine-storage/namespace-source-baseline-reader.mjs','src/engine-storage/namespace-delivery-inspection.mjs','src/engine-storage/namespace-test-witnesses.mjs',
     'src/engine-storage/namespace-preparation.mjs','src/engine-storage/namespace-publication.mjs','src/engine-storage/namespace-source-inspection.mjs','src/engine-storage/namespace-source-retention-reader.mjs','src/engine-storage/namespace-phase-checks.mjs','src/engine-storage/namespace-phase-check-reader.mjs',
     'src/engine-storage/namespace-submission.mjs','src/engine-storage/namespace-approval.mjs','src/engine-storage/namespace-recorded-mutation.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-conformance-decisions.mjs','src/engine-storage/namespace-rejection.mjs','src/engine-storage/namespace-routing-choice.mjs']);
   for(const file of await sourceFiles('src')) {
@@ -800,7 +800,7 @@ test('private preparation composes explicit storage and source ports without an 
       '../foundation/source-snapshot.mjs','../kernel/artifact-content.mjs','../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs',
       '../kernel/phase-policy.mjs','../kernel/phase-inputs.mjs','../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs',
       '../kernel/story-creation.mjs','../sda/namespace/values.mjs','../sda/namespace/contract.mjs','../sda/content/contract.mjs',
-      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-read-session.mjs','./namespace-submission-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-phase-resources.mjs','./namespace-repository-plan.mjs','./namespace-code-history.mjs','./namespace-code-predecessors.mjs','./namespace-local-content-reader.mjs','./namespace-generation-reader.mjs'])],
+      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-read-session.mjs','./namespace-submission-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-phase-resources.mjs','./namespace-repository-plan.mjs','./namespace-code-history.mjs','./namespace-code-predecessors.mjs','./namespace-local-content-reader.mjs','./namespace-generation-reader.mjs','./namespace-convergence-decisions-reader.mjs'])],
     [draft,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../sda/namespace/contract.mjs',
       '../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/namespace/journal-contract.mjs',
       '../sda/content/contract.mjs','./namespace-draft-contract.mjs'])]
@@ -1028,9 +1028,9 @@ test('specification analysis shares pure rules; policy verification is read-only
   const reader='src/engine-storage/namespace-policy-reader.mjs',writer='src/engine-storage/namespace-policy-retention.mjs',
     contract='src/engine-storage/namespace-policy-contract.mjs';
   const allowed=new Map([
-    [reader,new Set(['./namespace-constitution-exception-reader.mjs','./namespace-constitution-reader.mjs','./namespace-assignment-reader.mjs','../kernel/phase-policy.mjs','./namespace-witness-reader.mjs','./namespace-artifact-set-reader.mjs','node:crypto','./namespace-clarification-reader.mjs','../kernel/clarification-responses.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-analysis.mjs',
+    [reader,new Set(['./namespace-convergence-policy.mjs','./namespace-convergence-contract.mjs','./namespace-constitution-exception-reader.mjs','./namespace-constitution-reader.mjs','./namespace-assignment-reader.mjs','../kernel/phase-policy.mjs','./namespace-witness-reader.mjs','./namespace-artifact-set-reader.mjs','node:crypto','./namespace-clarification-reader.mjs','../kernel/clarification-responses.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/specification-analysis.mjs',
       '../engine-compatibility/node-specification-policy.mjs','./namespace-specification-contract.mjs','./namespace-policy-contract.mjs','./namespace-code-policy.mjs','./namespace-code-inputs.mjs','./namespace-conformance.mjs','./namespace-publication-reader.mjs','./namespace-candidate-content.mjs'])],
-    [writer,new Set(['./namespace-constitution-reader.mjs','./namespace-artifact-set-reader.mjs','../kernel/artifact-content.mjs','./namespace-clarification-reader.mjs','node:crypto','../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/content/contract.mjs',
+    [writer,new Set(['./namespace-convergence-policy.mjs','./namespace-convergence-contract.mjs','./namespace-constitution-reader.mjs','./namespace-artifact-set-reader.mjs','../kernel/artifact-content.mjs','./namespace-clarification-reader.mjs','node:crypto','../foundation/record-schema.mjs','../foundation/failures.mjs','../sda/content/contract.mjs',
       './namespace-specification-contract.mjs','./namespace-policy-contract.mjs'])]
   ]);
   for(const [file,imports]of allowed) {
@@ -1094,13 +1094,13 @@ test('shared submission never selects a private working store, Git host or insta
   const owner='src/engine-storage/namespace-submission.mjs',reader='src/engine-storage/namespace-publication-reader.mjs',
     submissionReader='src/engine-storage/namespace-submission-reader.mjs',contract='src/engine-storage/namespace-submission-contract.mjs';
   const allowed=new Map([
-    [owner,new Set(['node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
+    [owner,new Set(['./namespace-convergence-submission.mjs','node:crypto','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs',
       '../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs','../kernel/phase-policy.mjs','../kernel/publication-intent.mjs',
       '../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs','../kernel/submission-routing.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs',
       './namespace-lifecycle-reader.mjs','./namespace-lifecycle-commit.mjs','./namespace-commit-coordination.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-publication-reader.mjs',
       './namespace-reader.mjs','./namespace-read-session.mjs','./namespace-phase-check-reader.mjs','./namespace-lifecycle-contract.mjs','./namespace-submission-contract.mjs','./namespace-submission-reader.mjs','./namespace-source-review-reader.mjs'])],
     [reader,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/artifact-content.mjs','./namespace-publication-contract.mjs','./namespace-lifecycle-receipt-reader.mjs','./namespace-specifications.mjs','./namespace-policy-reader.mjs'])],
-    [submissionReader,new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/submission-routing.mjs','./namespace-submission-contract.mjs',
+    [submissionReader,new Set(['./namespace-convergence-submission.mjs','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/submission-routing.mjs','./namespace-submission-contract.mjs',
       './namespace-publication-reader.mjs','./namespace-approval-reader.mjs','./namespace-lifecycle-receipt-reader.mjs','./namespace-code-policy.mjs','./namespace-source-review-reader.mjs'])]
   ]);
   for(const [file,imports] of allowed) {
@@ -1113,7 +1113,7 @@ test('shared submission never selects a private working store, Git host or insta
       ts.forEachChild(node,visit);
     };visit(ast);
   }
-  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-policy-contract.mjs','src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-phase-check-contract.mjs','src/engine-storage/namespace-lifecycle-codec.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:[contract],allowed:[contract,'src/engine-storage/namespace-convergence-contract.mjs','src/engine-storage/namespace-policy-contract.mjs','src/engine-storage/namespace-specification-contract.mjs','src/engine-storage/namespace-phase-check-contract.mjs','src/engine-storage/namespace-lifecycle-codec.mjs','src/engine-storage/namespace-lifecycle-contract.mjs',...await sourceFiles('src/foundation'),
     ...await sourceFiles('src/kernel'),...await sourceFiles('src/sda/namespace'),...await sourceFiles('src/sda/content')]});
   assert.deepEqual(pure.problems,[]);
   for(const file of await sourceFiles('src')) {
@@ -1227,7 +1227,7 @@ test('clarification rules are pure, read manifests are read-only and human recor
 
 test('the opt-in headless composition captures capabilities and constructs exactly one registered Engine',async()=>{
   const file='src/engine-storage/namespace-engine.mjs';
-  const allowed=new Set(['./namespace-test-commands.mjs','./namespace-output-retention.mjs','./namespace-constitution-exceptions.mjs','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/source-snapshot.mjs','../foundation/source-control.mjs',
+  const allowed=new Set(['./namespace-convergence.mjs','./namespace-convergence-advancement.mjs','./namespace-test-commands.mjs','./namespace-output-retention.mjs','./namespace-constitution-exceptions.mjs','../engine-sdk/index.mjs','../foundation/failures.mjs','../foundation/source-snapshot.mjs','../foundation/source-control.mjs',
     '../sda/namespace/contract.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-reader.mjs',
     './namespace-project.mjs','./namespace-configuration.mjs','./namespace-story.mjs','./namespace-source.mjs',
     './namespace-source-review.mjs','./namespace-assignment.mjs','./namespace-witness-decisions.mjs','./namespace-preparation.mjs','./namespace-publication.mjs','./namespace-submission.mjs','./namespace-approval.mjs','./namespace-conformance-decisions.mjs','./namespace-rejection.mjs','./namespace-routing-choice.mjs','./namespace-read-session.mjs','./namespace-plan-decisions.mjs','./namespace-scope-decisions.mjs','./namespace-upstream.mjs','./namespace-input-documents.mjs','./namespace-phase-checks.mjs','./namespace-source-inspection.mjs','./namespace-source-retention.mjs','./namespace-source-baseline.mjs','./namespace-delivery-inspection.mjs','./namespace-test-witnesses.mjs','./namespace-source-control.mjs','./namespace-clarifications.mjs','./namespace-phase-entry.mjs','./namespace-phase-inspection.mjs','./namespace-story-queries.mjs','./namespace-workflow-assets.mjs','../sda/namespace/read-batch.mjs']);
@@ -1375,7 +1375,11 @@ test('production consumers use kernel phase rules and only the compatibility agg
         :ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword?node.arguments[0]:null;
       if(specifier&&ts.isStringLiteralLike(specifier)&&specifier.text.startsWith('.')){
         const target=path.resolve(path.dirname(file),specifier.text);
-        if(oldRules.has(target)||(transitions.has(target)&&relative!=='src/state.mjs'))problems.push(relative);
+        const budgetAlias=relative==='src/repair-budget.mjs'&&ts.isExportDeclaration(node)
+          &&target===path.join(packageRoot,'src/engine-compatibility/rejection-transition.mjs')
+          &&node.exportClause&&ts.isNamedExports(node.exportClause)&&node.exportClause.elements.length===1
+          &&node.exportClause.elements[0].name.text==='consumeRepairAttempt';
+        if(oldRules.has(target)||(transitions.has(target)&&relative!=='src/state.mjs'&&!budgetAlias))problems.push(relative);
         if(target===submissionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===approvalPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
         if(target===rejectionPort&&relative!=='src/engine-compatibility/git-publication.mjs')problems.push(relative);
@@ -1701,7 +1705,7 @@ test('configuration policy rules have one pure owner while native runtime and re
   for(const [file,rule,native]of [['context-policy','normalizeContextPolicy','contextBoundaryHandoff'],
     ['test-runtime','normalizeTestRuntime','testRuntimeEnvironment'],['token-economy','normalizeTokenEconomy','tokenEconomyDigest'],
     ['specifications','normalizeSpecPolicy','buildSpecIndex'],['code-delivery-policy','normalizeCodeDeliveryPolicy','codeOutcomeReviewOffer'],
-    ['repair-budget','normalizeReworkLoops','consumeRepairAttempt']]) {
+    ['engine-compatibility/rejection-transition','normalizeReworkLoops','consumeRepairAttempt']]) {
     const source=await readFile(path.join(packageRoot,'src',file+'.mjs'),'utf8');
     assert.equal(source.includes('function '+rule+'('),false,file);
     assert.equal(source.includes('function '+native+'('),true,file);
@@ -2012,7 +2016,7 @@ test('human conformance rules stay pure and conditional human writes have one ex
 
 test('conditional decision coordination has one writer while domain replay remains read only',async()=>{
   const writer='src/engine-storage/namespace-recorded-mutation.mjs',reader='src/engine-storage/namespace-recorded-mutation-reader.mjs',
-    users=new Set([writer,'src/engine-storage/namespace-test-commands.mjs','src/engine-storage/namespace-constitution-exceptions.mjs','src/engine-storage/namespace-source-review.mjs','src/engine-storage/namespace-assignment.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-plan-decisions.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs','src/engine-storage/namespace-input-documents.mjs']);
+    users=new Set([writer,'src/engine-storage/namespace-convergence.mjs','src/engine-storage/namespace-test-commands.mjs','src/engine-storage/namespace-constitution-exceptions.mjs','src/engine-storage/namespace-source-review.mjs','src/engine-storage/namespace-assignment.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-plan-decisions.mjs','src/engine-storage/namespace-human-decision.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs','src/engine-storage/namespace-input-documents.mjs']);
   for(const file of [writer,reader,'src/engine-storage/namespace-witness-reader.mjs','src/engine-storage/namespace-witness-decisions.mjs','src/engine-storage/namespace-upstream-reader.mjs','src/engine-storage/namespace-decision-contract.mjs','src/engine-storage/namespace-scope-decisions.mjs','src/engine-storage/namespace-upstream.mjs']){
     const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
     const visit=node=>{
@@ -2141,4 +2145,38 @@ test('bounded return provenance and private batched observations cannot select w
     'src/engine-storage/namespace-lifecycle-reader.mjs','src/engine-storage/namespace-lifecycle-receipt-reader.mjs']);
   for(const source of await sourceFiles('src')){if(owners.has(source))continue;
     const text=await readFile(path.join(packageRoot,source),'utf8');assert.doesNotMatch(text,/from ['"][^'"]*namespace\/read-batch\.mjs['"]/u,source+' cannot claim a private read capability');}
+});
+
+
+test('deterministic convergence has one pure rule owner while native reads and shell guidance stay in adapters',async()=>{
+  const core=await readFile(path.join(packageRoot,'src/kernel/convergence-values.mjs'),'utf8');
+  assert.doesNotMatch(core,/from ['"]node:|process\.|readFile|readRecord|singularity-flow story converge|safeCommandGuidance/u);
+  for(const file of ['src/convergence.mjs','src/plan-accounts.mjs']){
+    const text=await readFile(path.join(packageRoot,file),'utf8');
+    assert.match(text,/from ['"]\.\/kernel\/convergence-values\.mjs['"]/u);
+    assert.doesNotMatch(text,/function (?:convergenceFacts|convergenceProjection|renderConvergenceArtifact|stillAsked|settleChangedPaths)\(/u);
+  }
+  const native=await readFile(path.join(packageRoot,'src/convergence.mjs'),'utf8');assert.match(native,/readRecord\('convergence-record'/u);
+  assert.match(native,/singularity-flow story converge/u);
+  const facade=ts.createSourceFile('repair-budget.mjs',await readFile(path.join(packageRoot,'src/repair-budget.mjs'),'utf8'),ts.ScriptTarget.Latest,true);
+  assert.ok(facade.statements.every(ts.isExportDeclaration));
+  const rejection=await readFile(path.join(packageRoot,'src/engine-compatibility/rejection-transition.mjs'),'utf8');
+  assert.match(rejection,/function consumeRepairAttempt\(/u);assert.match(rejection,/consumeRepairAttemptValue\(/u);
+  assert.doesNotMatch(await readFile(path.join(packageRoot,'src/state.mjs'),'utf8'),/from ['"]\.\/repair-budget\.mjs['"]/u);
+});
+
+
+test('convergence proof readers cannot stage records, discover a checkout or execute a provider',async()=>{
+  const files=['namespace-convergence-reader','namespace-convergence-decisions-reader','namespace-convergence-policy','namespace-convergence-submission'];
+  for(const name of files){const file='src/engine-storage/'+name+'.mjs',source=await readFile(path.join(packageRoot,file),'utf8'),
+    ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);
+    const inspect=node=>{
+      if(ts.isImportDeclaration(node))assert.doesNotMatch(node.moduleSpecifier.text,/node:(?:fs|child_process)|git\.mjs|state\.mjs|commands\/|namespace-(?:lifecycle-commit|recorded-mutation)\.mjs/u);
+      if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail(file+' cannot discover an execution host');
+      if(ts.isPropertyAccessExpression(node)&&['put','transact','prepare','commit','start','launch','spawn'].includes(node.name.text))assert.fail(file+' cannot persist or execute');
+      ts.forEachChild(node,inspect);
+    };inspect(ast);
+  }
+  const pure=await inspectPureModuleGraph({root:packageRoot,entries:['src/kernel/convergence-values.mjs','src/kernel/namespace-convergence.mjs'],
+    allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});assert.deepEqual(pure.problems,[]);
 });

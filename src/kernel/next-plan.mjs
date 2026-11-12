@@ -160,7 +160,8 @@ export function workflowNextPlan(workflow, observations = {}) {
   const producer = effectivePhasePublicationProducer(phase, { modelEnabled });
   const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
   const convergence = isConvergencePhase(phase) && producer === 'deterministic';
-  if (needsGeneration && convergence) immediate = immediate.map(entry => ['prepare-phase', 'prepare-convergence'].includes(entry.kind)
+  if(needsGeneration&&convergence&&observations.authoringState?.stage==='review-convergence')immediate=[node('inspect-convergence-context','now')];
+  else if (needsGeneration && convergence) immediate = immediate.map(entry => ['prepare-phase', 'prepare-convergence'].includes(entry.kind)
     ? node('prepare-deterministic-convergence', entry.timing, { modelEnabled }) : entry);
   const actions = [...(observations.prerequisites ?? []).map((entry, index) => node('prerequisite', entry.timing ?? null, { index,
     ...(entry.preparesPhase ? { preparesPhase: true } : {}) })), ...undecided, ...immediate];

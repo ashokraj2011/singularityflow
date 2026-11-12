@@ -5,7 +5,7 @@ import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,namespacePreparedPayloadProfile,admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
 import { renderArtifactTemplateText,utf8Bytes } from '../kernel/artifact-content.mjs';
-import { phaseDraftAccess,phasePreparationSelection,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission } from '../kernel/phase-preparation.mjs';
+import { phaseDraftAccess,phasePreparationSelection,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission,convergencePreparationState } from '../kernel/phase-preparation.mjs';
 import {phaseAccessIdentity} from '../kernel/phase-preparation.mjs';
 import {namespaceArtifactSetPolicies,NAMESPACE_ARTIFACT_SET_LIMITS} from '../kernel/namespace-artifact-sets.mjs';
 import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
@@ -29,6 +29,7 @@ import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 import {createNamespaceCodePredecessorReader} from './namespace-code-predecessors.mjs';
 import {createNamespaceLocalContentReader} from './namespace-local-content-reader.mjs';
 import {namespaceGenerationValue,namespaceGenerationOriginalBasis,verifyNamespaceGenerationContinuation} from './namespace-generation-reader.mjs';
+import {createNamespaceConvergenceDecisionOwner} from './namespace-convergence-decisions-reader.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -47,6 +48,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
   const readInput=createNamespaceLocalContentReader({content:inputContent,scope});
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
+  let convergenceOwner;const convergence=()=>convergenceOwner??=createNamespaceConvergenceDecisionOwner({observer,scope,workId});
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
   const packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
   const repositoryPlans=createNamespaceRepositoryPlanReader({records,content,scope,workId,authority,observer,checks});
@@ -87,7 +89,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     try {
       const profile=namespacePreparedPayloadProfile(value);
       exactObject(value,['format','generation','baseRevision','authorityVersion','configuration','actor','agentId','createdAt',
-        'template','artifact','inputContext','sources','generationIntent','previousDraft','updatedAt','updatedBy','reason',...(profile.members?['schemaVersion','members']:[])]);
+        'template','artifact','inputContext','sources','generationIntent','previousDraft','updatedAt','updatedBy','reason',...(profile.members?['schemaVersion','members']:[]),...(profile.convergence?['convergence']:[])]);
       if(value.format!==profile.format||!Number.isSafeInteger(value.generation)||value.generation<1
         ||!Array.isArray(value.sources)
         ||value.sources.length>32||!value.artifact||typeof value.artifact.key!=='string'||!value.template||typeof value.template.key!=='string')throw Error('Invalid fields.');
@@ -110,6 +112,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
           seen.add(member.path);bytes+=member.content.bytes;storyActorValue(member.actor);projectEnrollmentTimestamp(member.recordedAt);}
         if(bytes>NAMESPACE_ARTIFACT_SET_LIMITS.totalBytes)throw Error('Invalid bundle byte bound.');
       }
+      if(profile.convergence&&contentReference(value.convergence).namespace!=='local')throw Error('The deterministic private projection must stay local.');
       const repositories=new Set();
       for(const source of value.sources) {
         exactObject(source,['id','unitId','provider','revision','descriptor','snapshot']);const descriptor=sourceUnitDescriptor(source.descriptor);
@@ -133,6 +136,10 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     const currentBytes=same(p.artifact.initial,p.artifact.current)?initialBytes:await captured.store.bytes(p.artifact.current,{signal});
     const contextBytes=await captured.store.bytes(p.inputContext,{signal});
     const intentBytes=p.generationIntent?await captured.store.bytes(p.generationIntent.record,{signal}):null;
+    if(p.convergence){let projection;const bytes=await captured.store.bytes(p.convergence,{signal});
+      try{projection=JSON.parse(utf8(bytes,'Private convergence projection'));}catch(cause){throw error('The private convergence projection is invalid.','ENGINE_STORAGE_CORRUPT',null,cause);}
+      convergence().inputs.values.assert(projection);
+      if(projection.workId!==workId||projection.phase!==captured.phase.id||projection.generation!==p.generation)throw error('The private convergence projection belongs to another draft.','ENGINE_STORAGE_CORRUPT');}
     let generation=null;
     try {
       const context=JSON.parse(utf8(contextBytes,'Private input context'));
@@ -196,8 +203,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     return {repositories:structuredClone(repositories),continuing,observedRows,...(priorCode?{priorCode:priorCode.proof}:{})};
   }
   async function makePayload(captured,binding,agent,previous,signal) {
-    if(binding.mode==='deterministic-convergence')throw error('Convergence preparation requires its retained deterministic projection.','CONVERGENCE_PROJECTION_REQUIRED');
-    if(binding.producer==='deterministic'&&!binding.authoringRequired)throw error('This phase needs its actual deterministic producer before preparation can complete.','PHASE_DETERMINISTIC_PRODUCER_REQUIRED');
+    const deterministic=binding.mode==='deterministic-convergence';
+    if(!deterministic&&binding.producer==='deterministic'&&!binding.authoringRequired)throw error('This phase needs its actual deterministic producer before preparation can complete.','PHASE_DETERMINISTIC_PRODUCER_REQUIRED');
     const {approval,phase}=await contract(captured,agent,signal),compiled=approval.compiled,w=captured.snapshot.workflow;
     const key=String(phase.template).startsWith('agent:')?phase.template:`${compiled.definition.templatesRoot}/${phase.template}`;
     const template=compiled.templates.find(item=>item.path===key);if(!template)throw error('The approved artifact template is missing.','WFA_DEPENDENCY_UNAVAILABLE',{key});
@@ -208,7 +215,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     const inputContext=await captured.store.put(contextData,{signal});
     const initial=previous?.payload.artifact.initial??await captured.store.put(Buffer.from(renderArtifactTemplateText(templateText,phase,{
       id:workId,title:w.workItem.title,workType:w.workItem.workType,inputs:inputs.rendered})),{signal});
-    const artifact={key:binding.artifactKey,initial,current:previous?.payload.artifact.current??initial};
+    const projected=deterministic?await convergence().context(captured.snapshot,phase.id,{signal}):null;
+    const artifact={key:binding.artifactKey,initial,current:projected?await captured.store.put(Buffer.from(convergence().inputs.values.render(projected.projection)),{signal}):previous?.payload.artifact.current??initial};
     if(typeof artifact.key!=='string'||!artifact.key)throw error('This phase needs its configured artifact contract.','ENGINE_ARTIFACT_CONTRACT_REQUIRED');
     const opening=binding.codeDeliveryRequired?await sourceBindings(captured,signal,{previous}):null,sources=opening?.repositories??[];
     let generationIntent=null;
@@ -229,11 +237,22 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       template:{key,reference:template.body},artifact,inputContext,sources,generationIntent,previousDraft:previous?.body??null,
       updatedAt:at,updatedBy:agent.actor,reason:previous?'Rebind the preserved authored draft.':'Prepare the phase artifact.'};
     if(previous?.payload.members)value.schemaVersion=2,value.format='sflow-namespace-prepared-phase/v2',value.members=previous.payload.members.filter(row=>row.generation===binding.generation);
+    if(projected)Object.assign(value,{schemaVersion:3,format:'sflow-namespace-prepared-phase/v3',members:value.members??[],
+      convergence:await captured.store.put(Buffer.from(canonicalJson(projected.projection)),{signal})});
     if(opening)openingSources.set(value,opening);return value;
   }
   async function prepareDraft(context,binding,permission,signal){
       const saved=selected(context),{captured,found}=saved,agent=await authorize(permission,signal);
       saved.agent=agent;await contract(captured,agent,signal);
+      if(found&&binding.mode==='deterministic-convergence'){
+        const value=await makePayload(captured,binding,agent,found,signal);
+        if(found.payload.baseRevision===captured.snapshot.revision&&found.payload.generation===binding.generation
+          &&same(found.payload.convergence,value.convergence)&&same(found.payload.artifact.current,value.artifact.current))saved.accepted=found;
+        else{await authorize(permission,signal,agent);await unchanged(captured,signal);
+          const parametersSha256=hash(canonicalJson({binding,previous:found.body,projection:value.convergence,base:captured.snapshot.revision}));
+          saved.accepted=await captured.store.save({operationId:'prepare-'+parametersSha256,parametersSha256,expectedRevision:found.revision,payload:value},{signal});}
+        saved.opened=false;await authorize(permission,signal,agent);await unchanged(captured,signal);return;
+      }
       if(found) {
         if(found.payload.baseRevision!==captured.snapshot.revision||found.payload.generation!==binding.generation)throw error('The existing private draft uses an earlier Story revision. Review it and explicitly rebind it.','ENGINE_DRAFT_BASIS_CHANGED',{
           workId,phase:binding.phase,revision:found.revision,confirm:found.body.sha256,operation:'phase.draft.rebase'});
@@ -258,10 +277,14 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     async inspect(context,binding,{signal}={}) {
       const saved=selected(context),value=payload(saved.accepted.payload,binding.phase);await unchanged(saved.captured,signal);
       await saved.captured.store.bytes(value.artifact.current,{signal});
+      let projected=null;
+      if(value.convergence){const proof=JSON.parse(utf8(await saved.captured.store.bytes(value.convergence,{signal}),'Private convergence projection')),
+        summary=convergencePreparationState(convergence().inputs.values.assert(proof).projection),{unresolvedBlockers,allowedNext:_allowedNext,...facts}=summary;
+        projected={...facts,unresolvedBlockerCount:unresolvedBlockers.length};}
       return {workId,phase:binding.phase,generation:value.generation,producer:binding.producer,artifactKey:value.artifact.key,
         inputContext:{generation:value.generation,sha256:value.inputContext.sha256,renderedSha256:null},
         generationIntent:value.generationIntent?{id:value.generationIntent.id,generation:value.generation,sha256:value.generationIntent.record.sha256}:null,
-        convergence:null,generationOpened:saved.opened};
+        convergence:projected,generationOpened:saved.opened};
     }
   };
   const phaseDraftRead={async load(inputs,{signal}={}) {
@@ -299,6 +322,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       async prepare(context,_input,{signal}={}) {
         const s=contextValue(context),captured=await canonical(s.input.phaseId,signal),found=await inspectPrivate(captured,signal);
         if(!found)throw error('Prepare this phase before saving an authored draft.','ENGINE_DRAFT_MISSING',{operation:'phase.prepare'});
+        if(kind==='write'&&found.payload.convergence)throw error('The deterministic convergence body is regenerated from its actual inputs and human decisions.',
+          'CONVERGENCE_ARTIFACT_KERNEL_OWNED',{actions:[{operation:'phase.prepare',inputs:{workId,phaseId:captured.phase.id}}]});
         if(found.revision!==s.input.expectedRevision)throw error('The private draft changed; read and review its current bytes.','ENGINE_CONTEXT_CHANGED',{expected:s.input.expectedRevision,observed:found.revision});
         const agent=await authorize(permission,signal);await contract(captured,agent,signal);
         const binding=phaseBeginSelection(captured.snapshot.workflow,{workId,phaseId:captured.phase.id});

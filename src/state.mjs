@@ -134,7 +134,6 @@ import { evaluateExternalCommandForModelMode, externalCommandText, withCommandLi
 import { normalizeExternalCommand } from "./engine-compatibility/node-configuration-path.mjs";
 import { assertProducerAllowed, normalizeAuthorshipOptions } from './kernel/phase-policy.mjs';
 import { buildGenerationAuthorship } from './kernel/phase-policy.mjs';
-import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import { advanceCompletedPhase, clearApprovalDisposition, clearDecisionState, completionPhaseOf, nextPhaseAfterSkillAmendment, reopenPhaseRange, resetDecisionRounds, resetPhaseRangeForRework, upcomingAfterOutcome, resolvePhaseChangeRequests } from './kernel/lifecycle-transitions.mjs';
 import { cancelledStoryRefusal } from './phase-transition-routes.mjs';
 import { submittedDecisionInputPlan, applySubmittedDecisionInput } from './kernel/lifecycle-transitions.mjs';
@@ -5482,8 +5481,6 @@ export async function rejectPhase(root, config, workflow, options = {}) {
     memberRoot,
     nowIso,
     actorKey,
-    repairBudgetPhaseForRejection,
-    consumeRepairAttempt,
     createReworkForwardCheckpoint,
     reopenPhaseRange,
     updateArtifactMetadata,

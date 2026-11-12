@@ -45,6 +45,23 @@ await engine.run('phase.reject',{phaseId:'review',confirm:{approved:true}});
 await engine.run('conformance.approve',{});
 void context;
 void article;
+const convergence=await engine.run('convergence.context',{workId:'story',phaseId:'reconcile'});
+await engine.run('convergence.adjudicate',{operationId:'judged-convergence',phaseId:'reconcile',itemId:'CF-0123456789ab',disposition:'dismissed',
+  reason:'The independent reviewer inspected the exact retained delivery.',expectedContext:'sha256:digest'});
+// @ts-expect-error an answer needs the exact reviewed projection context
+await engine.run('convergence.adjudicate',{operationId:'unbound-convergence',phaseId:'reconcile',itemId:'CF-0123456789ab',disposition:'dismissed'});
+// @ts-expect-error a generic approval is not a convergence disposition
+await engine.run('convergence.adjudicate',{operationId:'invented-convergence',phaseId:'reconcile',itemId:'CF-0123456789ab',disposition:'approved',expectedContext:'sha256:digest'});
+// @ts-expect-error the engine gets human identity from its access port
+await engine.run('convergence.adjudicate',{operationId:'forged-convergence',phaseId:'reconcile',itemId:'CF-0123456789ab',disposition:'dismissed',expectedContext:'sha256:digest',actor:'reviewer'});
+import {convergenceValuePolicies,namespaceConvergencePolicies} from '@singularity-flow/engine-sdk/convergence';
+declare const paths:import('@singularity-flow/engine-sdk/specifications').VerificationPathSyntax;
+declare const text:import('@singularity-flow/engine-sdk/specifications').SpecificationTextValues;
+const values=convergenceValuePolicies(paths,text),portable=namespaceConvergencePolicies(paths,text);
+values.itemId('CF',{path:'README.md'});portable.hash({input:'retained'});
+// @ts-expect-error new value meanings need an explicit supported profile
+convergenceValuePolicies(paths,text,{profile:'invented'});
+void convergence;
 declare const output:import('@singularity-flow/engine-sdk/content').ContentReference;
 await engine.run('phase.output.retain',{operationId:'capture-current-output',workId:'story',phaseId:'code',path:'singularity/work-items/story/evidence/result.png',content:output});
 // @ts-expect-error an output needs an explicit immutable content reference, not a laptop filename

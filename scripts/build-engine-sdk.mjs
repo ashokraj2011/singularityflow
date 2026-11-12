@@ -8,7 +8,7 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'scope', 'plans', 'constitution', 'testing/recovery', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
+const entryNames = Object.freeze(['index', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'scope', 'plans', 'constitution', 'convergence', 'testing/recovery', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal','testing/reports','testing/node','testing/execution','testing/node-test-reporter','hosts/namespace-test-witnesses','hosts/namespace-checks','hosts/namespace-source-inspection','hosts/namespace-source-retention','hosts/namespace-source-baseline','hosts/namespace-delivery-inspection','hosts/namespace-source-control']);
 const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:os', 'node:sqlite', 'node:net', 'node:child_process','node:test/reporters','node:async_hooks']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
@@ -30,6 +30,7 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(operation.id==='convergence.adjudicate')return field==='clauseIds'?'readonly string[]':field==='disposition'?'ConvergenceDisposition':field==='fetch'?'boolean | null':'string';
   if(['constitution.exception.context','decision.constitution-exception'].includes(operation.id))return field==='expires'?'string | null':'string';
   if(operation.id.startsWith('source-review.'))return field==='report'?'JsonValue':'string';
   if(['plan.correction.context','plan.correction.record'].includes(operation.id))return field==='operations'?'readonly NamespacePlanCorrectionOperation[]'
@@ -69,6 +70,7 @@ export function engineDeclarations() {
 import type { JsonValue } from './namespace.mjs';
 import type { ContentReference } from './content.mjs';
 import type { NamespacePlanCorrectionOperation } from './plans.mjs';
+import type { ConvergenceDisposition } from './convergence.mjs';
 export * from './errors.mjs';
 export type { JsonValue } from './namespace.mjs';
 export declare const ENGINE_CONTRACT: ${JSON.stringify(ENGINE_CONTRACT)};

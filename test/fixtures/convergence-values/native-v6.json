@@ -1,0 +1,3273 @@
+{
+  "sourceRevision": "ec32634ce850af257fb232cba61083f4a38d7a0b",
+  "cases": [
+    {
+      "name": "missing-records",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "disposition": "dismissed",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-43e3184b2f61",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-dc67055295dd",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [],
+          "allowedNext": [
+            "advance-to-verification"
+          ],
+          "convergenceSha256": "18b102efac144433738aacc25b7f33e2e4c1ec65f962e6b7efd67aee0fb0a6d7"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `18b102efac144433738aacc25b7f33e2e4c1ec65f962e6b7efd67aee0fb0a6d7`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-43e3184b2f61 | CF-12932d70d4b9 | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-dc67055295dd | CF-f16dedcc2fa9 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- None.\n\n## Allowed next actions\n\n- `advance-to-verification`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"advance-to-verification\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"18b102efac144433738aacc25b7f33e2e4c1ec65f962e6b7efd67aee0fb0a6d7\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-43e3184b2f61\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-dc67055295dd\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "complete-claims",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/identity.js"
+                ],
+                "testResults": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "disposition": "dismissed",
+      "adjudications": [
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "c7443c4ae0404c189894467b7f9192d5287420ee7219ae5fc20a26b3c07bbf7a"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "c7443c4ae0404c189894467b7f9192d5287420ee7219ae5fc20a26b3c07bbf7a"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-dc67055295dd",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [],
+          "allowedNext": [
+            "advance-to-verification"
+          ],
+          "convergenceSha256": "3669774b384a5ba2f57fbf6dbc0b595c8be3c66b662a37f5aa5aac8d0a27e937"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `3669774b384a5ba2f57fbf6dbc0b595c8be3c66b662a37f5aa5aac8d0a27e937`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-dc67055295dd | CF-f16dedcc2fa9 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- None.\n\n## Allowed next actions\n\n- `advance-to-verification`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"advance-to-verification\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"c7443c4ae0404c189894467b7f9192d5287420ee7219ae5fc20a26b3c07bbf7a\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"3669774b384a5ba2f57fbf6dbc0b595c8be3c66b662a37f5aa5aac8d0a27e937\",\n  \"facts\": [\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-dc67055295dd\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "partial-and-withdrawn",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "partial",
+                "observedPaths": [],
+                "testResults": []
+              },
+              "S:REQ-999": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/retired.js"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "disposition": "dismissed",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-a8a39702eb07",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-bf7372de2364",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-999"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-3e3a94ba2f37",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-73d1387cb3cb",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-a8a39702eb07",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-001"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "the observed claim for S:REQ-001 records verdict 'partial', so trace evidence is incomplete"
+          },
+          {
+            "id": "CF-bf7372de2364",
+            "kind": "claimed-withdrawn-clause",
+            "clauseIds": [
+              "S:REQ-999"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "an observed claim exists for S:REQ-999, which the approved specification no longer contains"
+          },
+          {
+            "id": "CF-3e3a94ba2f37",
+            "kind": "stale-claim-binding",
+            "clauseIds": [
+              "S:REQ-001"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "S:REQ-001 claims verdict 'partial' with no source evidence bound to it"
+          },
+          {
+            "id": "CF-73d1387cb3cb",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [
+              "S:REQ-001"
+            ],
+            "paths": [
+              "src/convert.js"
+            ],
+            "evidence": [],
+            "detail": "src/convert.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          },
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "fa7fe78968e56e82a2e6ef0d26f2a90b9c5bb37b165f27a8835d5efca609386a"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "fa7fe78968e56e82a2e6ef0d26f2a90b9c5bb37b165f27a8835d5efca609386a"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-a8a39702eb07",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "the observed claim for S:REQ-001 records verdict 'partial', so trace evidence is incomplete"
+            },
+            {
+              "id": "CF-bf7372de2364",
+              "kind": "claimed-withdrawn-clause",
+              "clauseIds": [
+                "S:REQ-999"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "an observed claim exists for S:REQ-999, which the approved specification no longer contains"
+            },
+            {
+              "id": "CF-3e3a94ba2f37",
+              "kind": "stale-claim-binding",
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "S:REQ-001 claims verdict 'partial' with no source evidence bound to it"
+            },
+            {
+              "id": "CF-73d1387cb3cb",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "paths": [
+                "src/convert.js"
+              ],
+              "evidence": [],
+              "detail": "src/convert.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-177fe1ff7344",
+              "source": "deterministic",
+              "itemId": "CF-73d1387cb3cb",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-43e3184b2f61",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-73fe0c14093e",
+              "source": "deterministic",
+              "itemId": "CF-3e3a94ba2f37",
+              "kind": "stale-claim-binding",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-76f93878c780",
+              "source": "deterministic",
+              "itemId": "CF-a8a39702eb07",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-7dfbf31dc541",
+              "source": "deterministic",
+              "itemId": "CF-bf7372de2364",
+              "kind": "claimed-withdrawn-clause",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-999"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-dc67055295dd",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [],
+          "allowedNext": [
+            "advance-to-verification"
+          ],
+          "convergenceSha256": "749a98d23efc846d5e0f17c5afb8a411de87eb9d5dd033be4880a2d69ac12451"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `749a98d23efc846d5e0f17c5afb8a411de87eb9d5dd033be4880a2d69ac12451`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-a8a39702eb07** · absent-observed-claim · S:REQ-001: the observed claim for S:REQ-001 records verdict 'partial', so trace evidence is incomplete\n- **CF-bf7372de2364** · claimed-withdrawn-clause · S:REQ-999: an observed claim exists for S:REQ-999, which the approved specification no longer contains\n- **CF-3e3a94ba2f37** · stale-claim-binding · S:REQ-001: S:REQ-001 claims verdict 'partial' with no source evidence bound to it\n- **CF-73d1387cb3cb** · unclaimed-changed-path · S:REQ-001: src/convert.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-177fe1ff7344 | CF-73d1387cb3cb | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-43e3184b2f61 | CF-12932d70d4b9 | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-73fe0c14093e | CF-3e3a94ba2f37 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-76f93878c780 | CF-a8a39702eb07 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-7dfbf31dc541 | CF-bf7372de2364 | S:REQ-999 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-dc67055295dd | CF-f16dedcc2fa9 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- None.\n\n## Allowed next actions\n\n- `advance-to-verification`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"advance-to-verification\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"fa7fe78968e56e82a2e6ef0d26f2a90b9c5bb37b165f27a8835d5efca609386a\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"749a98d23efc846d5e0f17c5afb8a411de87eb9d5dd033be4880a2d69ac12451\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"detail\": \"the observed claim for S:REQ-001 records verdict 'partial', so trace evidence is incomplete\",\n      \"evidence\": [],\n      \"id\": \"CF-a8a39702eb07\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-999\"\n      ],\n      \"detail\": \"an observed claim exists for S:REQ-999, which the approved specification no longer contains\",\n      \"evidence\": [],\n      \"id\": \"CF-bf7372de2364\",\n      \"kind\": \"claimed-withdrawn-clause\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"detail\": \"S:REQ-001 claims verdict 'partial' with no source evidence bound to it\",\n      \"evidence\": [],\n      \"id\": \"CF-3e3a94ba2f37\",\n      \"kind\": \"stale-claim-binding\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"detail\": \"src/convert.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-73d1387cb3cb\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/convert.js\"\n      ]\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-177fe1ff7344\",\n      \"itemId\": \"CF-73d1387cb3cb\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-43e3184b2f61\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-73fe0c14093e\",\n      \"itemId\": \"CF-3e3a94ba2f37\",\n      \"kind\": \"stale-claim-binding\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-76f93878c780\",\n      \"itemId\": \"CF-a8a39702eb07\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-999\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-7dfbf31dc541\",\n      \"itemId\": \"CF-bf7372de2364\",\n      \"kind\": \"claimed-withdrawn-clause\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-dc67055295dd\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "missing-and-failing-tests",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "acceptance": {
+          "missingPlannedTests": [
+            "S:REQ-002"
+          ],
+          "missingObservedTests": [
+            "S:REQ-001"
+          ],
+          "failedCommands": [
+            "focused-test"
+          ],
+          "staleRunReasons": [
+            "candidate changed"
+          ]
+        }
+      },
+      "disposition": "dismissed",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-2487af47836e",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-80fc529adc44",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-742680bad66f",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-9a90f9bf9357",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-2487af47836e",
+            "kind": "failing-bound-test",
+            "clauseIds": [],
+            "paths": [],
+            "evidence": [
+              "focused-test"
+            ],
+            "detail": "bound acceptance command 'focused-test' did not pass"
+          },
+          {
+            "id": "CF-80fc529adc44",
+            "kind": "failing-bound-test",
+            "clauseIds": [],
+            "paths": [],
+            "evidence": [],
+            "detail": "acceptance evidence is stale: candidate changed"
+          },
+          {
+            "id": "CF-742680bad66f",
+            "kind": "missing-bound-test",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "S:REQ-002 has no planned test binding"
+          },
+          {
+            "id": "CF-9a90f9bf9357",
+            "kind": "missing-bound-test",
+            "clauseIds": [
+              "S:REQ-001"
+            ],
+            "paths": [],
+            "evidence": [
+              "test/convert.test.js"
+            ],
+            "detail": "S:REQ-001 has a planned test binding with no recorded result"
+          },
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-2487af47836e",
+              "kind": "failing-bound-test",
+              "clauseIds": [],
+              "paths": [],
+              "evidence": [
+                "focused-test"
+              ],
+              "detail": "bound acceptance command 'focused-test' did not pass"
+            },
+            {
+              "id": "CF-80fc529adc44",
+              "kind": "failing-bound-test",
+              "clauseIds": [],
+              "paths": [],
+              "evidence": [],
+              "detail": "acceptance evidence is stale: candidate changed"
+            },
+            {
+              "id": "CF-742680bad66f",
+              "kind": "missing-bound-test",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "S:REQ-002 has no planned test binding"
+            },
+            {
+              "id": "CF-9a90f9bf9357",
+              "kind": "missing-bound-test",
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "paths": [],
+              "evidence": [
+                "test/convert.test.js"
+              ],
+              "detail": "S:REQ-001 has a planned test binding with no recorded result"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-43e3184b2f61",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-81d67e8ac458",
+              "source": "deterministic",
+              "itemId": "CF-742680bad66f",
+              "kind": "missing-bound-test",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-97710d8c7ddb",
+              "source": "deterministic",
+              "itemId": "CF-2487af47836e",
+              "kind": "failing-bound-test",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-a152c80d01aa",
+              "source": "deterministic",
+              "itemId": "CF-80fc529adc44",
+              "kind": "failing-bound-test",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-c469f25d9501",
+              "source": "deterministic",
+              "itemId": "CF-9a90f9bf9357",
+              "kind": "missing-bound-test",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-dc67055295dd",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [],
+          "allowedNext": [
+            "advance-to-verification"
+          ],
+          "convergenceSha256": "3db6bda4651e845d30e13fc4c4abc7eb1c1e45692f397b2e3aaef3b29cb9a0ff"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `3db6bda4651e845d30e13fc4c4abc7eb1c1e45692f397b2e3aaef3b29cb9a0ff`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-2487af47836e** · failing-bound-test: bound acceptance command 'focused-test' did not pass\n- **CF-80fc529adc44** · failing-bound-test: acceptance evidence is stale: candidate changed\n- **CF-742680bad66f** · missing-bound-test · S:REQ-002: S:REQ-002 has no planned test binding\n- **CF-9a90f9bf9357** · missing-bound-test · S:REQ-001: S:REQ-001 has a planned test binding with no recorded result\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-43e3184b2f61 | CF-12932d70d4b9 | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-81d67e8ac458 | CF-742680bad66f | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-97710d8c7ddb | CF-2487af47836e | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-a152c80d01aa | CF-80fc529adc44 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-c469f25d9501 | CF-9a90f9bf9357 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-dc67055295dd | CF-f16dedcc2fa9 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- None.\n\n## Allowed next actions\n\n- `advance-to-verification`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"advance-to-verification\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"3db6bda4651e845d30e13fc4c4abc7eb1c1e45692f397b2e3aaef3b29cb9a0ff\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"bound acceptance command 'focused-test' did not pass\",\n      \"evidence\": [\n        \"focused-test\"\n      ],\n      \"id\": \"CF-2487af47836e\",\n      \"kind\": \"failing-bound-test\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"acceptance evidence is stale: candidate changed\",\n      \"evidence\": [],\n      \"id\": \"CF-80fc529adc44\",\n      \"kind\": \"failing-bound-test\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"S:REQ-002 has no planned test binding\",\n      \"evidence\": [],\n      \"id\": \"CF-742680bad66f\",\n      \"kind\": \"missing-bound-test\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"detail\": \"S:REQ-001 has a planned test binding with no recorded result\",\n      \"evidence\": [\n        \"test/convert.test.js\"\n      ],\n      \"id\": \"CF-9a90f9bf9357\",\n      \"kind\": \"missing-bound-test\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-43e3184b2f61\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-81d67e8ac458\",\n      \"itemId\": \"CF-742680bad66f\",\n      \"kind\": \"missing-bound-test\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-97710d8c7ddb\",\n      \"itemId\": \"CF-2487af47836e\",\n      \"kind\": \"failing-bound-test\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-a152c80d01aa\",\n      \"itemId\": \"CF-80fc529adc44\",\n      \"kind\": \"failing-bound-test\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-c469f25d9501\",\n      \"itemId\": \"CF-9a90f9bf9357\",\n      \"kind\": \"missing-bound-test\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-dc67055295dd\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "unresolved-and-accepted-deviations",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ],
+                "deviation": "An independent later Story owns this boundary."
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ],
+                "deviation": "A documented alternative preserves the API."
+              }
+            }
+          }
+        ],
+        "deviations": [
+          {
+            "clauseId": "S:REQ-001",
+            "accepted": true
+          }
+        ]
+      },
+      "disposition": "dismissed",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-00217e8d6ba5",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          },
+          {
+            "id": "CF-00217e8d6ba5",
+            "kind": "unresolved-deviation",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "S:REQ-002 records an unresolved deviation: An independent later Story owns this boundary."
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "254f31153d27e3ab742bf007d718db169102f6e1a2a56e7932ebb948d9bc4c0a"
+          ],
+          "observedClaimsSha256": [
+            "6316904194ac2b52295474f1d87f385995865a547ccece504b068f8dd09d5dc7"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "254f31153d27e3ab742bf007d718db169102f6e1a2a56e7932ebb948d9bc4c0a"
+            ],
+            "observedClaimsSha256": [
+              "6316904194ac2b52295474f1d87f385995865a547ccece504b068f8dd09d5dc7"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            },
+            {
+              "id": "CF-00217e8d6ba5",
+              "kind": "unresolved-deviation",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "S:REQ-002 records an unresolved deviation: An independent later Story owns this boundary."
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-43e3184b2f61",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-947586877ed9",
+              "source": "deterministic",
+              "itemId": "CF-00217e8d6ba5",
+              "kind": "unresolved-deviation",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-dc67055295dd",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [],
+          "allowedNext": [
+            "advance-to-verification"
+          ],
+          "convergenceSha256": "16e1070ae535ca1cb36a2d2e14113e0673d7c1a28f30a44b8adb2b2d347ae08d"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `16e1070ae535ca1cb36a2d2e14113e0673d7c1a28f30a44b8adb2b2d347ae08d`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n- **CF-00217e8d6ba5** · unresolved-deviation · S:REQ-002: S:REQ-002 records an unresolved deviation: An independent later Story owns this boundary.\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-43e3184b2f61 | CF-12932d70d4b9 | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-947586877ed9 | CF-00217e8d6ba5 | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-dc67055295dd | CF-f16dedcc2fa9 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- None.\n\n## Allowed next actions\n\n- `advance-to-verification`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"advance-to-verification\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"6316904194ac2b52295474f1d87f385995865a547ccece504b068f8dd09d5dc7\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"254f31153d27e3ab742bf007d718db169102f6e1a2a56e7932ebb948d9bc4c0a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"16e1070ae535ca1cb36a2d2e14113e0673d7c1a28f30a44b8adb2b2d347ae08d\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"S:REQ-002 records an unresolved deviation: An independent later Story owns this boundary.\",\n      \"evidence\": [],\n      \"id\": \"CF-00217e8d6ba5\",\n      \"kind\": \"unresolved-deviation\",\n      \"paths\": []\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-43e3184b2f61\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-947586877ed9\",\n      \"itemId\": \"CF-00217e8d6ba5\",\n      \"kind\": \"unresolved-deviation\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-dc67055295dd\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "bounded-disclosures",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "limits": {
+          "maxChangedPaths": 1,
+          "maxFacts": 1
+        }
+      },
+      "disposition": "dismissed",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-d5e56bcbe502",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-d5e56bcbe502",
+            "kind": "missing-required-evidence",
+            "clauseIds": [],
+            "paths": [],
+            "evidence": [],
+            "detail": "analysis was bounded: 2 changed paths reported by reconciliation exceeded the configured limit of 1; 1 are not listed. Raise analysisLimits.maxChangedPaths to see them all."
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-d5e56bcbe502",
+              "kind": "missing-required-evidence",
+              "clauseIds": [],
+              "paths": [],
+              "evidence": [],
+              "detail": "analysis was bounded: 2 changed paths reported by reconciliation exceeded the configured limit of 1; 1 are not listed. Raise analysisLimits.maxChangedPaths to see them all."
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-031f55e878ea",
+              "source": "deterministic",
+              "itemId": "CF-d5e56bcbe502",
+              "kind": "missing-required-evidence",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-43e3184b2f61",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [],
+          "allowedNext": [
+            "advance-to-verification"
+          ],
+          "convergenceSha256": "392c65192c53c2f2bb57398bc68e4f8e3478b01af4cd4d42b38e4941ca26c4db"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `392c65192c53c2f2bb57398bc68e4f8e3478b01af4cd4d42b38e4941ca26c4db`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-d5e56bcbe502** · missing-required-evidence: analysis was bounded: 2 changed paths reported by reconciliation exceeded the configured limit of 1; 1 are not listed. Raise analysisLimits.maxChangedPaths to see them all.\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-031f55e878ea | CF-d5e56bcbe502 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-43e3184b2f61 | CF-12932d70d4b9 | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- None.\n\n## Allowed next actions\n\n- `advance-to-verification`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"advance-to-verification\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"392c65192c53c2f2bb57398bc68e4f8e3478b01af4cd4d42b38e4941ca26c4db\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"analysis was bounded: 2 changed paths reported by reconciliation exceeded the configured limit of 1; 1 are not listed. Raise analysisLimits.maxChangedPaths to see them all.\",\n      \"evidence\": [],\n      \"id\": \"CF-d5e56bcbe502\",\n      \"kind\": \"missing-required-evidence\",\n      \"paths\": []\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-031f55e878ea\",\n      \"itemId\": \"CF-d5e56bcbe502\",\n      \"kind\": \"missing-required-evidence\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-43e3184b2f61\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "superseded-clause",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "amendedClauses": [
+          "S:REQ-001"
+        ]
+      },
+      "disposition": "dismissed",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-4bddeb0e1553",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          },
+          {
+            "id": "CF-4bddeb0e1553",
+            "kind": "verdict-against-superseded-clause",
+            "clauseIds": [
+              "S:REQ-001"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "S:REQ-001 was reconciled as 'matched' before the clause was revised; that verdict describes the previous wording and has not been re-checked against the current one"
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            },
+            {
+              "id": "CF-4bddeb0e1553",
+              "kind": "verdict-against-superseded-clause",
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "S:REQ-001 was reconciled as 'matched' before the clause was revised; that verdict describes the previous wording and has not been re-checked against the current one"
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-43e3184b2f61",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-51a6cf62daa5",
+              "source": "deterministic",
+              "itemId": "CF-4bddeb0e1553",
+              "kind": "verdict-against-superseded-clause",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-dc67055295dd",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [],
+          "allowedNext": [
+            "advance-to-verification"
+          ],
+          "convergenceSha256": "03a34f247e5a9f64c0719cb80c41aca5fa25e69358141277a7ab09fe0f50b628"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `03a34f247e5a9f64c0719cb80c41aca5fa25e69358141277a7ab09fe0f50b628`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n- **CF-4bddeb0e1553** · verdict-against-superseded-clause · S:REQ-001: S:REQ-001 was reconciled as 'matched' before the clause was revised; that verdict describes the previous wording and has not been re-checked against the current one\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-43e3184b2f61 | CF-12932d70d4b9 | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-51a6cf62daa5 | CF-4bddeb0e1553 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-dc67055295dd | CF-f16dedcc2fa9 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- None.\n\n## Allowed next actions\n\n- `advance-to-verification`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"advance-to-verification\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"03a34f247e5a9f64c0719cb80c41aca5fa25e69358141277a7ab09fe0f50b628\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"detail\": \"S:REQ-001 was reconciled as 'matched' before the clause was revised; that verdict describes the previous wording and has not been re-checked against the current one\",\n      \"evidence\": [],\n      \"id\": \"CF-4bddeb0e1553\",\n      \"kind\": \"verdict-against-superseded-clause\",\n      \"paths\": []\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-43e3184b2f61\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-51a6cf62daa5\",\n      \"itemId\": \"CF-4bddeb0e1553\",\n      \"kind\": \"verdict-against-superseded-clause\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-dc67055295dd\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "required-evidence",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "requiredEvidence": [
+          {
+            "kind": "image",
+            "path": "evidence/result.png",
+            "clauseIds": [
+              "S:REQ-001"
+            ],
+            "present": false
+          },
+          {
+            "kind": "index",
+            "path": "evidence/index.json",
+            "present": true
+          }
+        ]
+      },
+      "disposition": "dismissed",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-9313d79a4a62",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "dismissed",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-9313d79a4a62",
+            "kind": "missing-required-evidence",
+            "clauseIds": [
+              "S:REQ-001"
+            ],
+            "paths": [],
+            "evidence": [
+              "evidence/result.png"
+            ],
+            "detail": "required image is missing: evidence/result.png"
+          },
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-9313d79a4a62",
+              "kind": "missing-required-evidence",
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "paths": [],
+              "evidence": [
+                "evidence/result.png"
+              ],
+              "detail": "required image is missing: evidence/result.png"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-361d8a095d66",
+              "source": "deterministic",
+              "itemId": "CF-9313d79a4a62",
+              "kind": "missing-required-evidence",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-43e3184b2f61",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-dc67055295dd",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "dismissed",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [],
+          "allowedNext": [
+            "advance-to-verification"
+          ],
+          "convergenceSha256": "f87422aadfe1c21d00fab70c54b139131cb2ca70e1fb149c13eb6998ade9a229"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `f87422aadfe1c21d00fab70c54b139131cb2ca70e1fb149c13eb6998ade9a229`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-9313d79a4a62** · missing-required-evidence · S:REQ-001: required image is missing: evidence/result.png\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-361d8a095d66 | CF-9313d79a4a62 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-43e3184b2f61 | CF-12932d70d4b9 | S:REQ-002 | dismissed | The independent reviewer inspected this exact retained finding. |\n| GF-dc67055295dd | CF-f16dedcc2fa9 | S:REQ-001 | dismissed | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- None.\n\n## Allowed next actions\n\n- `advance-to-verification`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"advance-to-verification\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"f87422aadfe1c21d00fab70c54b139131cb2ca70e1fb149c13eb6998ade9a229\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"detail\": \"required image is missing: evidence/result.png\",\n      \"evidence\": [\n        \"evidence/result.png\"\n      ],\n      \"id\": \"CF-9313d79a4a62\",\n      \"kind\": \"missing-required-evidence\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-361d8a095d66\",\n      \"itemId\": \"CF-9313d79a4a62\",\n      \"kind\": \"missing-required-evidence\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-43e3184b2f61\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"dismissed\",\n      \"id\": \"GF-dc67055295dd\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "human-rework",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "disposition": "rework",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "rework",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "rework",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-0dc37b901f47",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "rework",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-d0f800d03801",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "rework",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [
+            "GF-0dc37b901f47",
+            "GF-d0f800d03801"
+          ],
+          "allowedNext": [
+            "create-rework"
+          ],
+          "convergenceSha256": "193bde2cf2d563c7cd63b428bc41cddf1d6b672b64b25016710a659c2731232b"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `193bde2cf2d563c7cd63b428bc41cddf1d6b672b64b25016710a659c2731232b`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-0dc37b901f47 | CF-f16dedcc2fa9 | S:REQ-001 | rework | The independent reviewer inspected this exact retained finding. |\n| GF-d0f800d03801 | CF-12932d70d4b9 | S:REQ-002 | rework | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- `GF-0dc37b901f47`\n- `GF-d0f800d03801`\n\n## Allowed next actions\n\n- `create-rework`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"create-rework\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"193bde2cf2d563c7cd63b428bc41cddf1d6b672b64b25016710a659c2731232b\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"rework\",\n      \"id\": \"GF-0dc37b901f47\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"rework\",\n      \"id\": \"GF-d0f800d03801\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [\n    \"GF-0dc37b901f47\",\n    \"GF-d0f800d03801\"\n  ],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    },
+    {
+      "name": "human-intent-amendment",
+      "input": {
+        "reconciliation": {
+          "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "work/reconcile.json",
+          "intervalId": "INT-1",
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "target": {
+            "head": "cccccccccccccccccccccccccccccccccccccccc"
+          },
+          "findings": [
+            {
+              "path": "src/convert.js",
+              "verdict": "planned",
+              "clauseIds": [
+                "S:REQ-001"
+              ]
+            },
+            {
+              "path": "src/extra.js",
+              "verdict": "unplanned",
+              "clauseIds": []
+            }
+          ]
+        },
+        "indexes": [
+          {
+            "indexSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "clauses": [
+              {
+                "id": "S:REQ-001",
+                "body": "Convert an integer."
+              },
+              {
+                "id": "S:REQ-002",
+                "body": "Preserve the independent identity."
+              }
+            ]
+          }
+        ],
+        "planned": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "expectedPaths": [
+                  "src/convert.js"
+                ],
+                "tests": [
+                  "test/convert.test.js"
+                ]
+              },
+              "S:REQ-002": {
+                "expectedPaths": [
+                  "src/identity.js"
+                ],
+                "tests": [
+                  "test/identity.test.js"
+                ]
+              }
+            }
+          }
+        ],
+        "observed": [
+          {
+            "claims": {
+              "S:REQ-001": {
+                "verdict": "matched",
+                "observedPaths": [
+                  "src/convert.js"
+                ],
+                "testResults": [
+                  "test/convert.test.js"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "disposition": "update-intent",
+      "adjudications": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "update-intent",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-002"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        },
+        {
+          "itemId": "CF-f16dedcc2fa9",
+          "disposition": "update-intent",
+          "reason": "The independent reviewer inspected this exact retained finding.",
+          "clauseIds": [
+            "S:REQ-001"
+          ],
+          "actor": "reviewer",
+          "at": "2026-11-12T10:00:00.000Z"
+        }
+      ],
+      "expected": {
+        "facts": [
+          {
+            "id": "CF-12932d70d4b9",
+            "kind": "absent-observed-claim",
+            "clauseIds": [
+              "S:REQ-002"
+            ],
+            "paths": [],
+            "evidence": [],
+            "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+          },
+          {
+            "id": "CF-f16dedcc2fa9",
+            "kind": "unclaimed-changed-path",
+            "clauseIds": [],
+            "paths": [
+              "src/extra.js"
+            ],
+            "evidence": [],
+            "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+          }
+        ],
+        "bindings": {
+          "iteration": 1,
+          "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "configurationRevision": null,
+          "constitutionSha256": null,
+          "specification": null,
+          "planning": null,
+          "clauseIndexSha256": [
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          ],
+          "reconciliation": {
+            "path": "work/reconcile.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "intervalId": "INT-1"
+          },
+          "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+          "plannedClaimsSha256": [
+            "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+          ],
+          "observedClaimsSha256": [
+            "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+          ],
+          "evidenceSha256": []
+        },
+        "projection": {
+          "schemaVersion": 6,
+          "resultType": "convergence",
+          "workId": "case-1",
+          "iteration": 1,
+          "bindings": {
+            "iteration": 1,
+            "configurationSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "configurationRevision": null,
+            "constitutionSha256": null,
+            "specification": null,
+            "planning": null,
+            "clauseIndexSha256": [
+              "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ],
+            "reconciliation": {
+              "path": "work/reconcile.json",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "intervalId": "INT-1"
+            },
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sourceTargetCommit": "cccccccccccccccccccccccccccccccccccccccc",
+            "plannedClaimsSha256": [
+              "a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a"
+            ],
+            "observedClaimsSha256": [
+              "6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe"
+            ],
+            "evidenceSha256": []
+          },
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ],
+          "settledByPlan": [],
+          "candidates": [],
+          "candidateRecords": [],
+          "candidateRecordBindings": [],
+          "legacyMigration": null,
+          "findings": [
+            {
+              "id": "GF-94801448d49c",
+              "source": "deterministic",
+              "itemId": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "disposition": "update-intent",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            },
+            {
+              "id": "GF-cedd0abb1e1f",
+              "source": "deterministic",
+              "itemId": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "classification": null,
+              "clauseIds": [
+                "S:REQ-001"
+              ],
+              "disposition": "update-intent",
+              "decision": {
+                "actor": "reviewer",
+                "at": "2026-11-12T10:00:00.000Z",
+                "reason": "The independent reviewer inspected this exact retained finding."
+              }
+            }
+          ],
+          "unresolvedBlockers": [
+            "GF-94801448d49c",
+            "GF-cedd0abb1e1f"
+          ],
+          "allowedNext": [
+            "propose-intent-amendment"
+          ],
+          "convergenceSha256": "99892510bb127190827d4fa3ca0b574c5a9d560e5541b794c84ff18502898c38"
+        },
+        "artifact": "# Convergence — case-1\n\n> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.\n\n## Iteration\n\n- Iteration: **1**\n- Projection SHA-256: `99892510bb127190827d4fa3ca0b574c5a9d560e5541b794c84ff18502898c38`\n- Reconciliation SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`\n- Source target: `cccccccccccccccccccccccccccccccccccccccc`\n\n## Deterministic facts\n\n- **CF-12932d70d4b9** · absent-observed-claim · S:REQ-002: no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\n- **CF-f16dedcc2fa9** · unclaimed-changed-path: src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\n\n## Assisted candidates\n\n- No assisted candidates are bound to this iteration.\n\n## Findings and dispositions\n\n| Finding | Item | Clauses | Disposition | Reason |\n|---|---|---|---|---|\n| GF-94801448d49c | CF-12932d70d4b9 | S:REQ-002 | update-intent | The independent reviewer inspected this exact retained finding. |\n| GF-cedd0abb1e1f | CF-f16dedcc2fa9 | S:REQ-001 | update-intent | The independent reviewer inspected this exact retained finding. |\n\n## Unresolved blockers\n\n- `GF-94801448d49c`\n- `GF-cedd0abb1e1f`\n\n## Allowed next actions\n\n- `propose-intent-amendment`\n",
+        "serialized": "{\n  \"allowedNext\": [\n    \"propose-intent-amendment\"\n  ],\n  \"bindings\": {\n    \"clauseIndexSha256\": [\n      \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"\n    ],\n    \"configurationRevision\": null,\n    \"configurationSha256\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\n    \"constitutionSha256\": null,\n    \"evidenceSha256\": [],\n    \"iteration\": 1,\n    \"observedClaimsSha256\": [\n      \"6c43dfc419337aa1f45a1da7033b2ddbe066b1b598cfbc6cf1c4371a6d517bfe\"\n    ],\n    \"plannedClaimsSha256\": [\n      \"a0a8a195d4f04ac4ff33d6a7c9f18d04cdc7176bb17a71e2a3dafe0365f7c76a\"\n    ],\n    \"planning\": null,\n    \"reconciliation\": {\n      \"intervalId\": \"INT-1\",\n      \"path\": \"work/reconcile.json\",\n      \"sha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n    },\n    \"sourceBaseCommit\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\n    \"sourceTargetCommit\": \"cccccccccccccccccccccccccccccccccccccccc\",\n    \"specification\": null\n  },\n  \"candidateRecordBindings\": [],\n  \"candidateRecords\": [],\n  \"candidates\": [],\n  \"convergenceSha256\": \"99892510bb127190827d4fa3ca0b574c5a9d560e5541b794c84ff18502898c38\",\n  \"facts\": [\n    {\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"detail\": \"no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented\",\n      \"evidence\": [],\n      \"id\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"paths\": []\n    },\n    {\n      \"clauseIds\": [],\n      \"detail\": \"src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned\",\n      \"evidence\": [],\n      \"id\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"paths\": [\n        \"src/extra.js\"\n      ]\n    }\n  ],\n  \"findings\": [\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-002\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"update-intent\",\n      \"id\": \"GF-94801448d49c\",\n      \"itemId\": \"CF-12932d70d4b9\",\n      \"kind\": \"absent-observed-claim\",\n      \"source\": \"deterministic\"\n    },\n    {\n      \"classification\": null,\n      \"clauseIds\": [\n        \"S:REQ-001\"\n      ],\n      \"decision\": {\n        \"actor\": \"reviewer\",\n        \"at\": \"2026-11-12T10:00:00.000Z\",\n        \"reason\": \"The independent reviewer inspected this exact retained finding.\"\n      },\n      \"disposition\": \"update-intent\",\n      \"id\": \"GF-cedd0abb1e1f\",\n      \"itemId\": \"CF-f16dedcc2fa9\",\n      \"kind\": \"unclaimed-changed-path\",\n      \"source\": \"deterministic\"\n    }\n  ],\n  \"iteration\": 1,\n  \"legacyMigration\": null,\n  \"resultType\": \"convergence\",\n  \"schemaVersion\": 6,\n  \"settledByPlan\": [],\n  \"unresolvedBlockers\": [\n    \"GF-94801448d49c\",\n    \"GF-cedd0abb1e1f\"\n  ],\n  \"workId\": \"case-1\"\n}\n"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "name": "missing-reconciliation",
+      "operation": "convergenceFacts",
+      "arguments": [
+        {}
+      ],
+      "expected": {
+        "name": "SingularityFlowError",
+        "message": "Convergence requires the reconciliation record it operates on.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "invalid-iteration",
+      "operation": "convergenceBindings",
+      "arguments": [
+        {
+          "iteration": 0,
+          "reconciliation": {
+            "reconciliationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "path": "work/reconcile.json",
+            "intervalId": "INT-1",
+            "sourceBaseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "target": {
+              "head": "cccccccccccccccccccccccccccccccccccccccc"
+            },
+            "findings": [
+              {
+                "path": "src/convert.js",
+                "verdict": "planned",
+                "clauseIds": [
+                  "S:REQ-001"
+                ]
+              },
+              {
+                "path": "src/extra.js",
+                "verdict": "unplanned",
+                "clauseIds": []
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "name": "SingularityFlowError",
+        "message": "Convergence iteration must be a positive integer.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "missing-reconciliation-hash",
+      "operation": "convergenceBindings",
+      "arguments": [
+        {
+          "iteration": 1,
+          "reconciliation": {}
+        }
+      ],
+      "expected": {
+        "name": "SingularityFlowError",
+        "message": "Convergence requires a reconciliation record hash.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "unknown-item",
+      "operation": "validateAdjudication",
+      "arguments": [
+        {
+          "itemId": "CF-missing",
+          "disposition": "dismissed",
+          "reason": "Reviewed."
+        },
+        {
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "name": "SingularityFlowError",
+        "message": "Adjudication references unknown convergence item 'CF-missing'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "unknown-disposition",
+      "operation": "validateAdjudication",
+      "arguments": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "silently-accept"
+        },
+        {
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "name": "SingularityFlowError",
+        "message": "Adjudication disposition must be one of rework, accepted-deviation, dismissed, deferred, update-intent; got 'silently-accept'.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "missing-reason",
+      "operation": "validateAdjudication",
+      "arguments": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "dismissed"
+        },
+        {
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "name": "SingularityFlowError",
+        "message": "Disposition 'dismissed' on CF-12932d70d4b9 needs a human-authored reason.",
+        "code": null,
+        "details": null
+      }
+    },
+    {
+      "name": "missing-intent-clauses",
+      "operation": "validateAdjudication",
+      "arguments": [
+        {
+          "itemId": "CF-12932d70d4b9",
+          "disposition": "update-intent",
+          "reason": "Revise scope."
+        },
+        {
+          "facts": [
+            {
+              "id": "CF-12932d70d4b9",
+              "kind": "absent-observed-claim",
+              "clauseIds": [
+                "S:REQ-002"
+              ],
+              "paths": [],
+              "evidence": [],
+              "detail": "no observed claim records evidence for S:REQ-002; this is missing trace evidence, not proof that the requirement is unimplemented"
+            },
+            {
+              "id": "CF-f16dedcc2fa9",
+              "kind": "unclaimed-changed-path",
+              "clauseIds": [],
+              "paths": [
+                "src/extra.js"
+              ],
+              "evidence": [],
+              "detail": "src/extra.js changed and no observed claim cites it; this is missing trace evidence, not a finding that the change was unplanned"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "name": "SingularityFlowError",
+        "message": "Disposition 'update-intent' on CF-12932d70d4b9 must name the clause IDs the specification should change. Without them there is nothing for an amendment to revise.",
+        "code": "ADJUDICATION_CLAUSES_REQUIRED",
+        "details": {
+          "itemId": "CF-12932d70d4b9"
+        }
+      }
+    }
+  ]
+}

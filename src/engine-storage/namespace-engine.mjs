@@ -1,4 +1,6 @@
 import {createNamespaceSourceReviewPorts} from './namespace-source-review.mjs';
+import {createNamespaceConvergencePorts} from './namespace-convergence.mjs';
+import {createNamespaceConvergenceAdvancementPort} from './namespace-convergence-advancement.mjs';
 /** One explicit headless composition. Operations still enter the SDK registry exactly once. */
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
@@ -87,20 +89,23 @@ export function createNamespaceEngine(options={}) {
   const common={records,content,scope,workId,authority,access,clock,localContent,sources,
     modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,sourceReaders,sourceControlReaders};
   const runtime=working?createNamespacePreparationRuntime({...common,inputContent:localContent,localRecords:working.records,localContent:working.content}):null;
-  const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planPorts,witnessPorts,assignmentPort,sourceReviewPorts,constitutionExceptionPorts;
+  const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planPorts,witnessPorts,assignmentPort,sourceReviewPorts,constitutionExceptionPorts,convergencePorts;
+  const convergence=()=>convergencePorts??=createNamespaceConvergencePorts(common,runtime);
   const constitutionExceptions=()=>constitutionExceptionPorts??=createNamespaceConstitutionExceptionPorts(common);
   const sourceReviews=()=>sourceReviewPorts??=createNamespaceSourceReviewPorts(common);
   const witnesses=()=>witnessPorts??=createNamespaceWitnessPorts(common),plans=()=>planPorts??=createNamespacePlanDecisionPorts(common);
-  const decisionOperations=Object.freeze(['decision.constitution-exception','phase.assign','source-review.record','source-review.decide','decision.choose','decision.plan','plan.correction.record','decision.witness',...NAMESPACE_SCOPE_DECISION_OPERATIONS]);
+  const decisionOperations=Object.freeze(['convergence.adjudicate','decision.constitution-exception','phase.assign','source-review.record','source-review.decide','decision.choose','decision.plan','plan.correction.record','decision.witness',...NAMESPACE_SCOPE_DECISION_OPERATIONS]);
   const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord={operations:decisionOperations,...Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
     const operation=parameters.at(-1)?.operation?.id;
     if(!decisionOperations.includes(operation))throw new SingularityFlowError(
       'This decision needs its declared namespace evidence and authority owner.',{code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:'decisionRecord',required:[operation]}});
-    const port=operation==='decision.constitution-exception'?constitutionExceptions().decision:operation==='source-review.record'?sourceReviews().record:operation==='source-review.decide'?sourceReviews().decide:operation==='phase.assign'?(assignmentPort??=createNamespaceAssignmentPort(common)):operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
+    const port=operation==='convergence.adjudicate'?convergence().decision:operation==='decision.constitution-exception'?constitutionExceptions().decision:operation==='source-review.record'?sourceReviews().record:operation==='source-review.decide'?sourceReviews().decide:operation==='phase.assign'?(assignmentPort??=createNamespaceAssignmentPort(common)):operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
       :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
     return port[stage](...parameters);
   }]))};
   const ports={...lazyPorts(()=>sourceReviews(),{sourceReviewContext:['load','read']}),...createNamespaceReadPorts(common,{authority}),
+    convergenceContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>convergence().convergenceContext[stage](...args)])),
+    ...lazyPorts(()=>({advancement:createNamespaceConvergenceAdvancementPort(common)}),{advancement:['withReview']}),
     constitutionExceptionContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>constitutionExceptions().context[stage](...args)])),
     planCorrectionContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>plans().correctionContext[stage](...args)])),
     witnessContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>witnesses().witnessContext[stage](...args)])),

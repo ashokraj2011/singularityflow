@@ -9,6 +9,9 @@ import {clarificationRecord,CLARIFICATION_EVIDENCE} from './namespace-clarificat
 import {namespaceArtifactSetManifest,ARTIFACT_SET_EVIDENCE} from './namespace-artifact-set-reader.mjs';
 import {CONSTITUTION_POLICY_EVIDENCE} from './namespace-constitution-reader.mjs';
 import {artifactBytesAreText} from '../kernel/artifact-content.mjs';
+import {NAMESPACE_CONVERGENCE_SCHEMAS} from '../foundation/record-schema.mjs';
+import {namespaceConvergenceManifest} from './namespace-convergence-policy.mjs';
+import {CONVERGENCE_POLICY_EVIDENCE} from './namespace-convergence-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 export function createNamespacePublicationPolicyWriter({observer,content,scope,workId,reader}) {
   const put=content.put.bind(content);
@@ -84,5 +87,16 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     namespaceConstitutionManifest(manifest,{scope,workId,phaseId:publication.phase});
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CONSTITUTION_POLICY_EVIDENCE,record:await save(manifest,signal)}),report};
   }
-  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment,retainConstitution});
+  async function retainConvergence(publication,{snapshot,head,signal}={}){
+    const value=await reader.convergenceCandidate(publication,snapshot,{signal});
+    for(const item of value.pendingEvidence){const saved=await put(scope,'evidence',item.bytes,{signal});
+      if(!same(contentReference(saved?.reference),item.reference)||typeof saved.reused!=='boolean')throw new SingularityFlowError('The content store returned another convergence projection.',{code:'ENGINE_PORT_RESULT_INVALID'});
+      await observer.bytes(item.reference,item.reference.bytes,signal);}
+    const report=await save(value.report,signal),manifest={schemaVersion:NAMESPACE_CONVERGENCE_SCHEMAS.policy.currentVersion,
+      format:'sflow-namespace-convergence-policy/v1',...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+      artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
+    namespaceConvergenceManifest(manifest,{scope,workId,phaseId:publication.phase});
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CONVERGENCE_POLICY_EVIDENCE,record:await save(manifest,signal)}),report};
+  }
+  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment,retainConstitution,retainConvergence});
 }

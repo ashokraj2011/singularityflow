@@ -85,6 +85,7 @@ export function standaloneDecisionAdmission(operation, workflow) {
     return {workId, phase:workflow.pendingDecision.after ?? null};
   }
   const closed = {
+    'convergence.adjudicate':['CONVERGENCE_STORY_CLOSED','Decide convergence findings while the Story is in progress.'],
     'decision.constitution-exception':['CONSTITUTION_EXCEPTION_STORY_CLOSED','Record an exact article exception while the Story is in progress.'],
     'decision.scope':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is decided while it is in progress.`],
     'decision.completeness':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is reviewed while it is in progress.`],
@@ -115,6 +116,8 @@ export function standaloneDecisionAdmission(operation, workflow) {
 export function standaloneDecisionRequest(operation, input) {
   const reason = input.reason ?? '';
   if(operation==='source-review.record')return {phaseId:input.phaseId??null,report:input.report??null,expectedContext:input.expectedContext??null};
+  if(operation==='convergence.adjudicate')return {phaseId:input.phaseId??null,itemId:input.itemId??null,disposition:input.disposition??null,
+    clauseIds:input.clauseIds??[],reason,expectedContext:input.expectedContext??null};
   if(operation==='source-review.decide')return {phaseId:input.phaseId??null,findingId:input.findingId??null,reason,expectedContext:input.expectedContext??null};
   if(operation==='phase.assign')return {phaseId:input.phaseId??null,assignee:input.assignee??null};
   if(operation==='decision.constitution-exception')return {phaseId:input.phaseId??null,articleId:String(input.articleId??'').toUpperCase(),

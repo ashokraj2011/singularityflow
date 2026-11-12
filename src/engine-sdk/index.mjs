@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -12,7 +12,7 @@ import {decisionRecordPlan,assertDecisionConfirmation,standaloneDecisionAdmissio
 import {runDecisionPlan} from './decision-execution.mjs';
 import {phaseReviewSelection,phaseReviewManifest,phaseReviewResourcesManifest,phaseBeginSelection,phaseBeginResult,
   phaseRolloverSelection,phaseRolloverPlan,assertPhaseRolloverConfirmation,
-  storyStatusSelection,storyStatusManifest,workflowGuidePlan,phaseInspectionGeneration} from '../kernel/phase-policy.mjs';
+  storyStatusSelection,storyStatusManifest,workflowGuidePlan,phaseInspectionGeneration,phaseExplicitlyReopened,nextPhaseGeneration} from '../kernel/phase-policy.mjs';
 import {MAXIMUM_DOCUMENT_READ_BYTES,validDocumentReference,documentReadSelection,
   documentReadBinding,documentReadResult} from '../kernel/document-read.mjs';
 import {phaseCompositionAdmission} from '../kernel/phase-admission.mjs';
@@ -55,6 +55,8 @@ const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','select
 const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
 const CORRECTION_FIELDS=Object.freeze(['ownerPhase','operations','reason','upstreamIssue']);
 const SINGLE_DECISIONS = Object.freeze([
+  ['convergence.adjudicate','convergence-adjudication',['phaseId','itemId','disposition','clauseIds','reason','expectedContext'],
+    {phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','itemId','disposition','expectedContext'])}],
   ['source-review.record','source-review',['phaseId','report','expectedContext'],{humanDecision:false,authority:'requester',phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','report','expectedContext'])}],
   ['source-review.decide','source-review-disposition',['phaseId','findingId','reason','expectedContext'],{phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','findingId','reason','expectedContext'])}],
   ['phase.assign','phase-assignment',['phaseId','assignee'],{authority:'requester',humanDecision:false,phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','assignee'])}],
@@ -126,6 +128,8 @@ const definitions = [
   ...UPSTREAM_OPERATIONS,
   {id:'conformance.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'conformanceContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectConformanceContext'},
+  {id:'convergence.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'convergenceContext',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectConvergenceContext'},
   {id:'conformance.decide',version:1,effect:'decision-record',humanDecision:true,recordKind:'conformance-gap',phaseBinding:'requested-target',keepsCurrentPhase:true,
     requestFields:Object.freeze(['phaseId','expected','clauseId','ownerPhase','outcome','expires','reason']),
     inputFields:Object.freeze(['workId','phaseId','expected','clauseId','ownerPhase','outcome','expires','reason']),port:'conformanceDecision',
@@ -511,6 +515,7 @@ function continuationOperation(action) {
     case 'decide-source-review-finding': id='source-review.context';break;
     case 'submit-phase': id='phase.submit';break;
     case 'advance-convergence': id='convergence.advance';delete inputs.phaseId;break;
+    case 'inspect-convergence-context': id='convergence.context';break;
     case 'approve-phase': id='phase.approve';break;
     case 'view-phase-documents': id='phase.review';break;
     case 'publish-phase': id='phase.publish';break;
@@ -522,6 +527,7 @@ function continuationOperation(action) {
     case 'resume-phase-authoring':
       if(action.stage==='open-code-generation')id='phase.begin';
       else if(action.stage==='validate-existing-draft')id='phase.prepublish';
+      else if(action.stage==='review-convergence')id='convergence.context';
       else if(['complete-draft','create-missing-draft','resume-draft'].includes(action.stage))id='phase.prepare';
       else return null;
       break;
@@ -649,6 +655,23 @@ async function inspectSourceReviewContext(port,input,signal){notCancelled(signal
     ||!/^sha256:[a-f0-9]{64}$/u.test(facts.contextBinding??'')||!Array.isArray(facts.resources)||!['missing','ready','stale','correction-required'].includes(facts.status?.status))throw new SingularityFlowError(
       'The source-review context returned another published binding.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'source-review.context',subject:bound.subject,manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
+async function inspectConvergenceContext(port,input,signal){notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  if(context?.subject?.kind!=='story'||typeof context.subject.id!=='string'||!context.phase||context.workflow?.workItem?.id!==context.subject.id
+    ||!Number.isSafeInteger(context.phase.generation)||context.phase.generation<0
+    ||!equalJson(context.workflow.phases?.[context.phase.id],context.phase))throw new SingularityFlowError('The convergence port did not bind an actual Story phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  const phase=context.phase,expectedGeneration=phase?.generation>0&&!phaseExplicitlyReopened(context.workflow,phase)?phase.generation:nextPhaseGeneration(phase),
+    bound=data({subject:context.subject,phase:phase?.id,generation:expectedGeneration}),facts=data(await port.read(context,{signal}));notCancelled(signal);
+  let profile=null;try{profile=namespaceConvergenceContextProfile(facts);}catch{ /* A port cannot change the context ABI. */ }
+  const fields=['schemaVersion','profile','workId','phase','generation','contextBinding','sourceSha256','projection','reads','decisions','actions'];
+  if(!profile||Object.keys(facts).length!==fields.length||!fields.every(key=>Object.hasOwn(facts,key))||facts.profile!==profile.profile
+    ||bound.subject?.kind!=='story'||facts.workId!==bound.subject.id||input.workId!=null&&input.workId!==facts.workId
+    ||input.phaseId!=null&&facts.phase!==input.phaseId||facts.phase!==bound.phase||facts.generation!==bound.generation
+    ||!/^sha256:[a-f0-9]{64}$/u.test(facts.contextBinding??'')||!/^[a-f0-9]{64}$/u.test(facts.sourceSha256??'')
+    ||facts.projection?.workId!==facts.workId||facts.projection.phase!==facts.phase||facts.projection.generation!==facts.generation
+    ||facts.projection.sourceSha256!==facts.sourceSha256||!Array.isArray(facts.reads)||!Array.isArray(facts.decisions)||!Array.isArray(facts.actions))throw new SingularityFlowError(
+    'The convergence context returned another Story, generation or projection.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'convergence.context',subject:bound.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});}
 function witnessContextInput(value){const input=data(value);if(typeof input.clauseId!=='string'||typeof input.slotName!=='string'||typeof input.file!=='string'
     ||!input.clauseId||!input.slotName||!input.file)throw new SingularityFlowError('Name one criterion, inspection slot and published evidence path.',{code:'ENGINE_INPUT_INVALID'});
@@ -1787,7 +1810,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    inspectTestCommandContext,inspectSourceReviewContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
+    inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectStoryGuide, inspectStoryNext,

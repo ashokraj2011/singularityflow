@@ -2,7 +2,7 @@ import {createNamespaceSourceReviewOwners} from './namespace-source-review-reade
 /** Accepted Story diagnostics and advisory planning, using one explicit namespace observer. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
-import {sourceReviewRequired,phaseAuthoringPlan,phaseNeedsGeneration,nextPhaseGeneration} from '../kernel/phase-policy.mjs';
+import {sourceReviewRequired,phaseAuthoringPlan,phaseNeedsGeneration,nextPhaseGeneration,isConvergencePhase} from '../kernel/phase-policy.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceStoryQueryPorts(options,runtime=null){
@@ -36,7 +36,8 @@ export function createNamespaceStoryQueryPorts(options,runtime=null){
     const context=await load(input,'story.next',{signal}),snapshot=contexts.get(context).snapshot,workflow=snapshot.workflow,
       phase=workflow.phases[workflow.currentPhase];
     let authoringState=null,recoveryRequired=false;
-    if(runtime&&phase?.status==='in_progress'&&phaseNeedsGeneration(workflow,phase)){
+    if(phase?.status==='in_progress'&&phaseNeedsGeneration(workflow,phase)&&isConvergencePhase(phase))authoringState={available:true,stage:'review-convergence',generation:nextPhaseGeneration(phase)};
+    else if(runtime&&phase?.status==='in_progress'&&phaseNeedsGeneration(workflow,phase)){
       const token=await runtime.captureEntryDraft(phase.id,{signal}),facts=runtime.entryDraftFacts(token),draft=facts.draft;
       if(facts.revision!==snapshot.revision)throw error('Authoring observations belong to another Story snapshot.','ENGINE_CONTEXT_CHANGED');
       if(draft){const p=draft.payload;

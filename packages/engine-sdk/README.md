@@ -453,3 +453,12 @@ The namespace host also provides `test-command.context`, `test-command.request` 
 `test-command.decide`. [Story-command contracts](../../docs/ENGINE-SDK-NAMESPACE-TEST-COMMANDS.md)
 describe exact command hashes, the namespace request wrapper, original human authority and
 execution through explicitly bound SGOS checks. Accepted commands do not establish passing tests.
+
+The namespace host provides `convergence.context` and `convergence.adjudicate`, deterministic
+`phase.prepare`/`phase.publish`, and digest-confirmed `convergence.advance`. They use actual Code
+publications, original tests and human approvals. Rework retains the old answer and requires a new
+judgment after the producer's replacement execution. Submitted convergence uses packet v5; original
+packets v1–v4 keep their meanings. The optional `convergence` export provides pure value factories
+and types, without source access, evidence acceptance or approval authority. The
+[convergence contracts](../../docs/ENGINE-SDK-NAMESPACE-CONVERGENCE.md) describe these boundaries
+and the remaining Phase 5/7 owners.

@@ -7,7 +7,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,NAMESPACE_SUBMISSION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {phaseAgentMutationFacts,skillPhaseHostRequirement} from '../kernel/phase-admission.mjs';
-import {phaseGovernancePlan,hasPublishedPhaseGeneration,phaseNeedsGeneration} from '../kernel/phase-policy.mjs';
+import {phaseGovernancePlan,hasPublishedPhaseGeneration,phaseNeedsGeneration,isConvergencePhase} from '../kernel/phase-policy.mjs';
 import {primaryDocumentPublicationRequirements} from '../kernel/publication-intent.mjs';
 import {beginPhaseSubmission,applyPhaseSubmissionDisposition,sequenceAdmission,submittedDecisionInputPlan,applySubmittedDecisionInput} from '../kernel/lifecycle-transitions.mjs';
 import {submissionRoutingSelection} from '../kernel/submission-routing.mjs';
@@ -26,12 +26,13 @@ import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {namespaceSubmissionBindingValue,namespaceSubmissionValue,namespaceSubmissionRecord,namespaceSubmissionRoutingValue,
   NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE,NAMESPACE_CHECKED_SUBMISSION_PROFILE} from './namespace-submission-contract.mjs';
 export {NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE,NAMESPACE_CHECKED_SUBMISSION_PROFILE};
+import {convergenceSubmissionEvidence} from './namespace-convergence-submission.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Submission was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 
-export function createNamespaceSubmissionPorts({records,content,localContent=null,scope,workId,authority,access,clock,notice=()=>{}}={}) {
+export function createNamespaceSubmissionPorts({records,content,localContent=null,scope,workId,authority,access,clock,sources=[],notice=()=>{}}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceStoryObserver({records,content,localContent,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
@@ -108,7 +109,8 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
       const publication=(phase.publicationBindings??[]).find(item=>item.generation===phase.generation);
       if(!publication)throw error('This host needs the namespace publication reader for its retained generation.','ENGINE_PORT_UNAVAILABLE',{required:['namespace-publication']});
       phasePublicationBindingValue(publication);
-      const request={workId,phaseId,runChecks:input.runChecks!==false,decisionValues:input.decisionValues??{}};
+      const request={workId,phaseId,runChecks:input.runChecks!==false,decisionValues:input.decisionValues??{},
+        ...(isConvergencePhase(phase)?{confirmation:input.confirmation??null}:{})};
       const basis={revision:observed.snapshot.revision,authorityVersion:observed.basis.authorityVersion};
       let requestSha256=hash(canonicalJson(request)),operationId=null;
       const acknowledging=phase.status==='awaiting_approval';
@@ -159,6 +161,12 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
         if(s.decisionPlan?.kind==='retained')required.add('retained-decision-input-provenance');
         if(workflow.resolution.presence)required.add('person-presence');
         const published=await publications.accepted(s.publication,s.phaseId,{signal,snapshot});
+        let convergence=null;
+        if(isConvergencePhase(phase)){
+          if(!_intent.confirmedConvergence||agent.actor.actorKind!=='human')throw error('Convergence requires the exact human-confirmed advancement.','ENGINE_HUMAN_AUTHORITY_REQUIRED');
+          convergence=convergenceSubmissionEvidence(publications,published,s.publication,input.confirmation,{projectId:scope.projectId,workId,phaseId:s.phaseId,generation:phase.generation});
+          await publications.policies.freshConvergenceSources(published,sources,{signal});
+        }
         for(const owner of [...publications.specifications.owners(published),...publications.policies.owners(published)])required.delete(owner);
         if(published.checks){await checks.assertCurrent(published.checks,s.phaseId,{signal});required.delete('check-execution');}
         if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
@@ -176,7 +184,7 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
           const value=namespaceSubmissionRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
             operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
             publication:s.publication,actor:agent.actor,agentId:agent.agentId,submittedAt},
-            {routing:await routing(snapshot,phase,signal),checks:published.checks??null,sourceReview:sourceReview?.binding??null});
+            {routing:await routing(snapshot,phase,signal),checks:published.checks??null,sourceReview:sourceReview?.binding??null,convergence});
           namespaceSubmissionValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const data=Buffer.from(canonicalJson(value)),expectedReference={namespace:'evidence',sha256:hash(data),bytes:data.byteLength};
           const saved=await put(scope,'evidence',data,{signal});
@@ -202,7 +210,7 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
           s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
         }
         if(!s.plan)throw error('Submission preparation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
-        const token=Object.freeze({});preparations.set(token,{context,agent,snapshot});return token;
+        const token=Object.freeze({});preparations.set(token,{context,agent,snapshot,...(convergence?{published,convergence}:{})});return token;
       },async accepted=>{
         const plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
         if(!plan)throw error('The accepted submission lost its retained candidate.','ENGINE_STORAGE_CORRUPT');
@@ -213,7 +221,9 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
     async commit(context,token,{signal}={}) {
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this submission preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
-      return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,p.agent);await unchanged(p.snapshot,signal);},{signal});
+      return commitNamespaceOperation(committer,s.operationId,async()=>{
+        if(p.convergence)await publications.policies.freshConvergenceSources(p.published,sources,{signal});
+        await authorize(signal,p.agent);await unchanged(p.snapshot,signal);},{signal});
     },
     async finish(context,_prepared,accepted) {
       const s=selected(context),plan=checkedPlan(await committer.intent(s.operationId),s);

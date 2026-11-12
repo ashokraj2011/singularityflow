@@ -1,0 +1,34 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {writeFile} from 'node:fs/promises';import path from 'node:path';
+import {namespaceConvergenceFixture} from './helpers/namespace-convergence-fixture.mjs';
+import {converterSource} from './helpers/namespace-source-clause-fixture.mjs';
+test('namespace convergence prepares the exact deterministic body and publishes only with actual approved Code inputs',{timeout:300000},async t=>{
+  const f=await namespaceConvergenceFixture(t,{supporting:false}),before=await f.head(),prepared=await f.engine.run('phase.prepare',{phaseId:'release'});
+  assert.equal(prepared.manifest.convergence.factCount,0);assert.equal(prepared.manifest.convergence.iteration,1);assert.equal(prepared.manifest.testsRun,false);
+  const draft=await f.engine.run('phase.draft.read',{phaseId:'release'});assert.match(draft.manifest.artifact.content.text,/# Convergence/u);
+  assert.deepEqual(await f.engine.run('phase.prepare',{phaseId:'release'}),prepared);assert.deepEqual(await f.head(),before);
+  const context=await f.engine.run('convergence.context',{phaseId:'release'});assert.equal(context.manifest.actions[0].operation,'phase.publish');
+  const nextStep=await f.engine.run('story.next',{});assert.equal(nextStep.manifest.actions.find(row=>row.timing==='now').operation.id,'convergence.context');
+  const checked=await f.engine.run('phase.prepublish',{phaseId:'release'});assert.equal(checked.status,'ready');
+  await assert.rejects(f.engine.run('phase.draft.write',{operationId:'alter-kernel-projection',workId:f.inputs.workId,phaseId:'release',
+    expectedRevision:draft.manifest.draft.revision,content:await f.upload('# A different projection\n'),reason:'Attempt an authored replacement of the kernel body.'}),{code:'CONVERGENCE_ARTIFACT_KERNEL_OWNED'});
+  await writeFile(path.join(f.root,'src/converter.js'),converterSource+'// A later application edit.\n');
+  await assert.rejects(f.engine.run('phase.publish',{phaseId:'release'}),error=>{t.diagnostic(JSON.stringify({code:error.code,details:error.details}));return error.code==='PRIOR_CODE_TEST_EVIDENCE_REQUIRED';});
+  assert.deepEqual(await f.head(),before);await writeFile(path.join(f.root,'src/converter.js'),converterSource);
+  const published=await f.engine.run('phase.publish',{phaseId:'release'});assert.equal(published.generation,1);assert.equal(f.starts(),1);
+  const snapshot=await f.capture(),binding=snapshot.workflow.phases.release.publicationBindings[0],record=await f.json(binding.record),policy=record.policyEvidence.find(row=>row.kind==='convergence-projection/v1');
+  assert.ok(policy);const manifest=await f.json(policy.record),report=await f.json(manifest.report),projection=await f.json(report.projection);
+  assert.deepEqual(projection.projection.facts,[]);assert.equal(projection.source.inputs[0].phase,'build');
+  const next=await f.engine.run('convergence.context',{phaseId:'release'});assert.equal(next.manifest.actions[0].operation,'convergence.advance');
+  await assert.rejects(f.engine.run('phase.submit',{phaseId:'release'}),{code:'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED'});
+  const preview=await f.engine.run('convergence.advance',{});assert.equal(preview.status,'ready-to-confirm');
+  const expectedHead=await f.head();
+  await assert.rejects(f.engine.run('convergence.advance',{confirmation:'sha256:'+'0'.repeat(64)}),{code:'CONVERGENCE_ADVANCE_CONFIRMATION_STALE'});
+  assert.deepEqual(await f.head(),expectedHead);
+  const submitted=await f.engine.run('convergence.advance',{confirmation:preview.confirmationDigest});assert.equal(submitted.status,'awaiting-approval');
+  const pending=await f.capture(),packet=await f.json(pending.workflow.phases.release.namespaceSubmission.record);
+  assert.equal(packet.schemaVersion,5);assert.equal(packet.convergence.confirmationDigest,preview.confirmationDigest);
+  const retainedHead=await f.head(),replayed=await f.engine.run('convergence.advance',{confirmation:preview.confirmationDigest});
+  assert.equal(replayed.status,'retained');assert.equal(replayed.effects.committed,false);assert.equal(replayed.submission.effects.committed,false);
+  assert.equal(replayed.revision,submitted.revision);assert.deepEqual(await f.head(),retainedHead);
+  await f.approve('release');assert.equal((await f.capture()).workflow.status,'closed');assert.equal(f.starts(),1);
+});

@@ -106,7 +106,8 @@ test('private member and witness context wire versions are admitted by one pure 
   const old={format:'sflow-namespace-prepared-phase/v1',data:'original'},copy=structuredClone(old);
   assert.deepEqual(namespacePreparedPayloadProfile(old),{version:1,format:old.format,members:false});assert.deepEqual(old,copy);
   assert.equal(namespacePreparedPayloadProfile({schemaVersion:2,format:'sflow-namespace-prepared-phase/v2'}).members,true);
-  assert.throws(()=>namespacePreparedPayloadProfile({schemaVersion:3,format:'sflow-namespace-prepared-phase/v3'}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.deepEqual(namespacePreparedPayloadProfile({schemaVersion:3,format:'sflow-namespace-prepared-phase/v3'}),{version:3,format:'sflow-namespace-prepared-phase/v3',members:true,convergence:true});
+  assert.throws(()=>namespacePreparedPayloadProfile({schemaVersion:4,format:'sflow-namespace-prepared-phase/v4'}),{code:'SCHEMA_VERSION_FUTURE'});
   assert.equal(namespaceWitnessContextProfile({schemaVersion:1}).profile,'sflow-namespace-witness-context/v1');
   assert.throws(()=>namespaceWitnessContextProfile({schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});
 });

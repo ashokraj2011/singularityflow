@@ -87,8 +87,8 @@ export async function decisionWitnessDeferCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded ${record.id}: ${record.to} gives ${record.clauseId}'s ${record.method} sign-off of slot ${record.slot}, and holds it at its approval; decided through ${record.authorityGroup}.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.witness-defer', classification: 'mutation' },

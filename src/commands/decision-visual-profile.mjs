@@ -145,8 +145,8 @@ export async function decisionVisualProfileCommand(positionals, options) {
       ? `Revoked ${record.revokes}: ${record.profileId} needs a screenshot for ${record.phase} again.`
       : `Recorded ${record.id}: ${record.profileId} does not apply to this Story for ${record.phase}, decided through ${record.authorityGroup}. Coverage lists it as not applicable, never as passed.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.visual-profile', classification: 'mutation' },

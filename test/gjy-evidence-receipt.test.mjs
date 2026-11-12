@@ -67,6 +67,7 @@ test('submission evidence is concise, honest, and reproducible from durable inpu
   assert.notEqual(publishedObservation.observationSha256, first.observationSha256,
     'live publication reachability remains independently auditable');
   assert.match(renderEvidenceReceipt(first), /Evidence receipt: WRK-1/);
+  assert.doesNotMatch(renderEvidenceReceipt(first), /[0-9a-f]{12}/u, 'the terminal receipt names no commit or digest');
   const pullRequest = storyPullRequestBody({
     ...workflow,
     workItem: { ...workflow.workItem, title: 'Receipt proof', workType: 'quick-fix' },
@@ -113,7 +114,8 @@ test('a Story with several repositories shows each base as an observation, and i
     { repositoryId: 'api', baseBranch: 'main', baseCommit },
     { repositoryId: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40), source: 'override' }
   ]);
-  const expected = `Bases: api: main @ ${baseCommit.slice(0, 12)} · web: develop @ ${'b'.repeat(12)} (override)`;
+  // A person reads each repository and its branch; the commit stays in the record (owner, 2026-11-11: no SHA shown).
+  const expected = 'Bases: api: main · web: develop (override)';
   assert.ok(renderEvidenceReceipt(several).split('\n').includes(expected), renderEvidenceReceipt(several));
   assert.match(renderEvidenceReceiptMarkdown(several), /- Bases: `api: main @ [0-9a-f]{12}`, `web: develop @ b{12} \(override\)`/u);
   assert.doesNotMatch(renderEvidenceReceipt(single), /Bases:/);

@@ -64,7 +64,7 @@ function cardHtml(approval: PendingApproval, standing: StoryStanding | null = nu
     </div>
     <p class="muted">${escape(approval.detail)}</p>
     ${approval.afterApproval ? `<p class="callout"><b>After approval:</b> ${escape(approval.afterApproval)}</p>` : ''}
-    ${approval.sha256 ? `<p><code>${escape(approval.sha256.slice(0, 16))}</code> <span class="muted">the exact bytes being approved</span></p>` : ''}
+    ${approval.sha256 ? '<p class="muted">The approval binds the exact bytes of this generation.</p>' : ''}
     ${chainHtml(approval)}
     ${signaturesHtml(approval, standing)}
     ${approval.selfApproval

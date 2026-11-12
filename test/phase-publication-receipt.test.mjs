@@ -8,7 +8,9 @@ const receipt = { schemaVersion: 1, resultType: 'sflow-phase-publication', statu
   effects: { committed: true, pushed: true } };
 
 test('only an exact completed receipt acknowledges publication, without rendering documents', () => {
-  assert.match(phasePublicationSummary(receipt, expected), /Published intake generation 1.*aaaaaaaa and pushed/);
+  // The step and its generation; the commit stays in the receipt (owner, 2026-11-11: no SHA shown).
+  assert.match(phasePublicationSummary(receipt, expected), /Published intake generation 1 for [^ ]+ and pushed\./u);
+  assert.doesNotMatch(phasePublicationSummary(receipt, expected), /aaaaaaaa/u);
   for (const changed of [null, {}, { ...receipt, workId: 'OTHER' }, { ...receipt, phase: 'code' },
     { ...receipt, commit: 'short' }, { ...receipt, generation: 0 }, { ...receipt, pushed: false },
     { ...receipt, effects: { committed: false, pushed: true } }]) {

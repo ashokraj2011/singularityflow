@@ -604,7 +604,7 @@ export async function phaseCommand(positionals, options) {
     return;
   }
   if (qualityFindings?.words) console.log(`Warning: ${qualityFindings.words}`);
-  console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
+  console.log(`Published ${phase.id} generation ${phase.generation}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
   if (reviewSubagent) console.log(`Next, in this turn: ${reviewSubagent.instruction}`);
   if (applicationStart?.declared) console.log(`${applicationStart.question} Start it with /sf-run-app start, or go on with the step.`);
   else if (applicationStart) console.log(applicationStart.words);

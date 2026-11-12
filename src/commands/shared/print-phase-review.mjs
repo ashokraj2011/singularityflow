@@ -2,6 +2,7 @@
 import * as style from '../../style.mjs';
 import { approvalCheckLines, blockingCommitLines, owedDecisionLines } from '../../owed-decisions.mjs';
 import { printCommandRoutes } from './print-command-routes.mjs';
+import { witnessNames } from '../../wel-review.mjs';
 
 /**
  * Report the artifacts a phase produced.
@@ -59,21 +60,24 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     if (entry.state === 'active') console.log(`Reused test evidence: ${entry.label}`);
     else console.warn(`Reused test evidence lapsed: ${entry.label}`);
   }
+  // A person reads what was found, never a digest (owner, 2026-11-11); `--json` keeps each one.
   if (review.evidenceConsistency) {
-    console.log(`\n${style.heading('Evidence consistency')} ${style.detail(review.evidenceConsistency.projectionSha256)}`);
+    console.log(`\n${style.heading('Evidence consistency')}`);
     for (const line of review.evidenceConsistency.summary) console.log(`  ${line}`);
   }
   if (review.attributionLabels?.length) {
     console.log(`\n${style.heading('SF Guard labels')} ${style.detail('who wrote the changed lines, as recorded; a label decides nothing')}`);
     for (const line of review.attributionLabels) console.log(`  ${line}`);
   }
+  // Each witness by the name approve takes (wel-review.mjs witnessNames): its criterion, numbered among several.
+  const witnessName = witnessNames(review.witnessReview?.mappings);
   for (const mapping of review.witnessReview?.mappings ?? []) {
     const safe = (value) => String(value ?? 'unavailable')
       .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, '�');
-    console.log(`\n  Witness ${safe(mapping.mappingSha256)} (accepted as adequate on approval unless decided with --witness-mapping)`);
+    const name = witnessName.get(mapping.mappingSha256) ?? mapping.clauseId;
+    console.log(`\n  Witness ${safe(name)} (accepted as adequate on approval unless decided with --witness-mapping ${safe(name)}=...)`);
     console.log(`    Clause: ${safe(mapping.clauseId)} · ${safe(mapping.clauseStatus)}`);
-    console.log(`    Test: ${safe(mapping.test ?? mapping.sourcePath)}${mapping.slot ? ` · slot ${safe(mapping.slot)}` : ''} · ${safe(mapping.logicalTestId)}`);
-    console.log(`    Declaration: ${safe(mapping.sourceDeclarationSha256)}`);
+    console.log(`    Test: ${safe(mapping.test ?? mapping.sourcePath)}${mapping.slot ? ` · slot ${safe(mapping.slot)}` : ''}`);
     console.log(`    Behavior: ${safe(mapping.clauseFields?.behavior)}`);
     console.log(`    Observable: ${safe(mapping.clauseFields?.observable)}`);
     console.log(`    Exact clause:\n${safe(mapping.clauseText).split('\n').map((line) => `      ${line}`).join('\n')}`);
@@ -91,8 +95,7 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log(`  ${style.detail(style.fields(
       document.kind ?? 'artifact',
       document.mimeType ?? 'unknown',
-      `${document.size ?? 'unknown'} bytes`,
-      document.sha256 ? `sha256:${String(document.sha256).slice(0, 12)}` : 'sha256 unavailable'
+      `${document.size ?? 'unknown'} bytes`
     ))}`);
     if (document.error) console.warn(`  Warning: document preview unavailable: ${document.error}`);
     else if (document.binary) console.log(`  Binary document: open ${document.absolutePath}`);

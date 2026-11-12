@@ -29,7 +29,7 @@ async function reusedTestEvidence(root, config, workflow, phase) {
 function testRunsReview(workflow, phase) {
   const reused = (phase.checks ?? []).filter((check) => check.reusedFrom).map((check) => ({
     commandId: check.id, attemptId: check.reusedFrom.attemptId, phase: check.reusedFrom.phase, commit: check.reusedFrom.commit, counts: check.reusedFrom.counts ?? null,
-    words: `reused: ${check.reusedFrom.attemptId} recorded by ${check.reusedFrom.phase} at ${String(check.reusedFrom.commit).slice(0, 12)}; the code has not changed since, so ${check.id} was not run again` }));
+    words: `reused: ${check.reusedFrom.attemptId} recorded by ${check.reusedFrom.phase}; the code has not changed since, so ${check.id} was not run again` }));
   // A non-code step's own runs, read by their counts, beside those it reused [CQF:REQ-010].
   const evidence = Number(phase.stepTestRuns?.generation) === Number(phase.generation) ? phase.stepTestRuns : null;
   const own = (evidence?.testExecutions ?? evidence?.preflightAttempts ?? []).filter((run) => !run.reusedFrom).map((run) => ({

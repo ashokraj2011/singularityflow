@@ -156,7 +156,7 @@ test('tests run once on unchanged code, however many later steps need them, and 
   assert.equal(reused.reusedFrom.phase, 'implementation');
   assert.equal(reused.status, 'passed');
   const review = JSON.parse(f.sflow('phase', 'show', 'testing', '--json').stdout);
-  assert.match(review.reusedTestRuns[0].words, /^reused: TA-[a-f0-9]{20} recorded by implementation at [a-f0-9]{12}; the code has not changed since/u, 'it never reads as a run by this step');
+  assert.match(review.reusedTestRuns[0].words, /^reused: TA-[a-f0-9]{20} recorded by implementation; the code has not changed since/u, 'it never reads as a run by this step');
   f.sflow('approve', 'testing', '--yes');
   await f.finishConformance();
   assert.equal(await f.runs(), start + 1);

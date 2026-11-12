@@ -1257,7 +1257,8 @@ exit 0
       'the CLI start records where each base came from, too');
     const [cliLead, cliSibling] = cliRecord.workItem.repositoryBases;
     const statusText = run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'status', 'WORK-CAP-CLI'], cliRoot).stdout;
-    assert.ok(statusText.includes(`Bases:\n  lead: release-capability @ ${cliLead.baseCommit.slice(0, 12)}\n  sibling: main @ ${cliSibling.baseCommit.slice(0, 12)} (override)\n`), statusText);
+    assert.ok(statusText.includes('Bases:\n  lead: release-capability\n  sibling: main (override)\n'), statusText);
+    assert.ok(cliLead.baseCommit && cliSibling.baseCommit, 'each base keeps its commit in the record');
     const statusJson = JSON.parse(run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'status', 'WORK-CAP-CLI', '--json'], cliRoot).stdout);
     assert.deepEqual(statusJson.workItem.repositoryBases, cliRecord.workItem.repositoryBases, 'status --json carries the record');
     assert.equal(run('git', ['branch', '--show-current'], firstCheckout).stdout.trim(), 'WORK-CAP-REFUSED',

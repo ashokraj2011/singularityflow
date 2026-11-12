@@ -109,7 +109,7 @@ export async function run(positionals, { options = {}, root = repoRoot() } = {})
     console.log(`Test scope of ${view.workId} is now ${TEST_SCOPE_LABELS[record.to]} (was ${TEST_SCOPE_LABELS[record.from]}), recorded as ${record.id}.`);
     console.log(MEANING[record.to]);
     console.log('Runs already recorded stay as they are; a run on the same code that covers what is now asked is not repeated.');
-    console.log(publication.pushed ? `Committed ${publication.sha.slice(0, 8)} and pushed.` : `Committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+    console.log(publication.pushed ? `Committed and pushed.` : `Committed locally; push is disabled by git.publish: off.`);
   }
   return emit({ operation: { id: 'story.test-policy.scope', classification: 'mutation' }, subject: { kind: 'story', id: view.workId },
     outcome: succeeded('story.test-policy.scope-changed', { status: TEST_SCOPE_LABELS[record.to] }),

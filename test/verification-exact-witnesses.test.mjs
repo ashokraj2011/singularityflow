@@ -319,7 +319,8 @@ test('a verification contract through a real Story: an inspection-only criterion
   cli('decision', 'witness', '--criterion', `${workId}:AC-002`, '--slot', 'runbook', '--file', 'docs/runbook.md',
     '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
     '--reason', 'The runbook states that the exported value is two.');
-  cli('approve', 'implementation', '--yes', '--witness-mapping', `${mapping.mappingSha256}=exception:boundaries`,
+  // The approver names the witness as the review shows it, its criterion; the CLI binds the submitted mapping's digest [no hashes shown].
+  cli('approve', 'implementation', '--yes', '--witness-mapping', `${workId}:AC-001=exception:boundaries`,
     '--witness-mapping-reason', 'No negative value case yet; it is tracked as follow-up work.', '--witness-mapping-expires', expires);
   const rows = matrixRows();
   const verify = (id) => rows[id].obligations.find((entry) => entry.responsibility === 'verify');

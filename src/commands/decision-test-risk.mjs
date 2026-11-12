@@ -173,8 +173,8 @@ export async function decisionTestRiskCommand(positionals, options) {
       ? `Revoked ${record.revokes} on ${record.phase} ${record.commandId}.`
       : `Recorded ${record.id}: ${record.phase} test command ${record.commandId} may publish and submit while ${testRunCauseWords(record.causeClass)} (${record.causeClass}), until ${record.expiresAt.slice(0, 10)}, accepted through ${record.authorityGroup}. It still runs every time; a run with any other cause, or a code cause, is never covered.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.test-risk', classification: 'mutation' },

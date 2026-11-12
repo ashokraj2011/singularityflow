@@ -793,7 +793,7 @@ export async function verifyAgentIntegrity(root, workflow, phase, { itemDirector
     else {
       const record = readRecord('remote-agent-output', await readFile(file)).record; const current = await snapshot(path.join(itemDirectory, output.target));
       if (!current.exists || current.sha256 !== record.renderedSha256) errors.push(`${phase.id} remote output '${output.resource}' no longer matches its finalized hash`);
-      else passes.push(`remote output verified: ${phase.id} ← ${output.agent}/${output.resource}@${output.sourceSha256.slice(0, 8)}`);
+      else passes.push(`remote output verified: ${phase.id} ← ${output.agent}/${output.resource}`);
     }
   }
   const auditFile = path.join(itemDirectory, 'context', `agents-${phase.id}-gen${phase.generation}.json`);

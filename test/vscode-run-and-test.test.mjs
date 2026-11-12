@@ -325,7 +325,8 @@ test('the test summary page shows totals, each command\'s cases, file links, tag
   assert.match(html, /<option value="RUN-2" selected title="Local preview, not evidence">Local preview · environment dev · 2026-10-19T10:00:00Z · 2 passed, 1 failed, 1 skipped of 4<\/option>/);
   assert.match(html, /<option value="RUN-1">Local preview · environment qa · 2026-10-18T09:00:00Z · 4 passed of 4<\/option>/);
   assert.match(html, /<p class="ts-label">Local preview, not evidence<\/p>/);
-  assert.match(html, /commit abc1234def56 · with uncommitted changes · ran by ranner@example\.com/);
+  assert.match(html, /· with uncommitted changes · ran by ranner@example\.com/);
+  assert.doesNotMatch(html, /abc1234def56/u, 'the run is not named by its commit');
   assert.match(html, /4 of 4 test cases shown\./);
   assert.deepEqual([...summaryModel.caseFiles(parsed)], ['src/cart.test.js']);
 });

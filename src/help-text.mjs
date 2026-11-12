@@ -936,7 +936,7 @@ Usage:
   singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch] [--phase PHASE] [--yes]
     [--confirm-evidence [--evidence-reason TEXT]]   (also records each open visual or inspection witness this approver may give)
     [--article ID=satisfied|exception|not-applicable]... [--article-reason TEXT]... [--checklist FILE]
-    [--witness-mapping SHA256=satisfied|exception:FACET[,FACET]|not-applicable]...
+    [--witness-mapping WITNESS=satisfied|exception:FACET[,FACET]|not-applicable]...
     [--witness-mapping-reason TEXT]... [--witness-mapping-expires YYYY-MM-DD]...
     [--binding CLAUSE=accept|exception]... [--binding-reason TEXT]...
     [--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]]... [--decisions sha256:DIGEST]
@@ -960,7 +960,7 @@ Usage:
   singularity-flow decision visual-risk [WORK-ID] [--fetch] --comparison VISUAL-ID --expires YYYY-MM-DD --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
   singularity-flow decisions [WORK-ID] [--phase PHASE] [--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]]... [--json]
-  singularity-flow decisions record [WORK-ID] [--phase PHASE] (--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]... --confirm sha256:DIGEST | --answers FILE) [--fetch] [--json]
+  singularity-flow decisions record [WORK-ID] [--phase PHASE] (--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]... [--confirm sha256:DIGEST] | --answers FILE) [--fetch] [--json]
   singularity-flow gateway serve --transport stdio [--workspace WORKSPACE]
   singularity-flow gateway tools [--json]
   singularity-flow gateway events [--json] [--host HOST] [--operation ID] [--outcome STATUS] [--reason CODE] [--subject ID] [--correlation ID]

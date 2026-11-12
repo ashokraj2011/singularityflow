@@ -308,8 +308,7 @@ function receiptHtml(view: ResultCardView): string {
     ['Publication', receipt.publication]
   ];
   return `<section class="sf-receipt" aria-label="Latest evidence receipt">
-    <span class="sf-receipt-head"><b>${icon('approval', { size: 14 })} Latest evidence receipt</b>
-      <code>${escape(receipt.sha256.slice(0, 12))}</code></span>
+    <span class="sf-receipt-head"><b>${icon('approval', { size: 14 })} Latest evidence receipt</b></span>
     <span>${escape(receipt.workId)} · ${escape(receipt.phase)} · generation ${receipt.generation}</span>
     <span class="sf-receipt-grid">${values.map(([label, value]) => `<span>${escape(label)}<strong>${escape(value)}</strong></span>`).join('')}</span>
   </section>`;
@@ -461,7 +460,7 @@ function flightPlanHtml(view: ResultCardView): string {
     <span><b>${escape(finding.subject)}</b><span class="sf-flight-detail">Not evaluated — ${escape(finding.explanation)}</span></span>
   </li>`).join('');
   return `<section class="sf-flight-plan" aria-label="Change Flight Plan">
-    <span><h4>Change Flight Plan</h4><span class="sf-flight-detail">${escape(plan.planId)} · ${escape(plan.status)} · baseline ${escape(plan.baseline.slice(0, 12))}</span></span>
+    <span><h4>Change Flight Plan</h4><span class="sf-flight-detail">${escape(plan.planId)} · ${escape(plan.status)}</span></span>
     <p><b>Intent</b><br>${escape(plan.intent)}</p>
     <div class="sf-flight-summary"><span>✓ ${plan.counts.proven} proven</span><span>~ ${plan.counts.inferred} need confirmation</span><span>? ${plan.counts.unknown} unresolved</span></div>
     ${rows ? `<span><b>Affected</b></span><ul class="sf-flight-findings">${rows}</ul>` : '<p>No affected item was established from the evaluated evidence.</p>'}

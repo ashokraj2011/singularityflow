@@ -144,8 +144,8 @@ export async function decisionEvidenceReuseCommand(positionals, options) {
       ? `Revoked ${record.revokes}: ${record.attemptId} no longer stands for ${record.phase}.`
       : `Recorded ${record.id}, ${evidenceReuseLabel(record)}. Accepted through ${record.authorityGroup}${record.expiresAt ? ` until ${record.expiresAt.slice(0, 10)}` : ''}; it lapses as soon as the application source changes.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.evidence-reuse', classification: 'mutation' },

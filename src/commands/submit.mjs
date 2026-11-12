@@ -234,13 +234,12 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   for (const repair of registrationRepairs) {
     console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
   }
-  console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
+  console.log(`Committed: ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
   if (receiptsLine) console.log(receiptsLine);
   if (fixedOnTheWay?.moved.length) console.log(`Fixed on the way, awaiting proof in the findings register: ${fixedOnTheWay.moved.join(', ')}.`);
-  if (reviewPacket) {
-    console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
-  }
+  // The packet's file is named by its digest: a person reads that it was kept, `--json` gives its path.
+  if (reviewPacket) console.log(`Review packet: kept with ${phase.id} generation ${phase.generation}`);
   if (evidenceReceipt) console.log(`\n${renderEvidenceReceipt(evidenceReceipt)}`);
   const submittedReview = await postPublicationStep(
     'the submitted phase review projection', workflow.workItem.id,

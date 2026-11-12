@@ -15,6 +15,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { specification, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
+import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-terminal.mjs';
 
 const WORK = 'HEX-4001';
 // The real CLI, with the decision list reading planning as the Story's last step (see the helper).
@@ -83,6 +84,25 @@ test('the approver\'s decision and the approval are one commit, named in the app
   const event = workflow.publicationProjections.at(-1).event;
   assert.equal(event.type, 'phase-approved');
   assert.deepEqual(event.payload.decisions, approved.decisions);
+});
+
+test('in a person\'s own terminal, choices typed with the approval need no digest: it shows them and asks for the step', { skip: !TYPED_TERMINAL_AVAILABLE }, async (t) => {
+  const { cli, git, item, run } = await submittedPlanningStory(t, WORK);
+  cli('upstream-issue', 'raise', '--phase', 'specification', '--about', `${WORK}:AC-001`,
+    '--problem', 'The specification never says what a reader sees when the value is missing.');
+  const issue = succeeded(endingStep(run, 'decisions', WORK, '--json')).items.find((entry) => entry.kind === 'upstream-issue');
+  const before = git('rev-parse', 'HEAD');
+  // The list's digest is derived by the approval itself and bound to what it shows [no hashes shown].
+  const typed = await typedInTerminal({ argv: [process.execPath, '--experimental-test-module-mocks', '--no-warnings', ENDING_STEP_CLI, '--no-model',
+    'approve', 'planning', '--work-id', WORK, '--choose', `${issue.id}=dismiss`], cwd: path.resolve(item, '../../..'),
+  env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'History Tester' }, prompt: 'Type planning to approve', answer: 'planning' });
+  assert.equal(typed.status, 0, typed.output);
+  assert.match(typed.output, /Recorded with this approval, in the same commit:/u);
+  assert.doesNotMatch(typed.output, /sha256:[0-9a-f]|[0-9a-f]{40}/u, 'the person reads the choices, never the list\'s digest');
+  assert.equal(commitsSince(git, before), 1, 'one commit holds the decision and the approval');
+  const workflow = await workflowOf(item);
+  assert.equal(workflow.phases.planning.status, 'approved');
+  assert.equal(workflow.upstreamIssueDecisions.at(-1).outcome, 'dismiss');
 });
 
 test('a return, a stale list or a missing digest is refused before anything is written', async (t) => {

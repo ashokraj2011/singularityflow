@@ -178,8 +178,8 @@ export async function decisionTestCommandCommand(positionals, options) {
           : accept ? `Accepted ${accept}: it runs at every publication and submission of ${record.phase}, and its tests must pass. Publish the step again.`
             : `Revoked ${revoke}: ${record.phase} no longer runs it.`);
     console.log(reused ? `Reused existing ${record.id}; no new request, decision, commit or push.`
-      : publication.pushed ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-        : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      : publication.pushed ? `Decision committed and pushed.`
+        : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.test-command', classification: 'mutation' },

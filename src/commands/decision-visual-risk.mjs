@@ -70,8 +70,8 @@ export async function decisionVisualRiskCommand(positionals, options) {
   if (!optionBoolean(options, 'json')) {
     console.log(`Recorded ${record.id}: the failed comparison ${record.comparisonId} is accepted until ${record.expiresAt.slice(0, 10)}, through ${record.authorityGroup}. It is not passing evidence.`);
     console.log(publication.pushed
-      ? `Decision committed ${publication.sha.slice(0, 8)} and pushed.`
-      : `Decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
+      ? `Decision committed and pushed.`
+      : `Decision committed locally; push is disabled by git.publish: off.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'decision.visual-risk', classification: 'mutation' },

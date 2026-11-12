@@ -259,17 +259,16 @@ export function renderEvidenceReceipt(receipt) {
   const unavailable = (value) => value == null ? 'unavailable' : String(value);
   return [
     `Evidence receipt: ${receipt.work.id} · ${receipt.work.phase} generation ${receipt.work.generation}`,
-    `Source: ${receipt.source.commit.slice(0, 12)} · changes ${unavailable(receipt.changes.count)} (${receipt.changes.status})`,
+    // The receipt as a person reads it: no commit or digest (owner, 2026-11-11); `--json` and the Markdown record keep them.
+    `Changes: ${unavailable(receipt.changes.count)} (${receipt.changes.status})`,
     ...(receipt.repositoryBases ? [`Bases: ${receipt.repositoryBases.map(storyRepositoryBaseText).join(' · ')}`] : []),
     `Requirements: ${unavailable(receipt.requirements.claimed)}/${unavailable(receipt.requirements.clauses)} claimed (${receipt.requirements.status})`,
     `Checks: ${receipt.checks.passed} passed · ${receipt.checks.failed} failed · ${receipt.checks.unavailable} unavailable (${receipt.checks.status})${receipt.checks.acceptedRisk ? ` · ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,
     `Approvals: ${receiptApprovalText(receipt)}`,
     ...(receipt.presence ? [`SF Guard: ${receiptPresenceText(receipt.presence)}`] : []),
     ...(receipt.attribution ? [`SF Guard labels: ${receiptAttributionText(receipt)}`] : []),
-    `Context: ${receipt.context.status} · Review packet: ${receipt.reviewPacket.sha256.slice(0, 12)}`,
-    `Publication: ${receipt.publication.state} · Next: ${receipt.nextHumanAction}`,
-    `Receipt core hash: ${receipt.receiptCoreSha256 ?? receipt.receiptSha256}`,
-    `Observation hash: ${receipt.observationSha256 ?? 'unavailable'}`
+    `Context: ${receipt.context.status}`,
+    `Publication: ${receipt.publication.state} · Next: ${receipt.nextHumanAction}`
   ].join('\n');
 }
 
@@ -280,7 +279,7 @@ export function renderEvidenceReceiptMarkdown(receipt) {
     '',
     `- Phase: \`${receipt.work.phase}\` generation ${receipt.work.generation}`,
     `- Source commit: \`${receipt.source.commit}\``,
-    ...(receipt.repositoryBases ? [`- Bases: ${receipt.repositoryBases.map(base => `\`${storyRepositoryBaseText(base)}\``).join(', ')}`] : []),
+    ...(receipt.repositoryBases ? [`- Bases: ${receipt.repositoryBases.map(base => `\`${storyRepositoryBaseText(base, { commit: true })}\``).join(', ')}`] : []),
     `- Changed paths: **${value(receipt.changes.count)}** (${receipt.changes.status})`,
     `- Requirements claimed: **${value(receipt.requirements.claimed)}/${value(receipt.requirements.clauses)}** (${receipt.requirements.status})`,
     `- Checks: **${receipt.checks.passed} passed**, **${receipt.checks.failed} failed**, **${receipt.checks.unavailable} unavailable** (${receipt.checks.status})${receipt.checks.acceptedRisk ? `, ${receipt.checks.acceptedRisk} under accepted risk` : ''}`,

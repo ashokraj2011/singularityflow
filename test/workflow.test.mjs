@@ -635,7 +635,7 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.equal(workflow.phases.intake.status, 'awaiting_approval');
 
   const approved = flow(root, ['next', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Next Reviewer' });
-  assert.match(approved.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  assert.match(approved.stdout, /Approval decision committed locally/);
   assert.match(approved.stdout, /Context boundary: new/);
   // Each next Copilot action is its own three-route block (8f25dc4b): first /clear, then /sf-next.
   assert.match(approved.stdout, /Next Copilot actions:\n- Copilot: \/clear\n[\s\S]*?\n- Copilot: \/sf-next\n/);
@@ -1267,11 +1267,11 @@ test('multi-approval threshold requires distinct identities while allowing agent
   const workId = 'MULTI-1'; flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json'); let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   await completeArtifact(root, workflow, 'intake'); flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner'), actor: 'Generator' }); flow(root, ['submit'], { selection: selection('feature', 'product-owner'), actor: 'Generator' });
   const firstApproval = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'intake'); assert.equal(workflow.phases.intake.status, 'awaiting_approval');
-  assert.match(firstApproval.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  assert.match(firstApproval.stdout, /Approval decision committed locally/);
   const firstApprovalCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   const duplicate = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer One', allowFailure: true }); assert.notEqual(duplicate.status, 0); assert.match(duplicate.stderr, /already approved/);
   const secondApproval = flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner'), actor: 'Reviewer Two' }); workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, 'requirements'); assert.equal(workflow.phases.intake.approvals.filter((item) => item.decision === 'approved').length, 2);
-  assert.match(secondApproval.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  assert.match(secondApproval.stdout, /Approval decision committed locally/);
   const secondApprovalCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   assert.notEqual(secondApprovalCommit, firstApprovalCommit);
   assert.equal(execute('git', ['log', '--format=%s', '--grep', '\\[MULTI-1\\]\\[phase:intake\\]\\[approve\\]'], root).stdout.trim().split(/\r?\n/).filter(Boolean).length, 2);

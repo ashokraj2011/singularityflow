@@ -1155,7 +1155,7 @@ export async function storyCommand(positionals, options) {
       console.log(`Story checks ${result.evidence.ready ? 'passed' : 'need attention'} for ${result.evidence.packetSha256.slice(0, 12)}.`);
       console.log(`Repository checks: ${result.evidence.github.required.map((entry) => `${entry.name}=${entry.status}`).join(', ') || 'no required checks configured'}`);
       result.evidence.governance.errors.forEach((error) => console.warn(`BLOCK: ${error}`));
-      console.log(`Evidence committed ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' and pushed' : ''}.`);
+      console.log(`Evidence committed${result.publication.pushed ? ' and pushed' : ''}.`);
     }
     // This is the pipeline's gate command. Printing BLOCK lines and exiting 0 let a red build pass.
     if (!result.evidence.ready) process.exitCode = 2;

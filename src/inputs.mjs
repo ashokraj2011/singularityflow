@@ -618,7 +618,7 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
   }
   if (!errors.length && !warnings.length) {
     const captured = live.records.filter((entry) => entry.status === 'captured');
-    passes.push(`phase inputs verified: ${phase.id} ← ${captured.map((entry) => `${entry.phase}@${entry.sha256.slice(0, 8)}`).join(', ') || 'none'}`);
+    passes.push(`phase inputs verified: ${phase.id} ← ${captured.map((entry) => entry.phase).join(', ') || 'none'}`);
   }
   return { errors, warnings, passes };
 }

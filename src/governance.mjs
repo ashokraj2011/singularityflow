@@ -431,7 +431,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           const currentImpact = await loadImpactDefinition(root, { required: true });
           if (currentImpact.sha256 !== workflow.resolution.impact.sha256) {
             refuse('gate.impact.snapshot-drift', 'impact.yml differs from the immutable work-item impact-study snapshot');
-          } else passes.push(`impact study configuration pinned: ${currentImpact.sha256.slice(0, 12)}`);
+          } else passes.push('impact study configuration pinned');
         } catch (error) {
           refuse('gate.impact.unavailable', `impact study configuration is unavailable: ${error.message}`);
         }
@@ -442,7 +442,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   if (workflow.measurement?.receipt) {
     const verification = await verifyImpactReceipt(root, workflow);
     refuseEach('gate.impact.receipt', verification.errors.map((error) => `impact receipt: ${error}`));
-    if (verification.valid) passes.push(`impact receipt verified: ${workflow.measurement.receipt.sha256.slice(0, 12)}`);
+    if (verification.valid) passes.push('impact receipt verified');
   }
 
   const documentManifest = path.join(workDir(root, config, workflow.workItem.id), 'documents.json');
@@ -538,7 +538,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           const commit = publishedGenerationCommit(root, workflow, phase, generation);
           if (commit) {
             found = [commit, subject];
-            passes.push(`generation publication verified: ${phaseId} generation ${generation} @ ${commit.slice(0, 12)}`);
+            passes.push(`generation publication verified: ${phaseId} generation ${generation}`);
           }
         } catch (error) {
           publicationInvalid = true;

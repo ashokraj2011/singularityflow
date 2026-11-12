@@ -34,7 +34,7 @@ function notSubmittedReason(readiness) {
  */
 export function submitReport(stdout) {
   const lines = stdout.split('\n').map((line) => line.trim());
-  const did = lines.filter((line) => /^(?:Commit|Push|Review packet): |^(?:Submitted|Completed) /u.test(line));
+  const did = lines.filter((line) => /^(?:Commit|Committed|Push|Review packet): |^(?:Submitted|Completed) /u.test(line));
   return did.length ? did.join('\n') : lines.filter(Boolean).slice(-40).join('\n');
 }
 

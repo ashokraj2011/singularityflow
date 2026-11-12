@@ -841,7 +841,7 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
       continue;
     }
     if (pack.approval.mode === 'none') {
-      passes.push(`artifact pack complete: ${pack.id}@${packBundle.sha256.slice(0, 12)}`);
+      passes.push(`artifact pack complete: ${pack.id}`);
       continue;
     }
     const decisions = activeApprovalRecords(bundle.approvals, {
@@ -856,7 +856,7 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
       const detail = progress ? chainStatusDescription(progress) : `${distinctApprovals(decisions)}/${pack.approval.minimum} approvals`;
       errors.push(`artifact pack ${pack.id} has ${detail} for exact pack ${packBundle.sha256.slice(0, 12)}`);
     } else {
-      passes.push(`artifact pack approval: ${pack.id}@${packBundle.sha256.slice(0, 12)}`);
+      passes.push(`artifact pack approval: ${pack.id}`);
     }
   }
   if (phase.status === 'approved' && definition.bundleApproval.mode !== 'none') {
@@ -873,7 +873,7 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
       const detail = progress ? chainStatusDescription(progress) : `${count}/${definition.bundleApproval.minimum} approvals`;
       errors.push(`phase ${phaseId} has ${detail} for exact bundle ${bundle.sha256.slice(0, 12)}`);
     } else {
-      passes.push(`phase bundle approval: ${phaseId}@${bundle.sha256.slice(0, 12)}`);
+      passes.push(`phase bundle approval: ${phaseId}`);
     }
   }
   return { ready: errors.length === 0, errors, warnings, passes, bundleSha256: bundle.sha256, checklist: bundle.checklist };

@@ -77,11 +77,11 @@ export async function prepareApprovalDecisions(root, config, workflow, phase, { 
   const list = packet ?? await readPacket(root, config, workflow, phase, at);
   const route = { command: listCommand(list), skill: '/sf-decide', label: `Review what ${phase.label ?? phase.id}'s approval holds.` };
   if (!digest) {
-    refused(`Recording decisions with the approval needs the digest of the list they were chosen from: add --decisions ${list.packetSha256}, after reviewing it with ${route.command}.`,
+    refused(`Recording decisions with the approval needs the list they were chosen from: run the approval in your own terminal, which shows them and asks you to confirm, or add --decisions with the list's packetSha256 from ${route.command} --json.`,
       'APPROVAL_DECISIONS_CONFIRMATION_REQUIRED', { packetSha256: list.packetSha256, nextAction: route });
   }
   const { assertConfirmation, copySlip } = await import('./text-lines.mjs');
-  if (!DIGEST.test(digest) && copySlip(digest, list.packetSha256) !== 'slip') refused(`--decisions takes the list's digest: sha256:<64 hexadecimal characters>; the current list's is ${list.packetSha256}.`, 'APPROVAL_DECISIONS_OPTIONS_INVALID', { packetSha256: list.packetSha256 });
+  if (!DIGEST.test(digest) && copySlip(digest, list.packetSha256) !== 'slip') refused(`--decisions takes the list's digest, its packetSha256 from ${route.command} --json; in your own terminal, leave it out and the approval asks you to confirm.`, 'APPROVAL_DECISIONS_OPTIONS_INVALID', { packetSha256: list.packetSha256 });
   // Twelve characters of each were shown, so a slip after them read as the same digest "changed" [copied values].
   assertConfirmation(digest, list.packetSha256, { code: 'DECISIONS_PACKET_CHANGED', fail: refused, label: '--decisions',
     message: `The decision list changed since it was reviewed. Nothing was recorded. Review it again: ${route.command}`,

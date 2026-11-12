@@ -208,7 +208,7 @@ test('integrity verification is mode-aware and detects artifact block changes', 
     renderedSha256: recorded.record.renderedSha256, mode: result.mode
   };
   let verified = await verifyInputsIntegrity(value.root, value.workflow, value.phase, value);
-  assert.equal(verified.errors.length, 0); assert.equal(verified.warnings.length, 0); assert.match(verified.passes[0], /design ← requirements@/);
+  assert.equal(verified.errors.length, 0); assert.equal(verified.warnings.length, 0); assert.match(verified.passes[0], /design ← requirements$/u, 'the inputs by step, never their digests');
   await writeFile(artifactPath, '# managed block removed\n');
   verified = await verifyInputsIntegrity(value.root, value.workflow, value.phase, value);
   assert.equal(verified.errors.length, 0); assert.match(verified.warnings[0], /managed-input block/);

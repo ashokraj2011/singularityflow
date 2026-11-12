@@ -365,7 +365,7 @@ function storyApprovalsOf(snapshot: RepositorySnapshot, workflow: StoryWorkflow)
       phase: phase.id,
       subject: 'phase',
       label: `${phase.label} — Story phase`,
-      detail: `Generation ${phase.generation} of ${workflow.workItem.id}${packet ? ` · packet ${packet.slice(0, 12)}` : ''}`,
+      detail: `Generation ${phase.generation} of ${workflow.workItem.id}${packet ? ' · submitted for review' : ''}`,
       sha256: catalogArtifact?.sha256 ?? null,
       expected: phase.id,
       standing,

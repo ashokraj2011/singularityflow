@@ -35,7 +35,7 @@ function artifactRows(inbox: Inbox): string {
           <span class="artifact-title">${icon('document')}${escape(artifact.label)}</span>
           <span class="pill ${STATUS_CLASS[artifact.status] ?? 'idle'}">${escape(artifact.status.replace(/_/g, ' '))}</span>
           <span class="artifact-meta">${escape(artifact.kind)}${artifact.generation != null ? ` · generation ${artifact.generation}` : ''}</span>
-          <span class="artifact-meta">${artifact.generatedBy ? `by ${escape(artifact.generatedBy)} · ` : ''}<code>${escape((artifact.sha256 ?? '').slice(0, 12))}</code></span>
+          ${artifact.generatedBy ? `<span class="artifact-meta">by ${escape(artifact.generatedBy)}</span>` : ''}
         </button>`).join('')}</div>
       </section>`).join('')}
     </section>`).join('');
@@ -77,8 +77,7 @@ function decisionCards(inbox: Inbox, pending: PendingListView | null = null): st
     <article class="decision-card">
       <div><span class="eyebrow">${escape(approval.kind)}</span><h3>${escape(approval.label)}</h3></div>
       <p class="muted">${escape(approval.detail)}</p>
-      ${approval.reviewPacketSha256 ? `<div class="review-binding"><span>Review packet</span><code>${escape(approval.reviewPacketSha256)}</code>${approval.submittedSourceCommit ? `<span>Source commit</span><code>${escape(approval.submittedSourceCommit)}</code>` : ''}</div>` : ''}
-      ${approval.sha256 ? `<code>${escape(approval.sha256.slice(0, 16))}</code>` : ''}
+      ${approval.reviewPacketSha256 ? `<div class="review-binding"><span>Review packet</span><span>the one submitted for this generation${approval.submittedSourceCommit ? ', bound to its submitted commit' : ''}</span></div>` : ''}
       ${approval.selfApproval ? '<p class="warning-text">You generated this; approval will not count as independent review.</p>' : ''}
       ${approval.heldBy ? `<p class="warning-text">${escape(approval.heldBy.headline)}</p>` : ''}
       ${!approval.heldBy && approval.approvalHolds?.length ? approvalHoldsHtml(approval.approvalHolds) : ''}

@@ -204,13 +204,13 @@ test('policy allowed: runs get the values in the child only, redacted, labelled 
   assert.equal(dev.value.run.evidenceClass, 'local-integration');
   assert.equal(dev.value.run.environment, 'dev');
   assert.equal(dev.value.run.countsForStep, false);
-  assert.match(dev.value.run.label, /^Local integration run by [^,\s]+@[^,\s]+, environment `dev`, commit `[a-f0-9]{7}`; values never recorded; does not count for this step: it requires `qa`$/u);
+  assert.match(dev.value.run.label, /^Local integration run by [^,\s]+@[^,\s]+, environment `dev`; values never recorded; does not count for this step: it requires `qa`$/u);
 
   // The default local run uses the linked environment, qa, and counts.
   const qa = repo.sflowJson('tests', 'run', '--work-id', 'QF-1', '--command', 'integration-tests');
   assert.equal(qa.value.run.environment, 'qa');
   assert.equal(qa.value.run.countsForStep, true);
-  assert.match(qa.value.run.label, /environment `qa`, .*values never recorded$/u);
+  assert.match(qa.value.run.label, /environment `qa`; values never recorded$/u);
   // The preview ran in qa, then the local runs in dev and qa.
   assert.deepEqual((await readFile(repo.env.FIXTURE_FLAG, 'utf8')).trim().split('\n'), ['https://qa.example.test', 'https://dev.example.test', 'https://qa.example.test']);
 
@@ -268,7 +268,7 @@ test('policy allowed: runs get the values in the child only, redacted, labelled 
   const review = repo.sflowJson('phase', 'show', 'implement').value;
   assert.deepEqual(review.testEvidence.localIntegrationRuns.map((entry) => [entry.commandId, entry.environment, entry.countsForStep]),
     [['integration-tests', 'qa', true]]);
-  assert.match(review.testEvidence.localIntegrationRuns[0].label, /^Local integration run by .+, environment `qa`, commit `[a-f0-9]{7}`; values never recorded$/u);
+  assert.match(review.testEvidence.localIntegrationRuns[0].label, /^Local integration run by .+, environment `qa`; values never recorded$/u);
   const matrix = repo.run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), '--no-model', 'evidence', 'matrix', 'QF-1']).stdout;
   assert.match(matrix, /Local integration \(implement\): Local integration run by .+, environment `qa`/u);
   const matrixJson = repo.sflowJson('evidence', 'matrix', 'QF-1').value;

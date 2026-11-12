@@ -22,6 +22,7 @@ export function phasePublicationSummary(value: unknown, expected: { workId: stri
       || (retained && (receipt.pushed !== false || receipt.remoteSynchronization !== 'not-checked'))) {
     throw new Error('Publication returned an unverified receipt. Inspect Story status before retrying; do not assume the mutation failed.');
   }
-  if (retained) return `${expected.phaseId} generation ${receipt.generation} for ${expected.workId} is already published at ${String(receipt.commit).slice(0, 8)}; no new commit. Remote synchronization was not rechecked.`;
-  return `Published ${expected.phaseId} generation ${receipt.generation} for ${expected.workId} at ${String(receipt.commit).slice(0, 8)}${receipt.pushed ? ' and pushed' : ' locally'}.`;
+  // A person reads the step and its generation; the commit stays in the receipt (owner, 2026-11-11: no SHA shown).
+  if (retained) return `${expected.phaseId} generation ${receipt.generation} for ${expected.workId} is already published; no new commit. Remote synchronization was not rechecked.`;
+  return `Published ${expected.phaseId} generation ${receipt.generation} for ${expected.workId}${receipt.pushed ? ' and pushed' : ' locally'}.`;
 }

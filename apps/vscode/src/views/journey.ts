@@ -185,7 +185,7 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
 
   const sources = `${journey.sources.length
     ? `<ul class="sources">${journey.sources.map((source) => `
-        <li>${escape(source.name)} <code>${escape((source.sha256 ?? '').slice(0, 12))}</code></li>`).join('')}</ul>`
+        <li>${escape(source.name)}</li>`).join('')}</ul>`
     : '<p class="muted">Nothing is pinned. Requirements have no cited source to rest on.</p>'}
     <p><button data-pin="source">Pin a source</button></p>`;
 

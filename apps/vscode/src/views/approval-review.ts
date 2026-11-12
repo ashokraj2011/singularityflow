@@ -371,9 +371,8 @@ function witnessMappingHtml(mapping: WitnessMappingReview): string {
     <legend>${escape(mapping.clauseId)} → ${escape(mapping.sourcePath)}</legend>
     <p><strong>Behavior:</strong> ${escape(mapping.clauseFields?.behavior ?? 'unavailable')}</p>
     <p><strong>Observable:</strong> ${escape(mapping.clauseFields?.observable ?? 'unavailable')}</p>
-    <details><summary>Exact clause and identity</summary>
+    <details><summary>Exact clause</summary>
       <p>${escape(mapping.clauseText ?? 'Exact clause bytes are stale or unavailable.')}</p>
-      <code>${escape(mapping.logicalTestId)}</code><br><code>${escape(mapping.sourceDeclarationSha256)}</code>
     </details>
     <label>Decision
       <select data-decision required aria-label="${escape(mapping.clauseId)} witness decision">
@@ -399,8 +398,8 @@ export function approvalReviewBody(request: ApprovalReviewRequest, errors: strin
     `<strong>Story</strong><code>${escape(request.workId)}</code>`,
     `<strong>Phase</strong><code>${escape(request.phaseId)}</code>`,
     `<strong>Generation</strong><code>${request.generation}</code>`,
-    request.artifact?.path ? `<strong>Artifact</strong><code>${escape(request.artifact.path)}</code>` : '',
-    request.artifact?.sha256 ? `<strong>SHA-256</strong><code>${escape(request.artifact.sha256)}</code>` : ''
+    // The approval binds the artifact's exact bytes; a person reads its path, never its digest (owner, 2026-11-11).
+    request.artifact?.path ? `<strong>Artifact</strong><code>${escape(request.artifact.path)}</code>` : ''
   ].filter(Boolean).join('');
   const findings = request.findings.length
     ? `<details class="approval-evidence"><summary>Deterministic findings (${request.findings.length})</summary><ul>${

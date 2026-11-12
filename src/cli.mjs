@@ -10746,9 +10746,12 @@ async function epicCommand(positionals, options) {
       return;
     }
     if (optionBoolean(options, 'dry-run')) {
+      // The exact form echoes the plan the caller itself named; a person's route shows the plan again in their terminal.
+      const planSha256 = suppliedPlan;
       throw new SingularityFlowError(
-        `Applying the reviewed plan writes to Jira and cannot be previewed. `
-        + `After review, run it in your own terminal, which shows the plan again: ${jiraPlanPersonRoute(initiativeId)}`);
+        'Applying the reviewed plan writes to Jira and cannot be previewed. After review, run '
+        + (planSha256 === 'current' ? `it in your own terminal, which shows the plan again: ${jiraPlanPersonRoute(initiativeId)}`
+          : `exactly: singularity-flow epic jira apply --epic ${initiativeId} --plan ${planSha256} --confirm ${initiativeId}`));
     }
     const planSha256 = await reviewedJiraPlan(root, initiativeId, suppliedPlan,
       () => `Create the reviewed Jira Stories and canonical Git branches for ${initiativeId}?`, options);

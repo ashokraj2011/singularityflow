@@ -8,6 +8,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { formatCommandRouteLines } from './model-free-commands.mjs';
 import { platformPathWithin } from './util.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
+import { confirmCodesIn, resolveConfirmCode } from './confirm-code.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
 /**
@@ -69,10 +70,21 @@ export function workflowTaskCompletionRequested(prompt) {
  * Only this value is kept, never the prompt: it binds the turn to the command the person confirmed.
  */
 export function confirmedDigest(prompt) {
+  return confirmedTurn(prompt)?.digest ?? null;
+}
+
+/**
+ * What a /sf-confirm prompt confirms: `{ digest, code }`. The person types the short code a route gave
+ * (`/sf-confirm K7Q2-M8DX`, confirm-code.mjs), which stands for one command kept on this machine, and its
+ * digest binds the turn; a whole command with its digest still binds it as before. Null for none or several.
+ */
+export function confirmedTurn(prompt) {
   if (typeof prompt !== 'string' || prompt.length > 256 * 1024) return null;
   const found = new Set([...prompt.matchAll(/--confirm(?:-plan)?[\s=]+(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64}|[a-f0-9]{64})(?![\w:-])/gu)]
     .map(match => match[1]));
-  return found.size === 1 ? [...found][0] : null;
+  if (found.size) return found.size === 1 ? { digest: [...found][0], code: null } : null;
+  const codes = confirmCodesIn(prompt).map(code => resolveConfirmCode(code)).filter(Boolean);
+  return codes.length === 1 ? { digest: codes[0].value, code: codes[0].code } : null;
 }
 
 export function boundaryBootstrap(skill) {
@@ -214,9 +226,10 @@ async function recordTurn(payload, { now = Date.now(), captureMutation = null, r
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const stat = await lstat(directory);
   if (!stat.isDirectory() || stat.isSymbolicLink()) return {};
-  const confirm = ['sf-confirm', 'sflow-confirm'].includes(skill) ? confirmedDigest(payload.prompt) : null;
+  const confirm = ['sf-confirm', 'sflow-confirm'].includes(skill) ? confirmedTurn(payload.prompt) : null;
   const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill, turnId: randomUUID(),
-    recordedAt: now, modeChangedAt: mode.changedAt, ...(confirm ? { confirmDigest: confirm } : {}),
+    recordedAt: now, modeChangedAt: mode.changedAt, ...(confirm ? { confirmDigest: confirm.digest } : {}),
+    ...(confirm?.code ? { confirmCode: confirm.code } : {}),
     ...(sourceReviewCompletionRequested(payload.prompt) ? { reviewCompletionRequested: true } : {}),
     ...(workflowTaskCompletionRequested(payload.prompt) ? { taskCompletionRequested: true } : {}) };
   const temporary = path.join(directory, `.${randomUUID()}.tmp`);

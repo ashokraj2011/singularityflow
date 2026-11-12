@@ -13,15 +13,20 @@ commands:
   - pause
   - gateway
   - result
+  - confirm
 related:
   - developer-home
   - help-and-docs
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 37
+version: 38
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into a Story. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
+
+## Confirming by code
+
+A preview that needs your yes gives its Copilot route as a short code, such as `/sf-confirm K7Q2-M8DX`, never a digest. The code stands for the exact command that preview issued and is kept on this machine for a week. Type it in Copilot, or run `singularity-flow confirm K7Q2-M8DX` in your own terminal: either runs that command once, and the chat turn may run nothing else. What it confirms is still checked, so a preview that changed since is refused and shown again with a new code.
 
 ## Pause and native Copilot
 

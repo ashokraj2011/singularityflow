@@ -16,6 +16,7 @@ import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-
 import { agentAct, boundedAgentOutput } from '../src/agent-output.mjs';
 import { resolveCapabilityApplication } from '../src/capability-application-context.mjs';
 import { saveLocalApplicationProfile } from '../src/local-application-profile.mjs';
+import { confirmCode } from '../src/confirm-code.mjs';
 
 const WORK = 'REDRAFT-1';
 const ASKED = 'when I enter anything in f(x)= the screen size keeps changing';
@@ -107,7 +108,8 @@ test('a change the person asks for after Code is published opens generation 2 in
   assert.match(preview.confirmation, /^sha256:[a-f0-9]{64}$/u);
   assert.equal(preview.command, `singularity-flow phase rollover implementation --confirm ${preview.confirmation}`);
   // The confirmation is the person's, as for any rollover: /sf-confirm runs it once on their word.
-  assert.equal(preview.copilotCommand, `/sf-confirm phase rollover implementation --confirm ${preview.confirmation}`);
+  assert.equal(preview.copilotCommand, `/sf-confirm ${confirmCode(preview.command)}`);
+  assert.ok(preview.command.endsWith(`--confirm ${preview.confirmation}`));
 
   // Without the person's confirmation nothing happens.
   assert.equal(git('rev-parse', 'HEAD'), publishedHead);

@@ -93,6 +93,8 @@ const entries = {
   'app-review': ['sf-app-review'],
   // Every Story skill's output rule runs it when a result came back cut off (agent-result-keeper.mjs).
   result: ['sf-code'],
+  // A short confirmation code runs the command it was issued for (confirm-code.mjs).
+  confirm: ['sf-confirm'],
   env: ['sf-environment'],
   candidate: ['sf-sgos'],
   'execution-unit': ['sf-sgos'],

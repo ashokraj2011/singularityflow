@@ -4,7 +4,8 @@
  * `/sf-submit` looped on a Convergence advance: the confirm route was a bare skill that only
  * previewed the same digest again. 35 command families had the same shape. Every engine command
  * that confirms `--confirm sha256:<DIGEST>`, with nothing else left for a person to fill, now
- * carries that digest in its Copilot route; this scan keeps new ones from regressing.
+ * carries that digest in its Copilot route; this scan keeps new ones from regressing. A route a person types
+ * carries it as a short code (`/sf-confirm K7Q2-M8DX`, confirm-code.mjs) that stands for exactly that command.
  */
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -15,9 +16,17 @@ import { fileURLToPath } from 'node:url';
 import { copilotCommandForCommand } from '../src/copilot-guidance.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { ownTerminalStep } from '../src/command-skills.mjs';
+import { confirmCode, confirmCommandText, resolveConfirmCode } from '../src/confirm-code.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const digest = `sha256:${'d'.repeat(64)}`;
+
+/** The `/sf-confirm` route a person types for `command`: its code, which this machine resolves to that exact command. */
+function confirmRouteOf(command) {
+  const route = `/sf-confirm ${confirmCode(command)}`;
+  assert.equal(resolveConfirmCode(confirmCode(command))?.command, confirmCommandText(command), `${route} stands for ${command}`);
+  return route;
+}
 
 function sources(directory) {
   return readdirSync(directory).flatMap((name) => {
@@ -56,7 +65,9 @@ test('every reviewed-digest confirmation route carries its digest, through the e
       continue;
     }
     checked.push(command);
-    assert.ok(guidance.copilotCommand.includes(digest), `${file}: ${command}\n  routes to ${guidance.copilotCommand}`);
+    const code = guidance.copilotCommand.match(/^\/sf-confirm ([0-9A-Z]{4}-[0-9A-Z]{4})$/u)?.[1];
+    assert.ok(guidance.copilotCommand.includes(digest) || resolveConfirmCode(code)?.command === confirmCommandText(command),
+      `${file}: ${command}\n  routes to ${guidance.copilotCommand}`);
   }
   assert.ok(checked.length >= 25, `only ${checked.length} digest confirmations were found; the scan stopped matching`);
 });
@@ -67,9 +78,12 @@ test('a confirmation the skill route already carries keeps that route; others ru
   assert.equal(copilotCommandForCommand(`singularity-flow auto resume W --confirm ${digest}`),
     `/sf-auto resume W --confirm ${digest}`);
   assert.equal(copilotCommandForCommand(`singularity-flow phase rollover implementation --confirm ${digest}`, '/sf-recover'),
-    `/sf-confirm phase rollover implementation --confirm ${digest}`);
+    confirmRouteOf(`singularity-flow phase rollover implementation --confirm ${digest}`));
   assert.equal(copilotCommandForCommand(`singularity-flow decision plan W --confirm ${digest}`),
-    `/sf-confirm decision plan W --confirm ${digest}`);
+    confirmRouteOf(`singularity-flow decision plan W --confirm ${digest}`));
+  // What a person reads names no digest: the route is eight characters, the same for --json or not.
+  assert.match(copilotCommandForCommand(`singularity-flow decision plan W --confirm ${digest} --json`), /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
+  assert.equal(copilotCommandForCommand(`singularity-flow decision plan W --confirm ${digest} --json`), confirmRouteOf(`singularity-flow decision plan W --confirm ${digest}`));
   // A Work ID confirmation, a template still to fill, and shell operators keep the skill route.
   assert.equal(copilotCommandForCommand('singularity-flow cancel W --reason x --confirm W', '/sf-cancel'), '/sf-cancel');
   // A person's own terminal step has no route at all: /sf-decide refused it and pointed back to itself.
@@ -77,14 +91,22 @@ test('a confirmation the skill route already carries keeps that route; others ru
   assert.equal(copilotCommandForCommand(`singularity-flow story target-origin W --url https://staging.example.test --reason x --confirm ${digest}`), null);
   // A reviewed plan id is a digest too.
   assert.equal(copilotCommandForCommand('singularity-flow governance rebuild --confirm-plan grb-0123456789abcdef01234567'),
-    '/sf-confirm governance rebuild --confirm-plan grb-0123456789abcdef01234567');
+    confirmRouteOf('singularity-flow governance rebuild --confirm-plan grb-0123456789abcdef01234567'));
   assert.equal(copilotCommandForCommand(`singularity-flow phase rollover p --confirm ${digest}; rm -rf x`, '/sf-recover'), '/sf-recover');
 });
 
-test('/sf-confirm runs only an exact digest confirmation, once, and stops on a stale digest', () => {
+test('/sf-confirm runs only the confirmation the person typed, by its code, once, and stops when it is unknown or stale', () => {
   const skill = readFileSync(path.join(root, 'plugin/skills/sflow-confirm/SKILL.md'), 'utf8');
-  assert.match(skill, /carrying `--confirm sha256:<DIGEST>` or `--confirm-plan sha256:<DIGEST>`/u);
-  assert.match(skill, /Run `singularity-flow \$ARGUMENTS` once/u);
-  assert.match(skill, /Never edit the digest, preview again first or retry/u);
-  assert.match(skill, /digest is stale: show the fresh review it returns and stop/u);
+  assert.match(skill, /Require `\$ARGUMENTS` to be one code like `K7Q2-M8DX`, or one SFlow command as an older route gave it/u);
+  assert.match(skill, /Run `singularity-flow confirm <CODE> --for-agent --json` \(or `singularity-flow \$ARGUMENTS` for a command\) once/u);
+  assert.match(skill, /Never edit it, preview again first or retry/u);
+  assert.match(skill, /the code is unknown or the confirmation stale: show the fresh review it returns, or run its next action to show the preview again, and stop/u);
+});
+
+test('a route recorded before short codes still validates, and is given as its code', () => {
+  const command = `singularity-flow phase rollover implementation --confirm ${digest}`;
+  const recorded = safeCommandGuidance({ command, copilotCommand: `/sf-confirm phase rollover implementation --confirm ${digest}` });
+  assert.equal(recorded?.copilotCommand, confirmRouteOf(command));
+  // Any other supplied route still contradicts the canonical one.
+  assert.equal(safeCommandGuidance({ command, copilotCommand: `/sf-confirm phase rollover other --confirm ${digest}` }), null);
 });

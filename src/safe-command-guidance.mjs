@@ -419,7 +419,10 @@ export function safeCommandGuidance(value) {
   if (input.copilotCommand != null) {
     const supplied = typeof input.copilotCommand === 'string'
       ? input.copilotCommand.trim() : '';
-    if (!supplied || supplied !== canonicalCopilotCommand || SECRET_SHAPE.test(supplied)
+    // A route recorded before short codes spelled the whole command after /sf-confirm: the same route, now its code.
+    const recordedConfirm = canonicalCopilotCommand?.startsWith('/sf-confirm ')
+      && supplied === `/sf-confirm ${safe.command.replace(/^(?:singularity-flow|sflow)\s+/u, '')}`;
+    if (!supplied || (supplied !== canonicalCopilotCommand && !recordedConfirm) || SECRET_SHAPE.test(supplied)
         || /[\r\n\u0000-\u001f\u007f]/u.test(supplied)) return null;
   }
 

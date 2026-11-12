@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { run } from '../src/util.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
+import { confirmCode } from '../src/confirm-code.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -155,7 +156,7 @@ test('precheck dependency-test scope previews only locked dependencies and exist
   assert.deepEqual(payload.data.plan.commands[0].argv, ['npm', 'ci']);
   assert.equal(payload.data.plan.structuredTestContract.status, 'available');
   assert.equal(payload.next[0].skill, '/sf-ready');
-  assert.equal(payload.next[0].copilotCommand, `/sf-confirm ${payload.next[0].command.replace(/^singularity-flow /u, '')}`);
+  assert.equal(payload.next[0].copilotCommand, `/sf-confirm ${confirmCode(payload.next[0].command)}`);
   assert.match(payload.next[0].command, new RegExp(payload.data.plan.planId, 'u'));
   assert.match(payload.next[0].command, /--scope dependency-test/u);
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');

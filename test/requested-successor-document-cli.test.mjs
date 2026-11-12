@@ -13,6 +13,8 @@ import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { phaseNeedsGeneration } from '../src/sequence.mjs';
 import { fileURLToPath } from 'node:url';
+import { confirmCode } from '../src/confirm-code.mjs';
+import { copilotCommandForCommand } from '../src/copilot-guidance.mjs';
 
 const WORK = 'REDRAFT-DOC-1';
 const ASKED = 'name who owns the rollback in the risks section';
@@ -58,7 +60,28 @@ test('a change the person asks for after a document step is published opens draf
   assert.equal(preview.kind, 'requested-change');
   assert.deepEqual([preview.fromGeneration, preview.toGeneration], [1, 2]);
   assert.deepEqual(preview.requestedChange.requests, [TYPED]);
-  assert.equal(preview.copilotCommand, `/sf-confirm phase rollover planning --confirm ${preview.confirmation}`);
+  assert.equal(preview.copilotCommand, `/sf-confirm ${confirmCode(preview.command)}`);
+  assert.ok(preview.command.endsWith(`--confirm ${preview.confirmation}`));
+
+  // The person types the short code, never the digest [owner, 2026-11-12]; it binds a /sf-confirm turn to that command only.
+  const code = preview.copilotCommand.split(' ')[1];
+  assert.doesNotMatch(preview.copilotCommand, /sha256|[a-f0-9]{16}/u);
+  const typedCode = { cwd: hook.cwd, sessionId: 'redraft-doc-confirm', prompt: `/sf-confirm ${code.toLowerCase()}` };
+  await recordRepositoryBoundaryTurn(typedCode, { captureMutation: (payload, record) => captureMutationTurn(payload, record, { resolveRoot: async () => hook.cwd }) });
+  const inConfirm = (command) => mutationToolGuard({ ...typedCode, toolName: 'bash', toolArgs: { command, cwd: hook.cwd } });
+  assert.deepEqual(await inConfirm(`singularity-flow confirm ${code} --for-agent --json`), {}, 'the code the person typed runs');
+  assert.deepEqual(await inConfirm(preview.command), {}, 'so does the command it stands for');
+  const otherCode = copilotCommandForCommand(`singularity-flow phase rollover planning --confirm sha256:${'1'.repeat(64)}`).split(' ')[1];
+  const other = await inConfirm(`singularity-flow confirm ${otherCode} --json`);
+  assert.equal(other.permissionDecision, 'deny', JSON.stringify(other));
+  assert.match(other.permissionDecisionReason, new RegExp(`${otherCode} is not the confirmation the person typed \\(${code}\\); nothing changed\\. Run singularity-flow confirm ${code} exactly`, 'u'));
+  assert.doesNotMatch(other.permissionDecisionReason, /sha256/u, 'the refusal names codes, never a digest');
+  const unknown = await inConfirm('singularity-flow confirm ZZZZ-ZZZZ --json');
+  assert.equal(unknown.permissionDecision, 'deny');
+  assert.match(unknown.permissionDecisionReason, /CONFIRM_CODE_UNKNOWN: no confirmation is waiting under ZZZZ-ZZZZ on this machine/u);
+  // A code outside a /sf-confirm turn is admitted only as its command is: here the /sf-phase turn, which never confirms one.
+  assert.equal((await shell(`singularity-flow confirm ${code} --json`)).permissionDecision ?? 'allow',
+    (await shell(preview.command)).permissionDecision ?? 'allow');
 
   // Without the person's confirmation nothing happens.
   const stale = run(process.execPath, [CLI, '--no-model', 'phase', 'rollover', 'planning', '--confirm', `sha256:${'0'.repeat(64)}`, '--json'], { allowFailure: true });
@@ -67,10 +90,14 @@ test('a change the person asks for after a document step is published opens draf
   assert.deepEqual(await workflowOf(item), before);
   assert.equal(git('rev-parse', 'HEAD'), publishedHead);
 
-  const opened = json(cli('phase', 'rollover', 'planning', '--confirm', preview.confirmation, '--json'));
+  // `confirm <CODE>` is the command the code stands for, run once: draft 2 opens.
+  const opened = json(cli('confirm', code, '--json'));
   assert.equal(opened.mutates, true);
   assert.deepEqual(opened.opened, { generation: 2, status: 'open' });
   assert.equal(opened.next.copilotCommand, '/sf-phase planning');
+  // The same code again confirms nothing: what it confirmed has moved on.
+  const again = run(process.execPath, [CLI, '--no-model', 'confirm', code, '--json'], { allowFailure: true });
+  assert.notEqual(again.status, 0, again.stdout);
   const reopened = await workflowOf(item);
   assert.equal(phaseNeedsGeneration(reopened, reopened.phases.planning), true, 'draft 2 is open in the same step');
   assert.equal(reopened.currentPhase, 'planning');

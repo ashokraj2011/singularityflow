@@ -604,6 +604,8 @@ export async function main(argv) {
   if (!(globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH > 0)) globalThis.__SFLOW_INVOCATION_CWD = process.cwd();
   const contextRequest = executionContextArguments(argv);
   argv = contextRequest.argv;
+  // A short confirmation code is, from here on, the exact command it was issued for (confirm-entry.mjs).
+  if (argv.includes('confirm') && parseArgs(argv).positionals[0] === 'confirm') argv = (await import('./confirm-entry.mjs')).expandConfirmArgv(argv);
   // Git answers earlier commands in this session already proved; see git-fact-store.mjs.
   installGitFactStore();
   const uninstall = installFileLeaseSignalHandlers();

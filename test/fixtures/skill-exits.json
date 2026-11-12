@@ -59,8 +59,8 @@
     "Recheck once with `singularity-flow phase draft-check <phase> --json`, then stop."
   ],
   "sflow-confirm": [
-    "Refuse and stop on anything else: no digest, a `<placeholder>` or `a|b` choice still to fill, or shell operators.",
-    "A refusal that the digest is stale: show the fresh review it returns and stop;",
+    "Refuse and stop on anything else: a `<placeholder>` or `a|b` choice still to fill, or shell operators.",
+    "A refusal that the code is unknown or the confirmation stale: show the fresh review it returns, or run its next action to show the preview again, and stop;",
     "A refusal that needs a live terminal: give its Shell command for the person's own terminal and stop."
   ],
   "sflow-converge": [

@@ -17,6 +17,7 @@ import { setAgentSession } from '../src/session.mjs';
 import { publishGeneration } from '../src/state.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
 import { applyRecovery, recoveryPlan, recoveryText } from '../src/collaboration.mjs';
+import { resolveConfirmCode } from '../src/confirm-code.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 
 async function fixture(t, id = 'planning') {
@@ -163,8 +164,10 @@ test('automatic recovery guidance keeps the exact explicitly selected phase in i
   const plan = { workId: 'READY-1', phaseId: 'custom-step', branch: 'main', targetBranch: 'main',
     planId: `sha256:${'a'.repeat(64)}`, actions: [{ id: 'publish', safe: true, automatic: true,
       command: 'singularity-flow sync', detail: 'Retry retained publication.' }] };
-  assert.match(recoveryText(plan), /recover READY-1 --phase custom-step --apply --confirm sha256:a{64}/);
-  assert.match(recoveryText({ ...plan, modelEnabled: false }), /--confirm sha256:a{64} --no-model/);
+  // A person reads its short code on both routes; the code stands for the exact apply command, phase and all.
+  const applied = (text) => resolveConfirmCode(text.match(/Shell: singularity-flow confirm ([0-9A-Z]{4}-[0-9A-Z]{4})\n/u)?.[1])?.command;
+  assert.match(applied(recoveryText(plan)), /recover READY-1 --phase custom-step --apply --confirm sha256:a{64}$/);
+  assert.match(applied(recoveryText({ ...plan, modelEnabled: false })), /--confirm sha256:a{64} --no-model$/);
 });
 
 test('JSON recovery exposes the exact automatic command with its reviewed inspection options', async t => {

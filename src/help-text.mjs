@@ -115,6 +115,7 @@ Usage:
   singularity-flow app-review browser install
   singularity-flow outcome [WORK-ID] [--capability ID] [--json]
   singularity-flow result last [--wait [SECONDS]] [--command WORDS] [--json]
+  singularity-flow confirm CODE [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--include-local-documents] [--discard-pending-publications] [--json]
   singularity-flow governance rebuild --dry-run [--remote origin] [--json]

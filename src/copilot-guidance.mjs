@@ -1,5 +1,6 @@
 import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
 import { modelFreeCommandForCommand, formatCommandRouteLines } from './model-free-commands.mjs';
+import { rememberConfirmCommand } from './confirm-code.mjs';
 
 /** Known gate holds change the next route, never the submitted packet or the human's decision. */
 export function approvalHoldContinuation(workId, check) {
@@ -78,6 +79,8 @@ function approvalSelectors(command) {
  * from a preview the person reviewed; a skill route without that value only previews it again, so
  * a person who followed it looped (`/sf-submit` on a Convergence advance). Such a route carries
  * the exact command through `/sf-confirm`, which runs it once; the CLI refuses a stale digest.
+ * The person types it as a short code (`/sf-confirm K7Q2-M8DX`), never the digest: the code is kept on this
+ * machine with the command it names, and typing it binds the turn to that command (confirm-code.mjs).
  */
 export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
   // No skill carries it out: a supplied skill is no route for it either (null, "no verified equivalent").
@@ -88,8 +91,8 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
   if (clone) return `/sf-start ${clone[2]} --clone-from ${clone[1]}`;
   const digest = value.match(/\s--confirm(?:-plan)?\s+(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64})(?:\s|$)/u)?.[1];
   if (!digest || route.includes(digest) || /[<>|;&`$\u0000-\u001f\u007f]/u.test(value)) return route;
-  const operation = value.match(/^(?:singularity-flow|sflow)\s+(.+)$/u)?.[1];
-  return operation ? `/sf-confirm ${operation}` : route;
+  const code = /^(?:singularity-flow|sflow)\s+\S/u.test(value) ? rememberConfirmCommand(value) : null;
+  return code ? `/sf-confirm ${code}` : route;
 }
 
 function skillRouteForCommand(command, skill, fallback) {

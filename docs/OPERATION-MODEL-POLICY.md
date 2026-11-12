@@ -226,6 +226,7 @@ Every public operation is classified before its implementation module is importe
 | configuration.read | read | never | — | — |
 | configuration.snapshot | read | never | — | — |
 | configuration.validate | read | never | — | — |
+| confirm | mutation | never | — | — |
 | constitution.check | read | never | — | — |
 | constitution.except | mutation | never | — | — |
 | constitution.generate | mutation | never | — | — |

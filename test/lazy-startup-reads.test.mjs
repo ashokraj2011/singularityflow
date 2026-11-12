@@ -191,7 +191,9 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   // policy (4c79a2b8d) took git-isolation-paths.mjs out and put package-root.mjs in, through util.mjs.
   // 65: SPEC-ENVF v2's local-config-policy.mjs and config-values.mjs, the names and the scanner's value check. Neither imports a graph.
   // 66: person-step-catalog.mjs, data with no import, is the one list of a person's steps the guard reads.
-  assert.ok(closure.size <= 66, `the edit guard loads ${closure.size} static modules; ceiling is 66`);
+  // 67: confirm-code.mjs, on Node built-ins only: the guard admits `confirm <CODE>` only as it admits the command the
+  // code stands for, so it reads the code's command where the call is checked [owner, 2026-11-12].
+  assert.ok(closure.size <= 67, `the edit guard loads ${closure.size} static modules; ceiling is 67`);
 });
 
 test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {

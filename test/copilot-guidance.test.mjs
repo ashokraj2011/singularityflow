@@ -9,6 +9,7 @@ import {
   submissionReadinessPresentation
 } from '../src/copilot-guidance.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import { confirmCode } from '../src/confirm-code.mjs';
 
 test('user-facing skills always use the direct sf namespace', () => {
   assert.equal(directCopilotSkill('/sflow-submit'), '/sf-submit');
@@ -112,7 +113,7 @@ test('a reviewed Convergence digest travels with its Copilot route instead of a 
     assert.equal(copilotCommandForCommand(command, '/sf-submit'), '/sf-submit', command);
   }
   assert.equal(copilotCommandForCommand(`singularity-flow story advance --work-id after-fix --confirm ${digest} --json`, '/sf-submit'),
-    `/sf-confirm story advance --work-id after-fix --confirm ${digest} --json`);
+    `/sf-confirm ${confirmCode(`singularity-flow story advance --work-id after-fix --confirm ${digest}`)}`);
 });
 
 test('approval guidance preserves exact phase and Story selectors without execution authority', () => {

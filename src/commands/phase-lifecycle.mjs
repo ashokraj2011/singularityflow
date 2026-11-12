@@ -141,7 +141,7 @@ export async function phaseCommand(positionals, options) {
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
       else {
         console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${nextPhaseGeneration(phase)}.`);
-        console.log(`Confirm exact current bytes: ${expected}`);
+        console.log('To start it, confirm its code below, in Copilot or in your own terminal.');
         printCommandRoutes(route, { label: 'Continue' });
         console.log('Nothing was changed.');
       }

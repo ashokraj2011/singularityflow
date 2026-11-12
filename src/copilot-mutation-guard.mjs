@@ -19,6 +19,7 @@ import { canonicalCommand, resolveOperation } from './command-registry.mjs';
 import { adjudicationTableStep, ANSWER_BOUND_TURNS, DECIDE_SKILL_MUTATIONS, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PERSON_DECISIONS, planRowCorrectionStep } from './person-step-catalog.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
+import { normalizeConfirmCode, resolveConfirmCode } from './confirm-code.mjs';
 import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
 import { COPILOT_HOOKS_PROTECTED, isCopilotHooksPath } from './governed-roots.mjs';
 
@@ -225,6 +226,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     binding: { workflowFile, workflowSha256: digest(await readFile(workflowFile)), ...gitIdentity },
     baseline: previous?.baseline ?? null, findings: previous?.findings ?? [],
     ...(record.confirmDigest ? { confirmDigest: record.confirmDigest } : {}),
+    ...(record.confirmCode ? { confirmCode: record.confirmCode } : {}),
     ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}),
     ...(previous?.buildStaging ? { buildStaging: previous.buildStaging } : {}),
     ...(previous?.fixStaging ? { fixStaging: previous.fixStaging } : {}),
@@ -566,6 +568,14 @@ function plannedActionArgv(positionals, options, value) {
   } catch { return null; }
 }
 
+/** The argv a typed `confirm <CODE>` stands for, as the CLI entry expands it, or null when it names none here. */
+function confirmCodeArgv(positionals, options) {
+  if (positionals.length !== 2 || Object.keys(options).some(key => !['json', 'for-agent'].includes(key) && !(key === 'model' && options.model === false))) return null;
+  const found = resolveConfirmCode(positionals[1]);
+  const safe = found ? validateSflowExecutionCommand(found.command, { shell: 'posix' }) : null;
+  return safe?.argv?.length ? safe.argv : null;
+}
+
 /**
  * Commands only a host runs. A lifecycle hook records host decisions (a turn's own boundary among
  * them). The gateway server carries out plans a person confirms in its client's own UI: started from
@@ -590,6 +600,12 @@ export function argvAllowed(argv, mode, value) {
   if (positionals[0] === 'action' && positionals[1] === 'execute') {
     const planned = plannedActionArgv(positionals, options, value);
     if (!planned || planned[0] === 'action' || !argvAllowed(planned, mode, value)) return false;
+  }
+  // `confirm <CODE>` runs the command the code was issued for (confirm-entry.mjs): a turn admits it exactly
+  // when it would admit that command, so a code carries no step past the guard that its command would not.
+  if (positionals[0] === 'confirm') {
+    const confirmed = confirmCodeArgv(positionals, options);
+    return Boolean(confirmed) && confirmed[0] !== 'confirm' && argvAllowed(confirmed, mode, value);
   }
   // Installing agent packages changes which agents run, and publishing them what other teams run:
   // the person's own steps, in no turn [APM A2/A4].
@@ -769,9 +785,22 @@ export function argvAllowed(argv, mode, value) {
  * The slip check loads only here: the guard runs on every tool call and keeps its static graph small.
  */
 async function confirmDigestMismatch(call, value) {
-  if (typeof value.confirmDigest !== 'string') return null;
   const safe = verifiedShellForm(call, value);
-  const options = safe ? parseCli(safe.argv).options : null;
+  const parsed = safe ? parseCli(safe.argv) : null;
+  // A code other than the one the person typed: name theirs, never a digest.
+  if (parsed?.positionals[0] === 'confirm') {
+    const typed = normalizeConfirmCode(parsed.positionals[1]);
+    const confirmed = confirmCodeArgv(parsed.positionals, parsed.options);
+    if (!confirmed) return `CONFIRM_CODE_UNKNOWN: no confirmation is waiting under ${typed ?? 'that code'} on this machine (it was given elsewhere, `
+      + 'or more than a week ago); nothing changed. Run singularity-flow nextsteps --json and show the person the step\'s preview again; its route carries the current code';
+    if (typeof value.confirmDigest !== 'string') return null;
+    const flags = parseCli(confirmed).options;
+    if ([flags.confirm, flags['confirm-plan']].includes(value.confirmDigest)) return null;
+    return `PHASE_MUTATION_CONFIRM_MISMATCH: ${typed ?? 'this code'} is not the confirmation the person typed${value.confirmCode ? ` (${value.confirmCode})` : ''}; `
+      + `nothing changed. ${value.confirmCode ? `Run singularity-flow confirm ${value.confirmCode} exactly` : 'Run the command the person confirmed exactly'}; this turn runs only what the person typed`;
+  }
+  if (typeof value.confirmDigest !== 'string') return null;
+  const options = parsed?.options ?? null;
   const flag = typeof options?.confirm === 'string' ? 'confirm' : typeof options?.['confirm-plan'] === 'string' ? 'confirm-plan' : null;
   if (!flag || options[flag] === value.confirmDigest) return null;
   const given = options[flag];

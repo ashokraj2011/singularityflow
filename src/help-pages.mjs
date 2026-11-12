@@ -1780,6 +1780,24 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['phase', 'nextsteps']
   },
+  confirm: {
+    summary: 'Confirm a reviewed action by the short code its preview gave, instead of copying its digest.',
+    description: [
+      'A preview that needs your yes (starting the next draft, a decision list, a plan) gives its route as a code such as',
+      '`/sf-confirm K7Q2-M8DX`. The code stands for the exact command that preview issued, kept on this machine for a week.',
+      '`confirm CODE` runs that command as if you typed it: what it confirms is still checked, so a preview that changed',
+      'since is refused and shown again with a new code. In Copilot, `/sf-confirm CODE` binds the chat turn to that command only.'
+    ],
+    options: [
+      ['CODE', 'The eight-character code a preview gave, such as K7Q2-M8DX; upper or lower case.'],
+      ['--json', 'The command\'s own result as JSON.']
+    ],
+    examples: [
+      ['singularity-flow confirm K7Q2-M8DX', 'Run the action the preview with this code showed, once.'],
+      ['singularity-flow confirm K7Q2-M8DX --for-agent --json', 'What /sf-confirm K7Q2-M8DX runs in a Copilot chat.']
+    ],
+    seeAlso: ['phase', 'nextsteps']
+  },
   call: {
     summary: 'Add your own agent folder (a main agent and the skills it uses) and run it as a Story\'s one step.',
     description: [

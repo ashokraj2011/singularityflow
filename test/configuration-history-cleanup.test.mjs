@@ -10,6 +10,7 @@ import { retainStateConfigurationHistory } from '../src/configuration-branch.mjs
 import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { run } from '../src/util.mjs';
+import { confirmCode } from '../src/confirm-code.mjs';
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-history-test-'));
@@ -50,7 +51,8 @@ test('preview preserves remote refs and exact dirty worktree; confirmed cleanup 
   assert.equal(preview.retained[0].reason, 'current-approved-configuration');
   assert.equal(item.refs(), beforeRefs);
   assert.equal(item.state(), beforeState);
-  assert.match(preview.commandGuidance.next.copilotCommand, /^\/sf-confirm configuration cleanup-history .*--confirm sha256:/u);
+  assert.match(preview.commandGuidance.next.command, /^singularity-flow configuration cleanup-history .*--confirm sha256:/u);
+  assert.equal(preview.commandGuidance.next.copilotCommand, `/sf-confirm ${confirmCode(preview.commandGuidance.next.command)}`);
   const result = await item.cleanup({ apply: true, confirm: preview.confirmation });
   assert.equal(result.status, 'cleaned', JSON.stringify(result));
   assert.equal(result.archived.length, 3);

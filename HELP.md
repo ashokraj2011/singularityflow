@@ -4115,6 +4115,7 @@ singularity-flow app-review plan|start|status|inspect|feedback|repair|recheck|ac
 singularity-flow app-review browser install
 singularity-flow outcome [WORK-ID] [--capability ID] [--json]
 singularity-flow result last [--wait [SECONDS]] [--command WORDS] [--json]
+singularity-flow confirm CODE [--json]
 singularity-flow secrets scan [--staged] [--json]
 singularity-flow secrets protect [--force]
 singularity-flow git-policy discover|show [--json]

@@ -1670,7 +1670,8 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-workflow-rules': [[/^approve$/u, 'says who may approve; an approval is recorded only in an /sf-approve turn']],
   'sflow-sgos-create': [[/^(?:process (?:start|step|run)|intent (?:ratify|compile))\b/u, 'named only as commands it never runs']],
   'sflow-auto': [[/^auto flight-step\b/u, 'named only as a command it never invokes directly']],
-  'sflow-integrations': [[/^integrations deliver\b/u, 'for pipelines; not run from chat']]
+  'sflow-integrations': [[/^integrations deliver\b/u, 'for pipelines; not run from chat']],
+  'sflow-confirm': [[/^confirm x1\b/u, 'runs only the code the person typed; a turn bound by a typed code is checked in confirm-code.test.mjs']]
 });
 /** Commands of a skill that needs no Story which act on a bound Story, so only a Story-bound turn runs them. */
 const NEEDS_A_STORY = Object.freeze({

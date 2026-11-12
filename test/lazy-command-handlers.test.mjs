@@ -588,7 +588,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // authored step (t2); deployed-URL tests, Windows port holders and the .github/hooks guard (config.mjs,
     // external-command-policy.mjs, governed-roots.mjs); the walk, fix and simplify commands' registry entries; hashes kept
     // out of person text (t1); the hook working folder (t4). No new eager file.
-    assert.ok(closure.bytes <= 9_642_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,649,500 (measured 9,649,466): a confirmation route a person types is a short code, never its digest, in Copilot
+    // and in their own terminal (confirm-code.mjs, one new eager file of 5.4 KB that route building loads; the prompt
+    // hook and the guard resolve it; model-free-commands.mjs shows the code on the Shell line) [owner, 2026-11-12].
+    assert.ok(closure.bytes <= 9_649_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -677,7 +680,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // the option and the exact command to run (utility-entry.mjs +2.3 KB) [Story anu-bin, 2026-11-11].
   // 864,800 (measured 864,795): `workflow walk` and `workflow fix` (command-registry.mjs), and doctor --repair-hooks
   // classified as SFlow's own mutation so a live turn's baseline moves past it (command-registry.mjs) [2026-11-12].
-  assert.ok(root.bytes <= 864_800, `root dispatch loads ${root.bytes} source bytes`);
+  // 865,250 (measured 865,237): `confirm <CODE>` is registered and the entry swaps it for its command before dispatch
+  // (command-registry.mjs, cli-entry.mjs); the expansion itself loads lazily [owner, 2026-11-12].
+  assert.ok(root.bytes <= 865_250, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -695,7 +700,8 @@ test('the common session projection does not import attach, state stores or publ
     'phase-finding-policy.mjs', 'lifecycle-worktree.mjs']) {
     assert.equal(current.files.has(path.join(sourceRoot, file)), false, `session current eagerly loads ${file}`);
   }
-  assert.ok(current.files.size <= 220, `session current reaches ${current.files.size} files; old session handler reached 429`);
+  // 221: confirm-code.mjs, which builds the short code a confirmation route carries [owner, 2026-11-12].
+  assert.ok(current.files.size <= 221, `session current reaches ${current.files.size} files; old session handler reached 429`);
   // 3,905,000: main cf33907d measures 3,898,542; plan corrections as the plan approver's own terminal step and an
   // upstream issue raised from /sf-decide add 1,906 for 3,900,448 (copilot-mutation-guard.mjs, command-skills.mjs).
   // 3,910,000: main 80f74694 measures 3,901,751; who decides for a step with no approval group (approval-fallback.mjs,
@@ -850,7 +856,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,237,150 (measured 4,237,138): the 2026-11-12 after-demo merge, mostly the packaged template digests of the
   // one-line, marked template guidance (packaged-asset-history.mjs +14.8 KB) and the governed-roots and deployed-URL
   // checks. No new eager file.
-  assert.ok(current.bytes <= 4_237_150, `session current loads ${current.bytes} source bytes`);
+  // 4,244,150 (measured 4,244,138): a confirmation route's short code (confirm-code.mjs, the one new file above).
+  assert.ok(current.bytes <= 4_244_150, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

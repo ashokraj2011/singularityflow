@@ -15,6 +15,7 @@ import {
   renderChangeDirectoryCommand, renderCommandPromptCommand, renderPlatformCommand,
   safeCommandGuidance
 } from '../src/safe-command-guidance.mjs';
+import { confirmCode } from '../src/confirm-code.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -257,7 +258,7 @@ test('phase rollover has a dedicated recovery route, not the code-authoring rout
   const guidance = safeCommandGuidance({ command, skill: '/sf-recover' });
   assert.ok(guidance);
   // The reviewed digest travels with the route, so following it confirms instead of previewing again.
-  assert.equal(guidance.copilotCommand, `/sf-confirm phase rollover implementation --confirm sha256:${'a'.repeat(64)}`);
+  assert.equal(guidance.copilotCommand, `/sf-confirm ${confirmCode(`singularity-flow phase rollover implementation --confirm sha256:${'a'.repeat(64)}`)}`);
   assert.deepEqual(guidance.argv,
     ['phase', 'rollover', 'implementation', '--confirm', `sha256:${'a'.repeat(64)}`]);
   assert.equal(safeCommandGuidance({ command, skill: '/sf-code' }), null,
@@ -266,7 +267,7 @@ test('phase rollover has a dedicated recovery route, not the code-authoring rout
     command: `singularity-flow phase rollover build-api --confirm sha256:${'b'.repeat(64)}`,
     skill: '/sf-recover'
   });
-  assert.equal(custom?.copilotCommand, `/sf-confirm phase rollover build-api --confirm sha256:${'b'.repeat(64)}`,
+  assert.equal(custom?.copilotCommand, `/sf-confirm ${confirmCode(`singularity-flow phase rollover build-api --confirm sha256:${'b'.repeat(64)}`)}`,
     'repository-defined code phase names must use the same recovery route');
 });
 

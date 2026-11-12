@@ -22,9 +22,29 @@ export interface LifecycleChatAction {
 }
 interface LifecycleChatPlan {
   planId: string; subject: { kind: string; id: string };
-  expiresAt: string; revision: { head: string }; actions: LifecycleChatAction[];
+  expiresAt: string; revision: { head: string; branch?: string }; actions: LifecycleChatAction[];
   publicationReadiness?: { status: string; findings?: { code: string; message: string }[];
     commands?: Record<string, string | null> } | null;
+}
+
+/** `story advance --json` before its confirmation: the digest the host binds, and the short code the person types. */
+interface ConvergencePreview {
+  resultType?: string; status?: string; workId?: string; iteration?: number; findings?: number;
+  confirmationDigest?: string; confirmationCode?: string;
+}
+
+/** The exact digest to confirm, only when the preview is this Story's and carries both the digest and its code. */
+export function convergenceDigest(preview: ConvergencePreview | null | undefined, workId: string): string | null {
+  if (preview?.resultType !== 'sflow-convergence-advance' || preview.status !== 'ready-to-confirm' || preview.workId !== workId) return null;
+  if (typeof preview.confirmationCode !== 'string' || !/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/u.test(preview.confirmationCode)) return null;
+  return typeof preview.confirmationDigest === 'string' && /^sha256:[a-f0-9]{64}$/u.test(preview.confirmationDigest) ? preview.confirmationDigest : null;
+}
+
+/** What the person reviews: the iteration and its findings, never the digest. */
+export function convergencePreviewText(preview: ConvergencePreview): string {
+  return [`Convergence iteration ${Number(preview.iteration) || 0} has no unresolved blockers and every item is dispositioned.`,
+    `Findings: ${Number(preview.findings) || 0}.`,
+    'No lifecycle state, file, commit, or remote changed yet. Submitting sends convergence for approval.'].join('\n');
 }
 
 function inline(value: string): string {
@@ -167,21 +187,21 @@ export async function runLifecycleChat(
       summary: `Approve ${active.workId} / ${active.phaseId}`
     }, output, stillCurrent);
   } else if (selected.argv[0] === 'story' && selected.argv[1] === 'advance') {
-    // Convergence submission is a distinct digest-reviewed contract, not generic submit.
-    const preview = await active.client.runText(selected.argv, { signal });
-    const matches = [...preview.matchAll(/^Confirmation digest: ([a-f0-9]{64})$/gmu)];
-    if (matches.length !== 1) throw new Error('No exact convergence review digest was returned. Inspect /sf-converge; no submission was recorded.');
-    const digest = matches[0]![1]!;
+    // Convergence submission is a distinct digest-reviewed contract, not generic submit. The digest comes from the
+    // preview's JSON and is bound below; the person reviews the result and types its short code, never the digest.
+    const preview = await active.client.run<ConvergencePreview>([...selected.argv, '--json'], signal);
+    const digest = convergenceDigest(preview, active.workId);
+    if (!digest) throw new Error('No exact convergence review was returned. Inspect /sf-converge; no submission was recorded.');
     const reviewed = await collectReviewConfirmation({
-      title: `Review convergence for ${active.workId}`, summary: 'Confirm the exact convergence snapshot before submission.',
-      detail: preview, expected: digest, confirmLabel: 'Submit reviewed convergence'
+      title: `Review convergence for ${active.workId}`, summary: 'Confirm this convergence result before submission.',
+      detail: convergencePreviewText(preview), expected: preview.confirmationCode, confirmLabel: 'Submit reviewed convergence'
     });
     if (!reviewed || !(await stillCurrent())) { stream.markdown('Cancelled; convergence was not submitted.\n'); return; }
     output.appendLine(await active.client.runText([...selected.argv, '--confirm', digest], { signal }));
     completed = true;
   } else {
     const answer = await showCompactWarningMessage(`Run ${kind} for ${active.workId} / ${active.phaseId}?`, {
-      modal: true, detail: `${selected.command}\n\nPlan ${plan.planId} · HEAD ${plan.revision.head}\nExpires ${plan.expiresAt}. Changed repository bytes or lifecycle state invalidate this plan. Tests and gates remain enforced.`
+      modal: true, detail: `${selected.command}\n\nThis plan is bound to ${plan.revision.branch ?? 'the branch'} as it is now and expires ${plan.expiresAt}. Changed repository bytes or lifecycle state invalidate it. Tests and gates remain enforced.`
     }, 'Run action');
     if (answer !== 'Run action' || !(await stillCurrent())) { stream.markdown('Cancelled; no lifecycle action was executed.\n'); return; }
     const argv = ['action', 'execute', plan.planId, '--action', selected.actionId];

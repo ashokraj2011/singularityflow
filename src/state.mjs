@@ -372,13 +372,14 @@ async function assertConvergenceConfirmation(root, config, workflow, phase, conf
   const verified = await assertConvergencePublicationReady(root, config, workflow, phase);
   if (confirmation !== verified.snapshotSha256) {
     throw new SingularityFlowError(
-      `The convergence result changed after preview. Review the current result and confirm ${verified.snapshotSha256}.`,
+      `The convergence result changed after preview. Nothing was submitted. Review it again: singularity-flow story advance --work-id ${workflow.workItem.id}`,
       {
         code: 'CONVERGENCE_ADVANCE_CONFIRMATION_STALE',
         details: {
           workId: workflow.workItem.id,
           supplied: confirmation,
-          expected: verified.snapshotSha256
+          expected: verified.snapshotSha256,
+          nextAction: `singularity-flow story advance --work-id ${workflow.workItem.id}`
         }
       }
     );

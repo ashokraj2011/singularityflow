@@ -113,13 +113,14 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     const confirmed = await assertConvergencePublicationReady(root, config, workflow, initialPhase);
     if (convergenceConfirmation !== confirmed.snapshotSha256) {
       throw new SingularityFlowError(
-        `The convergence result changed after preview. Review the current result and confirm ${confirmed.snapshotSha256}.`,
+        `The convergence result changed after preview. Nothing was submitted. Review it again: singularity-flow story advance --work-id ${resolvedWorkId}`,
         {
           code: 'CONVERGENCE_ADVANCE_CONFIRMATION_STALE',
           details: {
             workId: resolvedWorkId,
             supplied: convergenceConfirmation,
-            expected: confirmed.snapshotSha256
+            expected: confirmed.snapshotSha256,
+            nextAction: `singularity-flow story advance --work-id ${resolvedWorkId}`
           }
         }
       );

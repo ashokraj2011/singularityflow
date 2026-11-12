@@ -18,7 +18,7 @@ function action(argv, overrides = {}) {
 }
 function host({ kind = 'submit', cancel = false, moved = false, paused = false, fail = false, inputs = [], actions = null, dirty = false,
   convergence = null, reviewConfirmed = true, publicationReadiness = null } = {}) {
-  const calls = [], markdown = [], warnings = [], approvalRequests = [], refreshes = [];
+  const calls = [], markdown = [], warnings = [], approvalRequests = [], refreshes = [], reviews = [];
   const token = { isCancellationRequested: false };
   const controller = new AbortController();
   const defaultArgv = kind === 'publish'
@@ -32,14 +32,14 @@ function host({ kind = 'submit', cancel = false, moved = false, paused = false, 
       if (argv.includes('--submission-readiness')) return { phaseId: 'custom-build', lifecycleReady: true, decisionInputs: inputs };
       if (argv[0] === 'status') return { workItem: { id: 'STORY-1' }, currentPhase: 'custom-build', phases: { 'custom-build': { generation: 2 } } };
       if (argv[0] === 'nextsteps') return { actions: [{ command: 'singularity-flow status --json' }] };
-      if (argv[1] === 'plan') return { planId: 'a'.repeat(24), subject: { kind: 'story', id: 'STORY-1' },
-        expiresAt: new Date(Date.now() + 60_000).toISOString(), revision: { head: 'c'.repeat(40) },
+      if (argv[0] === 'story' && argv[1] === 'advance') return convergence;
+      if (argv[1] === 'plan') return { planId: '0a1b2c'.repeat(4), subject: { kind: 'story', id: 'STORY-1' },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(), revision: { head: '3f9a'.repeat(10), branch: 'sflow/story/STORY-1' },
         publicationReadiness, actions: actions ?? [action(defaultArgv)] };
       if (argv[1] === 'authorize') return { token: 'private-one-time-token' };
       throw new Error(argv.join(' '));
     },
     async runText(argv) { calls.push(argv); if (fail) throw new Error('PLAN_STALE: repository bytes changed');
-      if (argv[0] === 'story' && !argv.includes('--confirm')) return convergence ?? 'no digest';
       return 'completed'; }
   };
   const vscode = { workspace: { textDocuments: dirty ? [{ isDirty: true, uri: { scheme: 'file', fsPath: '/repo/code.js' } }] : [] },
@@ -62,8 +62,8 @@ function host({ kind = 'submit', cancel = false, moved = false, paused = false, 
     if (name === './compact-message.ts') return { async showCompactWarningMessage(...args) {
       warnings.push(args); confirmed = true; return cancel ? undefined : 'Run action';
     } };
-    if (name === './views/review-confirmation.ts') return { collectReviewConfirmation: async () => {
-      confirmed = true; return reviewConfirmed;
+    if (name === './views/review-confirmation.ts') return { collectReviewConfirmation: async (request) => {
+      reviews.push(request); confirmed = true; return reviewConfirmed;
     } };
     throw new Error(name);
   } });
@@ -72,7 +72,7 @@ function host({ kind = 'submit', cancel = false, moved = false, paused = false, 
   const run = (command = kind, prompt = '') => exports.runLifecycleChat(command, prompt, {
     markdown: (value) => markdown.push(value), progress() {}
   }, token, controller.signal, session, () => paused && confirmed, { appendLine() {} });
-  return { ...exports, run, calls, markdown, warnings, approvalRequests, refreshes, token, controller };
+  return { ...exports, run, calls, markdown, warnings, approvalRequests, refreshes, reviews, token, controller };
 }
 
 test('model-free submit and publish use one exact plan, authorization and execution', async () => {
@@ -146,22 +146,47 @@ test('custom phase selectors are exact and protected commands cannot be smuggled
   assert.equal(h.lifecycleActionKind(action(['submit', 'custom-build'], { timing: 'then' }), 'custom-build', 'STORY-1'), null);
 });
 
-test('convergence submission requires one exact digest and human confirmation, without generic submit', async () => {
+// A run of 7 to 64 hexadecimal characters with a letter and a digit: a hash (person-text-no-hashes.test.mjs).
+const HEX_RUN = /(?<![0-9A-Za-z_])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,64}(?![0-9A-Za-z_])/iu;
+
+test('convergence submission binds the preview\'s exact digest; the person reviews it and types its short code, never the digest', async () => {
   const actions = [action(['story', 'advance', '--work-id', 'STORY-1'])];
-  const digest = 'd'.repeat(64);
-  const h = host({ actions, convergence: `Reviewed snapshot\nConfirmation digest: ${digest}\n` });
+  const digest = `sha256:${'d4'.repeat(32)}`;
+  const preview = { resultType: 'sflow-convergence-advance', status: 'ready-to-confirm', workId: 'STORY-1', iteration: 2, findings: 3,
+    confirmationDigest: digest, confirmationCode: 'K7Q2-M8DX' };
+  const h = host({ actions, convergence: preview });
   await h.run();
+  assert.deepEqual([...h.calls.find(argv => argv[0] === 'story' && !argv.includes('--confirm'))], ['story', 'advance', '--work-id', 'STORY-1', '--json'],
+    'the digest is read from the JSON a person does not read');
   const writes = h.calls.filter(argv => argv[0] === 'story' && argv.includes('--confirm'));
   assert.equal(writes.length, 1);
-  assert.equal(writes[0].at(-1), digest);
+  assert.deepEqual([...writes[0]], ['story', 'advance', '--work-id', 'STORY-1', '--confirm', digest]);
   assert.equal(h.calls.some(argv => argv[1] === 'execute' || argv[0] === 'submit'), false);
-  for (const option of ['cancel', 'moved', 'paused', 'missing-digest']) {
-    const rejected = host({ actions, convergence: option === 'missing-digest' ? 'absent' : `Confirmation digest: ${digest}\n`,
-      reviewConfirmed: option !== 'cancel', moved: option === 'moved', paused: option === 'paused' });
-    if (option === 'missing-digest') await assert.rejects(() => rejected.run(), /No exact convergence review digest/);
-    else await rejected.run();
+  assert.equal(h.reviews.length, 1);
+  assert.equal(h.reviews[0].expected, 'K7Q2-M8DX', 'the person types the short code');
+  assert.match(h.reviews[0].detail, /Convergence iteration 2 has no unresolved blockers[\s\S]*Findings: 3\./u);
+  for (const text of [h.reviews[0].title, h.reviews[0].summary, h.reviews[0].detail, h.reviews[0].expected]) assert.doesNotMatch(text, HEX_RUN);
+  for (const option of ['cancel', 'moved', 'paused', 'missing-digest', 'missing-code', 'other-story', 'not-ready']) {
+    const convergence = option === 'missing-digest' ? { ...preview, confirmationDigest: undefined }
+      : option === 'missing-code' ? { ...preview, confirmationCode: undefined }
+        : option === 'other-story' ? { ...preview, workId: 'STORY-2' }
+          : option === 'not-ready' ? { ...preview, status: 'blocked' } : preview;
+    const rejected = host({ actions, convergence, reviewConfirmed: option !== 'cancel', moved: option === 'moved', paused: option === 'paused' });
+    if (['missing-digest', 'missing-code', 'other-story', 'not-ready'].includes(option)) {
+      await assert.rejects(() => rejected.run(), /No exact convergence review was returned/);
+      assert.equal(rejected.reviews.length, 0, option);
+    } else await rejected.run();
     assert.equal(rejected.calls.some(argv => argv[0] === 'story' && argv.includes('--confirm')), false, option);
   }
+});
+
+test('a plan\'s confirmation names its branch and expiry, never its ID or HEAD commit', async () => {
+  const h = host();
+  await h.run();
+  assert.equal(h.warnings.length, 1);
+  const detail = h.warnings[0][1].detail;
+  assert.match(detail, /bound to sflow\/story\/STORY-1 as it is now and expires /u);
+  assert.doesNotMatch(detail.replace(/ expires \S+/u, ''), HEX_RUN);
 });
 
 test('blocked publication shows exact findings and recheck routes without exposing test argv or authorizing a write', async () => {

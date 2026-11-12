@@ -2794,37 +2794,38 @@ export async function storyAdvanceCommand(positionals, options) {
     if (endsStory(workflow, subject.phase)) await (await import('../evidence/terminal.mjs')).assertTerminalReadiness(root, config, workflow);
     const confirmation = optionString(options, 'confirm');
     if (!confirmation) {
+      // The digest binds the confirmation; a person never reads it. The text names the iteration and gives the
+      // confirmation as a short code (confirm-code.mjs); the JSON a host or agent reads keeps the digest, and the code.
+      const command = `singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`;
       if (optionBoolean(options, 'json')) {
-        const command = `singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`;
+        const { rememberConfirmCommand } = await import('../confirm-code.mjs');
         console.log(JSON.stringify({ schemaVersion: 1, resultType: 'sflow-convergence-advance', status: 'ready-to-confirm', workId: workflow.workItem.id, phase: subject.phase.id,
           iteration: projection.iteration, findings: projection.findings.length, reconciliation: projection.bindings.reconciliation.sha256,
-          confirmationDigest: reviewed.snapshotSha256, effects: { committed: false, pushed: false }, next: [{ command, skill: '/sf-submit', label: 'After reviewing this exact result, run it.' }] }, null, 2));
+          confirmationDigest: reviewed.snapshotSha256, confirmationCode: rememberConfirmCommand(command),
+          effects: { committed: false, pushed: false }, next: [{ command, skill: '/sf-submit', label: 'After reviewing this exact result, run it.' }] }, null, 2));
         return;
       }
       console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is dispositioned.`);
-      console.log(`Findings: ${projection.findings.length}. Bound to reconciliation ${projection.bindings.reconciliation.sha256.slice(0, 12)}.`);
-      console.log(`Confirmation digest: ${reviewed.snapshotSha256}`);
+      console.log(`Findings: ${projection.findings.length}. Bound to this iteration's reconciliation.`);
       console.log('No lifecycle state, file, commit, or remote changed.');
-      printCommandRoutes(
-        `singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`,
-        { skill: '/sf-submit', label: 'After reviewing this exact result, run' }
-      );
+      printCommandRoutes(command, { skill: '/sf-submit', label: 'After reviewing this exact result, run' });
       return;
     }
     if (confirmation !== reviewed.snapshotSha256) {
       throw new SingularityFlowError(
-        `The convergence result changed after preview. Review it again and confirm ${reviewed.snapshotSha256}.`,
+        `The convergence result changed after preview. Nothing was submitted. Review it again: singularity-flow story advance --work-id ${workflow.workItem.id}`,
         {
           code: 'CONVERGENCE_ADVANCE_CONFIRMATION_STALE',
           details: {
             workId: workflow.workItem.id,
             supplied: confirmation,
-            expected: reviewed.snapshotSha256
+            expected: reviewed.snapshotSha256,
+            nextAction: `singularity-flow story advance --work-id ${workflow.workItem.id}`
           }
         }
       );
     }
-    if (!optionBoolean(options, 'json')) console.log(`Convergence iteration ${projection.iteration} (${reviewed.snapshotSha256}) confirmed by an authorized human; submitting the phase for approval.`);
+    if (!optionBoolean(options, 'json')) console.log(`Convergence iteration ${projection.iteration} confirmed by an authorized human; submitting the phase for approval.`);
     return (await router()).submitConfirmedConvergenceCommand(
       ['submit', subject.phase.id],
       { ...options, 'work-id': workflow.workItem.id },

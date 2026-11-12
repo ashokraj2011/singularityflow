@@ -46,7 +46,8 @@ export async function storyAtVerification(t, WORK, { untested = null, configure 
     cli('prepare', 'convergence');
   }
   cli('phase', 'publish', 'convergence', '--authored', 'deterministic', '--channel', 'kernel-generator');
-  const digest = /Confirmation digest: (\S+)/u.exec(cli('story', 'advance', '--work-id', WORK).stdout)[1];
+  // A person reads no digest; the preview's JSON carries the one the confirmation binds.
+  const digest = JSON.parse(cli('story', 'advance', '--work-id', WORK, '--json').stdout).confirmationDigest;
   cli('story', 'advance', '--work-id', WORK, '--confirm', digest);
   cli('approve', 'convergence', '--yes');
   cli('prepare', 'verification');

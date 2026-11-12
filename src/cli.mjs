@@ -4088,7 +4088,8 @@ function printApplicability(rows) {
 
 function printDecisionView(view) {
   if (!view.decisions.length) {
-    console.log(`Story ${view.workId} has no decisions; its phases run in order.`);
+    // Routing decisions only: never "no decisions" beside a decision list that holds some [decision map, finding 10].
+    console.log(`Story ${view.workId} has no routing decision; its steps run in order. Everything else a person decides: singularity-flow decisions ${view.workId}`);
     return;
   }
   console.log(`Decisions in ${view.workId}:`);

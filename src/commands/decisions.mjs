@@ -161,12 +161,15 @@ async function previewOf(workflow, packet, plan) {
 }
 
 function itemLines(item, index, { numbered = false } = {}) {
-  const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, `   ${item.decidedBy.words}`];
+  const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, `   ${item.decidedBy.words}`,
+    // What it holds back and where it is answered, on every item [decision map, findings 1 and 11].
+    ...(item.holdsWords ? [`   ${item.holdsWords}`] : []), ...(item.answer?.words ? [`   ${item.answer.words}`] : [])];
   if (!item.decidedBy.allowed && item.decidedBy.share) lines.push(`   Share this with them: ${item.decidedBy.share}`);
   item.options.forEach((option, position) => {
     // An author's own step (accounting for what the person typed) is never the reader's to do.
     const yours = option.action ? (option.decidedBy?.author ? '  (its author\'s step; never recorded here)' : '  (yours to do; never recorded here)')
       : option.available === false ? '  (not available)' : '';
+    // The label alone: the option's outcome is data for every host, and beside the label it only repeated it in other words.
     lines.push(`   ${numbered ? `${position + 1})` : `${option.id}:`} ${option.label}${option.recommended ? '  [recommended]' : ''}${yours}`);
   });
   return lines;

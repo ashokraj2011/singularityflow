@@ -133,12 +133,17 @@ export function scopeDispositionRefusal(workflow, phase, inventory) {
       command: scopeDecisionCommandLine(argv.linked), otherCommand: scopeDecisionCommandLine(argv.unlinked) };
   });
   const list = decisionListRoute(workId);
+  // An approver of any step that defines the scope decides a statement, not only of this one [decision map, finding 5]: name them all.
+  const scopeSteps = (workflow.phaseOrder ?? []).filter((id) => phaseOwnsScope(workflow, workflow.phases?.[id]));
+  const deciders = scopeSteps.length > 1 ? `${scopeSteps.slice(0, -1).join(', ')} or ${scopeSteps.at(-1)}` : phase.id;
   return new SingularityFlowError(
     `${phase.id} cannot be approved while ${unresolved.length} statement(s) of this Story's sources have no disposition (the first: ${unresolved[0].id}). `
-    + `${phase.id} defines the Story's scope, so its approvers link each statement to the clauses that carry it, or include, exclude or defer it with a reason, in the decision list; approving is not a scope disposition.`,
+    + `${phase.id} ${scopeSteps.length > 1 ? 'is the last step that defines' : 'defines'} the Story's scope, so an approver of ${deciders} links each statement to the clauses that carry it, or includes, excludes or defers it with a reason, in the decision list; approving is not a scope disposition.`,
     { code: 'SCOPE_ITEMS_UNRESOLVED', details: { workId, phase: phase.id, ownerPhase: phase.id, scopePhase: phase.id,
       authorities: scopeAuthorities(workflow), items, more: Math.max(0, unresolved.length - items.length),
-      nextAction: { command: list.command, skill: list.skill, label: `An approver of ${phase.id} decides each statement in the decision list, then approves.` },
+      nextAction: { command: list.command, skill: list.skill, label: scopeSteps.length > 1
+        ? `An approver of ${deciders} decides each statement in the decision list; then ${phase.id} is approved.`
+        : `An approver of ${phase.id} decides each statement in the decision list, then approves.` },
       recoveryCommands: [{ command: items[0].command, label: 'Include it through the clauses that carry it.' },
         { command: items[0].otherCommand, label: 'Or exclude, defer or mark it informative, with a reason.' }] } }
   );

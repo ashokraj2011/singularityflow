@@ -265,7 +265,7 @@ test('a revalidation row is the step\'s own approvers\' choice on the list: it s
       { code: 'AMENDMENT_REVALIDATION_REQUIRED', amendment: 'AMD-001', phase: 'conformance', producer: 'requirements', message: 'm', command: 'c' }] } };
   const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
     actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
-  const [code, report] = packet.items.filter((entry) => entry.kind === 'forward-amendment');
+  const [code, report] = packet.items.filter((entry) => entry.kind === 'revalidation');
   assert.equal(code.title, 'Revalidate Implementation after AMD-001');
   assert.match(code.why, /^Implementation read Requirements before AMD-001 amended it\. Its approvers say it still holds/u);
   assert.deepEqual(code.options.map((entry) => [entry.id, entry.label, entry.effects[0].outcome, entry.decidedBy.groups]), [
@@ -300,7 +300,7 @@ test('"Still holds for all N, with one reason" covers only the rows this person 
     unavailable: [], state: {}, pending: { forwardAmendments: ['implementation', 'verification', 'conformance'].map(row) } };
   const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
     actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
-  const [code, testing, report] = packet.items.filter((entry) => entry.kind === 'forward-amendment');
+  const [code, testing, report] = packet.items.filter((entry) => entry.kind === 'revalidation');
   assert.deepEqual([code, testing, report].map((entry) => entry.decidedBy.allowed), [true, false, true]);
 
   // Copilot CLI: one choice beside "Decide each one"; the return is not offered for all.
@@ -342,12 +342,12 @@ test('rows hold the waiting step\'s approval and carry its input, ending and his
       { code: 'STORY_COMPLETION_REFUSED', owner: 'someone-decides', summary: 'Story ORD-7 cannot finish yet.', message: 'conformance read requirements before AMD-001 amended it.' }] } };
   const packet = decisionPacket(workflow, facts, { authorities: workflow.resolution.approvalAuthorities,
     actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
-  assert.deepEqual(packet.items.map((item) => [item.kind, item.holdsApproval]), [['forward-amendment', true], ['approval', false]]);
+  assert.deepEqual(packet.items.map((item) => [item.kind, item.holdsApproval]), [['revalidation', true], ['approval', false]]);
   // Another commit after the submission is its own hold, as before.
   const other = decisionPacket(workflow, { ...facts, approvalCheck: { holds: [{ code: 'STORY_REVIEW_INTERVENING_COMMIT', owner: 'author-repairs',
     summary: 'One commit after the submission: 9a9a [ORD-7] edit the report.', message: 'One commit after the submission: 9a9a [ORD-7] edit the report.' }] } },
   { authorities: workflow.resolution.approvalAuthorities, actor: { name: 'Quality Person', email: 'quality@example.invalid', login: null }, at: AT });
-  assert.deepEqual(other.items.map((item) => item.kind), ['forward-amendment', 'approval-hold', 'approval']);
+  assert.deepEqual(other.items.map((item) => item.kind), ['revalidation', 'approval-hold', 'approval']);
 });
 
 test('only an amendment whose changed clauses are all differences of the waiting report is revalidated; any other reopens, as before [SCS:REQ-022]', async (t) => {

@@ -50,14 +50,16 @@ function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
       <strong>${escape(option.label)}</strong>${recommended}<small>${escape(option.notChoosable ?? '')}</small></button>`;
   }
   const pressed = item.chosen?.option === option.id;
+  // The answer's outcome, the same word set on every item [decision map, recommendation 3].
   return `<button type="button" class="dl-option" data-option="${escape(option.id)}" aria-pressed="${pressed}">
-    <strong>${escape(option.label)}</strong>${recommended}<small>${escape(option.words)}</small></button>`;
+    ${option.outcome ? `<span class="dl-outcome">${escape(option.outcome)}</span>` : ''}<strong>${escape(option.label)}</strong>${recommended}<small>${escape(option.words)}</small></button>`;
 }
 
 function itemHtml(item: DecisionItemRow): string {
   const heading = `<header class="dl-item-head"><span class="dl-id">${escape(item.id)}</span><h2>${escape(item.title)}</h2></header>
     <p class="dl-why">${escape(item.why)}</p>
-    <p class="dl-who">${icon('team')}<span>${escape(item.who)}</span></p>`;
+    <p class="dl-who">${icon('team')}<span>${escape(item.who)}</span></p>
+    ${item.holds || item.answerWhere ? `<p class="dl-holds">${escape([item.holds, item.answerWhere].filter(Boolean).join(' '))}</p>` : ''}`;
   if (!item.allowed) {
     return `<article class="dl-item not-yours" data-item="${escape(item.id)}" data-allowed="false">${heading}
       <div class="dl-share"><span>Share this with them:</span> <code>${escape(item.share ?? '')}</code>
@@ -121,6 +123,8 @@ export const DECISION_LIST_STYLE = `
 .dl-id { font-family:var(--vscode-editor-font-family); color:var(--sf-dim); }
 .dl-why, .dl-who { margin:0; }
 .dl-who { display:flex; gap:.4rem; align-items:center; color:var(--sf-dim); }
+.dl-holds { margin:0; color:var(--sf-dim); font-size:.92em; }
+.dl-outcome { display:block; font-size:.78em; letter-spacing:.04em; text-transform:uppercase; color:var(--sf-dim); }
 .dl-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(16rem,100%),1fr)); gap:.6rem; }
 .dl-option { display:grid; grid-template-columns:minmax(0,1fr); justify-content:stretch; gap:.3rem; text-align:left; padding:.7rem .8rem; min-width:0; border:var(--sf-border); border-radius:var(--sf-radius);
   color:var(--vscode-foreground); background:var(--vscode-editor-background); font:inherit; }

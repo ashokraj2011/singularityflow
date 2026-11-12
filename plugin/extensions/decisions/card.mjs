@@ -84,7 +84,8 @@ export function evidenceLines(packet) {
 }
 
 export function decisionsTable(packet) {
-  const rows = cardRows(packet).map((item) => `| ${cell(itemName(item))} | ${cell(item.why)} | ${cell(howWords(item))} |`);
+  // What each holds back sits with why it is asked [decision map, finding 1].
+  const rows = cardRows(packet).map((item) => `| ${cell(itemName(item))} | ${cell([item.why, item.holdsWords].filter(Boolean).join(' '))} | ${cell(howWords(item))} |`);
   return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${packet.headline} Nothing is recorded until you confirm the list.`, '',
     '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows, ...evidenceLines(packet)].join('\n');
 }

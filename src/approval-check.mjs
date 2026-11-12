@@ -14,7 +14,7 @@ import { skillForCommandLine } from './command-skills.mjs';
 import { commitIsAncestor, exactFileAtObject, governedCommitIdentity, head } from './git.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { phaseAgentMutationRestriction } from './phase-actor-policy.mjs';
-import { scopeStepOf } from './phase-roles.mjs';
+import { phaseOwnsScope, scopeStepOf } from './phase-roles.mjs';
 import { recordSha256 } from './records.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { workDirRelative } from './story-paths.mjs';
@@ -853,7 +853,13 @@ function refusalParty(error, workflow, phase) {
     return groups.length ? { groups: [...groups], riskReview: true } : null;
   }
   if (code === 'PHASE_APPEAL_REVIEW_REQUIRED') return { plan: true };
-  if (code === 'SCOPE_ITEMS_UNRESOLVED') return { steps: [details.scopePhase ?? phase.id] };
+  // An approver of any step that defines the scope may decide its statements, not only of the step that waits [decision map, finding 5]:
+  // the steps name them, and the groups are exactly who may (with whoever decides a scope omission).
+  if (code === 'SCOPE_ITEMS_UNRESOLVED') {
+    const steps = (workflow?.phaseOrder ?? []).filter((id) => phaseOwnsScope(workflow, workflow.phases?.[id]));
+    return { steps: steps.length ? steps : [details.scopePhase ?? phase.id], anyOf: true,
+      ...(details.authorities?.length ? { groups: [...details.authorities] } : {}) };
+  }
   if (code === 'EVIDENCE_INSPECTION_MISSING') return { steps: [details.phase ?? phase.id] };
   if (code === 'VISUAL_THRESHOLD_EXCEEDED') return { steps: [details.phase ?? phase.id] };
   // Decision 10: the workflow's security reviewers when it names them, else the step's approvers.
@@ -890,7 +896,9 @@ export function partyWords(party, workflow) {
     if (party.plan || party.planRoute) return 'An approver of the plan decides';
     if (party.riskReview) return 'A risk reviewer of this Story decides';
     if (party.securityReview) return 'A security reviewer of this Story decides';
-    const steps = clauseList((party.steps ?? []).map((id) => workflow.phases?.[id]?.label ?? id));
+    const labels = (party.steps ?? []).map((id) => workflow.phases?.[id]?.label ?? id);
+    // Any one of several steps' approvers: "Intake or Specification", never "and", which reads as both.
+    const steps = party.anyOf && labels.length > 1 ? `${labels.slice(0, -1).join(', ')} or ${labels.at(-1)}` : clauseList(labels);
     if (party.barred === 'author') return `An approver of ${steps} other than its author decides`;
     return `${party.barred === 'recorded' ? 'Another' : 'An'} approver of ${steps} decides`;
   }
@@ -923,6 +931,9 @@ export function approvalHold(error, workflow, phase) {
     clearedBy,
     ...(route ? { action: { ...route, ...(skill ? { skill } : {}) } } : {}),
     ...(error.details?.planRows?.length ? { planRows: error.details.planRows } : {}),
+    // The sign-offs the step answers for: the decision list's own items for them hold this approval [decision map, finding 1].
+    ...(error.code === 'EVIDENCE_INSPECTION_MISSING' && error.details?.criteria?.length
+      ? { signOffs: error.details.criteria.map((entry) => ({ clauseId: entry.clauseId, slot: entry.slot })) } : {}),
     // Each held package with its advisory, fixed version, who may accept it and their command [CQF:REQ-052].
     ...(error.code === 'DEPENDENCY_VULNERABILITY_HELD' && error.details?.vulnerabilities?.length ? { vulnerabilities: error.details.vulnerabilities } : {}),
     // Only when these paths are all that holds it: then each is a choice, not a repair.

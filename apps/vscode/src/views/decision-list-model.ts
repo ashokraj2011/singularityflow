@@ -26,6 +26,8 @@ export interface DecisionDecidedBy { groups?: string[]; labels?: string[]; allow
 
 export interface DecisionOptionPacket {
   id: string; label: string; recommended: boolean; words?: string;
+  /** Which of the one set of answers this is (Accept, Accept as a risk until a date, Return to a step, …). */
+  outcomeWords?: string;
   effects?: Array<Record<string, unknown>>;
   needs?: DecisionNeeds;
   decidedBy: DecisionDecidedBy;
@@ -46,6 +48,8 @@ export interface DecisionOptionPacket {
 
 export interface DecisionItemPacket {
   id: string; kind: string; title: string; why: string;
+  /** What it holds back and where it is answered, worded by the engine [decision map, findings 1 and 11]. */
+  holdsWords?: string; answer?: { where?: string; words?: string };
   options: DecisionOptionPacket[];
   decidedBy: DecisionDecidedBy;
   details?: Record<string, unknown>;
@@ -115,7 +119,7 @@ export interface DecisionPreview {
 }
 
 export interface DecisionOptionRow {
-  id: string; label: string; recommended: boolean; words: string;
+  id: string; label: string; recommended: boolean; words: string; outcome: string;
   /** A button the person may press: recorded here, available, and theirs to decide. */
   choosable: boolean;
   /** Why it is not a button, in the engine's words, when it is not. */
@@ -127,6 +131,8 @@ export interface DecisionOptionRow {
 
 export interface DecisionItemRow {
   id: string; kind: string; title: string; why: string;
+  /** What it holds back, and where it can be answered. */
+  holds: string; answerWhere: string;
   /** Who decides it, in plain words. */
   who: string;
   /** False when the person may decide none of its options: no buttons, the share line instead. */
@@ -205,6 +211,7 @@ export function optionRow(option: DecisionOptionPacket): DecisionOptionRow {
   const choosable = recorded && available && allowed;
   return {
     id: option.id, label: option.label, recommended: option.recommended === true, words: option.words ?? '',
+    outcome: typeof option.outcomeWords === 'string' ? option.outcomeWords : '',
     choosable,
     notChoosable: choosable ? null : yours ? 'Yours to do; nothing is recorded here.'
       : !available ? (option.words || 'Not available.') : (option.decidedBy?.words ?? 'Not yours to decide.'),
@@ -239,6 +246,7 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
     const allowed = item.decidedBy?.allowed === true && options.some((option) => option.choosable || option.yours !== null);
     return {
       id: item.id, kind: item.kind, title: item.title, why: item.why,
+      holds: typeof item.holdsWords === 'string' ? item.holdsWords : '', answerWhere: typeof item.answer?.words === 'string' ? item.answer.words : '',
       who: item.decidedBy?.words ?? '', allowed,
       share: allowed ? null : item.decidedBy?.share ?? packet.record?.share ?? `/sf-decide ${packet.workId}`,
       options, chosen: allowed ? keptChoice(item, draft) : null

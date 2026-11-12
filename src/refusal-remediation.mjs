@@ -2525,7 +2525,7 @@ export function renderRefusalPlan(plan) {
         : plan.context.strategy === 'escalate-repeated-finding'
           ? `  Scope: phase ${plan.context.phaseId} — the same finding keeps returning; stop repairing it and hand it to someone other than the author. Nothing was accepted or waived.`
         : plan.context.strategy === 'person-decides-scope'
-          ? `  Scope: phase ${plan.context.phaseId} — its approvers decide each source statement in the decision list now, then approve; nothing about the work needs repairing.`
+          ? `  Scope: phase ${plan.context.phaseId} — an approver of a step that defines the scope decides each source statement in the decision list now, then the phase is approved; nothing about the work needs repairing.`
         : plan.context.strategy === 'person-decides-conformance-gap'
           ? `  Scope: phase ${plan.context.phaseId} — people decide what is open; nothing about the report needs repairing. Open the decision list now.`
         : plan.context.strategy === 'person-decides-intent-amendment'

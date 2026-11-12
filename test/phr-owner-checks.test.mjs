@@ -94,7 +94,7 @@ test('[PHR:REQ-002] finding 10: the step that defines the scope is approved only
     ['include-scope-statement', refusal.details.recoveryCommands[0].command],
     ['decide-scope-statement-otherwise', refusal.details.recoveryCommands[1].command]]);
   assert.deepEqual([plan.context?.strategy, plan.context?.turn], ['person-decides-scope', 'current-turn']);
-  assert.match(renderRefusalPlan(plan), /^Recovery plan:\n  Scope: phase intake — its approvers decide each source statement in the decision list now, then approve; nothing about the work needs repairing\.\n  1\. An approver of intake decides/u);
+  assert.match(renderRefusalPlan(plan), /^Recovery plan:\n  Scope: phase intake — an approver of a step that defines the scope decides each source statement in the decision list now, then the phase is approved; nothing about the work needs repairing\.\n  1\. An approver of intake decides/u);
   assert.doesNotMatch(renderRefusalPlan(plan), /sf-recover|sf-reject|Turn boundary/u);
 
   // Once a person dispositions it, the step may be approved, and the ending has nothing left to refuse for it.

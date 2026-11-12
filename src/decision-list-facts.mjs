@@ -166,13 +166,14 @@ export async function pendingDecisionSummary(root, config, workflow, phase, { at
   const count = groups + evidence.length;
   if (!count) return null;
   const workId = workflow.workItem.id;
-  // Only evidence left: a person witnesses it or accepts a dated risk in their own terminal, which no
-  // turn records, so the route is that command, not /sf-decide again.
+  // Only evidence left: a person witnesses it or accepts a dated risk, never a turn. In a terminal that is their own
+  // command; in Copilot, /sf-decide opens the Decide card where the sign-off is given, the route the list itself
+  // names [decision map, finding 10].
   if (!groups) {
     const [first] = evidence;
     return { count, headline: decisionHeadline(workflow, phase.id, count), personal: true,
       command: first.witnesses[0]?.command ?? first.risks[0]?.command ?? `singularity-flow decisions ${workId}`,
-      listCommand: `singularity-flow decisions ${workId}`, skill: null, copilotCommand: null };
+      listCommand: `singularity-flow decisions ${workId}`, skill: '/sf-decide', copilotCommand: `/sf-decide ${workId}` };
   }
   return { count, headline: decisionHeadline(workflow, phase.id, count), command: `singularity-flow decisions ${workId}`,
     skill: '/sf-decide', copilotCommand: `/sf-decide ${workId}` };

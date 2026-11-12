@@ -244,7 +244,7 @@ test('Update the spec drafts the scope\'s amendment in one choice; written, prop
   assert.equal(after.intentAmendments[0].acknowledgementRequired, false, 'no reset, so nothing to acknowledge');
   const rows = json(cli('decisions', W, '--json')).data;
   assert.equal(rows.items.some((entry) => entry.kind === 'intent-amendment'), false, 'no Acknowledge item');
-  const revalidations = rows.items.filter((entry) => entry.kind === 'forward-amendment');
+  const revalidations = rows.items.filter((entry) => entry.kind === 'revalidation');
   assert.deepEqual(revalidations.map((entry) => [entry.title, entry.options.map((choice) => choice.id), entry.holdsApproval]), [
     ['Revalidate Code after AMD-001', ['still-holds', 'return-step'], true],
     ['Revalidate Testing after AMD-001', ['still-holds', 'return-step'], true],
@@ -260,7 +260,7 @@ test('Update the spec drafts the scope\'s amendment in one choice; written, prop
   // Until the report's own approvers confirm it, the amendment's commits after its submission still stale it.
   assert.equal(json(attempt('approve', 'conformance', '--yes', '--json')).error?.code, 'STORY_REVIEW_INTERVENING_COMMIT');
   const left = json(cli('decisions', W, '--json')).data;
-  json(cli('decisions', 'record', W, '--choose', `${left.items.find((entry) => entry.kind === 'forward-amendment').id}=still-holds`, '--confirm', left.packetSha256, '--json'));
+  json(cli('decisions', 'record', W, '--choose', `${left.items.find((entry) => entry.kind === 'revalidation').id}=still-holds`, '--confirm', left.packetSha256, '--json'));
   const answered = await workflow();
   assert.deepEqual(answered.amendmentRevalidations.map((entry) => [entry.amendment, entry.phase, entry.outcome, entry.binding?.producer, entry.binding?.producerGeneration]), [
     ['AMD-001', 'implementation', 'unchanged', 'intake', 2], ['AMD-001', 'testing', 'unchanged', 'intake', 2], ['AMD-001', 'conformance', 'unchanged', 'intake', 2]]);
@@ -268,7 +268,7 @@ test('Update the spec drafts the scope\'s amendment in one choice; written, prop
   assert.deepEqual([...new Set(answered.amendmentRevalidations.map((entry) => `${entry.schemaVersion} ${entry.actor} ${entry.actorName}`))],
     ['2 decision.tester@example.com Decision Tester']);
   const confirmedList = json(cli('decisions', W, '--json')).data;
-  assert.equal(confirmedList.items.some((entry) => entry.kind === 'forward-amendment'), false);
+  assert.equal(confirmedList.items.some((entry) => entry.kind === 'revalidation'), false);
   assert.deepEqual(confirmedList.items.map((entry) => entry.kind), ['approval'], 'nothing else holds it: no stale evidence, no intervening commit');
   // Carried evidence is never silent: the evidence beside the approval says whose word carried which clause.
   const carried = confirmedList.approvalEvidence?.carried;
@@ -317,7 +317,7 @@ test('a row answered return sends the Story back: the report is written again, a
   state = await workflow();
   assert.deepEqual([state.currentPhase, state.phases.implementation.status, state.phases.testing.status, state.phases.conformance.status],
     ['implementation', 'in_progress', 'not_started', 'not_started']);
-  assert.equal(rows().items.some((entry) => entry.kind === 'forward-amendment'), false, 'a returned step reads the amended scope in its next generation');
+  assert.equal(rows().items.some((entry) => entry.kind === 'revalidation'), false, 'a returned step reads the amended scope in its next generation');
 });
 
 test('confirming the report admits only the amendment\'s own commits: another commit between them still stales the submission', slowLane({ timeout: 900_000 }), async (t) => {
@@ -334,7 +334,7 @@ test('confirming the report admits only the amendment\'s own commits: another co
   const stray = run('git', ['rev-parse', '--short=12', 'HEAD'], root).stdout.trim();
   cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001', '--work-id', W);
   const list = json(cli('decisions', W, '--json')).data;
-  json(cli('decisions', 'record', W, ...list.items.filter((entry) => entry.kind === 'forward-amendment').flatMap((entry) => ['--choose', `${entry.id}=still-holds`]),
+  json(cli('decisions', 'record', W, ...list.items.filter((entry) => entry.kind === 'revalidation').flatMap((entry) => ['--choose', `${entry.id}=still-holds`]),
     '--confirm', list.packetSha256, '--json'));
   const refused = json(attempt('approve', 'conformance', '--yes', '--json'));
   assert.equal(refused.error?.code, 'STORY_REVIEW_INTERVENING_COMMIT', 'a message that reads like the amendment\'s is not what makes a commit one');

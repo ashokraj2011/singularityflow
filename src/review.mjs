@@ -320,7 +320,8 @@ function witnessMappingSection(bundle) {
   const review = bundle.witnessReview;
   if (!review?.mappings?.length) return [];
   const lines = [
-    '## Witness adequacy review', '',
+    // A test's adequacy, never "witness": that word is a person's sign-off on a file [decision map, finding 8].
+    '## Test adequacy review', '',
     '> A test that passes proves only what it asserts. Approving this step accepts each test below as adequate for its criterion: its setup and inputs, its action, its assertions, its negative and boundary cases, and its relationship to the implementation. Record an exception or rule a test out with --witness-mapping <witness>=..., the witness named as below.', ''
   ];
   // A person reads each witness by name, never its digests (owner, 2026-11-11); the bundle's JSON keeps them.

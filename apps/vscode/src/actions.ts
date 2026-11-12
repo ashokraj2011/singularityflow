@@ -355,7 +355,8 @@ export async function runPlannedAction(
   const choice = await vscode.window.showQuickPick(executable.map(({ action, guidance }) => ({
     label: action.reason,
     description: guidance.command,
-    detail: `${commandGuidanceText(guidance)}\nPlan ${plan.planId} · action ${action.actionId} · expires ${plan.expiresAt}`,
+    // A person reads the action and when the plan expires; its plan and action IDs are digests the command binds (owner, 2026-11-11).
+    detail: `${commandGuidanceText(guidance)}\nThe plan expires ${plan.expiresAt}`,
     action,
     guidance
   })), {
@@ -369,7 +370,7 @@ export async function runPlannedAction(
     `Run the exact action “${choice.action.reason}”?`,
     {
       modal: true,
-      detail: `${commandGuidanceText(choice.guidance)}\n\nPlan ${plan.planId} is bound to the latest commit on ${plan.revision.branch}. Any repository or lifecycle change invalidates it.`
+      detail: `${commandGuidanceText(choice.guidance)}\n\nThis plan is bound to the latest commit on ${plan.revision.branch}. Any repository or lifecycle change invalidates it.`
     },
     'Run action'
   );

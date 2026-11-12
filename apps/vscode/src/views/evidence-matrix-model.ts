@@ -139,8 +139,9 @@ export function evidenceView(result: unknown): EvidenceView | null {
   return {
     workId: text(evaluation.workId),
     revision: text(evaluation.provenance?.evaluatedCommit, 'unavailable'),
+    // A person reads a candidate by its step and generation, never its commit (owner, 2026-11-11).
     candidateRevisions: list<string>(evaluation.provenance?.candidates, (entry) => typeof entry?.commit === 'string'
-      ? `${text(entry.phaseId)} generation ${entry.generation}: ${entry.commit}` : null),
+      ? `${text(entry.phaseId)} generation ${entry.generation}` : null),
     driftWarnings: list<string>(evaluation.provenance?.warnings, (entry) => typeof entry === 'string' ? entry : null),
     title: typeof evaluation.title === 'string' ? evaluation.title : null,
     lifecycle: text(evaluation.lifecycle?.words),

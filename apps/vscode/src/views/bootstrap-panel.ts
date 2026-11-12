@@ -8,7 +8,7 @@ import { showCompactWarningMessage, showCompactInformationMessage } from "../com
  */
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
-import { contentSecurityPolicy, navigationTarget, nonce, page, repositoryWebTarget } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page, repositoryWebTarget, reviewBranchName } from './webview.ts';
 import { navigateTo, openRepositoryWeb } from './navigate.ts';
 import { SetupProposalPanel } from './setup-proposal.ts';
 import { rememberSetupReviewRepository } from './setup-review-repositories.ts';
@@ -799,7 +799,7 @@ export class BootstrapPanel {
       // supersession; let the user inspect or explicitly cancel an unproven proposal.
       await this.storeOperation({ ...(this.form.operation ?? operation), status: 'needs-inspection',
         updatedAt: new Date().toISOString(),
-        message: `An unmerged same-ID proposal exists at ${existing.branch}@${existing.proposalCommit.slice(0, 12)}, but its ownership by this interrupted request is unproven. Review or explicitly cancel that exact proposal; it will not be replaced automatically.` });
+        message: `An unmerged same-ID proposal exists on ${reviewBranchName(existing.branch)}, but its ownership by this interrupted request is unproven. Review or explicitly cancel that exact proposal; it will not be replaced automatically.` });
       this.update({ busy: false,
         error: 'A same-ID pending proposal was found, but cannot be tied to this interrupted mapping. Open Review proposals or explicitly cancel it before remapping.' });
       return;
@@ -928,10 +928,10 @@ export class BootstrapPanel {
         if (!automatic || !operation.proposalBranch) {
           const confirmation = 'Cancel exact pending mapping';
           const accepted = await showCompactWarningMessage(
-            `Cancel ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
+            `Cancel the pending mapping on ${reviewBranchName(proposal.branch)}?`,
             { modal: true, detail: `${operation.proposalBranch
               ? 'This is the branch recorded by the earlier mapping.'
-              : 'The interrupted operation did not record a branch. This same-ID proposal may belong to another attempt; verify its exact branch and commit before choosing cancellation.'} The exact unmerged Git review branch will be deleted. A moved or merged branch is refused. Approved configuration, state, application branches, and other proposals remain unchanged.` },
+              : 'The interrupted operation did not record a branch. This same-ID proposal may belong to another attempt; check it in Review proposals before choosing cancellation.'} The exact unmerged Git review branch will be deleted. A moved or merged branch is refused. Approved configuration, state, application branches, and other proposals remain unchanged.` },
             confirmation
           );
           if (accepted !== confirmation) return false;
@@ -1003,7 +1003,7 @@ export class BootstrapPanel {
       if (!reason?.trim() || reason.trim().length > 500) return;
       const confirmation = 'Cancel exact pending mapping';
       const accepted = await showCompactWarningMessage(
-        `Cancel ${branch}@${commit.slice(0, 12)}?`,
+        `Cancel the pending mapping on ${reviewBranchName(branch)}?`,
         { modal: true, detail: 'This exact unmerged Git review branch will be deleted. If it moved or was merged, cancellation refuses. Approved configuration, state, application branches, and other proposals remain unchanged.' },
         confirmation
       );
@@ -1513,7 +1513,7 @@ export class BootstrapPanel {
       const confirmed = await collectReviewConfirmation({
         title: 'Review repository setup change',
         summary: `${plan.mode}: ${plan.effects.length} planned changes; ${plan.preserved.length} preserved items.`,
-        detail: `Exact plan: ${plan.planId}\n\nPlanned changes:\n${plan.effects
+        detail: `Planned changes:\n${plan.effects
           .map(effect => `${effect.action} ${effect.kind}: ${effect.target}`).join('\n') || 'None'}\n\nPreserved:\n${plan.preserved.join('\n') || 'None'}\n\nNot carried forward:\n${plan.omitted.join('\n') || 'None'}`,
         confirmLabel: confirmationLabel
       });

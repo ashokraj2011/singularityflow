@@ -235,9 +235,19 @@ function escape(value: unknown): string {
   return escapeHtml(visibleText(value));
 }
 
-function shortDigest(value: string | null | undefined): string {
-  const text = String(value ?? '');
-  return /^sha256:[a-f0-9]{64}$/u.test(text) ? text.slice(7, 19) : text ? text.slice(0, 12) : 'unavailable';
+const BASELINE_WORDS: Readonly<Record<string, string>> = Object.freeze({
+  'generation-intent': 'where this step\'s generation started',
+  'work-interval': 'where this Story\'s work started',
+  'delivery-evidence': 'the base its delivery recorded',
+  explicit: 'the base you named',
+  'working-tree-head': 'your latest commit'
+});
+
+/** Where the comparison starts, as a person reads it: never the baseline's commit (owner, 2026-11-11). */
+function baselineWords(view: Xpl2Explanation): string {
+  const selection = view.snapshot.baseline.selection;
+  if (selection) return BASELINE_WORDS[selection] ?? selection.replace(/[-_]+/gu, ' ');
+  return view.snapshot.baseline.revision ? 'the recorded base' : 'an unavailable base';
 }
 
 function reasonText(code: string): string {
@@ -328,8 +338,7 @@ export function explorerSummary(view: Xpl2Explanation): string {
   const byId = new Map(view.statements.map((entry) => [entry.id, entry]));
   const heading = [
     `Change Explorer — ${visibleText(view.snapshot.workId ?? 'repository changes')}`,
-    `${TRUTH_LABELS[view.snapshot.truth] ?? view.snapshot.truth}; baseline ${shortDigest(view.snapshot.baseline.revision)}`
-      + ` → capture ${shortDigest(view.snapshot.compatibilityCandidateSha256)}`,
+    `${TRUTH_LABELS[view.snapshot.truth] ?? view.snapshot.truth}; compared with ${baselineWords(view)}`,
     'Record-derived and read-only; this summary grants no approval, test result or merge verdict.'
   ];
   const line = (id: string) => {
@@ -348,7 +357,7 @@ export function explorerSummary(view: Xpl2Explanation): string {
       return ['', `${TOUR_HEADINGS[step.step]}:`, ...lines, ...(step.omitted ? [`- ${step.omitted} more in the explorer`] : [])];
     })
     : ['', ...view.presentation.walkthrough.map(line).filter((entry): entry is string => Boolean(entry))];
-  return [...heading, ...body, '', `Explanation set ${shortDigest(view.explanationSetSha256)}`].join('\n');
+  return [...heading, ...body].join('\n');
 }
 
 // ---- Snapshot comparison [XPL2 M3, 5.1] -------------------------------------------------------
@@ -598,7 +607,7 @@ function citationList(view: Xpl2Explanation, ids: string[]): string {
   return ids.map((id) => {
     const source = view.sources.find((entry) => entry.id === id);
     if (source) {
-      return `<li><code>${escape(id)}</code> ${escape(source.label ?? source.family)} — integrity ${escape(source.properties.integrity)}, ${escape(source.properties.origin)}, ${escape(source.properties.applicability)}, ${escape(source.properties.availability)}${source.digest ? ` · <code>${escape(shortDigest(source.digest))}</code>` : ''}</li>`;
+      return `<li><code>${escape(id)}</code> ${escape(source.label ?? source.family)} — integrity ${escape(source.properties.integrity)}, ${escape(source.properties.origin)}, ${escape(source.properties.applicability)}, ${escape(source.properties.availability)}${source.digest ? ' · exact bytes recorded' : ''}</li>`;
     }
     const observation = view.observations.find((entry) => entry.id === id);
     if (observation) {
@@ -812,7 +821,7 @@ export function changeExplorerBody(input: ExplorerRenderInput): string {
       <div>
         <p class="xpl-kicker">Singularity Flow / Change Explorer</p>
         <h1>Understand the change, follow the evidence.</h1>
-        <p class="xpl-meta">${escape(view.snapshot.workId ?? 'Repository changes')}${view.snapshot.phase ? ` · ${escape(view.snapshot.phase)}` : ''} · ${escape(truth)} · baseline <code>${escape(shortDigest(view.snapshot.baseline.revision))}</code> → capture <code>${escape(shortDigest(view.snapshot.compatibilityCandidateSha256))}</code></p>
+        <p class="xpl-meta">${escape(view.snapshot.workId ?? 'Repository changes')}${view.snapshot.phase ? ` · ${escape(view.snapshot.phase)}` : ''} · ${escape(truth)} · compared with ${escape(baselineWords(view))}</p>
       </div>
       <div class="xpl-actions">
         <span class="xpl-pill xpl-pill-warn">Admission not evaluated</span>
@@ -871,7 +880,7 @@ export function changeExplorerBody(input: ExplorerRenderInput): string {
         <p class="xpl-note">Selecting, expanding and inspecting do not approve, run tests, edit code or change Story state.</p>
       </aside>
     </div>
-    <footer class="xpl-footer"><span>${counts.changeUnits} of ${counts.changeUnits} change units accounted for${view.inventory.completeness.status === 'complete' ? '' : ' (lower bound)'} · ${escape(wel)} · No model required for this view</span><span>Explanation set <code>${escape(shortDigest(view.explanationSetSha256))}</code></span></footer>
+    <footer class="xpl-footer"><span>${counts.changeUnits} of ${counts.changeUnits} change units accounted for${view.inventory.completeness.status === 'complete' ? '' : ' (lower bound)'} · ${escape(wel)} · No model required for this view</span></footer>
   </div>`;
 }
 

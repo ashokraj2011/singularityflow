@@ -187,7 +187,7 @@ test('a new build opens its configuration reviews through the shared pass, once,
     'the window runs the one pass the CLI shares with a terminal, never a refresh of its own');
   assert.ok(item.events.some(([kind]) => kind === 'progress'));
   assert.match(item.events.find(([kind]) => kind === 'inform')[1],
-    /app → sflow\/config-refresh\/aaaaaaaa-bbbbbbbbbbbb.*Nothing changes until each review is merged/u);
+    /app → sflow\/config-refresh\. Nothing changes until each review is merged/u, 'a review branch reads without its generated suffix');
   assert.equal(item.state.get(CONFIGURATION_REVIEW_KEY), BUILD);
   assert.equal(await openConfigurationReviews(item, { loadedBuild: BUILD }), 'skipped-recent', 'once per build');
 

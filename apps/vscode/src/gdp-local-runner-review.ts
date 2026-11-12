@@ -146,7 +146,7 @@ async function manageSigner(client: SingularityFlowClient): Promise<void> {
       await client.run(localRunnerSignerArguments('status', signerId))
     );
     await showCompactInformationMessage(
-      `Signer '${signerId}' is ${status.status ?? 'ready'} (${status.signerKeySha256 ?? 'key available'}). Non-gating.`
+      `Signer '${signerId}' is ${status.status ?? 'ready'} (${status.signerKeySha256 ? 'its key is recorded' : 'key available'}). Non-gating.`
     );
   } catch {
     await signerReady(client, signerId);

@@ -103,7 +103,7 @@ function libraryHtml(state: SpecStudioPageState): string {
         ${library?.unreadable?.length ? `<div class="notice warning" role="status" data-library-unreadable><span>Some entries could not be read, so they are not listed. Everything else is here, and your drafts are unchanged.</span><ul>${library.unreadable.map(entry => `<li><code>${escape(entry.specId)}</code> (${escape(entry.record)}): ${escape(entry.message)}</li>`).join('')}</ul></div>` : ''}
         ${library?.status === 'not-fetched' ? '<p class="muted" role="status">Shared specifications have not been loaded on this laptop. <button type="button" class="secondary" data-message="spec.refresh">Load shared specifications</button> Your local drafts are available.</p>' : ''}
         <p class="muted" data-search-empty hidden>No specifications match your search.</p>
-        ${library ? `<details class="ss-details"><summary>Library details</summary><p class="muted">${library.status === 'not-fetched' ? 'The state branch has not been fetched on this clone.' : library.status === 'absent' ? 'No published library on the state branch yet.' : `State branch: ${escape((library.commit ?? '').slice(0, 12))}`}</p></details>` : ''}
+        ${library ? `<details class="ss-details"><summary>Library details</summary><p class="muted">${library.status === 'not-fetched' ? 'The state branch has not been fetched on this clone.' : library.status === 'absent' ? 'No published library on the state branch yet.' : `Read from the state branch: ${library.specs.length} specification${library.specs.length === 1 ? '' : 's'}.`}</p></details>` : ''}
       </div>
     </div></section>`;
 }
@@ -378,10 +378,10 @@ function tabsHtml(state: SpecStudioPageState): string {
   const findings = status ? (status.blocking.length ? `<ul>${status.blocking.map((finding) => `<li><strong>${escape(finding.part)}</strong> <code>${escape(finding.code)}</code> ${escape(finding.message)}</li>`).join('')}</ul>`
     : '<p class="muted">No finding blocks a reviewed publication.</p>') : '<p class="muted">Findings belong to a draft.</p>';
   const revision = state.revision;
+  // A person reads a revision by its number, date and publisher, never its manifest digest or commit (owner, 2026-11-11).
   const manifest = revision ? `<dl class="ss-facts"><dt>Revision</dt><dd>${escape(revision.specId)}@${revision.revision} (${escape(String(revision.manifest.reviewState ?? ''))})</dd>
-      <dt>Manifest</dt><dd><code>${escape(revision.manifestSha256)}</code></dd><dt>State commit</dt><dd><code>${escape(revision.commit)}</code></dd>
       <dt>Published</dt><dd>${escape(when(String(revision.manifest.recordedAt ?? '')))} by ${escape(who(revision.manifest.publishedBy))}</dd></dl>`
-    : status?.basedOn ? `<p>Based on @${status.basedOn.revision}: <code>${escape(status.basedOn.manifestSha256)}</code></p>` : '<p class="muted">Nothing published yet.</p>';
+    : status?.basedOn ? `<p>Based on revision ${status.basedOn.revision}.</p>` : '<p class="muted">Nothing published yet.</p>';
   return `<details class="ss-details ss-review-details"${status && (['check', 'publish'].includes(state.step) || status.proposals.length || status.findings.some((finding) => finding.status === 'pending')) ? ' open' : ''}><summary>Review and publication details${status?.proposals.length ? ` · ${status.proposals.length} Copilot proposals` : ''}${status?.blocking.length ? ` · ${status.blocking.length} quality findings` : ''}</summary><section class="ss-tabs" aria-label="Findings and manifest">
     <div role="tablist"><button type="button" role="tab" aria-selected="true" data-tab="findings">Quality findings${status ? ` (${status.blocking.length})` : ''}</button>
       <button type="button" role="tab" aria-selected="false" data-tab="manifest">State-branch manifest</button>

@@ -1701,7 +1701,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
                 ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
                 : null,
               button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }))),
-          el('span', { class: 'muted', text: (phases.length ? phases.length + (phases.length === 1 ? ' step · ' : ' steps · ') : '') + 'Proposed on ' + proposal.branch + ' — activate to edit or start Stories' }),
+          el('span', { class: 'muted', text: (phases.length ? phases.length + (phases.length === 1 ? ' step · ' : ' steps · ') : '') + 'Proposed on ' + personBranch(proposal.branch) + ' — activate to edit or start Stories' }),
           proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
           phases.length ? rail(phases) : null);
         userWorkflows.appendChild(card);
@@ -1711,16 +1711,16 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     });
     waitingUploads.forEach(function (upload) {
       var view = uploadView(upload);
-      var card = el('article', { class: 'studio-card workflow-editable', 'data-uploading-proposal-card': upload.branch, 'aria-label': 'Uploading proposal ' + upload.branch },
+      var card = el('article', { class: 'studio-card workflow-editable', 'data-uploading-proposal-card': upload.branch, 'aria-label': 'Uploading proposal ' + personBranch(upload.branch) },
         el('div', { class: 'studio-row spread' },
           el('div', { class: 'studio-row' },
-            el('strong', { text: upload.branch }),
+            el('strong', { text: personBranch(upload.branch) }),
             el('span', { class: 'pill new', text: view.status })),
           el('div', { class: 'studio-row' },
             view.actions.indexOf('retry') >= 0 ? button(state.busy === 'upload' ? 'Uploading…' : 'Retry upload', function () {
-              state.busy = 'upload'; setStatus('Uploading ' + upload.branch + '…'); render();
+              state.busy = 'upload'; setStatus('Uploading ' + personBranch(upload.branch) + '…'); render();
               post({ type: 'studio.retryUpload', intentId: upload.intentId });
-            }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Retry upload of ' + upload.branch }) : null,
+            }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Retry upload of ' + personBranch(upload.branch) }) : null,
             button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }))),
         el('span', { class: 'muted', text: view.reason }));
       userWorkflows.appendChild(card);
@@ -1824,7 +1824,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
                 ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
                 : null,
               button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }))),
-          el('span', { class: 'muted', text: (phases.length ? phases.length + (phases.length === 1 ? ' step · ' : ' steps · ') : '') + 'Proposed on ' + proposal.branch + ' — activate to edit or start Epics' }),
+          el('span', { class: 'muted', text: (phases.length ? phases.length + (phases.length === 1 ? ' step · ' : ' steps · ') : '') + 'Proposed on ' + personBranch(proposal.branch) + ' — activate to edit or start Epics' }),
           proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
           phases.length ? el('div', { class: 'rail' }, phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); })) : null);
         userWorkflows.appendChild(card);
@@ -4569,7 +4569,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var card = el('section', { class: 'studio-card', 'aria-label': 'Import preview' });
     card.appendChild(el('div', { class: 'studio-row spread' },
       el('h2', { text: (KIND_WORDS[preview.as] || preview.as) + (preview.marketplace ? ': ' + preview.marketplace.label + ' ' + preview.marketplace.version : preview.source && preview.source.kind === 'mcp' ? ' from an MCP server' : ' from a link') }),
-      el('span', { class: 'pill', title: preview.sha256, text: 'SHA-256 ' + preview.sha256.slice(0, 12) + ' · ' + preview.bytes + ' bytes' })));
+      el('span', { class: 'pill', text: preview.bytes + ' bytes' })));
     card.appendChild(el('span', { class: 'muted', text: 'From ' + preview.reference + (preview.source && preview.source.resolvedUrl && preview.source.resolvedUrl !== preview.reference ? ', served from ' + preview.source.resolvedUrl : '') }));
     if (preview.source && preview.source.kind === 'mcp') {
       card.appendChild(el('span', { class: 'muted', text: 'Read from MCP server ' + preview.source.server + (preview.source.serverInfo && preview.source.serverInfo.name ? ' (' + preview.source.serverInfo.name + ' ' + (preview.source.serverInfo.version || '') + ')' : '') + Object.keys(preview.source.arguments || {}).map(function (name) { return ' · ' + name + '=' + preview.source.arguments[name]; }).join('') }));
@@ -5958,14 +5958,17 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       .filter(function (part) { return part[1] && part[1].length; }).map(function (part) { return part[0] + ' ' + part[1].join(', '); });
     return 'Repository tests (' + change.change + (parts.length ? ': ' + parts.join('; ') : '') + ')';
   }
+  // A person reads a proposal by its branch and when it was made, never its commit or digest; review binds the exact commit (owner, 2026-11-11).
+  function personBranch(branch) { return String(branch || '').replace(/(?:[-/][0-9a-f]{8,64})+$/i, ''); }
+  function madeAt(proposal) { return proposal.proposalCreatedAt ? 'made ' + String(proposal.proposalCreatedAt).slice(0, 16).replace('T', ' ') + ' UTC' : 'creation time unavailable'; }
   function proposalCard(proposal, earlier) {
     var subjects = proposal.workflows.map(function (workflow) { return (workflow.label || workflow.id) + ' (' + workflow.change + ')'; })
       .concat(proposal.repositoryTests ? [repositoryTestsWords(proposal.repositoryTests)] : []);
-    return el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + proposal.branch },
+    return el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + personBranch(proposal.branch) },
       el('div', { class: 'studio-row spread' },
-        el('div', null, el('code', { text: proposal.branch }), el('span', { class: 'muted', text: '  ' + proposal.proposalCommit.slice(0, 12) })),
+        el('div', null, el('code', { text: personBranch(proposal.branch) }), el('span', { class: 'muted', text: '  ' + madeAt(proposal) })),
         proposal.valid && !proposal.merged
-          ? button(state.busy === 'review' ? 'Reviewing…' : earlier ? 'Review earlier proposal' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: earlier ? 'secondary' : 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
+          ? button(state.busy === 'review' ? 'Reviewing…' : earlier ? 'Review earlier proposal' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: earlier ? 'secondary' : 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + personBranch(proposal.branch) })
           : el('span', { class: 'pill', text: proposal.merged ? 'Merged' : 'Blocked' })),
       el('span', { class: 'muted', text: (subjects.length ? subjects.join(', ') : 'Configuration-only change') + ' · ' + proposal.files + (proposal.files === 1 ? ' file' : ' files') }),
       proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
@@ -5981,18 +5984,18 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var saved = Object.prototype.hasOwnProperty.call(chosenMap, first.proposalId) ? chosenMap[first.proposalId] : defaultBranch;
     var chosen = revisions.some(function (revision) { return revision.branch === saved && revision.valid; }) ? saved : '';
     var review = button(state.busy === 'review' ? 'Reviewing…' : 'Review exact revision', function () { if (chosen) reviewProposal(chosen); }, { class: 'primary', disabled: Boolean(state.busy) || !chosen });
-    var options = [{ value: '', label: 'Choose a revision to review' }].concat(revisions.map(function (revision) {
-      return { value: revision.branch, label: revision.proposalCommit.slice(0, 12) + ' · ' + (revision.proposalCreatedAt || 'creation time unavailable'), disabled: !revision.valid };
+    var options = [{ value: '', label: 'Choose a revision to review' }].concat(revisions.map(function (revision, index) {
+      return { value: revision.branch, label: 'Revision ' + (revisions.length - index) + ' · ' + madeAt(revision), disabled: !revision.valid };
     }));
     var picker = select('proposal-' + first.proposalId, options, chosen, function (value) {
       chosenMap[first.proposalId] = revisions.some(function (revision) { return revision.branch === value && revision.valid; }) ? value : '';
       render();
     }, { 'aria-label': 'Exact revision for ' + name });
-    return el('article', { class: 'decision-box', 'aria-label': 'Proposal entity ' + first.proposalId },
+    return el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + name },
       el('div', { class: 'studio-row spread' }, el('h3', { text: name }), el('span', { class: 'pill', text: revisions.length + (revisions.length === 1 ? ' revision' : ' preserved revisions') })),
       el('p', { class: 'muted', text: 'One proposal identity. Select the exact revision; older intent is preserved and never silently activated.' }),
       el('div', { class: 'studio-row' }, picker, review),
-      el('details', null, el('summary', { text: 'Transport identifiers and revision details' }), revisions.map(function (revision) { return proposalCard(revision, true); })));
+      el('details', null, el('summary', { text: 'Revision details' }), revisions.map(function (revision) { return proposalCard(revision, true); })));
   }
   // A proposal saved on this computer whose upload has not succeeded is in no remote review list.
   // Show it, with why and the way to retry, or it cannot be found at all.
@@ -6007,7 +6010,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var actions = [];
     if (upload.retryable) actions.push('retry');
     if (upload.signIn) actions.push('sign-in');
-    return { title: upload.branch, status: status, reason: reason, actions: actions, diagnostic: upload.diagnostic };
+    return { title: personBranch(upload.branch), status: status, reason: reason, actions: actions, diagnostic: upload.diagnostic };
   }
   function renderUploads(main) {
     var uploads = proposalsState().uploads || [];
@@ -6017,15 +6020,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     card.appendChild(el('p', { class: 'muted', text: 'These proposals exist only on this computer, so nobody can review them yet. Nothing is lost: retry once Git can reach the remote.' }));
     uploads.forEach(function (upload) {
       var view = uploadView(upload);
-      card.appendChild(el('article', { class: 'decision-box', 'aria-label': 'Upload ' + upload.branch },
+      card.appendChild(el('article', { class: 'decision-box', 'aria-label': 'Upload ' + personBranch(upload.branch) },
         el('div', { class: 'studio-row spread' }, el('code', { text: view.title }), el('span', { class: 'pill', text: view.status })),
         el('div', { class: 'callout', text: view.reason }),
         view.diagnostic ? el('pre', { class: 'git-diagnostic', text: view.diagnostic }) : null,
         el('div', { class: 'studio-row' },
           view.actions.indexOf('retry') >= 0 ? button(state.busy === 'upload' ? 'Uploading…' : 'Retry upload', function () {
-            state.busy = 'upload'; setStatus('Uploading ' + upload.branch + '…'); render();
+            state.busy = 'upload'; setStatus('Uploading ' + personBranch(upload.branch) + '…'); render();
             post({ type: 'studio.retryUpload', intentId: upload.intentId });
-          }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Retry upload of ' + upload.branch }) : null,
+          }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Retry upload of ' + personBranch(upload.branch) }) : null,
           view.actions.indexOf('sign-in') >= 0 ? button('Sign in to Git…', function () {
             post({ type: 'studio.checkSignIn', intentId: upload.intentId });
           }, { class: 'secondary', disabled: Boolean(state.busy) }) : null)));
@@ -6160,7 +6163,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       plan.files.forEach(function (file) {
         files.appendChild(el('div', { style: 'margin-top:8px' }, el('code', { text: file.path }), el('span', { class: 'muted', text: file.action === 'create' ? '  new' : '  changed' })));
         var pre = el('pre', { class: 'diff' });
-        String(file.diff || '').split('\n').forEach(function (line) { pre.appendChild(el('span', { class: line.charAt(0) === '+' && line.slice(0, 3) !== '+++' ? 'add' : line.charAt(0) === '-' && line.slice(0, 3) !== '---' ? 'del' : null, text: line + '\n' })); });
+        String(file.diff || '').split('\n').filter(function (line) { return !/^index [0-9a-f]{7,64}\.\.[0-9a-f]{7,64}/.test(line); }).forEach(function (line) { pre.appendChild(el('span', { class: line.charAt(0) === '+' && line.slice(0, 3) !== '+++' ? 'add' : line.charAt(0) === '-' && line.slice(0, 3) !== '---' ? 'del' : null, text: line + '\n' })); });
         files.appendChild(pre);
       });
       section.appendChild(files);
@@ -6979,9 +6982,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     } else if (message.type === 'studio.importDone') {
       state.busy = null;
       setStatus(message.outcome === 'cancelled' ? 'Import cancelled; nothing changed.'
-        : message.outcome === 'proposed' ? 'The import ' + (message.error ? 'was proposed as ' + message.branch + ', but its review stopped: ' + message.error
-          : message.uploaded === false ? 'was saved on this computer as ' + message.branch + ' and is uploading; it appears for review under Changes once uploaded.'
-            : 'is waiting for review as ' + message.branch + ', under Changes.')
+        : message.outcome === 'proposed' ? 'The import ' + (message.error ? 'was proposed as ' + personBranch(message.branch) + ', but its review stopped: ' + message.error
+          : message.uploaded === false ? 'was saved on this computer as ' + personBranch(message.branch) + ' and is uploading; it appears for review under Changes once uploaded.'
+            : 'is waiting for review as ' + personBranch(message.branch) + ', under Changes.')
           : message.outcome === 'written' ? 'The import was written to this repository; review the diff and commit it.'
             : 'The configuration already has everything in that bundle; nothing changed.');
       render();

@@ -2,7 +2,7 @@ import { showCompactWarningMessage, showCompactInformationMessage } from "../com
 /** Pending capability and repository-setup proposals across known repositories. */
 import * as vscode from 'vscode';
 import {
-  brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+  brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page, reviewBranchName } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter } from './messages.ts';
 import { gitRemoteProblem, screenGitRemotes } from './map-capability-form.ts';
@@ -73,7 +73,7 @@ interface LeadIntegrity { lead: string; result?: CapabilityFsckResult; error?: s
 type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
 
 function shortName(branch: string): string {
-  return branch.replace(/^sflow\/config-change\/capability\/map-/, '');
+  return reviewBranchName(branch.replace(/^sflow\/config-change\/capability\/map-/, ''));
 }
 
 function commandPair(label: string, value: unknown): string {
@@ -115,7 +115,7 @@ function proposalsHtml(entries: ProposalEntry[], setupEntries: SetupProposalEntr
         aria-label="Review capability proposal ${escape(shortName(entry.branch))}">
         <span>${icon(entry.valid ? 'merge' : 'warning')}</span>
         <strong>${escape(shortName(entry.branch))}</strong>
-        <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
+        <small>${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
         ${entry.configurationError ? `<small class="error-text">${escape(entry.configurationError)}</small>` : ''}
         ${entry.repairable ? '<small>Open this review to prepare the exact packaged compatibility repair.</small>' : ''}
         ${commandPair('Recovery', entry.repairAction)}
@@ -137,10 +137,10 @@ function proposalsHtml(entries: ProposalEntry[], setupEntries: SetupProposalEntr
       <span class="count-badge">${rows.length}</span></div>
     <div class="configuration-list">${rows.map(({ entry, index }) => `<button
       class="configuration-row secondary" data-review-setup="${index}"
-      aria-label="Review repository setup proposal ${escape(entry.branch)}">
+      aria-label="Review repository setup proposal ${escape(reviewBranchName(entry.branch))}">
       <span>${icon(entry.valid === false ? 'warning' : 'merge')}</span>
-      <strong>${escape(entry.branch)}</strong>
-      <small>${escape(entry.proposalCommit)} · ${entry.merged ? 'merged history' : entry.valid === null
+      <strong>${escape(reviewBranchName(entry.branch))}</strong>
+      <small>${entry.merged ? 'merged history' : entry.valid === null
         ? 'open to inspect changed files and validation'
         : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
     </button>`).join('')}</div>
@@ -151,7 +151,7 @@ function proposalsHtml(entries: ProposalEntry[], setupEntries: SetupProposalEntr
     return `<section class="plain"><div class="section-heading"><h2>${icon(entry.result?.valid ? 'ok' : 'warning')} Integrity · ${escape(entry.lead)}</h2>
       <span class="count-badge">${issues.length}</span></div>
       ${issues.length ? issues.map((check) => `<div class="notice ${check.status === 'fail' ? 'error' : 'governance-warning'}"><p><strong>${escape(check.id)}</strong>: ${escape(check.summary)}</p>
-        ${check.branch ? `<p><code>${escape(check.branch)}${check.commit ? `@${escape(check.commit)}` : ''}</code></p>` : ''}
+        ${check.branch ? `<p><code>${escape(reviewBranchName(check.branch))}</code></p>` : ''}
         ${remediation(check.remediation)}</div>`).join('')
         : '<div class="notice ok"><p>No capability authority or proposal-integrity issues were detected.</p></div>'}</section>`;
   }).join('');
@@ -172,7 +172,7 @@ function proposalsHtml(entries: ProposalEntry[], setupEntries: SetupProposalEntr
       <div class="summary-card"><strong>${needsInspection}</strong><span>Needs inspection</span></div>
       <div class="summary-card${blocked ? ' governance-warning' : ''}"><strong>${includeMerged ? merged : blocked}</strong><span>${includeMerged ? 'Merged history' : 'Blocked'}</span></div>
     </div>
-    <div class="notice"><p>Opening a proposal shows its exact commit, changed files, and complete diff. Approval attempts an exact update to <code>sflow/config</code>; repository review controls and hooks remain authoritative. Setup rows are brief ref summaries, so open one to verify validation and external merges. Setup proposals from another laptop appear here after its repository URL is used or registered on this laptop.</p></div>
+    <div class="notice"><p>Opening a proposal shows its review branch, changed files, and complete diff. Approval attempts an exact update to <code>sflow/config</code>; repository review controls and hooks remain authoritative. Setup rows are brief ref summaries, so open one to verify validation and external merges. Setup proposals from another laptop appear here after its repository URL is used or registered on this laptop.</p></div>
     ${integrityHtml}
     ${failures.map((failure) => `<div class="notice error"><p><strong>${escape(failure.lead)}</strong>: ${escape(failure.message)}</p></div>`).join('')}
     ${staleSetupRepositories.map((lead) => `<div class="notice"><p>No pending setup proposal remains in <code>${escape(lead)}</code>. Its local review shortcut was cleared after a fresh remote check.</p></div>`).join('')}
@@ -302,8 +302,8 @@ export class CapabilityProposalsPanel {
     const setupLeads = [...new Set([
       ...screened.accepted, ...cachedSetupUrls, ...this.manuallyCheckedSetupRepositories
     ])];
-    const registryFailures: LeadFailure[] = screened.rejected.map((entry) => ({
-      lead: `Rejected registry entry · sha256:${entry.fingerprint.slice(0, 12)}`,
+    const registryFailures: LeadFailure[] = screened.rejected.map((entry, index) => ({
+      lead: `Rejected registry entry ${index + 1} of ${screened.rejected.length}`,
       message: entry.message
     }));
     if (leadsResponse.error) registryFailures.unshift({
@@ -430,7 +430,7 @@ export class CapabilityProposalsPanel {
     if (!reason?.trim()) return;
     const confirmation = 'Discard exact stale proposal';
     const accepted = await showCompactWarningMessage(
-      `Discard ${entry.branch}@${entry.proposalCommit.slice(0, 12)}?`,
+      `Discard the stale proposal ${shortName(entry.branch)}?`,
       {
         modal: true,
         detail: 'Only this exact unrelated-history capability proposal ref is removed. If the remote branch moved, the operation refuses. Approved configuration, state, application branches, and every other proposal are preserved.'
@@ -468,7 +468,7 @@ export class CapabilityProposalsPanel {
     if (!reason?.trim() || reason.trim().length > 500) return;
     const confirmation = 'Cancel exact pending mapping';
     const accepted = await showCompactWarningMessage(
-      `Cancel ${entry.branch}@${entry.proposalCommit.slice(0, 12)}?`,
+      `Cancel the pending mapping ${shortName(entry.branch)}?`,
       { modal: true, detail: 'Only this exact unmerged Git review branch is deleted. If the branch moved or was merged, cancellation refuses. Approved configuration, state, application branches, and other proposals are preserved.' },
       confirmation
     );

@@ -2,7 +2,7 @@ import { showCompactWarningMessage, showCompactInformationMessage } from "../com
 /** Review and activate a capability proposal without leaving VS Code. */
 import * as vscode from 'vscode';
 import {
-  brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+  brandLockup, contentSecurityPolicy, diffForPerson, escape, icon, navigationTarget, nonce, page, reviewBranchName } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { COMMAND_GUIDANCE_COPY_SCRIPT, commandGuidanceHtml } from './command-guidance.ts';
 import { capabilityActivationSucceeded } from './capability-proposal-model.ts';
@@ -76,7 +76,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       <td>${escape(fileChangeLabel(file.status))}</td><td><code>${escape(file.paths.join(' → '))}</code></td></tr>`).join('');
   const changeSummary = proposal.merged
     ? `This proposal has already been merged into ${proposal.targetBranch}. Check the changed files, then record its activation.`
-    : `This proposal changes ${proposal.changedFiles.length} ${proposal.changedFiles.length === 1 ? 'file' : 'files'} on ${proposal.targetBranch}. Check the changed files before merging this exact commit.`;
+    : `This proposal changes ${proposal.changedFiles.length} ${proposal.changedFiles.length === 1 ? 'file' : 'files'} on ${proposal.targetBranch}. Check the changed files before merging this exact proposal.`;
   const projection = activated?.projection;
   const activationComplete = capabilityActivationSucceeded(activated);
   const cleanup = activated?.proposalCleanup;
@@ -90,9 +90,9 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
   const packagedRepairAvailable = !proposal.merged && proposal.repairable === true;
   const activationNotice = !activated ? '' : activationComplete
     ? `<div class="notice ok"><p><strong>Capability activated.</strong> ${escape(
-      activated.alreadyMerged ? 'The externally merged proposal is now audited.' : `Approved ${activated.targetBranch} now points to ${activated.targetCommit.slice(0, 12)}.`
+      activated.alreadyMerged ? 'The externally merged proposal is now audited.' : `Approved ${activated.targetBranch} now carries this proposal.`
     )}</p><p>${escape(projection?.published
-      ? `Projection published to ${projection.branch}@${projection.commit?.slice(0, 12)}.`
+      ? `Projection published to ${projection.branch}.`
       : projection?.branch ? `${projection.branch} was already current.`
       : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${cleanupNotice}${activated.audit?.eventId
           ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
@@ -103,10 +103,11 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     : `<div class="notice governance-warning"><p><strong>Activation is waiting.</strong> ${escape(
       activated.failure?.message ?? `Status: ${activated.status ?? 'review-required'}.`
     )}</p>${configurationGitFailureText(activated.failure) ? `<pre class="help-code">${escape(configurationGitFailureText(activated.failure))}</pre>` : ''}${activated.externalAction
-      ? `<p>Merge <code>${escape(activated.externalAction.sourceBranch)}</code> into <code>${escape(activated.externalAction.targetBranch)}</code> through the repository review controls.</p>`
+      ? `<p>Merge <code>${escape(reviewBranchName(activated.externalAction.sourceBranch))}</code> (Copy branch copies its full name) into <code>${escape(activated.externalAction.targetBranch)}</code> through the repository review controls.</p>`
       : ''}${activated.nextAction?.command
       ? `<p>After correcting the blocker, retry the same exact activation:</p>${commandGuidanceHtml(activated.nextAction)}`
       : ''}<p>Preserved: ${escape((activated.preserved ?? ['proposal branch', 'approved configuration', 'application branches']).join(', '))}.</p></div>`;
+  // A person reads the proposal by its branch and files, never its commit; activation still binds the exact commit (owner, 2026-11-11).
   return `${brandLockup({ compact: true })}
     <header class="inbox-header">
       <p class="eyebrow">Approved configuration review</p>
@@ -116,8 +117,8 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     ${error ? `<div class="notice error"><p>${escape(error)}</p></div>` : ''}
     ${activationNotice}
     <div class="summary-grid">
-      <div class="summary-card"><span>Proposal</span><strong>${escape(proposal.proposalCommit.slice(0, 12))}</strong></div>
-      <div class="summary-card"><span>Approved target</span><strong>${escape(proposal.targetCommit.slice(0, 12))}</strong></div>
+      <div class="summary-card"><span>Proposal</span><strong>${proposal.merged ? 'Merged' : 'Open for review'}</strong></div>
+      <div class="summary-card"><span>Approved target</span><strong>${escape(proposal.targetBranch)}</strong></div>
       <div class="summary-card"><span>Files</span><strong>${proposal.changedFiles.length}</strong></div>
       <div class="summary-card ${proposal.valid ? '' : 'governance-warning'}"><span>Validation</span><strong>${proposal.valid ? 'Ready' : 'Blocked'}</strong></div>
     </div>
@@ -136,14 +137,13 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     <section class="plain">
       <h2>${icon('branch')} Source and target</h2>
       <div class="review-binding">
-        <span>Review branch</span><code>${escape(proposal.branch)}</code>
-        <span>Exact commit</span><code>${escape(proposal.proposalCommit)}</code>
+        <span>Review branch</span><code>${escape(reviewBranchName(proposal.branch))}</code>
         <span>Target branch</span><code>${escape(proposal.targetBranch)}</code>
         <span>Lead repository</span><code>${escape(proposal.remote)}</code>
       </div>
       <div class="notice"><p>The application default branch is not part of this operation. Activation uses a normal, non-force push to <code>${escape(proposal.targetBranch)}</code>; repository branch protection still applies.</p></div>
       <details class="configuration-advanced-tools"><summary>${icon('compare')} View Git diff</summary>
-        <div class="help-code"><pre><code>${escape(proposal.diff || 'No textual diff.')}</code></pre></div>
+        <div class="help-code"><pre><code>${escape(diffForPerson(proposal.diff) || 'No textual diff.')}</code></pre></div>
       </details>
     </section>
     <section class="next">
@@ -153,9 +153,9 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
           : '<p class="muted">Activation is complete. The approved configuration is now current.</p>'
         : proposal.merged
         ? '<p class="muted">Record the activation audit and publish the capability projection for this already merged commit.</p>'
-        : `<p class="muted">Merge and acknowledge authorizes one exact leased update of <code>${escape(proposal.proposalCommit)}</code> to <code>${escape(proposal.targetBranch)}</code> if the repository permits direct pushes. Branch protection and server hooks still apply.</p>`}
+        : `<p class="muted">Merge and acknowledge authorizes one exact leased update of <code>${escape(proposal.targetBranch)}</code> to the commit reviewed here if the repository permits direct pushes. Branch protection and server hooks still apply.</p>`}
       <div class="actions">
-        ${activationComplete ? '' : `<button class="primary" data-action="activate" ${busy || !proposal.valid ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated ? `Retry merge and acknowledge ${escape(proposal.proposalCommit.slice(0, 12))}` : `Merge and acknowledge ${escape(proposal.proposalCommit.slice(0, 12))}`}</button>`}
+        ${activationComplete ? '' : `<button class="primary" data-action="activate" ${busy || !proposal.valid ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated ? 'Retry merge and acknowledge' : 'Merge and acknowledge'}</button>`}
         ${packagedRepairAvailable
           ? `<button class="secondary" data-action="repair" ${busy ? 'disabled' : ''}>${icon('refresh')} Prepare compatibility repair</button>` : ''}
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
@@ -276,7 +276,7 @@ export class CapabilityProposalPanel {
       const proposal = this.proposal;
       const label = 'Prepare repair for review';
       const accepted = await showCompactWarningMessage(
-        `Prepare a compatibility repair on ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
+        `Prepare a compatibility repair on ${reviewBranchName(proposal.branch)}?`,
         { modal: true, detail: 'Only missing packaged files and byte-exact historical SFlow package files can change. Repository-customized files, the approved configuration, state, and application branches remain untouched. The resulting commit must be reviewed again before activation.' },
         label);
       if (accepted !== label) return;
@@ -298,7 +298,7 @@ export class CapabilityProposalPanel {
       this.activated = null;
       this.error = null;
       void showCompactInformationMessage(result.repaired
-        ? `Compatibility repair prepared at ${result.proposalCommit.slice(0, 12)}. Review the updated diff before merging.`
+        ? 'Compatibility repair prepared as a new commit on the proposal branch. Review the updated diff before merging.'
         : 'This capability proposal is already compatible.');
       await this.load();
       return;

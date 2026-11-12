@@ -40,7 +40,7 @@ const inline = (value: string): string => value.replace(/[\r\n]/gu, ' ').replace
 /** Source is fenced for non-Markdown artifacts. A read-only preview never renders JSON as raw mode. */
 export function artifactPreviewMarkdown(preview: PhaseArtifactPreview): string {
   const header = `# ${inline(preview.record.label)}\n\n> ${preview.version === 'approved' ? 'Approved · read-only published version' : 'Draft · current working version'} — ${inline(preview.workId)} / ${inline(preview.phase)} / generation ${preview.generation}\n\n`
-    + `SHA-256: \`${preview.sha256}\`\n\n${preview.commit ? `Publication commit: \`${preview.commit}\`\n\n` : ''}---\n\n`;
+    + `${preview.commit ? 'Published as committed with this generation.\n\n' : ''}---\n\n`;
   if (preview.binary || preview.content == null) return header + 'This binary artifact has no Markdown text preview. Its original bytes were not changed.\n';
   if (/\.(md|markdown)$/iu.test(preview.record.path)) return header + preview.content;
   let fenceLength = 3;

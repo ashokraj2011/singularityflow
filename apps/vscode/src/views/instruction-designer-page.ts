@@ -97,7 +97,7 @@ function trustCard(agent: InstructionEntry, status: InstructionCatalog['agentSta
   const action = state === 'unlocked' ? 'trust' : state === 'stale' ? 'update' : state === 'needs-sync' ? 'sync' : null;
   return `<article class="trust-card"><div class="trust-head"><div><strong>${icon('agent')}${escape(agent.name)}</strong><small>${escape(agent.scope)}</small></div><span class="status-chip ${escape(state)}">${escape(state.replace('-', ' '))}</span></div>
     <p>${resources.length ? `${resources.length} remote resource${resources.length === 1 ? '' : 's'}` : 'Local instructions only'}</p>
-    ${resources.length ? `<ul class="resource-status">${resources.map((resource) => `<li><span>${icon(resource.type === 'skill' ? 'skill' : 'artifact')}${escape(resource.id)}</span><span>${escape(resource.type)} · ${escape(resource.status)}${resource.sha256 ? ` · ${escape(resource.sha256.slice(0, 10))}` : ''}</span></li>`).join('')}</ul>` : ''}
+    ${resources.length ? `<ul class="resource-status">${resources.map((resource) => `<li><span>${icon(resource.type === 'skill' ? 'skill' : 'artifact')}${escape(resource.id)}</span><span>${escape(resource.type)} · ${escape(resource.status)}${resource.sha256 ? ' · pinned' : ''}</span></li>`).join('')}</ul>` : ''}
     ${action ? `<button data-agent-action="${action}" data-agent-id="${escape(agent.id)}">${icon(action === 'sync' ? 'refresh' : 'gate')}${action === 'trust' ? 'Review & trust' : action === 'update' ? 'Review update' : 'Sync locked resources'}</button>` : ''}
   </article>`;
 }

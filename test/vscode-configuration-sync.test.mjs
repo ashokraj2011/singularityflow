@@ -77,14 +77,16 @@ test('nothing pending syncs references with the preview digest and asks nothing'
   assert.deepEqual(calls, [PREVIEW, APPLY, 'refresh']);
 });
 
-test('the confirmation names every proposal, tip, author, summary and file it replays', () => {
+test('the confirmation names every proposal by branch, author, summary and file, never a commit', () => {
   const merged = proposal('retired', { merged: true, files: [] });
   const review = configurationSyncConfirmation(preview([proposal('demo'), proposal('beta', { files: ['singularity/agents/a.md'] }), merged]));
   assert.equal(review.message, 'Recreate and sync configuration from 3 proposals?');
-  assert.match(review.detail, /Replays 2 pending proposals \(teammates' unreviewed ones included\) onto approved sflow\/config@aaaaaaaaaaaa; retires 1 merged proposal\./u);
-  assert.match(review.detail, /sflow\/config-change\/workflow\/demo @ dddddddddddd by Teammate — edit demo\n {4}singularity\/workflow.yml/u);
-  assert.match(review.detail, /sflow\/config-change\/workflow\/beta @ bbbbbbbbbbbb by Teammate — edit beta\n {4}singularity\/agents\/a.md/u);
-  assert.match(review.detail, /Already merged \(archived and retired only\):\nsflow\/config-change\/workflow\/retired @ eeeeeeeeeeee/u);
+  assert.match(review.detail, /Replays 2 pending proposals \(teammates' unreviewed ones included\) onto approved sflow\/config; retires 1 merged proposal\./u);
+  assert.match(review.detail, /sflow\/config-change\/workflow\/demo by Teammate — edit demo\n {4}singularity\/workflow.yml/u);
+  assert.match(review.detail, /sflow\/config-change\/workflow\/beta by Teammate — edit beta\n {4}singularity\/agents\/a.md/u);
+  assert.match(review.detail, /Already merged \(archived and retired only\):\nsflow\/config-change\/workflow\/retired by Teammate — edit retired/u);
+  // A person reads no commit (owner, 2026-11-11): the apply still carries the preview's digest.
+  for (const text of [review.message, review.compactDetail, review.detail]) assert.doesNotMatch(text, /@ |[0-9a-f]{12}/u);
   assert.match(review.detail, /Proposals pushed after this preview are refused\./u);
   // The native dialog shows at most five summary lines; the complete list stays one click away.
   const many = configurationSyncConfirmation(preview(['alpha', 'beta', 'cat', 'dog', 'eel'].map(name => proposal(name))));

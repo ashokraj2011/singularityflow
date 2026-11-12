@@ -99,7 +99,8 @@ test('a moved HEAD, a moved Story and a dirtied worktree are each named', () => 
 
   assert.equal(delta.state, 'compared');
   const summary = delta.summary;
-  assert.match(summary, /repository moved from aaaaaaaaaaaa to bbbbbbbbbbbb/);
+  assert.match(summary, /the repository moved to another commit/);
+  assert.doesNotMatch(summary, /aaaa|bbbb/u, 'a person reads that it moved, never the commits');
   assert.match(summary, /WRK-1978 moved from implement to verify/);
   assert.match(summary, /worktree now has uncommitted changes/);
   assert.equal(delta.changes.length, 3);

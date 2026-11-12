@@ -83,8 +83,9 @@ test('a brief read from another branch says so, and the branch picker lists the 
     evidence: { ...brief.evidence, codeFiles: 13 }
   };
   const html = repositoryBriefBody(other, { tab: 'overview', phase: 'all', ref: null, loading: null, error: null });
-  assert.match(html, /The checked-out branch <strong>test<\/strong> has no code, so this brief reads <strong>origin\/migration<\/strong> at <code>0123456789ab<\/code> straight from Git\./u);
-  assert.match(html, /orders · origin\/migration at/u);
+  assert.match(html, /The checked-out branch <strong>test<\/strong> has no code, so this brief reads the latest commit of <strong>origin\/migration<\/strong> straight from Git\./u);
+  assert.match(html, /orders · origin\/migration · /u);
+  assert.doesNotMatch(html, /0123456789ab/u, 'a person reads the branch, never the commit');
   assert.match(html, /<select id="brief-ref" data-message="ref"><option value="" selected>Checked out \(test\)<\/option><option value="origin\/migration">origin\/migration<\/option><option value="test">test<\/option><\/select>/u);
   const partial = repositoryBriefBody({ ...other, source: { ...other.source, fetched: 13, remote: 'origin' } }, { tab: 'overview', phase: 'all', ref: null, loading: null, error: null });
   assert.match(partial, /straight from Git\. 13 of its files were downloaded from origin into \.git first\. Nothing was checked out\./u);
@@ -92,7 +93,7 @@ test('a brief read from another branch says so, and the branch picker lists the 
   assert.match(picked, /<option value="test" selected>/u);
   const empty = repositoryBriefBody({ ...other, source: { ...other.source, ref: 'test', chosen: 'requested' }, branch: 'test', evidence: { ...brief.evidence, codeFiles: 0 } },
     { tab: 'overview', phase: 'all', ref: 'test', loading: null, error: null });
-  assert.match(empty, /No code at <strong>test<\/strong> <code>0123456789ab<\/code>\. Pick a branch that has code above\./u);
+  assert.match(empty, /No code on <strong>test<\/strong>\. Pick a branch that has code above\./u);
 });
 
 test('the Repository Knowledge command opens the brief panel through the lazy bundle', async () => {

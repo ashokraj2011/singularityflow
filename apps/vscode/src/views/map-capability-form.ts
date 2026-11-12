@@ -23,7 +23,7 @@ import {
   type RepositoryOnboardingPlan,
   type RepositoryOnboardingResult
 } from './repository-onboarding-model.ts';
-import { escape, icon, repositoryWebLink } from './webview.ts';
+import { escape, icon, repositoryWebLink, reviewBranchName } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 
 const SSH_USERNAME_PROTOCOLS = new Set(['ssh:', 'git+ssh:', 'ssh+git:']);
@@ -584,8 +584,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
       <p>${conflict
         ? 'An existing setup proposal differs from this candidate. Review the preserved proposal and resolve that difference before continuing.'
         : 'Repository setup created a review proposal. The approved configuration branch is created or updated only after that proposal is reviewed and activated.'}</p>
-      <p>Review branch: <code>${escape(review.sourceBranch)}</code><br>
-        Exact commit: <code>${escape(review.proposalCommit)}</code><br>
+      <p>Review branch: <code>${escape(reviewBranchName(review.sourceBranch))}</code><br>
         Approved target: <code>${escape(review.targetBranch)}</code></p>
       <p class="muted">${escape(reason)} ${review.published
         ? 'The proposal branch was published. Its commit is waiting for review; repository setup has not approved it.'
@@ -748,7 +747,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
       && /^[0-9a-f]{8}$/i.test(branch.slice(prefix.length))
       && /^[0-9a-f]{40,64}$/i.test(match.proposalCommit ?? '')
       && match.lead && !gitRemoteProblem(match.lead, 'Capability-map repository'));
-    return `<li><code>${escape(branch)}</code>${escape(`${capabilities}${lead}`)}
+    return `<li><code>${escape(reviewBranchName(branch))}</code>${escape(`${capabilities}${lead}`)}
       ${individuallyCancelable
         ? `<button type="button" class="secondary" data-map-pending-cancel="${index}">Cancel this pending mapping</button>
           <button type="button" data-map-pending-replace="${index}">Replace this pending mapping</button>` : ''}</li>`;
@@ -770,7 +769,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     : form.inspectionStatus === 'not-onboarded'
       ? `<p class="ok-text">${icon('ok')}This repository was not found in the capability maps checked. Describe its first capability below.</p>`
       : form.inspectionStatus === 'pending-replacement' && form.replacement
-        ? `<p class="warning-text">${icon('warning')}Replacing the exact pending proposal <code>${escape(form.replacement.branch)}@${escape(form.replacement.commit.slice(0, 12))}</code>. The new mapping will replace it atomically; if the new proposal is refused, the old review remains.</p>`
+        ? `<p class="warning-text">${icon('warning')}Replacing the exact pending proposal <code>${escape(reviewBranchName(form.replacement.branch))}</code>. The new mapping will replace it atomically; if the new proposal is refused, the old review remains.</p>`
       : form.inspectionStatus === 'known-repository-unassigned'
         ? `<p class="ok-text">${icon('ok')}This repository is known, but is not assigned to a capability yet.</p>`
         : form.inspectionStatus === 'already-mapped'
@@ -829,8 +828,8 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     ${['needs-inspection', 'retry-ready', 'proposal-ready'].includes(operation.status)
       ? '<p class="muted">You can cancel this pending mapping now. A replacement for the same capability and repository must first settle its exact pending Git review; an unrelated new mapping leaves this proposal untouched. If the outcome cannot be verified, no proposal is deleted.</p>' : ''}
     <p class="muted">Capability-map authority: <code>${escape(operation.lead)}</code></p>
-    <p class="muted"><code>${escape(operation.id)}</code> · last updated ${escape(operation.updatedAt)}</p>
-    ${operation.proposalBranch ? `<p><code>${escape(operation.proposalBranch)}${operation.proposalCommit ? `@${escape(operation.proposalCommit.slice(0, 12))}` : ''}</code></p>` : ''}
+    <p class="muted">Last updated ${escape(operation.updatedAt)}</p>
+    ${operation.proposalBranch ? `<p><code>${escape(reviewBranchName(operation.proposalBranch))}</code></p>` : ''}
     <p>
       ${operation.status === 'running' || operation.status === 'inspecting' || operation.status === 'cancelling'
         ? `<button type="button" class="secondary" data-map-operation-cancel${operation.status === 'cancelling' ? ' disabled' : ''}>${operation.status === 'cancelling' ? 'Stopping…' : 'Stop current attempt'}</button>` : ''}

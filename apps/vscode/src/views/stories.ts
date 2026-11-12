@@ -47,14 +47,14 @@ function storyHtml(story: StoryView): string {
     ${story.branch
     ? `<p class="muted">
          <code>${escape(story.branch)}</code>
-         ${story.head ? (story.atSeed ? ' at seed' : ` at ${escape(story.head.slice(0, 8))}`) : ' never observed'}
+         ${story.head ? (story.atSeed ? ' at seed' : ' moved on since its seed') : ' never observed'}
          ${story.phase ? ` · ${escape(story.phase)}` : ''}
          ${story.stale ? ' · <span class="pill bad">record stale</span>' : ''}
        </p>`
     : '<p class="muted">Not yet pushed to its repository.</p>'}
 
     ${story.conformance
-    ? `<p class="muted">Conformance ${escape(story.conformance.status)}${story.conformance.treeSha256 ? ` at <code>${escape(story.conformance.treeSha256.slice(0, 8))}</code>` : ''}</p>`
+    ? `<p class="muted">Conformance ${escape(story.conformance.status)}</p>`
     : ''}
 
     <div class="card-foot">

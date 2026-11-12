@@ -110,7 +110,7 @@ test('complete flow uses exact workspace/plan and independently confirms local r
   assert.deepEqual(f.calls.find(argv => argv.includes('--confirm-plan')), [
     'workspace', 'reinitialize', workspace.path, '--confirm-plan', 'wrip-exact', '--json'
   ]);
-  assert.equal(f.confirmations[0].expected, 'wrip-exact');
+  assert.equal(f.confirmations[0].expected, 'UPGRADE', 'a person types a word, never the plan ID; the apply carries the exact plan');
   assert.equal(f.confirmations[1].expected, 'calc');
   assert.deepEqual(f.calls.find(argv => argv[0] === 'authority'), ['authority', 'refresh', '/work/calc/repos/ui', '--json']);
   assert.equal(afterInstallComplete(f.journey.view), true);
@@ -521,7 +521,7 @@ test('real panel messages use host-owned scope and plan, reject forged commands,
   await panel.send({ type: 'select', path: workspace.path });
   await panel.send({ type: 'preview' });
   await panel.send({ type: 'apply', planId: 'forged', workspacePath: '/forged' });
-  assert.equal(f.confirmations[0].expected, 'wrip-exact');
+  assert.equal(f.confirmations[0].expected, 'UPGRADE', 'a person types a word, never the plan ID; the apply carries the exact plan');
   assert.ok(f.calls.some(argv => argv.includes('--confirm-plan') && argv[2] === workspace.path));
   const beforeRetired = f.calls.length;
   await panel.send({ type: 'migrate', planId: 'forged', workspacePath: '/forged' });

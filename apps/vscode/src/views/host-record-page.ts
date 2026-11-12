@@ -112,7 +112,10 @@ const text = (value: unknown, fallback = 'unknown'): string => {
   if (value === null || value === undefined || value === '') return fallback;
   return String(value).slice(0, 400);
 };
-const short = (commit: unknown): string => (typeof commit === 'string' && /^[0-9a-f]{12,64}$/iu.test(commit) ? commit.slice(0, 12) : text(commit));
+// A person never reads a hash (owner, 2026-11-11): a commit or digest shows as whether it was recorded; a ref a person named shows as typed.
+const isHash = (value: unknown): boolean => typeof value === 'string' && /^(?:sha256:)?[0-9a-f]{7,64}$/iu.test(value);
+const recorded = (value: unknown, missing = 'not recorded'): string => (value ? 'recorded' : missing);
+const ref = (value: unknown, hashed: string): string => (isHash(value) ? hashed : text(value));
 const words = (value: unknown): string => text(value).replaceAll('_', ' ').replaceAll('-', ' ');
 const record = (value: unknown): Record<string, any> => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {});
 const list = (value: unknown): any[] => (Array.isArray(value) ? value : []);
@@ -221,10 +224,9 @@ export function investigationView({ request = {}, record: kept = null, kept: all
       ['Investigation', kept.investigationId],
       ['Operation', text(result.operation?.id)],
       ['Repository', text(repository.id, 'this repository')],
-      ['HEAD', short(repository.head)],
       ['Branch', text(repository.branch, 'detached HEAD')],
       // The evidence scope's start is the `sinceRef` input, not the "failing since" one below.
-      [fieldLabel(INVESTIGATION_SCHEMA, 'sinceRef'), text(record(report.evidenceScope).since, 'not given')],
+      [fieldLabel(INVESTIGATION_SCHEMA, 'sinceRef'), record(report.evidenceScope).since ? ref(record(report.evidenceScope).since, 'a known-good commit') : 'not given'],
       ...(report.subject?.workId ? [['Work', text(report.subject.workId)] as Fact] : []),
       ['Received', text(kept.receivedAt)]
     ],
@@ -260,17 +262,17 @@ export function investigationView({ request = {}, record: kept = null, kept: all
           ? 'A bisection was offered for this range with the repository\'s configured test. It runs only after you confirm its plan, in disposable worktrees, from a host that carries it out (Copilot CLI through SFlow\'s gateway); this window does not run test commands.'
           : 'No bisection was offered: it needs a known-good revision and a configured test command.',
         facts: [
-          ['Range', revisions.since ? `${short(revisions.since)}..${short(revisions.head)}` : 'no known-good revision was given'],
+          ['Range', revisions.since ? `${ref(revisions.since, 'the known-good commit')} to ${ref(revisions.head, 'the current commit')}` : 'no known-good revision was given'],
           ['Regression read', words(regression.status ?? 'not-requested')],
           ['Bisection', bisectOffered ? 'offered, not run' : 'not offered']
         ],
-        table: { columns: ['Commit', 'Subject', 'Confidence'], rows: candidates.map((entry) => [short(entry?.commit), text(entry?.subject, ''), words(entry?.confidence)]) },
+        table: { columns: ['Commit', 'Confidence'], rows: candidates.map((entry) => [text(entry?.subject, 'a commit with no subject'), words(entry?.confidence)]) },
         empty: 'No change candidates: no range was read.'
       },
       {
         heading: 'Builds',
         note: 'A build is related to the range only through exact provenance; anything else is "observed near" or "mapping unavailable".',
-        table: { columns: ['Build', 'Pipeline', 'Result', 'Relation', 'Commit'], rows: builds.map((build) => [text(build?.buildId), text(build?.pipeline, ''), words(build?.result), text(build?.language ?? build?.relation), short(build?.sourceCommit)]) },
+        table: { columns: ['Build', 'Pipeline', 'Result', 'Relation'], rows: builds.map((build) => [text(build?.buildId), text(build?.pipeline, ''), words(build?.result), text(build?.language ?? build?.relation)]) },
         empty: 'No build mapping was read.'
       },
       { heading: 'Owners', items: list(report.owners).map((owner) => text(typeof owner === 'string' ? owner : owner?.owner ?? JSON.stringify(owner))), empty: 'No owners were read.' },
@@ -374,14 +376,14 @@ export function contextReceiptView({ request = {}, workId = null, ledger = null 
     sections: [
       {
         heading: 'What it included',
-        note: `Sources are named by digest only; the receipt keeps no content. Tokens are an estimate (${text(selected.estimationMethod)}), not provider billing.`,
+        note: `Sources are listed by size only; the receipt keeps no content. Tokens are an estimate (${text(selected.estimationMethod)}), not provider billing.`,
         facts: [
           ['Content', metric(selected.includedBytes, ' bytes')],
           ['Estimated input', metric(selected.estimatedTokens, ' tokens')],
           ['Sources', `${count(items.length)} (${count(items.filter((item) => item?.mandatory).length)} required)`]
         ],
-        table: { columns: ['Source digest', 'Bytes', 'Estimated tokens', 'Required', 'Cache class'],
-          rows: items.map((item) => [short(item?.itemDigest), count(item?.bytes), count(item?.estimatedTokens), item?.mandatory ? 'required' : 'optional', words(item?.cacheClass)]) },
+        table: { columns: ['Source', 'Bytes', 'Estimated tokens', 'Required', 'Cache class'],
+          rows: items.map((item, index) => [`#${index + 1}`, count(item?.bytes), count(item?.estimatedTokens), item?.mandatory ? 'required' : 'optional', words(item?.cacheClass)]) },
         empty: 'No source was included.'
       },
       {
@@ -402,12 +404,12 @@ export function contextReceiptView({ request = {}, workId = null, ledger = null 
         empty: 'Nothing was expanded.'
       },
       {
-        heading: 'Digests',
+        heading: 'Bindings',
         facts: [
-          ['Cache key', text(selected.cacheKey, 'not recorded')],
-          ['Context manifest', text(selected.contextManifestSha256, 'not recorded')],
-          ['Cache manifest', text(selected.cacheManifestId, 'not recorded')],
-          ['Token economy configuration', text(economy.configurationDigest, 'not recorded')]
+          ['Cache key', recorded(selected.cacheKey)],
+          ['Context manifest', recorded(selected.contextManifestSha256)],
+          ['Cache manifest', recorded(selected.cacheManifestId)],
+          ['Token economy configuration', recorded(economy.configurationDigest)]
         ]
       },
       {
@@ -473,9 +475,8 @@ export function handoffView({ request = {}, workId = null, result = null }: {
       ['Work', `${workId} · ${text(work.kind, kind)}`],
       ['Phase', `${text(phase.label ?? phase.id, 'none')} · ${words(phase.status)} · generation ${text(phase.generation, '0')}`],
       ['Legal next action', next.operation ? `${text(next.operation)} (${words(next.reasonCode)})` : 'none is legal now'],
-      ['Source commit', text(revisions.sourceCommit)],
-      ['Lifecycle hash', text(revisions.lifecycleHash, 'not recorded')],
-      ...(revisions.worktreeHash ? [['Worktree hash', `${text(revisions.worktreeHash)} (${text(revisions.worktreeAlgorithm)})`] as Fact] : []),
+      ['Lifecycle state', recorded(revisions.lifecycleHash)],
+      ...(revisions.worktreeHash ? [['Working tree', 'recorded'] as Fact] : []),
       ['Authority', 'projection only — never lifecycle authority']
     ],
     sections: [

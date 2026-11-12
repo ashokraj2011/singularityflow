@@ -97,7 +97,7 @@ function recordingHtml(status: GuardStatus, report: GuardReport | null): string 
 
 function packetHtml(packet: PacketLabels): string {
   return `<li class="sfg-packet" data-packet="${escape(packet.packetSha256)}"><strong>${escape(packet.phase)}</strong> generation ${packet.generation}
-    ${pill(packet.packet === 'intact' ? 'ok' : 'bad', `packet ${packet.packet}`)} <code>${escape(packet.packetSha256.slice(0, 12))}</code>
+    ${pill(packet.packet === 'intact' ? 'ok' : 'bad', `packet ${packet.packet}`)}
     ${packet.summary ? `<p class="sfg-summary">${escape(packet.summary)}</p>` : ''}
     <ul class="sfg-labels">${packet.labels.map((label) => `<li>${escape(label)}</li>`).join('')}</ul></li>`;
 }

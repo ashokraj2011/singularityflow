@@ -87,7 +87,8 @@ test('native Meta-tool review renders exact plan authority without dumping trust
   });
   assert.match(review, /Authority Store revision: 7/);
   assert.match(review, /Target: pack-operation \/ finance\.inspect/);
-  assert.match(review, new RegExp(H('b')));
+  assert.match(review, /Approving Pack review: bound/);
+  for (const value of ['a', 'b', 'c', 'd'].map(H)) assert.ok(!review.includes(value), 'a person reads what changes, never the digests the confirmation binds');
   assert.doesNotMatch(review, /BEGIN PUBLIC KEY|traceTrust|evaluatorTrust/);
 });
 

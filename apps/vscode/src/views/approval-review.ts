@@ -232,31 +232,33 @@ export function validateApprovalReviewSubmission(
     const inadequate = Array.isArray(entry.inadequate) ? entry.inadequate.filter((facet): facet is string => typeof facet === 'string') : [];
     const mapping = expectedMappings.get(mappingSha256);
     if (!mapping || seenMappings.has(mappingSha256)) {
-      errors.push(`Unknown or repeated witness mapping '${mappingSha256 || '(missing)'}'.`);
+      errors.push('A witness decision names a test this review does not list, or names one twice. Reopen the review.');
       continue;
     }
     seenMappings.add(mappingSha256);
+    // A person reads a witness by its criterion and test file, never its mapping digest (owner, 2026-11-11).
+    const named = `${mapping.clauseId} → ${mapping.sourcePath}`;
     if (mapping.clauseStatus !== 'current' || !mapping.clauseText
         || !mapping.clauseFields?.behavior || !mapping.clauseFields?.observable) {
-      errors.push(`Witness mapping '${mappingSha256}' no longer has its exact reviewed clause bytes.`);
+      errors.push(`The witness ${named} no longer has its exact reviewed criterion text.`);
       continue;
     }
     if (!(APPROVAL_DECISIONS as readonly string[]).includes(decision)) {
-      errors.push(`Choose a decision for witness mapping '${mappingSha256}'.`);
+      errors.push(`Choose a decision for the witness ${named}.`);
       continue;
     }
     if (decision !== 'satisfied' && !reason) {
-      errors.push(`Explain why witness mapping '${mappingSha256}' is ${decision}.`);
+      errors.push(`Explain why the witness ${named} is ${decision}.`);
       continue;
     }
     if (decision === 'exception'
         && (!expiresAt || !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now())) {
-      errors.push(`Choose an expiry for witness mapping exception '${mappingSha256}'.`);
+      errors.push(`Choose an expiry for the exception on the witness ${named}.`);
       continue;
     }
     if (decision === 'exception' && (!inadequate.length
         || inadequate.some((facet) => !(WITNESS_FACETS as readonly string[]).includes(facet)))) {
-      errors.push(`Choose which part of the test falls short for witness mapping exception '${mappingSha256}'.`);
+      errors.push(`Choose which part of the test falls short for the exception on the witness ${named}.`);
       continue;
     }
     witnessDecisions.push({

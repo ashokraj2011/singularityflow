@@ -136,12 +136,8 @@ export function localRunnerPlanReview(plan: LocalRunnerPlan): string {
     `Phase / command: ${plan.phaseId} / ${plan.commandId}`,
     `Command: ${renderedArgv}`,
     `Timeout: ${plan.command.timeoutMs ?? 'configured default'} ms`,
-    `Candidate: ${plan.candidateSha256}`,
-    `Proof Subject: ${plan.proofSubjectSha256}`,
-    `Repository commit / tree: ${plan.repositoryHead} / ${plan.repositoryTree}`,
-    `Command identity: ${plan.commandSha256}`,
-    `Local signer key: ${plan.signerKeySha256}`,
-    `Plan confirmation: ${plan.planSha256}`,
+    // A person reads what runs, where and who signs; the plan's confirmation binds every digest (owner, 2026-11-11).
+    'Bound to: this Story\'s candidate and proof subject, the repository\'s current commit, this exact command, your local signer key',
     '',
     'The command runs as your local OS user. Its signed receipt is useful for tamper detection and replay, but cannot provide independent approval.'
   ].join('\n');

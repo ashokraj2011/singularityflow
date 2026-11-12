@@ -22,6 +22,19 @@ export function escape(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * A person never reads a hash (owner, 2026-11-11). A generated review branch reads without the hex suffix that keeps
+ * it unique in Git; the branch itself, which a button copies and a command binds, is unchanged.
+ */
+export function reviewBranchName(branch: unknown): string {
+  return String(branch ?? '').replace(/(?:[-/][0-9a-f]{8,64})+$/iu, '');
+}
+
+/** A Git diff as a person reads it: the `index <blob>..<blob>` lines, which only name objects, are left out. */
+export function diffForPerson(diff: unknown): string {
+  return String(diff ?? '').replace(/^index [0-9a-f]{7,64}\.\.[0-9a-f]{7,64}(?: [0-7]{6})?\r?\n/gmu, '');
+}
+
 /** CLI-owned wording: a webview must not infer another evidence verdict or approval. */
 export interface EvidenceConsistencyPresentation { projectionSha256: string; summary: string[] }
 

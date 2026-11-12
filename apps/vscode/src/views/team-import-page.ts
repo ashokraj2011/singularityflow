@@ -19,7 +19,7 @@ function statePill(state: string): string {
 function checkHtml(check: TeamImportCompile, disabled: string, repository: TeamImportRepository | null): string {
   const workflow = check.workflow;
   const blocking = check.findings.filter(finding => finding.severity !== 'warning');
-  return `<p>${statePill(check.state)}${check.bundleSha256 ? ` <span class="muted">bundle <code>${escape(check.bundleSha256.slice(0, 19))}</code></span>` : ''}</p>
+  return `<p>${statePill(check.state)}</p>
     ${workflow ? `<p><strong>${escape(workflow.label ?? workflow.id)}</strong> <code>${escape(workflow.id)}</code></p>
       <ol class="phases">${workflow.phases.map(phase => `<li>${escape(phase.label ?? phase.id)} <span class="muted">· ${escape(phase.agent ?? 'no agent')}${phase.code ? ' · writes code' : ''}</span></li>`).join('')}</ol>
       ${workflow.decisions.length ? `<p class="muted">Decisions: ${workflow.decisions.map(decision => `${escape(decision.kind)} after ${escape(decision.after)}`).join(', ')}</p>` : ''}` : ''}

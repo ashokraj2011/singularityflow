@@ -77,8 +77,8 @@ test('local runner modal renders exact authority facts and permanent non-gating 
   });
   assert.match(review, /developer-local-signed \(never a lifecycle gate\)/);
   assert.match(review, /Command: \["npm","test"\]/);
-  assert.match(review, new RegExp(digest('a')));
-  assert.match(review, new RegExp(digest('b')));
+  assert.match(review, /Bound to: this Story's candidate and proof subject, the repository's current commit, this exact command, your local signer key/);
+  for (const value of [digest('a'), digest('b'), digest('d'), digest('f'), '1'.repeat(40)]) assert.ok(!review.includes(value), 'a person reads what is bound, never the digest');
   assert.match(review, /cannot provide independent approval/);
 });
 

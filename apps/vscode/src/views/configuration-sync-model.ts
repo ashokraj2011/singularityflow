@@ -28,7 +28,8 @@ export interface ConfigurationSyncResult {
 }
 
 const PREVIEW = ['configuration', 'recreate-sync', '--json'];
-const short = (commit: string) => String(commit ?? '').slice(0, 12);
+// A person reads each proposal by its branch, author and subject, never a commit (owner, 2026-11-11).
+const branchName = (branch: string) => String(branch ?? '').replace(/(?:[-/][0-9a-f]{8,64})+$/iu, '');
 
 export class ConfigurationSyncAction {
   private flight: Promise<ConfigurationSyncResult | null> | null = null;
@@ -68,9 +69,9 @@ export function configurationSyncConfirmation(preview: ConfigurationSyncResult):
   const pending = preview.proposals.filter(item => !item.merged);
   const merged = preview.proposals.filter(item => item.merged);
   const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
-  const line = (item: ConfigurationSyncProposal) => `${item.branch} @ ${short(item.commit)}`
+  const line = (item: ConfigurationSyncProposal) => branchName(item.branch)
     + `${item.author ? ` by ${item.author}` : ''}${item.summary ? ` — ${item.summary}` : ''}`;
-  const target = `${preview.targetBranch ?? 'sflow/config'}@${short(preview.baseCommit)}`;
+  const target = preview.targetBranch ?? 'sflow/config';
   const effect = `${pending.length ? `Replays ${plural(pending.length, 'pending proposal')} (teammates' unreviewed ones included)` : 'Replays nothing'}`
     + ` onto approved ${target}${merged.length ? `; retires ${plural(merged.length, 'merged proposal')}` : ''}.`;
   const boundary = 'Archived as tags first. Application code and Stories unchanged. Proposals pushed after this preview are refused.';
@@ -79,7 +80,7 @@ export function configurationSyncConfirmation(preview: ConfigurationSyncResult):
     ...pending.flatMap(item => [line(item), ...(item.files ?? []).map(file => `    ${file}`)]),
     ...(merged.length ? ['Already merged (archived and retired only):', ...merged.map(line)] : []),
     `Configuration files changed: ${preview.files?.length ? preview.files.join(', ') : 'none'}.`,
-    ...(preview.replacements ?? []).map(item => `Replaces current ${item.path}${item.pointer === '/' ? '' : ` ${item.pointer}`} with ${item.branch}.`),
+    ...(preview.replacements ?? []).map(item => `Replaces current ${item.path}${item.pointer === '/' ? '' : ` ${item.pointer}`} with ${branchName(item.branch)}.`),
     boundary
   ].join('\n');
   return {

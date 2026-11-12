@@ -41,11 +41,13 @@ function repositoryBasesHtml(workflow: StoryWorkflow): string {
     ...deliveries.flatMap(delivery => Array.isArray(delivery.repositories) ? delivery.repositories
       : delivery.repository ? [delivery.repository] : []).filter(id => typeof id === 'string')])];
   return `<section><h2>Repository bases</h2><p class="muted">Recorded at Story creation. Current branches and laptop paths do not replace these bases.</p>
-    <table><thead><tr><th>Repository</th><th>Story branch</th><th>Base branch</th><th>Base commit</th><th>Remote</th></tr></thead><tbody>${ids.map(id => {
+    <table><thead><tr><th>Repository</th><th>Story branch</th><th>Base branch</th><th>Base</th><th>Remote</th></tr></thead><tbody>${ids.map(id => {
       const base = recorded.find(entry => entry.repositoryId === id);
       const launch = id === (primary ?? 'Launch repository');
       return `<tr>${[id, base?.storyBranch ?? work.branch, base?.baseBranch ?? (launch ? work.baseBranch : null),
-        base?.baseCommit ?? (launch ? work.baseCommit : null), base?.baseRemote ?? (launch ? work.baseRemote : null)]
+        // A person reads that the base is pinned, never its commit (owner, 2026-11-11).
+        (base?.baseCommit ?? (launch ? work.baseCommit : null)) ? 'pinned to its exact commit' : null,
+        base?.baseRemote ?? (launch ? work.baseRemote : null)]
         .map(value => `<td>${escape(display(value))}</td>`).join('')}</tr>`;
     }).join('')}</tbody></table></section>`;
 }
@@ -77,7 +79,7 @@ export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocument
     <p class="muted">Read-only saved input, not a generated phase artifact. Opening this page does not restart intake, change the Story, run tests or grant approval.</p>
     <section><h2>Recorded setup</h2><table><tbody>${[
       ['Story ID', work.id], ['Workflow', work.workTypeLabel ?? work.workType], ['Story branch', work.branch],
-      ['Selected base branch', work.baseBranch], ['Base commit', work.baseCommit], ['Base remote', work.baseRemote],
+      ['Selected base branch', work.baseBranch], ['Base remote', work.baseRemote],
       ['Capability', capability.label ?? capability.name ?? capability.id], ['Created', work.createdAt],
       ['Source', source?.type ?? object(work.source).type], ['Source reference', source?.url ?? source?.key ?? source?.stableId],
       ['Recorded test execution mode', resolution.testExecutionMode],
@@ -90,9 +92,9 @@ export function storyIntakeBody(workflow: StoryWorkflow, preview: IntakeDocument
       .map(([key, label]) => `<h3>${escape(label)}</h3><pre class="intake-value">${escape(display(source![key]))}</pre>`).join('')
       : `<p class="warning">${preview.truncated ? 'The source preview is truncated; not all intake details are available.' : 'The saved source could not be interpreted as a JSON object. The returned text is shown below.'}</p>`}
       <details><summary>Saved source record${preview.truncated ? ' (truncated)' : ''}</summary><pre class="intake-value">${escape(preview.content)}</pre></details>
-      <p class="muted">${escape(preview.record.path ?? '')}${preview.verifiedSha256 ? ` · Read SHA-256: ${escape(preview.verifiedSha256)}` : ''}</p></section>
+      <p class="muted">${escape(preview.record.path ?? '')}${preview.verifiedSha256 ? ' · read and verified' : ''}</p></section>
     ${specificationSlicesHtml(source)}
-    <section><h2>Recorded reference repositories</h2>${references.length ? `<table><thead><tr><th>Repository</th><th>Branch</th><th>Pinned commit</th></tr></thead><tbody>${references.map(reference => `<tr><td>${escape(display(reference.id))}</td><td>${escape(display(reference.requestedBranch ?? reference.branch))}</td><td>${escape(display(reference.commit))}</td></tr>`).join('')}</tbody></table>` : '<p>No reference repository was recorded.</p>'}</section>
+    <section><h2>Recorded reference repositories</h2>${references.length ? `<table><thead><tr><th>Repository</th><th>Branch</th><th>Pinned</th></tr></thead><tbody>${references.map(reference => `<tr><td>${escape(display(reference.id))}</td><td>${escape(display(reference.requestedBranch ?? reference.branch))}</td><td>${reference.commit ? 'to its exact commit' : 'not pinned'}</td></tr>`).join('')}</tbody></table>` : '<p>No reference repository was recorded.</p>'}</section>
     <section><h2>Currently attached evidence</h2><p class="muted">This catalog includes later uploads. It is not presented as the original attachment history.</p>${evidence.length ? `<table><thead><tr><th>Document</th><th>Type</th><th>Status</th></tr></thead><tbody>${evidence.map(document => `<tr><td>${escape(document.name ?? document.label ?? document.id ?? 'Document')}</td><td>${escape(document.type ?? '')}</td><td>${escape(document.availability ?? document.status ?? 'Recorded')}</td></tr>`).join('')}</tbody></table>` : '<p>No supporting evidence is reported in the current catalog.</p>'}</section>
     <button class="secondary" data-action="evidence">View evidence &amp; designs</button>
     <button class="secondary" data-action="tests">Test policy and recovery</button>

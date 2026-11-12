@@ -3,7 +3,7 @@ import { showCompactWarningMessage } from "../compact-message.ts";
 import * as vscode from 'vscode';
 import { type SliceLease, type WorkspaceStore } from '../state.ts';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page, reviewBranchName } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
   configurationCenterView, configurationPendingProposalStatus, configurationRefreshDecision,
@@ -275,7 +275,7 @@ export class ConfigurationCenterPanel {
 
   private savedNotice(localNotice: string, disposition: ConfigurationSaveDisposition | null): string {
     if (disposition?.kind === 'proposal') {
-      return `Configuration proposal ${disposition.branch} is pending review. Activate it in Workflow Studio → Changes → Review and activate, or merge it into ${disposition.baseBranch}, then recheck the approved authority. The application checkout was not changed.`;
+      return `Configuration proposal ${reviewBranchName(disposition.branch)} is pending review. Activate it in Workflow Studio → Changes → Review and activate, or merge it into ${disposition.baseBranch}, then recheck the approved authority. The application checkout was not changed.`;
     }
     if (disposition?.kind === 'unchanged') {
       return 'The approved configuration already contains this change; no proposal was required.';

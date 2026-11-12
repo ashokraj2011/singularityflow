@@ -23,9 +23,17 @@ import { containedWorkingPath } from './change-explorer-source.ts';
 type Tab = 'explorer' | 'explanation' | 'regions' | 'source' | 'brownfield' | 'diff' | 'evidence' | 'causes' | 'walkthrough' | 'replay' | 'unknowns';
 const TABS = ['explorer', 'explanation', 'regions', 'source', 'brownfield', 'diff', 'evidence', 'causes', 'walkthrough', 'replay', 'unknowns'] as const;
 
-function shortDigest(value: unknown): string {
-  const digest = String(value ?? '');
-  return /^sha256:[a-f0-9]{64}$/u.test(digest) ? `${digest.slice(0, 19)}…` : 'unavailable';
+/** Where the comparison starts, as a person reads it: never the baseline's commit (owner, 2026-11-11). */
+function baselineWords(source: unknown, base: unknown): string {
+  const words: Record<string, string> = { 'generation-intent': 'where this step\'s generation started', 'work-interval': 'where this Story\'s work started',
+    'delivery-evidence': 'the base its delivery recorded', explicit: 'the base you named', 'working-tree-head': 'your latest commit' };
+  if (typeof source === 'string' && words[source]) return words[source]!;
+  return base === 'HEAD' ? 'your latest commit' : 'the recorded base';
+}
+
+/** A person reads whether a record's exact bytes are bound, never its digest (owner, 2026-11-11). */
+function bound(value: unknown): string {
+  return /^sha256:[a-f0-9]{64}$/u.test(String(value ?? '')) ? 'recorded' : 'unavailable';
 }
 
 function regionPath(region: ComprehensionRegion): string {
@@ -46,7 +54,7 @@ function regions(snapshot: ComprehensionIdeSnapshot): string {
       const sourceLinks = snapshot.sourceReferences.filter((reference) =>
         reference.regionSha256 === region.regionSha256).map((reference) =>
         `<button class="link" type="button" data-source-ref="${escape(reference.ref)}">${escape(reference.side)}</button>`).join(' ') || '—';
-      return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${escape(region.operation ?? 'changed')}</td><td>${symbolLinks}</td><td>${sourceLinks}</td><td>${region.classification?.material === false ? 'No' : 'Yes'}</td><td>${escape(region.classification?.assurance ?? 'diff-derived')}</td><td><code>${escape(shortDigest(region.regionSha256))}</code></td></tr>`;
+      return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${escape(region.operation ?? 'changed')}</td><td>${symbolLinks}</td><td>${sourceLinks}</td><td>${region.classification?.material === false ? 'No' : 'Yes'}</td><td>${escape(region.classification?.assurance ?? 'diff-derived')}</td><td>${bound(region.regionSha256)}</td></tr>`;
     }).join('')}</tbody></table></div></section>`;
 }
 
@@ -60,7 +68,7 @@ function sourceView(value: ComprehensionSourceExpansion | null): string {
   const body = text == null
     ? '<p class="callout"><strong>Binary source page.</strong> It is digest-checked but is not rendered as text. Use the CLI JSON result when exact binary bytes are required.</p>'
     : `<pre class="source-preview" tabindex="0">${escape(decoded)}</pre>`;
-  return `<section><h2>Exact ${escape(value.side)} source</h2><p class="meta">${escape(value.path)} · ${value.offset}-${value.offset + value.bytes} of ${value.totalBytes} bytes · <code>${escape(shortDigest(value.contentSha256))}</code></p>${body}
+  return `<section><h2>Exact ${escape(value.side)} source</h2><p class="meta">${escape(value.path)} · ${value.offset}-${value.offset + value.bytes} of ${value.totalBytes} bytes</p>${body}
     ${value.nextOffset == null ? '<p class="meta">Complete exact source loaded.</p>' : `<p><button class="secondary" type="button" data-source-next="${value.nextOffset}">Load next bounded page</button></p>`}
     <p class="callout"><strong>Authority boundary:</strong> before bytes come from the immutable Git blob; after bytes must still match the selected Candidate. This read cannot approve, publish, or block work and is discarded when the panel is hidden.</p></section>`;
 }
@@ -80,7 +88,7 @@ function brownfield(snapshot: ComprehensionIdeSnapshot): string {
   return `<section><h2>Incremental brownfield adoption</h2><p class="meta">Only the exact current change regions are assessed. Unchanged legacy files are not scanned and keep the explicit label <code>${escape(assessment.policy.untouchedLegacyLabel)}</code>.</p>
     <div class="summary-grid"><div class="summary-card"><strong>${assessment.counts['new-region']}</strong><span>new regions</span></div><div class="summary-card"><strong>${assessment.counts['legacy-touched']}</strong><span>legacy touched</span></div><div class="summary-card"><strong>${assessment.counts['mechanical-move-candidate']}</strong><span>move candidates</span></div><div class="summary-card"><strong>No</strong><span>full backfill required</span></div></div>
     ${rows ? `<div class="table-wrap"><table><thead><tr><th>Path</th><th>Touch class</th><th>Git operation</th><th>Prior label</th><th>Required next evidence</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty"><p>No repository changes exist in the selected interval. No legacy files were scanned.</p></div>'}
-    <p class="callout"><strong>Safety boundary:</strong> an exact object-preserving rename is only a move candidate. This view never retains a legacy label, creates history, approves a proposal, or blocks lifecycle work.</p><p class="meta">Assessment <code>${escape(shortDigest(assessment.assessmentSha256))}</code></p></section>`;
+    <p class="callout"><strong>Safety boundary:</strong> an exact object-preserving rename is only a move candidate. This view never retains a legacy label, creates history, approves a proposal, or blocks lifecycle work.</p><p class="meta">Assessment ${bound(assessment.assessmentSha256)}.</p></section>`;
 }
 
 function causeMap(snapshot: ComprehensionIdeSnapshot): string {
@@ -110,10 +118,10 @@ function diff(snapshot: ComprehensionIdeSnapshot): string {
       const ranges = file.hunks.length
         ? file.hunks.map((hunk) => `<code>-${hunk.beforeStart},${hunk.beforeLines} +${hunk.afterStart},${hunk.afterLines}</code>`).join(' ')
         : '<span class="muted">metadata or binary change; no textual hunk</span>';
-      return `<details class="card" ${index === 0 ? 'open' : ''}><summary>${escape(name)} <span class="badge">${escape(file.operation)}</span></summary><p class="meta">${file.bytes} bytes · ${file.hunks.length} hunk(s) · <code>${escape(shortDigest(file.patchSha256))}</code></p><p>${ranges}</p><pre class="source-preview" tabindex="0">${escape(exact)}</pre></details>`;
+      return `<details class="card" ${index === 0 ? 'open' : ''}><summary>${escape(name)} <span class="badge">${escape(file.operation)}</span></summary><p class="meta">${file.bytes} bytes · ${file.hunks.length} hunk(s)</p><p>${ranges}</p><pre class="source-preview" tabindex="0">${escape(exact)}</pre></details>`;
     }).join('')
     : `<p class="warning">Per-region sections are unavailable: <code>${escape(preview.fileProjectionReason ?? 'CMP_DIFF_FILE_PROJECTION_UNAVAILABLE')}</code>. The exact aggregate patch remains below.</p><pre class="source-preview" tabindex="0">${escape(preview.patch)}</pre>`;
-  return `<section><h2>Exact bounded diff</h2><p class="meta">Git patch · ${preview.bytes} bytes · ${preview.files.length} tracked file section(s) · <code>${escape(shortDigest(preview.patchSha256))}</code>. The section index references the single patch; it does not duplicate source bytes. This transient payload is evicted when the panel is hidden or closed and is never restored from the snapshot cache.</p>${sections}${omitted}<p class="callout"><strong>Authority boundary:</strong> this is the exact local Git patch for inspection, not semantic evidence or approval.</p></section>`;
+  return `<section><h2>Exact bounded diff</h2><p class="meta">Git patch · ${preview.bytes} bytes · ${preview.files.length} tracked file section(s). The section index references the single patch; it does not duplicate source bytes. This transient payload is evicted when the panel is hidden or closed and is never restored from the snapshot cache.</p>${sections}${omitted}<p class="callout"><strong>Authority boundary:</strong> this is the exact local Git patch for inspection, not semantic evidence or approval.</p></section>`;
 }
 
 function evidence(snapshot: ComprehensionIdeSnapshot): string {
@@ -129,9 +137,9 @@ function evidence(snapshot: ComprehensionIdeSnapshot): string {
       return `<tr><td><button class="link" type="button" data-open-file="${escape(file)}">${escape(file)}</button></td><td>${record.roles.map((role) => `<span class="badge">${escape(role)}</span>`).join(' ')}</td><td>${record.testCommandIds.length ? record.testCommandIds.map((id) => `<code>${escape(id)}</code>`).join(' ') : '—'}</td></tr>`;
     }).join('');
   const receipts = value.testExecutions.length
-    ? `<div class="table-wrap"><table><thead><tr><th>Test command</th><th>Status</th><th>Receipt</th></tr></thead><tbody>${value.testExecutions.map((entry) => `<tr><td><code>${escape(entry.commandId)}</code></td><td>${escape(entry.status)}</td><td><code>${escape(shortDigest(entry.receiptSha256))}</code></td></tr>`).join('')}</tbody></table></div>`
+    ? `<div class="table-wrap"><table><thead><tr><th>Test command</th><th>Status</th><th>Receipt</th></tr></thead><tbody>${value.testExecutions.map((entry) => `<tr><td><code>${escape(entry.commandId)}</code></td><td>${escape(entry.status)}</td><td>${bound(entry.receiptSha256)}</td></tr>`).join('')}</tbody></table></div>`
     : '<p>No test-execution receipt is recorded for this phase generation.</p>';
-  return `<section><h2>Recorded delivery evidence</h2><p class="meta">Phase ${escape(value.phase ?? 'unknown')} · generation ${escape(value.generation ?? 'unknown')} · delivery ${escape(value.deliveryStatus ?? 'unavailable')} · projection <code>${escape(shortDigest(value.evidenceProjectionSha256))}</code></p>
+  return `<section><h2>Recorded delivery evidence</h2><p class="meta">Phase ${escape(value.phase ?? 'unknown')} · generation ${escape(value.generation ?? 'unknown')} · delivery ${escape(value.deliveryStatus ?? 'unavailable')} · projection ${bound(value.evidenceProjectionSha256)}</p>
     <div class="summary-grid"><div class="summary-card"><strong>${value.counts.acceptanceTagged}/${value.counts.acceptanceRequired}</strong><span>acceptance clauses tagged</span></div><div class="summary-card ${value.counts.acceptanceMissing ? 'important' : ''}"><strong>${value.counts.acceptanceMissing}</strong><span>acceptance gaps</span></div><div class="summary-card"><strong>${value.counts.testExecutions}</strong><span>test receipts</span></div><div class="summary-card"><strong>${value.counts.linkedRegions}</strong><span>evidence-linked regions</span></div></div>
     <h3>Region roles and test coverage</h3>${rows ? `<div class="table-wrap"><table><thead><tr><th>Exact region path</th><th>Recorded role</th><th>Covering command</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p>No current change region is named by the phase delivery record.</p>'}
     <h3>Test receipts</h3>${receipts}
@@ -155,18 +163,18 @@ function codeExplanation(snapshot: ComprehensionIdeSnapshot): string {
     const causeReferences = unit.cause.references.length
       ? `<ul>${unit.cause.references.map((entry) => `<li><code>${escape(entry.causeId)}</code> · ${escape(entry.causeKind)} · region-level reference, not hunk-bound</li>`).join('')}</ul>`
       : '<p class="muted">No recorded cause reference is available for this change region.</p>';
-    return `<details class="card"><summary><strong>${escape(range)}</strong> <span class="badge">${escape(unit.explanationStatus)}</span> · ${escape(file)}</summary><p><button class="link" type="button" data-open-file="${escape(file)}">Open ${escape(file)}</button> · ${escape(unit.operation)}</p><h4>Declaration navigation</h4>${declarations}<h4>Cause boundary</h4><p class="meta">${escape(unit.cause.reason)}</p>${causeReferences}<p class="meta">Unit <code>${escape(shortDigest(unit.explanationUnitSha256))}</code></p></details>`;
+    return `<details class="card"><summary><strong>${escape(range)}</strong> <span class="badge">${escape(unit.explanationStatus)}</span> · ${escape(file)}</summary><p><button class="link" type="button" data-open-file="${escape(file)}">Open ${escape(file)}</button> · ${escape(unit.operation)}</p><h4>Declaration navigation</h4>${declarations}<h4>Cause boundary</h4><p class="meta">${escape(unit.cause.reason)}</p>${causeReferences}</details>`;
   }).join('') : '<div class="empty"><p>No observable changes exist in this interval.</p></div>';
   return `<section><h2>Why each change is there</h2><p class="meta">Every observable tracked hunk is listed once. Metadata, binary, and untracked changes remain visible as opaque units. Missing cause authority stays unexplained.</p><p><button class="secondary" type="button" data-message="narrate">Prepare advisory narrative in Copilot</button></p>${why}</section>
     <section><h2>What it touches</h2><div class="empty"><p>Repository impact is ${escape(value.availability.impact.status)}: <code>${escape(value.availability.impact.reason)}</code>. Cached declaration overlaps above are navigation aids; they do not prove ownership, callers, or contract impact.</p></div></section>
     <section><h2>What is proven, what is not</h2><div class="empty"><p>Candidate-bound proof is ${escape(value.availability.proof.status)}: <code>${escape(value.availability.proof.reason)}</code>. This view never promotes a claim or path-level test reference into passed proof.</p></div>
-    <p class="callout"><strong>Authority boundary:</strong> observe-only · authority none · lifecycle gate false. Explanation <code>${escape(shortDigest(value.explanationSha256))}</code>.</p></section>`;
+    <p class="callout"><strong>Authority boundary:</strong> observe-only · authority none · lifecycle gate false.</p></section>`;
 }
 
 function walkthrough(snapshot: ComprehensionIdeSnapshot): string {
   const draft = snapshot.walkthrough.draft;
   if (!draft) return `<div class="empty"><p>No deterministic walkthrough draft is available: <code>${escape(snapshot.walkthrough.unavailableReason ?? 'CMP_WALKTHROUGH_UNAVAILABLE')}</code>.</p></div>`;
-  return `<section><h2>${escape(draft.walkthroughId)}</h2><p>${escape(draft.narrative.content)}</p><p class="meta">Untrusted deterministic draft · <code>${escape(shortDigest(draft.draftSha256))}</code></p>
+  return `<section><h2>${escape(draft.walkthroughId)}</h2><p>${escape(draft.narrative.content)}</p><p class="meta">Untrusted deterministic draft</p>
     <div class="check-list">${draft.claims.map((claim) => `<article class="card"><h3>${escape(claim.claimId)} <span class="badge">${escape(claim.assurance)}</span></h3><p>${escape(claim.text)}</p><p class="meta">${escape(claim.assertionType)} · ${claim.subjectRefs.map((reference) => `<code>${escape(reference)}</code>`).join(' ')}</p></article>`).join('')}</div>
     <p class="callout"><strong>Deliberately narrow:</strong> this draft states only that exact files changed. It makes no semantic, causal, correctness, or human-judgment claim.</p></section>`;
 }
@@ -214,7 +222,7 @@ export function comprehensionCenterBody(
                 : tab === 'walkthrough' ? walkthrough(snapshot)
                   : tab === 'replay' ? replay(snapshot) : unknowns(snapshot);
   return `<header><p class="eyebrow">Comprehension</p><h1>${icon('code', { size: 24 })} Comprehension Center</h1><p class="meta">Trace the exact repository interval, what is known, and what remains unavailable. This surface is read-only and model-free.</p></header>
-    ${snapshot ? `<section class="plain"><div class="context-banner"><div><span>Subject</span><strong>${escape(snapshot.context.workId ?? 'Repository changes')}</strong></div><div><span>Phase</span><strong>${escape(snapshot.context.phase ?? 'No active Story')}</strong></div><div><span>Baseline</span><code>${escape(snapshot.context.base)}</code></div><div><span>Source</span><strong>${escape(snapshot.context.source)}</strong></div></div><div class="summary-grid"><div class="summary-card"><strong>${snapshot.summary.regions}</strong><span>change regions</span></div><div class="summary-card"><strong>${snapshot.summary.explained}</strong><span>exactly explained</span></div><div class="summary-card ${snapshot.summary.unresolved ? 'important' : ''}"><strong>${snapshot.summary.unresolved}</strong><span>unresolved</span></div><div class="summary-card"><strong>${snapshot.summary.replayEvents}</strong><span>replay events</span></div></div></section>` : ''}
+    ${snapshot ? `<section class="plain"><div class="context-banner"><div><span>Subject</span><strong>${escape(snapshot.context.workId ?? 'Repository changes')}</strong></div><div><span>Phase</span><strong>${escape(snapshot.context.phase ?? 'No active Story')}</strong></div><div><span>Compared with</span><strong>${escape(baselineWords(snapshot.context.source, snapshot.context.base))}</strong></div></div><div class="summary-grid"><div class="summary-card"><strong>${snapshot.summary.regions}</strong><span>change regions</span></div><div class="summary-card"><strong>${snapshot.summary.explained}</strong><span>exactly explained</span></div><div class="summary-card ${snapshot.summary.unresolved ? 'important' : ''}"><strong>${snapshot.summary.unresolved}</strong><span>unresolved</span></div><div class="summary-card"><strong>${snapshot.summary.replayEvents}</strong><span>replay events</span></div></div></section>` : ''}
     <nav class="tabs" role="tablist" aria-label="Comprehension views">${tabs.map(([id, label]) => `<button id="cmp-tab-${id}" class="${id === tab ? 'active' : ''}" type="button" role="tab" data-message="tab" data-tab="${id}" aria-selected="${id === tab}" aria-controls="cmp-panel-${id}" tabindex="${id === tab ? '0' : '-1'}">${label}</button>`).join('')}</nav>
     <p class="card-foot"><button class="secondary" type="button" data-message="refresh">Refresh exact snapshot</button>${loading ? ' <span role="status">Reading repository…</span>' : ''}</p>
     ${error ? `<section class="warning" role="alert"><strong>Comprehension unavailable</strong><p>${escape(error)}</p></section>` : ''}<div id="cmp-panel-${tab}" role="tabpanel" aria-labelledby="cmp-tab-${tab}" tabindex="0">${content}</div>`;

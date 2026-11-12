@@ -229,7 +229,7 @@ export function sgosWorkflowCreateReview(selection: SgosWorkflowCreateSelection)
     `Workflow: ${selection.id}${selection.title?.trim() ? ` · ${selection.title.trim()}` : ''}`,
     `Operation: ${selection.operation}`,
     `Independent verifier: ${selection.verificationOperation}`,
-    `Storage profile: ${selection.storageProfileSha256}`,
+    'Storage profile: the exact reviewed profile entered on the form',
     `Maximum attempts: ${selection.maximumAttempts}`,
     `Output: ${selection.outputRef}`,
     `Declaration: ${selection.declarationOut}`,

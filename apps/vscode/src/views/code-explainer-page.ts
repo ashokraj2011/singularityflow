@@ -1147,7 +1147,12 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (removed) span.appendChild(el('span', 'del', '−' + removed));
     return span;
   }
-  function short(value) { return value ? String(value).slice(0, 7) : '—'; }
+  // A person reads where the comparison starts, never a commit (owner, 2026-11-11).
+  function refWords(value) {
+    if (!value) return '—';
+    if (String(value) === 'HEAD') return 'your latest commit';
+    return /^[0-9a-f]{7,64}$/i.test(String(value)) ? (model && model.story ? 'the Story base' : 'the recorded base') : String(value);
+  }
   function visibleSymbol(id) {
     const symbol = model && model.byId[id];
     if (!symbol) return false;
@@ -1209,8 +1214,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       context.appendChild(span);
     };
     item('⑂', '', model.repository.branch || model.repository.name);
-    item('◦', 'head', short(model.repository.head));
-    if (model.repository.base) item('◦', 'base', short(model.repository.base));
+    if (model.repository.base) item('◦', 'compared with', refWords(model.repository.base));
     if (model.story) {
       const story = model.story;
       if (story.gates) {
@@ -1266,7 +1270,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       const engine = button('cx-attn cx-engine', 'ⓘ engine: ' + (engines.length ? engines.join(', ') : 'no code files'), function () { toggleBuildInfo(); }, 'How this view was built');
       status.appendChild(engine);
       if (model.intelligence.durationMs !== null) seg('indexed in ' + (model.intelligence.durationMs / 1000).toFixed(1) + ' s');
-      if (model.repository.base) seg('baseline ' + short(model.repository.base));
+      if (model.repository.base) seg('compared with ' + refWords(model.repository.base));
       if (model.attention.length) {
         const pressing = model.attention.filter(function (group) { return group.category === 'blocker' || group.category === 'missing-explanation'; })
           .reduce(function (sum, group) { return sum + group.count; }, 0);
@@ -1307,7 +1311,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       add(entry.language + ': ' + entry.files + ' file' + (entry.files === 1 ? '' : 's') + ', symbols from ' + (entry.symbols === 'language-service' ? 'the language service' : entry.symbols === 'text' ? 'its own text (no language service answered)' : 'nothing (file level only)')
         + ', calls ' + (entry.calls === 'available' ? 'from its call hierarchy' : entry.calls === 'analysis' ? "from Singularity Flow's analysis of the code" : entry.calls));
     });
-    add('Call depth ' + model.intelligence.depth + '. Change: ' + (model.change.status === 'available' ? model.change.files + ' files against ' + short(model.repository.base) : (model.change.reason || model.change.status)) + '.');
+    add('Call depth ' + model.intelligence.depth + '. Change: ' + (model.change.status === 'available' ? model.change.files + ' files against ' + refWords(model.repository.base) : (model.change.reason || model.change.status)) + '.');
     model.intelligence.notes.forEach(add);
     model.intelligence.truncated.forEach(function (text) { add('Bounded: ' + text + '.'); });
     pop.appendChild(list);

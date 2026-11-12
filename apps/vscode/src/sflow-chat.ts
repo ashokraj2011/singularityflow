@@ -122,6 +122,14 @@ async function activeAttachmentSession(
   return { client, editorRoot, workId: session.workId, phaseId: session.phase };
 }
 
+/**
+ * The sets the last status listed, per Story checkout and phase, in the order it numbered them. A person removes a set
+ * by that number; the digest it stands for stays here and in the command (owner, 2026-11-11: never show a hash).
+ */
+const listedAttachmentSets = new Map<string, readonly string[]>();
+const attachmentListKey = (active: { editorRoot: string; workId: string; phaseId: string }) =>
+  `${active.editorRoot}\0${active.workId}\0${active.phaseId}`;
+
 async function statusChatAttachments(
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
@@ -149,15 +157,16 @@ async function statusChatAttachments(
       stream.markdown('No registered feedback attachment sets in this Story phase.\n');
       return;
     }
-    for (const set of sets) stream.markdown(`- ${set.status}: \`${set.attachmentSetSha256}\`\n`);
-    stream.markdown('\nRevoked sets are excluded from future routing; their original evidence remains in the private append-only store. To stage an exclusion, use `@sflow /attachments remove sha256:<exact set digest>`.\n');
+    listedAttachmentSets.set(attachmentListKey(active), sets.map((set) => set.attachmentSetSha256));
+    sets.forEach((set, index) => stream.markdown(`- Set ${index + 1}: ${set.status}\n`));
+    stream.markdown('\nRevoked sets are excluded from future routing; their original evidence remains in the private append-only store. To stage an exclusion, use `@sflow /attachments remove <set number>` with a number from this list.\n');
   } catch {
     stream.markdown('Attachment status could not be verified for the selected Story worktree. Check `/sf-session` and retry. No attachment set was changed.\n');
   }
 }
 
 async function previewChatAttachmentRemoval(
-  attachmentSetSha256: string,
+  target: { attachmentSetSha256: string } | { setNumber: number },
   stream: vscode.ChatResponseStream,
   token: vscode.CancellationToken,
   context: vscode.ExtensionContext,
@@ -167,6 +176,13 @@ async function previewChatAttachmentRemoval(
   try {
     const active = await activeAttachmentSession(context, getCurrentWork);
     if (token.isCancellationRequested) return;
+    const listed = 'setNumber' in target ? listedAttachmentSets.get(attachmentListKey(active))?.[target.setNumber - 1] : null;
+    if ('setNumber' in target && !listed) {
+      stream.markdown(`Set ${target.setNumber} is not on the last attachment list for ${safeMarkdown(active.workId)} / ${safeMarkdown(active.phaseId)}. Run \`@sflow /attachments status\` and use a number from it. No attachment set was changed.\n`);
+      return;
+    }
+    const attachmentSetSha256 = 'setNumber' in target ? listed! : target.attachmentSetSha256;
+    const setLabel = 'setNumber' in target ? `set ${target.setNumber}` : 'the set you named';
     const envelope = await active.client.run<{
       data?: { plan?: unknown; registeredEvidencePreserved?: unknown }
     }>([
@@ -186,13 +202,13 @@ async function previewChatAttachmentRemoval(
       phaseId: active.phaseId,
       phaseGeneration: plan.phaseGeneration,
       attachmentSetSha256,
-      planSha256: plan.planSha256
+      planSha256: plan.planSha256,
+      setLabel
     };
     const handle = removals.issue(pending);
     stream.markdown('### Staged attachment-set exclusion\n\n');
-    stream.markdown(`- Exact set: \`${attachmentSetSha256}\`\n`);
-    stream.markdown(`- Story/phase: ${safeMarkdown(active.workId)} / ${safeMarkdown(active.phaseId)} generation ${plan.phaseGeneration}\n`);
-    stream.markdown(`- Exact removal plan: \`${plan.planSha256}\`\n\n`);
+    stream.markdown(`- Attachment ${setLabel}\n`);
+    stream.markdown(`- Story/phase: ${safeMarkdown(active.workId)} / ${safeMarkdown(active.phaseId)} generation ${plan.phaseGeneration}\n\n`);
     stream.markdown('Nothing was revoked yet. Confirming will exclude this set from future revision routing, but will not delete its registered original evidence. The button opens a separate modal confirmation.\n');
     stream.button({
       command: 'singularityFlow.removeFeedbackAttachmentFromChat',
@@ -200,7 +216,7 @@ async function previewChatAttachmentRemoval(
       arguments: [handle]
     });
   } catch {
-    stream.markdown('The exact attachment set could not be staged for exclusion. Check `@sflow /attachments status`, the selected Story, and the set digest. No attachment set was revoked.\n');
+    stream.markdown('The exact attachment set could not be staged for exclusion. Check `@sflow /attachments status`, the selected Story, and the set number. No attachment set was revoked.\n');
   }
 }
 
@@ -211,11 +227,10 @@ async function removeChatAttachment(
 ): Promise<void> {
   const action = 'Exclude this attachment set';
   const decision = await showCompactWarningMessage(
-    `Exclude exact feedback attachment set ${pending.attachmentSetSha256} from future revision routing?`,
+    `Exclude feedback attachment ${pending.setLabel ?? 'set'} from future revision routing?`,
     {
       modal: true,
       detail: `Story/phase: ${pending.workId}/${pending.phaseId} generation ${pending.phaseGeneration}\n`
-        + `Exact removal plan: ${pending.planSha256}\n`
         + 'This appends a revocation. It does not delete registered original evidence, undo a past use, or start a revision.'
     },
     action
@@ -238,7 +253,7 @@ async function removeChatAttachment(
       throw new Error('The exact revocation could not be verified.');
     }
     await showCompactInformationMessage(
-      `Feedback attachment set ${pending.attachmentSetSha256} is excluded from future routing. Registered original evidence was preserved.`
+      `Feedback attachment ${pending.setLabel ?? 'set'} is excluded from future routing. Registered original evidence was preserved.`
     );
   } catch {
     await showCompactWarningMessage(
@@ -323,10 +338,9 @@ async function previewChatAttachment(
     }
     stream.markdown(`### Staged feedback attachment preview · all ${attachments.length} files selected whole\n\n`);
     attachments.forEach((attachment, index) => {
-      stream.markdown(`- ${index + 1}. ${safeMarkdown(attachment.displayName!)} · ${safeMarkdown(attachment.mediaType!)} · ${attachment.bytes} original bytes · \`${attachment.originalSha256}\`\n`);
+      stream.markdown(`- ${index + 1}. ${safeMarkdown(attachment.displayName!)} · ${safeMarkdown(attachment.mediaType!)} · ${attachment.bytes} original bytes\n`);
     });
-    stream.markdown(`- Story/phase: ${safeMarkdown(preview.workId ?? '')} / ${safeMarkdown(preview.phaseId ?? '')} generation ${preview.phaseGeneration ?? 'unknown'}\n`);
-    stream.markdown(`- Exact preview plan: \`${planId}\`\n\n`);
+    stream.markdown(`- Story/phase: ${safeMarkdown(preview.workId ?? '')} / ${safeMarkdown(preview.phaseId ?? '')} generation ${preview.phaseGeneration ?? 'unknown'}\n\n`);
     const handle = confirmations.issue({
       repositoryRoot: editorRoot,
       workId: session.workId,
@@ -371,8 +385,8 @@ async function registerChatAttachment(
     {
       modal: true,
       detail: `${pending.attachments.map((item, index) =>
-        `${index + 1}. ${item.displayName} · ${item.mediaType} · ${item.bytes} bytes · ${item.originalSha256}`
-      ).join('\n')}\nPlan: ${pending.planSha256}\n`
+        `${index + 1}. ${item.displayName} · ${item.mediaType} · ${item.bytes} bytes`
+      ).join('\n')}\n`
         + 'Registration does not start a revision, approve intent, publish a phase, or send content to a model.'
     },
     action
@@ -424,7 +438,7 @@ async function registerChatAttachment(
       throw new Error('Attachment registration did not return the exact selected receipt.');
     }
     await showCompactInformationMessage(
-      `All ${pending.attachments.length} feedback files were registered as private evidence: ${attachmentSetSha256}. No revision was started.`
+      `All ${pending.attachments.length} feedback files were registered as private evidence, as one attachment set. No revision was started.`
     );
   } catch {
     await showCompactWarningMessage(
@@ -633,7 +647,7 @@ async function handleChatRevision(
   }
   if (action.kind === 'prepare') {
     if (referenceCount > 0) {
-      stream.markdown('### Register feedback documents first\n\n`@sflow /revise` does not silently convert chat references into evidence. Use `@sflow /attachments` with genuine local file references, confirm the returned attachment set, then invoke `/sf-revise` with that exact set digest. Opaque uploads remain unavailable because their original bytes cannot be verified. Nothing was executed.\n');
+      stream.markdown('### Register feedback documents first\n\n`@sflow /revise` does not silently convert chat references into evidence. Use `@sflow /attachments` with genuine local file references, confirm the returned attachment set, then invoke `/sf-revise` for that registered set. Opaque uploads remain unavailable because their original bytes cannot be verified. Nothing was executed.\n');
       stream.button({
         command: 'workbench.action.chat.open', title: 'Prepare @sflow /attachments',
         arguments: [{ query: '@sflow /attachments ', isPartialQuery: true }]
@@ -1092,7 +1106,7 @@ function renderParticipantResult(
     const report = jsonObject(envelope.data) ?? envelope;
     const discovery = jsonObject(report.discovery) ?? {};
     let markdown = `### Repository commit policy · ${markdownValue(report.mode)}\n\n`;
-    markdown += `Validation: ${markdownValue(report.compliance)}\n\nPolicy: ${markdownValue(report.policySha256 ?? 'not adopted')}\n\n`;
+    markdown += `Validation: ${markdownValue(report.compliance)}\n\nPolicy: ${report.policySha256 ? 'adopted' : 'not adopted'}\n\n`;
     for (const hook of jsonArray(discovery.hooks).map(jsonObject).filter((item): item is JsonObject => Boolean(item))) {
       if (hook.status !== 'missing') markdown += `- ${markdownValue(hook.stage)} · ${markdownValue(hook.classification)} · ${markdownValue(hook.execution)}\n`;
     }
@@ -1409,9 +1423,10 @@ export function registerSflowChat(
       const action = chatAttachmentAction(effectivePrompt, request.references?.length ?? 0);
       if (action.kind === 'status') {
         await statusChatAttachments(stream, token, context, getCurrentWork);
-      } else if (action.kind === 'remove') {
+      } else if (action.kind === 'remove' || action.kind === 'remove-listed') {
         await previewChatAttachmentRemoval(
-          action.attachmentSetSha256, stream, token, context, getCurrentWork, removals
+          action.kind === 'remove' ? { attachmentSetSha256: action.attachmentSetSha256 } : { setNumber: action.setNumber },
+          stream, token, context, getCurrentWork, removals
         );
       } else if (action.kind === 'unavailable') {
         stream.markdown(`${action.reason} No attachment set was changed.\n`);

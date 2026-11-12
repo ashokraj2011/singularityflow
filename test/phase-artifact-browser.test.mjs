@@ -93,7 +93,8 @@ test('Markdown preview preserves Markdown bodies, safely fences non-Markdown, an
     record: { label: 'Specification', path: 'spec.md', kind: 'specification' } };
   const markdown = artifactPreviewMarkdown(preview);
   assert.match(markdown, /Approved · read-only published version/);
-  assert.match(markdown, /Publication commit:/);
+  assert.match(markdown, /Published as committed with this generation\./);
+  assert.ok(!markdown.includes(preview.commit) && !markdown.includes(preview.sha256), 'a person reads the step and generation, never the commit or digest');
   assert.ok(markdown.endsWith(preview.content));
   const json = artifactPreviewMarkdown({ ...preview, record: { ...preview.record, path: 'checks.json' }, content: '```\n<script>bad</script>' });
   assert.match(json, /````\n```\n<script>bad<\/script>\n````/);

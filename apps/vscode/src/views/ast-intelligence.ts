@@ -12,7 +12,7 @@ import {
   type AstPolicyPreset, type AstRepositoryScopeView, type AstStoryStartWarmMode,
   type AstStoryStartWarmScope, type AstWorkspaceRepositoryInventory
 } from './ast-intelligence-model.ts';
-import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page, reviewBranchName } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { enumField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
@@ -345,7 +345,7 @@ function semanticWarmSection(doctor: AstDoctorResult | null, preview: AstWarmPre
       <p>${preview.ready ? 'Ready after exact confirmation.' : `Unavailable: ${escape((preview.unavailable ?? []).join(', ') || 'required toolchain inputs')}`}</p>
       <ul>${(preview.commands ?? []).map((command) => `<li><code>${escape([command.executable, ...(command.arguments ?? [])].filter(Boolean).join(' '))}</code> · cwd <code>${escape(command.cwd ?? '.')}</code></li>`).join('')}</ul>
       <p>Network: ${escape(preview.effects?.network ?? 'not declared')} · repository writes: ${preview.effects?.repositoryWrites ? 'yes' : 'no'} · repository configuration execution: ${preview.effects?.executesRepositoryConfiguration ? 'yes' : 'no'}</p>
-      ${preview.ready ? `<form id="ast-warm-confirm"><input name="confirmation" required autocomplete="off" placeholder="${escape(preview.confirmation ?? '')}"><button class="secondary" type="submit">Warm semantic binding</button></form>` : ''}</div>` : ''}
+      ${preview.ready ? `<form id="ast-warm-confirm"><input type="hidden" name="confirmation" value="${escape(preview.confirmation ?? '')}"><label><input type="checkbox" name="reviewed" required> I reviewed these commands and effects</label><button class="secondary" type="submit">Warm semantic binding</button></form>` : ''}</div>` : ''}
   </section>`;
 }
 
@@ -591,7 +591,7 @@ export class AstIntelligencePanel {
       const output = await this.client.runText(args, { input: updateAstPolicyYaml(source, draft) });
       const disposition = configurationSaveDisposition(output, plan.proposal);
       if (disposition.kind === 'proposal') {
-        this.notice = `Repository AST policy proposal ${disposition.branch} is ready for review. Merge it into ${disposition.baseBranch}, then refresh workspace configuration. The application checkout was not changed.`;
+        this.notice = `Repository AST policy proposal ${reviewBranchName(disposition.branch)} is ready for review. Merge it into ${disposition.baseBranch}, then refresh workspace configuration. The application checkout was not changed.`;
       } else if (disposition.kind === 'local') {
         this.notice = `Repository AST policy saved locally for ${this.repositoryScope()?.repository ?? 'the selected repository'}. Review and publish the configuration when ready.`;
       } else this.notice = 'The approved repository AST policy already contains this change; no proposal was required.';
@@ -649,7 +649,7 @@ export class AstIntelligencePanel {
         'wm', 'ast', 'warm', '--semantic', '--provider', provider, '--project', project,
         '--profile', profile, '--dry-run', '--json'
       ]));
-      this.notice = 'Semantic warm-up preview is ready. Review every effect and type the exact confirmation.';
+      this.notice = 'Semantic warm-up preview is ready. Review every effect, then confirm it.';
       this.error = null; this.render();
     } catch (error) { this.warmPreview = null; this.error = (error as Error).message; this.render(); }
   }

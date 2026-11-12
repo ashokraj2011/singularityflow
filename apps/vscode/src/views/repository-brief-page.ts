@@ -122,12 +122,12 @@ function downloaded(read: BriefRead): string {
 /** Says when the brief read another branch than the checked-out one, or found no code at all. */
 function readNotice(brief: RepositoryBrief): string {
   const read = brief.source;
-  const at = `<code>${escape(String(brief.commit).slice(0, 12))}</code>`;
+  // A person reads the branch, never the commit the brief read (owner, 2026-11-11).
   if (read?.chosen === 'has-code') {
-    return `<p class="callout" role="status">The checked-out branch${read.checkedOut ? ` <strong>${escape(read.checkedOut)}</strong>` : ''} has no code, so this brief reads <strong>${escape(read.ref)}</strong> at ${at} straight from Git.${downloaded(read)} Nothing was checked out. Pick another branch above to read that one.</p>`;
+    return `<p class="callout" role="status">The checked-out branch${read.checkedOut ? ` <strong>${escape(read.checkedOut)}</strong>` : ''} has no code, so this brief reads the latest commit of <strong>${escape(read.ref)}</strong> straight from Git.${downloaded(read)} Nothing was checked out. Pick another branch above to read that one.</p>`;
   }
   if (brief.evidence.codeFiles === 0) {
-    return `<p class="warning" role="status">No code at ${brief.branch ? `<strong>${escape(brief.branch)}</strong> ` : ''}${at}${read?.chosen === 'requested' ? '. Pick a branch that has code above.' : ', and no other branch here has code. Fetch the branch that holds the code, then press Refresh.'}</p>`;
+    return `<p class="warning" role="status">No code ${brief.branch ? `on <strong>${escape(brief.branch)}</strong>` : 'in the commit read'}${read?.chosen === 'requested' ? '. Pick a branch that has code above.' : ', and no other branch here has code. Fetch the branch that holds the code, then press Refresh.'}</p>`;
   }
   return '';
 }
@@ -141,7 +141,7 @@ export function repositoryBriefBody(brief: RepositoryBrief | null, state: BriefP
   const error = state.error ? `<p class="warning" role="alert">${escape(state.error)}</p>` : '';
   const header = `<header class="brief-header">
     <div><h1>Repository Brief</h1>
-      ${brief ? `<p class="meta">${escape(brief.repository)}${brief.branch ? ` · ${escape(brief.branch)}` : ''} at <code>${escape(String(brief.commit).slice(0, 12))}</code> · ${brief.evidence.count} pieces of evidence · ${brief.evidence.documents.length} document${brief.evidence.documents.length === 1 ? '' : 's'}</p>` : ''}
+      ${brief ? `<p class="meta">${escape(brief.repository)}${brief.branch ? ` · ${escape(brief.branch)}` : ''} · ${brief.evidence.count} pieces of evidence · ${brief.evidence.documents.length} document${brief.evidence.documents.length === 1 ? '' : 's'}</p>` : ''}
     </div>
     <div class="brief-actions">
       ${branchPicker(brief, state)}

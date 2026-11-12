@@ -181,6 +181,9 @@ function performanceViews(): PerformanceViewRuntime {
 }
 // Repository runtimes can be bound more than once per activation; Copilot Chat counting starts once.
 let copilotChatCountingStarted = false;
+/** A generated review branch as a person reads it: without the hex suffix that keeps it unique in Git (owner, 2026-11-11). */
+const personBranch = (branch: string): string => branch.replace(/(?:[-/][0-9a-f]{8,64})+$/iu, '');
+
 function lazyPanels(): LazyPanelsRuntime {
   if (lazyPanelsRuntime) return lazyPanelsRuntime;
   const started = performance.now();
@@ -2176,12 +2179,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ? 'The checkout already uses this exact reviewed configuration authority.'
             : 'The reviewed authority pin is ready for Story start reuse.',
           repository,
-          [
-            `Operation: ${result.operationId}`,
-            result.descriptor?.authority?.branch && result.descriptor?.authority?.commit
-              ? `Authority: ${result.descriptor.authority.branch}@${result.descriptor.authority.commit}` : null,
-            result.descriptor?.descriptorSha256 ? `Pin: ${result.descriptor.descriptorSha256}` : null
-          ]
+          // A person reads the authority by its branch; the operation, its commit and the pin's digest stay in the log (owner, 2026-11-11).
+          [result.descriptor?.authority?.branch ? `Authority: ${result.descriptor.authority.branch}` : null]
         );
       } catch (error) {
         showRefusal(error, { headline: 'Fast repository onboarding did not complete' });
@@ -2214,8 +2213,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void showCompactInformationMessage(`Authority pin ${result.status}.`);
         return fosOutcome(
           'refresh-authority', 'completed', 'Authority pin refreshed',
-          `The previously selected authority route reported ${result.status}.`, repository,
-          [`Operation: ${result.operationId}`]
+          `The previously selected authority route reported ${result.status}.`, repository
         );
       } catch (error) {
         showRefusal(error, { headline: 'Authority refresh did not complete' });
@@ -2256,11 +2254,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           'local-authority', 'completed', 'Local-only authority created',
           'The unmanaged checkout now has a local authority; this does not claim organization approval.',
           repository,
-          [
-            result.bootstrap?.operationId ? `Operation: ${result.bootstrap.operationId}` : null,
-            `Scope: ${result.bootstrap?.scope ?? 'local-only'}`,
-            result.bootstrap?.authorityCommit ? `Authority commit: ${result.bootstrap.authorityCommit}` : null
-          ]
+          [`Scope: ${result.bootstrap?.scope ?? 'local-only'}`]
         );
       } catch (error) {
         showRefusal(error, { headline: 'Local-only authority creation did not complete' });
@@ -4632,7 +4626,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ? [`required repositories must be prepared first: ${plan.missingRequiredRepositories.join(', ')}`] : [])
       ];
       const detail = [
-        `Source: ${plan.sourceRef} @ ${plan.sourceCommit.slice(0, 12)}`,
+        `Source: ${plan.sourceRef}`,
         `New/current local branch: ${plan.destinationBranch}`,
         `Configured remote: ${plan.configuredRemote}`,
         `Freshness: ${plan.freshness}`,
@@ -4785,8 +4779,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         `Proof: ${proposal.proof.profile} · ${proposal.proof.readiness}`,
         ...proposal.proof.gaps.map((gap) => `Gap: ${gap.statement} (blocks at ${gap.blockingAt})`),
         `Will create ${proposal.writeSet.length} declared SFlow file(s).`,
-        'Will not run project commands, call a model, install dependencies, access the network, or stage unrelated work.',
-        `Proposal: ${proposal.proposalSha256}`
+        'Will not run project commands, call a model, install dependencies, access the network, or stage unrelated work.'
       ].join('\n');
       const reviewed = await showCompactInformationMessage(
         'Review the exact smart-initialization proposal.', { modal: true, detail }, 'Continue to exact confirmation'
@@ -4802,15 +4795,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (acceptedGap !== 'Accept disclosed gap') return;
         acceptsUnavailableVerification = true;
       }
-      const confirmation = await vscode.window.showInputBox({
-        title: 'Confirm smart initialization',
-        prompt: `Paste the exact proposal digest: ${proposal.proposalSha256}`,
-        placeHolder: proposal.proposalSha256,
-        ignoreFocusOut: true,
-        validateInput: (value) => value === proposal.proposalSha256 ? null : 'The digest must match the reviewed proposal exactly.'
-      });
-      if (confirmation !== proposal.proposalSha256) return;
-      const activationArgs = ['init', '--smart-detect', '--confirm', confirmation, '--json'];
+      // The person confirms what they reviewed; the command binds that proposal's digest, which they never copy (owner, 2026-11-11).
+      const initialize = 'Initialize this repository';
+      const confirmed = await showCompactWarningMessage(
+        `Initialize ${path.basename(target.uri.fsPath)} with the smart-initialization proposal you reviewed?`,
+        { modal: true, detail: `Creates ${proposal.writeSet.length} declared SFlow file(s) and commits them. If the repository changed since the review, the proposal is refused and nothing is written.` },
+        initialize
+      );
+      if (confirmed !== initialize) return;
+      const activationArgs = ['init', '--smart-detect', '--confirm', proposal.proposalSha256, '--json'];
       const selectedProtections = proposal.suggestions.filter((item) => item.selected).map((item) => item.id);
       for (const id of selectedProtections) activationArgs.push('--protect', id);
       if (acceptsUnavailableVerification) activationArgs.push('--allow-unavailable-verification');
@@ -4820,7 +4813,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const precheck = await client.run<{ data?: { precheck?: { status?: string } } }>(['precheck', '--quick', '--json']);
       const reload = await showCompactInformationMessage(
-        `Smart initialization committed at ${activated.activationCommit.slice(0, 12)}. Quick precheck: ${precheck.data?.precheck?.status ?? 'unavailable'}.`,
+        `Smart initialization committed. Quick precheck: ${precheck.data?.precheck?.status ?? 'unavailable'}.`,
         'Reload'
       );
       if (reload === 'Reload') await vscode.commands.executeCommand('workbench.action.reloadWindow');
@@ -4892,7 +4885,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             + ((plan.customAgentRecoveries ?? []).length
               ? 'Invalid custom agents will be removed from active discovery and preserved byte-for-byte:\n'
                 + `${plan.customAgentRecoveries!.map((entry) => `${entry.sourceDisplay} → ${entry.recoveryDisplay} `
-                  + `(${entry.sha256}, ${entry.bytes} bytes)\nReason: ${entry.reason}`).join('\n')}\n\n`
+                  + `(${entry.bytes} bytes)\nReason: ${entry.reason}`).join('\n')}\n\n`
               : '')
             + (discarded.length
               ? `Will be permanently discarded:\n${discarded.join('\n')}\n\n`
@@ -5153,10 +5146,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         '# Reference preview', '',
         `- Handle: \`${result.handle}\``,
         `- Artifact: \`${result.reference.artifact.path}\``,
-        `- Revision: \`${result.reference.revision.commitSha}\``,
         `- MIME: \`${result.mediaType}\``,
-        `- Source: \`${result.source.rawSha256}\` (${result.source.rawBytes} bytes)`,
-        `- Preview: \`${result.preview.sha256}\` (${result.preview.bytes} bytes; ${result.renderer.id}@${result.renderer.version})`,
+        `- Source: ${result.source.rawBytes} bytes`,
+        `- Preview: ${result.preview.bytes} bytes (${result.renderer.id}@${result.renderer.version})`,
         `- Truncated: ${result.truncated ? 'yes' : 'no'}`, '',
         '---', '', result.preview.text, ''
       ].join('\n');
@@ -6842,7 +6834,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ]);
           await refreshAfterKnownMutation();
           const preserved = result.stashSha
-            ? ` Changes were preserved at stash commit ${result.stashSha.slice(0, 12)}.` : '';
+            ? ' Your uncommitted changes were preserved in a Git stash.' : '';
           void showCompactInformationMessage(
             `Cancelled Story ${cancelled.workItem.id} remains archived. Returned to ${result.baseBranch}.${preserved}`
             + (result.sessionWarning ? ` ${result.sessionWarning}` : '')
@@ -7740,7 +7732,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           `${explanation.capability?.label ?? 'This repository'} owns the current path. `
           + `Approval uses the ${explanation.approvalProfile ?? 'team'} profile`
           + `${explanation.selfApprovalAllowed ? ' and self-approval is allowed.' : '.'}`,
-          { modal: true, detail: `Deterministic explanation: ${explanation.explanationSha256 ?? 'unavailable'}` }
+          { modal: true, detail: explanation.explanationSha256 ? 'This explanation is computed from the approved configuration, not a model.' : 'The deterministic explanation is unavailable.' }
         );
       } catch (error) {
         panel.report((error as Error).message);
@@ -8015,7 +8007,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (disposition.kind === 'proposal') {
             const review = 'Review proposals';
             const selected = await showCompactInformationMessage(
-              `Configuration proposal ${disposition.branch} was created from the approved authority. `
+              `Configuration proposal ${personBranch(disposition.branch)} was created from the approved authority. `
               + `Merge it into ${disposition.baseBranch}, then refresh workspace configuration. `
               + 'The application checkout was not changed.',
               review, 'Later'
@@ -8103,14 +8095,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }>(args);
         if (result.changed && !result.pushed) {
           const next = commandGuidanceText(result.nextAction);
-          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : `Retry it from Workflow Studio → Changes, or run: singularity-flow sync ${result.transportIntent ?? '<INTENT-ID>'}`}`;
+          return `The configuration commit is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : `Retry it from Workflow Studio → Changes, or run: singularity-flow sync ${result.transportIntent ?? '<INTENT-ID>'}`}`;
         }
         await refreshAfterKnownMutation();
         if (!result.changed) {
           void showCompactInformationMessage('Your current Git identity already belongs to the selected approval groups.');
         } else {
           void showCompactInformationMessage(
-            `People & approvals updated on sflow/config (${result.commit.slice(0, 8)}). Future Stories will use it.`
+            'People & approvals updated on sflow/config. Future Stories will use it.'
           );
         }
         return null;
@@ -8365,7 +8357,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     run: argv => client.run(argv),
     confirm: async preview => {
       output.appendLine(JSON.stringify(preview, null, 2));
-      const detail = preview.candidates.map(item => `${item.branch}@${item.commit} → ${item.archiveRef}`).join('\n');
+      // History branches are named by their commits; a person reads how many, never which hash (owner, 2026-11-11).
+      const detail = `${preview.candidates.length} old configuration snapshot${preview.candidates.length === 1 ? '' : 's'} will each be kept as an archive tag `
+        + 'before its branch is removed. The latest 10 and the current configuration remain. Activity & logs lists every one.';
       return await showCompactWarningMessage(
         `Archive ${preview.candidates.length} old configuration history branches?`,
         { modal: true, compactDetail: 'The latest 10 and current configuration remain. Exact commits are preserved as tags. Application code, Stories and approvals are unchanged.',
@@ -8394,7 +8388,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
-      return { activated: true, message: `Activated on ${activation.targetBranch ?? 'sflow/config'} at ${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}.` };
+      return { activated: true, message: `Activated on ${activation.targetBranch ?? 'sflow/config'}.` };
     } catch (error) {
       output.appendLine(`  refused: ${(error as Error).message}`);
       return { activated: false, message: (error as Error).message };
@@ -8403,10 +8397,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
     try {
       const inspected = await client.run<{
-        branch: string; proposalCommit: string; targetBranch: string; diff: string;
+        branch: string; proposalCommit: string; proposalCreatedAt?: string | null; targetBranch: string; diff: string;
         valid: boolean; merged?: boolean; workflows?: Array<{ id: string; change: string }>;
       }>(['workflow', 'proposal', branch, '--json']);
-      await showReviewDocument(`${inspected.branch}.diff`, inspected.diff || 'No textual diff.');
+      // A person reads the proposal by its branch and when it was made, never its commit; activation binds the exact commit (owner, 2026-11-11).
+      const shown = personBranch(inspected.branch);
+      await showReviewDocument(`${shown}.diff`,
+        (inspected.diff || 'No textual diff.').replace(/^index [0-9a-f]{7,64}\.\.[0-9a-f]{7,64}(?: [0-7]{6})?\r?\n/gmu, ''));
       if (!inspected.valid) {
         const message = 'The workflow proposal contains invalid or out-of-scope configuration changes.';
         showRefusal(message, { headline: 'Workflow proposal cannot be activated' });
@@ -8414,7 +8411,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const merge = 'Merge exact proposal';
       const confirmed = await showCompactWarningMessage(
-        `Merge ${inspected.branch}@${inspected.proposalCommit.slice(0, 12)} into ${inspected.targetBranch}?`,
+        `Merge ${shown}${inspected.proposalCreatedAt ? `, made ${inspected.proposalCreatedAt.slice(0, 16).replace('T', ' ')} UTC,` : ''} into ${inspected.targetBranch}?`,
         {
           modal: true,
           detail: 'Review the open diff. A second acknowledgement authorizes one exact leased update. Server policy still applies. Application branches remain unchanged.'
@@ -8441,7 +8438,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const message = activation.failure?.message
           ?? `Workflow activation is ${activation.status ?? 'waiting for repository review'}.`;
         const details = [message, lazyPanels().configurationGitFailureText(activation.failure),
-          `Preserved proposal: ${inspected.branch}@${inspected.proposalCommit}`,
+          `Preserved proposal: ${shown}`,
           activation.recoveryCommand, activation.nextAction].filter(Boolean).join('\n\n');
         output.appendLine(details);
         await showReviewDocument('Workflow activation Git error.txt', details);
@@ -8451,8 +8448,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
       void showCompactInformationMessage(
-        `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'} at `
-        + `${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}. `
+        `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'}. `
         + 'It is now available to new Stories; refresh workspace configuration to project it to other repositories.'
       );
       return null;
@@ -8493,7 +8489,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const review = 'Review and activate';
           const openChanges = 'Open Changes';
           const choice = await showCompactInformationMessage(
-            `Workflow proposal ${branch} was uploaded and is waiting for review in Workflow Studio → Changes.`,
+            `Workflow proposal ${personBranch(branch)} was uploaded and is waiting for review in Workflow Studio → Changes.`,
             review, openChanges
           );
           if (choice === review) await reviewAndActivateWorkflowProposal(branch);
@@ -8506,13 +8502,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const { WorkflowStudioPanel } = lazyPanels();
           await WorkflowStudioPanel.refreshProposals();
           await showReviewDocument('Workflow upload Git error.txt', [
-            `Unconfirmed upload: ${branch}`,
+            `Unconfirmed upload: ${personBranch(branch)}`,
             intent.fault?.advice, lazyPanels().configurationGitFailureText(intent.fault),
             `Inspect: singularity-flow push status ${intentId} --json`,
             `Retry after repair: singularity-flow sync ${intentId} --json`
           ].filter(Boolean).join('\n\n'));
           const choice = await showCompactWarningMessage(
-            `Proposal ${branch} is saved locally. Git details opened; repair the error, then retry in Changes.`,
+            `Proposal ${personBranch(branch)} is saved locally. Git details opened; repair the error, then retry in Changes.`,
             'Open Changes'
           );
           if (choice === 'Open Changes') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
@@ -8551,7 +8547,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const review = 'Review and activate';
         const selected = await showCompactInformationMessage(
-          `Workflow proposal ${proposal.branch} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
+          `Workflow proposal ${personBranch(proposal.branch)} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
           + `It remains visible as Pending review until it is merged into ${proposal.baseBranch ?? 'sflow/config'}. `
           + 'The active Story was not changed.',
           review, 'Later'
@@ -8759,18 +8755,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return;
         }
         if (result.viewRefresh === 'attention') {
-          void showCompactWarningMessage(`Configuration sync confirmed at ${result.targetCommit.slice(0, 12)}, but the display refresh failed. `
+          void showCompactWarningMessage('Configuration sync confirmed, but the display refresh failed. '
             + 'Reopen Workflow Studio or click Recreate & sync again. Do not activate a cached older proposal.');
           return;
         }
         if (result.referenceSync?.status === 'attention') {
-          void showCompactWarningMessage(`Configuration synced at ${result.targetCommit.slice(0, 12)}, but local references need attention. `
+          void showCompactWarningMessage('Configuration synced, but local references need attention. '
             + 'Details are in Activity & logs. Click Recreate & sync again to retry reference sync; no new merge is needed.');
           return;
         }
         void showCompactInformationMessage(result.status === 'current'
           ? 'Configuration is current; no pending proposals. Application code and Stories unchanged.'
-          : `Configuration recreated and synced at ${result.targetCommit.slice(0, 12)}. `
+          : 'Configuration recreated and synced. '
             + `${result.proposals.length} proposals archived. Application code and Stories unchanged.`);
       });
     },
@@ -9561,7 +9557,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           {
             modal: true,
             detail: [
-              `Checkpoint: ${plan.checkpointId} at ${plan.sourceCommit}`,
+              `Checkpoint: ${plan.checkpointId}`,
               `The current Git history is preserved. A local backup is created before ${plan.paths.length} path(s) are restored.`,
               'You confirmed that you reviewed the complete preview document.'
             ].join('\n')
@@ -9578,7 +9574,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ]);
         await refreshAfterKnownMutation();
         void showCompactInformationMessage(
-          `${plan.workId} returned to ${result.phase ?? 'its closed state'} in ${result.commit.slice(0, 8)}. `
+          `${plan.workId} returned to ${result.phase ?? 'its closed state'} in a new commit. `
           + `${result.restoredPaths.length} path(s) were backed up locally and restored.`
         );
       } catch (error) {
@@ -9760,7 +9756,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const disposition = configurationSaveDisposition(text, message.proposal);
         if (disposition.kind === 'proposal') {
           void showCompactInformationMessage(
-            `Instruction proposal ${disposition.branch} is ready for review. Merge it into `
+            `Instruction proposal ${personBranch(disposition.branch)} is ready for review. Merge it into `
             + `${disposition.baseBranch}, then refresh workspace configuration. `
             + 'The application checkout was not changed.'
           );
@@ -9820,7 +9816,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await refreshAfterKnownMutation();
         const destination = published.pushed ? `${published.remote ?? 'remote'}/${branchName}` : 'the local repository';
         void showCompactInformationMessage(
-          `Configuration published to ${destination}${published.sha ? ` at ${published.sha.slice(0, 8)}` : ''}.`
+          `Configuration published to ${destination}.`
         );
       } catch (error) {
         output.appendLine(`  refused: ${(error as Error).message}`);

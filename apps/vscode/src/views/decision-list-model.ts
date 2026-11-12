@@ -523,7 +523,8 @@ export async function runWitnessReview(target: WitnessReviewTarget, host: Witnes
   if (!reason) return { status: 'cancelled', message: 'No witness was recorded.' };
   if (reason.length < 10 || reason.length > 1000) throw new Error('Describe what you inspected in 10 to 1000 characters.');
   const detail = [`Story: ${target.workId}`, `Criterion: ${review.clauseId}`, ...(review.clauseText ? [`Approved criterion: ${review.clauseText}`] : []), `Slot: ${review.slot} (${review.method})`,
-    `File: ${file}`, `File SHA-256: ${digest}`, `Candidate binding: ${review.contextBinding}`,
+    // The witness binds the file's exact bytes and this candidate; a person reads the file, never the digests (owner, 2026-11-11).
+    `File: ${file} (its exact bytes as read now)`,
     ...answers.map(([id, answer]) => `${id}: ${answer ? 'yes' : 'no'}`), `Your reason: ${reason}`].join('\n');
   if (!await host.confirm(detail)) return { status: 'cancelled', message: 'No witness was recorded.' };
   const fresh = await host.read();

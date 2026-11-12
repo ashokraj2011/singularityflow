@@ -107,7 +107,7 @@ test('the panel reads apm status as the engine writes it: packages, bindings tha
 
   const html = apmPackagesHtml(view, null);
   assert.match(html, /Every deployed file matches apm\.lock\.yaml and is committed\./u);
-  assert.match(html, /<strong>reviewer@team-catalog<\/strong> <span class="meta">1\.0\.1 @ aaaaaaaaaaaa<\/span>/u);
+  assert.match(html, /<strong>reviewer@team-catalog<\/strong> <span class="meta">1\.0\.1<\/span>/u, 'a package reads by its version, never its commit');
   assert.match(html, /<strong>reviewer<\/strong> drafts verification\./u);
   assert.match(html, /<strong>ghost<\/strong> would draft design, but APM did not deploy \.github\/agents\/ghost\.agent\.md\.\s*<p class="meta">Until then each step keeps its workflow's own agent; nothing is blocked\./u);
   assert.match(html, /Agents SFlow cannot use[\s\S]*planner[\s\S]*requires a non-empty description/u);

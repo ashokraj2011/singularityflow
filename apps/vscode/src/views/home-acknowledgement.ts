@@ -125,10 +125,6 @@ export function acknowledgementKey(workspaceId: string | null, actorId: string |
   return `sflow.home.ack.${workspaceId ?? 'unknown'}.${actorId ?? 'unknown'}`;
 }
 
-function shortCommit(commit: string | null): string {
-  return commit ? commit.slice(0, 12) : 'unknown';
-}
-
 /**
  * What moved between two homes.
  *
@@ -141,7 +137,8 @@ function changesBetween(before: HomeAcknowledgement, after: ReturnType<typeof fa
   const changes: string[] = [];
 
   if (before.sourceCommit && after.sourceCommit && before.sourceCommit !== after.sourceCommit) {
-    changes.push(`the repository moved from ${shortCommit(before.sourceCommit)} to ${shortCommit(after.sourceCommit)}`);
+    // A person reads that it moved, never the commits (owner, 2026-11-11).
+    changes.push('the repository moved to another commit');
   }
 
   if (before.activeWorkId !== after.activeWorkId) {

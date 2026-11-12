@@ -13,7 +13,7 @@ import { showCompactWarningMessage, showCompactInformationMessage } from "../com
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import { formatCliArgsForDisplay } from '../cli/runner.ts';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page, reviewBranchName } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { createTerminalIn } from '../terminal-start.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
@@ -359,14 +359,14 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     let text: string;
     try {
       const result = await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification, title: `Uploading ${upload.branch}`, cancellable: false
+        location: vscode.ProgressLocation.Notification, title: `Uploading ${reviewBranchName(upload.branch)}`, cancellable: false
       }, () => this.client.run<unknown>(command));
       const intent = localProposalUploads({ data: { intents: [(result as { data?: { intent?: unknown } })?.data?.intent] } })[0];
       text = !intent
-        ? `${upload.branch} was uploaded and is waiting for review below.`
-        : `${upload.branch} is still not uploaded (${intent.status}). ${intent.advice ?? ''}`.trim();
+        ? `${reviewBranchName(upload.branch)} was uploaded and is waiting for review below.`
+        : `${reviewBranchName(upload.branch)} is still not uploaded (${intent.status}). ${intent.advice ?? ''}`.trim();
     } catch (error) {
-      text = `${upload.branch} could not be uploaded: ${(error as Error).message}`;
+      text = `${reviewBranchName(upload.branch)} could not be uploaded: ${(error as Error).message}`;
     }
     this.post({ type: 'studio.uploadRetried', intentId: upload.intentId, message: text });
     await this.proposals();

@@ -239,7 +239,7 @@ export function workflowDeleteHtml(view: DeleteReviewView): string {
     ${plan.trimmed.length ? section('trimmed', `${icon('agent')}Agents that lose steps`, `<p class="muted">Each is used elsewhere, so it stays and only the removed steps go.</p><ul class="wd-list">${trimmed}</ul>`) : ''}
     ${plan.cleanups.length ? section('cleanups', `${icon('configuration')}References cleaned`, `<ul class="wd-list">${cleaned}</ul>`) : ''}
     ${section('backup', `${icon('archive')}Backup`, `<p>Before anything changes, a complete export bundle of this workflow is saved on this computer. Its path, and the command that restores it, are shown here afterwards.</p>`)}
-    ${section('digest', `${icon('policy')}Exact plan`, `<p>Proposing confirms this digest. If the configuration changes first, the page previews again.</p><p><code class="wd-path" data-wd-digest>${escape(plan.planSha256)}</code></p>
+    ${section('digest', `${icon('policy')}Exact plan`, `<p>Proposing confirms exactly this plan. If the configuration changes first, the page previews again.</p>
       <p class="muted">${plan.proposes ? 'Creates a review proposal against the approved configuration.' : 'This repository has no approved configuration authority, so the change is written to its files for you to review and commit.'}</p>`)}
     <div class="wd-actions"><button type="button" data-wd-action="confirm" data-wd-sha="${escape(plan.planSha256)}"${view.busy || blocked ? ' disabled' : ''}>Propose deletion</button>
       <button type="button" class="secondary" data-wd-action="preview"${view.busy ? ' disabled' : ''}>Preview again</button>${close}</div>

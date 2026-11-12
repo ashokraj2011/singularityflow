@@ -19,7 +19,8 @@ function primitiveWords(entry: ApmPackage): string {
 }
 
 function packageHtml(entry: ApmPackage): string {
-  const at = [entry.version, entry.commit ? `@ ${entry.commit.slice(0, 12)}` : null].filter(Boolean).join(' ');
+  // A person reads a package by its version, never the commit it is pinned to (owner, 2026-11-11).
+  const at = entry.version ?? (entry.commit ? 'pinned to a commit' : '');
   const changed = entry.files.modified + entry.files.missing;
   return `<li><strong>${escape(entry.label)}</strong>${at ? ` <span class="meta">${escape(at)}</span>` : ''}${entry.depth > 1 ? ' <span class="meta">(needed by another package)</span>' : ''}
     <p>${escape(primitiveWords(entry) || 'no agents, skills, instructions or prompts')} · ${entry.files.total} file${entry.files.total === 1 ? '' : 's'}${changed

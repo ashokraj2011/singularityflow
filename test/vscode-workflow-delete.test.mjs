@@ -89,7 +89,8 @@ test('the review page shows what goes, what stays and why, the Stories, the back
   assert.match(html, /Its entry in the archived-workflow list is removed/u);
   assert.match(html, /data-wd-pinned[\s\S]*PIN-1/u, 'pinned Stories keep running and are listed');
   assert.match(html, /data-wd-section="backup"[\s\S]*complete export bundle/u);
-  assert.match(html, new RegExp(`data-wd-digest>${SHA}<`, 'u'));
+  assert.match(html, /Proposing confirms exactly this plan\./u);
+  assert.doesNotMatch(html.replace(/data-wd-[a-z]+="[^"]*"/gu, ''), new RegExp(SHA, 'u'), 'the plan binds its digest in the page data, never in text');
   assert.match(html, /written to its files for you to review and commit/u);
   assert.equal((html.match(/data-wd-action="confirm"/gu) ?? []).length, 1);
   assert.match(html, /data-wd-action="confirm" data-wd-sha="sha256:a+">Propose deletion</u, 'enabled');

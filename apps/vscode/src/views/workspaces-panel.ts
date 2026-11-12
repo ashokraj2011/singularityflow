@@ -700,7 +700,8 @@ export class WorkspacesPanel {
         + reviewedResult.results.map(repository => `${repository.repository}: ${repository.status}\n`
           + (repository.files ?? []).map(file => `  ${file}`).join('\n')).join('\n\n'),
       confirmLabel: 'Apply reviewed upgrade',
-      expected: planId
+      // A person types a word, never the plan's digest; the apply still carries the exact plan (owner, 2026-11-11).
+      expected: 'UPGRADE'
     });
     // A retained page can be refreshed or switched while the review page is open. The typed
     // value authorizes only the exact result that was on screen when it opened.

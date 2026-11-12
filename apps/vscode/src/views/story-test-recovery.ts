@@ -54,12 +54,14 @@ export function testRecoveryReviewActions(result: unknown, action: TestRecoveryA
         '--apply', '--confirm', data.planSha256] }];
   }
   if (action === 'attest' && Array.isArray(data.reviews)) {
-    return data.reviews.slice(0, 100).flatMap(value => {
+    return data.reviews.slice(0, 100).flatMap((value, index) => {
       const row = object(value);
       const review = object(row?.review);
       if (row?.originPresent !== false || typeof row.sha256 !== 'string' || !digest.test(row.sha256)
           || review?.workId !== subject.workId) return [];
-      return [{ label: `Re-attest review ${row.sha256.slice(7, 19)} as its original reviewer`,
+      // A person picks a review by its place and time, never its digest; the command binds the digest (owner, 2026-11-11).
+      const at = typeof review?.createdAt === 'string' ? ` made ${review.createdAt.slice(0, 16).replace('T', ' ')} UTC` : '';
+      return [{ label: `Re-attest test-command review ${index + 1}${at} as its original reviewer`,
         args: ['story', 'test-policy', 'attest', '--work-id', subject.workId, '--apply', '--confirm', row.sha256] }];
     });
   }

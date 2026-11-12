@@ -13,7 +13,7 @@ import {
   type WorkspaceFosAction, type WorkspaceFosOutcome, type WorkspaceRecoveryAction,
   isSafeWorkspaceReinitializationPreview
 } from './workspaces-model.ts';
-import { escape, icon, repositoryWebLink } from './webview.ts';
+import { escape, icon, repositoryWebLink, reviewBranchName } from './webview.ts';
 import { commandGuidanceHtml } from './command-guidance.ts';
 
 function rowHtml(row: WorkspaceRow, selected: string | null): string {
@@ -456,8 +456,7 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
     ${view.error ? `<p class="blockers">${escape(view.error)}</p>
       <button class="secondary" data-help-topic="configuration">Explain this error</button>` : ''}
     ${result ? `<p><strong>${view.scope === 'all' ? 'All registered workspaces' : row.name}</strong>
-      · ${escape(result.total)} ${result.total === 1 ? 'repository' : 'repositories'}
-      ${result.planId ? `· plan <code>${escape(result.planId)}</code>` : ''}</p>
+      · ${escape(result.total)} ${result.total === 1 ? 'repository' : 'repositories'}</p>
       ${repositories.length ? `<table>
         <thead><tr><th>Repository</th><th>Configuration</th><th>State branch</th><th>Details</th></tr></thead>
         <tbody>${repositories.map((repository) => `<tr>
@@ -465,7 +464,7 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
           <td><span class="pill ${repository.configurationChanged ? 'wait' : 'ok'}">${repository.configurationChanged ? 'update' : 'current'}</span></td>
           <td><span class="pill ${repository.stateChanged ? 'wait' : 'ok'}">${escape(repository.stateStatus ?? (repository.stateChanged ? 'update' : 'current'))}</span></td>
           <td>${repository.error ? `<span class="blockers">${escape(repository.error)}</span>${repository.proposalBranch
-            ? `<br><span class="muted">Review <code>${escape(repository.proposalBranch)}</code></span>` : ''}`
+            ? `<br><span class="muted">Review <code>${escape(reviewBranchName(repository.proposalBranch))}</code></span>` : ''}`
             : `<span class="muted">${escape(repository.files?.length ?? 0)} packaged files
               · ${escape(repository.conflicts?.length ?? 0)} preserved collisions</span>`}</td>
         </tr>`).join('')}</tbody>
@@ -529,7 +528,7 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
       <p class="card-foot"><button data-config-apply="${escape(view.scope)}"
         ${!result.planId || !actionable || view.loading || view.applying ? 'disabled' : ''}>
         ${view.applying ? 'Applying…' : 'Review and apply safe upgrade'}</button></p>
-      <p class="muted">You must type the exact plan ID before apply. If configuration or state
+      <p class="muted">You type UPGRADE to apply the plan you reviewed. If configuration or state
         authority changed after preview, nothing is published and a new preview is required.</p>` : ''}
   </div>`;
 }
@@ -649,7 +648,7 @@ export function workspacesHtml(
   ${attachScope ? `<section class="plain">
     <p class="${attachScope.matchingPaths.length ? 'meta' : 'blockers'}"><strong>Attach existing capability</strong><br>
       ${attachScope.matchingPaths.length
-        ? `Showing only local workspaces bound to the verified capability authority at <code>${escape(attachScope.authority.configurationBranch)}@${escape(attachScope.authority.configurationCommit.slice(0, 12))}</code>.`
+        ? `Showing only local workspaces bound to the verified capability authority on <code>${escape(attachScope.authority.configurationBranch)}</code>.`
         : escape(attachScope.issue
           ?? 'No local workspace is bound to this verified capability authority. Create a workspace for this authority, or use an existing clone, before attaching the capability.')}</p>
   </section>` : ''}

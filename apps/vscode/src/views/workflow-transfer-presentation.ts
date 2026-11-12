@@ -86,8 +86,10 @@ function operationIdentity(value: unknown): string {
 function operationDetails(value: unknown): string {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
   const item = value as Record<string, unknown>;
+  // A person reads names and choices, never a digest or commit: the confirmed plan binds those (owner, 2026-11-11).
   const details = Object.entries(item)
-    .filter(([key]) => !['id', 'path', 'name', 'key', 'kind', 'type'].includes(key))
+    .filter(([key]) => !['id', 'path', 'name', 'key', 'kind', 'type'].includes(key) && !/sha256|digest|commit|fingerprint/iu.test(key))
+    .filter(([, entry]) => !(typeof entry === 'string' && /^(?:sha256:)?[0-9a-f]{7,64}$/iu.test(entry)))
     .map(([key, entry]) => `${key}=${typeof entry === 'string' ? entry : JSON.stringify(entry)}`);
   return details.length ? ` — ${details.join('; ')}` : '';
 }
@@ -141,8 +143,7 @@ function dependencyText(plan: WorkflowMutationPreview): string {
 function destinationText(plan: WorkflowMutationPreview): string {
   const destination = plan.destinationAuthority;
   if (!destination) return 'local working-tree content; no remote authorization';
-  return `${destination.kind}; branch=${destination.branch}; source commit=${destination.sourceCommit}; `
-    + `observed commit=${destination.commit}; remote fingerprint=${destination.remoteFingerprint ?? 'local-only'}`;
+  return `${destination.kind}; branch=${destination.branch}; ${destination.remoteFingerprint ? 'its remote is checked again before writing' : 'local only'}`;
 }
 
 /**
@@ -167,7 +168,6 @@ export function workflowMutationPlanDetail(plan: WorkflowMutationPreview): strin
     '',
     `Shared dependencies: ${dependencyText(plan)}`,
     `Predicted changed paths: ${plan.changedPaths?.length ? plan.changedPaths.join(', ') : 'none'}`,
-    `Exact plan: ${plan.planSha256 ?? 'unavailable'}`,
     `Bound destination: ${destinationText(plan)}`,
     '',
     AUTHORITY_DISPOSITION
@@ -184,8 +184,7 @@ export function workflowMutationPlanSummary(plan: WorkflowMutationPreview): stri
     ...(plan.removesText ? [`Removes: ${plan.removesText}`] : []),
     `${plan.renamed?.length ?? 0} renamed · ${plan.changedPaths?.length ?? 0} changed files`,
     `Destination: ${plan.destinationAuthority?.branch ?? 'local working tree'}`,
-    'Creates a configuration proposal or local edit; it does not approve the workflow.',
-    `Exact plan: ${plan.planSha256 ?? 'unavailable'}`].join('\n');
+    'Creates a configuration proposal or local edit; it does not approve the workflow.'].join('\n');
 }
 
 /** Full scrollable review document shown before the exact modal confirmation. */
@@ -193,7 +192,6 @@ export function workflowMutationPlanMarkdown(plan: WorkflowMutationPreview, titl
   return [
     `# ${title}`, '',
     `- Status: **${markdownEscape(plan.status ?? 'preview')}**`,
-    `- Exact plan: \`${markdownEscape(plan.planSha256 ?? 'unavailable')}\``,
     `- Bound destination: ${markdownEscape(destinationText(plan))}`,
     `- Shared dependencies: ${markdownEscape(dependencyText(plan))}`,
     ...(plan.addsText ? [`- Adds: ${markdownEscape(plan.addsText)}`] : []),

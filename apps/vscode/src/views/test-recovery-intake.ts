@@ -218,7 +218,7 @@ export function testRecoveryHtml(draft: TestRecoveryDraft): string {
       <p class="meta">${capability.acceptKnownFailuresEligible === true ? 'The engine reports this exact baseline eligible for review.' : 'Acceptance is not yet eligible. Refresh after supplying the exact baseline and terms; incomplete coverage is not consent.'}</p>` : ''}
     ${(capability.repositories ?? []).map((repository) => `<div class="readiness-repository">
       <h3>${escape(repository.repository)}</h3>
-      <p>Base <code>${escape(repository.baseCommit ?? 'unknown')}</code> · Baseline: ${escape(repository.baselineStatus ?? 'Existing failures unknown')}
+      <p>Baseline: ${escape(repository.baselineStatus ?? 'Existing failures unknown')}
         · Baseline scope: ${escape(repository.baselineScope ?? 'unknown')} · Environment: ${escape(repository.environment ?? 'unverified')}</p>
       <p>Requested scope: ${escape(repository.requestedScope ?? draft.testExecutionMode)} · Effective scope: ${escape(repository.effectiveScope ?? 'unresolved')}</p>
       ${repository.tools?.length ? `<table><caption>Detected test tools</caption><thead><tr><th>Tool / framework</th><th>Runner / interpreter / working directory</th><th>Report adapter / path</th><th>Source / status</th></tr></thead><tbody>${repository.tools.map((tool) => `<tr>
@@ -239,7 +239,7 @@ export function testRecoveryHtml(draft: TestRecoveryDraft): string {
     <p>Initial route: ${escape(capability.route ?? 'unresolved; follow the engine action below')}</p>
     <strong>Legal next actions</strong>${list(capability.legalActions?.map((action) =>
       `${action.id}: ${action.label}${action.command ? ` · ${action.command} ${JSON.stringify(action.args ?? [])}` : ''}`), 'No legal action returned.')}
-    <p>Exact plan: <code>${escape(capability.planDigest ?? 'not available')}</code></p>
+    ${capability.planDigest ? '' : '<p>The exact plan is not available yet.</p>'}
     <p><label><input type="checkbox" data-test-recovery-confirm="${escape(capability.planDigest ?? '')}"${testRecoveryCanConfirm(draft) ? '' : ' disabled'}${testRecoveryCanConfirm(draft) && draft.testRecoveryConfirmedDigest === capability.planDigest ? ' checked' : ''}>
       I reviewed and confirm this exact plan, including scope, unknowns, required checks and the initial route.</label></p>
     <button type="button" class="secondary" data-test-recovery-refresh>Refresh test and recovery plan</button>

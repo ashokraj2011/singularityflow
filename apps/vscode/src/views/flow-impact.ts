@@ -11,7 +11,7 @@ import path from 'node:path';
 import type { SingularityFlowClient } from '../cli/client.ts';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
+import { brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page, reviewBranchName } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
   configurationSaveDisposition, configurationSavePlan, configurationSavePlanCliArgs
@@ -160,11 +160,11 @@ function storyHtml(state: FlowImpactState): string {
       <p class="card-foot"><button data-action="enroll" ${!measurement?.plan || confirmed ? 'disabled' : ''}>Confirm classification</button><button class="secondary" data-action="opt-out" ${!measurement?.plan || measurement?.status === 'opted-out' ? 'disabled' : ''}>Opt out with reason</button></p>
     </div>
     <div class="analytics-columns">
-      <div><h3>Assistance exposure</h3>${exposures.length ? `<table><thead><tr><th>Phase</th><th>Level</th><th>Assurance</th><th>Hash</th></tr></thead><tbody>${exposures.map((item) => `<tr><td>${escape(item.phaseId)}</td><td>${escape(item.level)}</td><td>${escape(item.assurance)}</td><td><code>${escape(item.sha256.slice(0, 12))}</code></td></tr>`).join('')}</tbody></table>` : '<p class="muted">No exposure has been observed or attested.</p>'}<p><button class="secondary" data-action="attest" ${!measurement?.plan ? 'disabled' : ''}>Record exposure attestation</button></p></div>
-      <div><h3>Metric evidence</h3>${evidence.length ? `<table><thead><tr><th>ID</th><th>Metric</th><th>Hash</th></tr></thead><tbody>${evidence.map((item) => `<tr><td><code>${escape(item.evidenceId)}</code></td><td>${escape(item.metric ?? 'unknown')}</td><td><code>${escape(item.sha256?.slice(0, 12) ?? '')}</code></td></tr>`).join('')}</tbody></table>` : '<p class="muted">No external metric evidence has been imported.</p>'}<p><button class="secondary" data-action="import-evidence" ${!measurement?.plan ? 'disabled' : ''}>Import evidence JSON</button></p></div>
+      <div><h3>Assistance exposure</h3>${exposures.length ? `<table><thead><tr><th>Phase</th><th>Level</th><th>Assurance</th></tr></thead><tbody>${exposures.map((item) => `<tr><td>${escape(item.phaseId)}</td><td>${escape(item.level)}</td><td>${escape(item.assurance)}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">No exposure has been observed or attested.</p>'}<p><button class="secondary" data-action="attest" ${!measurement?.plan ? 'disabled' : ''}>Record exposure attestation</button></p></div>
+      <div><h3>Metric evidence</h3>${evidence.length ? `<table><thead><tr><th>ID</th><th>Metric</th><th>File</th></tr></thead><tbody>${evidence.map((item) => `<tr><td><code>${escape(item.evidenceId)}</code></td><td>${escape(item.metric ?? 'unknown')}</td><td>${item.path ? `<code>${escape(item.path)}</code>` : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">No external metric evidence has been imported.</p>'}<p><button class="secondary" data-action="import-evidence" ${!measurement?.plan ? 'disabled' : ''}>Import evidence JSON</button></p></div>
     </div>
     <div class="card"><div class="card-head"><h3>Impact Receipt</h3><span class="pill ${measurement?.receipt?.status === 'active' ? 'ok' : ''}">${escape(measurement?.receipt?.status ?? 'not finalized')}</span></div>
-      ${measurement?.receipt ? `<p><code>${escape(measurement.receipt.path)}</code> · <code>${escape(measurement.receipt.sha256.slice(0, 12))}</code></p>` : '<p class="muted">Finalizing the Story creates the normalized, hash-bound Impact Receipt.</p>'}
+      ${measurement?.receipt ? `<p><code>${escape(measurement.receipt.path)}</code>${measurement.receipt.finalizedAt ? ` · finalized ${escape(measurement.receipt.finalizedAt.slice(0, 16).replace('T', ' '))} UTC` : ''}</p>` : '<p class="muted">Finalizing the Story creates the normalized, hash-bound Impact Receipt.</p>'}
       <p class="card-foot"><button class="secondary" data-action="verify" ${!measurement?.receipt ? 'disabled' : ''}>Verify receipt</button><button class="link" data-action="doctor">Run measurement doctor</button></p>
     </div>
     ${doctor ? `<div class="card ${doctor.valid ? '' : 'blocked'}"><div class="card-head"><h3>${icon(doctor.valid ? 'ok' : 'warning')}Measurement diagnostics</h3><span class="pill ${doctor.valid ? 'ok' : 'bad'}">${doctor.valid ? 'healthy' : 'attention required'}</span></div>
@@ -183,7 +183,6 @@ function comparisonHtml(result: ImpactComparison | null): string {
   <div class="card"><h3>${escape(result.primaryMetric.id)}</h3><p>Baseline median <strong>${numeric(result.result.baselineMedian)}</strong> · Treatment median <strong>${numeric(result.result.treatmentMedian)}</strong></p>
     <p>Bootstrap confidence interval <strong>${numeric(result.result.confidenceInterval.lower)}% to ${numeric(result.result.confidenceInterval.upper)}%</strong></p>
     ${result.hypothesis ? `<p><strong>Predeclared hypothesis:</strong> ${escape(result.hypothesis)}</p>` : ''}
-    ${result.studyDefinitionSha256 ? `<p class="muted">Study definition <code>${escape(result.studyDefinitionSha256.slice(0, 12))}</code></p>` : ''}
     ${result.promptAdherence ? `<p>Prompt adherence: <strong>${result.promptAdherence.exact} exact</strong> · ${result.promptAdherence.partial} partial · ${result.promptAdherence.unavailable} unavailable.</p>` : ''}</div>
   <table><thead><tr><th>Guardrail</th><th>Regression</th><th>Maximum</th><th>Result</th></tr></thead><tbody>${result.guardrails.map((item) => `<tr><td>${escape(item.metric)}</td><td>${item.regressionPercent == null ? 'Unavailable' : `${numeric(item.regressionPercent)}%`}</td><td>${numeric(item.maximumRegressionPercent)}%</td><td><span class="pill ${item.passed ? 'ok' : 'bad'}">${item.passed ? 'pass' : 'fail'}</span></td></tr>`).join('')}</tbody></table>`;
 }
@@ -430,7 +429,7 @@ export class FlowImpactPanel {
             ...configurationSavePlanCliArgs(plan)
           ], { input: message.content ?? '' });
           const disposition = configurationSaveDisposition(output, plan.proposal);
-          if (disposition.kind === 'proposal') return `Flow Impact configuration proposal ${disposition.branch} is ready for review. Merge it into ${disposition.baseBranch}, then refresh workspace configuration. The application checkout was not changed.`;
+          if (disposition.kind === 'proposal') return `Flow Impact configuration proposal ${reviewBranchName(disposition.branch)} is ready for review. Merge it into ${disposition.baseBranch}, then refresh workspace configuration. The application checkout was not changed.`;
           if (disposition.kind === 'unchanged') return 'The approved Flow Impact configuration already contains this change; no proposal was required.';
           return plan.proposal
             ? 'Flow Impact configuration was saved as a local authority draft; review and commit it through the local configuration path.'

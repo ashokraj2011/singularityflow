@@ -19,6 +19,7 @@ import { register } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import ts from 'typescript';
 
@@ -293,4 +294,107 @@ test('a reviewed quick-fix Story, walked through the CLI: no person text, card o
   check('VS Code decision list', visible(decisionListHtml(buildDecisionListView(packet))));
 
   assert.deepEqual(found, [], 'a person read a hash');
+});
+
+// --- Configuration, capability, Epic and admin surfaces in VS Code ------------------------------------------------
+
+/** A stand-in for a commit or digest: `length` hexadecimal characters with letters and digits, as a real one has. */
+const hexOf = (seed, length) => seed.repeat(Math.ceil(length / seed.length)).slice(0, length);
+const commitOf = (seed) => hexOf(seed, 40);
+const digestOf = (seed) => `sha256:${hexOf(seed, 64)}`;
+
+test('VS Code\'s configuration, capability and admin surfaces name branches, steps and times, never a hash', async () => {
+  const found = [];
+  const check = (label, text) => { for (const line of leaks(text)) found.push(`${label}: ${line}`); };
+
+  // A repository setup review: its branch carries a generated hex suffix, its diff names blobs by hash.
+  const { setupProposalHtml } = await compiledView('setup-proposal.ts');
+  const proposal = { remote: 'https://git.example.test/team/config.git', branch: `sflow/config-change/onboarding/create-${hexOf('5e6f7a8b', 12)}`,
+    targetBranch: 'sflow/config', targetCommit: commitOf('1a2b3c4d'), proposalCommit: commitOf('9f8e7d6c'), merged: false, valid: true,
+    changedFiles: [{ status: 'A', paths: ['singularity/workflow.yml'] }],
+    diff: `diff --git a/singularity/workflow.yml b/singularity/workflow.yml\nindex ${hexOf('0a1b2c3d', 9)}..${hexOf('4e5f6a7b', 9)} 100644\n`
+      + '--- a/singularity/workflow.yml\n+++ b/singularity/workflow.yml\n@@ -1 +1 @@\n-version: 1\n+version: 2\n' };
+  const waiting = { status: 'review-required', activated: false, targetBranch: 'sflow/config', targetCommit: null, proposalCommit: proposal.proposalCommit,
+    externalAction: { action: 'merge', sourceBranch: proposal.branch, targetBranch: 'sflow/config', proposalCommit: proposal.proposalCommit } };
+  const activated = { status: 'activated', activated: true, targetBranch: 'sflow/config', targetCommit: commitOf('7c8d9e0f'), proposalCommit: proposal.proposalCommit };
+  for (const activation of [null, waiting, activated]) {
+    const html = setupProposalHtml(proposal, proposal.remote, proposal.branch, commitOf('2b3c4d5e'), false, null, activation);
+    assert.match(html, /version: 2/u, 'the diff itself is still shown');
+    check(`VS Code setup proposal (${activation?.status ?? 'open'})`, visible(html));
+  }
+  check('VS Code setup proposal (loading)', visible(setupProposalHtml(null, proposal.remote, proposal.branch, commitOf('2b3c4d5e'), true, null, null)));
+
+  // Recreate & sync: every pending proposal, by branch, author and subject.
+  const { configurationSyncConfirmation } = await view('configuration-sync-model.ts');
+  const release = `sflow/config-change/workflow/release-${hexOf('6a7b8c9d', 8)}-${hexOf('1e2f3a4b', 12)}`;
+  const sync = configurationSyncConfirmation({ status: 'preview', baseCommit: commitOf('3c4d5e6f'), targetCommit: commitOf('3c4d5e6f'), targetBranch: 'sflow/config',
+    proposals: [{ branch: release, commit: commitOf('8d9e0f1a'), merged: false, author: 'Pat Example', summary: 'Add a release step', files: ['singularity/workflow.yml'] },
+      { branch: `sflow/config-change/workflow/docs-${hexOf('2c3d4e5f', 8)}`, commit: commitOf('5b6c7d8e'), merged: true }],
+    backupRefs: [], files: ['singularity/workflow.yml'], replacements: [{ branch: release, path: 'singularity/workflow.yml', pointer: '/' }],
+    confirmation: digestOf('9a8b7c6d') });
+  assert.match(sync.detail, /sflow\/config-change\/workflow\/release by Pat Example — Add a release step/u);
+  check('VS Code configuration sync', [sync.message, sync.compactDetail, sync.detail].join('\n'));
+
+  // The native reviews of a Meta-tool activation and a local runner plan: what changes and runs, not the digests they bind.
+  const { metaToolPlanReview } = await import('../apps/vscode/src/sgos-meta-tool-review-model.ts');
+  check('VS Code Meta-tool review', metaToolPlanReview({ operation: 'meta-tool.activate', actorId: 'principal-123', expectedRevision: 7,
+    expectedStateSha256: digestOf('a1b2c3d4'), confirmationSha256: digestOf('b2c3d4e5'),
+    input: { target: { kind: 'pack-operation', operationId: 'finance.inspect', version: '1.0.0', manifestSha256: digestOf('c3d4e5f6'), approvalSha256: digestOf('d4e5f6a7') },
+      activeActivationSha256: digestOf('e5f6a7b8'), targetActivationSha256: digestOf('f6a7b8c9') } }));
+  const { localRunnerPlanReview } = await import('../apps/vscode/src/gdp-local-runner-review-model.ts');
+  check('VS Code local runner review', localRunnerPlanReview({ kind: 'gdp-local-runner-plan', workId: 'WRK-9', phaseId: 'implementation',
+    commandId: 'module-tests', signerId: 'developer-local', proofSubjectSha256: digestOf('0b1c2d3e'), candidateSha256: digestOf('0a1b2c3d'),
+    repositoryHead: commitOf('1f2e3d4c'), repositoryTree: commitOf('2e3d4c5b'), command: { argv: ['npm', 'test'], timeoutMs: 120_000, modelPolicy: 'never' },
+    commandSha256: digestOf('0d1e2f3a'), signerKeySha256: digestOf('0e1f2a3b'), planSha256: digestOf('0f1a2b3c') }));
+
+  // A workflow import or copy: every operation and the destination it is bound to.
+  const transfer = await view('workflow-transfer-presentation.ts');
+  const plan = { status: 'ready', planSha256: digestOf('3a4b5c6d'),
+    destinationAuthority: { kind: 'verified-state-mirror', branch: 'sflow/config', commit: commitOf('4b5c6d7e'), sourceCommit: commitOf('5c6d7e8f'), remoteFingerprint: hexOf('6d7e8f90', 64) },
+    operations: { add: [{ kind: 'story.phase', id: 'release-plan', sha256: digestOf('7e8f9a0b') }], reuse: [{ kind: 'agent', id: 'developer', definitionSha256: digestOf('8f9a0b1c') }] },
+    changedPaths: ['singularity/workflow.yml'] };
+  check('VS Code workflow import detail', transfer.workflowMutationPlanDetail(plan));
+  check('VS Code workflow import summary', transfer.workflowMutationPlanSummary(plan));
+  check('VS Code workflow import review', transfer.workflowMutationPlanMarkdown(plan, 'Import workflow'));
+
+  // Diagnostics: each identity says it is recorded.
+  const { shadowPassportHealth, deliveryHealth } = await view('diagnostics.ts');
+  check('VS Code diagnostics passport', visible(shadowPassportHealth({ status: 'shadow', subject: { kind: 'story', id: 'WRK-9' },
+    candidate: { candidateSha256: digestOf('1b2c3d4e') }, records: { proofSubject: { proofSubjectSha256: digestOf('2c3d4e5f') }, passport: { passportSha256: digestOf('3d4e5f6a') } },
+    evidence: { status: 'complete', proofSummarySha256: digestOf('4e5f6a7b') } },
+  { summary: { verdict: 'pass', summarySha256: digestOf('5f6a7b8c') }, results: [{ predicate: { id: 'tests', version: 1 }, verdict: 'pass', resultSha256: digestOf('6a7b8c9d') }] })));
+  check('VS Code diagnostics delivery', visible(deliveryHealth({ mode: 'workflow', selection: { selectionSha256: digestOf('7b8c9d0e') },
+    completionContract: { contractSha256: digestOf('8c9d0e1f') }, proofSubject: { proofSubjectSha256: digestOf('9d0e1f2a') }, passport: { passportSha256: digestOf('0e1f2a3b'), status: 'shadow' },
+    checkpoints: [{ phaseId: 'implement', generation: 1, status: 'satisfied', inputs: [], satisfactionSha256: digestOf('1f2a3b4c') }] })));
+
+  assert.deepEqual(found, [], 'a person read a hash');
+});
+
+test('VS Code never shortens a commit or digest for a person to read', () => {
+  // The way a hash reached a screen before: a commit, SHA or digest cut to its first characters.
+  const shortened = /([cC]ommit|[sS]ha256|[dD]igest|[sS]ha|[hH]ead|[fF]ingerprint|[hH]ash)[A-Za-z]*\)?\??\.slice\((?:0, ?\d+|7, ?19)\)/u;
+  const sources = new URL('../apps/vscode/src/', import.meta.url);
+  const found = [];
+  for (const entry of readdirSync(sources, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
+    const file = path.join(entry.parentPath ?? entry.path, entry.name);
+    readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+      if (shortened.test(line)) found.push(`${path.relative(fileURLToPath(sources), file)}:${index + 1}: ${line.trim().slice(0, 160)}`);
+    });
+  }
+  assert.deepEqual(found, []);
+});
+
+test('@sflow removes a feedback attachment set by its number on the status list, never by typing its digest', async () => {
+  const { chatAttachmentAction } = await import('../apps/vscode/src/chat-file-references.ts');
+  assert.deepEqual(chatAttachmentAction('remove 2', 0), { kind: 'remove-listed', setNumber: 2 });
+  assert.deepEqual(chatAttachmentAction('remove set 1', 0), { kind: 'remove-listed', setNumber: 1 });
+  assert.equal(chatAttachmentAction('remove 0', 0).kind, 'unavailable');
+  assert.equal(chatAttachmentAction('remove 2', 1).kind, 'unavailable', 'a chat file reference is never silently ignored');
+  const digest = digestOf('a1b2c3d4');
+  assert.deepEqual(chatAttachmentAction(`remove ${digest}`, 0), { kind: 'remove', attachmentSetSha256: digest }, 'an agent may still name the exact set');
+  const refused = chatAttachmentAction('remove the old one', 0);
+  assert.equal(refused.kind, 'unavailable');
+  assert.deepEqual(leaks(refused.reason), []);
+  assert.match(refused.reason, /remove <set number>/u);
 });

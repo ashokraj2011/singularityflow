@@ -8,11 +8,6 @@ import type {
 } from '../cli/snapshot.ts';
 import { renderSgosProcessGraph } from './sgos-process-graph-svg.ts';
 
-function shortHash(value: string | null): string {
-  if (!value) return 'not available';
-  return value.length > 22 ? `${value.slice(0, 18)}…` : value;
-}
-
 const RENDER_DESCRIPTOR_KEYS = [
   'descriptorVersion', 'viewType', 'title', 'summary', 'accessibility', 'delivery',
   'fields', 'rows', 'edges', 'notes', 'truncated'
@@ -149,15 +144,11 @@ function needsYou(view: SgosCommandCenterView): string {
       <p><strong>Why this needs you:</strong> ${escape(why || 'The Program requires an explicit Human Response.')}</p>
       <dl class="sgos-facts">
         <dt>Request type</dt><dd>${escape(extension.requestType ?? 'not declared')}</dd>
-        <dt>Exact subject</dt><dd>Process <code>${escape(subject.processId ?? object.processId)}</code>
-          at <code>${escape(shortHash(typeof subject.processSha256 === 'string' ? subject.processSha256 : null))}</code> ·
+        <dt>Exact subject</dt><dd>Process <code>${escape(subject.processId ?? object.processId)}</code> ·
           task <code>${escape(subject.taskInstanceId ?? object.taskInstanceId ?? 'not declared')}</code><br>
-          request <code>${escape(shortHash(typeof subject.requestSha256 === 'string' ? subject.requestSha256 : null))}</code> ·
-          subject <code>${escape(shortHash(typeof subject.subjectSha256 === 'string' ? subject.subjectSha256 : null))}</code> ·
-          checkpoint <code>${escape(shortHash(typeof subject.checkpointSha256 === 'string' ? subject.checkpointSha256 : null))}</code> ·
-          policy <code>${escape(shortHash(typeof subject.policySnapshotSha256 === 'string' ? subject.policySnapshotSha256 : null))}</code></dd>
+          Your response binds this exact request, its subject, checkpoint and policy; the kernel re-checks them before it acts.</dd>
         <dt>Evidence</dt><dd>${evidence.length
-          ? evidence.map((entry) => `<code title="${escape(entry)}">${escape(shortHash(entry))}</code>`).join(', ')
+          ? `${evidence.length} evidence receipt${evidence.length === 1 ? '' : 's'} attached.`
           : 'No evidence receipt is attached to this request.'}</dd>
         <dt>Authority</dt><dd>${escape(authority.kind ?? 'not declared')}${authority.id ? ` · ${escape(authority.id)}` : ''}${authority.minimumAssurance ? ` · ${escape(authority.minimumAssurance)}` : ''}</dd>
         <dt>Choices and consequences</dt><dd>${choiceList}</dd>
@@ -199,7 +190,7 @@ function selectedDetail(view: SgosCommandCenterView): string {
       const parents = graph.edges.filter((edge) => edge.to === task.taskTemplateId).map((edge) => edge.from);
       const receipt = task.receiptSha256
         ? `<button type="button" class="link-button" data-evidence-process="${escape(process.processId)}"
-            data-evidence-task="${escape(task.taskInstanceId)}" title="Open exact receipt and evidence"><code>${escape(shortHash(task.receiptSha256))}</code></button>`
+            data-evidence-task="${escape(task.taskInstanceId)}" title="Open exact receipt and evidence">Open receipt</button>`
         : '<span class="muted">not available</span>';
       return `<tr><td>${escape(task.taskTemplateId)}</td><td>${escape(task.state)}</td><td>${task.revision}</td>
         <td>${receipt}</td><td>${escape(parents.join(', ') || 'none')}</td></tr>`;
@@ -209,8 +200,7 @@ function selectedDetail(view: SgosCommandCenterView): string {
     <dl class="sgos-facts">
       <dt>Subject</dt><dd>${escape(process.subject.kind ?? 'unknown')} · ${escape(process.subject.id ?? 'unknown')}</dd>
       <dt>Process revision</dt><dd>${process.processRevision}</dd>
-      <dt>Process digest</dt><dd><code title="${escape(process.processSha256)}">${escape(shortHash(process.processSha256))}</code></dd>
-      <dt>Checkpoint</dt><dd><code title="${escape(process.currentCheckpointSha256 ?? '')}">${escape(shortHash(process.currentCheckpointSha256))}</code></dd>
+      <dt>Checkpoint</dt><dd>${process.currentCheckpointSha256 ? 'recorded' : 'not available'}</dd>
       <dt>Evidence ready</dt><dd>${process.evidenceReady} of ${process.taskCount} tasks</dd>
     </dl>
     <div class="card-foot">

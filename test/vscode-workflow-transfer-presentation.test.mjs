@@ -56,24 +56,25 @@ test('workflow import confirmation renders every operation beyond eight without 
   assert.match(detail, /a shared authority creates a review proposal; a local authority records a local edit/);
 });
 
-test('workflow transfer review displays the exact bound destination, not only its plan digest', () => {
+test('workflow transfer review names the bound destination by kind and branch, never its commits or digests', () => {
   const destinationAuthority = {
     kind: 'verified-state-mirror', branch: 'sflow/config', commit: 'a'.repeat(40),
     sourceCommit: 'b'.repeat(40), remoteFingerprint: 'c'.repeat(64)
   };
   const plan = { status: 'ready', planSha256: `sha256:${'d'.repeat(64)}`, destinationAuthority };
   for (const rendered of [workflowMutationPlanDetail(plan), workflowMutationPlanMarkdown(plan, 'Copy workflow')]) {
-    assert.match(rendered, /Bound destination:/);
-    for (const value of Object.values(destinationAuthority)) assert.ok(rendered.includes(value));
-    assert.ok(rendered.includes(plan.planSha256));
+    assert.match(rendered, /Bound destination: verified-state-mirror; branch=sflow\/config; its remote is checked again before writing/);
+    for (const value of [destinationAuthority.commit, destinationAuthority.sourceCommit, destinationAuthority.remoteFingerprint, plan.planSha256]) {
+      assert.ok(!rendered.includes(value), 'a person reads no commit or digest; the confirmation binds them');
+    }
   }
   for (const rendered of [workflowMutationPlanDetail({}), workflowMutationPlanMarkdown({}, 'Local import')]) {
     assert.match(rendered, /local working-tree content; no remote authorization/);
-    assert.doesNotMatch(rendered, /remote fingerprint=/);
+    assert.doesNotMatch(rendered, /remote is checked/);
   }
 });
 
-test('the native import summary names consequences and the exact plan without the full dependency dump', () => {
+test('the native import summary names consequences without the plan digest or the full dependency dump', () => {
   const plan = {
     planSha256: `sha256:${'d'.repeat(64)}`, destinationAuthority: { branch: 'sflow/config' },
     operations: { add: Array.from({ length: 52 }, (_, i) => ({ kind: 'agent', id: `agent-${i}` })),
@@ -85,8 +86,8 @@ test('the native import summary names consequences and the exact plan without th
   assert.match(summary, /1 renamed · 2 changed files/);
   assert.match(summary, /Destination: sflow\/config/);
   assert.match(summary, /does not approve the workflow/);
-  assert.ok(summary.includes(plan.planSha256));
-  assert.equal(summary.split('\n').length, 5);
+  assert.ok(!summary.includes(plan.planSha256), 'the confirmation binds the plan; a person reads its consequences');
+  assert.equal(summary.split('\n').length, 4);
   assert.doesNotMatch(summary, /agent-51/);
   assert.match(workflowMutationPlanDetail(plan), /agent-51/);
   assert.match(workflowMutationPlanSummary({}), /Destination: local working tree/);

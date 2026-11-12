@@ -290,7 +290,8 @@ export class AfterInstallJourney {
             + reviewed.storyCutover.repositories.map(item => `${item.repository}: ${(item.retiredIds ?? []).join(', ') || 'none'}`).join('\n') + '\n\n' : '')
           + reviewed.results.map(repository => `${repository.repository}: ${repository.status}\n`
             + (repository.files ?? []).join('\n')).join('\n\n'),
-        confirmLabel: 'Apply reviewed upgrade', expected: planId
+        // A person types a word, never the plan's digest; the apply still carries the exact plan (owner, 2026-11-11).
+        confirmLabel: 'Apply reviewed upgrade', expected: 'UPGRADE'
       });
       if (!accepted || !this.current(revision) || this.view.selected !== selected
         || this.view.upgrade !== reviewed || JSON.stringify(reviewed) !== binding
@@ -348,7 +349,7 @@ export class AfterInstallJourney {
           + '\n\nLocal references:\n' + this.view.workspace!.repositories.map(repository =>
             `${repository.id}: ${repository.absolutePath ?? repository.path ?? 'path unavailable'}`
           ).join('\n'),
-        confirmLabel: 'Discontinue Stories and upgrade', expected: reviewed.planId
+        confirmLabel: 'Discontinue Stories and upgrade', expected: 'DISCONTINUE'
       });
       if (!accepted || !this.current(revision) || this.view.selected !== selected
         || this.view.upgrade !== reviewed || JSON.stringify(reviewed) !== binding) return;

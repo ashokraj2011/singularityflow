@@ -260,7 +260,8 @@ export async function openConfigurationReviews(host: ProductAlignmentHost, {
   // Announce reviews once: from the window whose pass opened them, or from a finished pass.
   if (result.status === 'ran' || !unfinished.length) {
     void host.inform(`Singularity Flow opened ${reviews.length} configuration review(s) for this build: `
-      + `${reviews.map((entry) => `${entry.repository} → ${entry.proposalBranch}`).join('; ')}. `
+      // A generated review branch reads without its hex suffix (owner, 2026-11-11: a person never reads a hash).
+      + `${reviews.map((entry) => `${entry.repository} → ${String(entry.proposalBranch).replace(/(?:[-/][0-9a-f]{8,64})+$/iu, '')}`).join('; ')}. `
       + 'Nothing changes until each review is merged.');
   }
   return 'reviews-opened';

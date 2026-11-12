@@ -1170,8 +1170,7 @@ function preflightTestReadinessHtml(readiness: PreflightTestReadiness | null): s
           ? 'Test command not detected. Continue the Story and configure it before required test execution; existing tests are not verified.'
           : 'Existing failures unknown: baseline not checked. Start the Story; Copilot can inspect test tools and run the selected tests later. This is not a test failure or passing evidence.';
       return `<div class="readiness-repository"><p><strong>${escape(repository.repository)}</strong>
-        · receipt ${escape(repository.status)} · test tool ${escape(repository.testToolStatus)}
-        · base ${escape(repository.baseCommit?.slice(0, 12) ?? 'unknown')}</p>
+        · receipt ${escape(repository.status)} · test tool ${escape(repository.testToolStatus)}</p>
         ${repository.tools.length ? `<ul>${repository.tools.map((tool) => `<li>
           ${escape(tool.id)} · ${escape(tool.launcher ?? 'unknown launcher')} · ${escape(tool.adapter ?? 'no structured adapter')}
           ${tool.counts ? `· ${escape(tool.counts.passed ?? '?')} passed, ${escape(tool.counts.failed ?? '?')} failed,
@@ -1537,7 +1536,7 @@ function referenceRepositoriesHtml(form: IntakeForm): string {
   const requirement = mode === 'required' ? 'required' : mode === 'off' ? 'not used' : 'optional';
   const rows = form.referenceRepositories.map((entry, index) => {
     const status = entry.status === 'ready'
-      ? `<span class="pill ok">Verified at <code>${escape(entry.commit?.slice(0, 12) ?? '')}</code></span>`
+      ? '<span class="pill ok">Verified</span>'
       : entry.status === 'checking'
         ? '<span class="pill wait">Checking repository and branch…</span>'
         : entry.status === 'error'

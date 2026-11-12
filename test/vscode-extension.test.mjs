@@ -2464,7 +2464,8 @@ test('an approved artifact is pinned read-only and reports its hash', () => {
   const artifact = find(buildTree(approved), `artifact:define/${output.id}`);
   assert.equal(artifact.readOnly, true);
   assert.equal(artifact.contextValue, 'sflow.artifact.pinned');
-  assert.match(artifact.tooltip, /sha256 a{64}/);
+  assert.equal(artifact.tooltip, artifact.path, 'a person reads its path; the pin is in the record, never the tooltip');
+  assert.doesNotMatch(artifact.tooltip, /a{64}/);
 });
 
 test('a blocked phase gate is shown with each reason, not just a count', () => {
@@ -2967,7 +2968,7 @@ test('a Story that reached conformance contributes its tree hash to the spec-ver
   assert.equal(level.rows.length, 2, 'a Story with no conformance phase contributes no row');
   const passed = level.rows.find((row) => row.id === 'story:API-1');
   assert.equal(passed.drifted, false);
-  assert.match(passed.cells.at(-1), /conforms @ abababab/);
+  assert.equal(passed.cells.at(-1), 'conforms', 'a person reads that it conforms, never the tree digest');
   const pending = level.rows.find((row) => row.id === 'story:MOB-1');
   assert.equal(pending.drifted, true);
   assert.match(pending.cells.at(-1), /no conformance tree recorded/);
@@ -4247,8 +4248,8 @@ test('repository setup renders one primary action and keeps recovery choices und
   assert.match(reviewHtml, /Local cleanup pending/,
     'an early review-required outcome must not hide cleanup diagnostics carried by the result');
   assert.match(reviewHtml, /disposable snapshot cleanup is pending/);
-  assert.match(reviewHtml, /sflow\/config-change\/onboarding\/create-aaaaaaaaaaaa/);
-  assert.match(reviewHtml, /Exact commit: <code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa<\/code>/);
+  assert.match(reviewHtml, /Review branch: <code>sflow\/config-change\/onboarding\/create<\/code>/);
+  assert.doesNotMatch(reviewHtml, /aaaaaaaaaaaa/, 'a person reads the review branch, never its generated suffix or commit');
   assert.match(reviewHtml, /source branches that could change during a Git push/);
   assert.match(reviewHtml, /data-repository-setup-primary="reviewRepositorySetup">Review setup proposal/);
   assert.match(reviewHtml, /data-repository-setup-primary="retryRepositorySetup"/);
@@ -4852,7 +4853,8 @@ test('mapping operations expose durable recovery, cancellation, retry, and propo
   } });
   assert.match(proposed, /Open existing review proposal/);
   assert.match(proposed, /data-map-operation-abandon/);
-  assert.match(proposed, /map-payments-api-deadbeef@0123456789ab/);
+  assert.match(proposed, /<code>sflow\/config-change\/capability\/map-payments-api<\/code>/);
+  assert.doesNotMatch(proposed, /deadbeef|0123456789ab/, 'a person reads the review branch, never its suffix or commit');
 
   for (const type of ['cancelMapOperation', 'inspectMapOperation', 'retryMapOperation',
     'reviewMapOperation', 'clearMapOperation', 'cancelPendingMapping']) {
@@ -4939,7 +4941,7 @@ test('capability mapping checks the Git URL before revealing capability details'
     }]
   });
   assert.match(pending, /already present in a capability proposal awaiting review/);
-  assert.match(pending, /map-payments-deadbeef/);
+  assert.match(pending, /<code>sflow\/config-change\/capability\/map-payments<\/code>/);
   assert.match(pending, /Pending review coverage is complete \(1\/1 inspected\)/);
   assert.match(pending, /data-map-details hidden/);
 });
@@ -7033,8 +7035,8 @@ test('workspace reinitialization renders seeded configuration and keeps capabili
   assert.match(html, /data-copy-command="singularity-flow workspace doctor --network/);
   assert.doesNotMatch(html, />undefined</);
   assert.match(html, /Review and apply safe upgrade/);
-  assert.match(html, /type the exact plan ID/);
-  assert.match(html, /cfgp-123/);
+  assert.match(html, /You type UPGRADE to apply the plan you reviewed/);
+  assert.doesNotMatch(html, /cfgp-123/, 'a person types a word, never the plan ID; the apply still carries it');
   assert.match(WORKSPACES_SCRIPT, /\[data-copy-command\]/);
   assert.match(WORKSPACES_SCRIPT, /navigator\.clipboard\.writeText\(data\.copyCommand\)/);
 });
@@ -7988,7 +7990,8 @@ test('configuration proposals stay visible in Workflow Studio and offer exact gu
   assert.match(extension, /It remains visible as Pending review/,
     'a proposal reports its durable state instead of making the change appear to disappear');
   assert.match(extension, /'workflow', 'proposal', branch, '--json'/, 'the exact proposal diff opens before activation');
-  assert.match(extension, /showReviewDocument\(`\$\{inspected\.branch\}\.diff`/, 'the diff opens read-only');
+  assert.match(extension, /showReviewDocument\(`\$\{shown\}\.diff`/, 'the diff opens read-only');
+  assert.match(extension, /const shown = personBranch\(inspected\.branch\);/, 'the review names the proposal by its branch, never its commit');
   // Activation lives in one helper (bd45981e); the panel hands it the proposal it just showed.
   const save = await readFile(source('views/configuration-save.ts'), 'utf8');
   assert.match(extension, /activateReviewedWorkflowProposal<[^(]*>\(inspected,/);

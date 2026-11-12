@@ -24,11 +24,14 @@ const readSource = file => readFile(new URL(`../apps/vscode/src/${file}`, import
 test('intake page shows saved inputs, custom fields and recorded setup without redrafting', () => {
   const html = storyIntakeBody(workflow(), preview());
   for (const value of ['Requested title', 'Operations', 'Original input', 'Accept A', 'Accept B', 'Small change',
-    'Other modules', 'Offline', 'Retain custom intake', 'Team delivery', 'release/next', '1234abc', 'Payments',
-    'changed-only', 'release/reference', '4321abc']) assert.ok(html.includes(value), value);
+    'Other modules', 'Offline', 'Retain custom intake', 'Team delivery', 'release/next', 'Payments',
+    'changed-only', 'release/reference']) assert.ok(html.includes(value), value);
+  // A person reads branches and that a base is pinned, never a commit or digest (owner, 2026-11-11).
+  for (const value of ['1234abc', '4321abc', 'a'.repeat(64)]) assert.ok(!html.includes(value), value);
+  assert.match(html, /pinned to its exact commit/);
   assert.match(html, /Read-only saved input/);
   assert.match(html, /Saved source record/);
-  assert.match(html, /Read SHA-256/);
+  assert.match(html, /read and verified/);
   assert.match(html, /Test policies can be amended after intake/);
 });
 
@@ -51,8 +54,9 @@ test('saved intake shows each repository\'s exact base and leaves old sibling ba
     { repositoryId: 'web', baseBranch: 'develop', baseCommit: 'b'.repeat(40), baseRemote: 'origin', storyBranch: 'STORY-42' }
   ];
   const html = storyIntakeBody(state, preview());
-  assert.match(html, /<td>api<\/td><td>STORY-42<\/td><td>release\/api<\/td><td>a{40}<\/td>/);
-  assert.match(html, /<td>web<\/td><td>STORY-42<\/td><td>develop<\/td><td>b{40}<\/td>/);
+  assert.match(html, /<td>api<\/td><td>STORY-42<\/td><td>release\/api<\/td><td>pinned to its exact commit<\/td>/);
+  assert.match(html, /<td>web<\/td><td>STORY-42<\/td><td>develop<\/td><td>pinned to its exact commit<\/td>/);
+  assert.doesNotMatch(html, /a{40}|b{40}/, 'a person reads that each base is pinned, never its commit');
   state.workItem.repositoryBases = [state.workItem.repositoryBases[0]];
   assert.match(storyIntakeBody(state, preview()), /<td>web<\/td><td>STORY-42<\/td><td>Not recorded<\/td>/,
     'a partial old record must not hide another delivery repository');

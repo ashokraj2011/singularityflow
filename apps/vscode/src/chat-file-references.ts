@@ -50,12 +50,15 @@ export type PendingChatAttachmentRemoval = Readonly<{
   phaseGeneration: number;
   attachmentSetSha256: string;
   planSha256: string;
+  /** How a person names the set: its number on the status list (owner, 2026-11-11: never its digest). */
+  setLabel?: string;
 }>;
 
 export type ChatAttachmentAction =
   | Readonly<{ kind: 'preview' }>
   | Readonly<{ kind: 'status' }>
   | Readonly<{ kind: 'remove'; attachmentSetSha256: string }>
+  | Readonly<{ kind: 'remove-listed'; setNumber: number }>
   | Readonly<{ kind: 'unavailable'; reason: string }>;
 
 /** Commands must be exact; a chat reference cannot be silently ignored during status/removal. */
@@ -70,8 +73,14 @@ export function chatAttachmentAction(prompt: string, referenceCount: number): Ch
     return referenceCount === 0 ? { kind: 'remove', attachmentSetSha256: remove[1].toLowerCase() }
       : { kind: 'unavailable', reason: 'Removal does not accept chat file references. Remove them and retry.' };
   }
+  // A person names a set by its number on the status list, never by its digest.
+  const listed = /^remove\s+(?:set\s+)?(\d{1,3})$/i.exec(value);
+  if (listed?.[1] && Number(listed[1]) >= 1) {
+    return referenceCount === 0 ? { kind: 'remove-listed', setNumber: Number(listed[1]) }
+      : { kind: 'unavailable', reason: 'Removal does not accept chat file references. Remove them and retry.' };
+  }
   if (/^(?:status|remove)\b/i.test(value)) {
-    return { kind: 'unavailable', reason: 'Use `status` or `remove sha256:<exact 64-hex set digest>` with no file references.' };
+    return { kind: 'unavailable', reason: 'Use `status`, then `remove <set number>` from that list, with no file references.' };
   }
   return { kind: 'preview' };
 }

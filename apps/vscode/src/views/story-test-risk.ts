@@ -110,9 +110,11 @@ export function storyRiskChoices(result: unknown, subject: TestRecoverySubject):
     const recordSubject = object(row?.subject);
     if (row?.kind !== 'phase-risk-decision' || recordSubject?.workId !== subject.workId
         || typeof row.recordSha256 !== 'string' || !digest.test(row.recordSha256)) continue;
-    choices.push({ label: `Review revocation ${row.recordSha256.slice(7, 19)}`, description: 'Keep history; withdraw this exact exception for future transitions',
+    // A person picks a decision by what and when it accepted, never its digest; the choice binds the digest (owner, 2026-11-11).
+    const accepted = `the risk accepted${typeof row.issueId === 'string' ? ` for ${row.issueId}` : ''}${typeof row.createdAt === 'string' ? ` on ${row.createdAt.slice(0, 16).replace('T', ' ')} UTC` : ''}`;
+    choices.push({ label: `Review revocation of ${accepted}`, description: 'Keep history; withdraw this exact exception for future transitions',
       action: 'revoke-risk', terms: { recordSha256: row.recordSha256 } });
-    choices.push({ label: `Restore risk review ${row.recordSha256.slice(7, 19)}`, description: 'Original reviewer required after a clone or host change',
+    choices.push({ label: `Restore the review of ${accepted}`, description: 'Original reviewer required after a clone or host change',
       action: 'attest-risk', terms: { recordSha256: row.recordSha256 } });
   }
   return choices;

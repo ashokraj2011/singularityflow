@@ -184,15 +184,18 @@ test('the first-run confirmation shows exactly what runs and its identity, and n
   assert.equal(request.confirmLabel, 'Run this command');
   for (const line of ['Command: ["npm","run","dev","--","--host","127.0.0.1","--port","5173"]', 'Working directory: apps/web (repository payments-web)',
     'Ready when: HTTP / answers below 500 within 90 s', 'Environment: qa (not bound). Its values go to this process only',
-    `Command identity: ${SHA}`, `singularity-flow app start web --capability payments-web --environment qa --expect-command ${SHA}`]) {
+    `singularity-flow app start web --capability payments-web --environment qa --expect-command ${SHA}`]) {
     assert.ok(request.detail.includes(line), line);
   }
+  assert.ok(!request.detail.includes('Command identity'), 'the command carries its identity; a person reads what runs (owner, 2026-11-11)');
   const tests = [{ id: 'module-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: 'apps/web', environments: [], commandSha256: SHA2 }];
   assert.deepEqual(model.testsConfirmationKeys(tests, ['tests', 'run', '--capability', 'payments-web'], []), [SHA2]);
   const fallback = model.testsConfirmationKeys([], ['tests', 'run', '--capability', 'payments-web'], []);
   assert.match(fallback[0], /^vscode-argv:sha256:[a-f0-9]{64}$/, 'an engine without `tests plan` confirms the exact argv');
   assert.notDeepEqual(model.testsConfirmationKeys([], ['tests', 'run', '--capability', 'payments-web', '--command', 'x'], ['x']), fallback);
-  assert.match(model.testsConfirmationRequest('payments-web', tests, [], null).detail, /module-tests \(test\): \["npm","test"\]\n  in apps\/web\n  identity sha256:b{64}/);
+  const testsDetail = model.testsConfirmationRequest('payments-web', tests, [], null).detail;
+  assert.match(testsDetail, /module-tests \(test\): \["npm","test"\]\n  in apps\/web\n/);
+  assert.doesNotMatch(testsDetail.replace(/^VS Code runs it as a task: .*$/mu, ''), /identity|b{64}/, 'a person reads what runs; only the command carries its identity (owner, 2026-11-11)');
   // The confirmation says what it found and why, and what a person can do first; nothing there refuses.
   const notes = model.testPlanNotesFrom({ notUsed: [{ why: 'module-tests is configured, so SFlow runs only that.' }], earlyChecks: [{ id: 'dependencies-not-installed', words: 'Dependencies are not installed.', action: 'Run npm ci.' }, { words: '' }] });
   assert.deepEqual(notes, { notUsed: ['module-tests is configured, so SFlow runs only that.'], earlyChecks: [{ words: 'Dependencies are not installed.', action: 'Run npm ci.' }] });

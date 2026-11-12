@@ -62,7 +62,7 @@ class SharedWorkflowDraftsPanel {
             restoreAllowed: view.recovery.restoreAllowed, readOnly: Boolean(editor.readOnlyReason), dirty: view.dirty,
             recoveryBlocked: view.recovery.candidateAvailable || ['failed', 'checking'].includes(view.recovery.status),
             autosave: `Shared autosave ${view.autosave ? 'on for this exact draft' : 'off'}.`,
-            revision: `Retained saved revision ${editor.record.revision} · lifecycle epoch ${editor.record.lifecycleEpoch}\n${editor.record.revisionSha256}\nCompare-and-swap head: ${editor.head}\nRetained draft authority: ${editor.authority}`,
+            revision: `Retained saved revision ${editor.record.revision} · lifecycle epoch ${editor.record.lifecycleEpoch}\nRetained draft authority: ${editor.authority}`,
             operation: view.operationId ? `Last write operation ID: ${view.operationId}. Check status before retrying uncertain writes.` : '',
             busy: view.busy, hasShow: Boolean(view.show), hasPreview: Boolean(view.preview), error: view.error ?? '' }).then(undefined, () => {});
         },
@@ -84,7 +84,7 @@ class SharedWorkflowDraftsPanel {
         confirmLockRepair: async (inspection) => {
           const label = 'Remove this dead private lock';
           return await showCompactWarningMessage('Repair this interrupted private checkpoint lock?', {
-            modal: true, detail: `Draft: ${inspection.scope.draftId}\nRepository: ${inspection.scope.repository}\nAuthority: ${inspection.scope.authority}\nLock: ${inspection.kind}${inspection.kind === 'key-init' ? ' (directory-wide key initialization)' : ''}\nDirectory: ${inspection.directorySha256}\nOwner PID: ${inspection.owner?.pid ?? 'unknown'}\nLock nonce: ${inspection.owner?.lockNonce ?? 'unknown'}\n${inspection.reason}\nOnly the exact proven-dead same-domain lock is removed after fresh ownership checks. Text, ciphertext, encryption key and shared Git draft are not changed. No save or retry runs. Cancel keeps everything.`
+            modal: true, detail: `Draft: ${inspection.scope.draftId}\nRepository: ${inspection.scope.repository}\nAuthority: ${inspection.scope.authority}\nLock: ${inspection.kind}${inspection.kind === 'key-init' ? ' (directory-wide key initialization)' : ''}\nOwner PID: ${inspection.owner?.pid ?? 'unknown'}\n${inspection.reason}\nOnly the exact proven-dead same-domain lock is removed after fresh ownership checks. Text, ciphertext, encryption key and shared Git draft are not changed. No save or retry runs. Cancel keeps everything.`
           }, label) === label;
         },
         copyReview: async (repository, argv, surface) => {

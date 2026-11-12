@@ -452,7 +452,7 @@ export function buildInboxTree(
           kind: 'artifact', id: `inbox:artifact:${artifact.id}`, label: artifact.label,
           description: artifact.status.replace(/_/g, ' '), icon: artifact.readOnly ? 'lock-small' : 'file',
           path: artifact.path, readOnly: artifact.readOnly,
-          tooltip: `${artifact.path}\nsha256 ${artifact.sha256 ?? 'unavailable'}`,
+          tooltip: artifact.path,
           contextValue: artifact.readOnly ? 'sflow.artifact.pinned' : 'sflow.artifact'
         }))
       }))

@@ -2,7 +2,7 @@ import { showCompactWarningMessage } from "../compact-message.ts";
 /** Exact repository-setup proposal review. The CLI remains the authority for validation and writes. */
 import * as vscode from 'vscode';
 import {
-  brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page
+  brandLockup, contentSecurityPolicy, diffForPerson, escape, icon, navigationTarget, nonce, page, reviewBranchName
 } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { setupProposalMatchesLead } from './setup-proposal-model.ts';
@@ -68,6 +68,7 @@ function setupActivation(value: unknown, proposal: SetupProposal): SetupActivati
   return candidate as SetupActivation;
 }
 
+// A person reads the setup by its branch and changes, never its commits; approval still binds the exact commit (owner, 2026-11-11).
 export function setupProposalHtml(
   proposal: SetupProposal | null, lead: string, branch: string, expectedCommit: string | null,
   busy: boolean, error: string | null, activation: SetupActivation | null
@@ -75,12 +76,11 @@ export function setupProposalHtml(
   const header = `${brandLockup({ compact: true })}<header class="inbox-header">
     <p class="eyebrow">Repository setup</p>
     <h1>${icon('merge', { size: 24 })} Review setup proposal</h1>
-    <p class="meta">Review the exact commit and configuration changes before approval.</p>
+    <p class="meta">Review the exact configuration changes before approval.</p>
   </header>`;
   if (!proposal) return `${header}${error ? `<div class="notice error"><p>${escape(error)}</p></div>` : ''}
     <section class="plain"><p>Repository: <code>${escape(lead)}</code></p>
-    <p>Review branch: <code>${escape(branch)}</code></p>
-    ${expectedCommit ? `<p>Expected commit: <code>${escape(expectedCommit)}</code></p>` : ''}
+    <p>Review branch: <code>${escape(reviewBranchName(branch))}</code></p>
     <p>${busy ? 'Loading the setup proposal from Git…' : 'The exact setup proposal is unavailable. Refresh to retry.'}</p>
     <button class="secondary" data-action="refresh">Refresh</button></section>`;
   const moved = expectedCommit != null && proposal.proposalCommit !== expectedCommit;
@@ -88,21 +88,19 @@ export function setupProposalHtml(
   const files = proposal.changedFiles.map((file) => `<tr><td><code>${escape(file.status)}</code></td>
     <td>${escape(file.paths.join(' to '))}</td></tr>`).join('');
   const activationNotice = !activation ? '' : completed
-    ? `<div class="notice ok"><p><strong>Setup approved.</strong> <code>sflow/config</code> now points to <code>${escape(activation.targetCommit ?? '')}</code>. Recheck repository setup to continue mapping.</p></div>`
+    ? `<div class="notice ok"><p><strong>Setup approved.</strong> <code>sflow/config</code> now carries the reviewed setup. Recheck repository setup to continue mapping.</p></div>`
     : `<div class="notice warning"><p><strong>Approval is waiting.</strong> ${escape(activation.failure?.message
       ?? 'The repository requires its review process before this proposal can become approved configuration.')}</p>
       ${configurationGitFailureText(activation.failure) ? `<pre class="help-code">${escape(configurationGitFailureText(activation.failure))}</pre>` : ''}
-      ${activation.externalAction ? `<p>Review and merge <code>${escape(activation.externalAction.sourceBranch)}</code> into <code>${escape(activation.externalAction.targetBranch)}</code> through the repository controls.</p>` : ''}</div>`;
+      ${activation.externalAction ? `<p>Review and merge <code>${escape(reviewBranchName(activation.externalAction.sourceBranch))}</code> (Copy branch copies its full name) into <code>${escape(activation.externalAction.targetBranch)}</code> through the repository controls.</p>` : ''}</div>`;
   return `${header}${error ? `<div class="notice error"><p>${escape(error)}</p></div>` : ''}
     ${activationNotice}
-    ${moved ? `<div class="notice warning"><p>The proposal moved since repository setup returned. This screen loaded its current exact commit; review the diff below before approval.</p></div>` : ''}
+    ${moved ? `<div class="notice warning"><p>The proposal moved since repository setup returned. This screen loaded its current version; review the diff below before approval.</p></div>` : ''}
     <section class="plain"><h2>${icon('branch')} Source and target</h2>
       <div class="review-binding">
         <span>Repository</span><code>${escape(proposal.remote)}</code>
-        <span>Review branch</span><code>${escape(proposal.branch)}</code>
-        <span>Exact commit</span><code>${escape(proposal.proposalCommit)}</code>
-        <span>Approved target</span><code>${escape(proposal.targetBranch)}</code>
-        <span>Target commit</span><code>${escape(proposal.targetCommit ?? 'Not created yet')}</code>
+        <span>Review branch</span><code>${escape(reviewBranchName(proposal.branch))}</code>
+        <span>Approved target</span><code>${escape(proposal.targetBranch)}${proposal.targetCommit ? '' : ' (not created yet)'}</code>
       </div>
       <div class="notice"><p>${proposal.targetCommit
         ? 'Approval updates sflow/config to the reviewed setup commit.'
@@ -113,10 +111,10 @@ export function setupProposalHtml(
         <tbody>${files}</tbody></table></div>
       ${!proposal.valid ? `<div class="notice warning"><p>${escape(proposal.failure?.message
         ?? proposal.status ?? 'This setup proposal is blocked by validation.')}</p></div>` : ''}
-      ${proposal.diff == null ? '<div class="notice warning"><p>The full diff could not be loaded. Refresh before approving this exact commit.</p></div>' : ''}
+      ${proposal.diff == null ? '<div class="notice warning"><p>The full diff could not be loaded. Refresh before approving this setup.</p></div>' : ''}
     </section>
     <section><h2>${icon('compare')} Proposed diff</h2>
-      <div class="help-code"><pre><code>${escape(proposal.diff || 'No textual diff.')}</code></pre></div>
+      <div class="help-code"><pre><code>${escape(diffForPerson(proposal.diff) || 'No textual diff.')}</code></pre></div>
     </section>
     <section class="next"><div class="actions">
       <button class="primary" data-action="activate" ${busy || !proposal.valid || proposal.diff == null || completed ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Checking approval…' : proposal.merged ? 'Record reviewed setup' : 'Approve setup proposal'}</button>
@@ -220,7 +218,7 @@ export class SetupProposalPanel {
     const proposal = this.proposal;
     const label = proposal.merged ? 'Record reviewed setup' : 'Approve exact setup';
     const accepted = await showCompactWarningMessage(
-      `${label}: ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
+      `${label}: ${reviewBranchName(proposal.branch)}?`,
       { modal: true, detail: `The exact reviewed configuration change targets ${proposal.targetBranch}. The repository may require its own review controls before the update is accepted.` },
       label
     );
@@ -235,8 +233,8 @@ export class SetupProposalPanel {
       this.busy = false; this.error = attempted.error; this.render();
       const acknowledgement = 'Acknowledge unprotected branch';
       const acknowledged = await showCompactWarningMessage(
-        `Git cannot verify whether ${proposal.targetBranch} requires repository review. Authorize one exact update for ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)}?`,
-        { modal: true, detail: 'This authorizes only the reviewed commit. Server hooks and review controls can still refuse the update.' },
+        `Git cannot verify whether ${proposal.targetBranch} requires repository review. Authorize one exact update for ${reviewBranchName(proposal.branch)}?`,
+        { modal: true, detail: 'This authorizes only the setup reviewed here. Server hooks and review controls can still refuse the update.' },
         acknowledgement
       );
       if (acknowledged !== acknowledgement) return;

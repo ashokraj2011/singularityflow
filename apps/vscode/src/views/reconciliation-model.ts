@@ -100,7 +100,8 @@ function branchLevel(initiative: InitiativeSnapshot): ReconciliationLevel {
         String(story.repository ?? '—'),
         String(story.status ?? 'unknown'),
         String(story.currentPhase ?? '—'),
-        unobserved ? 'never observed' : observed === seed ? 'at seed' : `${observed.slice(0, 8)} (moved on)`
+        // A person reads where the branch is, never its commit (owner, 2026-11-11).
+        unobserved ? 'never observed' : observed === seed ? 'at seed' : 'moved on'
       ],
       drifted: stale || unobserved,
       ...(stale ? { detail: 'The Epic\'s record of this branch is stale; sync to re-observe it.' } : {})
@@ -217,7 +218,7 @@ function conformanceLevel(initiative: InitiativeSnapshot): ReconciliationLevel {
           '—',
           `${String(story.workId ?? '')}${story.repository ? ` (${String(story.repository)})` : ''}`,
           conformance.treeSha256
-            ? `${passed ? 'conforms' : String(conformance.status ?? 'unknown')} @ ${String(conformance.treeSha256).slice(0, 8)}`
+            ? (passed ? 'conforms' : String(conformance.status ?? 'unknown'))
             : 'no conformance tree recorded'
         ],
         drifted: !passed || !conformance.treeSha256

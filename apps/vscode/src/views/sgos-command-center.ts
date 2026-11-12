@@ -245,6 +245,25 @@ export class SgosCommandCenterPanel {
     return { process, action };
   }
 
+  /**
+   * The checkpoint a replay or fork starts from. A person picks the current one by its revision; only a person who
+   * chooses another one enters its reference. A person never reads a digest (owner, 2026-11-11).
+   */
+  private async chooseCheckpoint(process: SgosProcessCard, title: string, why: string): Promise<{ checkpoint: string; words: string } | null> {
+    const current = process.currentCheckpointSha256;
+    const other = { label: 'Another checkpoint…', detail: 'Enter the exact checkpoint reference from this Process lineage.' };
+    const options = current
+      ? [{ label: 'The current checkpoint', description: `revision ${process.processRevision}`, detail: why }, other] : [other];
+    const picked = await vscode.window.showQuickPick(options, { title, placeHolder: why, ignoreFocusOut: true });
+    if (!picked) return null;
+    if (picked !== other && current) return { checkpoint: current, words: `the current checkpoint (revision ${process.processRevision})` };
+    const entered = await vscode.window.showInputBox({
+      title, prompt: 'Enter the exact checkpoint reference (sha256:…) from this Process lineage.', ignoreFocusOut: true,
+      validateInput: (value) => /^sha256:[a-f0-9]{64}$/.test(value) ? null : 'Enter an exact sha256: checkpoint reference.'
+    });
+    return entered ? { checkpoint: entered, words: 'the checkpoint you entered' } : null;
+  }
+
   private shownAction(processId: string, operation: string): {
     process: SgosProcessCard; action: SgosActionDescriptor;
   } | null {
@@ -348,7 +367,7 @@ export class SgosCommandCenterPanel {
       if (!selected) return;
       const confirmed = await showCompactWarningMessage(
         `Apply recovery '${selected.action.resolution}' to ${result.attemptId}?`,
-        { modal: true, detail: `${selected.action.effect}\n\nThe exact runtime confirmation is ${selected.action.confirmationSha256}.` },
+        { modal: true, detail: `${selected.action.effect}\n\nOnly this exact recovery is applied; if the runtime changed since this list, it is refused.` },
         'Apply exact recovery'
       );
       if (confirmed !== 'Apply exact recovery') return;
@@ -518,7 +537,7 @@ export class SgosCommandCenterPanel {
         `Quarantine ${processId}'s preserved private bytes?`,
         {
           modal: true,
-          detail: `${result.fileCount} file(s) will be moved intact, not rewritten. Reason: ${result.reason}.\n\nExact tree confirmation: ${result.confirmationSha256}`
+          detail: `${result.fileCount} file(s) will be moved intact, not rewritten. Reason: ${result.reason}.\n\nOnly these exact files are moved; if they changed since this preview, it is refused.`
         },
         'Quarantine exact tree'
       );
@@ -554,14 +573,10 @@ export class SgosCommandCenterPanel {
   private async replay(processId: string): Promise<void> {
     const shown = this.shownAction(processId, 'process.replay.plan');
     if (!shown) return;
-    const checkpoint = await vscode.window.showInputBox({
-      title: `Preview replay for ${processId}`,
-      prompt: 'Enter an exact checkpoint SHA-256 from this Process lineage.',
-      value: shown.process.currentCheckpointSha256 ?? '',
-      validateInput: (value) => /^sha256:[a-f0-9]{64}$/.test(value)
-        ? null : 'Enter an exact sha256:<64 lowercase hex> checkpoint digest.'
-    });
-    if (!checkpoint) return;
+    const chosen = await this.chooseCheckpoint(shown.process, `Preview replay for ${processId}`,
+      'Replay from a checkpoint of this Process lineage.');
+    if (!chosen) return;
+    const { checkpoint, words: from } = chosen;
     const previewConfirmed = await showCompactWarningMessage(
       `Create an exact replay preview for ${processId}?`,
       { modal: true, detail: 'This records an immutable replay plan but does not reopen any task. A second confirmation is required to apply it.' },
@@ -584,7 +599,7 @@ export class SgosCommandCenterPanel {
       }
       const confirmed = await showCompactWarningMessage(
         `Replay ${plan.taskInstanceIds.length} pure suffix task${plan.taskInstanceIds.length === 1 ? '' : 's'} in ${processId}?`,
-        { modal: true, detail: `Checkpoint: ${checkpoint}\nPlan: ${plan.replayPlanSha256}\n\nExisting receipts remain historical; replayed tasks receive new attempts.` },
+        { modal: true, detail: `From ${from}.\n\nExisting receipts remain historical; replayed tasks receive new attempts.` },
         'Confirm exact replay'
       );
       if (confirmed !== 'Confirm exact replay') return;
@@ -599,14 +614,10 @@ export class SgosCommandCenterPanel {
   private async fork(processId: string): Promise<void> {
     const shown = this.shownAction(processId, 'process.fork.plan');
     if (!shown) return;
-    const checkpoint = await vscode.window.showInputBox({
-      title: `Preview fork for ${processId}`,
-      prompt: 'Enter the exact genesis checkpoint SHA-256. The installed profile refuses later checkpoints.',
-      value: shown.process.currentCheckpointSha256 ?? '',
-      validateInput: (value) => /^sha256:[a-f0-9]{64}$/.test(value)
-        ? null : 'Enter an exact sha256:<64 lowercase hex> checkpoint digest.'
-    });
-    if (!checkpoint) return;
+    const chosen = await this.chooseCheckpoint(shown.process, `Preview fork for ${processId}`,
+      'Fork from the genesis checkpoint. The installed profile refuses later checkpoints.');
+    if (!chosen) return;
+    const { checkpoint, words: from } = chosen;
     const label = await vscode.window.showInputBox({
       title: `Name the independent fork of ${processId}`,
       prompt: 'Use lower-case kebab case; this label participates in the deterministic child identity.',
@@ -635,7 +646,7 @@ export class SgosCommandCenterPanel {
       }
       const confirmed = await showCompactWarningMessage(
         `Create independent Process ${plan.childProcessId}?`,
-        { modal: true, detail: `Parent: ${processId}\nGenesis checkpoint: ${checkpoint}\nPlan: ${plan.forkPlanSha256}` },
+        { modal: true, detail: `Parent: ${processId}\nFrom ${from}.` },
         'Confirm exact fork'
       );
       if (confirmed !== 'Confirm exact fork') return;
@@ -697,7 +708,7 @@ export class SgosCommandCenterPanel {
       });
       if (!choice) return;
       const confirmed = await showCompactWarningMessage(
-        `${choice.label} for ${found.request.requestId}? The kernel will re-check request ${found.request.requestSha256}.`,
+        `${choice.label} for ${found.request.requestId}? The kernel will re-check that the request is unchanged.`,
         { modal: true }, 'Confirm response'
       );
       if (confirmed !== 'Confirm response') return;

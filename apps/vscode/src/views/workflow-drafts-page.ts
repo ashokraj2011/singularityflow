@@ -39,7 +39,7 @@ function lifecycleSimulationHtml(preview: Record<string, unknown>): string {
       const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
       const coverage = report.coverage && typeof report.coverage === 'object' ? report.coverage as Record<string, unknown> : {};
       return `<details><summary>${escape(report.workflowId ?? '')} · ${escape(report.status)} · ${escape(scenarios.length)} scenarios</summary>
-        <p>Resolved contract: <code>${escape(report.sourceDefinitionSha256)}</code>. ${escape(coverage.phaseCount)} phases; ${escape(coverage.eventCount)} projected events.</p>
+        <p>The resolved contract is pinned. ${escape(coverage.phaseCount)} phases; ${escape(coverage.eventCount)} projected events.</p>
         <p>Scenario summary: first ${Math.min(scenarios.length, 64)} of ${scenarios.length}. The exact Preview JSON below retains the full bounded report.</p>
         <table><thead><tr><th>Scenario</th><th>Phase</th><th>Expected route</th><th>Projected outcome</th></tr></thead><tbody>${scenarios.slice(0, 64).map((rawScenario) => {
           const item = rawScenario && typeof rawScenario === 'object' ? rawScenario as Record<string, unknown> : {};
@@ -94,7 +94,7 @@ function sharedObjectChangeImpactHtml(preview: Record<string, unknown>): string 
     <p>Replacements: first ${Math.min(replacements.length, 16)} of ${replacements.length}. Consumers: first ${Math.min(consumers.length, 64)} of ${consumers.length}. Workflows: first ${Math.min(workflows.length, 64)} of ${workflows.length}. The exact Preview JSON retains the full bounded impact and source identities.</p>
     <table><thead><tr><th>Changed object</th><th>Exact parent</th><th>Changed fields</th></tr></thead><tbody>${replacements.slice(0, 16).map((value) => {
       const item = row(value);
-      return `<tr><td>${escape(item.kind)}:<code>${escape(item.id)}</code>${item.path ? `<br>${escape(item.path)}` : ''}</td><td><code>${escape(item.expectedDefinitionSha256 ?? item.beforeDefinitionSha256 ?? item.expectedTextSha256 ?? item.beforeTextSha256 ?? item.expectedContentSha256 ?? item.beforeContentSha256 ?? 'not reported')}</code></td><td>${escape(list(item.changedFields))}</td></tr>`;
+      return `<tr><td>${escape(item.kind)}:<code>${escape(item.id)}</code>${item.path ? `<br>${escape(item.path)}` : ''}</td><td>${item.expectedDefinitionSha256 ?? item.beforeDefinitionSha256 ?? item.expectedTextSha256 ?? item.beforeTextSha256 ?? item.expectedContentSha256 ?? item.beforeContentSha256 ? 'pinned' : 'not reported'}</td><td>${escape(list(item.changedFields))}</td></tr>`;
     }).join('')}</tbody></table>
     <table><thead><tr><th>Declared consumer</th><th>Relationship</th></tr></thead><tbody>${consumers.slice(0, 64).map((value) => {
       const item = row(value); return `<tr><td>${escape(item.kind)}:<code>${escape(item.id)}</code></td><td>${escape(item.relation)}</td></tr>`;
@@ -124,13 +124,13 @@ function selectedUsageHtml(view: SharedWorkflowDraftView): string {
     <p id="usage-input-error" class="warning" role="alert" hidden></p>
     <button type="button" class="secondary" data-draft-action="usage-query"${view.busy ? ' disabled' : ''}>Check selected Story usage · read-only</button>
     ${usage.error ? `<p class="warning" role="alert">${escape(usage.error)} No partial or stale inventory is displayed.</p>` : ''}
-    ${report ? `<div role="status"><p>Verified selected windows only · ${escape(coverage.observedRevisions)} observed revisions, ${escape(coverage.matchingRevisions)} matching. Page ${escape(page.cursor)}–${escape(Number(page.cursor) + references.length)} of ${escape(page.total)} references. Source: <code>${escape(report.sourceSha256)}</code>.</p>
+    ${report ? `<div role="status"><p>Verified selected windows only · ${escape(coverage.observedRevisions)} observed revisions, ${escape(coverage.matchingRevisions)} matching. Page ${escape(page.cursor)}–${escape(Number(page.cursor) + references.length)} of ${escape(page.total)} references.</p>
       <p>Other repositories: ${escape(coverage.otherRepositories)}. Earlier commits: ${escape(coverage.earlierCommitsBeyondWindows)}. Provider identity/revocation: ${escape(coverage.providerPrincipalAndRevocation)}. Execution usage: ${escape(coverage.executionUsage)}.</p>
-      <table><thead><tr><th>Repository</th><th>Story</th><th>Commit</th><th>Observation</th></tr></thead><tbody>${observations.slice(0, 32).map((value) => {
-        const item = asRow(value); return `<tr><td>${escape(item.repositoryIndex)}</td><td><code>${escape(item.workId)}</code></td><td><code>${escape(item.commit)}</code></td><td>${escape(item.status)}</td></tr>`;
+      <table><thead><tr><th>Repository</th><th>Story</th><th>Observation</th></tr></thead><tbody>${observations.slice(0, 32).map((value) => {
+        const item = asRow(value); return `<tr><td>${escape(item.repositoryIndex)}</td><td><code>${escape(item.workId)}</code></td><td>${escape(item.status)}</td></tr>`;
       }).join('')}</tbody></table>
       <table><thead><tr><th>Repository</th><th>Story</th><th>Phase</th><th>Package</th></tr></thead><tbody>${references.slice(0, 32).map((value) => {
-        const item = asRow(value); return `<tr><td>${escape(item.repositoryIndex)}</td><td><code>${escape(item.workId)}</code></td><td><code>${escape(item.phaseId)}</code></td><td><code>${escape(item.packageSha256)}</code></td></tr>`;
+        const item = asRow(value); return `<tr><td>${escape(item.repositoryIndex)}</td><td><code>${escape(item.workId)}</code></td><td><code>${escape(item.phaseId)}</code></td><td>${item.packageSha256 ? 'pinned' : 'not reported'}</td></tr>`;
       }).join('')}</tbody></table>
       ${page.nextCursor !== null ? `<button type="button" class="secondary" data-draft-action="usage-next"${view.busy ? ' disabled' : ''}>Next page of this exact verified source</button>` : '<p>Last page of the selected result.</p>'}
       <details><summary>Exact bounded usage report JSON</summary><pre><code>${escape(JSON.stringify(report, null, 2))}</code></pre></details></div>` : ''}
@@ -181,7 +181,7 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
           ? '<p class="warning">Mixed or bare-CR source line endings require escaped advanced JSON. No guided text edit is available; exact metadata bytes are not normalized.</p>'
           : `<p>Uniform captured source line endings are retained when the browser normalizes textarea input.</p>${answer('shared-agent-text', 'Complete Agent Markdown (exact metadata must remain unchanged)', agent.text, index)}`}</details>`).join('');
         else if (sharedKind === 'template') content += guide.templates.map((template, index) => `<details open><summary>${escape(template.id)} · existing shared template</summary><p>Preserve the path, kind and parent identities. Required headings and supported tokens are validated for every affected workflow.</p>${answer('template-content', 'Literal template content', template.content, index)}</details>`).join('');
-        else if (sharedKind === 'skill-group') content += `<p>Grouped artifact-only contract review selects two to sixteen existing skill phases. Exact parent hashes, full replacement contracts, retained packages and dependency closures are supplied in advanced JSON and checked by Preview; this guide cannot infer or edit them.</p><table><thead><tr><th>Selected phase</th><th>Exact parent</th></tr></thead><tbody>${(guide.payload.changes as Record<string, unknown>[]).slice(0, 16).map((change) => `<tr><td><code>${escape(change.id)}</code></td><td><code>${escape(change.expectedDefinitionSha256)}</code></td></tr>`).join('')}</tbody></table>`;
+        else if (sharedKind === 'skill-group') content += `<p>Grouped artifact-only contract review selects two to sixteen existing skill phases. Exact parent hashes, full replacement contracts, retained packages and dependency closures are supplied in advanced JSON and checked by Preview; this guide cannot infer or edit them.</p><table><thead><tr><th>Selected phase</th><th>Exact parent</th></tr></thead><tbody>${(guide.payload.changes as Record<string, unknown>[]).slice(0, 16).map((change) => `<tr><td><code>${escape(change.id)}</code></td><td>${change.expectedDefinitionSha256 ? 'pinned' : 'not reported'}</td></tr>`).join('')}</tbody></table>`;
         else content += '<p>Complete phase replacements use advanced JSON. The guide does not infer nested artifact, input or review policy.</p>';
       }
       if (view.stage === 5) content += answer('rationale', 'Review explanation', guide.payload.rationale);
@@ -194,7 +194,7 @@ function guidedHtml(view: SharedWorkflowDraftView): string {
       + selection('workflow-edit', 'Prepare workflow-only edit') + selection('workflow-fork', 'Prepare linked copy (uses your new package identity)')
       + guide.workflows.map((workflow, index) => answer('workflow-label', 'Explicit workflow label override (leave unapplied to preserve source)', workflow.label, index)
         + answer('workflow-description', 'Explicit workflow description override', workflow.description, index)).join('')
-      + (view.preview?.approvedSource && typeof view.preview.approvedSource === 'object' ? `<p>Captured approved base: <code>${escape((view.preview.approvedSource as Record<string, unknown>).baseRevision)}</code>. This choice requests the selected repository Story scope only; host IDs are not granted.</p><button type="button" class="secondary" data-draft-action="catalog-answer" data-choice-kind="approved-base"${disabled}>Use captured approved base and repository Story target</button>` : '<p class="muted">Preview supplies the exact approved base for an explicit target choice; no revision is fabricated.</p>');
+      + (view.preview?.approvedSource && typeof view.preview.approvedSource === 'object' ? `<p>An approved base was captured. This choice requests the selected repository Story scope only; host IDs are not granted.</p><button type="button" class="secondary" data-draft-action="catalog-answer" data-choice-kind="approved-base"${disabled}>Use captured approved base and repository Story target</button>` : '<p class="muted">Preview supplies the exact approved base for an explicit target choice; no revision is fabricated.</p>');
     else if (view.stage === 2) {
       const order = guide.workflows[0]?.phases;
       content = '<p>Are these the right steps? New steps create incomplete candidate phase, agent, skill and template definitions. No business prompt or catalog binding is invented.</p>'
@@ -261,7 +261,7 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
     ${selectedUsageHtml(view)}
     ${editor ? `<section><h2>Draft editor · <code>${escape(editor.record.draftId)}</code></h2>
       <p id="draft-revision">Retained saved revision ${escape(editor.record.revision)} · lifecycle epoch ${escape(editor.record.lifecycleEpoch)}<br>
-      <code>${escape(editor.record.revisionSha256)}</code><br>Compare-and-swap head: <code>${escape(editor.head)}</code><br>Retained draft authority: <code>${escape(editor.authority)}</code></p>
+      Retained draft authority: <code>${escape(editor.authority)}</code></p>
       <p id="draft-dirty" role="status" aria-live="polite">${escape(workflowDraftDurabilityLabel(view))}</p>
       <p id="draft-autosave" role="status">Shared autosave ${view.autosave ? 'on for this exact draft' : 'off'}.</p>
       <p id="draft-recovery-status" role="status" aria-live="polite">${escape(workflowDraftRecoveryLabel(view))}</p>
@@ -292,7 +292,7 @@ export function sharedWorkflowDraftsHtml(view: SharedWorkflowDraftView): string 
       <p class="muted">Shell copy is rooted to this exact repository. Copilot copy requires this repository to be the only opened folder; its headless route cannot capture deletion consent.</p>
       <button type="button" class="secondary" data-draft-action="terminal-review"${disabled}>Copy Shell review command</button>
       <button type="button" class="secondary" data-draft-action="copilot-review"${disabled}>Copy Copilot handoff</button></details></section>` : '<section><p>Open a shared draft to edit its partial package.</p></section>'}
-    ${view.preview ? `<section id="draft-preview"><h2>Exact saved-package Preview · read-only</h2><p>Plan: <code>${escape(view.preview.planSha256)}</code>. Authoring: ${escape((view.preview.readiness as Record<string, unknown>)?.authoring)}. Host: ${escape((view.preview.readiness as Record<string, unknown>)?.host)}. Execution: ${escape((view.preview.readiness as Record<string, unknown>)?.execution)}.</p>
+    ${view.preview ? `<section id="draft-preview"><h2>Exact saved-package Preview · read-only</h2><p>Authoring: ${escape((view.preview.readiness as Record<string, unknown>)?.authoring)}. Host: ${escape((view.preview.readiness as Record<string, unknown>)?.host)}. Execution: ${escape((view.preview.readiness as Record<string, unknown>)?.execution)}.</p>
       <p>Static validity is not Ready to run. Human confirmation, membership, native host enforcement and activation remain separate; no operation was executed.</p>
       <dl><dt>Configuration proposal</dt><dd>${escape((view.preview.readiness as Record<string, unknown>)?.publication ?? 'not reported')}</dd><dt>Activation</dt><dd>${escape((view.preview.readiness as Record<string, unknown>)?.activation ?? 'not reported')}</dd><dt>Actual host enforcement</dt><dd>${escape((view.preview.coverage as Record<string, unknown>)?.hostEnforcement ?? 'not reported')}</dd><dt>Behavior/evidence</dt><dd>${escape((view.preview.readiness as Record<string, unknown>)?.behavior ?? 'not reported')}</dd></dl>
       ${view.preview.skillFinalization ? '<p class="warning">Skill contract review is a configuration proposal only. A Docker byte-hash probe, source-side capability labels and a static Preview are not a qualified execution host or exact host-delivery acknowledgement.</p>' : ''}

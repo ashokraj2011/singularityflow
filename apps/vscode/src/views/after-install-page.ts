@@ -1,5 +1,5 @@
 /** Guided upgrade plus a one-confirm hard cutover over the existing guarded authorities. */
-import { brandLockup, escape, icon } from './webview.ts';
+import { brandLockup, escape, icon, reviewBranchName } from './webview.ts';
 import { afterInstallComplete, safeUpgradeComplete, type AfterInstallView } from './after-install-model.ts';
 import { isSafeWorkspaceReinitializationPreview } from './workspaces-model.ts';
 
@@ -46,10 +46,9 @@ export function afterInstallHtml(view: AfterInstallView): string {
       ${result ? `<p>Status: <strong>${escape(result.status)}</strong> · ${escape(result.total)} repositories · ${escape(result.updated)} updated</p>
         ${result.storyCutover ? `<p>Story cutover: <strong>${escape(result.storyCutover.status)}</strong></p><p>${escape(result.storyCutover.statement)}</p>
           <ul class="plain-list">${result.storyCutover.repositories.map(item => `<li>${escape(item.repository)}: ${escape(item.retiredIds?.join(', ') || 'No known Stories')}</li>`).join('')}</ul>` : ''}
-        ${result.planId ? `<p class="muted">Reviewed plan: <code>${escape(result.planId)}</code></p>` : ''}
         <div class="table-scroll"><table><thead><tr><th>Repository</th><th>Result / next step</th></tr></thead><tbody>${result.results.map(repository => `<tr><td>${escape(repository.repository)}</td><td>${escape(repository.status)}
           ${repository.error ? `<p class="notice warning">${escape(repository.error)}</p>` : ''}
-          ${repository.proposalBranch ? `<p>Review and merge the retained proposal through normal Git review:<br><code>${escape(repository.proposalBranch)}</code>. Then create a fresh preview.</p>` : ''}
+          ${repository.proposalBranch ? `<p>Review and merge the retained proposal through normal Git review:<br><code>${escape(reviewBranchName(repository.proposalBranch))}</code>. Then create a fresh preview.</p>` : ''}
           ${repository.conflicts?.length ? `<p class="muted">Preserved custom content: ${repository.conflicts.map(conflict => escape(conflict.path)).join(', ')}</p>` : ''}
           ${repository.files?.length ? `<details><summary>${repository.files.length} configuration files</summary><ul class="plain-list">${repository.files.map(file => `<li><code>${escape(file)}</code></li>`).join('')}</ul></details>` : ''}
         </td></tr>`).join('')}</tbody></table></div>

@@ -222,8 +222,9 @@ function escapeHtml(value: unknown): string {
   }[character] ?? character));
 }
 
+/** A person reads whether exact bytes are bound, never the digest (owner, 2026-11-11). */
 function digest(value: string | null): string {
-  return value ? `<code>${escapeHtml(value)}</code>` : '<span>not recorded</span>';
+  return value ? '<span>recorded</span>' : '<span>not recorded</span>';
 }
 
 /**
@@ -237,7 +238,7 @@ export function revisionBrowserResultCardHtml(view: RevisionBrowserResultView): 
     ? `<ul>${view.staleBindings.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
     : '<p>None reported.</p>';
   const artifacts = view.artifacts.length
-    ? `<table><thead><tr><th>Kind</th><th>Path</th><th>Digest</th><th>Provenance</th><th>Access / retention</th></tr></thead><tbody>${view.artifacts.map((item) => `<tr><td>${escapeHtml(item.kind)}</td><td><code>${escapeHtml(item.path)}</code></td><td>${digest(item.sha256)}</td><td>${escapeHtml(item.provenance)}${item.captureProvenanceSha256 ? ` · ${digest(item.captureProvenanceSha256)}` : ''}</td><td>${escapeHtml(item.accessClass)} / ${escapeHtml(item.retentionClass)}</td></tr>`).join('')}</tbody></table>`
+    ? `<table><thead><tr><th>Kind</th><th>Path</th><th>Exact bytes</th><th>Provenance</th><th>Access / retention</th></tr></thead><tbody>${view.artifacts.map((item) => `<tr><td>${escapeHtml(item.kind)}</td><td><code>${escapeHtml(item.path)}</code></td><td>${digest(item.sha256)}</td><td>${escapeHtml(item.provenance)}${item.captureProvenanceSha256 ? ' · capture provenance recorded' : ''}</td><td>${escapeHtml(item.accessClass)} / ${escapeHtml(item.retentionClass)}</td></tr>`).join('')}</tbody></table>`
     : '<p>No opaque artifact inventory is available.</p>';
   const visuals = view.visuals.length
     ? `<table><thead><tr><th>Test</th><th>Verdict</th><th>Difference</th><th>Tolerance</th></tr></thead><tbody>${view.visuals.map((item) => `<tr><td>${escapeHtml(item.testId)}</td><td>${escapeHtml(item.verdict)}</td><td>${item.diffRatio == null ? 'not recorded' : `${(item.diffRatio * 100).toFixed(2)}%`}</td><td>${item.tolerance == null ? 'not recorded' : `${(item.tolerance * 100).toFixed(2)}%`}</td></tr>`).join('')}</tbody></table>`

@@ -84,7 +84,7 @@ export function goalsBody(
     ${selectedGoverned ? `<div class="card"><h3>${escape(selectedGoverned.statement ?? selectedGoverned.id)}</h3>
       <p><span class="badge">repository</span> <span class="badge">${escape(governedState?.status ?? selectedGoverned.status ?? 'unknown')}</span> <span class="badge">${escape(governedState?.assurance ?? selectedGoverned.assurance ?? 'unassessed')}</span></p>
       <h4>Success oracles</h4><ul>${list<GovernedCriterion>(governedDetail?.contract?.criteria).map((criterion) => `<li><strong>${escape(criterion.id ?? '')}</strong> ${escape(criterion.statement ?? '')} <span class="badge">${escape(criterion.oracle?.type ?? 'unknown')}</span></li>`).join('')}</ul>
-      <h4>Plan rail</h4>${governedPlan ? `<p>Generation ${governedPlan.generation} · <code>${escape(governedPlan.planSha256 ?? '')}</code></p><ol>${list<GovernedPlanStep>(governedPlan.steps).map((step) => `<li>${escape(step.id ?? '')} — ${escape(step.subject?.id ?? '')}${governedState?.currentStepId === step.id ? ' · current' : ''}</li>`).join('')}</ol>` : '<p class="muted">No plan compiled.</p>'}
+      <h4>Plan rail</h4>${governedPlan ? `<p>Generation ${governedPlan.generation}</p><ol>${list<GovernedPlanStep>(governedPlan.steps).map((step) => `<li>${escape(step.id ?? '')} — ${escape(step.subject?.id ?? '')}${governedState?.currentStepId === step.id ? ' · current' : ''}</li>`).join('')}</ol>` : '<p class="muted">No plan compiled.</p>'}
       ${governedDetail?.recommendation?.action?.label ? `<p class="callout">Next: ${escape(bounded(governedDetail.recommendation.action.label))}</p>` : ''}
       <div class="actions">
         ${!governedPlan ? `<button data-message="planGoverned" data-id="${escape(selectedGoverned.id)}">Compile plan</button>` : ''}

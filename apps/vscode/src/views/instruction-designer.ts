@@ -5,7 +5,7 @@
 import * as vscode from 'vscode';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page, reviewBranchName } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
   instructionCatalog, parsePrompt, parseSkill, promptPath, renderAgentMappings, renderPrompt, renderSkill, skillPath,
@@ -189,7 +189,7 @@ export class InstructionDesignerPanel {
     }
     this.selectedPath = path;
     this.notice = disposition.kind === 'proposal'
-      ? `Created review proposal${disposition.branch ? ` ${disposition.branch}` : ''} for ${path}. Merge it into ${disposition.baseBranch}, then refresh workspace configuration.`
+      ? `Created review proposal${disposition.branch ? ` ${reviewBranchName(disposition.branch)}` : ''} for ${path}. Merge it into ${disposition.baseBranch}, then refresh workspace configuration.`
       : disposition.kind === 'unchanged'
         ? `The approved authority already contains the requested ${path} content; no proposal was required.`
         : `Saved ${path} as a local configuration draft.`;

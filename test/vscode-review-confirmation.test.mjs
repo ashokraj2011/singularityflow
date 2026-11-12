@@ -137,7 +137,8 @@ test('migration and long approval callers use the scrollable review and retain s
   assert.match(bootstrap, /collectReviewConfirmation\([\s\S]*Not carried forward/);
   assert.match(bootstrap, /if \(!confirmed\) return;[\s\S]*revision !== this\.inspectionRevision/);
   const workspace = await source('views/workspaces-panel.ts');
-  assert.match(workspace, /collectReviewConfirmation\([\s\S]*expected: planId/);
+  assert.match(workspace, /collectReviewConfirmation\([\s\S]*expected: 'UPGRADE'/, 'a person types a word, never the plan ID');
+  assert.match(workspace, /dryRun: false,\s*planId,/, 'the apply still carries the exact reviewed plan');
   assert.match(workspace, /if \(!confirmation \|\| this\.disposed \|\| this\.configuration\.result !== reviewedResult/);
   const actions = await source('actions.ts');
   assert.match(actions, /collectReviewConfirmation\([\s\S]*expected: confirmation\.expected/);

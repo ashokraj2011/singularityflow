@@ -132,34 +132,30 @@ export type MetaToolMutationPlan = {
   readonly input?: Record<string, unknown>;
 };
 
-/** Render bounded plan facts for the final native modal; never show complete trust documents. */
+/**
+ * Render bounded plan facts for the final native modal; never show complete trust documents. A person reads what
+ * changes and at which revision, never a digest: the confirmation still binds each one (owner, 2026-11-11).
+ */
 export function metaToolPlanReview(plan: MetaToolMutationPlan): string {
   const target = plan.input?.target as Record<string, unknown> | undefined;
   const lines = [
     `Operation: ${plan.operation ?? 'unknown'}`,
     `Actor: ${plan.actorId ?? 'unavailable'}`,
-    `Authority Store revision: ${plan.expectedRevision ?? 'unavailable'}`,
-    `Authority Store state: ${plan.expectedStateSha256 ?? 'unavailable'}`
+    `Authority Store revision: ${plan.expectedRevision ?? 'unavailable'}`
   ];
   if (target) {
     lines.push(
       `Target: ${String(target.kind ?? 'unknown')} / ${String(target.operationId ?? 'unknown')}`,
       `Target version: ${String(target.version ?? 'unknown')}`,
-      `Target manifest: ${String(target.manifestSha256 ?? 'unknown')}`,
-      `Approving Pack review: ${String(target.approvalSha256 ?? 'unknown')}`
+      `Approving Pack review: ${target.approvalSha256 ? 'bound' : 'unknown'}`
     );
   }
-  if (plan.input?.activationSha256) {
-    lines.push(`Activation: ${String(plan.input.activationSha256)}`);
-  }
-  if (plan.input?.activeActivationSha256) {
-    lines.push(`Current activation: ${String(plan.input.activeActivationSha256)}`);
-  }
-  if (plan.input?.targetActivationSha256) {
-    lines.push(`Target activation: ${String(plan.input.targetActivationSha256)}`);
+  if (plan.input?.activeActivationSha256 || plan.input?.targetActivationSha256) {
+    lines.push('Activation: the current one is replaced by the one this plan names.');
+  } else if (plan.input?.activationSha256) {
+    lines.push('Activation: the exact one this plan names.');
   }
   lines.push(
-    `Confirmation: ${plan.confirmationSha256 ?? 'unavailable'}`,
     '',
     'The engine will re-resolve approved configuration, signed Pack authority, and this exact CAS state before changing anything.'
   );

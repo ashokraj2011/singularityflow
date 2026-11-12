@@ -2151,7 +2151,8 @@ test('@sflow previews only a verified local file in the exact selected Story che
   const previewText = shown.messages.join('');
   assert.match(previewText, /Staged feedback attachment preview/);
   assert.match(previewText, /feedback\\\.md/);
-  assert.match(previewText, /44 original bytes · `sha256:[a-f0-9]{64}`/);
+  assert.match(previewText, /44 original bytes\n/);
+  assert.doesNotMatch(previewText, /sha256:|[a-f0-9]{64}/, 'a person reads the file and its size, never its digest (owner, 2026-11-11)');
   assert.match(previewText, /not a registered document or an open Revision Loop/);
   assert.ok(shown.buttons.some((button) => button.title === 'Prepare registration review'));
   const registerButton = shown.buttons.find((button) => button.title === 'Review and register all selected feedback documents');
@@ -2382,7 +2383,8 @@ test('the record views open from a host-action link and from the palette, with t
   const handoff = await settled(await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.handoff')));
   assert.deepEqual(registered.executedCommands.find((entry) => entry.id === 'singularityFlow.openHandoff').args,
     [{ workId: 'RECORD-HOST', workKind: 'story' }]);
-  assert.match(visible(handoff), new RegExp(`Source commit ${before.head.trim()}`, 'u'), visible(handoff));
+  assert.ok(!visible(handoff).includes(before.head.trim()), 'a person reads the handoff by its Story and step, never the commit (owner, 2026-11-11)');
+  assert.match(visible(handoff), /Lifecycle state (?:recorded|not recorded)/u, visible(handoff));
   assert.match(visible(handoff), /projection only — never lifecycle authority/u);
 
   // A receipt this computer never recorded, and a job no build records, are said to be missing.
@@ -4653,8 +4655,9 @@ test('a completed reference row is checked and fetched on its own, whatever happ
   for (const value of ['d', 'do', 'docs']) {
     await intake.post({ type: 'referenceDraft', index: 1, field: 'id', value });
   }
-  await until(() => intake.webview.html.includes(`Verified at <code>${commit.slice(0, 12)}</code>`) ? true : null,
+  await until(() => intake.webview.html.includes('<span class="pill ok">Verified</span>') ? true : null,
     { what: 'the first row to be verified even though the second row changed meanwhile' });
+  assert.ok(!intake.webview.html.includes(commit.slice(0, 12)), 'a verified reference reads as verified, never its commit (owner, 2026-11-11)');
   const store = path.join(root, '.git', 'singularity-flow', 'reference-prefetch', 'v1');
   assert.equal(readdirSync(store).filter((name) => /^[0-9a-f]{40}$/.test(name)).length, 1,
     'its pinned commit was fetched ahead of Start');
@@ -6339,7 +6342,8 @@ test('Workspaces host rejects direct apply messages without an exact seeded-only
   const review = await until(() => registered.panels
     .filter((entry) => entry.id === 'singularityFlow.reviewConfirmation')[confirmationsBefore] ?? null);
   mutable.capabilityPortability.changed = true;
-  await review.post({ type: 'confirmation.accept', confirmation: mutable.planId });
+  // A person types UPGRADE, never the plan ID; the apply still binds the exact plan (owner, 2026-11-11).
+  await review.post({ type: 'confirmation.accept', confirmation: 'UPGRADE' });
   await applying;
   assert.equal(requests.some((request) => request.dryRun === false), false,
     'a preview mutated during confirmation is rejected before the apply callback');
@@ -8957,12 +8961,12 @@ test('capability review presents only an engine-proven exact compatibility repai
   assert.ok(registered.warningDetails.some((detail) =>
     /Only missing packaged files and byte-exact historical SFlow package files can change/.test(detail ?? '')),
   'the modal states the non-destructive repair boundary');
-  await until(() => panel.webview.html.includes(repairedCommit.slice(0, 12))
-    ? panel.webview.html : null);
-  assert.match(panel.webview.html, /capability and packaged-agent repair/,
-    'the panel reloads the repaired proposal for a new review instead of activating it automatically');
+  await until(() => panel.webview.html.includes('capability and packaged-agent repair')
+    ? panel.webview.html : null, { what: 'the panel to reload the repaired proposal' });
+  assert.ok(!panel.webview.html.includes(repairedCommit.slice(0, 12)) && !panel.webview.html.includes(originalCommit.slice(0, 12)),
+    'a person reads the proposal by its branch and files, never its commit (owner, 2026-11-11)');
   assert.ok(registered.infos.some((message) =>
-    message.includes(`Compatibility repair prepared at ${repairedCommit.slice(0, 12)}`)));
+    message.includes('Compatibility repair prepared as a new commit on the proposal branch')));
   assert.equal(calls.filter((argv) => argv[1] === 'activate').length, 0,
     'preparing a repair never retries or bypasses activation');
   panelController.dispose();
@@ -9000,7 +9004,8 @@ test('capability review merges its exact commit with one acknowledged action', a
   await until(() => panel.webview.html.includes('Merge and acknowledge') ? panel.webview.html : null);
   assert.match(panel.webview.html, /Updated<\/td><td><code>singularity\/capabilities\.yml/);
   assert.match(panel.webview.html, /<summary>[\s\S]*?View Git diff<\/summary>/);
-  assert.match(panel.webview.html, /Merge and acknowledge aaaaaaaaaaaa/);
+  assert.match(panel.webview.html, />[^<]*Merge and acknowledge<\/button>/);
+  assert.doesNotMatch(panel.webview.html.replace(/data-[a-z-]+="[^"]*"/gu, ''), /aaaaaaaaaaaa|bbbbbbbbbbbb|12345678/u, 'a person reads no commit or branch suffix');
   assert.doesNotMatch(panel.webview.html, /data-action="create-workspace"/);
   await panel.post({ type: 'create-workspace' });
   assert.equal(registered.executedCommands.some(({ id }) => id === 'singularityFlow.createWorkspace'), false,
@@ -9220,7 +9225,8 @@ test('setup proposals from this laptop appear in the review queue and open exact
   }, () => {});
   const queue = registered.panels.find((entry) => entry.id === 'singularityFlow.capabilityProposals');
   assert.ok(queue);
-  await until(() => queue.webview.html.includes(branch) ? queue.webview.html : null);
+  // A review branch reads without its generated suffix (owner, 2026-11-11: a person never reads a hash).
+  await until(() => queue.webview.html.includes(branch.replace(/(?:-[0-9a-f]{8,64})+$/iu, '')) ? queue.webview.html : null);
   assert.match(queue.webview.html, /Repository setup proposals/);
   assert.match(queue.webview.html, /data-review-setup="0"/);
   assert.match(queue.webview.html, /open to inspect changed files and validation/);
@@ -9233,7 +9239,7 @@ test('setup proposals from this laptop appear in the review queue and open exact
   await until(() => review.webview.html.includes('+initial governed workflow')
     ? review.webview.html : null);
   assert.match(review.webview.html, /sflow\/config has not been created/);
-  assert.match(review.webview.html, new RegExp(commit));
+  assert.ok(!review.webview.html.includes(commit), 'the review binds its exact commit without showing it');
   registered.warningAnswers.push('Approve exact setup', 'Acknowledge unprotected branch');
   await review.post({ type: 'activate' });
   await until(() => calls.filter((argv) => argv[1] === 'setup-activate').length === 2
@@ -9289,7 +9295,8 @@ test('a fresh review queue discovers setup proposals by a safe clone URL', async
     'credential-bearing input never reaches CLI logging or remote inspection');
   registered.typed = lead;
   await queue.post({ type: 'add-setup-repository' });
-  await until(() => queue.webview.html.includes(branch) ? queue.webview.html : null);
+  // A review branch reads without its generated suffix (owner, 2026-11-11: a person never reads a hash).
+  await until(() => queue.webview.html.includes(branch.replace(/(?:-[0-9a-f]{8,64})+$/iu, '')) ? queue.webview.html : null);
   assert.ok(calls.some((argv) => argv.join(' ') ===
     `capability setup-proposals --lead ${lead} --json`));
   await until(() => values.get('singularityFlow.setupReviewRepositories.v1')?.includes(lead)
@@ -11767,7 +11774,7 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   let confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
   assert.equal(confirmation.title, 'Start web for checkout-app');
   assert.ok(confirmation.webview.html.includes('Command: [&quot;npm&quot;,&quot;run&quot;,&quot;dev&quot;'));
-  assert.ok(confirmation.webview.html.includes(`Command identity: ${RUN_SHA}`));
+  assert.ok(!confirmation.webview.html.includes('Command identity'), 'the command carries its identity; a person reads what runs (owner, 2026-11-11)');
   assert.ok(confirmation.webview.html.includes('singularity-flow app start web --capability checkout-app --environment dev'));
   await confirmation.post({ type: 'confirmation.cancel' });
   await starting;
@@ -11827,7 +11834,7 @@ test('Run & test starts an entry as a task of the CLI argv, after trust and a fi
   await cli.write('plan.json', runPlan(RUN_SHA_CHANGED));
   starting = panel.post(rt('start', { entry: 'web' }));
   confirmation = await until(() => registered.panels.filter((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible).at(-1) ?? null);
-  assert.ok(confirmation.webview.html.includes(`Command identity: ${RUN_SHA_CHANGED}`), 'a changed command asks again');
+  assert.ok(confirmation.webview.html.includes(`--expect-command ${RUN_SHA_CHANGED}`), 'a changed command asks again');
   await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
   await starting;
   assert.equal(registered.tasks.length, 3);
@@ -11856,7 +11863,7 @@ test('Run & test runs tests as a task, shows the last run, and the Test summary 
   const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
   assert.equal(confirmation.title, 'Run tests for checkout-app');
   assert.ok(confirmation.webview.html.includes('module-tests (test): [&quot;npm&quot;,&quot;test&quot;]'));
-  assert.ok(confirmation.webview.html.includes(`identity ${TESTS_SHA_INTEGRATION}`));
+  assert.ok(!confirmation.webview.html.includes(`identity ${TESTS_SHA_INTEGRATION}`), 'each command reads by what it runs, never its identity digest');
   assert.ok(confirmation.webview.html.includes('never counts as evidence for a Story'));
   await confirmation.post({ type: 'confirmation.accept', acknowledged: true });
   await running;
@@ -12084,7 +12091,7 @@ test('Start (debug) runs app start --debug as a task, attaches on 127.0.0.1 at t
   const starting = panel.post(rt('debug', { entry: 'web' }));
   const confirmation = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation' && entry.visible) ?? null);
   assert.equal(confirmation.title, 'Start web with its debugger for checkout-app');
-  assert.ok(confirmation.webview.html.includes(`Command identity: ${RUN_SHA} (its debug start)`));
+  assert.ok(!confirmation.webview.html.includes('Command identity'), 'the debug start reads by what it runs');
   assert.ok(confirmation.webview.html.includes('address=127.0.0.1:5005'), 'the debug launch the engine resolved');
   assert.ok(confirmation.webview.html.includes(`singularity-flow app start web --capability checkout-app --environment dev --debug --expect-command ${RUN_SHA}`));
   await confirmation.post({ type: 'confirmation.accept', acknowledged: true });

@@ -145,8 +145,9 @@ function artifactNode(output: InitiativeOutput & { repositoryPath: string }, pha
     id: `artifact:${phaseId}/${output.id}`,
     label: output.label ?? output.id,
     description: output.sha256 ? output.status : (output.required ? 'not generated' : 'optional, not generated'),
+    // A person reads a document by its path and status, never its digest (owner, 2026-11-11).
     tooltip: output.sha256
-      ? `${output.repositoryPath}\nsha256 ${output.sha256}`
+      ? output.repositoryPath
       : `${output.repositoryPath}\nNot generated yet.`,
     icon,
     path: output.repositoryPath,
@@ -531,7 +532,7 @@ function storyArtifactGroups(
           id: `${archiveKind}-story-artifact:${phaseId}:${document.id ?? document.path}`,
           label: document.label ?? document.id ?? document.path,
           description: document.status?.replace(/_/g, ' ') ?? 'generated',
-          tooltip: `${document.path}\nsha256 ${document.sha256 ?? 'unavailable'}`,
+          tooltip: document.path,
           icon: document.status === 'approved' ? 'statusSuccess' : 'artifact',
           path: document.path,
           readOnly: archiveKind === 'archived' || document.status === 'approved',
@@ -657,7 +658,7 @@ function completedInitiativeNode(initiative: InitiativeSnapshot): TreeNode {
           id: `completed-initiative-artifact:${phaseId}/${output.id}`,
           label: output.label ?? output.id,
           description: output.status.replace(/_/g, ' '),
-          tooltip: `${output.repositoryPath ?? output.path}\nsha256 ${output.sha256 ?? 'unavailable'}`,
+          tooltip: output.repositoryPath ?? output.path,
           icon: output.status === 'approved' ? 'statusSuccess' : 'artifact',
           path: output.repositoryPath ?? output.path,
           readOnly: output.status === 'approved',
@@ -705,7 +706,7 @@ function storyDocumentNodes(
       id: `story-document:${phase.id}:${document.id ?? document.path}`,
       label: document.label ?? document.id ?? document.path,
       description: storyArtifactPublicationLabel(document, phase, readiness),
-      tooltip: `${document.path}\nsha256 ${document.sha256 ?? 'unavailable'}`,
+      tooltip: document.path,
       icon: document.status === 'approved' ? 'lock-small' : 'file',
       path: document.path,
       readOnly: document.status === 'approved',
@@ -760,7 +761,7 @@ export function storyEvidenceNode(workId: string, document: StoryArtifact, detac
     description: detached ? 'detached' : storage ? `${kind} · ${storage}` : kind,
     tooltip: detached
       ? `${document.detachReason ?? 'Detached'}${document.detachedAt ? `\n${document.detachedAt}` : ''}`
-      : `${document.path ?? document.url ?? ''}\nsha256 ${document.sha256 ?? 'external reference'}`,
+      : `${document.path ?? document.url ?? ''}${document.sha256 ? '' : '\nExternal reference'}`,
     icon: detached ? 'archive' : (document.mimeType?.startsWith('image/') ? 'visual' : 'references'),
     // A link or a document kept on this machine has no repository path; it still opens the way the
     // evidence manager opens it (the link in a browser, the verified local copy read-only).
@@ -1014,8 +1015,7 @@ function storyReferenceRepositoryNodes(
   const repositories: TreeNode[] = status.repositories.map((entry) => {
     const details = [
       `Requested branch: ${entry.requestedBranch}`,
-      `Pinned commit: ${entry.commit}`,
-      entry.tree ? `Pinned tree: ${entry.tree}` : null,
+      'Pinned to the exact commit recorded for this Story',
       `Detached path: ${entry.localPath}`,
       entry.projectMarkers?.length ? `Project markers: ${entry.projectMarkers.join(', ')}` : null,
       entry.sourceRoots?.length ? `Source roots: ${entry.sourceRoots.join(', ')}` : null,
@@ -1025,7 +1025,7 @@ function storyReferenceRepositoryNodes(
       kind: 'repository',
       id: `story:reference:${entry.id}`,
       label: entry.id,
-      description: `${entry.status} · ${entry.requestedBranch} @ ${entry.commit.slice(0, 12)}`,
+      description: `${entry.status} · ${entry.requestedBranch}`,
       tooltip: details,
       icon: entry.status === 'ready' ? 'statusSuccess'
         : entry.status === 'missing' ? 'statusIdle' : 'statusBlocked',
@@ -1406,7 +1406,7 @@ function initiativeNode(initiative: InitiativeSnapshot): TreeNode {
         id: `source:${String(source.sourceId ?? source.id ?? '')}`,
         label: String(source.name ?? source.sourceId ?? 'unnamed source'),
         description: String(source.provider ?? ''),
-        tooltip: `${String(source.sourceId ?? '')}\nsha256 ${String(source.sha256 ?? 'unknown')}`,
+        tooltip: String(source.sourceId ?? ''),
         icon: 'file-symlink-file',
         // Only a locally-provided source has its bytes in the repository; anything else lives in
         // corporate storage and has no path here to open.

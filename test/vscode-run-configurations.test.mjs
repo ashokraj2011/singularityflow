@@ -146,7 +146,6 @@ test('Start (debug) runs `app start … --debug --expect-command <commandSha256>
     `Command: ${JSON.stringify([...MAVEN, ...DEV, JDWP])}`, `Arguments for dev: ${JSON.stringify(DEV)}`,
     'Debugger: Java debugger at 127.0.0.1:5005',
     'VS Code attaches once app status says the debugger listens, on 127.0.0.1 at the port app status reports: {"type":"java","request":"attach","name":"api · payments-web (Singularity Flow)","hostName":"127.0.0.1","port":5005}',
-    `Command identity: ${SHA} (its debug start)`,
     `singularity-flow app start api --capability payments-web --environment dev --debug --expect-command ${SHA}`,
     'Ending the debug session leaves api running; Stop ends it.'
   ]) assert.ok(request.detail.includes(line), line);

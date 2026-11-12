@@ -724,7 +724,6 @@ export function startConfirmationRequest(entry: StartEntry, environment: string 
       `Opens at: ${entry.url ?? 'no URL declared'}`,
       `Ready when: ${readiness(entry.ready)}`,
       environmentLine(entry, environment),
-      `Command identity: ${entry.commandSha256}`,
       ...otherEnvironmentLines(entry, environment, (name) => resolvedArgv(entry, name)),
       '',
       `VS Code runs it as a task: ${displayCommand(appStartArgv(entry.capability, entry.id, environment, entry.commandSha256))}`
@@ -762,7 +761,6 @@ export function debugStartConfirmationRequest(entry: StartEntry, environment: st
       `Opens at: ${entry.url ?? 'no URL declared'}`,
       `Ready when: ${readiness(entry.ready)}${debug.suspend ? ', after the debugger attaches' : ''}`,
       environmentLine(entry, environment),
-      `Command identity: ${entry.commandSha256} (its debug start)`,
       ...otherEnvironmentLines(entry, environment, (name) => debugLaunch(debug, name).argv ?? resolvedArgv(entry, name)),
       '',
       `VS Code runs it as a task: ${displayCommand(appStartArgv(entry.capability, entry.id, environment, entry.commandSha256, true))}`,
@@ -780,7 +778,6 @@ export function testsConfirmationRequest(capability: string, tests: TestCommandP
     ? planned.flatMap((command) => [
       `${command.id}${command.kind ? ` (${command.kind})` : ''}: ${command.argv ? JSON.stringify(command.argv) : 'argv resolved by the engine'}`,
       ...(command.workingDirectory ? [`  in ${command.workingDirectory}`] : []),
-      ...(command.commandSha256 ? [`  identity ${command.commandSha256}`] : []),
       ...(command.why ? [`  ${command.why}${command.resultsWords ? ` ${command.resultsWords}` : ''}`] : [])
     ])
     : [commands.length ? `Commands: ${commands.join(', ')}` : 'Commands: the capability\'s tests, or what its code step runs, as the engine resolves them'];

@@ -266,6 +266,8 @@ test('the Context receipt view reads one recorded receipt, never billing, and na
   const included = chosen.sections.find((section) => section.heading === 'What it included');
   assert.match(included.note, /an estimate \(utf8-bytes-divided-by-four\), not provider billing/u);
   assert.deepEqual(included.table.rows.map((row) => row[3]), ['required', 'optional']);
+  assert.deepEqual(included.table.rows.map((row) => row[0]), ['#1', '#2'], 'sources are counted, never named by digest');
+  assert.deepEqual(chosen.sections.find((section) => section.heading === 'Bindings').facts.map(([, value]) => value), ['recorded', 'recorded', 'recorded', 'recorded']);
   assert.deepEqual(chosen.sections.find((section) => section.heading === 'What it left out').table.rows, [['budget', '2'], ['policy excluded', '1']]);
   assert.equal(chosen.sections.find((section) => section.heading === 'Model route').facts.find(([label]) => label === 'Resolved model')[1], 'unavailable');
   assert.equal(chosen.guidance, 'singularity-flow context xray --work-id WRK-42 --phase specification --packet ctx-bbbbbbbbbbbbbbbbbbbb');
@@ -282,7 +284,9 @@ test('the Handoff view draws the packet sections, and a refusal as unavailable',
   const result = workHandoffResult(workItem, { sourceCommit: 'a'.repeat(40) });
   const model = handoffView({ request: { workId: 'WRK-42', workKind: 'story' }, workId: 'WRK-42', result });
   assert.equal(model.state, 'ready');
-  assert.deepEqual(model.facts.find(([label]) => label === 'Source commit'), ['Source commit', 'a'.repeat(40)]);
+  assert.equal(model.facts.find(([label]) => label === 'Source commit'), undefined, 'a person reads no commit (owner, 2026-11-11)');
+  assert.deepEqual(model.facts.find(([label]) => label === 'Lifecycle state')?.[0], 'Lifecycle state');
+  assert.ok(!JSON.stringify(model.facts).includes('a'.repeat(40)));
   assert.deepEqual(model.sections.find((section) => section.heading === 'Remaining').items,
     ['Specification · current · awaiting approval', 'Implementation · pending']);
   assert.deepEqual(model.sections.find((section) => section.heading === 'Risks').items, ['Blocked: approvals outstanding']);

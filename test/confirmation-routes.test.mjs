@@ -66,17 +66,25 @@ test('every reviewed-digest confirmation route carries its digest, through the e
     }
     checked.push(command);
     const code = guidance.copilotCommand.match(/^\/sf-confirm ([0-9A-Z]{4}-[0-9A-Z]{4})$/u)?.[1];
-    assert.ok(guidance.copilotCommand.includes(digest) || resolveConfirmCode(code)?.command === confirmCommandText(command),
-      `${file}: ${command}\n  routes to ${guidance.copilotCommand}`);
+    // A person never reads the digest: every route that confirms one is its short code.
+    assert.ok(resolveConfirmCode(code)?.command === confirmCommandText(command), `${file}: ${command}\n  routes to ${guidance.copilotCommand}`);
+    assert.ok(!guidance.copilotCommand.includes(digest), `${file}: ${command}\n  shows its digest: ${guidance.copilotCommand}`);
   }
   assert.ok(checked.length >= 25, `only ${checked.length} digest confirmations were found; the scan stopped matching`);
 });
 
-test('a confirmation the skill route already carries keeps that route; others run through /sf-confirm', () => {
+test('every confirmation runs through /sf-confirm by its code, even one a skill route used to carry', () => {
+  // A person never reads the digest: /sf-submit and /sf-auto once carried it in their routes.
   assert.equal(copilotCommandForCommand(`singularity-flow story advance --work-id W --confirm ${digest}`, '/sf-submit'),
-    `/sf-submit --work-id W --confirm ${digest}`);
+    confirmRouteOf(`singularity-flow story advance --work-id W --confirm ${digest}`));
   assert.equal(copilotCommandForCommand(`singularity-flow auto resume W --confirm ${digest}`),
-    `/sf-auto resume W --confirm ${digest}`);
+    confirmRouteOf(`singularity-flow auto resume W --confirm ${digest}`));
+  // An exact commit, a raw SHA-256 and an underscored plan ID confirm what was reviewed as well.
+  const commit = 'c0ffee12'.repeat(5);
+  assert.equal(copilotCommandForCommand(`singularity-flow capability activate capability/x --lead L --confirm ${commit}`),
+    confirmRouteOf(`singularity-flow capability activate capability/x --lead L --confirm ${commit}`));
+  assert.equal(copilotCommandForCommand(`singularity-flow capability reconcile https://example.test/a.git --confirm-plan capr_${'ab12'.repeat(8)}`),
+    confirmRouteOf(`singularity-flow capability reconcile https://example.test/a.git --confirm-plan capr_${'ab12'.repeat(8)}`));
   assert.equal(copilotCommandForCommand(`singularity-flow phase rollover implementation --confirm ${digest}`, '/sf-recover'),
     confirmRouteOf(`singularity-flow phase rollover implementation --confirm ${digest}`));
   assert.equal(copilotCommandForCommand(`singularity-flow decision plan W --confirm ${digest}`),
@@ -107,6 +115,10 @@ test('a route recorded before short codes still validates, and is given as its c
   const command = `singularity-flow phase rollover implementation --confirm ${digest}`;
   const recorded = safeCommandGuidance({ command, copilotCommand: `/sf-confirm phase rollover implementation --confirm ${digest}` });
   assert.equal(recorded?.copilotCommand, confirmRouteOf(command));
+  // So does a skill route that carried the digest itself.
+  const advance = `singularity-flow story advance --work-id W --confirm ${digest}`;
+  assert.equal(safeCommandGuidance({ command: advance, copilotCommand: `/sf-submit --work-id W --confirm ${digest}` })?.copilotCommand, confirmRouteOf(advance));
+  assert.equal(safeCommandGuidance({ command: advance, copilotCommand: `/sf-submit --work-id OTHER --confirm ${digest}` }), null);
   // Any other supplied route still contradicts the canonical one.
   assert.equal(safeCommandGuidance({ command, copilotCommand: `/sf-confirm phase rollover other --confirm ${digest}` }), null);
 });

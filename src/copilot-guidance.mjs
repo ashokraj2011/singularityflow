@@ -1,6 +1,6 @@
 import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
 import { modelFreeCommandForCommand, formatCommandRouteLines } from './model-free-commands.mjs';
-import { rememberConfirmCommand } from './confirm-code.mjs';
+import { confirmValue, rememberConfirmCommand } from './confirm-code.mjs';
 
 /** Known gate holds change the next route, never the submitted packet or the human's decision. */
 export function approvalHoldContinuation(workId, check) {
@@ -89,10 +89,22 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
   const value = String(command ?? '').trim();
   const clone = value.match(/^(?:singularity-flow|sflow)\s+story\s+clone\s+([A-Za-z0-9][A-Za-z0-9._-]*)\s+([A-Za-z0-9][A-Za-z0-9._-]*)(?:\s|$)/u);
   if (clone) return `/sf-start ${clone[2]} --clone-from ${clone[1]}`;
-  const digest = value.match(/\s--confirm(?:-plan)?\s+(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64})(?:\s|$)/u)?.[1];
-  if (!digest || route.includes(digest) || /[<>|;&`$\u0000-\u001f\u007f]/u.test(value)) return route;
+  // A person never reads the value, even where the skill route would carry it (`/sf-submit --confirm sha256:…`).
+  const digest = confirmValue(value);
+  if (!digest || /[<>|;&`$\u0000-\u001f\u007f]/u.test(value)) return route;
   const code = /^(?:singularity-flow|sflow)\s+\S/u.test(value) ? rememberConfirmCommand(value) : null;
   return code ? `/sf-confirm ${code}` : route;
+}
+
+/**
+ * The skill route a confirming command had before short codes, when it carried the reviewed value itself
+ * (`/sf-submit --work-id W --confirm sha256:…`); null otherwise. Only so a route recorded then still validates.
+ */
+export function recordedValueRoute(command, skill = null, fallback = '/sf-next') {
+  if (commandLineWithoutSkill(command)) return null;
+  const value = confirmValue(String(command ?? '').trim());
+  const route = skillRouteForCommand(command, skill, fallback);
+  return value && route.includes(value) ? route : null;
 }
 
 function skillRouteForCommand(command, skill, fallback) {

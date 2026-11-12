@@ -15,7 +15,8 @@ const SCHEMA = 'sflow-confirm-code@1';
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 export const CONFIRM_CODE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const KEPT_CODES = 400;
-const CONFIRM_VALUE = /\s--confirm(?:-plan)?(?:\s+|=)(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64}|[a-f0-9]{64})(?=\s|$)/u;
+// A reviewed digest, a plan ID (`grb-…`, `capr_…`), a raw SHA-256 or an exact commit: each binds what the person reviewed.
+const CONFIRM_VALUE = /\s--confirm(?:-plan)?(?:\s+|=)(sha256:[a-f0-9]{64}|[a-z]{2,12}[-_][a-f0-9]{16,64}|[a-f0-9]{64}|[a-f0-9]{40})(?=\s|$)/u;
 const CODE_TEXT = /(?<![0-9A-Za-z])([0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{4})-([0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{4})(?![0-9A-Za-z-])/gu;
 
 /** The command as one line: `singularity-flow`, no --json/--for-agent, single spaces. */

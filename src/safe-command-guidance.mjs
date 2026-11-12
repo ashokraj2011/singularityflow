@@ -13,7 +13,7 @@ import { commandDefinition } from './command-registry.mjs';
 import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
 import { modelFreeCommandForArgv, formatCommandRouteLines } from './model-free-commands.mjs';
 import {
-  copilotCommandForCommand, directCopilotSkill, directCopilotSkillId
+  copilotCommandForCommand, directCopilotSkill, directCopilotSkillId, recordedValueRoute
 } from './copilot-guidance.mjs';
 
 /** Shared host/skill rule; paths are data, never permission or a checkout-relative guess. */
@@ -420,8 +420,10 @@ export function safeCommandGuidance(value) {
     const supplied = typeof input.copilotCommand === 'string'
       ? input.copilotCommand.trim() : '';
     // A route recorded before short codes spelled the whole command after /sf-confirm: the same route, now its code.
+    // So was a skill route that carried the reviewed value itself (`/sf-submit --work-id W --confirm sha256:…`).
     const recordedConfirm = canonicalCopilotCommand?.startsWith('/sf-confirm ')
-      && supplied === `/sf-confirm ${safe.command.replace(/^(?:singularity-flow|sflow)\s+/u, '')}`;
+      && (supplied === `/sf-confirm ${safe.command.replace(/^(?:singularity-flow|sflow)\s+/u, '')}`
+        || supplied === recordedValueRoute(safe.command, selectedSkill));
     if (!supplied || (supplied !== canonicalCopilotCommand && !recordedConfirm) || SECRET_SHAPE.test(supplied)
         || /[\r\n\u0000-\u001f\u007f]/u.test(supplied)) return null;
   }

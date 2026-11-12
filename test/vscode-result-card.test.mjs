@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { codeOnly } from './source-text.mjs';
+import { confirmCode } from '../src/confirm-code.mjs';
 import { REASON_CODES } from '../src/gateway/catalog.mjs';
 import { KERNEL_MESSAGES } from '../src/gateway/kernel.mjs';
 import { RESOLUTION_MESSAGES } from '../src/gateway/resolve.mjs';
@@ -242,12 +243,12 @@ test('Auto cards prefill the exact current confirmation and never auto-submit it
   assert.equal(start.command,
     `singularity-flow auto start --plan APL-AAAAAAAAAAAAAAAAAAAAAAAAAA --confirm ${packetSha256}`);
   assert.equal(start.skill, '/sf-auto');
-  assert.equal(start.copilotCommand,
-    `/sf-auto start --plan APL-AAAAAAAAAAAAAAAAAAAAAAAAAA --confirm ${packetSha256}`);
+  // A person types the confirmation by its short code, never the digest (confirm-code.mjs).
+  assert.equal(start.copilotCommand, `/sf-confirm ${confirmCode(start.command)}`);
   assert.equal(start.confirmation, packetSha256);
   assert.match(html, /data-auto-action-id="auto:plan:APL-AAAAAAAAAAAAAAAAAAAAAAAAAA:start"/);
   assert.match(html, new RegExp(`--confirm ${packetSha256}`));
-  assert.match(html, /Copilot:.*\/sf-auto start --plan APL-AAAAAAAAAAAAAAAAAAAAAAAAAA/s);
+  assert.match(html, new RegExp(`Copilot:.*/sf-confirm ${confirmCode(start.command)}`, 's'));
   assert.doesNotMatch(html, /type exact hash/);
 });
 

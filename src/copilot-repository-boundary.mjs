@@ -80,7 +80,7 @@ export function confirmedDigest(prompt) {
  */
 export function confirmedTurn(prompt) {
   if (typeof prompt !== 'string' || prompt.length > 256 * 1024) return null;
-  const found = new Set([...prompt.matchAll(/--confirm(?:-plan)?[\s=]+(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64}|[a-f0-9]{64})(?![\w:-])/gu)]
+  const found = new Set([...prompt.matchAll(/--confirm(?:-plan)?[\s=]+(sha256:[a-f0-9]{64}|[a-z]{2,12}[-_][a-f0-9]{16,64}|[a-f0-9]{64}|[a-f0-9]{40})(?![\w:-])/gu)]
     .map(match => match[1]));
   if (found.size) return found.size === 1 ? { digest: [...found][0], code: null } : null;
   const codes = confirmCodesIn(prompt).map(code => resolveConfirmCode(code)).filter(Boolean);

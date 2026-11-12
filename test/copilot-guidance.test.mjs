@@ -95,16 +95,18 @@ test('continuation handoffs retain the exact operation, phase, Story and confirm
     const suffix = action === 'resolve-run' ? ` --confirm sha256:${'a'.repeat(64)}` : '';
     const command = `singularity-flow appeal ${action} --work-id TEAM-1 --phase team-build${suffix} --json`;
     const guidance = safeCommandGuidance({ command });
-    assert.equal(guidance.copilotCommand, command.replace('singularity-flow appeal', '/sf-appeal'));
+    // The run that confirms a reviewed digest is typed by its short code; the others keep their exact selectors.
+    assert.equal(guidance.copilotCommand, suffix ? `/sf-confirm ${confirmCode(command)}` : command.replace('singularity-flow appeal', '/sf-appeal'));
     assert.equal(guidance.argv[1], action);
   }
 });
 
-test('a reviewed Convergence digest travels with its Copilot route instead of a bare submit that previews again', () => {
-  // Following a bare /sf-submit previewed the same digest again, so the confirmation was never reached.
+test('a reviewed Convergence digest is confirmed by its short code instead of a bare submit that previews again', () => {
+  // Following a bare /sf-submit previewed the same digest again, so the confirmation was never reached; a person
+  // never reads the digest, so the route is its code.
   const digest = `sha256:${'c'.repeat(64)}`;
   const confirm = safeCommandGuidance({ command: `singularity-flow story advance --work-id after-fix --confirm ${digest}`, skill: '/sf-submit' });
-  assert.equal(confirm.copilotCommand, `/sf-submit --work-id after-fix --confirm ${digest}`);
+  assert.equal(confirm.copilotCommand, `/sf-confirm ${confirmCode(`singularity-flow story advance --work-id after-fix --confirm ${digest}`)}`);
   assert.equal(confirm.command, `singularity-flow story advance --work-id after-fix --confirm ${digest}`);
   // The preview and a malformed digest keep the plain review route; any other form that carries the
   // digest still carries it, through the exact command.

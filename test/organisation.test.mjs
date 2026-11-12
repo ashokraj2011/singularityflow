@@ -534,8 +534,10 @@ test('capability protect and depend --json carry the review and activation route
     assert.deepEqual(Object.keys(result.commandGuidance), ['review', 'activate'], 'review first, then activation');
     assert.equal(result.commandGuidance.review.command, review);
     assert.equal(result.commandGuidance.activate.command, activate, `${args[0]}: activation confirms the exact proposal commit`);
+    assert.equal(result.commandGuidance.review.copilotCommand, '/sf-capability-map');
+    // Activation confirms the exact commit, so a person's Copilot route is its short code, never the commit.
+    assert.match(result.commandGuidance.activate.copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u, `${args[0]}: activation reads as its code`);
     for (const route of Object.values(result.commandGuidance)) {
-      assert.equal(route.copilotCommand, '/sf-capability-map');
       assert.equal(safeCommandGuidance({ command: route.command })?.command, route.command, 'a safe, registered route');
     }
   }

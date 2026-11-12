@@ -35,6 +35,7 @@ import { isConvergencePhase, isVisualVerificationPhase } from '../phase-roles.mj
 import { scanGuidanceText } from '../guidance-scan.mjs';
 import { librarySkillText, parseLibrarySkill } from '../skill-library.mjs';
 import { newStepTemplate } from '../step-outputs.mjs';
+import { markTemplateGuidance } from '../template-guidance.mjs';
 import { lineNumberOf, removeLine, retargetLink, unlinkTarget } from './text.mjs';
 import {
   rebuiltPlannedTable, renumberedAnchors, templateAnchors, withClauseAnchors, withPlannedTable, withSections, withStepsColumn, withSupportedTokens
@@ -322,6 +323,14 @@ async function templateSections(findings, ctx) {
     return added.length ? withSections(text, added) : text;
   });
   return { summary: `Template ${template}: the section${added.length === 1 ? '' : 's'} its publication checks for (${words(added.map((section) => `"${section}"`))}), each with a TODO line.` };
+}
+
+// Guidance a published document would keep, or that wraps: each paragraph on one line inside the marker
+// publication removes (template-guidance.mjs). The template's own words are unchanged.
+async function templateGuidance([finding], ctx) {
+  const template = finding.subject.template;
+  await ctx.draft.edit({ kind: 'template', path: template }, (text) => markTemplateGuidance(text).text);
+  return { summary: `Template ${template}: each guidance paragraph on one line inside <!-- sflow:guidance ... -->, so publication removes it.` };
 }
 
 async function templateMissing([finding], ctx) {
@@ -1022,6 +1031,7 @@ export const WORKFLOW_FIXERS = Object.freeze({
   CHECK_TEMPLATE_CLAUSE_ANCHORS: change(24, templateAnchorsFix, { group: byTemplate }),
   CHECK_TEMPLATE_PLANNED_TABLE: change(26, templatePlannedTable, { group: byTemplate }),
   CHECK_TEMPLATE_HEADING_MISSING: change(28, templateSections, { group: byTemplate }),
+  CHECK_TEMPLATE_GUIDANCE: change(29, templateGuidance, { group: byTemplate }),
   // Guidance.
   CHECK_LINK_BROKEN: either(30, 'Several files have the linked name; which one the author meant is not written anywhere.', brokenLinks, { group: byFile }),
   CHECK_GUIDANCE_CONFLICT: question(32, 'Which rule the team works by is its decision; both are written by people.', guidanceConflict),

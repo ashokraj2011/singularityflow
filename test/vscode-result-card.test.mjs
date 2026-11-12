@@ -247,7 +247,9 @@ test('Auto cards prefill the exact current confirmation and never auto-submit it
   assert.equal(start.copilotCommand, `/sf-confirm ${confirmCode(start.command)}`);
   assert.equal(start.confirmation, packetSha256);
   assert.match(html, /data-auto-action-id="auto:plan:APL-AAAAAAAAAAAAAAAAAAAAAAAAAA:start"/);
-  assert.match(html, new RegExp(`--confirm ${packetSha256}`));
+  // The card a person reads shows the code in both routes, never the digest; start.command keeps it for the host.
+  assert.doesNotMatch(html, new RegExp(packetSha256.slice(7)));
+  assert.match(html, new RegExp(`Shell:</strong> <code>singularity-flow confirm ${confirmCode(start.command)}</code>`));
   assert.match(html, new RegExp(`Copilot:.*/sf-confirm ${confirmCode(start.command)}`, 's'));
   assert.doesNotMatch(html, /type exact hash/);
 });

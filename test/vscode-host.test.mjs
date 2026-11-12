@@ -877,7 +877,7 @@ test('a legacy workflow blocks Lifecycle but leaves all repairable configuration
 
   registered.pickedFolder = root;
   registered.selfApprovalAnswer = 'Factory reset local SFlow data';
-  registered.typed = `RESET ${path.basename(root)} ${run('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root }).stdout.trim()}`;
+  registered.typed = `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim()}`)}`;
   // VS Code keeps reading in the background while the person types the confirmation. Such a read
   // writes SFlow's timing log into the runtime root, and must not void the reviewed reset.
   const typeConfirmation = api.window.showInputBox;
@@ -960,7 +960,7 @@ Preserve this custom repository agent during reinitialization.
   registered.selfApprovalAnswer = 'Discard all local SFlow data';
   registered.warningAnswers = ['View details'];
   registered.informationAnswer = 'Continue review';
-  registered.typed = `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${await realpath(root)} ${beforeHead}`)}`;
+  registered.typed = `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${beforeHead}`)}`;
   await registered.commands.get('singularityFlow.factoryReset')();
 
   const fullReview = registered.openedDocuments.find(document => document.content?.includes('Factory reset all local'))?.content;
@@ -1019,7 +1019,7 @@ test('VS Code refuses a destructive reset when HEAD changes while its review mod
   const extension = loadExtension(api);
   await extension.activate(context());
   registered.pickedFolder = root;
-  registered.typed = `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${await realpath(root)} ${reviewedHead}`)}`;
+  registered.typed = `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${reviewedHead}`)}`;
   let reviewDialogs = 0;
   api.window.showWarningMessage = async (message, ...rest) => {
     registered.warnings.push(message);
@@ -9177,7 +9177,9 @@ test('capability proposal inbox shows joined-definition failures and exact recov
   await until(() => panel.webview.html.includes('Open this review to prepare')
     ? panel.webview.html : null);
   assert.match(panel.webview.html, /MCP server &#39;figma&#39; is incompatible/);
-  assert.match(panel.webview.html, /capability repair-proposal/);
+  // The recovery a person reads is its short code in both routes, never the commit it confirms.
+  assert.match(panel.webview.html, new RegExp(`/sf-confirm ${confirmCode(recovery)}`));
+  assert.doesNotMatch(panel.webview.html, new RegExp(commit));
   assert.doesNotMatch(panel.webview.html, /ready for exact review/);
   controller.dispose();
 });

@@ -230,7 +230,8 @@ test('factory reset keeps machine-only Story documents unless the reviewed reset
   await writeFile(document, 'Band C starts at 91 000.\n');
 
   const plan = JSON.parse(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--json'], root).stdout);
-  assert.deepEqual(plan.machineOnlyDocuments.documents, [`WORK-1/salary-bands.md (${'a'.repeat(12)})`]);
+  // Listed by Story and file name, never their digest.
+  assert.deepEqual(plan.machineOnlyDocuments.documents, ['WORK-1/salary-bands.md']);
   assert.equal(plan.machineOnlyDocuments.included, false);
   assert.ok(plan.preserve.some((item) => /^1 machine-only Story document\(s\) in .*--include-local-documents/.test(item)));
   assert.match(command(process.execPath, [cli, 'factory-reset', '--dry-run'], root).stdout,
@@ -249,8 +250,9 @@ test('factory reset keeps machine-only Story documents unless the reviewed reset
   assert.equal(including.machineOnlyDocuments.included, true);
   assert.notEqual(including.resetScopeSha256, kept.resetScopeSha256);
   assert.ok(including.remove.some((item) => item.includes('machine-only Story document(s), the only copy of each')));
+  // The person's own-terminal route keeps the flag the preview was made with; the scope digest stays in --json.
   assert.match(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--include-local-documents'], root).stdout,
-    /--expect-scope-sha256 \S+ --include-local-documents/);
+    /Shell: singularity-flow factory-reset --include-local-documents\n/);
   const mismatched = command(process.execPath, [
     cli, 'factory-reset', '--confirm', kept.confirmation, '--expect-scope-sha256', kept.resetScopeSha256,
     '--allow-dirty', '--include-local-documents'
@@ -315,7 +317,8 @@ test('factory reset names each pending publication and refuses while one waits, 
   const discarding = JSON.parse(reset(['--dry-run', '--discard-pending-publications', '--json']).stdout);
   assert.equal(discarding.pendingPublicationsDiscarded, true);
   assert.ok(discarding.remove.some((item) => item.startsWith('the recovery of 2 pending publication(s)')), JSON.stringify(discarding.remove));
-  assert.match(reset(['--dry-run', '--discard-pending-publications']).stdout, /--expect-scope-sha256 \S+ --discard-pending-publications/u);
+  // The person's own-terminal route keeps the flag the preview was made with; the scope digest stays in --json.
+  assert.match(reset(['--dry-run', '--discard-pending-publications']).stdout, /Shell: singularity-flow factory-reset --discard-pending-publications\n/u);
   reset(['--confirm', discarding.confirmation, '--expect-scope-sha256', discarding.resetScopeSha256, '--allow-dirty', '--discard-pending-publications']);
   assert.equal(await missing(marker), true);
 });
@@ -326,7 +329,7 @@ test('factory reset refuses while an earlier build kept machine-only documents i
   await mkdir(path.dirname(legacy), { recursive: true });
   await writeFile(legacy, 'Only copy.\n');
   const plan = JSON.parse(command(process.execPath, [cli, 'factory-reset', '--dry-run', '--json'], root).stdout);
-  assert.deepEqual(plan.machineOnlyDocuments.unmoved, [`WORK-2/notes.md (${'b'.repeat(12)})`]);
+  assert.deepEqual(plan.machineOnlyDocuments.unmoved, ['WORK-2/notes.md']);
   const refused = command(process.execPath, [
     cli, 'factory-reset', '--confirm', plan.confirmation, '--expect-scope-sha256', plan.resetScopeSha256, '--allow-dirty'
   ], root, { ok: false });
@@ -384,8 +387,8 @@ Preserve this custom repository agent during a factory reset.
   assert.equal(plan.operation, 'factory-reset');
   // The token binds to this checkout at this commit. A token that is only the directory name is
   // derivable without ever seeing the preview, and matches a different clone of the same repository.
-  // A person types it, so the commit is in it as a short code derived from this checkout and that commit, never a hash.
-  assert.equal(plan.confirmation, `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${plan.repository} ${beforeHead}`)}`);
+  // A person types it, so the commit is in it as a short code derived from that commit, never a hash.
+  assert.equal(plan.confirmation, `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${beforeHead}`)}`);
   assert.match(plan.confirmation, /^RESET \S+ [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
   assert.notEqual(plan.confirmation, `RESET ${path.basename(root)}`);
   const humanPreview = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root).stdout;

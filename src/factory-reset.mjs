@@ -982,11 +982,11 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   // derivable from the directory you are standing in, so a token copied out of shell history — or
   // computed by an agent that never showed anybody the preview — matched a different clone of the
   // same repository just as happily as the one it was produced for.
-  // A person types it, so the commit is in it as a short code derived from this checkout and its commit (never a
-  // hash): the same binding as the commit itself, unforgeable from the directory name alone.
+  // A person types it, so the commit is in it as a short code derived from that commit, never a hash: the same
+  // binding as the commit prefix it replaces (the scope digest binds the clone).
   const identity = repositoryIdentity(repository);
   const revision = identity.head;
-  const confirmation = `RESET ${path.basename(repository)} ${revision ? confirmCode(`factory-reset ${repository} ${revision}`) : 'unborn'}`;
+  const confirmation = `RESET ${path.basename(repository)} ${revision ? confirmCode(`factory-reset ${revision}`) : 'unborn'}`;
   const uncommittedEntries = changedResetEntries(repository, { caseInsensitive });
   const uncommittedResetPaths = uncommittedEntries.map((entry) => entry.display);
   const packagedAgentSources = new Map((await regularFiles(PACKAGED_AGENTS_ROOT)).map((relative) => [

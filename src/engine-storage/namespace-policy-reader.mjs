@@ -128,7 +128,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
       if(binding.kind===CONVERGENCE_POLICY_EVIDENCE){values.push(await convergenceReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
       if(binding.kind===CONSTITUTION_POLICY_EVIDENCE){values.push(await constitutionReader().verify(publication,binding,{signal}));continue;}
       if(binding.kind===PHASE_ASSIGNMENT_EVIDENCE){values.push(await verifyAssignment(publication,binding,{signal,policyTraversal:token}));continue;}
-      if(binding.kind===ARTIFACT_SET_EVIDENCE){values.push(await artifactSets.verify(publication,binding,{signal}));continue;}
+      if(binding.kind===ARTIFACT_SET_EVIDENCE){values.push(await artifactSets.verify(publication,binding,{signal,policyTraversal:token}));continue;}
       if(isConformanceEvidence(binding.kind)){values.push(await conformanceReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
       if(isCodePolicyEvidence(binding.kind)){values.push(await verifyCodePolicyInTraversal(codeReader(),observer,publication,binding,{signal,policyTraversal:token}));continue;}
       if(binding.kind===CODE_INPUT_EVIDENCE){values.push(await inputReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}

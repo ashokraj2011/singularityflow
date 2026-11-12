@@ -16,6 +16,6 @@ test('targeted Code profiles carry their own optional outputs and predecessors w
   for(const targeted of [false,true]){const scoped={...preflight,...(!targeted?{history:null}:{}),repositoryScope:{profile:'sflow-namespace-repository-coverage/v1',repositories:[]}};
     assert.equal(namespaceCodePreflightVersion(scoped),targeted?18:16);
     for(const version of targeted?[18,19]:[16,17])assert.equal(namespaceCodePolicyProfile('code',{schemaVersion:version}).repositoryCoverage,true);}
-  assert.throws(()=>namespaceHumanDecisionProfile({schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
-  assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:20}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespaceHumanDecisionProfile({schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:24}),{code:'SCHEMA_VERSION_FUTURE'});
 });

@@ -23,6 +23,7 @@ const artifactSetPoliciesBinding = /* @__PURE__ */ artifactSetPolicies(NODE_CONF
 export const MEMBER_AUTHORITIES = /* @__PURE__ */ (() => artifactSetPoliciesBinding.MEMBER_AUTHORITIES)();
 export const normalizeArtifactSet = /* @__PURE__ */ (() => artifactSetPoliciesBinding.normalizeArtifactSet)();
 export const normalizeArtifactSets = /* @__PURE__ */ (() => artifactSetPoliciesBinding.normalizeArtifactSets)();
+export const artifactSetDiffValues = /* @__PURE__ */ (() => artifactSetPoliciesBinding.artifactSetDiffValues)();
 
 const astConfigurationPoliciesBinding = /* @__PURE__ */ astConfigurationPolicies(NODE_CONFIGURATION_PATH_SYNTAX);
 export const AST_MODES = /* @__PURE__ */ (() => astConfigurationPoliciesBinding.AST_MODES)();

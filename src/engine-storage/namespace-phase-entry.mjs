@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
-import {CONTENT_PHASE_ENTRY_PROFILE,TARGETED_PHASE_ENTRY_PROFILE,phaseContextResources} from '../kernel/phase-entry.mjs';
+import {CONTENT_PHASE_ENTRY_PROFILE,TARGETED_PHASE_ENTRY_PROFILE,ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE,phaseContextResources} from '../kernel/phase-entry.mjs';
 import {currentEntryPhase} from '../kernel/phase-admission.mjs';
 import {phaseTransitionAccess,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission} from '../kernel/phase-preparation.mjs';
 import {phaseExplicitlyReopened,phaseRequiresCodeDelivery,phaseKernelOwned,nextPhaseGeneration} from '../kernel/phase-policy.mjs';
@@ -14,6 +14,7 @@ import {createNamespaceClarificationReader,CLARIFICATION_EVIDENCE} from './names
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
+import {createNamespaceArtifactRepairReader} from './namespace-artifact-repair-reader.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -63,12 +64,15 @@ export function createNamespacePhaseEntryPorts(options,runtime=null) {
       liveSources.push({unit,repositoryId:repository.id,revision:observed.revision});
     }
     const repairScope=!retained&&phaseRequiresCodeDelivery(phase)?await createNamespaceCodeHistoryReader({observer,scope,workId}).repairScope(captured.snapshot,phase.id,{signal}):null;
-    const context={manifestProfile:repairScope?TARGETED_PHASE_ENTRY_PROFILE:CONTENT_PHASE_ENTRY_PROFILE,projectId:scope.projectId,paused:workflow.status==='paused',
+    const repairs=createNamespaceArtifactRepairReader({observer,scope,workId,publications}),repair=!retained?await repairs.active(captured.snapshot,phase.id,{signal}):null,
+      artifactRepairScope=repair?repairs.description(repair):null;
+    const context={manifestProfile:artifactRepairScope?ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE:repairScope?TARGETED_PHASE_ENTRY_PROFILE:CONTENT_PHASE_ENTRY_PROFILE,
+      ...(artifactRepairScope?{hasCodeRepair:Boolean(repairScope)}:{}),projectId:scope.projectId,paused:workflow.status==='paused',
       subject:{kind:'story',id:workId},phase:phase.id,workflow,revision:captured.snapshot.revision,
       ready:captured.snapshot.workId===workId&&phase.id===workflow.currentPhase,inspectionGeneration:generation,
       generatesCode:phaseRequiresCodeDelivery(phase),codeGenerationReady:Boolean(open),deterministic:phaseKernelOwned(phase),
       modelEnabled:options.modelEnabled??true,agentId:principal.identity.agentId};
-    contexts.set(context,{captured,approved,principal,phase,retained,generation,draft,draftCapture,operation,liveSources,sourceBlockers,repairScope,missing:[],resources:null,clarification:null,facts:null});return context;
+    contexts.set(context,{captured,approved,principal,phase,retained,generation,draft,draftCapture,operation,liveSources,sourceBlockers,repairScope,artifactRepairScope,missing:[],resources:null,clarification:null,facts:null});return context;
   }
   const selected=context=>{const s=contexts.get(context);if(!s)throw error('Use the issued phase-entry observation.','ENGINE_INPUT_INVALID');return s;};
   async function build(context,signal) {
@@ -106,18 +110,19 @@ export function createNamespacePhaseEntryPorts(options,runtime=null) {
     resources.push(resource('artifact-template',plan.value.template.key,plan.value.template.reference));
     if(record)resources.push(resource('human-clarifications','human-clarifications',record.reference));
     if(s.repairScope)for(const [index,reference]of s.repairScope.references.entries())resources.push(resource('repair-scope','repair-scope-'+index,reference));
+    if(s.artifactRepairScope)for(const [index,reference]of s.artifactRepairScope.references.entries())resources.push(resource('repair-scope','artifact-repair-scope-'+index,reference));
     const p=s.draft?.payload;
     if(p)resources.push(resource('current-draft',p.artifact.key,p.artifact.current,'machine-local',phase.id,p.generation));
     if(p?.generationIntent)resources.push(resource('generation-intent',p.generationIntent.id,p.generationIntent.record,'machine-local',phase.id,p.generation));
     const maximumPreview=Math.min(w.resolution.documents?.maxPreviewBytes??65536,1048576),budgets={documentPreviewBytes:maximumPreview,
       supportingTotalBytes:w.resolution.documents?.maxPromptEvidenceBytes??49152};
-    s.resources=phaseContextResources(resources,{maximumBytes:maximumPreview,targetedRepair:Boolean(s.repairScope)});
+    s.resources=phaseContextResources(resources,{maximumBytes:maximumPreview,targetedRepair:Boolean(s.repairScope||s.artifactRepairScope)});
     const draft=p?{generation:p.generation,revision:s.draft.revision,bodySha256:s.draft.bodySha256,baseRevision:p.baseRevision,artifact:p.artifact.current,
       intent:p.generationIntent?{id:p.generationIntent.id,reference:p.generationIntent.record}:null}:null;
-    const identity={schemaVersion:2,contract:CONTENT_PHASE_ENTRY_PROFILE,projectId:scope.projectId,workId,phase:phase.id,generation:s.generation,
+    const identity={schemaVersion:s.artifactRepairScope?5:2,contract:s.artifactRepairScope?ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE:CONTENT_PHASE_ENTRY_PROFILE,projectId:scope.projectId,workId,phase:phase.id,generation:s.generation,
       revision:context.revision,configuration:s.captured.snapshot.configuration,authorAgentId:phase.defaultAgent??null,resources:s.resources,
       clarification:{contextSha256:plan.sha256,record:record?.reference??null},draft,budgets,sources:plan.value.sources,
-      currentSources:s.liveSources.map(({repositoryId,revision})=>({repositoryId,revision})),...(s.repairScope?{repairScope:s.repairScope}:{})};
+      currentSources:s.liveSources.map(({repositoryId,revision})=>({repositoryId,revision})),...(s.repairScope?{repairScope:s.repairScope}:{}),...(s.artifactRepairScope?{artifactRepairScope:s.artifactRepairScope}:{})};
     const data=Buffer.from(canonicalJson(identity));s.identity={sha256:hash(data),bytes:data.byteLength};
     s.facts={workId,phase:phase.id,generation:phase.generation,inspectionGeneration:s.generation,projectId:scope.projectId,
       authoring:{entry:{status:s.retained?'retained-generation':'authoring-entry',reason:null},policyVerified:blockers.length===0,
@@ -125,7 +130,7 @@ export function createNamespacePhaseEntryPorts(options,runtime=null) {
       recovery:{requiresRecovery:false,actions:[],blockers:[]},references:{status:'not-configured'},deterministic:context.deterministic,
       documents:{status:missing.length?'reupload-required':'ready',localDocumentCount:documentResources.filter(value=>value.locality==='machine-local').length,
         documentCount:documentResources.length,missing:s.missing},budgets,resources,contextIdentity:s.identity,
-      permissions:s.principal.permissions,draft,blockers,configuration:s.captured.snapshot.configuration,...(s.repairScope?{repairScope:s.repairScope}:{})};
+      permissions:s.principal.permissions,draft,blockers,configuration:s.captured.snapshot.configuration,...(s.repairScope?{repairScope:s.repairScope}:{}),...(s.artifactRepairScope?{artifactRepairScope:s.artifactRepairScope}:{})};
     return s.facts;
   }
   async function fresh(context,signal) {

@@ -1,6 +1,6 @@
 /** Concrete immutable-content retention. Lifecycle acceptance remains the publication writer's duty. */
 import {createHash} from 'node:crypto';
-import {canonicalJson,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceConformancePolicyProfile} from '../foundation/record-schema.mjs';
+import {canonicalJson,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceConformancePolicyProfile,namespaceArtifactSetRecordProfile} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
@@ -67,7 +67,8 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     for(const file of value.files){const saved=await put(scope,'evidence',file.data,{signal});
       if(!same(contentReference(saved?.reference),file.content)||typeof saved.reused!=='boolean')throw new SingularityFlowError('The content store returned another output member.',{code:'ENGINE_PORT_RESULT_INVALID'});
       await observer.bytes(file.content,file.content.bytes,signal);}
-    const report=await save(value.report,signal),manifest={schemaVersion:1,format:'sflow-namespace-artifact-set-policy/v1',...namespaceSpecificationIdentity(publication),
+    const report=await save(value.report,signal),profile=namespaceArtifactSetRecordProfile('manifest',value.report),
+      manifest={schemaVersion:profile.version,format:profile.format,...namespaceSpecificationIdentity(publication),
       recordedAt:publication.publishedAt,artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
     namespaceArtifactSetManifest(manifest,{scope,workId,phaseId:publication.phase});
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:ARTIFACT_SET_EVIDENCE,record:await save(manifest,signal)}),

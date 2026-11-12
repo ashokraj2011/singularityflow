@@ -800,7 +800,7 @@ test('private preparation composes explicit storage and source ports without an 
       '../foundation/source-snapshot.mjs','../kernel/artifact-content.mjs','../kernel/phase-preparation.mjs','../kernel/phase-admission.mjs',
       '../kernel/phase-policy.mjs','../kernel/phase-inputs.mjs','../kernel/lifecycle-transitions.mjs','../kernel/project-enrollment.mjs',
       '../kernel/story-creation.mjs','../sda/namespace/values.mjs','../sda/namespace/contract.mjs','../sda/content/contract.mjs',
-      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-read-session.mjs','./namespace-submission-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-phase-resources.mjs','./namespace-repository-plan.mjs','./namespace-code-history.mjs','./namespace-code-predecessors.mjs','./namespace-local-content-reader.mjs','./namespace-generation-reader.mjs','./namespace-convergence-decisions-reader.mjs'])],
+      './namespace-draft-store.mjs','./namespace-lifecycle-reader.mjs','./namespace-configuration-reader.mjs','./namespace-story-reader.mjs','./namespace-read-session.mjs','./namespace-submission-reader.mjs','./namespace-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-phase-resources.mjs','./namespace-repository-plan.mjs','./namespace-code-history.mjs','./namespace-code-predecessors.mjs','./namespace-local-content-reader.mjs','./namespace-generation-reader.mjs','./namespace-convergence-decisions-reader.mjs','./namespace-artifact-repair-reader.mjs'])],
     [draft,new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../sda/namespace/contract.mjs',
       '../sda/namespace/values.mjs','../sda/namespace/transaction.mjs','../sda/namespace/journal-contract.mjs',
       '../sda/content/contract.mjs','./namespace-draft-contract.mjs'])]
@@ -934,9 +934,9 @@ test('retained source proof and shared observations cannot execute or write',asy
     ['src/engine-storage/namespace-conformance.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../sda/namespace/values.mjs',
       '../engine-compatibility/node-specification-policy.mjs','./namespace-upstream-reader.mjs','../kernel/conformance-report.mjs','../kernel/specification-publication.mjs','./namespace-code-inputs.mjs','./namespace-submission-reader.mjs',
       './namespace-phase-check-reader.mjs','./namespace-specification-contract.mjs','./namespace-policy-contract.mjs','./namespace-conformance-decision-reader.mjs','./namespace-candidate-content.mjs'])],
-    ['src/engine-storage/namespace-code-history.mjs',new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs',
-      '../kernel/routed-approval.mjs','../kernel/conformance-decisions.mjs','./namespace-targeted-repair-reader.mjs','../engine-compatibility/node-source-policy.mjs','./namespace-submission-reader.mjs','./namespace-publication-reader.mjs',
-      './namespace-approval-reader.mjs','./namespace-approval-contract.mjs','./namespace-phase-check-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-human-decision-contract.mjs','./namespace-rejection-reader.mjs','./namespace-routing-choice-contract.mjs','./namespace-routing-receipt-reader.mjs','./namespace-upstream-return-reader.mjs','./namespace-code-initial-history.mjs'])],
+    ['src/engine-storage/namespace-code-history.mjs',new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs',
+      '../kernel/conformance-decisions.mjs','./namespace-targeted-repair-reader.mjs','../engine-compatibility/node-source-policy.mjs','./namespace-publication-reader.mjs',
+      './namespace-phase-check-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-human-decision-contract.mjs','./namespace-rejection-reader.mjs','./namespace-code-return-reader.mjs','./namespace-code-initial-history.mjs'])],
     ['src/engine-storage/namespace-code-inputs.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../foundation/source-snapshot.mjs',
       '../sda/namespace/values.mjs','../kernel/publication-intent.mjs','../kernel/phase-inputs.mjs','../kernel/test-report-codec.mjs','../engine-compatibility/node-source-policy.mjs',
       './namespace-submission-reader.mjs','./namespace-source-retention-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-policy-contract.mjs','./namespace-specification-contract.mjs'])],
@@ -1260,7 +1260,7 @@ test('namespace authoring entry reads explicit proofs and private observations w
   const file='src/engine-storage/namespace-phase-entry.mjs',allowed=new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs',
     '../foundation/source-snapshot.mjs','../kernel/phase-entry.mjs','../kernel/phase-admission.mjs','../kernel/phase-preparation.mjs','../kernel/phase-policy.mjs',
     '../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-story-reader.mjs','./namespace-clarification-reader.mjs',
-    './namespace-publication-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-code-history.mjs']);
+    './namespace-publication-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-code-history.mjs','./namespace-artifact-repair-reader.mjs']);
   const ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
   const visit=node=>{
     if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),node.moduleSpecifier.text);
@@ -1273,7 +1273,7 @@ test('namespace authoring entry reads explicit proofs and private observations w
 
 test('namespace diagnostic and candidate inspection owners cannot write, execute or grant draft authority',async()=>{
   const files=new Map([
-    ['namespace-artifact-set-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/namespace-artifact-sets.mjs','../engine-compatibility/node-configuration-path.mjs','../records.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-lifecycle-contract.mjs','./namespace-specification-contract.mjs','./namespace-candidate-content.mjs'])],
+    ['namespace-artifact-set-reader.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/namespace-artifact-sets.mjs','../engine-compatibility/node-configuration-path.mjs','../records.mjs','../sda/namespace/values.mjs','../sda/content/contract.mjs','./namespace-lifecycle-contract.mjs','./namespace-specification-contract.mjs','./namespace-candidate-content.mjs','./namespace-artifact-repair-reader.mjs'])],
     ['namespace-workflow-assets.mjs',new Set(['node:crypto','../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/phase-preparation.mjs','../kernel/namespace-workflow-assets.mjs','../kernel/workflow-assets.mjs','./namespace-story-reader.mjs'])],
     ['namespace-story-queries.mjs',new Set(['../foundation/failures.mjs','../kernel/phase-preparation.mjs','../kernel/phase-policy.mjs','./namespace-story-reader.mjs','./namespace-source-review-reader.mjs'])],
     ['namespace-candidate-content.mjs',new Set(['node:crypto','../foundation/failures.mjs'])],
@@ -2179,4 +2179,23 @@ test('convergence proof readers cannot stage records, discover a checkout or exe
   }
   const pure=await inspectPureModuleGraph({root:packageRoot,entries:['src/kernel/convergence-values.mjs','src/kernel/namespace-convergence.mjs'],
     allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});assert.deepEqual(pure.problems,[]);
+});
+
+test('artifact repair and return-proof owners are read-only and native bundle differences share the pure rule',async()=>{
+  const permitted=new Map([
+    ['namespace-artifact-repair-reader.mjs',new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs',
+      '../kernel/namespace-artifact-sets.mjs','../engine-compatibility/node-configuration-path.mjs','../records.mjs','./namespace-publication-reader.mjs',
+      './namespace-submission-reader.mjs','./namespace-phase-check-reader.mjs','./namespace-rejection-reader.mjs','./namespace-human-decision-contract.mjs'])],
+    ['namespace-code-return-reader.mjs',new Set(['../foundation/failures.mjs','../foundation/record-schema.mjs','../kernel/approval-policy.mjs','../kernel/routed-approval.mjs',
+      './namespace-submission-reader.mjs','./namespace-approval-reader.mjs','./namespace-approval-contract.mjs','./namespace-phase-check-reader.mjs',
+      './namespace-human-decision-contract.mjs','./namespace-rejection-reader.mjs','./namespace-routing-choice-contract.mjs','./namespace-routing-receipt-reader.mjs','./namespace-upstream-return-reader.mjs'])]
+  ]);
+  for(const [name,allowed]of permitted){const file='src/engine-storage/'+name,ast=ts.createSourceFile(file,await readFile(path.join(packageRoot,file),'utf8'),ts.ScriptTarget.Latest,true);
+    const visit=node=>{if(ts.isImportDeclaration(node))assert.ok(allowed.has(node.moduleSpecifier.text),file+': '+node.moduleSpecifier.text);
+      if(ts.isIdentifier(node)&&['process','require','eval','Function'].includes(node.text))assert.fail('Repair proof cannot discover a host');
+      if(ts.isPropertyAccessExpression(node)&&['put','transact','commit','prepare','start','launch','writeFile','unlink','spawn','spawnSync'].includes(node.name.text))assert.fail('Repair proof cannot write or execute');
+      assert.equal(ts.isCallExpression(node)&&node.expression.kind===ts.SyntaxKind.ImportKeyword,false);ts.forEachChild(node,visit);};visit(ast);
+  }
+  const native=await readFile(path.join(packageRoot,'src/artifact-sets.mjs'),'utf8');assert.match(native,/return artifactSetDiffValues\(readablePrevious,current,\{declared\}\)/u);
+  assert.match(native,/readRecord\('artifact-set'/u);assert.doesNotMatch(native,/const intended = new Set\(declared/u);
 });

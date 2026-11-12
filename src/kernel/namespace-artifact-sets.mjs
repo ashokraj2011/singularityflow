@@ -35,7 +35,7 @@ export function phaseArtifactInspectionManifest(workId,phase,facts,maximumEntrie
     totals:{files:facts.members.length,bytes},truncated:facts.members.length>maximumEntries,publicationRecorded:false,acceptanceRecorded:false};
 }
 export function namespaceArtifactSetPolicies(pathSyntax,digests){
-  const {path}=configurationPathSyntaxV2(pathSyntax),{normalizeArtifactSet}=artifactSetPolicies(pathSyntax),{sha256Utf8}=textDigestCapability(digests),
+  const {path}=configurationPathSyntaxV2(pathSyntax),{normalizeArtifactSet,artifactSetDiffValues}=artifactSetPolicies(pathSyntax),{sha256Utf8}=textDigestCapability(digests),
     hash=value=>sha256Utf8(canonicalJson(value));
   function declaration(definition,workflow,phase){
     const pinned=workflow.resolution?.phases?.find(row=>row.id===phase.id),id=pinned?.artifactSet??phase.artifactSet??definition.phases?.[phase.id]?.artifactSet;
@@ -56,6 +56,34 @@ export function namespaceArtifactSetPolicies(pathSyntax,digests){
     if(!members.length)fail('Name one exact declared member or file in a declared collection.',undefined,{memberPath,declared:declared.set.members.map(row=>row.path)});
     return {...declared,member:members[0],memberPath:exact,artifactKey:declared.root?declared.root+'/'+exact:exact};
   }
+  /** A return selects declarations of its target, never declarations of the reviewing phase. */
+  function repairSelection(definition,workflow,phase,members){
+    const declared=declaration(definition,workflow,phase);
+    if(!Array.isArray(members)||!members.length||members.length>NAMESPACE_ARTIFACT_SET_LIMITS.files||members.some(row=>typeof row!=='string'||!row.trim()))
+      fail('Name one or more exact target output members.','REJECT_MEMBER_UNKNOWN');
+    const prefix=(definition.workItemRoot??'singularity/work-items')+'/'+workflow.workItem.id+'/'+(declared?.root?declared.root+'/':''),
+      known=new Map((declared?.set.members??[]).flatMap(row=>[[row.path,row.path],[prefix+row.path,row.path]])),selected=[];
+    for(const member of members){const name=member.trim();sourceRelativePath(name.replace(/\/$/u,''));
+      if(!known.has(name))fail('The rejection target does not declare this output member.','REJECT_MEMBER_UNKNOWN',{
+        targetPhase:phase.id,member:name,known:declared?.set.members.map(row=>row.path)??[]});selected.push(known.get(name));}
+    return {...declared,members:[...new Set(selected)].sort()};
+  }
+  function repairComparison(previous,current,members){
+    if(previous.setId!==current.setId||previous.primary!==current.primary||previous.root!==current.root)
+      fail('Compare a repaired bundle against its exact original declaration.','ENGINE_STORAGE_CORRUPT');
+    const diff=artifactSetDiffValues(previous,current,{declared:members}),project=rows=>[...new Map(rows.map(row=>[row.path,{path:row.path,
+      sha256:row.sha256,exists:row.exists,...(row.reason?{reason:row.reason}:{})}])).values()];
+    const entries=report=>new Map(report.members.flatMap(row=>row.entries.map(entry=>[entry.path,entry.content]))),before=entries(previous),after=entries(current),
+      includes=(member,file)=>member.endsWith('/')?file.startsWith(member):member===file,
+      files=[...new Set([...before.keys(),...after.keys()])].sort().flatMap(path=>canonicalJson(before.get(path)??null)===canonicalJson(after.get(path)??null)?[]
+        :[{path,before:before.get(path)??null,after:after.get(path)??null,requested:members.some(member=>includes(member,path))}]);
+    return {profile:'sflow-namespace-artifact-repair-comparison/v1',declared:[...diff.declared],changed:project(diff.changed),preserved:project(diff.preserved),
+      files,incidental:project(diff.changed.filter(row=>files.some(file=>includes(row.path,file.path)&&!file.requested))),
+      unchangedRequested:members.filter(name=>!files.some(row=>includes(name,row.path)))};
+  }
+  function repairEntry(repair){return {profile:'sflow-namespace-artifact-repair-entry/v1',phase:repair.identity.phase,generation:repair.identity.generation+1,
+    changeRequestId:repair.changeRequestId,sourceRecord:repair.receipt.record,predecessor:repair.identity.publication,
+    bundle:repair.identity.bundle,members:[...repair.identity.members],references:repair.references};}
   function catalog(definition,workflow,phase,{primary,files}){
     const declared=declaration(definition,workflow,phase);if(!declared)fail('This phase has no typed artifact set.');
     if(!Array.isArray(files)||files.length>NAMESPACE_ARTIFACT_SET_LIMITS.files)fail('The output bundle exceeds its file limit.','ENGINE_STORAGE_LIMIT');
@@ -83,5 +111,5 @@ export function namespaceArtifactSetPolicies(pathSyntax,digests){
         ...(memberPath.endsWith('/')?{}:{memberPath})},requiredInputs:['operationId','expectedRevision','content','reason',...(memberPath.endsWith('/')?['memberPath']:[])]}))});
     return report;
   }
-  return Object.freeze({declaration,selection,catalog});
+  return Object.freeze({declaration,selection,repairSelection,repairComparison,repairEntry,catalog});
 }

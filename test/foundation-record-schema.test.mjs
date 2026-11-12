@@ -70,7 +70,7 @@ test('Code profiles preserve original versions and separately admit reviewed add
       assert.deepEqual(admitRecordSchemaVersion(family,original),{record:original,storedVersion:version});
       assert.equal(admitRecordSchemaVersion(family,original).record,original);
     }
-    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:20}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:24}),{code:'SCHEMA_VERSION_FUTURE'});
   }
   for(const version of [1,2,3,4,5,6])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:1},{schemaVersion:2}),false);
@@ -107,7 +107,8 @@ test('private member and witness context wire versions are admitted by one pure 
   assert.deepEqual(namespacePreparedPayloadProfile(old),{version:1,format:old.format,members:false});assert.deepEqual(old,copy);
   assert.equal(namespacePreparedPayloadProfile({schemaVersion:2,format:'sflow-namespace-prepared-phase/v2'}).members,true);
   assert.deepEqual(namespacePreparedPayloadProfile({schemaVersion:3,format:'sflow-namespace-prepared-phase/v3'}),{version:3,format:'sflow-namespace-prepared-phase/v3',members:true,convergence:true});
-  assert.throws(()=>namespacePreparedPayloadProfile({schemaVersion:4,format:'sflow-namespace-prepared-phase/v4'}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.deepEqual(namespacePreparedPayloadProfile({schemaVersion:4,format:'sflow-namespace-prepared-phase/v4'}),{version:4,format:'sflow-namespace-prepared-phase/v4',members:true,convergence:true,artifactRepair:true});
+  assert.throws(()=>namespacePreparedPayloadProfile({schemaVersion:5,format:'sflow-namespace-prepared-phase/v5'}),{code:'SCHEMA_VERSION_FUTURE'});
   assert.equal(namespaceWitnessContextProfile({schemaVersion:1}).profile,'sflow-namespace-witness-context/v1');
   assert.throws(()=>namespaceWitnessContextProfile({schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});
 });

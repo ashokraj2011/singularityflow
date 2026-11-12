@@ -68,6 +68,11 @@ export function assertTargetedCodeRepairDelta(scope,repositories,{workId,phaseId
         requiredInputs:[...(!ownerPhase?['ownerPhase']:[]),'operations','reason'],prerequisites:['authenticated-human-plan-approver']}]});
   return repositories.reduce((count,row)=>count+row.changes.length,0);
 }
+export function assertArtifactOnlyCodeRepairDelta(repositories,{workId,phaseId}={}){
+  if(repositories.some(row=>row.changes.length))fail('A document-only return cannot change application files. Preserve the draft and restore the exact delivered source, or obtain a separate clause-targeted Code return.',
+    'ENGINE_ARTIFACT_REPAIR_SOURCE_CHANGED',{phase:phaseId,repositories:repositories.map(row=>({id:row.id,paths:row.changes.map(change=>change.path)})),
+      actions:[{operation:'phase.source.inspect',inputs:{workId,phaseId}},{operation:'phase.review',inputs:{workId,phaseId}}]});
+}
 
 /** Shared lifecycle reset, with an exact submitted packet and explicit human reviewer. */
 export function planNamespaceRejection(workflow,request,facts,source) {
@@ -81,18 +86,21 @@ export function planNamespaceRejection(workflow,request,facts,source) {
   const changeRequestId='CR-'+String((proposed.changeRequests??[]).length+1).padStart(3,'0'),
     repairBudget=applyNamespaceRepairBudget(proposed,source,request,facts,changeRequestId,'rejection');
   const clauseIds=source.identity?.targeted?[...request.clauseIds]:[];
+  const members=source.identity?.artifactRepair?[...request.members]:[];
   const changeRequest={schemaVersion:1,id:changeRequestId,status:'open',
-    sourcePhase:phase.id,sourceGeneration:phase.generation,targetPhase:targetId,clauseIds,comment:request.reason,
+    sourcePhase:phase.id,sourceGeneration:phase.generation,targetPhase:targetId,clauseIds,...(members.length?{members}:{}),comment:request.reason,
     requestedAt:facts.at,requestedBy:facts.actorId,agent:facts.agentId,channel:'engine-sdk',authorityGroup:facts.authorityGroup,
     identityAssurance:null,sourceArtifactSha256:(phase.artifacts??[]).map(row=>({path:row.path,sha256:row.sha256??null})),
     reviewPacketSha256:source.reviewPacket.sha256,resolution:null};
   reopenPhaseRange(proposed,{targetId,at:facts.at,actor:facts.actorId,reason:request.reason});
   proposed.changeRequests??=[];proposed.changeRequests.push(changeRequest);
+  if(members.length)target.surgicalReopen={profile:'sflow-namespace-artifact-reopen/v1',changeRequestId,members:[...source.identity.artifactRepair.members],
+    previousGeneration:source.identity.artifactRepair.generation,requestedAt:facts.at};
   proposed.phases[phase.id].approvals.push({decision:'rejected',phase:phase.id,target:targetId,reason:request.reason,
     changeRequestId:changeRequest.id,clauseIds,at:facts.at,actor:facts.actorId,agent:facts.agentId,authorityGroup:facts.authorityGroup,
     identityAssurance:null,channel:'engine-sdk',generation:phase.generation,reviewPacketSha256:source.reviewPacket.sha256});
   proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'phase_rejected',phase:phase.id,
     detail:changeRequest.id+' returned to '+targetId+': '+request.reason});
   return {workflow:proposed,outcome:{currentPhase:targetId,changeRequest,
-    ...(['sflow-namespace-reviewer-return/v2','sflow-namespace-reviewer-return/v3'].includes(source.identity?.profile)?{repairBudget}:{})}};
+    ...(['sflow-namespace-reviewer-return/v2','sflow-namespace-reviewer-return/v3','sflow-namespace-reviewer-return/v4'].includes(source.identity?.profile)?{repairBudget}:{})}};
 }

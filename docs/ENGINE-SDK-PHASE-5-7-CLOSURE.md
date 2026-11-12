@@ -127,8 +127,9 @@ custom phases, expiry/renewal, interruption and offline shared-only replay are q
   late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
   plus live application-review and witness-exception profiles.
 - Upstream amend outcomes and forward amendments.
-- Targeted artifact-member and document-only repair; Code clause-targeted repair and multiple
-  Code predecessors now have authenticated profiles described below.
+- The remaining combined evidence-correction and application-revalidation variants; exact artifact
+  members, document-only returns, Code clause targeting and multiple Code predecessors have
+  authenticated profiles described below.
 - Comparison/live application acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
 - Required grounding, external design, skill/MCP host, person-presence, architecture,
@@ -233,5 +234,22 @@ audit and all 13 original bundle ceilings pass. Gateway is 851/852 modules. The 
 82 operations; the default native host binds 41, and the namespace host with private working
 stores binds 68 before optional execution. No Windows or production installation was run.
 
-This closes the convergence owner named in the earlier historical entries. Targeted artifact-member
-repair and the other owners in the active pending list remain required; neither phase is complete.
+This closes the convergence owner named in the earlier historical entries. Artifact-member repair
+is qualified separately below; the other owners in the active pending list remain required.
+
+## Artifact-member repair qualification
+
+Exact member returns now authenticate the original submitted or approved target bundle and retain
+their actual scope, original return and before/after comparison. Preparation reconstructs every
+retained member in the new private store. Document-only Code returns refuse application changes
+before execution, require fresh tests and preserve separate human visual acceptance. Repeated
+member returns keep every authenticated request; an earlier document repair does not restrict
+later Code work. See [the repair record](ENGINE-SDK-ARTIFACT-MEMBER-REPAIR.md).
+
+Mac qualification passes 260 distinct affected checks: all-three-store output journeys, SQLite
+Code combinations, source-free reconstruction, independent approvals and the offline installed
+consumer, plus native rejection/entry parity and schema/architecture checks. The original
+34-check package qualifier ran alone in 73.6 seconds within its unchanged 120/60-second limits.
+Source validation passes 4,282 checks; VS Code types, the unchanged Git audit and all 13 original
+bundle ceilings pass. Gateway remains 851/852 modules. Remaining policy, decision and execution
+owners keep both phases open. No Windows, main merge or production installation is part of this work.

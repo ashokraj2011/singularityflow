@@ -30,6 +30,7 @@ import {createNamespaceCodePredecessorReader} from './namespace-code-predecessor
 import {createNamespaceLocalContentReader} from './namespace-local-content-reader.mjs';
 import {namespaceGenerationValue,namespaceGenerationOriginalBasis,verifyNamespaceGenerationContinuation} from './namespace-generation-reader.mjs';
 import {createNamespaceConvergenceDecisionOwner} from './namespace-convergence-decisions-reader.mjs';
+import {createNamespaceArtifactRepairReader} from './namespace-artifact-repair-reader.mjs';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -49,6 +50,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   const readInput=createNamespaceLocalContentReader({content:inputContent,scope});
   const observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
   let convergenceOwner;const convergence=()=>convergenceOwner??=createNamespaceConvergenceDecisionOwner({observer,scope,workId});
+  let artifactRepairOwner;const artifactRepairs=()=>artifactRepairOwner??=createNamespaceArtifactRepairReader({observer,scope,workId});
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
   const packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
   const repositoryPlans=createNamespaceRepositoryPlanReader({records,content,scope,workId,authority,observer,checks});
@@ -89,7 +91,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     try {
       const profile=namespacePreparedPayloadProfile(value);
       exactObject(value,['format','generation','baseRevision','authorityVersion','configuration','actor','agentId','createdAt',
-        'template','artifact','inputContext','sources','generationIntent','previousDraft','updatedAt','updatedBy','reason',...(profile.members?['schemaVersion','members']:[]),...(profile.convergence?['convergence']:[])]);
+        'template','artifact','inputContext','sources','generationIntent','previousDraft','updatedAt','updatedBy','reason',...(profile.members?['schemaVersion','members']:[]),...(profile.convergence?['convergence']:[]),...(profile.artifactRepair?['artifactRepair']:[])]);
       if(value.format!==profile.format||!Number.isSafeInteger(value.generation)||value.generation<1
         ||!Array.isArray(value.sources)
         ||value.sources.length>32||!value.artifact||typeof value.artifact.key!=='string'||!value.template||typeof value.template.key!=='string')throw Error('Invalid fields.');
@@ -112,7 +114,10 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
           seen.add(member.path);bytes+=member.content.bytes;storyActorValue(member.actor);projectEnrollmentTimestamp(member.recordedAt);}
         if(bytes>NAMESPACE_ARTIFACT_SET_LIMITS.totalBytes)throw Error('Invalid bundle byte bound.');
       }
-      if(profile.convergence&&contentReference(value.convergence).namespace!=='local')throw Error('The deterministic private projection must stay local.');
+      if(profile.convergence&&(!profile.artifactRepair||value.convergence!==null)&&contentReference(value.convergence).namespace!=='local')throw Error('The deterministic private projection must stay local.');
+      if(profile.artifactRepair){exactObject(value.artifactRepair,['returnRecord','scope']);
+        if(contentReference(value.artifactRepair.returnRecord).namespace!=='evidence'||value.artifactRepair.scope?.profile!=='sflow-namespace-artifact-return-source/v1'
+          ||value.artifactRepair.scope.phase!==phaseId||value.artifactRepair.scope.generation+1!==value.generation)throw Error('Another member repair binding.');}
       const repositories=new Set();
       for(const source of value.sources) {
         exactObject(source,['id','unitId','provider','revision','descriptor','snapshot']);const descriptor=sourceUnitDescriptor(source.descriptor);
@@ -215,8 +220,11 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     const inputContext=await captured.store.put(contextData,{signal});
     const initial=previous?.payload.artifact.initial??await captured.store.put(Buffer.from(renderArtifactTemplateText(templateText,phase,{
       id:workId,title:w.workItem.title,workType:w.workItem.workType,inputs:inputs.rendered})),{signal});
-    const projected=deterministic?await convergence().context(captured.snapshot,phase.id,{signal}):null;
+    const projected=deterministic?await convergence().context(captured.snapshot,phase.id,{signal}):null,
+      repair=await artifactRepairs().active(captured.snapshot,phase.id,{signal});
     const artifact={key:binding.artifactKey,initial,current:projected?await captured.store.put(Buffer.from(convergence().inputs.values.render(projected.projection)),{signal}):previous?.payload.artifact.current??initial};
+    if(repair&&!projected&&previous?.payload.generation!==binding.generation)
+      artifact.current=await captured.store.put(await observer.bytes(repair.publication.artifact.content,repair.publication.artifact.content.bytes,signal),{signal});
     if(typeof artifact.key!=='string'||!artifact.key)throw error('This phase needs its configured artifact contract.','ENGINE_ARTIFACT_CONTRACT_REQUIRED');
     const opening=binding.codeDeliveryRequired?await sourceBindings(captured,signal,{previous}):null,sources=opening?.repositories??[];
     let generationIntent=null;
@@ -239,6 +247,14 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     if(previous?.payload.members)value.schemaVersion=2,value.format='sflow-namespace-prepared-phase/v2',value.members=previous.payload.members.filter(row=>row.generation===binding.generation);
     if(projected)Object.assign(value,{schemaVersion:3,format:'sflow-namespace-prepared-phase/v3',members:value.members??[],
       convergence:await captured.store.put(Buffer.from(canonicalJson(projected.projection)),{signal})});
+    if(repair){
+      if(binding.generation!==repair.identity.generation+1)throw error('The member repair has another actual generation.','ENGINE_STORAGE_CORRUPT');
+      const members=previous?.payload.generation===binding.generation?previous.payload.members??[]:[];
+      if(previous?.payload.generation!==binding.generation)for(const member of repair.bundle.files)members.push({path:member.path,
+        content:await captured.store.put(await observer.bytes(member.content,member.content.bytes,signal),{signal}),generation:binding.generation,actor:agent.actor,recordedAt:at});
+      Object.assign(value,{schemaVersion:4,format:'sflow-namespace-prepared-phase/v4',members,convergence:value.convergence??null,
+        artifactRepair:{returnRecord:repair.receipt.record,scope:repair.identity}});
+    }
     if(opening)openingSources.set(value,opening);return value;
   }
   async function prepareDraft(context,binding,permission,signal){
@@ -254,6 +270,14 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
         saved.opened=false;await authorize(permission,signal,agent);await unchanged(captured,signal);return;
       }
       if(found) {
+        if(found.payload.generation<binding.generation&&captured.phase.surgicalReopen){
+          const value=await makePayload(captured,binding,agent,found,signal);
+          if(value.artifactRepair){if(value.sources.length)await sourceBindings(captured,signal);
+            await authorize(permission,signal,agent);await unchanged(captured,signal);
+            const parametersSha256=hash(canonicalJson({binding,previous:found.body,return:value.artifactRepair,base:captured.snapshot.revision}));
+            saved.accepted=await captured.store.save({operationId:'prepare-'+parametersSha256,parametersSha256,expectedRevision:found.revision,payload:value},{signal});
+            saved.opened=binding.codeDeliveryRequired&&!saved.accepted.replayed;return;}
+        }
         if(found.payload.baseRevision!==captured.snapshot.revision||found.payload.generation!==binding.generation)throw error('The existing private draft uses an earlier Story revision. Review it and explicitly rebind it.','ENGINE_DRAFT_BASIS_CHANGED',{
           workId,phase:binding.phase,revision:found.revision,confirm:found.body.sha256,operation:'phase.draft.rebase'});
         await repositoryPlans.guard(captured.snapshot,captured.phase.id,found.payload.sources.map(row=>row.id),{signal});
@@ -347,7 +371,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
               if(s.input.content.bytes>NAMESPACE_ARTIFACT_SET_LIMITS.fileBytes)throw error('The output member exceeds its byte limit.','ENGINE_STORAGE_LIMIT');
               await s.store.bytes(s.input.content,{signal});members.push({path:s.input.memberPath,content:s.input.content,generation:found.payload.generation,actor:agent.actor,recordedAt:at});
             }else if(members.length===old.length)throw error('The named private member is not attached.','PHASE_ARTIFACT_MEMBER_NOT_FOUND',{memberPath:s.input.memberPath});
-            value={...found.payload,schemaVersion:2,format:'sflow-namespace-prepared-phase/v2',members:members.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0),
+            const version=found.payload.artifactRepair?4:found.payload.convergence?3:2;
+            value={...found.payload,schemaVersion:version,format:'sflow-namespace-prepared-phase/v'+version,members:members.sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0),
               previousDraft:found.body,updatedAt:at,updatedBy:agent.actor,reason:s.input.reason};
           }
         }

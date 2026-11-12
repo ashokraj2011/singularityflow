@@ -20,6 +20,8 @@ export function assertRejectionComment(phase, reason, testingRepair) {
   }
 }
 
+/** Keep the public selector normalization independent of host path syntax. */
+export function phaseRejectionMembers(values){return [...new Set(values.map(value=>value.trim().replaceAll('\\','/')).filter(Boolean))];}
 /** Bind only lifecycle identity. Native ports retain sequence, presence and actor admission. */
 export function phaseRejectionSelection(workflow, inputs) {
   const id = inputs.phaseId ?? workflow?.currentPhase, phase = workflow?.phases?.[id];
@@ -31,7 +33,7 @@ export function phaseRejectionSelection(workflow, inputs) {
   }
   return { workId: workflow.workItem.id, phase: phase.id, generation,
     target: inputs.target ?? phase.id, clauseIds: [...new Set(inputs.clauseIds ?? [])],
-    members: [...new Set((inputs.members ?? []).map(value => value.trim().replaceAll('\\', '/')).filter(Boolean))],
+    members: phaseRejectionMembers(inputs.members??[]),
     reason: inputs.reason?.trim() || 'Changes requested.' };
 }
 

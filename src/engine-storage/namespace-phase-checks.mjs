@@ -21,6 +21,8 @@ import {phaseCheckRecord,NAMESPACE_PHASE_CHECK_PROFILE} from './namespace-phase-
 export {NAMESPACE_PHASE_CHECK_PROFILE};
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
+import {createNamespaceSourceRetentionReader} from './namespace-source-retention-reader.mjs';
+import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 export {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -74,6 +76,16 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
       const draft=await runtime.captureDraft(s.input.phaseId,{signal});s.admission=await runtime.admitDraft(draft,'phase.checks.run',{signal});
       const facts=runtime.draftFacts(s.admission),captured=await observer.capture({signal}),phase=captured.snapshot.workflow.phases[s.input.phaseId];
       if(captured.snapshot.revision!==facts.revision)throw error('The Story changed before check preparation.','ENGINE_CONTEXT_CHANGED');
+      let repairSources=null;
+      if(facts.payload.artifactRepair&&facts.payload.sources.length){
+        const retained=await createNamespaceSourceRetentionReader({...observer.evidenceReads,observer}).inspectDraft({phaseId:phase.id,
+          generation:facts.payload.generation,baseRevision:facts.revision,draft:runtime.draftIdentity(draft),artifact:facts.payload.artifact.current,
+          configuration:captured.snapshot.configuration},{signal});
+        if(!retained)throw error('Retain the exact repair source before running its checks.','ENGINE_SOURCE_EVIDENCE_REQUIRED',{
+          operation:'phase.source.retain',workId,phaseId:phase.id});
+        await createNamespaceCodeHistoryReader({observer,scope,workId}).inspect(captured.snapshot,phase.id,retained,{signal});
+        repairSources=retained.plan.sources;
+      }
       const existing=await reader.intent(s.input,{signal});
       if(existing){s.plan=checked(existing.plan,s);s.planReference=existing.reference;
         if(!same(s.plan.draft,runtime.draftIdentity(draft))||s.plan.basis.headVersion!==facts.revision)throw error('The authored draft changed; preserve this intent and select a new check operation.','ENGINE_CONTEXT_CHANGED');
@@ -110,11 +122,15 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
               executionUnitManifestSha256:manifest.manifestSha256});steps.push({...selection,manifest,contract});}}
         if(steps.length>1024)throw error('The check set exceeds its bounded execution profile.','ENGINE_STORAGE_LIMIT');
         const actor={actor:facts.actor,agentId:facts.agentId};
+        const observedSources=await captureSources(repositories,signal);
+        if(repairSources&&observedSources.some(source=>repairSources.find(row=>row.repository.id===source.id)?.observed.revision!==source.revision))
+          throw error('The application changed after its admitted repair scope. Retain the current source and check it again.','ENGINE_SOURCE_CHANGED',{
+            operation:'phase.source.retain',workId,phaseId:phase.id});
         s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,...(commandProof.identity.receipts.length?{testCommands:commandProof.identity}:{}),binding:codec.binding,input:s.input,parametersSha256:s.parameters,
           generation:facts.payload.generation,draft:runtime.draftIdentity(draft),artifact:facts.payload.artifact.current,actor,
           basis:{authorityVersion:captured.basis.authorityVersion,headVersion:captured.basis.headVersion,configurationVersion:captured.basis.configurationVersion,
             configuration:captured.snapshot.configuration,head:captured.basis.head},
-          sources:await captureSources(repositories,signal),steps});
+          sources:observedSources,steps});
         s.planReference=await shared(Buffer.from(canonicalJson(s.plan)),'runtime',signal);await fresh(s,signal);
         const tx=codec.transaction(s.plan,s.planReference,{intent:true});
         try{codec.receipt(await transact(scope,tx,{signal}),tx);}

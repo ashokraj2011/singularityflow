@@ -1,6 +1,6 @@
 /** Typed immutable policy evidence. A binding is an identity, never proof of acceptance. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,phasePublicationBindingValue,namespaceCodePolicyProfile,namespaceConformancePolicyProfile} from '../foundation/record-schema.mjs';
+import {admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,phasePublicationBindingValue,namespaceCodePolicyProfile,namespaceConformancePolicyProfile,namespacePhasePolicyBindingProfile} from '../foundation/record-schema.mjs';
 import {exactObject,namespaceRevision} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {lifecycleHead} from './namespace-lifecycle-contract.mjs';
@@ -9,7 +9,8 @@ export const SPECIFICATION_ANALYSIS_EVIDENCE='specification-analysis/v1';
 export const PHASE_ASSIGNMENT_EVIDENCE='phase-assignment/v1';
 export const CODE_DELIVERY_EVIDENCE='code-delivery/v1';
 export const CODE_REWORK_EVIDENCE='code-delivery/v2';
-export const isCodePolicyEvidence=kind=>[CODE_DELIVERY_EVIDENCE,CODE_REWORK_EVIDENCE,'code-delivery/v3','code-delivery/v4','code-delivery/v5','code-delivery/v6','code-delivery/v7','code-delivery/v8','code-delivery/v9','code-delivery/v10','code-delivery/v11','code-delivery/v12','code-delivery/v13','code-delivery/v14','code-delivery/v15','code-delivery/v16','code-delivery/v17','code-delivery/v18','code-delivery/v19'].includes(kind);
+const codeEvidenceKinds=Object.freeze(Array.from({length:NAMESPACE_PHASE_POLICY_SCHEMAS.code.maximumReadableVersion},(_,index)=>'code-delivery/v'+(index+1)));
+export const isCodePolicyEvidence=kind=>codeEvidenceKinds.includes(kind);
 export const CODE_INPUT_EVIDENCE='approved-code-inputs/v1';
 export const CONFORMANCE_EVIDENCE='conformance/v1';
 export const isConformanceEvidence=kind=>[CONFORMANCE_EVIDENCE,'conformance/v2'].includes(kind);
@@ -18,8 +19,8 @@ function invalid(cause) {return new SingularityFlowError('The retained phase-pol
   code:['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED','ENGINE_STORAGE_UNSUPPORTED'].includes(cause?.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT'});}
 export function namespacePolicyEvidenceBinding(value) {
   try {
-    admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.binding,value);exactObject(value,['schemaVersion','format','kind','record']);
-    if(value.format!=='sflow-namespace-phase-policy-evidence-binding/v1'||typeof value.kind!=='string'||!/^[a-z][a-z0-9-]{0,63}\/v[1-9][0-9]{0,3}$/u.test(value.kind))throw Error('Invalid policy contract identity.');
+    const profile=namespacePhasePolicyBindingProfile(value);exactObject(value,['schemaVersion','format','kind','record']);
+    if(value.format!==profile.format||typeof value.kind!=='string'||!/^[a-z][a-z0-9-]{0,63}\/v[1-9][0-9]{0,3}$/u.test(value.kind))throw Error('Invalid policy contract identity.');
     evidence(value.record);
   }catch(cause){throw invalid(cause);}return value;
 }

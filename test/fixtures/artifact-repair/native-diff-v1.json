@@ -1,0 +1,404 @@
+{
+  "profile": "sflow-native-artifact-set-diff/v1",
+  "cases": [
+    {
+      "input": {
+        "previous": null,
+        "current": null,
+        "options": {}
+      },
+      "result": {
+        "changed": [],
+        "preserved": [],
+        "incidental": [],
+        "declared": []
+      },
+      "disclosure": []
+    },
+    {
+      "input": {
+        "previous": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": true,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "path": "missing.md",
+              "member": "missing.md",
+              "exists": false,
+              "sha256": null
+            }
+          ]
+        },
+        "current": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": true,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "path": "missing.md",
+              "member": "missing.md",
+              "exists": false,
+              "sha256": null
+            }
+          ]
+        },
+        "options": {
+          "declared": [
+            "plan.md"
+          ]
+        }
+      },
+      "result": {
+        "changed": [],
+        "preserved": [
+          {
+            "path": "plan.md",
+            "member": "plan.md",
+            "exists": true,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "path": "notes.md",
+            "member": "notes.md",
+            "exists": true,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "path": "missing.md",
+            "member": "missing.md",
+            "exists": false,
+            "sha256": null
+          }
+        ],
+        "declared": [
+          "plan.md"
+        ],
+        "incidental": []
+      },
+      "disclosure": [
+        "the reopen declared members to regenerate and none of them changed"
+      ]
+    },
+    {
+      "input": {
+        "previous": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": true,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "path": "missing.md",
+              "member": "missing.md",
+              "exists": false,
+              "sha256": null
+            }
+          ]
+        },
+        "current": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": true,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "path": "missing.md",
+              "member": "missing.md",
+              "exists": false,
+              "sha256": null
+            }
+          ]
+        },
+        "options": {
+          "declared": [
+            "plan.md"
+          ]
+        }
+      },
+      "result": {
+        "changed": [
+          {
+            "path": "plan.md",
+            "member": "plan.md",
+            "exists": true,
+            "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reason": "the member bytes changed"
+          }
+        ],
+        "preserved": [
+          {
+            "path": "notes.md",
+            "member": "notes.md",
+            "exists": true,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "path": "missing.md",
+            "member": "missing.md",
+            "exists": false,
+            "sha256": null
+          }
+        ],
+        "declared": [
+          "plan.md"
+        ],
+        "incidental": []
+      },
+      "disclosure": []
+    },
+    {
+      "input": {
+        "previous": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": true,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "path": "missing.md",
+              "member": "missing.md",
+              "exists": false,
+              "sha256": null
+            }
+          ]
+        },
+        "current": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": true,
+              "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            },
+            {
+              "path": "missing.md",
+              "member": "missing.md",
+              "exists": false,
+              "sha256": null
+            }
+          ]
+        },
+        "options": {
+          "declared": [
+            "plan.md"
+          ]
+        }
+      },
+      "result": {
+        "changed": [
+          {
+            "path": "plan.md",
+            "member": "plan.md",
+            "exists": true,
+            "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "reason": "the member bytes changed"
+          },
+          {
+            "path": "notes.md",
+            "member": "notes.md",
+            "exists": true,
+            "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "reason": "the member bytes changed"
+          }
+        ],
+        "preserved": [
+          {
+            "path": "missing.md",
+            "member": "missing.md",
+            "exists": false,
+            "sha256": null
+          }
+        ],
+        "declared": [
+          "plan.md"
+        ],
+        "incidental": [
+          {
+            "path": "notes.md",
+            "member": "notes.md",
+            "exists": true,
+            "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "reason": "the member bytes changed"
+          }
+        ]
+      },
+      "disclosure": [
+        "notes.md changed although the reopen did not ask for it: the member bytes changed"
+      ]
+    },
+    {
+      "input": {
+        "previous": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": true,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        },
+        "current": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": false,
+              "sha256": null
+            }
+          ]
+        },
+        "options": {
+          "declared": [
+            "notes.md"
+          ]
+        }
+      },
+      "result": {
+        "changed": [
+          {
+            "path": "notes.md",
+            "member": "notes.md",
+            "exists": false,
+            "sha256": null,
+            "reason": "the member bytes changed"
+          },
+          {
+            "path": "notes.md",
+            "member": "notes.md",
+            "exists": false,
+            "sha256": null,
+            "reason": "the member was removed"
+          }
+        ],
+        "preserved": [
+          {
+            "path": "plan.md",
+            "member": "plan.md",
+            "exists": true,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "declared": [
+          "notes.md"
+        ],
+        "incidental": []
+      },
+      "disclosure": []
+    },
+    {
+      "input": {
+        "previous": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            {
+              "path": "notes.md",
+              "member": "notes.md",
+              "exists": true,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        },
+        "current": {
+          "members": [
+            {
+              "path": "plan.md",
+              "member": "plan.md",
+              "exists": true,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "result": {
+        "changed": [
+          {
+            "path": "notes.md",
+            "member": "notes.md",
+            "exists": false,
+            "sha256": null,
+            "reason": "the member was removed"
+          }
+        ],
+        "preserved": [
+          {
+            "path": "plan.md",
+            "member": "plan.md",
+            "exists": true,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "declared": [],
+        "incidental": []
+      },
+      "disclosure": []
+    }
+  ]
+}

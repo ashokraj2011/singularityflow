@@ -241,6 +241,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             sourceKey,role:'artifact',name:phase.label??s.phaseId,kind:record.artifact.kind,mimeType:text?'text/markdown':'application/octet-stream',encoding:record.artifact.encoding,
             locality:'project',status:'active',aliases:[],content:artifact}];
           if(bundle){const root=sourceKey.slice(0,-artifactSet.set.primary.length);
+            if(publicationReader.policies.artifactSetEvidence(verified)?.report.repair)delete phase.surgicalReopen;
             snapshot.workflow.namespaceDocuments.push({id:'BUNDLE-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
               sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-artifact-set-gen'+generation+'.json',
               role:'file',name:'Typed output bundle',kind:'artifact-set',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:bundle.report});

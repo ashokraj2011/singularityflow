@@ -1,4 +1,4 @@
-import { normalizeArtifactSet } from "./engine-compatibility/node-configuration-path.mjs";
+import { normalizeArtifactSet,artifactSetDiffValues } from "./engine-compatibility/node-configuration-path.mjs";
 export { MEMBER_AUTHORITIES, normalizeArtifactSet, normalizeArtifactSets } from "./engine-compatibility/node-configuration-path.mjs";
 /**
  * Typed artifact sets. `[SPK:REQ-110]` `[SPK:REQ-111]` `[SPK:CON-045]`
@@ -283,27 +283,7 @@ export function artifactSetDiff(previous, current, { declared = [] } = {}) {
     }
     throw error;
   }
-  const before = new Map(readablePrevious.members.map((member) => [member.path, member]));
-  const intended = new Set(declared.map((entry) => posix(entry)));
-  const changed = [];
-  const preserved = [];
-  for (const member of current.members) {
-    const earlier = before.get(member.path);
-    if (!earlier) { changed.push({ ...member, reason: 'the member is new' }); continue; }
-    if (earlier.sha256 === member.sha256) preserved.push(member);
-    else changed.push({ ...member, reason: earlier.exists ? 'the member bytes changed' : 'the member was added' });
-  }
-  for (const [memberPath, earlier] of before) {
-    if (earlier.exists && !current.members.some((member) => member.path === memberPath && member.exists)) {
-      changed.push({ ...earlier, sha256: null, exists: false, reason: 'the member was removed' });
-    }
-  }
-  return {
-    changed,
-    preserved,
-    declared: [...intended],
-    incidental: intended.size ? changed.filter((member) => !intended.has(member.path) && !intended.has(member.member)) : []
-  };
+  return artifactSetDiffValues(readablePrevious,current,{declared});
 }
 
 /** The prose a surgical reopen owes its reader. `[SPK:REQ-111]` */

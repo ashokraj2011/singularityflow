@@ -295,7 +295,20 @@ function normalizeArtifactSets(value = {}) {
   if (typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('artifactSets must be an object.');
   return Object.fromEntries(Object.entries(value).map(([id, set]) => [id, normalizeArtifactSet(set, id)]));
 }
-    return { MEMBER_AUTHORITIES, normalizeArtifactSet, normalizeArtifactSets };
+/** Compare admitted catalogues. Version admission and retained-byte reads belong to adapters. */
+function artifactSetDiffValues(previous,current,{declared=[]}={}){
+  if(!previous||!current)return {changed:[],preserved:[],incidental:[],declared:[...declared]};
+  const before=new Map(previous.members.map(member=>[member.path,member])),intended=new Set(declared.map(entry=>posix(entry))),changed=[],preserved=[];
+  for(const member of current.members){const earlier=before.get(member.path);
+    if(!earlier){changed.push({...member,reason:'the member is new'});continue;}
+    if(earlier.sha256===member.sha256)preserved.push(member);
+    else changed.push({...member,reason:earlier.exists?'the member bytes changed':'the member was added'});
+  }
+  for(const [memberPath,earlier]of before)if(earlier.exists&&!current.members.some(member=>member.path===memberPath&&member.exists))
+    changed.push({...earlier,sha256:null,exists:false,reason:'the member was removed'});
+  return {changed,preserved,declared:[...intended],incidental:intended.size?changed.filter(member=>!intended.has(member.path)&&!intended.has(member.member)):[]};
+}
+    return { MEMBER_AUTHORITIES, normalizeArtifactSet, normalizeArtifactSets, artifactSetDiffValues };
   });
 }
 

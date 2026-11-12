@@ -47,6 +47,8 @@ export function phaseAuthoringContract(definition, workflow, phase) {
     configuration: { productSource: false, sourceTagsRequired: false, apiDocumentationRequired: false,
       scopeAccountingRequired: true, candidateAndTestInput: true, protectedPathsEnforced: true },
     clauseAuthority: 'approved-active-clause-capsule', evidenceRoot,
+    // Spec namespace, else the Work ID in capitals (as templates render): a copied [NS:...] example became every Story's.
+    clauseNamespace: String((workflow?.resolution?.spec ?? definition?.spec)?.namespace ?? workflow?.workItem?.id ?? '<WORK-ID>').toUpperCase(),
     ...(roles.has('scope') ? { requirementCoverage: REQUIREMENT_COVERAGE, verificationIntent: {
       table: 'Clause | Methods | Criterion', methods: ['test', 'visual', 'inspection'],
       combination: 'all', oneRowPerDeclaredClause: true, nonTestRequirementCriterion: 'exact-declared-AC'
@@ -106,7 +108,7 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
     '- Configuration: manifests, lockfiles and build/test/CI/runtime settings are configuration, never product code or executable test declarations; add no traceability tags or API documentation to them. When one is the requested change itself (a CI pipeline, container or runtime setting), an approved clause claims it with Fulfillment `configuration`; otherwise list tooling under Supporting files with a reason.',
     ...(contract.requirementCoverage && !deterministicOnly ? [REQUIREMENT_AUTHORING_PROTOCOL] : []),
     ...(contract.requirementCoverage ? [
-      '- Clause IDs: brackets define a clause once, as `[NS:REQ-001]` (REQ, BEH, IFC, AC or CON, three digits); cite it anywhere else in backticks without brackets.'
+      `- Clause IDs: brackets define a clause once, as \`[${contract.clauseNamespace ?? '<WORK-ID>'}:REQ-001]\` (this Story's namespace; REQ, BEH, IFC, AC or CON, three digits); cite it anywhere else in backticks without brackets.`
     ] : []),
     ...(scenarios ? [
       '- Scenario coverage: author S-number situations, each a heading starting with its number (`### S1 — <situation>`), with substantive Given/When/Then acceptance cases (each keyword once per case, in that order: another "when" or "then" in the sentence starts a new field) and a `## Scenario coverage` table: Clause | Scenario | Outcome (success/failure/boundary/empty), its Scenario cell only the number. Cover every behavior and acceptance clause; repeat rows for multiple outcomes. Approved rejection/error behavior needs a distinct invalid-input case with an observable error, not only failure-state prose. Use pinned request/clarification facts, not invented error wording or extra scope. Lexical hints are advisory; independent source review still judges semantic completeness.'

@@ -591,7 +591,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,649,500 (measured 9,649,466): a confirmation route a person types is a short code, never its digest, in Copilot
     // and in their own terminal (confirm-code.mjs, one new eager file of 5.4 KB that route building loads; the prompt
     // hook and the guard resolve it; model-free-commands.mjs shows the code on the Shell line) [owner, 2026-11-12].
-    assert.ok(closure.bytes <= 9_649_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,649,900 (measured 9,649,886): the step that defines clauses, and the anchor refusals, name the Story's own
+    // clause namespace instead of a sample one an agent copied as NS: (phase-authoring-contract.mjs, phase-prepublish.mjs,
+    // state.mjs) [office, 2026-11-12].
+    assert.ok(closure.bytes <= 9_649_900, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

@@ -26,7 +26,7 @@ function clauseLines(definition, workflow, id) {
 
 // Two sentences share the prefix: a clause step is told how its brackets define clauses (the
 // authoring contract); any other authored step is told it numbers none (the composer).
-const DEFINES = /^- Clause IDs: brackets define a clause once, as `\[NS:REQ-001\]`/u;
+const DEFINES = /^- Clause IDs: brackets define a clause once, as `\[[A-Z0-9._-]+:REQ-001\]` \(this Story's namespace;/u;
 const NUMBERS_NONE = /no new clauses|defines no requirement clauses/u;
 
 const owns = (workflow, id) => workflow.resolution.obligationGraph.nodes
@@ -45,6 +45,10 @@ test('a feature intake is told it numbers no clauses, and which later steps defi
     const lines = clauseLines(definition, workflow, id);
     assert.equal(lines.length, 1, `${id}: a clause step is told once how its brackets define clauses`);
     assert.match(lines[0], DEFINES);
+    // The step that defines the clauses is shown the Story's own namespace: shown `[NS:REQ-001]`, an office
+    // agent wrote NS:AC-001 for every Story [office, 2026-11-12].
+    assert.ok(lines[0].includes('`[HEX-201806:REQ-001]`'), `${id}: ${lines[0]}`);
+    assert.doesNotMatch(lines[0], /\bNS:/u);
     assert.doesNotMatch(lines[0], NUMBERS_NONE, `${id}: a clause step is never told it numbers none`);
   }
   const [design] = clauseLines(definition, workflow, 'design');
@@ -56,6 +60,7 @@ test('a configured clause namespace is the one the line names', async () => {
   const workflow = storyOf(definition, 'feature', 'hex-7', { namespace: 'ORDER' });
   assert.ok(clauseLines(definition, workflow, 'intake')[0].includes('`[ORDER:REQ-001]`'));
   assert.ok(clauseLines(definition, workflow, 'verification')[0].includes('`ORDER:REQ-001`'));
+  assert.ok(clauseLines(definition, workflow, 'requirements')[0].includes('`[ORDER:REQ-001]`'), 'the step that defines them names it too');
 });
 
 test('across seeded workflows only authored steps outside the clause steps get the line, once', async (t) => {

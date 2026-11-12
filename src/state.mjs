@@ -7534,7 +7534,7 @@ async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
   };
   if (plannedClaimsEnforced(workflow, normalizeSpecPolicy(specPolicy)) && !specIndex.clauses.length) {
     throw new SingularityFlowError(
-      `Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? 'APP'}:REQ-001].`
+      `Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? String(workflow.workItem.id).toUpperCase()}:REQ-001].`
     );
   }
   return specIndex;

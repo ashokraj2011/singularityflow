@@ -151,7 +151,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         });
         if (plannedClaimsEnforced(workflow, specPolicy) && !candidateIndex.clauses.length) {
           add('specification.clauses-required', 'specification-index',
-            `Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? 'APP'}:REQ-001].`);
+            `Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? String(workflow.workItem.id).toUpperCase()}:REQ-001].`);
         }
       }
     } catch (error) {

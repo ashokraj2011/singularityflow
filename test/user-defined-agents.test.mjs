@@ -356,9 +356,8 @@ test('a real folder is proposed, activated, started with --agent and finished as
   // above covers only the work types init wrote. Its reviewer reads the published step and keeps a ready review.
   const { reviewStep } = await import('./helpers/step-review.mjs');
   reviewStep((args) => JSON.parse(sflow(...args)), 'orchestrator');
-  assert.match(refused('submit', 'orchestrator').message, /scope|plan/u, 'the omitted responsibilities wait for a person to record why');
-  sflow('decision', 'applicability', '--responsibility', 'scope', '--reason', 'One small greet function was asked for; no requirement clauses were needed.');
-  sflow('decision', 'applicability', '--responsibility', 'plan', '--reason', 'The orchestrator planned the change itself in its one step, recorded in its deliverable.');
+  // No step of the agent's one-step workflow holds scope or a plan, and its one end omits both, so the reason the
+  // workflow declares settles them for every Story: the step submits with no applicability decision [owner, 2026-11-12].
   sflow('submit', 'orchestrator');
   assert.match(sflow('approve', 'orchestrator', '--yes'), /Final Flow Gate passed/u);
 

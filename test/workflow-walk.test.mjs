@@ -232,7 +232,10 @@ test("a team's own workflow (custom requirements, code and testing steps) walks 
   assert.deepEqual(workflow.steps.map((step) => [step.id, step.outcome]), [['fmly-requirements', 'approved'], ['fmly-code', 'approved'], ['fmly-testing', 'approved']]);
   const kinds = Object.fromEntries(workflow.steps.map((step) => [step.id, step.people.map((entry) => entry.kind)]));
   assert.ok(kinds['fmly-requirements'].includes('clarification'), 'its clarification is asked of a person');
-  assert.ok(kinds['fmly-requirements'].includes('decision'), "the Story's scope statement is a person's decision");
+  // The step that defines the scope links its source statement in the clause that states it, in its own draft, so no
+  // person is asked about it [office, 2026-11-12]; one no clause states would be the approver's decision.
+  assert.match(workflow.steps[0].notes.join('\n'), /linked SRI-[0-9a-f]{12} inside the clause that states it/u, "the author links the Story's scope statement");
+  assert.ok(!kinds['fmly-requirements'].includes('decision'), 'nobody is asked about a statement its own clause carries');
   for (const id of ['fmly-requirements', 'fmly-code', 'fmly-testing']) {
     assert.ok(kinds[id].includes('review'), `${id} is reviewed`);
     assert.ok(kinds[id].includes('approval'), `${id} is approved`);

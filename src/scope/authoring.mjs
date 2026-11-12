@@ -5,7 +5,7 @@ import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { decisionListRoute } from '../upstream-routes.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { scopeAuthorities } from './decisions.mjs';
-import { scopeDecisionArgv, scopeDecisionCommandLine } from './extract.mjs';
+import { SCOPE_CHOICE_WORDS, scopeDecisionArgv, scopeDecisionCommandLine } from './extract.mjs';
 
 export { finalScopeStep, phaseOwnsScope };
 
@@ -41,13 +41,24 @@ export async function scopeAuthoringCheckpoint(root, definition, workflow, phase
         repair: draftPreview && item.kind === 'statement' ? { scope: 'current-draft', artifactPath,
           sourceReference: `[scope:${item.id}]`, requiresSubstantiveClause: true,
           instruction: 'Use the supplied intent to repair or add a real observable clause in this draft, linking this source reference inside that clause. A reference is a coverage claim, never a test pass or an approval. If interpretation or scope must change, that is the person\'s decision: name this item\'s humanDecision route, never ask for a disposition in this turn.' } : null,
-        humanDecision: { requiresActualHumanChoice: true, requiresReason: true,
+        humanDecision: { requiresActualHumanChoice: true, requiresReason: true, choose: SCOPE_CHOICE_WORDS,
           includedOrExistingRequiresClause: true,
           // Included or existing names its clauses; every other disposition refuses --clause.
           commandGuidance: safeCommandGuidance({ argv: scopeDecisionArgv(workflow.workItem.id, item.id).linked }),
           otherCommandGuidance: safeCommandGuidance({ argv: scopeDecisionArgv(workflow.workItem.id, item.id).unlinked }) }
       })),
       more: Math.max(0, unresolved.length - 8),
+      // Every open statement, for the step's own repair before it publishes (scopeLinkFindings).
+      unresolvedStatements: unresolved.filter(item => item.kind === 'statement').slice(0, 200).map(item => ({ id: item.id, text: item.text })),
+      artifactPath,
+      // An earlier step that defines the scope may already have said why no clause states one: that account stands.
+      earlierArtifactPaths: (workflow.phaseOrder ?? []).slice(0, Math.max(0, (workflow.phaseOrder ?? []).indexOf(phase.id)))
+        .map((id) => workflow.phases?.[id]).filter((step) => step && phaseOwnsScope(workflow, step) && step.requiredArtifact?.path)
+        .map((step) => path.posix.join(String(workflow.resolution?.workItemRoot ?? definition.workItemRoot ?? 'singularity/work-items').replaceAll('\\', '/'),
+          workflow.workItem.id, step.requiredArtifact.path)),
+      // Where a person decides what no clause states: the last step that defines the scope, at its approval when the
+      // Story pinned owner-step checks, otherwise before the Story ends.
+      decidedAt: (() => { const last = finalScopeStep(workflow); return last ? { step: last.id, label: last.label ?? last.id, holds: holdsScopeApproval(workflow, last), here: last.id === phase.id } : null; })(),
       instruction: unresolved.length
         ? `${draftPreview ? 'Repair clear source-to-clause coverage in this scope-owning draft before handoff.' : 'This is a retained publication, not editable draft coverage: preserve it and use only a returned successor or human decision route.'} Do not stop solely on this advisory or loop on unchanged output. For ambiguity, exclusions, deferral or unreadable sources, name each item's humanDecision route: a person records the disposition in a /sf-decide turn they start, so never ask for one in this turn or invent one. A source nobody could read (kind source) has no clause reference; only that decision closes it. Ordinary phase approval is not a waiver. Unchanged recorded decisions and approved clause links carry forward; later phases must not edit this earlier artifact.`
         : 'Every identified source statement is linked or dispositioned. This draft preview is not approval or proof that implementation/tests pass.' };
@@ -56,6 +67,38 @@ export async function scopeAuthoringCheckpoint(root, definition, workflow, phase
       message: `Scope advisory unavailable: ${error.message}`,
       instruction: 'Scope preview is unavailable, not a passing or completed scope review. Keep the existing phase gates and show the read-only inspection route; never auto-exclude sources.' };
   }
+}
+
+/**
+ * The step that defines the scope repairs its own open source statements before it publishes [office, 2026-11-12].
+ *
+ * A specification published with a source statement its clause stated but did not link (`[scope:SRI-...]`) left the
+ * person a scope decision the author could have settled: the advisory said so, and publish-if-ready went past it.
+ * Now each open statement of the current draft is the author's same-turn repair: link it inside the clause that
+ * states it, or, when none does, write `[scope-open:SRI-...] <why>` outside the clauses, and a person decides it at
+ * approval as before. Nothing is decided here and nothing waits on a person: the line is the author's account.
+ */
+export async function scopeLinkFindings(root, checkpoint) {
+  if (checkpoint?.status !== 'repair-or-human-decision' || !checkpoint.artifactPath || !checkpoint.unresolvedStatements?.length) return [];
+  const { readFile } = await import('node:fs/promises');
+  const texts = await Promise.all([checkpoint.artifactPath, ...(checkpoint.earlierArtifactPaths ?? [])]
+    .map((file) => readFile(path.join(root, file), 'utf8').catch(() => '')));
+  const accounted = new Set(texts.flatMap((text) => [...text.matchAll(/\[scope-open:(SRI-[0-9a-f]{12})\]/gu)].map(match => match[1])));
+  const at = checkpoint.decidedAt;
+  const decides = !at ? 'a person decides it before the Story ends'
+    : at.holds ? (at.here ? 'an approver decides it before this step is approved' : `an approver decides it before ${at.label} is approved`)
+      : 'an approver decides it before the Story ends';
+  const open = checkpoint.unresolvedStatements.filter(item => !accounted.has(item.id));
+  if (!open.length) return [];
+  const shown = open.slice(0, 12).map(item => `${item.id} "${String(item.text).replace(/\s+/gu, ' ').slice(0, 140)}"`);
+  return [{
+    code: 'specification.scope-unlinked', category: 'traceability', path: checkpoint.artifactPath,
+    message: `${open.length} source statement(s) of this Story are in no clause of this draft: ${shown.join('; ')}${open.length > shown.length ? `; and ${open.length - shown.length} more` : ''}. `
+      + 'For each, if a clause of this draft states it, add [scope:SRI-...] inside that clause (it is then included); if none does, '
+      + `add a line [scope-open:SRI-...] with why, outside the clauses, and ${decides}. Then rerun prepublish.`,
+    details: { repairScope: 'current-draft', ownerPhase: checkpoint.ownerPhase, items: open.slice(0, 50).map(item => item.id),
+      link: '[scope:<SRI-ID>] inside the clause that states it', open: '[scope-open:<SRI-ID>] <why no clause states it>' }
+  }];
 }
 
 /** Whether this step's approval waits for every statement's disposition: its Story pinned the owner-step checks and it defines the scope last. */

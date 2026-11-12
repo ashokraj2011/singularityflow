@@ -243,7 +243,7 @@ test('the confirmation names every answer with its reason', () => {
 });
 
 const scopeRow = (id, statement) => ({ id, kind: 'owed-decision', title: `Decide scope item ${id}`, why: `"${statement}" needs a link.`, decidedBy: allowed, details: { scopeItem: id }, options: [
-  choice('scope-included', 'Included: named clauses carry it', { clause: { known: ['PAY-1:REQ-001'] }, reason: { default: '', minimum: 20, maximum: 1000 } }),
+  choice('scope-included', 'Included: a clause of this Story states it', { clause: { known: ['PAY-1:REQ-001'] }, reason: { default: '', minimum: 20, maximum: 1000 } }),
   choice('scope-excluded', 'Exclude it from this Story')] });
 const checklist = { articles: [{ id: 'completeness', title: 'Completeness', question: 'Is every scenario covered?' }, { id: 'ambiguity', title: 'Ambiguity', question: 'Is it free of ambiguity?' }], decisions: ['satisfied', 'exception', 'not-applicable'] };
 const reviewRow = { id: 'd9', kind: 'scope-completeness', title: 'Review the scope for completeness', why: 'Nothing waits on this review.', decidedBy: allowed, details: {}, options: [
@@ -254,12 +254,12 @@ test('a scope row asks for clauses, and an included statement with none goes bac
   assert.deepEqual(sharedAnswers(list).map((entry) => entry.id), ['scope-excluded'], 'naming clauses is each row\'s own');
   const [page] = rowForms(list.items);
   assert.deepEqual(Object.keys(page.form.requestedSchema.properties), ['decision0', 'decision1'], 'the choices alone');
-  const { picks } = choicesFromRows(page.items, { decision0: 'Included: named clauses carry it', decision1: 'Exclude it from this Story' });
+  const { picks } = choicesFromRows(page.items, { decision0: 'Included: a clause of this Story states it', decision1: 'Exclude it from this Story' });
   assert.ok(detailForm(picks[0].item, picks[0].option).requestedSchema.properties.clause, 'clauses are asked of a choice that needs them');
   assert.equal(detailForm(picks[1].item, picks[1].option).requestedSchema.properties.clause, undefined, 'and of no other');
   assert.match(valuesFromForm(picks[0].item, picks[0].option, { reason: 'The first requirement carries it.' }).problem, /Name the clauses that carry/u);
   assert.deepEqual(valuesFromForm(picks[0].item, picks[0].option, { reason: 'The first requirement carries it.', clause: 'REQ-001' }).values.clause, 'REQ-001');
-  const { seen, ui } = person([accept({ choice: EACH }), accept({ decision0: 'Included: named clauses carry it', decision1: 'Exclude it from this Story' }),
+  const { seen, ui } = person([accept({ choice: EACH }), accept({ decision0: 'Included: a clause of this Story states it', decision1: 'Exclude it from this Story' }),
     accept({ reason: 'The first requirement carries it.', clause: 'REQ-001' }), accept({ reason: 'Logging is not part of this Story.' }), accept({ confirm: RECORD })], [list, { ...list, items: [] }]);
   await runCard(ui);
   assert.deepEqual(seen.recorded[0].document.clause, { d1: 'REQ-001' });

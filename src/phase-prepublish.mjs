@@ -539,7 +539,8 @@ async function computePhasePrepublish(root, config, workflow, phase, options = {
   const staticChecks = await staticPublicationBlockers(root, config, workflow, phase, { retained });
   const specificationChecks = retained ? { blockers: [], actions: [] }
     : await specificationPublicationBlockers(root, config, workflow, phase, draft);
-  const blockers = [...staticChecks.blockers, ...specificationChecks.blockers];
+  const blockers = [...staticChecks.blockers, ...specificationChecks.blockers,
+    ...(retained ? [] : await (await import('./scope/authoring.mjs')).scopeLinkFindings(root, scopeReview))];
   const actions = [...staticChecks.actions, ...specificationChecks.actions];
   // The transaction preserves an existing index instead of replacing staged governed bytes.
   // Expose that same prerequisite before offering publication, without unstaging anything.

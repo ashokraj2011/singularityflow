@@ -248,11 +248,15 @@ test('required scenario coverage agrees in draft-check, prepublish and actual pu
     });
     assert.equal(JSON.stringify(phase), before);
     assert.equal(await readFile(target, 'utf8'), text);
-    await author(root, workflow, spec().replace('## User scenarios\n', '## User scenarios\n\n### S1 — Retry a payment\n')
+    // The scope-owning author also links the source statement its clause states ("A retry creates a new attempt.",
+    // stated by DRIVE:REQ-001 in other words) in the same draft [office, 2026-11-12].
+    const links = (prepublish.scopeReview?.items ?? []).map((item) => ` [scope:${item.id}]`).join('');
+    assert.ok(links, 'the source statement is open until the author links it');
+    await author(root, workflow, spec().replace('[DRIVE:REQ-001]', `[DRIVE:REQ-001]${links}`).replace('## User scenarios\n', '## User scenarios\n\n### S1 — Retry a payment\n')
       + '\n## Scenario coverage\n| Clause | Scenario | Outcome |\n|---|---|---|\n'
       + '| `DRIVE:REQ-001` | S1 | success |\n| `DRIVE:REQ-002` | S1 | success |\n');
     const repaired = await phasePrepublish(root, config, workflow, phase, { session });
-    assert.equal(repaired.status, 'ready');
+    assert.equal(repaired.status, 'ready', JSON.stringify(repaired.findings));
     assert.ok(repaired.commands.publish);
     await publishGoverned(root, config, workflow, phase.id, AUTHORSHIP);
     assert.equal(phase.generation, 1);

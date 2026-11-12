@@ -47,6 +47,10 @@ export function clauseScopeItems(text) {
 
 /** Dispositions a person records with `decision scope`. */
 export const DECIDABLE_SCOPE_DISPOSITIONS = Object.freeze(['included', 'existing', 'excluded', 'deferred', 'informative', 'duplicate', 'superseded']);
+/** Which disposition is which, in one line, wherever a person or an agent is offered them [office, 2026-11-12]. */
+export const SCOPE_CHOICE_WORDS = 'included: a clause of this Story states it (name that clause); existing: the product already did it before this Story (name the clauses of this Story that verify it); '
+  + 'excluded, deferred, informative, duplicate or superseded: no clause states it, with your reason.';
+
 /** Dispositions that must name the clauses that carry the statement. */
 export const CLAUSE_LINKED_DISPOSITIONS = Object.freeze(['included', 'existing']);
 

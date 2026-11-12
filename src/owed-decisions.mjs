@@ -11,7 +11,7 @@
 import { finalScopeStep, ownerStepChecks, stepResponsibilities } from './phase-roles.mjs';
 import { retainedEvidenceDelivered, WITNESS_CHECKLIST, witnessContextBinding } from './verification/witness-records.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
+import { SCOPE_CHOICE_WORDS, scopeDecisionArgv, scopeDecisionCommandLine } from './scope/extract.mjs';
 
 const MAX_LISTED = 8;
 const MAX_TEXT = 160;
@@ -103,7 +103,8 @@ function scopeItemsOf(workflow, inventory) {
     const decide = scopeDecisionArgv(workflow.workItem.id, item.id);
     return { id: item.id, source: item.line ? `${item.sourceId}:${item.line}` : item.sourceId, kind: item.kind ?? null, humanRequired: true,
       text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 1)}…` : text,
-      command: scopeDecisionCommandLine(decide.linked), otherCommand: scopeDecisionCommandLine(decide.unlinked) };
+      command: scopeDecisionCommandLine(decide.linked), otherCommand: scopeDecisionCommandLine(decide.unlinked),
+      choose: SCOPE_CHOICE_WORDS };
   });
 }
 
@@ -188,6 +189,8 @@ export function owedDecisionLines(owed) {
   const scopeCount = owed.scopeItems.length + owed.more.scopeItems;
   if (scopeCount) {
     lines.push(`Open scope items (${scopeCount}, human only, ${owed.scopeHoldsApproval ? `approving ${owed.scopeHoldsApproval} waits for them` : 'not blocking this step'}):`);
+    // Which choice is which, before the commands: an agent read "existing" for a statement this Story's own criterion states [office, 2026-11-12].
+    lines.push(`  Choose: ${SCOPE_CHOICE_WORDS}`);
     for (const item of owed.scopeItems) {
       lines.push(`  ${item.id} ${item.source ?? ''}: "${item.text}"`, `    ${item.command}`, ...(item.otherCommand ? [`    ${item.otherCommand}`] : []));
     }

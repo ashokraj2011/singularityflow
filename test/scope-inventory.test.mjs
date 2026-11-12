@@ -417,7 +417,7 @@ test('the scope step\'s approver is shown each open statement while reviewing, a
   assert.equal(open[0].command, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <included|existing> --clause <CLAUSE-ID> --reason "<why>"`);
   assert.equal(open[0].otherCommand, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <excluded|deferred|informative|duplicate|superseded> --reason "<why>"`);
   assert.deepEqual(readiness.owedDecisions.witnesses, []);
-  assert.match(sflow('phase', 'show', 'intake').stdout, /Open scope items \(1, human only, approving intake waits for them\):\n {2}SRI-[0-9a-f]{12} story: "The public API must stay stable\."/u);
+  assert.match(sflow('phase', 'show', 'intake').stdout, /Open scope items \(1, human only, approving intake waits for them\):\n {2}Choose: included: a clause of this Story states it \(name that clause\); existing: the product already did it before this Story \(name the clauses of this Story that verify it\); [^\n]+\n {2}SRI-[0-9a-f]{12} story: "The public API must stay stable\."/u);
   // Approving before a person decides it is refused in the scope step itself, with the decision list as its route [PHR:REQ-002].
   const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'intake', '--yes', '--json'], root, { allowFailure: true });
   assert.notEqual(refused.status, 0);

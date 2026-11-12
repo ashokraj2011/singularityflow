@@ -85,9 +85,11 @@ test('a later step is told which sign-offs and scope decisions earlier steps sti
   assert.match(lines[1], /ENTRY-1:AC-001 screen \(visual: evidence\/screen\.png\) — inspect it first/u);
   assert.equal(lines[2].trim(), owed.witnesses[0].command);
   assert.equal(lines[3], 'Open scope items (3, human only, not blocking this step):');
-  assert.equal(lines[4], '  SRI-abc story:4: "The keypad must accept decimals."');
-  assert.equal(lines[5].trim(), owed.scopeItems[0].command);
-  assert.match(lines[6], /…and 2 more: singularity-flow evidence scope/u);
+  // Which choice is which, before any command [office, 2026-11-12]: an agent offered "existing" for a statement the Story's own criterion states.
+  assert.match(lines[4], /^  Choose: included: a clause of this Story states it \(name that clause\); existing: the product already did it before this Story \(name the clauses of this Story that verify it\); /u);
+  assert.equal(lines[5], '  SRI-abc story:4: "The keypad must accept decimals."');
+  assert.equal(lines[6].trim(), owed.scopeItems[0].command);
+  assert.match(lines[7], /…and 2 more: singularity-flow evidence scope/u);
   assert.deepEqual(owedDecisionLines(null), []);
   assert.match(owedDecisionLines({ status: 'unavailable', reason: 'evidence-untrusted' })[0], /unavailable \(evidence-untrusted\)/u);
 });

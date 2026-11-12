@@ -400,7 +400,16 @@ async function exerciseMarker(walk, stepId, facts) {
   walk.person(stepId, { class: 'expected-person-step', kind: 'clarification-marker',
     ask: `Answer a question the draft marks [NEEDS CLARIFICATION: …]; the step ${mode === 'block' ? 'cannot publish' : 'warns'} until it is answered and taken out (markers: ${mode}).`,
     where: whereFor(`singularity-flow clarification answer ${stepId} --marker q --answer a`), command: `singularity-flow clarification answer ${stepId} --marker "<question>" --answer "<answer>"` });
-  const seen = await walk.cli(stepId, ['phase', 'prepublish', stepId, '--work-id', WALK_WORK_ID, '--for-agent', '--json']);
+  const check = ['phase', 'prepublish', stepId, '--work-id', WALK_WORK_ID, '--for-agent', '--json'];
+  let seen = await walk.cli(stepId, check);
+  // The draft's own correction leads when it has one, the person's question after it (owner policy 2026-11-10):
+  // the author makes its corrections and rechecks, as an agent does, before the question's route is followed.
+  const clarificationRoute = (result) => /^singularity-flow clarification status\b/u.test(result.parsed?.act?.do?.shell ?? '');
+  for (const repair of FINDING_REPAIRS) {
+    if (clarificationRoute(seen) || !repair.pattern.test(askedOf(seen))) continue;
+    await repair.run(walk, stepId, askedOf(seen));
+    seen = await walk.cli(stepId, check);
+  }
   if (!JSON.stringify(seen.parsed ?? {}).includes(MARKER_QUESTION)) {
     walk.step(stepId).notes.push('The kernel did not report the marker the walk wrote; its marker gate was not exercised.');
   }
@@ -430,7 +439,9 @@ async function exerciseMarker(walk, stepId, facts) {
       ? `The step's markers ${mode === 'block' ? 'block publication' : 'warn'} on an open [NEEDS CLARIFICATION: …] marker, but its clarification is off, so no answer can be recorded and the marker can never be resolved. Turn clarification on for the step (when-needed or required), or set clarification.markers.mode to off.`
       : null);
   }
-  await walk.writeText(facts.artifact, before);
+  // The marker comes out; the corrections the author made meanwhile stay, as they would in its draft.
+  const now = await walk.readText(facts.artifact).catch(() => null);
+  await walk.writeText(facts.artifact, now == null ? before : now.split('\n').filter((line) => line !== marker).join('\n').replace(/\n{3,}/gu, '\n\n'));
 }
 
 // ---------------------------------------------------------------------------------- the step
@@ -466,7 +477,7 @@ async function publish(walk, stepId) {
       walk.cannotJudge(stepId, args, 'WORKFLOW_WALK_EXTERNAL_TOOL', `The step needs a result recorded from an external tool before it can publish, which the walk has no connection to: ${actWords(result)}`);
     }
     // What the author writes besides the draft when the step asks for it (an evidence file), once each.
-    const asked = [...(act?.fix ?? []), ...(result.parsed?.findings ?? []).map((entry) => `${entry.code ?? ''} at ${entry.path ?? ''}: ${entry.message ?? ''}`)].join('\n');
+    const asked = askedOf(result);
     const repair = FINDING_REPAIRS.find((entry) => !met.has(entry.id) && entry.pattern.test(asked));
     if (repair) {
       met.add(repair.id);
@@ -480,6 +491,11 @@ async function publish(walk, stepId) {
       message: actWords(result), routes: [act?.do?.shell, act?.do?.copilot].filter(Boolean) });
   }
   walk.stop(stepId, args, { code: 'WORKFLOW_WALK_NOT_PUBLISHED', message: 'The draft was still not published after every route prepublish returned.', routes: [] });
+}
+
+/** What a prepublish result asks the author to correct: its fix list and each finding, one per line. */
+function askedOf(result) {
+  return [...(result.parsed?.act?.fix ?? []), ...(result.parsed?.findings ?? []).map((entry) => `${entry.code ?? ''} at ${entry.path ?? ''}: ${entry.message ?? ''}`)].join('\n');
 }
 
 /**
@@ -496,6 +512,26 @@ const FINDING_REPAIRS = [{
       await walk.writeText(target, `# Evidence index — ${WALK_WORK_ID}\n\n${cited}: \`test/value.test.mjs\` passed against \`src/value.mjs\` on the run the code step recorded.\n`);
       walk.step(stepId).notes.push(`The stub author wrote ${target}, the evidence file the step's artifact set requires.`);
     }
+  }
+}, {
+  // The step that owns scope settles each source statement in its own draft [office, 2026-11-12]: the walk's one
+  // statement ("The value module must return 2.") is what its first clause states, so the author links it there.
+  id: 'scope-statements-linked',
+  pattern: /specification\.scope-unlinked at (\S+?):/u,
+  async run(walk, stepId, asked) {
+    const target = asked.match(/specification\.scope-unlinked at (\S+?):/u)[1];
+    const items = [...new Set(asked.match(/SRI-[0-9a-f]{12}/gu) ?? [])];
+    const lines = (await walk.readText(target)).split('\n');
+    // A line that defines one of this Story's clauses: its anchor outside backticks (a quoted citation of another
+    // namespace's clause, such as a template's `[SPK:REQ-068]`, defines nothing).
+    const defines = new RegExp(`\\[${WALK_WORK_ID}:(?:REQ|BEH|IFC|AC|CON)-\\d{3}\\]`, 'u');
+    const clause = lines.findIndex((line) => !line.trimStart().startsWith('<!--') && defines.test(line.replace(/`[^`]*`/gu, '')));
+    if (clause >= 0) lines[clause] = `${lines[clause]}${items.map((item) => ` [scope:${item}]`).join('')}`;
+    else lines.push('', ...items.map((item) => `[scope-open:${item}] No clause of this step states it; the approver decides it.`));
+    await walk.writeText(target, lines.join('\n'));
+    walk.step(stepId).notes.push(clause >= 0
+      ? `The stub author linked ${items.join(', ')} inside the clause that states it.`
+      : `The stub author marked ${items.join(', ')} open for the approver: no clause of this step states it.`);
   }
 }];
 

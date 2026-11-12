@@ -47,6 +47,13 @@ test('a scope statement offers every disposition, asks for clauses only where th
     assert.equal(DECISION_LIST_CHAT_OPTIONS.includes(option.id), false, 'a chat turn runs its own command, never this list\'s record');
   }
   assert.deepEqual(item.options[0].needs.clause.known, ['W-1:REQ-001', 'W-1:AC-010']);
+  // "Included" and "existing" both name clauses; each says which it is, so a statement this Story's own criterion states
+  // is not answered "existing" [office, 2026-11-12].
+  const option = (id) => item.options.find((entry) => entry.id === id);
+  assert.equal(option('scope-included').label, 'Included: a clause of this Story states it');
+  assert.match(option('scope-included').words, /^Name the clause of this Story that states it/u);
+  assert.equal(option('scope-existing').label, 'Already in the product before this Story');
+  assert.match(option('scope-existing').words, /^Only for behaviour the product had before this Story/u);
   assert.equal(packet.record.copilotCommand, '/sf-decide W-1', 'the /sf-decide route keeps working');
 });
 

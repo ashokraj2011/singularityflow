@@ -104,7 +104,7 @@ test('the page script uses the one VS Code handle page() already took', () => {
 });
 
 const scopeRow = (id, statement) => ({ id, kind: 'owed-decision', title: `Decide scope item ${id}`, why: `"${statement}" needs a link.`, decidedBy: allowed, details: { scopeItem: id }, options: [
-  choice('scope-included', 'Included: named clauses carry it', { clause: { known: ['PAY-1:REQ-001', 'PAY-1:REQ-002'] }, reason: { default: '', minimum: 20, maximum: 1000 } }),
+  choice('scope-included', 'Included: a clause of this Story states it', { clause: { known: ['PAY-1:REQ-001', 'PAY-1:REQ-002'] }, reason: { default: '', minimum: 20, maximum: 1000 } }),
   choice('scope-excluded', 'Exclude it from this Story')] });
 const checklist = { articles: [{ id: 'completeness', title: 'Completeness', question: 'Is every scenario covered?' }, { id: 'ambiguity', title: 'Ambiguity', question: 'Is it free of ambiguity?' }], decisions: ['satisfied', 'exception', 'not-applicable'] };
 const review = { id: 'd9', kind: 'scope-completeness', title: 'Review the scope for completeness', why: 'Nothing waits on this review.', decidedBy: allowed, details: {}, options: [

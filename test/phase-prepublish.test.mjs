@@ -34,31 +34,68 @@ async function fixture(t) {
   return { root, absolute, config: { workItemRoot: 'singularity/work-items' }, workflow, phase, session };
 }
 
-test('scope-owning prepublish offers early draft repair but retains ready publication and human decision routes', async t => {
+test('the scope-owning author settles each open source statement in its own draft before publishing; a person decides only what no clause states [office, 2026-11-12]', async t => {
   const item = await fixture(t);
   item.phase.requiredArtifact.kind = 'requirements';
   item.phase.approvalPolicy = { mode: 'required', authorities: ['scope-reviewers'] };
   item.workflow.phaseOrder = [item.phase.id];
   item.workflow.resolution.obligationGraph = { nodes: [{ id: item.phase.id, responsibilities: ['scope'] }] };
   await writeFile(path.join(item.root, 'singularity/work-items/PRE-1/source.json'), JSON.stringify({ acceptanceCriteria: ['test cases'] }));
-  await writeFile(item.absolute, '# Plan\n\n[PRE-1:AC-001] Executable regression coverage verifies the requested behavior.\n');
+  const clause = '[PRE-1:AC-001] Executable regression coverage verifies the requested behavior.';
+  await writeFile(item.absolute, `# Plan\n\n${clause}\n`);
   const before = structuredClone(item.workflow);
-  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
-  assert.equal(ready.status, 'ready', JSON.stringify(ready.findings));
-  assert.equal(ready.scopeReview.status, 'repair-or-human-decision');
-  assert.equal(ready.scopeReview.blocking, false);
-  assert.equal(ready.scopeReview.unresolvedCount, 1);
-  assert.match(ready.warnings.join('\n'), /Scope advisory/u);
-  assert.match(ready.commands.publish, /phase publish planning/u);
-  assert.ok(ready.scopeReview.items[0].humanDecision.commandGuidance.command);
-  assert.deepEqual(item.workflow, before);
-  const marker = ready.scopeReview.items[0].repair.sourceReference;
-  await writeFile(item.absolute, `# Plan\n\n[PRE-1:AC-001] Executable regression coverage verifies the requested behavior. ${marker}\n`);
+
+  // A statement no clause links is the author's own repair this turn, not a decision left for a person later.
+  const open = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(open.status, 'correction-required', JSON.stringify(open.findings));
+  const finding = open.findings.find((entry) => entry.code === 'specification.scope-unlinked');
+  assert.ok(finding, JSON.stringify(open.findings));
+  const id = open.scopeReview.items[0].id;
+  assert.match(finding.message, new RegExp(`${id} "test cases"`, 'u'));
+  assert.match(finding.message, /add \[scope:SRI-\.\.\.\] inside that clause \(it is then included\); if none does, add a line \[scope-open:SRI-\.\.\.\] with why/u);
+  assert.equal(open.correction.sameTurn, true, 'the author repairs it in the same turn');
+  assert.equal(open.commands.publish ?? null, null, 'publish-if-ready does not go past it');
+  assert.ok(open.scopeReview.items[0].humanDecision.commandGuidance.command, 'the person\'s route is still shown');
+
+  // No clause states it: the author says so in the draft, and the step publishes; an approver decides it where the finding says.
+  await writeFile(item.absolute, `# Plan\n\n${clause}\n\n[scope-open:${id}] Not a requirement of this change; the requester listed test cases as a deliverable type.\n`);
+  const accounted = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(accounted.status, 'ready', JSON.stringify(accounted.findings));
+  assert.equal(accounted.scopeReview.status, 'repair-or-human-decision', 'still open for the person: the line decides nothing');
+  assert.match(accounted.commands.publish, /phase publish planning/u);
+
+  // A clause states it: linked inside that clause, it is included and nothing is left for anyone.
+  await writeFile(item.absolute, `# Plan\n\n${clause} [scope:${id}]\n`);
   const repaired = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
   assert.equal(repaired.scopeReview.status, 'covered');
   assert.equal(repaired.status, 'ready');
   assert.ok(repaired.warnings.every(message => !message.includes('Scope advisory')));
   assert.deepEqual(item.workflow, before, 'neither prepublish nor clause repair records approval');
+});
+
+test('a statement an earlier scope step marked open is not asked again, and the finding names where a person decides [office, 2026-11-12]', async () => {
+  const { scopeLinkFindings } = await import('../src/scope/authoring.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-scope-open-'));
+  try {
+    // Feature's two steps that define the scope: requirements said why no clause states the first statement.
+    await writeFile(path.join(root, 'requirements.md'), '# Requirements\n\n[scope-open:SRI-000000000001] Background the requester gave, not a requirement.\n');
+    await writeFile(path.join(root, 'spec.md'), '# Implementation spec\n');
+    const checkpoint = {
+      status: 'repair-or-human-decision', ownerPhase: 'implementation-spec', artifactPath: 'spec.md', earlierArtifactPaths: ['requirements.md'],
+      unresolvedStatements: [{ id: 'SRI-000000000001', text: 'The team uses Jira.' }, { id: 'SRI-000000000002', text: 'Exports must include totals.' }],
+      decidedAt: { step: 'implementation-spec', label: 'Implementation spec', holds: true, here: true }
+    };
+    const [finding] = await scopeLinkFindings(root, checkpoint);
+    assert.deepEqual(finding.details.items, ['SRI-000000000002'], 'the account requirements gave stands');
+    assert.match(finding.message, /and an approver decides it before this step is approved\. Then rerun prepublish\./u);
+    // At an earlier scope step the person decides at the last one; without owner-step checks, before the Story ends.
+    const earlier = await scopeLinkFindings(root, { ...checkpoint, earlierArtifactPaths: [], decidedAt: { ...checkpoint.decidedAt, here: false } });
+    assert.match(earlier[0].message, /and an approver decides it before Implementation spec is approved\./u);
+    const unpinned = await scopeLinkFindings(root, { ...checkpoint, decidedAt: { ...checkpoint.decidedAt, holds: false } });
+    assert.match(unpinned[0].message, /and an approver decides it before the Story ends\./u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('a prior approval is not re-linted under later template rules, for any current phase name', async t => {

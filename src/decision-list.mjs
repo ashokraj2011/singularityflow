@@ -51,7 +51,9 @@ const SUPPORTING_REASON = Object.freeze({ minimum: 20, maximum: 500 });
 // `decision choose` asks only for a reason the log can keep.
 const ROUTING_REASON = Object.freeze({ minimum: 1, maximum: 1000 });
 // DECIDABLE_SCOPE_DISPOSITIONS in src/scope/extract.mjs, as a person reads them; a test pins the two equal.
-const SCOPE_CHOICES = Object.freeze([['included', 'Included: named clauses carry it', true], ['existing', 'It already exists: named clauses carry it', true],
+// "Included" and "existing" both name clauses; an office agent answered "existing" for a statement this Story's own
+// criterion covers, so each label says which one it is [office, 2026-11-12].
+const SCOPE_CHOICES = Object.freeze([['included', 'Included: a clause of this Story states it', true], ['existing', 'Already in the product before this Story', true],
   ['excluded', 'Exclude it from this Story', false], ['deferred', 'Defer it to later work', false], ['informative', 'It informs; it is not a requirement', false],
   ['duplicate', 'It duplicates another statement', false], ['superseded', 'A later statement replaces it', false]]);
 
@@ -781,7 +783,9 @@ function scopeItem(workflow, context, entry) {
     kind: 'owed-decision', title: `Decide scope item ${entry.id}`,
     why: `${entry.text ? `"${entry.text}" ` : ''}needs a link or a disposition from an approver of the step that defines the scope before the Story ends.`,
     options: SCOPE_CHOICES.map(([disposition, label, linked]) => ({ ...option(workflow, context, { id: `scope-${disposition}`, label,
-      words: linked ? 'The clauses you name carry this statement.' : 'The statement stays in the inventory with your reason.',
+      words: disposition === 'included' ? 'Name the clause of this Story that states it, such as the acceptance criterion that covers it.'
+        : disposition === 'existing' ? 'Only for behaviour the product had before this Story; name the clauses that verify it.'
+          : 'The statement stays in the inventory with your reason.',
       effects: [{ kind: 'scope-disposition', item: entry.id, disposition, groups: entry.groups }],
       needs: { ...(linked ? { clause: { known: entry.clauses ?? [] } } : {}), reason: textNeed('', REASON) } }),
     chat: { command: `singularity-flow decision scope ${workId} --fetch --item ${entry.id} --as ${disposition}${linked ? ' --clause <CLAUSES>' : ''} --reason "<REASON>"` } })),

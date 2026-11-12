@@ -222,7 +222,8 @@ test('the release-approval incident is one decision: recorded once, then approva
   assert.ok(reuse.needs.reason.default.length >= 20);
   assert.equal(reuse.decidedBy.allowed, true);
   assert.match(packet.packetSha256, /^sha256:[a-f0-9]{64}$/u);
-  assert.equal(packet.record.recommended, `singularity-flow decisions record ${W} --choose d1=reuse --confirm ${packet.packetSha256}`);
+  // A person's own record names the choice only: their terminal derives the list's digest [no hashes shown].
+  assert.equal(packet.record.recommended, `singularity-flow decisions record ${W} --choose d1=reuse`);
 
   // The same list for someone outside Testing's approvers: they may accept the risk, not reuse the run.
   const theirs = json(cliAs('other-engineer', 'decisions', W, '--json')).data;
@@ -261,8 +262,7 @@ test('the release-approval incident is one decision: recorded once, then approva
   const unconfirmed = attemptAs('release-reviewer', 'decisions', 'record', W, '--choose', 'd1=reuse', '--json');
   assert.equal(json(unconfirmed).error.code, 'DECISIONS_CONFIRMATION_REQUIRED');
   assert.equal(json(unconfirmed).error.details.record.command, packet.record.recommended);
-  // A person's own record names the choices only: their terminal shows the summary and asks, binding the list it read [no hashes shown].
-  assert.equal(packet.record.recommended, `singularity-flow decisions record ${W} --choose d1=reuse`);
+  // Their terminal shows the summary and asks, binding the list it read.
   assert.doesNotMatch(json(unconfirmed).error.message, /sha256:|[0-9a-f]{12}/u, 'the refusal a person reads names no digest');
   if (TYPED_TERMINAL_AVAILABLE) {
     const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Decision Tester', SINGULARITY_FLOW_AGENT_OUTPUT: 'full',

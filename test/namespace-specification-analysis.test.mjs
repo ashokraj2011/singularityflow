@@ -182,7 +182,7 @@ test('future policy bindings, reports and manifests remain unsupported; missing 
     const binding={...current.binding,record:await save(f,{...current.publication,policyEvidence:[policy]})};
     await assert.rejects(publicationReader(f).read(binding,'intake'),{code:'ENGINE_STORAGE_UNSUPPORTED'});
   }
-  assert.equal(PHASE_PUBLICATION_SCHEMAS.manifest.currentVersion,4);
+  assert.equal(PHASE_PUBLICATION_SCHEMAS.manifest.currentVersion,5);
   for(const failure of [Object.assign(new Error('Analysis permission denied.'),{code:'EACCES',path:'content.db'}),
     Object.assign(new Error('Analysis timed out.'),{code:'ETIMEDOUT',timeoutMs:300000})]) {
     const content={...f.content,read(scope,reference,options){if(reference.sha256===current.manifest.report.sha256)throw failure;return f.content.read(scope,reference,options);}};

@@ -15,6 +15,7 @@ import {createNamespacePublicationReader} from './namespace-publication-reader.m
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 import {createNamespaceArtifactRepairReader} from './namespace-artifact-repair-reader.mjs';
+import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -80,7 +81,9 @@ export function createNamespacePhaseEntryPorts(options,runtime=null) {
     const w=s.captured.snapshot.workflow,phase=s.phase,definition=s.approved.compiled.definition,blockers=[...s.sourceBlockers];
     const captureFailure=operation=>{try{operation();}catch(cause){if(!(cause instanceof SingularityFlowError))throw cause;
       blockers.push({code:cause.code??'PHASE_CONTEXT_AUTHORING_ENTRY_REQUIRED',message:cause.message,details:cause.details??null});}};
-    if(!s.retained) {captureFailure(()=>phasePreparationOpeningAdmission(w,phase));captureFailure(()=>phasePreparationCatalogAdmission(definition,w,phase,s.principal.identity.agentId));}
+    if(!s.retained) {captureFailure(()=>phasePreparationOpeningAdmission(w,phase));
+      const testRecovery=w.resolution.testRecovery?.enabled?await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(s.captured.snapshot,{signal}):null;
+      captureFailure(()=>phasePreparationCatalogAdmission(definition,w,phase,s.principal.identity.agentId,{testRecovery}));}
     const missing=[];
     const clarifications=createNamespaceClarificationReader({observer,scope,workId,checks,limits:records.descriptor.limits,
       localRead:async(reference,{signal}={})=>{try{return await localBytes(reference,signal);}catch(cause){

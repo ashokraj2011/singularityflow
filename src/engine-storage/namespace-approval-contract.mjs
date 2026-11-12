@@ -8,6 +8,7 @@ import {contentReference} from '../sda/content/contract.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
 import {storyActorValue} from '../kernel/story-creation.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
+import {namespaceForwardOriginValue} from './namespace-forward-contract.mjs';
 export const NAMESPACE_APPROVAL_PROFILE='sflow-primary-document-approval/v1';
 export const NAMESPACE_ROUTED_APPROVAL_PROFILE='sflow-primary-document-approval/v2';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -27,7 +28,7 @@ export function namespaceApprovalBindingValue(value) {return checked(()=>{
 export function namespaceApprovalValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
   const profile=namespaceApprovalRecordProfile(value);
   exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256',
-    'baseRevision','configuration','reviewPacket','artifactSet','actor','agentId','recordedAt','authorityGroup','selfApproval','thresholdReached','currentPhase',...(profile.routing?['routing']:[])]);
+    'baseRevision','configuration','reviewPacket','artifactSet','actor','agentId','recordedAt','authorityGroup','selfApproval','thresholdReached','currentPhase',...(profile.routing?['routing']:[]),...(profile.forwardAmendment?['origin']:[])]);
   if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId
     ||value.workId!==workId||value.phase!==phaseId||!digest(value.requestSha256)||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another approval binding.');
   for(const field of ['projectId','workId','phase','operationId','authorityGroup'])namespaceIdentifier(value[field]);
@@ -45,6 +46,7 @@ export function namespaceApprovalValue(value,{projectId,workId,phaseId}={}) {ret
     if(value.thresholdReached!==(value.routing.outcome!==null)||value.routing.outcome&&value.routing.outcome.after!==phaseId)throw Error('Another routed approval outcome.');
     if(namespaceApprovalRoutingProfile(value.routing).generationBound&&value.routing.generation!==value.generation)throw Error('Another question generation.');
   }
+  if(profile.forwardAmendment)namespaceForwardOriginValue(value.origin);
   projectEnrollmentTimestamp(value.recordedAt);return value;
 });}
 

@@ -27,13 +27,18 @@ export function phasePreparationOpeningAdmission(w,phase) {
     if(hold)throw admissionError('Select the phase author before preparing or publishing this draft.',hold.code,hold);
     if(phase.generationIntent?.status==='consumed'&&!phaseExplicitlyReopened(w,phase))throw admissionError('The published code generation needs an explicitly reviewed successor.','GENERATION_INTENT_ALREADY_CONSUMED');
 }
-export function phasePreparationCatalogAdmission(definition,w,phase,agentId) {
+export function phasePreparationCatalogAdmission(definition,w,phase,agentId,{testRecovery=null}={}) {
     const author=phaseCatalogAuthorAdmission(definition,w,phase,agentId);
     if(!author.allowed)throw admissionError(author.reason==='read-only'?'The selected agent is read-only for this phase.'
       :author.reason==='unknown'?'The selected agent is not in the pinned catalog.':'Select the pinned phase author before preparing its draft.',author.code,author.facts);
     const skillHost=skillPhaseHostRequirement(w,phase);
     if(skillHost)throw admissionError('The qualified skill containment and delivery host is not installed for this phase.','SKP_HOST_ENFORCEMENT_UNAVAILABLE',skillHost);
-    if(phaseRequiresCodeDelivery(phase)&&w.resolution.testRecovery?.enabled)throw admissionError('The code phase needs its retained test-recovery agreement and verified readiness on this backend.',
+    const agreement=testRecovery?.agreement,context=testRecovery?.context;
+    const recoveryAdmitted=agreement?.profile==='sflow-namespace-test-recovery-agreement/v1'
+      &&context?.value?.profile==='sflow-namespace-test-recovery-context/v1'&&agreement.contextSha256===context.sha256
+      &&agreement.context.workId===w.workItem.id&&agreement.context.executionMode==='all-configured'
+      &&JSON.stringify(agreement.context.policy)===JSON.stringify(w.resolution.testRecovery);
+    if(phaseRequiresCodeDelivery(phase)&&w.resolution.testRecovery?.enabled&&!recoveryAdmitted)throw admissionError('The code phase needs its retained test-recovery agreement and verified readiness on this backend.',
       w.resolution.testRecoveryAgreement?'TRP_READINESS_EVIDENCE_REQUIRED':'TRP_AGREEMENT_REQUIRED');
     if((w.referenceRepositories??[]).length)throw admissionError('The declared reference repositories need actual source bindings before preparation.','REFERENCE_REPOSITORIES_NOT_READY');
     if((w.pendingPublications??[]).length)throw admissionError('Reconcile the pending publication before preparing a private draft.','PENDING_PUBLICATION_REQUIRED');

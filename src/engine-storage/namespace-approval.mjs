@@ -24,6 +24,7 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespaceApprovalReader,namespaceRoutingQuestionKey} from './namespace-approval-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 import {STARTER_CHECKLIST} from '../engine-compatibility/node-specification-policy.mjs';
 import {namespaceApprovalValue,namespaceApprovalRecord,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalArtifactSetRecord,namespaceApprovalChecklistAnswers,namespaceApprovalDecision,
   namespaceApprovalReceipt,namespaceApprovalReceipts,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE} from './namespace-approval-contract.mjs';
@@ -216,6 +217,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
         const sequence=sequenceAdmission(workflow,{requestedPhase:s.phaseId,allowedStatuses:['awaiting_approval']});
         if(!sequence.allowed)throw error('Approval requires the current submitted phase.','PHASE_DRAFT_NOT_ACTIVE',{sequence});
         const hold=phaseGovernancePlan(workflow,phase);if(hold)throw error('Resolve the phase hold before approval.',hold.code,hold);
+        if((workflow.forwardAmendments??[]).length)await createNamespaceForwardAmendmentOwners({observer,scope,workId}).assertReady(snapshot,phase.id,{signal,
+          terminal:workflow.phaseOrder.indexOf(phase.id)===workflow.phaseOrder.length-1});
         if(!same(approved.configuration,snapshot.configuration))throw error('Approval has another configuration pin.','ENGINE_STORAGE_CORRUPT');
         const mutation=phaseAgentMutationFacts({agents:Object.fromEntries(approved.compiled.definition.agentCatalog.map(item=>[item.id,item]))},
           workflow,phase,{agent:s.reviewer.agentId},'approve');
@@ -257,6 +260,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
             reviewPacket:s.proof.binding.record,artifact:{sourceKey:s.proof.published.artifact.sourceKey,kind:s.proof.published.artifact.kind,content:s.proof.published.artifact.content}},{policyChecklist});
           namespaceApprovalArtifactSetValue(set,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const route=s.routed?routing(workflow,phase,policy.reached,recordedAt):null;
+          if(policy.reached&&route?.selected.currentPhase===null&&(workflow.forwardAmendments??[]).length)
+            await createNamespaceForwardAmendmentOwners({observer,scope,workId}).assertReady(snapshot,phase.id,{signal,terminal:true});
           const artifactSet=await save(set,signal),value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
             generation:phase.generation,operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
             reviewPacket:s.proof.binding.record,artifactSet,actor:s.reviewer.actor,agentId:s.reviewer.agentId,recordedAt,

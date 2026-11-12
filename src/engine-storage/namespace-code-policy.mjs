@@ -167,7 +167,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         }
       }
     }
-    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23}[preflightVersion]??7):preflightVersion,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
+    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31}[preflightVersion]??7):preflightVersion,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
     return {report,source,policy};
   }
   async function candidate(publication,snapshot,options){const value=await withReaders(readers=>candidateFor(publication,snapshot,options,readers));
@@ -199,7 +199,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   function evidence(value){const p=value.report.preflight;return [value.binding.record,value.manifest.report,p.source.result.content,p.baseline.record.content,
     p.plan.publication,p.plan.reviewPacket,p.plan.planned,...p.plan.indices.map(row=>row.record),...(p.plan.repositoryPlan?[p.plan.repositoryPlan]:[]),
     ...(p.plan.amendments??[]).map(row=>row.record),...(p.outputs?.files??[]).flatMap(row=>[row.content,row.retention.result.content]),...(value.source.workflow.planAmendments??[]).flatMap(row=>(row.operations??[]).filter(operation=>operation.op==='reclassify-evidence').map(operation=>operation.content)),
-    ...(p.priorCode?.phases??[]).flatMap(row=>row.references),...(['sflow-namespace-code-history/v4','sflow-namespace-code-history/v6'].includes(p.history?.profile)?p.history.returns.flatMap(row=>row.references):p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,(p.history.return.upstream??p.history.return.choice??p.history.return.rejection??p.history.return.approval).record,...(p.history.return.references??[]),...(p.history.returns??[]).flatMap(row=>row.references),...(p.history.earlierReturns??[]).flatMap(row=>row.references)]:[])];}
+    ...(p.priorCode?.phases??[]).flatMap(row=>row.references),...(['sflow-namespace-code-history/v4','sflow-namespace-code-history/v6','sflow-namespace-code-history/v12'].includes(p.history?.profile)?p.history.returns.flatMap(row=>row.references):p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,(p.history.return.amendment??p.history.return.upstream??p.history.return.choice??p.history.return.rejection??p.history.return.approval).record,...(p.history.return.references??[]),...(p.history.returns??[]).flatMap(row=>row.references),...(p.history.earlierReturns??[]).flatMap(row=>row.references)]:[])];}
   async function freshSources(publication,units,{signal}={}){
     const value=proof(publication);if(!value)throw error('Verify the exact Code proof before checking source freshness.','ENGINE_INPUT_INVALID');
     return readFreshSources(value,publication,units,{signal});

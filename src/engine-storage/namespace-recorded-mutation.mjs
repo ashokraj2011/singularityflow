@@ -76,7 +76,10 @@ export function createNamespaceRecordedMutationPort(options,{operation,request,o
         await reader.admitAgent(snapshot,s.request.phaseId,s.reviewer.agentId,{signal});
         if(plan){s.source=(await retained(plan,s,signal)).source;s.plan=plan;}
         else{
-          const at=projectEnrollmentTimestamp(await clock.now()),source=await owner.read(snapshot,s.request,{signal,at}),
+          const head=owner.needsHead?await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal):null;
+          if(head&&head.version!==snapshot.revision)throw error('The decision basis changed before evidence construction.','ENGINE_CONTEXT_CHANGED');
+          const at=projectEnrollmentTimestamp(await clock.now()),source=await owner.read(snapshot,s.request,{signal,at,head:head?.value??null,
+            principal:{...s.reviewer,operationId:s.operationId,requestSha256:s.requestSha256}}),
             authorityGroup=owner.authority(snapshot.workflow,s.request,s.reviewer.actor,source);
           s.source=source;
           await owner.assertNew?.(snapshot,s.request,source,{signal,at});

@@ -1,3 +1,4 @@
+import {forwardAmendmentPhaseTarget,forwardAmendmentReaderPhases,inputProducerId} from './kernel/upstream-issues.mjs';
 import {plannedClaimContractFindings} from './kernel/specification-values.mjs';
 import { enrollPinnedApprovalIdentity } from './kernel/approval-policy.mjs';
 import { skillPhaseHostRequirement } from './kernel/phase-admission.mjs';
@@ -6044,9 +6045,7 @@ function forwardAmendmentRefusal(message, code = 'FORWARD_AMENDMENT_INVALID', de
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
 }
 
-function inputProducerId(input) {
-  return typeof input === 'string' ? input : input?.phase ?? input?.from ?? null;
-}
+
 
 /**
  * The earlier step a forward amendment may change: an approved document step before the current
@@ -6054,25 +6053,7 @@ function inputProducerId(input) {
  * amendment, plan owners by plan corrections, code steps by their own generations.
  */
 function forwardAmendmentTarget(config, workflow, phaseId) {
-  const order = workflow.phaseOrder ?? [];
-  const current = workflow.phases?.[workflow.currentPhase];
-  const phase = workflow.phases?.[phaseId];
-  if (workflow.status !== 'in_progress' || !current) forwardAmendmentRefusal('A forward amendment needs a Story in progress.');
-  if (!phase || order.indexOf(phaseId) < 0 || order.indexOf(phaseId) >= order.indexOf(current.id)) {
-    forwardAmendmentRefusal(`A forward amendment changes an earlier step; ${phaseId ?? 'that step'} is not before ${current.id}.`, 'FORWARD_AMENDMENT_NOT_EARLIER');
-  }
-  if (phase.status !== 'approved' || !(Number(phase.generation) > 0)) forwardAmendmentRefusal(`${phaseId} is not approved, so there is nothing to amend.`);
-  if (current.status !== 'in_progress') {
-    forwardAmendmentRefusal(`${current.id} is ${current.status.replaceAll('_', ' ')}; approve or return it before amending ${phaseId}.`, 'FORWARD_AMENDMENT_CURRENT_IN_REVIEW');
-  }
-  if (phaseRequiresCodeDelivery(phase)) forwardAmendmentRefusal(`${phaseId} is a code step; it changes through its own generations.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
-  if (isSpecificationDefinitionPhase(phase)) {
-    forwardAmendmentRefusal(`${phaseId} defines clauses; change it with story intent-amendment or an upstream-issue return.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
-  }
-  if (phase.claimMaps?.planned) forwardAmendmentRefusal(`${phaseId} owns the plan; correct its rows with decision plan.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
-  if (isConvergencePhase(phase) || phase.kind === 'skill' || phase.artifactSet || !phase.requiredArtifact?.path) {
-    forwardAmendmentRefusal(`${phaseId} is not a single-document step a forward amendment can change.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
-  }
+  const {phase,current}=forwardAmendmentPhaseTarget(workflow,phaseId);
   const relative = posix(path.join(workDirRelative(config, workflow.workItem.id), phase.requiredArtifact.path));
   const approved = (phase.artifacts ?? []).find((artifact) => artifact.path === relative)?.sha256 ?? null;
   if (!approved) forwardAmendmentRefusal(`${phaseId} has no approved snapshot of ${relative}.`);
@@ -6080,12 +6061,7 @@ function forwardAmendmentTarget(config, workflow, phaseId) {
 }
 
 /** Approved steps between the amended one and the current one that read it directly. */
-function forwardAmendmentReaders(workflow, phase, current) {
-  const order = workflow.phaseOrder ?? [];
-  return order.slice(order.indexOf(phase.id) + 1, order.indexOf(current.id))
-    .filter((id) => workflow.phases[id]?.status === 'approved'
-      && resolvedPhaseInputs(workflow, workflow.phases[id]).some((input) => inputProducerId(input) === phase.id));
-}
+function forwardAmendmentReaders(workflow,phase,current){return forwardAmendmentReaderPhases(workflow,phase,current); }
 
 /**
  * Save corrected bytes of an earlier step for its approvers. The source is that step's artifact in

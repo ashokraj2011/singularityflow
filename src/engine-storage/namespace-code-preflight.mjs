@@ -22,6 +22,7 @@ import {createNamespaceSourceClauseReader} from './namespace-source-clauses.mjs'
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
+import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
 import {createNamespaceOutputRetentionReader} from './namespace-output-retention-reader.mjs';
 import {repositoryCoverageProjection} from '../kernel/repository-plan.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=data=>createHash('sha256').update(data).digest('hex');
@@ -40,7 +41,7 @@ function codePreflightReader(options,requireCurrentIndices){
   async function inspect(snapshot,phaseId,identity,{signal,binding=null,policyTraversal}={}){
     const workflow=snapshot.workflow,commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(snapshot,phaseId,{signal,policyTraversal}),
       phase={...workflow.phases[phaseId],qualityCommands:commandProof.commands},definition=(await observer.approved(snapshot,{signal})).compiled.definition;
-    if(workflow.resolution.testRecovery?.enabled)required('test-recovery');
+    if(workflow.resolution.testRecovery?.enabled)await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(snapshot,{signal,policyTraversal});
     if(!requireCurrentIndices&&!binding)throw failure('Replay the exact accepted publication source binding.','ENGINE_INPUT_INVALID');
     const retained=binding?await changes.accepted({operationId:binding.source.operationId,workId,phaseId},{signal}):await changes.inspectDraft(identity,{signal});
     if(!retained)throw failure('Retain this exact authored generation before code publication.','ENGINE_SOURCE_EVIDENCE_REQUIRED',{operation:'phase.source.retain',workId,phaseId});

@@ -12,6 +12,8 @@ import {artifactBytesAreText} from '../kernel/artifact-content.mjs';
 import {NAMESPACE_CONVERGENCE_SCHEMAS} from '../foundation/record-schema.mjs';
 import {namespaceConvergenceManifest} from './namespace-convergence-policy.mjs';
 import {CONVERGENCE_POLICY_EVIDENCE} from './namespace-convergence-contract.mjs';
+import {DOCUMENT_REVIEW_EVIDENCE,namespaceDocumentReviewManifest} from './namespace-document-review.mjs';
+import {TEST_RECOVERY_EVIDENCE,namespaceTestRecoveryManifest} from './namespace-test-recovery-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 export function createNamespacePublicationPolicyWriter({observer,content,scope,workId,reader}) {
   const put=content.put.bind(content);
@@ -32,6 +34,21 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     const binding=namespacePolicyEvidenceBinding({schemaVersion:NAMESPACE_PHASE_POLICY_SCHEMAS.binding.currentVersion,
       format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:SPECIFICATION_ANALYSIS_EVIDENCE,record:await save(manifest,signal)});
     return {binding,report};
+  }
+  async function retainDocumentReview(publication,{snapshot,head,signal}={}){
+    const value=await reader.documentReviewCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),manifest={schemaVersion:1,
+      format:'sflow-namespace-document-review/v1',...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+      artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
+    namespaceDocumentReviewManifest(manifest,{scope,workId,phaseId:publication.phase});
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:DOCUMENT_REVIEW_EVIDENCE,record:await save(manifest,signal)}),report};
+  }
+  async function retainRecovery(publication,{snapshot,head,signal}={}){
+    const value=await reader.recoveryCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),manifest={schemaVersion:1,
+      format:'sflow-namespace-test-recovery-policy-manifest/v1',...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+      artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
+    namespaceTestRecoveryManifest(manifest,{scope,workId,phaseId:publication.phase});
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',
+      kind:TEST_RECOVERY_EVIDENCE,record:await save(manifest,signal)}),report};
   }
   async function retainClarification(publication,{snapshot,head,signal}={}) {
     const value=await reader.clarificationCandidate(publication,snapshot,{signal}),found=value.checkpoint.accepted;
@@ -99,5 +116,5 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     namespaceConvergenceManifest(manifest,{scope,workId,phaseId:publication.phase});
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CONVERGENCE_POLICY_EVIDENCE,record:await save(manifest,signal)}),report};
   }
-  return Object.freeze({retain,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment,retainConstitution,retainConvergence});
+  return Object.freeze({retain,retainRecovery,retainDocumentReview,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment,retainConstitution,retainConvergence});
 }

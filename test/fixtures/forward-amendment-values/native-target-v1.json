@@ -1,0 +1,879 @@
+{
+  "capturedFrom": "0b931b4c0",
+  "cases": [
+    {
+      "id": "valid",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "phase": "design",
+        "current": "build"
+      }
+    },
+    {
+      "id": "closed",
+      "workflow": {
+        "status": "closed",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_INVALID",
+          "message": "A forward amendment needs a Story in progress."
+        }
+      }
+    },
+    {
+      "id": "missing-current",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": null,
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_INVALID",
+          "message": "A forward amendment needs a Story in progress."
+        }
+      }
+    },
+    {
+      "id": "not-earlier",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "intake",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_NOT_EARLIER",
+          "message": "A forward amendment changes an earlier step; design is not before intake."
+        }
+      }
+    },
+    {
+      "id": "unapproved",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_INVALID",
+          "message": "design is not approved, so there is nothing to amend."
+        }
+      }
+    },
+    {
+      "id": "no-generation",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 0,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_INVALID",
+          "message": "design is not approved, so there is nothing to amend."
+        }
+      }
+    },
+    {
+      "id": "in-review",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "awaiting_approval",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_CURRENT_IN_REVIEW",
+          "message": "build is awaiting approval; approve or return it before amending design."
+        }
+      }
+    },
+    {
+      "id": "code",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "implementation-summary"
+            },
+            "kind": "code",
+            "writeScope": "application"
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_UNSUPPORTED",
+          "message": "design is a code step; it changes through its own generations."
+        }
+      }
+    },
+    {
+      "id": "specification",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "requirements"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_UNSUPPORTED",
+          "message": "design defines clauses; change it with story intent-amendment or an upstream-issue return."
+        }
+      }
+    },
+    {
+      "id": "plan",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            },
+            "claimMaps": {
+              "planned": "plan.json"
+            }
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_UNSUPPORTED",
+          "message": "design owns the plan; correct its rows with decision plan."
+        }
+      }
+    },
+    {
+      "id": "convergence",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "convergence-report"
+            },
+            "kind": "convergence"
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_UNSUPPORTED",
+          "message": "design is not a single-document step a forward amendment can change."
+        }
+      }
+    },
+    {
+      "id": "skill",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            },
+            "kind": "skill"
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_UNSUPPORTED",
+          "message": "design is not a single-document step a forward amendment can change."
+        }
+      }
+    },
+    {
+      "id": "bundle",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/design.md",
+              "kind": "phase-document"
+            },
+            "artifactSet": "bundle"
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_UNSUPPORTED",
+          "message": "design is not a single-document step a forward amendment can change."
+        }
+      }
+    },
+    {
+      "id": "no-artifact",
+      "workflow": {
+        "status": "in_progress",
+        "currentPhase": "build",
+        "phaseOrder": [
+          "intake",
+          "design",
+          "detail",
+          "build"
+        ],
+        "phases": {
+          "intake": {
+            "id": "intake",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/intake.md",
+              "kind": "phase-document"
+            }
+          },
+          "design": {
+            "id": "design",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": null
+          },
+          "detail": {
+            "id": "detail",
+            "status": "approved",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/detail.md",
+              "kind": "phase-document"
+            }
+          },
+          "build": {
+            "id": "build",
+            "status": "in_progress",
+            "generation": 1,
+            "requiredArtifact": {
+              "path": "artifacts/build.md",
+              "kind": "phase-document"
+            }
+          }
+        }
+      },
+      "phaseId": "design",
+      "result": {
+        "error": {
+          "code": "FORWARD_AMENDMENT_UNSUPPORTED",
+          "message": "design defines clauses; change it with story intent-amendment or an upstream-issue return."
+        }
+      }
+    }
+  ],
+  "reader": {
+    "workflow": {
+      "status": "in_progress",
+      "currentPhase": "build",
+      "phaseOrder": [
+        "intake",
+        "design",
+        "detail",
+        "build"
+      ],
+      "phases": {
+        "intake": {
+          "id": "intake",
+          "status": "approved",
+          "generation": 1,
+          "requiredArtifact": {
+            "path": "artifacts/intake.md"
+          }
+        },
+        "design": {
+          "id": "design",
+          "status": "approved",
+          "generation": 1,
+          "requiredArtifact": {
+            "path": "artifacts/design.md"
+          }
+        },
+        "detail": {
+          "id": "detail",
+          "status": "approved",
+          "generation": 1,
+          "requiredArtifact": {
+            "path": "artifacts/detail.md"
+          },
+          "inputs": [
+            "design"
+          ]
+        },
+        "build": {
+          "id": "build",
+          "status": "in_progress",
+          "generation": 1,
+          "requiredArtifact": {
+            "path": "artifacts/build.md"
+          },
+          "inputs": [
+            {
+              "from": "design"
+            }
+          ]
+        }
+      }
+    },
+    "phase": "design",
+    "current": "build",
+    "result": [
+      "detail"
+    ]
+  }
+}

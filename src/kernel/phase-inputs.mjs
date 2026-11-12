@@ -197,3 +197,5 @@ export function inputReadinessFindings(result) {
         && record.producerStatus === 'approved' && Boolean(record.approvedSha256)
     }));
 }
+
+export function extractInputsBlock(text){return text.match(/<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/)?.[0]??null;}

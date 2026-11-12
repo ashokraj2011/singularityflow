@@ -30,7 +30,7 @@ export function engineOperationInventory(){
     return {id:operation.id,version:operation.version,effect:operation.effect,port:operation.port,
       inputFields:[...operation.inputFields],requiredFields:[...(operation.requiredFields??[])],stages:[...operation.stages],
       nativeBound:bound,namespaceBound:namespaceIds.has(operation.id),nativeQualification:tests?.map(name=>'test/'+name+'.test.mjs')??[],
-      ...(operation.id==='phase.checks.run'?{optionalCapability:'explicit-check-execution'}:{})};
+      ...(operation.id==='phase.checks.run'?{optionalCapability:'explicit-check-execution'}:operation.id==='phase.repair.run'?{optionalCapability:'explicit-test-repair-execution'}:{})};
   });
   return {schemaVersion:1,profile:'sflow-engine-operation-inventory/v1',contract:ENGINE_CONTRACT,
     hosts:{native:'createGitEngine',namespace:'createNamespaceEngine with private working stores, without optional execution'},operations,

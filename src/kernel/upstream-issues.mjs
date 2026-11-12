@@ -1,3 +1,6 @@
+import {phaseRequiresCodeDelivery,isConvergencePhase,stepResponsibilities} from './phase-policy.mjs';
+import {isSpecificationDefinitionPhase} from './specification-policy.mjs';
+import {resolvedPhaseInputs} from './phase-inputs.mjs';
 import {parseRecordShape as parseRecord} from '../foundation/record-shapes.mjs';
 import {textDigestCapability} from '../foundation/record-schema.mjs';
 /** Append-only upstream rules over admitted observations. No discovery, presence registry or wall clock. */
@@ -7,6 +10,7 @@ import {reopenPhaseRange} from './lifecycle-transitions.mjs';
 import {applyNamespaceRepairBudget} from './test-recovery.mjs';
 export const NAMESPACE_UPSTREAM_RETURN_PROFILE='sflow-namespace-upstream-return/v1';
 export const NAMESPACE_UPSTREAM_BOUNDED_RETURN_PROFILE='sflow-namespace-upstream-return/v2';
+export const NAMESPACE_FORWARD_RETURN_PROFILE='sflow-namespace-forward-return/v1';
 export const isNamespaceUpstreamReturnProfile=value=>[NAMESPACE_UPSTREAM_RETURN_PROFILE,NAMESPACE_UPSTREAM_BOUNDED_RETURN_PROFILE].includes(value);
 export const UPSTREAM_ISSUE_OUTCOMES = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'dismiss']);
 export const UPSTREAM_ISSUE_PROPOSALS = Object.freeze(['plan-correction', 'amend', 'return', 'accept-risk', 'unknown']);
@@ -321,4 +325,118 @@ export function acceptedRevalidationBindings(workflow, phase, inputRecordSha256,
     bindings.set(entry.binding.producer, { ...entry.binding, amendment: entry.amendment });
   }
   return bindings;
+}
+
+/** Exact amendment obligations that affect this consumer; all must be decided before completion. */
+export function namespaceForwardAmendmentHolds(workflow,phaseId,{terminal=false}={}){
+  const selected=new Set([phaseId,...resolvedPhaseInputs(workflow,workflow.phases[phaseId]??{}).map(inputProducerId)]);
+  return [...(terminal?pendingForwardAmendments(workflow).map(row=>({code:'FORWARD_AMENDMENT_PENDING',phase:row.phase,amendment:row.id,
+    action:{operation:'forward-amendment.decide',inputs:{workId:workflow.workItem.id,amendmentId:row.id},requiredInputs:['operationId','decision','reason','confirmation'],prerequisites:['authorized-human-reviews-exact-replacement']}})):[]),
+    ...pendingAmendmentRevalidations(workflow).filter(row=>terminal||selected.has(row.phase)).map(row=>({code:'AMENDMENT_REVALIDATION_REQUIRED',...row,
+      action:{operation:'forward-amendment.revalidate',inputs:{workId:workflow.workItem.id,phaseId:row.phase,amendmentId:row.amendment},
+        requiredInputs:['operationId','outcome','reason'],prerequisites:['authorized-human-reviews-amended-input-and-original-delivery']}}))];
+}
+
+/** Pure forward-amendment target admission. Native adapters retain paths and original snapshots. */
+export function forwardAmendmentPhaseTarget(workflow,phaseId){
+  const order = workflow.phaseOrder ?? [];
+  const current = workflow.phases?.[workflow.currentPhase];
+  const phase = workflow.phases?.[phaseId];
+  if (workflow.status !== 'in_progress' || !current) forwardAmendmentRefusal('A forward amendment needs a Story in progress.');
+  if (!phase || order.indexOf(phaseId) < 0 || order.indexOf(phaseId) >= order.indexOf(current.id)) {
+    forwardAmendmentRefusal(`A forward amendment changes an earlier step; ${phaseId ?? 'that step'} is not before ${current.id}.`, 'FORWARD_AMENDMENT_NOT_EARLIER');
+  }
+  if (phase.status !== 'approved' || !(Number(phase.generation) > 0)) forwardAmendmentRefusal(`${phaseId} is not approved, so there is nothing to amend.`);
+  if (current.status !== 'in_progress') {
+    forwardAmendmentRefusal(`${current.id} is ${current.status.replaceAll('_', ' ')}; approve or return it before amending ${phaseId}.`, 'FORWARD_AMENDMENT_CURRENT_IN_REVIEW');
+  }
+  if (phaseRequiresCodeDelivery(phase)) forwardAmendmentRefusal(`${phaseId} is a code step; it changes through its own generations.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
+  if (isSpecificationDefinitionPhase(phase)) {
+    forwardAmendmentRefusal(`${phaseId} defines clauses; change it with story intent-amendment or an upstream-issue return.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
+  }
+  if (phase.claimMaps?.planned) forwardAmendmentRefusal(`${phaseId} owns the plan; correct its rows with decision plan.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
+  if (isConvergencePhase(phase) || phase.kind === 'skill' || phase.artifactSet || !phase.requiredArtifact?.path) {
+    forwardAmendmentRefusal(`${phaseId} is not a single-document step a forward amendment can change.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
+  }
+  return {phase,current};
+}
+
+export function inputProducerId(input){return typeof input==='string'?input:input?.phase??input?.from??null;}
+/** Namespace ownership comes from its compiled responsibility graph, not a native file-backed map flag. */
+export function namespaceForwardAmendmentTarget(workflow,phaseId){
+  const selected=forwardAmendmentPhaseTarget(workflow,phaseId),roles=stepResponsibilities(workflow,phaseId);
+  if(roles.includes('scope'))forwardAmendmentRefusal(`${phaseId} defines clauses; change it with story intent-amendment or an upstream-issue return.`,'FORWARD_AMENDMENT_UNSUPPORTED');
+  if(roles.includes('plan'))forwardAmendmentRefusal(`${phaseId} owns the plan; correct its rows with decision plan.`,'FORWARD_AMENDMENT_UNSUPPORTED');
+  return selected;
+}
+export function forwardAmendmentReaderPhases(workflow,phase,current){
+  const order = workflow.phaseOrder ?? [];
+  return order.slice(order.indexOf(phase.id) + 1, order.indexOf(current.id))
+    .filter((id) => workflow.phases[id]?.status === 'approved'
+      && resolvedPhaseInputs(workflow, workflow.phases[id]).some((input) => inputProducerId(input) === phase.id));
+}
+/** Namespace proposals retain their real candidate bytes without changing approved delivery. */
+export function planNamespaceForwardProposal(workflow,request,facts,source){
+  const next=structuredClone(workflow),id=nextForwardAmendmentProposal(source.itemRelative,workflow,source.artifactPath),
+    record={...id,phase:request.phaseId,fromGeneration:source.generation,artifactPath:source.artifactPath,fromSha256:source.previous.published.artifact.content.sha256,
+      proposedSha256:source.content.sha256,content:source.content,reason:String(request.reason??'').trim(),proposedBy:facts.actorId,agent:facts.agentId,
+      upstreamIssue:request.upstreamIssue,at:facts.at};
+  if(record.reason.length<20||record.reason.length>1000)forwardAmendmentRefusal('Say why the step is amended in 20 to 1000 characters with --reason.');
+  next.forwardAmendments=[...(next.forwardAmendments??[]),record];next.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,
+    event:'forward_amendment_proposed',phase:workflow.currentPhase,detail:`${record.id} proposes ${record.phase} generation ${record.fromGeneration+1}: ${record.reason}`});
+  return {workflow:next,outcome:{currentPhase:workflow.currentPhase,record}};
+}
+export function planNamespaceForwardDecision(workflow,request,facts,source){
+  const applied=request.decision==='approve',next=applied?applyForwardAmendmentProjection(workflow,source,source.projected,facts.at):structuredClone(workflow),
+    decision={amendment:request.amendmentId,phase:request.phaseId,decision:applied?'approved':'rejected',reason:String(request.reason??'').trim(),
+      actor:facts.actorId,authorityGroup:facts.authorityGroup,identityAssurance:null,at:facts.at,...(applied?{toGeneration:source.projected.publication.generation,
+        revalidate:forwardAmendmentReaderPhases(workflow,workflow.phases[request.phaseId],workflow.phases[workflow.currentPhase]).map(phase=>({phase,generation:workflow.phases[phase].generation})),refreshed:null}:{})};
+  if(!['approve','reject'].includes(request.decision))forwardAmendmentRefusal("--decision must be 'approve' or 'reject'.");
+  if(decision.reason.length<20||decision.reason.length>1000)forwardAmendmentRefusal('Say why in 20 to 1000 characters with --reason.');
+  next.forwardAmendmentDecisions=[...(next.forwardAmendmentDecisions??[]),decision];next.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'forward_amendment_'+decision.decision,
+    phase:request.phaseId,detail:`${request.amendmentId}: ${decision.reason}`});
+  return {workflow:next,outcome:{currentPhase:workflow.currentPhase,record:{proposal:source.proposal,decision,applied,
+    ...(applied?{approval:{...source.projected.approval,phase:request.phaseId},revalidate:decision.revalidate,refreshed:null}:{})}}};
+}
+export function planNamespaceForwardRevalidation(workflow,request,facts,source){
+  const next=structuredClone(workflow),phase=workflow.phases[request.phaseId],reason=String(request.reason??'').trim();
+  if(!['unchanged','return'].includes(request.outcome))forwardAmendmentRefusal('--outcome must be unchanged or return.');
+  if(reason.length<20||reason.length>1000)forwardAmendmentRefusal('Say why in 20 to 1000 characters with --reason.');
+  const record={amendment:request.amendmentId,phase:request.phaseId,generation:phase.generation,outcome:request.outcome,reason,
+    binding:request.outcome==='unchanged'?source.binding:null,link:null,actor:facts.actorId,authorityGroup:facts.authorityGroup,identityAssurance:null,at:facts.at};
+  if(request.outcome==='return'){
+    const current=workflow.phases[workflow.currentPhase],allowed=current?.approvalPolicy.rejectTo??[current?.id];
+    if(!current||!['in_progress','awaiting_approval'].includes(current.status)||!allowed.includes(phase.id))forwardAmendmentRefusal('The current phase cannot return to this amendment reader.','UPSTREAM_ISSUE_RETURN_UNAVAILABLE');
+    record.link='CR-'+String((workflow.changeRequests??[]).length+1).padStart(3,'0');
+    const repairBudget=applyNamespaceRepairBudget(next,source,{...request,target:phase.id},facts,record.link,'amendment');
+    const changeRequest={schemaVersion:1,profile:NAMESPACE_FORWARD_RETURN_PROFILE,id:record.link,status:'open',sourcePhase:current.id,sourceGeneration:current.generation,targetPhase:phase.id,
+      clauseIds:[],comment:reason,requestedAt:facts.at,requestedBy:facts.actorId,agent:facts.agentId,channel:'engine-sdk',authorityGroup:facts.authorityGroup,identityAssurance:null,
+      sourceArtifactSha256:(current.artifacts??[]).map(row=>({path:row.path,sha256:row.sha256??null})),reviewPacketSha256:null,
+      amendment:{id:request.amendmentId,producer:source.binding.producer,reader:source.readerPublication},resolution:null};
+    next.changeRequests=[...(next.changeRequests??[]),changeRequest];reopenPhaseRange(next,{targetId:phase.id,at:facts.at,actor:facts.actorId,reason});
+    record.changeRequest=changeRequest;if(source.repairBudget?.selection||source.repairBudget?.prior)record.repairBudget=repairBudget;
+  }
+  next.amendmentRevalidations=[...(next.amendmentRevalidations??[]),record];next.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,
+    event:'amendment_revalidated',phase:workflow.currentPhase,detail:`${request.phaseId} after ${request.amendmentId}: ${request.outcome}${record.link?' ('+record.link+')':''}. ${reason}`});
+  return {workflow:next,outcome:{currentPhase:next.currentPhase,record}};
+}
+function forwardAmendmentRefusal(message,code='FORWARD_AMENDMENT_INVALID',details=undefined){throw new SingularityFlowError(message,{code,...(details?{details}:{})});}
+
+export function applyForwardAmendmentProjection(workflow,source,projected,at){
+  const result=structuredClone(workflow),phase=result.phases[source.proposal.phase],{publication,submission,publicationBinding,submissionBinding,approval}=projected;
+  for(const row of phase.approvals??[])if(!row.invalidatedAt)row.invalidatedAt=at;
+  phase.generation=publication.generation;phase.status='approved';phase.generatedAt=at;phase.generatedBy=publication.actor.principalId;phase.generatedAgent=null;
+  phase.submittedAt=submission.submittedAt;phase.approvedAt=at;phase.approvedBy=projected.vote.actor.principalId;phase.approvals.push(approval);
+  phase.namespaceSubmission=submissionBinding;phase.publicationBindings=[...phase.publicationBindings,publicationBinding];
+  phase.artifacts=[{path:publication.artifact.sourceKey,sha256:publication.artifact.content.sha256,size:publication.artifact.content.bytes,kind:publication.artifact.kind}];
+  phase.authorship=[...(phase.authorship??[]),{...publication.authorship,generation:publication.generation,publishedAt:at}];
+  result.lineage.submissions.push({phase:phase.id,generation:publication.generation,packetSha256:submissionBinding.record.sha256,packetReference:submissionBinding.record});
+  result.namespaceDocuments.push({id:'PUB-'+phase.id+'-GEN-'+phase.generation,phase:phase.id,generation:phase.generation,sourceKey:publication.artifact.sourceKey,role:'artifact',
+    name:phase.label??phase.id,kind:publication.artifact.kind,mimeType:'text/markdown',encoding:'utf8',locality:'project',status:'active',aliases:[],content:publication.artifact.content});
+  for(const [index,row]of (source.policyReports??[]).entries()){
+    const kind=row.kind==='document-review/v1'?'document-review':row.kind==='approved-code-inputs/v1'?'code-inputs':row.kind.startsWith('conformance/')?'conformance':row.kind==='constitution-policy/v1'?'constitution-policy':row.kind==='phase-assignment/v1'?'phase-assignment':'specification-analysis';
+    result.namespaceDocuments.push({id:'FAM-POLICY-'+phase.id+'-GEN-'+phase.generation+'-'+index,phase:phase.id,generation:phase.generation,
+      sourceKey:publication.artifact.sourceKey+'.'+kind+'.json',role:'file',name:kind,kind,mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:row.reference});
+  }
+  return result;
 }

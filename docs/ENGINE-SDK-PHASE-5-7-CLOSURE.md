@@ -11,7 +11,7 @@ obsolete-access removal and final distribution remain separate.
 - [ ] Finish remaining lifecycle queries and native policy extraction with compatibility tests.
 - [ ] Connect human scope, plan, applicability, witness, evidence and test decisions to namespace
   transactions, preserving each domain's real authority and confirmation contract.
-- [ ] Connect upstream issues, forward amendments, their list query and recorded decision batches.
+- [x] Connect upstream issues, forward amendments, their list query and recorded decision batches.
 - [ ] Qualify final decisions, approval, rejection and continuation through the single registry.
 
 ## Phase 7: complete namespace application execution
@@ -126,7 +126,7 @@ custom phases, expiry/renewal, interruption and offline shared-only replay are q
 - Artifact-only/repository-qualified evidence correction,
   late-publication plan revalidation and obligation/evidence/test decisions,
   plus live application-review and witness-exception profiles.
-- Upstream amend outcomes and forward amendments.
+- Forward amendment and upstream-amend owners are delivered below; unsupported combined policy profiles remain explicit.
 - The remaining combined evidence-correction and application-revalidation variants; exact artifact
   members, document-only returns, Code clause targeting and multiple Code predecessors have
   authenticated profiles described below.
@@ -277,3 +277,30 @@ execution. No Windows or production installation ran.
 
 Neither phase is complete while the remaining policy, amendment and execution owners above
 are open. Phase 8/9 cutover remains separate; main is not merged by this delivery.
+
+## Forward amendments and bounded test recovery
+
+Forward proposals, exact human decisions and actual reader revalidation now use registered namespace
+owners, original approved input bytes and the same conditional mutation coordinator. They retain real
+publication/submission/vote projections, repair budgets and first/later Code provenance. Document
+review context has a distinct owner and grants no clause, plan or Code acceptance. See
+[the amendment record](ENGINE-SDK-FORWARD-AMENDMENTS.md).
+
+Full-command recovery now has genuine context/confirmation operations, check-plan v3, a separate
+publication policy and optional source-scoped SGOS repair execution. Failed observations remain
+failed; actual fresh retry checks determine the result. Original native TRP behavior, command
+independence, authority and the old check-plan meanings remain unchanged. See
+[the recovery record](ENGINE-SDK-TEST-RECOVERY.md).
+
+The registry has 86 operations. The default native host binds 42; the namespace host with private
+working stores binds 75 before its optional check and repair executors. The active remaining owners
+include risk/cohort/reuse profiles, live application acceptance, external evidence and execution
+contracts and the complete native entry-point audit. Neither Phase 5 nor Phase 7 is marked complete.
+Phases 8 and 9, installed authority and main remain unchanged.
+
+Mac qualification for this checkpoint passes the actual amendment/recovery journeys on all three
+backends, original native policy/parity suites, 102 architecture guards, command/profile cases and
+offline installed consumers. The unchanged 34-check installed-package qualifier ran alone in
+56.8 seconds within its original 120/60-second deadlines. Source validation passes 4,318 checks;
+VS Code types, the unchanged Git audit and all 13 original bundle ceilings pass. Gateway remains
+851/852 modules. No Windows, live model, production installation or main merge ran.

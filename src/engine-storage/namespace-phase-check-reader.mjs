@@ -13,6 +13,7 @@ import {validateAgentTaskContract,validateExecutionUnitManifest,sha256 as digest
 import {namespaceScope,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
+import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceStoryObserver,memoNamespaceObservedEvidence} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
@@ -51,6 +52,10 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
       selected=namespacePhaseCheckPlanProfile(plan).commands?await createNamespaceTestCommandOwners({observer,scope,workId}).commands(snapshot,plan.input.phaseId,{signal}):null,
       commands=selected?.commands??(phase?.qualityCommands??[]).map(normalizeExternalCommand);
     if(selected&&!same(selected.identity,plan.testCommands)||!selected&&(basis.state.workflow.testCommandDecisions??[]).length)throw error('The check plan has another acknowledged command inventory.','ENGINE_STORAGE_CORRUPT');
+    if(namespacePhaseCheckPlanProfile(plan).recovery){
+      const current=await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(snapshot,{signal});
+      if(!same(plan.recovery,{profile:'sflow-namespace-test-recovery-check/v1',agreementSha256:current.agreement.contextSha256,agreements:current.references}))throw error('The check intent changed its confirmed recovery agreement.','ENGINE_STORAGE_CORRUPT');
+    }else if(snapshot.workflow.resolution.testRecovery?.enabled)throw error('The check intent needs its original recovery agreement.','ENGINE_STORAGE_CORRUPT');
     const repositories=basis.state.workflow.sourceBindings?.current?.repositories??[];
     if(commands.length*repositories.length!==plan.steps.length||plan.sources.length!==repositories.length
       ||plan.sources.some((item,index)=>item.id!==repositories[index].id||!same(item.descriptor,repositories[index].descriptor)))
@@ -130,7 +135,11 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
   }
   function assertPassing(found,phaseId) {
     if(found.body.verdict!=='passed')throw error('The current draft has no complete passing check set. Repair and run its configured checks.',
-      'PHASE_CHECKS_NOT_PASSED',{operation:'phase.checks.run',workId,phase:phaseId,verdict:found.body.verdict,checks:found.body.checks});
+      'PHASE_CHECKS_NOT_PASSED',{operation:'phase.checks.run',workId,phase:phaseId,verdict:found.body.verdict,checks:found.body.checks,
+        ...(namespacePhaseCheckPlanProfile(found.plan).recovery?{profile:'sflow-namespace-test-recovery-handoff/v1',
+          actions:[{operation:'phase.repair.run',inputs:{workId,phaseId,failedOperationId:found.plan.input.operationId},requiredInputs:['operationId'],
+            prerequisites:['bound-test-repair-executor','approved-automatic-attempt-remains']},
+          {operation:'test-command.context',inputs:{workId,phaseId}}]}:{})});
   }
   async function inspectDraft({phaseId,generation,baseRevision,draft,artifact,configuration},{signal}={}) {
     const key=codec.indexKey({input:{phaseId},generation,basis:{headVersion:baseRevision},draft});

@@ -7,8 +7,8 @@ import {createNamespaceTestCommandOwners,NAMESPACE_STORY_COMMAND_PROFILE} from '
 import {createNamespacePhaseCheckReader} from '../src/engine-storage/namespace-phase-check-reader.mjs';
 import {createNodeCheckExecutionUnit} from '../src/sgos/node-check-execution-unit.mjs';
 const sha=value=>'sha256:'+createHash('sha256').update(canonicalJson(value)).digest('hex'),reason='Review this exact structured command for this Story without changing the original repository policy.';
-async function fixture(t,backend,configure=()=>{}){
-  const f=await namespacePhaseCheckFixture(t,{backend,configure(source){source.definition.phases.intake.approval.allowSelfApproval=false;source.definition.approvalAuthorities.reviewers.members.push({email:'independent@example.test'},{email:'author@example.test'});configure(source);}}),
+async function fixture(t,backend,configure=()=>{},beforePrepare=null){
+  const f=await namespacePhaseCheckFixture(t,{backend,beforePrepare,configure(source){source.definition.phases.intake.approval.allowSelfApproval=false;source.definition.approvalAuthorities.reviewers.members.push({email:'independent@example.test'},{email:'author@example.test'});configure(source);}}),
     {records,content,scope,workId,authority,access,clock,sources}=f.options,
     common={records,content,scope,workId,authority,access,clock,sources,working:{records:f.localRecords,content:f.localContent}},
     make=extra=>createNamespaceEngine({...common,checks:f.checks,...extra}),engine=make(),observer=createNamespaceStoryObserver(common),
@@ -84,10 +84,10 @@ test('an earlier passing command remains historical evidence and cannot satisfy 
   assert.equal((await f.engine.run('phase.checks.run',f.input)).status,'retained');assert.equal(f.control.starts,1);
   assert.equal((await f.observer.inspect()).snapshot.workflow.phases.intake.generation,0);
 });
-test('test command authority cannot replace person-presence or a recovery agreement with an accepted flag',async t=>{
+test('test command authority cannot replace person-presence with an accepted flag',async t=>{
   const f=await fixture(t,'sqlite'),snapshot=(await f.observer.inspect()).snapshot,actor={identity:{name:'Command reviewer',email:'reviewer@example.test',login:null}},
     owner=f.commands.owners.get('test-command.decide');
-  for(const change of [{presence:{status:'required'}},{testRecovery:{enabled:true}}])assert.throws(()=>owner.authority(
+  for(const change of [{presence:{status:'required'}}])assert.throws(()=>owner.authority(
     {...snapshot.workflow,resolution:{...snapshot.workflow.resolution,...change}},{phaseId:'intake'},actor),
     error=>error.code==='ENGINE_PORT_UNAVAILABLE'&&error.details.required.length===1);
   assert.deepEqual((await f.observer.inspect()).snapshot,snapshot);
@@ -96,4 +96,28 @@ test('a test-command request cannot replace a configured non-test quality obliga
   const f=await fixture(t,'sqlite',source=>{source.definition.phases.intake.qualityCommands[0].kind='lint';});
   await assert.rejects(f.engine.run('test-command.request',{...f.request,command:{...f.request.command,command:{...f.command,kind:'test'}}}),{code:'TEST_COMMAND_DECISION_INVALID'});
   assert.equal(f.control.starts,0);assert.equal((await f.observer.inspect()).snapshot.workflow.testCommandDecisions,undefined);
+});
+test('a recovery-enabled command amendment requires a new exact agreement before execution and preserves the old run',{timeout:120000},async t=>{
+  const confirm=async(engine,operationId)=>{const {manifest}=await engine.run('test-recovery.context',{});
+    return engine.run('test-recovery.confirm',{operationId,phaseId:'intake',expectedContext:manifest.expectedContext,reason});};
+  const f=await fixture(t,'sqlite',source=>{source.definition.testRecovery={enabled:true};},async f=>{
+    f.control.permissions.push('test-recovery.context','test-recovery.confirm');
+    const {localRecords,localContent,...shared}=f.options;
+    await confirm(createNamespaceEngine({...shared,working:{records:localRecords,content:localContent}}),'initial-command-agreement');
+  });
+  const original=await f.engine.run('phase.checks.run',f.input);assert.equal(original.verdict,'passed');
+  await f.engine.run('test-command.request',f.request);f.human();await f.engine.run('test-command.decide',{accept:'TCD-001',reason});
+  f.author();await assert.rejects(f.engine.run('phase.checks.run',{...f.input,operationId:'unconfirmed-inventory'}),{code:'TEST_RECOVERY_AGREEMENT_REQUIRED'});
+  assert.equal(f.control.starts,1);f.human();const second=await confirm(f.engine,'confirm-amended-command');assert.equal(second.record.revision,2);
+  f.author();await f.rebase('rebase-agreed-recovery-command');
+  const executableSha256='sha256:'+createHash('sha256').update(await readFile(process.execPath)).digest('hex'),raw=await createNodeCheckExecutionUnit({id:'recovery-amended-command',root:f.root,
+    projectId:f.scope.projectId,repositoryId:'app',content:f.content,command:{executable:process.execPath,executableSha256,arguments:f.command.argv.slice(1),environment:{}},
+    report:{adapter:'node-tap',files:[]},authorizeCommand:manifest=>manifest.manifestSha256}),unit={...raw,start(task){f.control.starts++;return raw.start(task);}},
+    engine=f.make({checks:{...f.checks,bindings:[{...f.checks.bindings[0],unit}]}}),input={...f.input,operationId:'agreed-amended-command-execution'};
+  assert.equal((await engine.run('phase.checks.run',input)).verdict,'passed');
+  const retained=await createNamespacePhaseCheckReader(f.common).accepted(input);assert.equal(retained.plan.schemaVersion,3);
+  assert.equal(retained.plan.recovery.agreementSha256,second.record.contextSha256);
+  assert.equal((await engine.run('phase.checks.run',f.input)).verdict,'passed');assert.equal(f.control.starts,2);
+  await engine.run('phase.publish',{phaseId:'intake',authored:'governed-agent',channel:'copilot-host'});
+  assert.equal((await f.observer.inspect()).snapshot.workflow.namespaceTestRecoveryAgreements.length,2);
 });

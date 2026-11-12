@@ -5,6 +5,7 @@ import {approvedInputPhases,resolvedPhaseInputs,workflowInputsMode} from '../ker
 import {pinnedTestEvidenceSource} from '../kernel/phase-policy.mjs';
 import {createNamespaceInputDocumentOwners} from './namespace-input-documents-reader.mjs';
 import {createNamespacePlanDecisionOwners} from './namespace-plan-decisions-reader.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function utf8(data,label) {try {const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(data);if(text.includes('\0'))throw Error('NUL');return text;}
@@ -15,6 +16,10 @@ export function createNamespacePhaseResources({observer,packets,workId,localRead
   async function resources(captured,approved,agent,signal) {
     const w=captured.snapshot.workflow,phase=captured.phase,result=[];
     await inputs.admitted(captured.snapshot,{signal});
+    if((w.forwardAmendments??[]).length){
+      const references=await createNamespaceForwardAmendmentOwners({observer,scope:observer.evidenceReads.scope,workId}).assertReady(captured.snapshot,phase.id,{signal});
+      for(const [index,reference]of references.entries())result.push({kind:'supporting-document',id:'forward-amendment-'+index,locality:'project',reference});
+    }
     const source=w.workItem.source?.content;
     if(!source)throw error('The Story has no retained source.','ENGINE_STORAGE_CONTENT_MISSING');
     utf8(await observer.bytes(source,source.bytes,signal),'Story source');result.push({kind:'story-source',id:'story-source',reference:source});
@@ -48,7 +53,7 @@ export function createNamespacePhaseResources({observer,packets,workId,localRead
       await observer.bytes(document.content,document.content.bytes,signal);
       result.push({kind:'approved-input',phase:id,generation:producer.generation,reference:document.content,
         contract:declarations.filter(item=>(typeof item==='string'?item:item.phase)===id)});
-      for(const evidence of packets.publicationResources(proof.published).filter(row=>['code-delivery','code-inputs','conformance','artifact-set','artifact-set-member','retained-output','constitution-policy'].includes(row.kind))){
+      for(const evidence of packets.publicationResources(proof.published).filter(row=>['code-delivery','code-inputs','conformance','artifact-set','artifact-set-member','retained-output','constitution-policy','document-review'].includes(row.kind))){
         const resources=(w.namespaceDocuments??[]).filter(row=>row.phase===id&&row.generation===producer.generation&&row.role==='file'
           &&row.kind===evidence.kind&&row.status!=='detached'&&row.locality==='project'&&same(row.content,evidence.reference)&&(!evidence.sourceKey||row.sourceKey===evidence.sourceKey));
         if(resources.length!==1)throw error('The approved Code input has no unique readable evidence document.','ENGINE_STORAGE_CORRUPT',{upstreamPhase:id,kind:evidence.kind});

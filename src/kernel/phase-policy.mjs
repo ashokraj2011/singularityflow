@@ -225,7 +225,7 @@ export function phaseHandoffPlan(workflow, phase, {
 }
 
 /** Every guide route is chosen here; supplied progress is a read observation, not permission. */
-export function workflowGuidePlan(workflow, { sourceReviewEvidence = null, authoringState = null } = {}) {
+export function workflowGuidePlan(workflow, { sourceReviewEvidence = null, authoringState = null, amendmentHold = false } = {}) {
   const phase = workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
   const action = (kind, fields) => continuationAction(workflow, phase, kind, fields);
   let classification, actions;
@@ -233,6 +233,7 @@ export function workflowGuidePlan(workflow, { sourceReviewEvidence = null, autho
   else {
     const hold = phaseGovernancePlan(workflow, phase), pending = workflow.pendingDecision;
     if (hold) { classification = hold.classification; actions = hold.actions; }
+    else if (amendmentHold) { classification = 'amendment-decision-required'; actions = [action('inspect-owner-decisions', {requires:['recorded-owner-decisions']})]; }
     else if (pending) { classification = 'workflow-decision-required'; actions = [
       action('inspect-workflow-decision', { label: pending.label }),
       ...pending.options.map(option => action('choose-workflow-route', { label: pending.label, optionId: option.id,

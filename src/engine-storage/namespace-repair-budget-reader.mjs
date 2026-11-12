@@ -9,6 +9,7 @@ import {createNamespaceUpstreamOwners} from './namespace-upstream-reader.mjs';
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {memoNamespaceObservedDecision} from './namespace-story-reader.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceRepairBudgetReader({observer,scope,workId}){
   async function admitted(snapshot,options){
@@ -16,19 +17,19 @@ export function createNamespaceRepairBudgetReader({observer,scope,workId}){
     // Lifecycle byte/node limits apply at decoding and acceptance; authenticate every retained prefix below.
     if(!Array.isArray(history)||!budgets||typeof budgets!=='object'||Array.isArray(budgets))throw error('The bounded-return history is invalid.');
     if(!history.length){if(Object.keys(budgets).length)throw error('Repair counters require their original accepted return receipts.');
-      for(const kind of ['rejection','upstream']){
+      for(const kind of ['rejection','upstream','amendment']){
         const links=kind==='rejection'?namespaceHumanDecisionReceipts(w).filter(row=>row.operation==='phase.reject')
-          :namespaceDecisionReceipts(w).filter(row=>row.operation==='upstream.decide');
+          :namespaceDecisionReceipts(w).filter(row=>row.operation===(kind==='amendment'?'forward-amendment.revalidate':'upstream.decide'));
         if(!links.length)continue;
-        const reader=kind==='rejection'?createNamespaceRejectionReader({observer,scope,workId}):createNamespaceUpstreamOwners({observer,scope,workId}).readers.get('upstream.decide');
+        const reader=kind==='rejection'?createNamespaceRejectionReader({observer,scope,workId}):kind==='amendment'?createNamespaceForwardAmendmentOwners({observer,scope,workId}).readers.get('forward-amendment.revalidate'):createNamespaceUpstreamOwners({observer,scope,workId}).readers.get('upstream.decide');
         for(const link of links){const value=await reader.decode(link.record,options);
           if(Object.hasOwn(value.source,'repairBudget')&&(value.source.repairBudget!==null||value.source.priorBudget!==null))throw error('An accepted bounded return cannot lose its counter history.');}
       }
       return {prior:null,references:[]};}
     const last=history.at(-1),kind=last.kind,links=kind==='rejection'?namespaceHumanDecisionReceipts(w).filter(row=>row.operation==='phase.reject')
-      :kind==='upstream'?namespaceDecisionReceipts(w).filter(row=>row.operation==='upstream.decide'):null;
+      :['upstream','amendment'].includes(kind)?namespaceDecisionReceipts(w).filter(row=>row.operation===(kind==='amendment'?'forward-amendment.revalidate':'upstream.decide')):null;
     if(!links)throw error('A bounded return has an unknown owner.');
-    const reader=kind==='rejection'?createNamespaceRejectionReader({observer,scope,workId}):createNamespaceUpstreamOwners({observer,scope,workId}).readers.get('upstream.decide');
+    const reader=kind==='rejection'?createNamespaceRejectionReader({observer,scope,workId}):kind==='amendment'?createNamespaceForwardAmendmentOwners({observer,scope,workId}).readers.get('forward-amendment.revalidate'):createNamespaceUpstreamOwners({observer,scope,workId}).readers.get('upstream.decide');
     for(const link of [...links].reverse()){
       if(link.phase!==last.phase||link.generation!==last.generation)continue;
       const value=await reader.decode(link.record,options),change=kind==='rejection'?value.outcome.changeRequest:value.outcome.record.changeRequest;

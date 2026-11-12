@@ -9,6 +9,7 @@ import {namespaceApprovalValue,namespaceApprovalBindingValue,namespaceApprovalAr
   namespaceApprovalReceipts,namespaceApprovalReceipt} from './namespace-approval-contract.mjs';
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 import {createNamespacePublicationPolicyReader} from './namespace-policy-reader.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=(message,cause)=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT',cause});
 /** V1 hashes its native payload. V2 also binds generation, so coarse clocks cannot reuse a question. */
@@ -20,7 +21,7 @@ export function namespaceRoutingQuestionKey(pending,generation,version) {
   return createHash('sha256').update(canonicalJson(identity)).digest('hex').slice(0,16);
 }
 export function createNamespaceApprovalReader({observer,scope,workId,checks=null}) {
-  const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks}),policyEvidence=new WeakMap();
+  const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks}),policyEvidence=new WeakMap();let amendments;
   async function json(reference,signal) {
     const data=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}
@@ -56,7 +57,9 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
     return value;
   }
   async function readAccepted(binding,phaseId,proof,options={}) {
-    const value=await read(binding,phaseId,proof,options),accepted=await namespaceAcceptedEvidence(observer,binding,value,'phase.approve',options);
+    const value=await read(binding,phaseId,proof,options),accepted=value.origin
+      ?await (amendments??=createNamespaceForwardAmendmentOwners({observer,scope,workId})).projection(value,binding,'vote',options)
+      :await namespaceAcceptedEvidence(observer,binding,value,'phase.approve',options);
     const workflow=accepted.state.workflow,phase=workflow.phases[phaseId];
     const retained=value.routing?namespaceApprovalReceipts(workflow,{projectId:scope.projectId,workId}).some(item=>same(item,namespaceApprovalReceipt(value,binding)))
       :phase?.generation===value.generation&&phase.approvals?.some(item=>same(item,namespaceApprovalDecision(value,binding)));
@@ -78,7 +81,7 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
       if(!decision.namespaceVote)throw new SingularityFlowError('A retained vote needs its evidence owner.',{
         code:'ENGINE_PORT_UNAVAILABLE',details:{required:['retained-approval-vote']}});
       const value=await readVote(decision.namespaceVote,phaseId,proof,{...options,signal,snapshot});
-      if(!value.routing&&decisionAfter(snapshot.workflow,phaseId))throw new SingularityFlowError('A routed approval needs its versioned outcome proof.',{
+      if(!value.routing&&!value.origin&&decisionAfter(snapshot.workflow,phaseId))throw new SingularityFlowError('A routed approval needs its versioned outcome proof.',{
         code:'ENGINE_PORT_UNAVAILABLE',details:{required:['routed-approval-proof']}});
       try {
         if(!same(decision,namespaceApprovalDecision(value,decision.namespaceVote)))throw Error('The canonical vote metadata changed.');

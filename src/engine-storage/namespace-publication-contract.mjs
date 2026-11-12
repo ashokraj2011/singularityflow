@@ -10,6 +10,7 @@ import {buildGenerationAuthorship,normalizeAuthorshipOptions} from '../kernel/ph
 import {phaseCheckEvidenceBinding} from './namespace-phase-check-contract.mjs';
 import {namespaceSpecificationBinding} from './namespace-specification-contract.mjs';
 import {namespacePolicyEvidenceBinding} from './namespace-policy-contract.mjs';
+import {namespaceForwardOriginValue} from './namespace-forward-contract.mjs';
 export {NAMESPACE_SPECIFICATION_PUBLICATION_PROFILE} from './namespace-specification-contract.mjs';
 export {NAMESPACE_POLICY_PUBLICATION_PROFILE} from './namespace-policy-contract.mjs';
 export const NAMESPACE_PUBLICATION_PROFILE='sflow-primary-document-publication/v1';
@@ -50,7 +51,7 @@ export function namespacePublicationValue(value,{projectId,workId,phaseId}={}) {
     profile=namespacePublicationRecordProfile(value);
     exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256',
       'baseRevision','configuration','draft','actor','agentId','publishedAt','authorship','artifact','inputs',...(profile.checks?['checks']:[]),
-      ...(profile.specifications?['specifications']:[]),...(profile.policyEvidence?['policyEvidence']:[])]);
+      ...(profile.specifications?['specifications']:[]),...(profile.policyEvidence?['policyEvidence']:[]),...(profile.forwardAmendment?['origin']:[])]);
     if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId||value.workId!==workId||value.phase!==phaseId
       ||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another publication binding.');
     namespaceIdentifier(value.projectId,'Project ID');namespaceIdentifier(value.workId,'Story ID');namespaceIdentifier(value.phase,'Phase ID');
@@ -73,10 +74,11 @@ export function namespacePublicationValue(value,{projectId,workId,phaseId}={}) {
     if(profile.checks&&(!profile.optionalChecks||value.checks!==null))phaseCheckEvidenceBinding(value.checks);
     if(profile.specifications&&(!profile.optionalSpecifications||value.specifications!==null))namespaceSpecificationBinding(value.specifications);
     if(profile.policyEvidence) {
-      if(!Array.isArray(value.policyEvidence)||!value.policyEvidence.length||value.policyEvidence.length>16)throw Error('Invalid policy evidence bound.');
+      if(!Array.isArray(value.policyEvidence)||!profile.forwardAmendment&&!value.policyEvidence.length||value.policyEvidence.length>16)throw Error('Invalid policy evidence bound.');
       const kinds=new Set();for(const binding of value.policyEvidence){namespacePolicyEvidenceBinding(binding);
         if(kinds.has(binding.kind))throw Error('Duplicate policy evidence kind.');kinds.add(binding.kind);}
     }
+    if(profile.forwardAmendment)namespaceForwardOriginValue(value.origin);
     for(const input of value.inputs) {
       publicationInput(input);const identity=canonicalJson([input.kind,input.id??input.phase]);
       if(identities.has(identity))throw Error('Duplicate retained publication input.');identities.add(identity);

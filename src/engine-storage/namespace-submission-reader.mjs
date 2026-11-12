@@ -9,13 +9,14 @@ import {assertSubmittedRoutingSelection} from '../kernel/submission-routing.mjs'
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 import {withCodePolicyTraversal} from './namespace-code-policy.mjs';
 import {verifyConvergenceSubmission} from './namespace-convergence-submission.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
 
 export function createNamespaceSubmissionReader({observer,scope,workId,checks=null}) {
   const bytes=observer.bytes.bind(observer),publications=createNamespacePublicationReader({observer,scope,workId,checks}),
     votes=createNamespaceApprovalReader({observer,scope,workId,checks});
-  let reviewOwners;const sourceReviews=()=>reviewOwners??=createNamespaceSourceReviewOwners({observer,scope,workId});
+  let reviewOwners,amendments;const sourceReviews=()=>reviewOwners??=createNamespaceSourceReviewOwners({observer,scope,workId});
   async function decode(binding,phaseId,{signal}={}) {
     namespaceSubmissionBindingValue(binding);let value;
     try{value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(binding.record,binding.record.bytes,signal)));}
@@ -44,9 +45,10 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
       ||phase.submittedAt!==value.submittedAt||lineage?.packetSha256!==binding.record.sha256||!same(lineage.packetReference,binding.record)) {
       throw error('The current review is not the exact retained submission.','ENGINE_STORAGE_CORRUPT');
     }
-    const accepted=await namespaceAcceptedEvidence(observer,binding,value,'phase.submit',{signal,snapshot,cache:cache.receipts});
+    const accepted=value.origin?await (amendments??=createNamespaceForwardAmendmentOwners({observer,scope,workId})).projection(value,binding,'submission',{signal})
+      :await namespaceAcceptedEvidence(observer,binding,value,'phase.submit',{signal,snapshot,cache:cache.receipts});
     const submitted=accepted.state.workflow.phases[phaseId];
-    if(submitted?.generation!==value.generation||submitted.status!=='awaiting_approval'||!same(submitted.namespaceSubmission,binding)
+    if(submitted?.generation!==value.generation||submitted.status!==(value.origin?'approved':'awaiting_approval')||!same(submitted.namespaceSubmission,binding)
       ||submitted.submittedAt!==value.submittedAt)throw error('The accepted submission lost its exact review binding.','ENGINE_STORAGE_CORRUPT');
     const published=await publication(value,{signal,snapshot,cache:cache.receipts,specificationTraversal:cache.specificationTraversal,policyTraversal:cache.policyTraversal});
     if(value.checks&&(!checks.readBindings(value.checks).every(row=>accepted.plan.readBindings?.some(item=>same(item,row)))

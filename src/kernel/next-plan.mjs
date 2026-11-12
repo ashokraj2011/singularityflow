@@ -16,7 +16,7 @@ export function workflowNextManifest(workflow, observations) {
       || typeof workflow.status !== 'string') invalid();
   if (!observations || typeof observations !== 'object' || Array.isArray(observations)) invalid();
   const booleans = ['publicationPending', 'recoveryRequired', 'modelEnabled', 'manualPullRequest', 'stepActionHold',
-    'authoringPreparesPhase', 'decisionHold', 'sheetPresent', 'sheetRoute', 'sheetApproves', 'visualPublished'];
+    'authoringPreparesPhase', 'decisionHold', 'sheetPresent', 'sheetRoute', 'sheetApproves', 'visualPublished', 'amendmentHold'];
   const counts = ['approvalHoldCount', 'visualRouteCount', 'mcpActionCount'];
   const other = ['recoveryPhase', 'mcpPhase', 'applicability', 'prerequisites', 'sourceReviewEvidence', 'authoringState'];
   if (Object.keys(observations).some(key => ![...booleans, ...counts, ...other].includes(key))) invalid();
@@ -104,6 +104,7 @@ export function workflowNextPlan(workflow, observations = {}) {
   const observedActions = (kind, count, timing, fields = {}) => Array.from({ length: count }, (_, index) =>
     node(kind, index ? 'alternative' : timing, { index, ...fields }));
   if (observations.publicationPending) return [node('retry-publication'), node('recalculate-next', 'then')];
+  if (observations.amendmentHold) return [node('pending-decisions','now',{requires:['recorded-owner-decisions']})];
   if (observations.recoveryRequired) return [node('inspect-recovery', 'now', { targetPhase: observations.recoveryPhase ?? null })];
   if (!phase) return workflow.status === 'cancelled'
     ? [node('list-archived-documents'), node('story-report', 'alternative', { purpose: 'archived' })] : completion('now');

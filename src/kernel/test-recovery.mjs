@@ -40,7 +40,9 @@ export function applyNamespaceRepairBudget(workflow,source,request,facts,changeR
     changeRequestId,resetGeneration:budget.selection.resetGeneration});}
   catch(cause){if(cause.code!=='REPAIR_BUDGET_EXHAUSTED')throw cause;
     const reset=cause.details.resetTarget,review={operation:'phase.review',inputs:{workId:workflow.workItem.id,phaseId:from.id}},
-      actions=cause.details.sourceSubmitted?[review]:[{operation:'upstream.list',inputs:{workId:workflow.workItem.id}},
+      actions=kind==='amendment'?[{operation:'decisions.list',inputs:{workId:workflow.workItem.id,phaseId:from.id}},
+        {operation:'upstream.raise',inputs:{workId:workflow.workItem.id,phaseId:request.phaseId},requiredInputs:['operationId','about','problem'],
+          prerequisites:['exact-defect-and-original-owner-review','pinned-repair-budget-remains-in-force']}]:cause.details.sourceSubmitted?[review]:[{operation:'upstream.list',inputs:{workId:workflow.workItem.id}},
         {operation:'upstream.decide',inputs:{workId:workflow.workItem.id,issueId:request.issueId},requiredInputs:['outcome','reason'],
           prerequisites:['authenticated-human-issue-owner','outcome-specific-expiry-or-link']},
         {operation:'phase.enter',inputs:{workId:workflow.workItem.id,phaseId:from.id},prerequisites:['phase-authoring-access']}];
@@ -49,7 +51,7 @@ export function applyNamespaceRepairBudget(workflow,source,request,facts,changeR
     throw new SingularityFlowError('The reviewed return has exhausted its pinned repair budget. Review the original submission or its permitted reset return.',{
       code:cause.code,details:{profile:'sflow-namespace-repair-budget-refusal/v1',...cause.details,actions},cause});}
   workflow.namespaceRepairBudgetHistory=[...(workflow.namespaceRepairBudgetHistory??[]),{profile:'sflow-namespace-repair-budget-transition/v1',
-    changeRequestId,kind,phase:kind==='upstream'?request.phaseId:from.id,generation:kind==='upstream'?source.generation:from.generation,budgetPhase:phase.id,recordedAt:facts.at}];
+    changeRequestId,kind,phase:['upstream','amendment'].includes(kind)?request.phaseId:from.id,generation:['upstream','amendment'].includes(kind)?source.generation:from.generation,budgetPhase:phase.id,recordedAt:facts.at}];
   return result;
 }
 export {TRP_RISK_CATEGORIES} from './configuration-path-policies.mjs';
@@ -683,6 +685,65 @@ return Object.freeze({TRP_EVALUATOR_VERSION,TRP_INTEGRITY_CATEGORIES,TRP_STALE_C
 }
 
 /** Shared Story-command rules over exact admitted decisions; host review commands remain outside the kernel. */
+/** Namespace recovery v1 keeps the full configured test set and never turns a failure into a pass.
+ * Human risk and reduced-cohort records require their own, separately verified profiles. */
+export function namespaceTestRecoveryPolicies(port) {
+  const hash=value=>'sha256:'+textDigestCapability(port).sha256Utf8(canonicalJson(value));
+  const fail=(message,code='TEST_RECOVERY_INVALID',details=null)=>{throw new SingularityFlowError(message,{code,details});};
+  function context(workflow,configuration,commands,previous=null){
+    const policy=workflow.resolution.testRecovery;
+    if(policy?.enabled!==true)fail('This Story has not enabled test recovery.','TEST_RECOVERY_DISABLED');
+    if(!Array.isArray(commands)||commands.length!==workflow.phaseOrder.length
+      ||commands.some((row,index)=>row.phaseId!==workflow.phaseOrder[index]||!Array.isArray(row.commands)))fail('The agreement needs the entire pinned command inventory.');
+    const value={schemaVersion:1,profile:'sflow-namespace-test-recovery-context/v1',workId:workflow.workItem.id,
+      configuration,policy,commands,previous,executionMode:'all-configured',reuse:'never',
+      maximumAutomaticAttempts:policy.maxDistinctAutomaticAttempts,failures:'retain-and-repair'};
+    if(!Number.isSafeInteger(value.maximumAutomaticAttempts)||value.maximumAutomaticAttempts<0||value.maximumAutomaticAttempts>3)
+      fail('The automatic repair limit must be the pinned zero-to-three attempt budget.');
+    return {value,sha256:hash(value)};
+  }
+  function confirm(workflow,request,source,facts){
+    if(workflow.status!=='in_progress')fail('Confirm recovery while the Story is in progress.','TEST_RECOVERY_CLOSED');
+    if(request.expectedContext!==source.context.sha256)fail('Review the current test-recovery agreement before confirming it.','TEST_RECOVERY_CONFIRMATION_REQUIRED',{
+      operation:'test-recovery.context',expectedContext:source.context.sha256});
+    if(typeof request.reason!=='string'||request.reason.trim().length<15||request.reason.length>2000)fail('Explain the reviewed recovery agreement.');
+    const prior=workflow.namespaceTestRecoveryAgreements??[],last=prior.at(-1);
+    if(prior.length>=64)fail('The Story reached its bounded recovery-agreement history. Preserve its current records for explicit migration.','ENGINE_STORAGE_LIMIT');
+    if(last&&sameRecoveryInventory(last.context,source.context.value))fail('This exact recovery agreement is already confirmed.','TEST_RECOVERY_ALREADY_CONFIRMED');
+    const record={schemaVersion:1,profile:'sflow-namespace-test-recovery-agreement/v1',phase:request.phaseId,revision:prior.length+1,
+      previous:last?hash(last):null,context:structuredClone(source.context.value),contextSha256:source.context.sha256,
+      actor:facts.actorId,authorityGroup:facts.authorityGroup,recordedAt:facts.at,reason:request.reason.trim()};
+    const proposed=structuredClone(workflow);proposed.namespaceTestRecoveryAgreements=[...prior,record];
+    proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'test_recovery_confirmed',phase:request.phaseId,
+      detail:'Confirmed exact full-command recovery agreement revision '+record.revision+'. '+record.reason});
+    return {workflow:proposed,outcome:{currentPhase:workflow.currentPhase,record}};
+  }
+  function sameRecoveryInventory(left,right){return canonicalJson({...left,previous:null})===canonicalJson({...right,previous:null});}
+  function current(record,expected){
+    if(!record||record.profile!=='sflow-namespace-test-recovery-agreement/v1'||record.contextSha256!==hash(record.context)
+      ||!sameRecoveryInventory(record.context,expected.value))fail('Confirm the current commands and pinned recovery policy before execution.','TEST_RECOVERY_AGREEMENT_REQUIRED',{
+        operation:'test-recovery.context',expectedContext:expected.sha256});
+    return record;
+  }
+  function repairPlan({workflow,phaseId,agreement,failed,attempts,paths}){
+    const phase=workflow.phases[phaseId];
+    if(workflow.status!=='in_progress'||workflow.currentPhase!==phaseId||phase?.status!=='in_progress')fail(
+      'Repair the current unsubmitted authoring phase.','TEST_RECOVERY_NOT_CURRENT');
+    if(!failed?.body||failed.body.verdict==='passed')fail('Select an actual failed or unavailable execution.','TEST_RECOVERY_FAILURE_REQUIRED');
+    const limit=agreement.context.maximumAutomaticAttempts;
+    if(attempts.length>=limit)fail('The approved automatic test-repair budget is exhausted. A human may repair the preserved draft or review its command agreement.',
+      'TEST_RECOVERY_BUDGET_EXHAUSTED',{attempts:attempts.length,limit,actions:[{operation:'test-recovery.context',inputs:{workId:workflow.workItem.id}},
+        {operation:'phase.delivery.inspect',inputs:{workId:workflow.workItem.id,phaseId}},
+        {operation:'test-command.context',inputs:{workId:workflow.workItem.id,phaseId}}]});
+    if(!Array.isArray(paths)||!paths.length||paths.some(path=>typeof path!=='string'||!path||path.startsWith('/')||path.split('/').includes('..')
+      ||path.split('/').some(part=>['.git','.singularity-flow'].includes(part))))fail('Repair needs the exact approved source/test paths.','TEST_RECOVERY_SCOPE_REQUIRED');
+    return {schemaVersion:1,profile:'sflow-namespace-test-repair-plan/v1',phaseId,generation:failed.plan.generation,agreement:hash(agreement),
+      failed:failed.record,attempt:attempts.length+1,allowedPaths:[...new Set(paths)].sort(),
+      preserves:['approval-authority','source-scope','test-command','test-assertions','raw-failures'],rerun:'all-configured'};
+  }
+  return Object.freeze({context,confirm,current,hash,repairPlan});
+}
+
 export function storyTestCommandPolicies(port) {
 const recordSha256=value=>textDigestCapability(port).sha256Utf8(canonicalJson(value));
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID', details = undefined) => {

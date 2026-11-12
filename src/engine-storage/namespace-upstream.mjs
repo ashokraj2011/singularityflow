@@ -8,20 +8,25 @@ import {createNamespaceRecordedMutationPort} from './namespace-recorded-mutation
 import {namespaceDecisionContract} from './namespace-decision-contract.mjs';
 import {createNamespaceUpstreamOwners} from './namespace-upstream-reader.mjs';
 import {createNamespaceArtifactIssuePort} from './namespace-upstream-artifact.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceUpstreamPort(options,runtime=null) {
-  const {scope,workId,access,clock}=options,observer=createNamespaceStoryObserver(options),owned=createNamespaceUpstreamOwners({observer,scope,workId,runtime}),ports=new Map(),states=new WeakMap();
+  const {scope,workId,access,clock}=options,observer=createNamespaceStoryObserver(options),owned=createNamespaceUpstreamOwners({observer,scope,workId,runtime}),
+    forward=createNamespaceForwardAmendmentOwners({observer,scope,workId,sources:options.sources??[]}),ports=new Map(),states=new WeakMap();
   function portFor(operation,owner){
     const request=(input,workflow)=>{
       const normalized=upstreamOperationRequest(operation,input),phaseId=operation==='upstream.raise'?normalized.phaseId
+        :operation==='forward-amendment.propose'||operation==='forward-amendment.revalidate'?normalized.phaseId
+        :operation==='forward-amendment.decide'?(workflow.forwardAmendments??[]).find(row=>row.id===normalized.amendmentId)?.phase
         :(workflow.upstreamIssues??[]).find(row=>row.id===normalized.issueId)?.phase;
       if(!phaseId)throw error('The upstream issue or producer is not in this Story.','UPSTREAM_ISSUE_NOT_FOUND');
       return {...normalized,phaseId};
     };
     return createNamespaceRecordedMutationPort(options,{operation,request,owner,contract:namespaceDecisionContract,
-      explicitIdentity:true,requestUsesWorkflow:true,requiresHuman:operation!=='upstream.raise',finish:(value,revision)=>({revision,pushed:false,record:value.outcome.record})});
+      explicitIdentity:true,requestUsesWorkflow:true,requiresHuman:!['upstream.raise','forward-amendment.propose'].includes(operation),finish:(value,revision)=>({revision,pushed:false,record:value.outcome.record})});
   }
   for(const [operation,owner]of owned.owners)ports.set(operation,portFor(operation,owner));
+  for(const [operation,owner]of forward.owners)ports.set(operation,portFor(operation,owner));
   const artifact=createNamespaceArtifactIssuePort(options,{observer,owned,portFor,runtime});
   return {
     async load(input,{signal,operation}={}) {
@@ -40,7 +45,7 @@ export function createNamespaceUpstreamPort(options,runtime=null) {
       const state=states.get(context);if(!state)throw error('Use the issued upstream context.','ENGINE_INPUT_INVALID');
       if(state.artifact)return artifact.resolve(context,request,{signal});
       if(state.operation==='upstream.list') {
-        await owned.admitted(state.snapshot,{signal});const now=await clock.now();
+        await owned.admitted(state.snapshot,{signal});await forward.admitted(state.snapshot,{signal});const now=await clock.now();
         const issues=upstreamIssueStates(context.workflow,now).filter(row=>!request.open||['open','expired'].includes(row.status))
           .map(({issue,...row})=>({...issue,...row}));
         if((await observer.inspect({signal})).snapshot.revision!==state.snapshot.revision)throw error('The issue list changed.','ENGINE_CONTEXT_CHANGED');
@@ -62,6 +67,7 @@ export function createNamespaceUpstreamPort(options,runtime=null) {
       const accepted=await state.port.commit(context,state.prepared,{signal});state.result=await state.port.finish(context,state.prepared,accepted);return state.result;
     },
     async finish(context,request,options) {if(states.get(context)?.artifact)return artifact.finish(context,request,options);
-      return {workId,currentPhase:states.get(context)?.result?.record?.changeRequest?.targetPhase??context.workflow.currentPhase,revalidate:[],refreshed:null};}
+      const record=states.get(context)?.result?.record;
+      return {workId,currentPhase:record?.changeRequest?.targetPhase??context.workflow.currentPhase,revalidate:record?.applied?(record.decision.revalidate??[]).map(row=>row.phase):[],refreshed:record?.refreshed??null};}
   };
 }

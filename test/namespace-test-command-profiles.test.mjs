@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {namespacePhaseCheckPlanProfile,namespaceStoryCommandRecordProfile} from '../src/foundation/record-schema.mjs';
+import {namespacePhaseCheckPlanProfile,namespaceStoryCommandRecordProfile,namespaceTestRecoveryRecordProfile} from '../src/foundation/record-schema.mjs';
 import {phaseCheckRecord,phaseCheckRecordValue} from '../src/engine-storage/namespace-phase-check-contract.mjs';
 test('configured-only and human-command check plans retain distinct exact wire contracts',()=>{
   const fields={profile:'sflow-namespace-phase-checks/v1',binding:{},input:{},parametersSha256:'a'.repeat(64),generation:1,draft:{},artifact:{},actor:{},basis:{},sources:[],steps:[]},
@@ -14,5 +14,14 @@ test('Story command context and replacement versions reject unknown future meani
   for(const kind of ['context','replacement']){const profile=namespaceStoryCommandRecordProfile(kind,{schemaVersion:1});assert.ok(Object.isFrozen(profile));
     assert.equal(profile.version,1);assert.match(profile.format,/\/v1$/u);
     assert.throws(()=>namespaceStoryCommandRecordProfile(kind,{schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});}
-  assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:3}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
+});
+
+test('recovery records and conditional budgets have central, closed schema meanings',()=>{
+  for(const kind of ['agreement','context','policy','report','attempt','result','budget']){
+    const profile=namespaceTestRecoveryRecordProfile(kind,{schemaVersion:1});assert.equal(profile.version,1);assert.ok(Object.isFrozen(profile));
+    assert.throws(()=>namespaceTestRecoveryRecordProfile(kind,{schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceTestRecoveryRecordProfile(kind,{schemaVersion:0}),{code:'SCHEMA_VERSION_MISSING'});
+  }
+  assert.throws(()=>namespaceTestRecoveryRecordProfile('invented',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});
 });

@@ -31,3 +31,9 @@ The current Mac audit executes 79 checks across the declared compatibility files
 real source/bundled CLI projections, actual native mutations, human authority and failure recovery.
 All pass without skips or cancellations. This result is qualification evidence for the registered
 paths, not a claim that every utility outside the registry has been extracted.
+
+The forward-amendment and recovery extension brings the vocabulary to 86 registered operations,
+42 default native bindings and 75 namespace bindings before optional check/repair execution.
+`test-recovery.context` and `test-recovery.confirm` share the same registry; `phase.repair.run`
+requires an explicitly bound SGOS repair executor. These counts describe binding availability,
+not runtime readiness, authority or completion of the remaining native query/policy migration.

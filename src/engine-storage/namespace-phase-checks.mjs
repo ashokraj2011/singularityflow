@@ -19,6 +19,7 @@ import {createNamespacePreparationRuntime} from './namespace-preparation.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {phaseCheckRecord,NAMESPACE_PHASE_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
 export {NAMESPACE_PHASE_CHECK_PROFILE};
+import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceSourceRetentionReader} from './namespace-source-retention-reader.mjs';
@@ -91,6 +92,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
         if(!same(s.plan.draft,runtime.draftIdentity(draft))||s.plan.basis.headVersion!==facts.revision)throw error('The authored draft changed; preserve this intent and select a new check operation.','ENGINE_CONTEXT_CHANGED');
         await fresh(s,signal);
       }else{
+        const recoveryProof=captured.snapshot.workflow.resolution.testRecovery?.enabled?await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(captured.snapshot,{signal}):null;
         const commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(captured.snapshot,phase.id,{signal}),
           commands=commandProof.commands,repositories=captured.snapshot.workflow.sourceBindings?.current?.repositories;
         if(!commands.length)throw error('The pinned phase has no configured checks.','ENGINE_CHECKS_NOT_CONFIGURED');
@@ -126,7 +128,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
         if(repairSources&&observedSources.some(source=>repairSources.find(row=>row.repository.id===source.id)?.observed.revision!==source.revision))
           throw error('The application changed after its admitted repair scope. Retain the current source and check it again.','ENGINE_SOURCE_CHANGED',{
             operation:'phase.source.retain',workId,phaseId:phase.id});
-        s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,...(commandProof.identity.receipts.length?{testCommands:commandProof.identity}:{}),binding:codec.binding,input:s.input,parametersSha256:s.parameters,
+        s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,...(commandProof.identity.receipts.length||recoveryProof?{testCommands:commandProof.identity}:{}),...(recoveryProof?{recovery:{profile:'sflow-namespace-test-recovery-check/v1',agreementSha256:recoveryProof.agreement.contextSha256,agreements:recoveryProof.references}}:{}),binding:codec.binding,input:s.input,parametersSha256:s.parameters,
           generation:facts.payload.generation,draft:runtime.draftIdentity(draft),artifact:facts.payload.artifact.current,actor,
           basis:{authorityVersion:captured.basis.authorityVersion,headVersion:captured.basis.headVersion,configurationVersion:captured.basis.configurationVersion,
             configuration:captured.snapshot.configuration,head:captured.basis.head},

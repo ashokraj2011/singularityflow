@@ -11,7 +11,7 @@ export const planText='# Delivery plan\n\n## Agent brief\n\nImplement the approv
   +'| STORY-1:AC-001 | `src/converter.js` | `test/converter.test.js` |\n';
 const independent={name:'Independent reviewer',email:'independent@example.test',login:null};
 
-export async function namespaceSpecificationFixture(t,{backend='filesystem',configure=()=>{},storyText}={}) {
+export async function namespaceSpecificationFixture(t,{backend='filesystem',configure=()=>{},storyText,beforeSpecification=null}={}) {
   const f=await namespacePreparationFixture(t,{backend,storyText,configure:source=>{
     source.definition.spec={mode:'enforce',namespace:'STORY-1',coverage:'enforce',acceptance:'presence'};
     const intake=source.definition.phases.intake;
@@ -50,5 +50,6 @@ export async function namespaceSpecificationFixture(t,{backend='filesystem',conf
     const {manifest}=await reviewer.run('phase.review',{phaseId}),binding=manifest.reviewBinding;
     return reviewer.run('phase.approve',{phaseId,...(checklist?{checklist}:{}),confirmation:{workId:f.inputs.workId,phase:phaseId,generation:binding.generation,reviewPacketSha256:binding.packetSha256}});
   }
-  return {...f,common,publish,reviewer,capture,json,author,approve};
+  const fixture={...f,common,publish,reviewer,capture,json,author,approve};
+  if(beforeSpecification)await beforeSpecification(fixture);return fixture;
 }

@@ -1,0 +1,628 @@
+{
+  "capturedFrom": "0b931b4c076d2838fe7bc5ba62f0b85d6d27b380",
+  "profiles": [
+    {
+      "version": 1,
+      "code": {
+        "version": 1,
+        "rework": false,
+        "kind": "code-delivery/v1",
+        "format": "sflow-namespace-code-policy/v1"
+      },
+      "report": {
+        "version": 1,
+        "rework": false,
+        "kind": "code-delivery/v1",
+        "format": "sflow-namespace-code-policy-report/v1"
+      }
+    },
+    {
+      "version": 2,
+      "code": {
+        "version": 2,
+        "rework": true,
+        "kind": "code-delivery/v2",
+        "format": "sflow-namespace-code-policy/v2"
+      },
+      "report": {
+        "version": 2,
+        "rework": true,
+        "kind": "code-delivery/v2",
+        "format": "sflow-namespace-code-policy-report/v2"
+      }
+    },
+    {
+      "version": 3,
+      "code": {
+        "version": 3,
+        "rework": true,
+        "kind": "code-delivery/v3",
+        "format": "sflow-namespace-code-policy/v3"
+      },
+      "report": {
+        "version": 3,
+        "rework": true,
+        "kind": "code-delivery/v3",
+        "format": "sflow-namespace-code-policy-report/v3"
+      }
+    },
+    {
+      "version": 4,
+      "code": {
+        "version": 4,
+        "rework": true,
+        "kind": "code-delivery/v4",
+        "format": "sflow-namespace-code-policy/v4"
+      },
+      "report": {
+        "version": 4,
+        "rework": true,
+        "kind": "code-delivery/v4",
+        "format": "sflow-namespace-code-policy-report/v4"
+      }
+    },
+    {
+      "version": 5,
+      "code": {
+        "version": 5,
+        "rework": true,
+        "kind": "code-delivery/v5",
+        "format": "sflow-namespace-code-policy/v5"
+      },
+      "report": {
+        "version": 5,
+        "rework": true,
+        "kind": "code-delivery/v5",
+        "format": "sflow-namespace-code-policy-report/v5"
+      }
+    },
+    {
+      "version": 6,
+      "code": {
+        "version": 6,
+        "rework": true,
+        "optionalHistory": true,
+        "kind": "code-delivery/v6",
+        "format": "sflow-namespace-code-policy/v6"
+      },
+      "report": {
+        "version": 6,
+        "rework": true,
+        "optionalHistory": true,
+        "kind": "code-delivery/v6",
+        "format": "sflow-namespace-code-policy-report/v6"
+      }
+    },
+    {
+      "version": 7,
+      "code": {
+        "version": 7,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "kind": "code-delivery/v7",
+        "format": "sflow-namespace-code-policy/v7"
+      },
+      "report": {
+        "version": 7,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "kind": "code-delivery/v7",
+        "format": "sflow-namespace-code-policy-report/v7"
+      }
+    },
+    {
+      "version": 8,
+      "code": {
+        "version": 8,
+        "rework": true,
+        "optionalHistory": true,
+        "kind": "code-delivery/v8",
+        "format": "sflow-namespace-code-policy/v8"
+      },
+      "report": {
+        "version": 8,
+        "rework": true,
+        "optionalHistory": true,
+        "kind": "code-delivery/v8",
+        "format": "sflow-namespace-code-policy-report/v8"
+      }
+    },
+    {
+      "version": 9,
+      "code": {
+        "version": 9,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "kind": "code-delivery/v9",
+        "format": "sflow-namespace-code-policy/v9"
+      },
+      "report": {
+        "version": 9,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "kind": "code-delivery/v9",
+        "format": "sflow-namespace-code-policy-report/v9"
+      }
+    },
+    {
+      "version": 10,
+      "code": {
+        "version": 10,
+        "rework": true,
+        "optionalHistory": true,
+        "predecessors": true,
+        "kind": "code-delivery/v10",
+        "format": "sflow-namespace-code-policy/v10"
+      },
+      "report": {
+        "version": 10,
+        "rework": true,
+        "optionalHistory": true,
+        "predecessors": true,
+        "kind": "code-delivery/v10",
+        "format": "sflow-namespace-code-policy-report/v10"
+      }
+    },
+    {
+      "version": 11,
+      "code": {
+        "version": 11,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "predecessors": true,
+        "kind": "code-delivery/v11",
+        "format": "sflow-namespace-code-policy/v11"
+      },
+      "report": {
+        "version": 11,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "predecessors": true,
+        "kind": "code-delivery/v11",
+        "format": "sflow-namespace-code-policy-report/v11"
+      }
+    },
+    {
+      "version": 12,
+      "code": {
+        "version": 12,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "kind": "code-delivery/v12",
+        "format": "sflow-namespace-code-policy/v12"
+      },
+      "report": {
+        "version": 12,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "kind": "code-delivery/v12",
+        "format": "sflow-namespace-code-policy-report/v12"
+      }
+    },
+    {
+      "version": 13,
+      "code": {
+        "version": 13,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "kind": "code-delivery/v13",
+        "format": "sflow-namespace-code-policy/v13"
+      },
+      "report": {
+        "version": 13,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "kind": "code-delivery/v13",
+        "format": "sflow-namespace-code-policy-report/v13"
+      }
+    },
+    {
+      "version": 14,
+      "code": {
+        "version": 14,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "kind": "code-delivery/v14",
+        "format": "sflow-namespace-code-policy/v14"
+      },
+      "report": {
+        "version": 14,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "kind": "code-delivery/v14",
+        "format": "sflow-namespace-code-policy-report/v14"
+      }
+    },
+    {
+      "version": 15,
+      "code": {
+        "version": 15,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "kind": "code-delivery/v15",
+        "format": "sflow-namespace-code-policy/v15"
+      },
+      "report": {
+        "version": 15,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "kind": "code-delivery/v15",
+        "format": "sflow-namespace-code-policy-report/v15"
+      }
+    },
+    {
+      "version": 16,
+      "code": {
+        "version": 16,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "repositoryCoverage": true,
+        "kind": "code-delivery/v16",
+        "format": "sflow-namespace-code-policy/v16"
+      },
+      "report": {
+        "version": 16,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "repositoryCoverage": true,
+        "kind": "code-delivery/v16",
+        "format": "sflow-namespace-code-policy-report/v16"
+      }
+    },
+    {
+      "version": 17,
+      "code": {
+        "version": 17,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "repositoryCoverage": true,
+        "kind": "code-delivery/v17",
+        "format": "sflow-namespace-code-policy/v17"
+      },
+      "report": {
+        "version": 17,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "repositoryCoverage": true,
+        "kind": "code-delivery/v17",
+        "format": "sflow-namespace-code-policy-report/v17"
+      }
+    },
+    {
+      "version": 18,
+      "code": {
+        "version": 18,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "repositoryCoverage": true,
+        "kind": "code-delivery/v18",
+        "format": "sflow-namespace-code-policy/v18"
+      },
+      "report": {
+        "version": 18,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "repositoryCoverage": true,
+        "kind": "code-delivery/v18",
+        "format": "sflow-namespace-code-policy-report/v18"
+      }
+    },
+    {
+      "version": 19,
+      "code": {
+        "version": 19,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "repositoryCoverage": true,
+        "kind": "code-delivery/v19",
+        "format": "sflow-namespace-code-policy/v19"
+      },
+      "report": {
+        "version": 19,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "repositoryCoverage": true,
+        "kind": "code-delivery/v19",
+        "format": "sflow-namespace-code-policy-report/v19"
+      }
+    },
+    {
+      "version": 20,
+      "code": {
+        "version": 20,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "documentRepair": true,
+        "kind": "code-delivery/v20",
+        "format": "sflow-namespace-code-policy/v20"
+      },
+      "report": {
+        "version": 20,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "documentRepair": true,
+        "kind": "code-delivery/v20",
+        "format": "sflow-namespace-code-policy-report/v20"
+      }
+    },
+    {
+      "version": 21,
+      "code": {
+        "version": 21,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "documentRepair": true,
+        "kind": "code-delivery/v21",
+        "format": "sflow-namespace-code-policy/v21"
+      },
+      "report": {
+        "version": 21,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "documentRepair": true,
+        "kind": "code-delivery/v21",
+        "format": "sflow-namespace-code-policy-report/v21"
+      }
+    },
+    {
+      "version": 22,
+      "code": {
+        "version": 22,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "repositoryCoverage": true,
+        "documentRepair": true,
+        "kind": "code-delivery/v22",
+        "format": "sflow-namespace-code-policy/v22"
+      },
+      "report": {
+        "version": 22,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "repositoryCoverage": true,
+        "documentRepair": true,
+        "kind": "code-delivery/v22",
+        "format": "sflow-namespace-code-policy-report/v22"
+      }
+    },
+    {
+      "version": 23,
+      "code": {
+        "version": 23,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "repositoryCoverage": true,
+        "documentRepair": true,
+        "kind": "code-delivery/v23",
+        "format": "sflow-namespace-code-policy/v23"
+      },
+      "report": {
+        "version": 23,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "repositoryCoverage": true,
+        "documentRepair": true,
+        "kind": "code-delivery/v23",
+        "format": "sflow-namespace-code-policy-report/v23"
+      }
+    },
+    {
+      "version": 24,
+      "code": {
+        "version": 24,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "documentRepair": true,
+        "repeatedReturns": true,
+        "kind": "code-delivery/v24",
+        "format": "sflow-namespace-code-policy/v24"
+      },
+      "report": {
+        "version": 24,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "documentRepair": true,
+        "repeatedReturns": true,
+        "kind": "code-delivery/v24",
+        "format": "sflow-namespace-code-policy-report/v24"
+      }
+    },
+    {
+      "version": 25,
+      "code": {
+        "version": 25,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "documentRepair": true,
+        "repeatedReturns": true,
+        "kind": "code-delivery/v25",
+        "format": "sflow-namespace-code-policy/v25"
+      },
+      "report": {
+        "version": 25,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "documentRepair": true,
+        "repeatedReturns": true,
+        "kind": "code-delivery/v25",
+        "format": "sflow-namespace-code-policy-report/v25"
+      }
+    },
+    {
+      "version": 26,
+      "code": {
+        "version": 26,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "repositoryCoverage": true,
+        "documentRepair": true,
+        "repeatedReturns": true,
+        "kind": "code-delivery/v26",
+        "format": "sflow-namespace-code-policy/v26"
+      },
+      "report": {
+        "version": 26,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "repositoryCoverage": true,
+        "documentRepair": true,
+        "repeatedReturns": true,
+        "kind": "code-delivery/v26",
+        "format": "sflow-namespace-code-policy-report/v26"
+      }
+    },
+    {
+      "version": 27,
+      "code": {
+        "version": 27,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "repositoryCoverage": true,
+        "documentRepair": true,
+        "repeatedReturns": true,
+        "kind": "code-delivery/v27",
+        "format": "sflow-namespace-code-policy/v27"
+      },
+      "report": {
+        "version": 27,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "optionalOutputs": true,
+        "targeted": true,
+        "repositoryCoverage": true,
+        "documentRepair": true,
+        "repeatedReturns": true,
+        "kind": "code-delivery/v27",
+        "format": "sflow-namespace-code-policy-report/v27"
+      }
+    }
+  ]
+}

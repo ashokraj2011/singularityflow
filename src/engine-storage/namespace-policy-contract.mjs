@@ -17,6 +17,18 @@ export const isConformanceEvidence=kind=>[CONFORMANCE_EVIDENCE,'conformance/v2']
 const evidence=value=>{if(contentReference(value).namespace!=='evidence')throw Error('Policy evidence requires shared immutable content.');};
 function invalid(cause) {return new SingularityFlowError('The retained phase-policy evidence is invalid.',{cause,
   code:['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED','ENGINE_STORAGE_UNSUPPORTED'].includes(cause?.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT'});}
+/** Common envelope for newly versioned single-report owners. Original record readers stay unchanged. */
+export function namespaceEvidencePolicyManifest(value,{scope,workId,phaseId,family,format}){
+  try{admitRecordSchemaVersion(family,value);
+    exactObject(value,['schemaVersion','format','projectId','workId','phase','generation','operationId','baseRevision','configuration',
+      'draft','actor','agentId','recordedAt','artifact','basis','report']);
+    if(value.format!==format||value.projectId!==scope.projectId||value.workId!==workId||value.phase!==phaseId
+      ||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another policy identity.');
+    exactObject(value.basis,['revision','head']);lifecycleHead(value.basis.head,scope,workId);
+    if(namespaceRevision(value.baseRevision)===null||namespaceRevision(value.basis.revision)!==value.baseRevision)throw Error('Another policy basis.');
+    exactObject(value.artifact,['key','content']);evidence(value.artifact.content);evidence(value.report);
+  }catch(cause){throw invalid(cause);}return value;
+}
 export function namespacePolicyEvidenceBinding(value) {
   try {
     const profile=namespacePhasePolicyBindingProfile(value);exactObject(value,['schemaVersion','format','kind','record']);

@@ -13,8 +13,8 @@ const executableSha256='sha256:'+createHash('sha256').update(await readFile(proc
 const command={id:'node-tests',argv:['node','--test','--test-reporter=tap','case.test.mjs'],kind:'test',modelPolicy:'never',
   result:{adapter:'node-tap',path:'results/tests.tap'}};
 const input={operationId:'check-one',workId:'portable-story',phaseId:'intake'};
-export async function namespacePhaseCheckFixture(t,{backend='filesystem',failing=false,modify=()=>{},configure=()=>{}}={}) {
-  const f=await namespacePreparationFixture(t,{backend,configure:source=>{source.definition.phases.intake.qualityCommands=[command];configure(source);}});
+export async function namespacePhaseCheckFixture(t,{backend='filesystem',failing=false,modify=()=>{},configure=()=>{},beforePrepare=null}={}) {
+  const f=await namespacePreparationFixture(t,{backend,configure:source=>{source.definition.phases.intake.qualityCommands=[structuredClone(command)];configure(source);}});
   const root=path.join(f.directory,'checkout');await mkdir(root);
   await writeFile(path.join(root,'case.test.mjs'),"import test from 'node:test';import assert from 'node:assert/strict';test('actual pinned check',()=>assert.equal(2+2,"+(failing?'5':'4')+"));");
   const source=await createFilesystemSourceUnit({root,id:'app-checkout',projectId:f.scope.projectId,repositoryId:'app'});
@@ -31,6 +31,7 @@ export async function namespacePhaseCheckFixture(t,{backend='filesystem',failing
     executable:'node',executableSha256,environment:{},unit}]};
   modify({checks,options,control});f.control.permissions.push('phase.checks.run');
   const make=extra=>createNamespacePhaseChecksEngine({...options,checks,...extra}),engine=make();
+  if(beforePrepare)await beforePrepare({...f,options,checks});
   await engine.run('phase.prepare');const draft=await engine.run('phase.draft.read',{phaseId:'intake'});
   const reference=await f.upload('# Checked artifact\n\nThe authored phase artifact has meaningful observed content.');
   await engine.run('phase.draft.write',{operationId:'author-for-checks',workId:f.inputs.workId,phaseId:'intake',expectedRevision:draft.manifest.draft.revision,

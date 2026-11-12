@@ -4,6 +4,7 @@ import { createEngine } from '../engine-sdk/index.mjs';
 import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import { SingularityFlowError } from '../foundation/failures.mjs';
 import { canonicalJson,NAMESPACE_PREPARATION_SCHEMAS,namespacePreparedPayloadProfile,admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
+import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
 import { renderArtifactTemplateText,utf8Bytes } from '../kernel/artifact-content.mjs';
 import { phaseDraftAccess,phasePreparationSelection,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission,convergencePreparationState } from '../kernel/phase-preparation.mjs';
 import {phaseAccessIdentity} from '../kernel/phase-preparation.mjs';
@@ -169,7 +170,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     phasePreparationOpeningAdmission(w,phase);
     const approval=await observer.approved(captured.snapshot,{signal});
     if(!same(approval.configuration,captured.snapshot.configuration))throw error('Preparation has another immutable configuration pin.','ENGINE_STORAGE_CORRUPT');
-    phasePreparationCatalogAdmission(approval.compiled.definition,w,phase,agent.agentId);
+    const testRecovery=w.resolution.testRecovery?.enabled?await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(captured.snapshot,{signal}):null;
+    phasePreparationCatalogAdmission(approval.compiled.definition,w,phase,agent.agentId,{testRecovery});
     const configuredPhase=approval.compiled.workflows[w.workItem.workType]?.phases.find(item=>item.id===phase.id);
     if(!configuredPhase)throw error('The phase is absent from its approved workflow.','ENGINE_STORAGE_CORRUPT');
     return {approval,phase:configuredPhase};
@@ -550,7 +552,8 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       if(!stale){author={actor:p.actor,agentId:p.agentId};
         if(!template||p.artifact.key!==binding.artifactKey||p.template.key!==templateKey||!same(p.template.reference,template.body))throw error(
           'The private draft differs from its pinned artifact/template contract.','ENGINE_STORAGE_CORRUPT',{workId,phase:phaseId});
-        phasePreparationCatalogAdmission(approved.compiled.definition,captured.snapshot.workflow,captured.phase,author.agentId);
+        const testRecovery=captured.snapshot.workflow.resolution.testRecovery?.enabled?await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(captured.snapshot,{signal}):null;
+        phasePreparationCatalogAdmission(approved.compiled.definition,captured.snapshot.workflow,captured.phase,author.agentId,{testRecovery});
         inputs=await resources(captured,approved.compiled,author,signal);}
     }
     inspectionReads.set(token,{captured,found,approved,principal,phase,inputs,author,stale,operation});return token;

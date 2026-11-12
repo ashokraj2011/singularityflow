@@ -7,6 +7,7 @@ import {namespacePublicationValue} from './namespace-publication-contract.mjs';
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 import {createNamespacePublicationPolicyReader} from './namespace-policy-reader.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 const same=(a,b)=>a===undefined||b===undefined?a===b:canonicalJson(a)===canonicalJson(b);
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{code,cause});
@@ -14,7 +15,7 @@ const error=(message,code,cause=undefined)=>new SingularityFlowError(message,{co
 export function createNamespacePublicationReader({observer,scope,workId,checks=null}) {
   const bytes=observer.bytes.bind(observer);
   const specifications=createNamespaceSpecificationReader({observer,scope,workId,checks});
-  const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks});
+  const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks});let amendments;
   function artifacts(publication){return [{path:publication.artifact.sourceKey,sha256:publication.artifact.content.sha256,size:publication.artifact.content.bytes},
     ...policies.resources(publication).filter(row=>['artifact-set-member','retained-output'].includes(row.kind)).map(row=>({path:row.sourceKey,sha256:row.reference.sha256,size:row.reference.bytes}))];}
   function assertArtifacts(publication,phase){const expected=artifacts(publication),observed=phase?.artifacts;
@@ -40,7 +41,9 @@ export function createNamespacePublicationReader({observer,scope,workId,checks=n
     return publication;
   }
   async function accepted(binding,phaseId,options={}) {
-    const value=await read(binding,phaseId,options),proof=await namespaceAcceptedEvidence(observer,binding,value,'phase.publish',options);
+    const value=await read(binding,phaseId,options),proof=value.origin
+      ?await (amendments??=createNamespaceForwardAmendmentOwners({observer,scope,workId})).projection(value,binding,'publication',options)
+      :await namespaceAcceptedEvidence(observer,binding,value,'phase.publish',options);
     const phase=proof.state.workflow.phases[phaseId];
     if(phase?.generation!==value.generation||!phase.publicationBindings?.some(item=>same(item,binding))
       ||!phase.artifacts?.some(item=>item.path===value.artifact.sourceKey&&item.sha256===value.artifact.content.sha256&&item.size===value.artifact.content.bytes)

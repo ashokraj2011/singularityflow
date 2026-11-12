@@ -11,8 +11,8 @@ export const converterSource='// @clause:STORY-1:REQ-001 Converts the selected i
   +'// @clause:STORY-1:AC-001 Returns FF for the approved 255 example.\nexport const convert=value=>value.toString(16).toUpperCase();\n';
 export async function namespaceSourceClauseFixture(t,{backend='filesystem',configure=()=>{},source=converterSource,baselineSource='export const convert=value=>String(value);\n',
   retainBaseline=true,retainChanges=true,repositories=1,namespace='STORY-1',lineOrigins=false,originalSource=baselineSource,retainOrigins=true,plan=planText,
-  beforeCode=null,beforePrepare=null,afterPrepare=null,approveScope=null,baselineTestSource='// Original test source.\n',testSource=null,specification=specificationText,storyText=undefined}={}) {
-  const f=await namespaceSpecificationFixture(t,{backend,storyText,configure:definition=>{
+  beforeCode=null,beforePrepare=null,afterPrepare=null,approveScope=null,beforeSpecification=null,baselineTestSource='// Original test source.\n',testSource=null,specification=specificationText,storyText=undefined}={}) {
+  const f=await namespaceSpecificationFixture(t,{backend,storyText,beforeSpecification,configure:definition=>{
     definition.definition.spec.namespace=namespace;
     definition.definition.codeDelivery={traceability:{sourceBindings:'enforce'}};configure(definition);
   }}),replace=text=>text.replaceAll('STORY-1:',namespace+':');

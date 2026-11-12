@@ -4,6 +4,7 @@ import {SingularityFlowError} from '../foundation/failures.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {sourceReviewRequired,phaseAuthoringPlan,phaseNeedsGeneration,nextPhaseGeneration,isConvergencePhase} from '../kernel/phase-policy.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceStoryQueryPorts(options,runtime=null){
   const {scope,workId,access,modelEnabled=true}=options,observer=createNamespaceStoryObserver(options),contexts=new WeakMap();
@@ -22,6 +23,9 @@ export function createNamespaceStoryQueryPorts(options,runtime=null){
     if(!phase||phase.status!=='in_progress'||phaseNeedsGeneration(snapshot.workflow,phase)||!sourceReviewRequired(snapshot.workflow,phase.id))return null;
     const value=await (reviewOwners??=createNamespaceSourceReviewOwners({observer,scope,workId})).inspect(snapshot,phase.id,{signal});
     return reviewOwners.continuation(value.status);}
+  async function amendmentHold(snapshot,signal){if(!(snapshot.workflow.forwardAmendments??[]).length)return {};
+    const readiness=await createNamespaceForwardAmendmentOwners({observer,scope,workId}).readiness(snapshot,snapshot.workflow.currentPhase,{signal,terminal:true});
+    return {amendmentHold:readiness.holds.length>0};}
   const storyStatus={load:(input,options)=>load(input,'story.status',options),async read(context,_selection,{signal}={}){
     if(!contexts.has(context))throw error('Use the issued Story diagnostic context.','ENGINE_INPUT_INVALID');
     await unchanged(context,signal);
@@ -30,7 +34,8 @@ export function createNamespaceStoryQueryPorts(options,runtime=null){
     return {workId,source:context.source,publication:{state:'not-retained',commit:null,error:null}};
   }};
   const storyGuide={async load(input,options){const context=await load(input,'story.guide',options);
-    context.observations={modelEnabled,sourceReviewEvidence:await reviewEvidence(contexts.get(context).snapshot,options?.signal)};
+    context.observations={modelEnabled,sourceReviewEvidence:await reviewEvidence(contexts.get(context).snapshot,options?.signal),
+      ...await amendmentHold(contexts.get(context).snapshot,options?.signal)};
     await unchanged(context,options?.signal);return context;}};
   const storyNext={async load(input,{signal}={}){
     const context=await load(input,'story.next',{signal}),snapshot=contexts.get(context).snapshot,workflow=snapshot.workflow,
@@ -49,7 +54,8 @@ export function createNamespaceStoryQueryPorts(options,runtime=null){
       }
       await runtime.revalidateEntryDraft(token,{signal});
     }
-    context.observations={modelEnabled,sourceReviewEvidence:await reviewEvidence(snapshot,signal),authoringState,recoveryRequired,...(recoveryRequired?{recoveryPhase:phase.id}:{})};
+    context.observations={modelEnabled,sourceReviewEvidence:await reviewEvidence(snapshot,signal),authoringState,recoveryRequired,...(recoveryRequired?{recoveryPhase:phase.id}:{}),
+      ...await amendmentHold(snapshot,signal)};
     await unchanged(context,signal);return context;
   }};
   return Object.freeze({storyStatus,storyGuide,storyNext});

@@ -21,12 +21,28 @@ import {createNamespaceWitnessOwners} from './namespace-witness-reader.mjs';
 import {createNamespaceConstitutionReader,CONSTITUTION_POLICY_EVIDENCE} from './namespace-constitution-reader.mjs';
 import {createNamespaceAssignmentOwners} from './namespace-assignment-reader.mjs';
 import {createNamespaceConstitutionExceptionOwners} from './namespace-constitution-exception-reader.mjs';
+import {createNamespaceDocumentReviewReader,DOCUMENT_REVIEW_EVIDENCE} from './namespace-document-review.mjs';
+import {createNamespaceTestRecoveryOwner,TEST_RECOVERY_EVIDENCE,namespaceTestRecoveryManifest} from './namespace-test-recovery-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 
 export function createNamespacePublicationPolicyReader({observer,scope,workId,checks=null}) {
   const verified=new WeakMap();
+  let recovery;const recoveryReader=()=>recovery??=createNamespaceTestRecoveryOwner({observer,scope,workId});
+  const recoveryCandidate=(publication,snapshot,options={})=>recoveryReader().publication(snapshot,publication.phase,options);
+  async function verifyRecovery(publication,binding,{signal,policyTraversal}={}){
+    const manifest=namespaceTestRecoveryManifest(await json(binding.record,signal),{scope,workId,phaseId:publication.phase});
+    if(!same(namespaceSpecificationIdentity(publication),Object.fromEntries(Object.keys(namespaceSpecificationIdentity(publication)).map(key=>[key,manifest[key]])))
+      ||manifest.recordedAt!==publication.publishedAt||!same(manifest.artifact,{key:publication.artifact.sourceKey,content:publication.artifact.content}))
+      throw error('Test recovery evidence has another publication identity.','ENGINE_STORAGE_CORRUPT');
+    const state=await observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
+      snapshot={revision:manifest.basis.revision,configuration:manifest.basis.head.configuration,workflow:state.workflow},
+      expected=await recoveryCandidate(publication,snapshot,{signal,policyTraversal}),report=await json(manifest.report,signal);
+    if(!same(report,expected.report))throw error('The recovery report differs from its original agreement and commands.','ENGINE_STORAGE_CORRUPT');
+    return {...expected,binding,manifest,report};
+  }
+  let documentReview;const documentReader=()=>documentReview??=createNamespaceDocumentReviewReader({observer,scope,workId});
   let convergence=null;const convergenceReader=()=>convergence??=createNamespaceConvergencePolicyReader({observer,scope,workId});
   let constitution=null;const constitutionReader=()=>constitution??=createNamespaceConstitutionReader({observer,scope,workId});
   let code=null;const codeReader=()=>code??=createNamespaceCodePolicyReader({observer,scope,workId,checks});
@@ -125,6 +141,8 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     const values=[];
     for(const binding of publication.policyEvidence) {
       namespacePolicyEvidenceBinding(binding);
+      if(binding.kind===TEST_RECOVERY_EVIDENCE){values.push(await verifyRecovery(publication,binding,{signal,policyTraversal:token}));continue;}
+      if(binding.kind===DOCUMENT_REVIEW_EVIDENCE){values.push(await documentReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
       if(binding.kind===CONVERGENCE_POLICY_EVIDENCE){values.push(await convergenceReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
       if(binding.kind===CONSTITUTION_POLICY_EVIDENCE){values.push(await constitutionReader().verify(publication,binding,{signal}));continue;}
       if(binding.kind===PHASE_ASSIGNMENT_EVIDENCE){values.push(await verifyAssignment(publication,binding,{signal,policyTraversal:token}));continue;}
@@ -156,10 +174,10 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   function proofs(publication) {const found=verified.get(publication);return found&&found.identity===canonicalJson(publication)
     &&found.values.every(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().proof(publication)===value
       :isConformanceEvidence(value.binding.kind)?conformanceReader().proof(publication)===value:value.binding.kind!==CODE_INPUT_EVIDENCE||inputReader().proof(publication)===value)?found.values:[];}
-  function owners(publication) {return proofs(publication).flatMap(value=>(value.binding.kind===CONVERGENCE_POLICY_EVIDENCE||value.binding.kind===CONSTITUTION_POLICY_EVIDENCE||value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE||isCodePolicyEvidence(value.binding.kind)||value.binding.kind===CODE_INPUT_EVIDENCE||value.binding.kind===ARTIFACT_SET_EVIDENCE||isConformanceEvidence(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
-  function evidence(publication) {return proofs(publication).flatMap(value=>value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?convergenceReader().evidence(value):value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE?[value.binding.record,value.manifest.report,...value.references]:value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.evidence(value):isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):value.binding.kind===CODE_INPUT_EVIDENCE?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
+  function owners(publication) {return proofs(publication).flatMap(value=>(value.binding.kind===TEST_RECOVERY_EVIDENCE||value.binding.kind===DOCUMENT_REVIEW_EVIDENCE||value.binding.kind===CONVERGENCE_POLICY_EVIDENCE||value.binding.kind===CONSTITUTION_POLICY_EVIDENCE||value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE||isCodePolicyEvidence(value.binding.kind)||value.binding.kind===CODE_INPUT_EVIDENCE||value.binding.kind===ARTIFACT_SET_EVIDENCE||isConformanceEvidence(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
+  function evidence(publication) {return proofs(publication).flatMap(value=>value.binding.kind===DOCUMENT_REVIEW_EVIDENCE?documentReader().evidence(value):value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?convergenceReader().evidence(value):[TEST_RECOVERY_EVIDENCE,PHASE_ASSIGNMENT_EVIDENCE].includes(value.binding.kind)?[value.binding.record,value.manifest.report,...value.references]:value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.evidence(value):isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):value.binding.kind===CODE_INPUT_EVIDENCE?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
     ?[value.binding.record,...(value.response?[value.response.reference]:[])]:[value.binding.record,value.manifest.report,...(value.manifest.previous?[value.manifest.previous.record]:[])]).map(value=>({...value}));}
-  function resources(publication) {return proofs(publication).flatMap(value=>value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.resources(value):[{kind:value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?'convergence-projection':value.binding.kind===CONSTITUTION_POLICY_EVIDENCE?'constitution-policy':value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE?'phase-assignment':isConformanceEvidence(value.binding.kind)?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':value.binding.kind===CODE_INPUT_EVIDENCE?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
+  function resources(publication) {return proofs(publication).flatMap(value=>value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.resources(value):[{kind:value.binding.kind===TEST_RECOVERY_EVIDENCE?'test-recovery':value.binding.kind===DOCUMENT_REVIEW_EVIDENCE?'document-review':value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?'convergence-projection':value.binding.kind===CONSTITUTION_POLICY_EVIDENCE?'constitution-policy':value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE?'phase-assignment':isConformanceEvidence(value.binding.kind)?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':value.binding.kind===CODE_INPUT_EVIDENCE?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
     reference:{...(value.binding.kind===CLARIFICATION_EVIDENCE?value.response?.reference??value.binding.record:value.manifest.report)}},
     ...(isCodePolicyEvidence(value.binding.kind)?(value.report.preflight.outputs?.files??[]).map(row=>({kind:'retained-output',sourceKey:row.path,reference:row.content})):[])]);}
   function readBindings(publication) {return proofs(publication).flatMap(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().readBindings(value):value.binding.kind===CLARIFICATION_EVIDENCE?[{...value.manifest.observed}]:[]);}
@@ -181,7 +199,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     return {evidence:structuredClone(value.binding),result:evaluateApprovalChecklist({policy:value.selected.quality,decisions,
       authorities:value.definition.approvalAuthorities,actor:actor.identity})};
   }
-  return Object.freeze({candidate,convergenceCandidate:(...args)=>convergenceReader().candidate(...args),freshConvergenceCandidate:(...args)=>convergenceReader().freshCandidate(...args),convergenceReview:(...args)=>convergenceReader().review(...args),freshConvergenceSources:(...args)=>convergenceReader().freshSources(...args),assignmentCandidate,constitutionCandidate:(...args)=>constitutionReader().candidate(...args),clarificationEvidence:publication=>proofs(publication).find(row=>row.binding.kind===CLARIFICATION_EVIDENCE)??null,artifactSetCandidate:artifactSets.candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
+  return Object.freeze({candidate,recoveryCandidate,documentReviewCandidate:(...args)=>documentReader().candidate(...args),convergenceCandidate:(...args)=>convergenceReader().candidate(...args),freshConvergenceCandidate:(...args)=>convergenceReader().freshCandidate(...args),convergenceReview:(...args)=>convergenceReader().review(...args),freshConvergenceSources:(...args)=>convergenceReader().freshSources(...args),assignmentCandidate,constitutionCandidate:(...args)=>constitutionReader().candidate(...args),clarificationEvidence:publication=>proofs(publication).find(row=>row.binding.kind===CLARIFICATION_EVIDENCE)??null,artifactSetCandidate:artifactSets.candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
     codeInputCandidate:(...args)=>inputReader().candidate(...args),conformanceCandidate:(...args)=>conformanceReader().candidate(...args),
     freshCodeCandidate:(...args)=>codeReader().freshCandidate(...args),freshInputCandidate:(...args)=>inputReader().freshEvidence(...args),
     freshConformanceCandidate:(...args)=>conformanceReader().freshCandidate(...args),

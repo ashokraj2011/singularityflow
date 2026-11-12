@@ -7,6 +7,7 @@ import {storyActorValue} from '../kernel/story-creation.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {phaseCheckEvidenceBinding} from './namespace-phase-check-contract.mjs';
 import {namespaceSubmittedConvergence} from './namespace-convergence-contract.mjs';
+import {namespaceForwardOriginValue} from './namespace-forward-contract.mjs';
 export const NAMESPACE_SUBMISSION_PROFILE='sflow-primary-document-submission/v1';
 export const NAMESPACE_SUBMISSION_DECISION_PROFILE='sflow-primary-document-submission/v2';
 export const NAMESPACE_CHECKED_SUBMISSION_PROFILE='sflow-primary-document-submission/v3';
@@ -25,7 +26,7 @@ export function namespaceSubmissionBindingValue(value) {return checked(()=>{
 export function namespaceSubmissionValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
   const profile=namespaceSubmissionRecordProfile(value);
   exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256','baseRevision',
-    'configuration','publication','actor','agentId','submittedAt',...(profile.routing?['routing']:[]),...(profile.checks?['checks']:[]),...(profile.sourceReview?['sourceReview']:[]),...(profile.convergence?['convergence']:[])]);
+    'configuration','publication','actor','agentId','submittedAt',...(profile.routing?['routing']:[]),...(profile.checks?['checks']:[]),...(profile.sourceReview?['sourceReview']:[]),...(profile.convergence?['convergence']:[]),...(profile.forwardAmendment?['origin']:[])]);
   if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId
     ||value.workId!==workId||value.phase!==phaseId||!digest(value.requestSha256)||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another submission binding.');
   for(const key of ['projectId','workId','phase','operationId'])namespaceIdentifier(value[key]);
@@ -42,6 +43,7 @@ export function namespaceSubmissionValue(value,{projectId,workId,phaseId}={}) {r
   if(profile.checks&&(!profile.sourceReview||value.checks!==null))phaseCheckEvidenceBinding(value.checks);
   if(profile.sourceReview&&(!profile.convergence||value.sourceReview!==null))namespaceSubmittedSourceReview(value.sourceReview,{phaseId,generation:value.generation});
   if(profile.convergence)namespaceSubmittedConvergence(value.convergence,{projectId,workId,phaseId,generation:value.generation});
+  if(profile.forwardAmendment)namespaceForwardOriginValue(value.origin);
   return value;
 });}
 

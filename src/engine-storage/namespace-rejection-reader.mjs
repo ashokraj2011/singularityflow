@@ -11,6 +11,7 @@ import {createNamespaceRepairBudgetReader} from './namespace-repair-budget-reade
 import {createNamespaceTargetedRepairReader} from './namespace-targeted-repair-reader.mjs';
 import {createNamespaceArtifactRepairReader} from './namespace-artifact-repair-reader.mjs';
 import {memoNamespaceObservedDecision} from './namespace-story-reader.mjs';
+import {createNamespaceTestRecoveryOwner,namespaceTestRecoveryBinding} from './namespace-test-recovery-reader.mjs';
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceRejectionOwner({observer,scope,workId}){
   const checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
@@ -21,18 +22,18 @@ export function createNamespaceRejectionOwner({observer,scope,workId}){
     for(const owner of packets.publicationOwners(proof.published))required.delete(owner);
     if(proof.published.checks)required.delete('check-execution');
     if(snapshot.workflow.resolution.presence)required.add('person-presence');
-    if(snapshot.workflow.resolution.testRecovery?.enabled)required.add('test-recovery');
     if(skillPhaseHostRequirement(snapshot.workflow,phase))required.add('qualified-skill-host');
     if(required.size)throw error('This return needs its additional policy owners.','ENGINE_PORT_UNAVAILABLE',{required:[...required].sort()});
+    const recovery=snapshot.workflow.resolution.testRecovery?.enabled?await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(snapshot,{signal,policyTraversal}):null;
     const repairBudget=await createNamespaceRepairBudgetReader({observer,scope,workId}).inspect(snapshot,phase.id,request.target,{signal,policyTraversal});
     const targeted=request.clauseIds?.length?await createNamespaceTargetedRepairReader({observer,scope,workId}).read(snapshot,request,{signal,policyTraversal}):null;
     const artifactRepair=request.members?.length?await createNamespaceArtifactRepairReader({observer,scope,workId,packets}).target(snapshot,request,{signal,policyTraversal}):null;
     return {generation:phase.generation,reviewPacket:proof.binding.record,repairBudget,artifactRepair,
-      identity:{publication:proof.value.publication,reviewPacket:proof.binding.record,...(repairBudget.selection||repairBudget.prior?{
+      identity:{publication:proof.value.publication,reviewPacket:proof.binding.record,...(recovery?{recovery:namespaceTestRecoveryBinding(recovery)}:{}),...(repairBudget.selection||repairBudget.prior?{
         profile:'sflow-namespace-reviewer-return/v2',repairBudget:repairBudget.selection,priorBudget:repairBudget.prior}:{}),
         ...(targeted?{profile:'sflow-namespace-reviewer-return/v3',repairBudget:repairBudget.selection,priorBudget:repairBudget.prior,targeted:targeted.identity}:{}),
         ...(artifactRepair?{profile:'sflow-namespace-reviewer-return/v4',repairBudget:repairBudget.selection,priorBudget:repairBudget.prior,artifactRepair:artifactRepair.identity}:{})},
-      references:[proof.binding.record,proof.value.publication.record,proof.published.artifact.content,...packets.publicationPolicyEvidence(proof.published),...repairBudget.references,...(targeted?.references??[]),...(artifactRepair?.references??[])]};
+      references:[proof.binding.record,proof.value.publication.record,proof.published.artifact.content,...packets.publicationPolicyEvidence(proof.published),...repairBudget.references,...(targeted?.references??[]),...(artifactRepair?.references??[]),...(recovery?.references??[])]};
   }
   return Object.freeze({read,plan:planNamespaceRejection,authority:(workflow,request,actor)=>requireApprovalAuthority(
     workflow.resolution.approvalAuthorities,workflow.phases[request.phaseId].approvalPolicy,actor.identity).authorityGroup});

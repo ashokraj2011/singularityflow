@@ -30,6 +30,7 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(operation.id==='forward-amendment.propose'&&field==='content')return 'ContentReference';
   if(operation.id==='convergence.adjudicate')return field==='clauseIds'?'readonly string[]':field==='disposition'?'ConvergenceDisposition':field==='fetch'?'boolean | null':'string';
   if(['constitution.exception.context','decision.constitution-exception'].includes(operation.id))return field==='expires'?'string | null':'string';
   if(operation.id.startsWith('source-review.'))return field==='report'?'JsonValue':'string';

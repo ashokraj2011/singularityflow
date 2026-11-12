@@ -73,7 +73,7 @@ export function createNamespaceTestCommandOwners({observer,scope,workId}){
       return {generation:phase.generation,identity:{profile:NAMESPACE_STORY_COMMAND_PROFILE,commands:current.identity,command,repin},command,repin,references:current.references};
     },
     authority(workflow,request,actor){if(operation==='test-command.request')return null;
-      const required=[...(workflow.resolution.presence?['person-presence']:[]),...(workflow.resolution.testRecovery?.enabled?['test-recovery-command-agreement']:[])];
+      const required=[...(workflow.resolution.presence?['person-presence']:[])];
       if(required.length)fail('This command decision requires its actual additional evidence and authority owners.','ENGINE_PORT_UNAVAILABLE',{required});
       const groups=testRunRiskAuthorities(workflow,request.phaseId);if(!groups.length)fail('No configured group can decide this phase\'s test commands.','RISK_AUTHORITY_UNAVAILABLE');
       return requireApprovalAuthority(workflow.resolution.approvalAuthorities,{mode:'required',authorities:groups,requiredAuthorities:[],minimum:1},actor.identity).authorityGroup;},

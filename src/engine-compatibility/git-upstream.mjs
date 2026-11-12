@@ -92,6 +92,7 @@ export function createGitUpstreamPort({root,onContext=()=>{}}) {
         {...context.who,authored:context.authored});
       else if(id==='upstream.decide')result=await commitUpstreamIssueDecision(root,config,workflow,request.issueId,request,context.who);
       else {
+        if(request.content!==undefined)throw new SingularityFlowError('Native amendments read an explicit repository file; namespace content needs its namespace owner.',{code:'ENGINE_PORT_UNAVAILABLE',details:{required:['namespace-amendment-content']}});
         const owner=await import('./native-forward-amendments.mjs');
         if(id==='forward-amendment.propose')result=await owner.commitForwardAmendmentProposal(root,config,workflow,request,context.who);
         else if(id==='forward-amendment.decide')result=await owner.commitForwardAmendmentDecision(root,config,workflow,request.amendmentId,request,context.who);

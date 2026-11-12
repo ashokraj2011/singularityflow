@@ -201,6 +201,8 @@ function adapter(manifest, execute, doctor = async () => ({ status: 'ready' })) 
     }
   });
 }
+/** Trusted SGOS host construction. The callback must implement its manifest's actual scope enforcement. */
+export {adapter as createOwnedExecutionUnit};
 
 const TRANSLATOR_MANIFEST = createExecutionUnitManifest({
   id: 'deterministic-translator', version: '1.0.0', publisher: 'singularity-flow',

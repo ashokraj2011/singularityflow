@@ -1,5 +1,7 @@
 /** Explicit namespace publication composition. Installed Git hosts never select this writer. */
 import {createHash} from 'node:crypto';
+import {documentReviewPublicationPolicy,DOCUMENT_REVIEW_OWNERS} from '../kernel/document-review.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
@@ -166,18 +168,20 @@ export function createNamespacePublicationPort(options={},runtime=null) {
       return prepareNamespaceOperation(committer,s.operationId,async()=>{
         const admission=s.admission??await runtime.admitDraft(s.draft,'phase.publish',{signal}),observed=runtime.draftFacts(admission);
         const snapshot=s.snapshot??await committer.capture({signal}),phase=snapshot.workflow.phases[s.phaseId];
+        if((snapshot.workflow.forwardAmendments??[]).length)await createNamespaceForwardAmendmentOwners({observer,scope,workId}).assertReady(snapshot,phase.id,{signal});
         await observer.approved(snapshot,{signal});
         if(snapshot.revision!==observed.revision||s.plan&&snapshot.revision!==s.plan.basis.headVersion)throw error('The Story changed before publication preparation.','ENGINE_CONTEXT_CHANGED');
         let required=primaryDocumentPublicationRequirements(snapshot.workflow,phase,{definition:observed.definition});
         if(s.checkEvidence){await checks.freshSources(s.checkEvidence,s.phaseId,sources,{signal});required=required.filter(item=>item!=='check-execution');}
-        const specificationPolicy=specificationPublicationPolicy(snapshot.workflow,phase);
+        const documentReviewPolicy=documentReviewPublicationPolicy(snapshot.workflow,phase),specificationPolicy=specificationPublicationPolicy(snapshot.workflow,phase);
         const analysisPolicy=specificationAnalysisPublicationPolicy(observed.definition,snapshot.workflow,phase);
         const clarificationPolicy=resolvedClarificationPolicy(observed.definition,snapshot.workflow,phase);
         const codePolicy=codePublicationPolicy(snapshot.workflow,phase);
         const convergencePolicy=convergencePublicationPolicy(snapshot.workflow,phase),codeInputsPolicy=convergencePolicy?null:codeInputPublicationPolicy(snapshot.workflow,phase),conformancePolicy=conformancePublicationPolicy(snapshot.workflow,phase);
+        const recoveryRequired=snapshot.workflow.resolution.testRecovery?.enabled===true;
         const assignmentRequired=phaseAssignmentRequired(snapshot.workflow,observed.definition),constitutionRequired=snapshot.workflow.resolution.constitution?.mode!=='off';
         const artifactSet=artifactSets.declaration(observed.definition,snapshot.workflow,phase);
-        const available=[...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
+        const available=[...(recoveryRequired?['test-recovery']:[]),...(documentReviewPolicy?DOCUMENT_REVIEW_OWNERS:[]),...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
           ...(clarificationPolicy.mode!=='off'?['clarification-record']:[]),...(codePolicy?CODE_PUBLICATION_OWNERS:[]),...(convergencePolicy?CONVERGENCE_PUBLICATION_OWNERS:[]),...(codeInputsPolicy?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformancePolicy?CONFORMANCE_PUBLICATION_OWNERS:[]),...(artifactSet?['artifact-set']:[]),...(assignmentRequired?['assignment-record']:[]),...(constitutionRequired?['constitution-policy']:[])];
         const pending=required.filter(item=>!available.includes(item));
         if(pending.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
@@ -203,10 +207,12 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
             actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
             artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
-          let specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null,convergence=null;
-          if(convergencePolicy||specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
+          let recovery=null,documentReview=null,specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null,convergence=null;
+          if(recoveryRequired||documentReviewPolicy||convergencePolicy||specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
             const head=await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal);
             if(head.version!==snapshot.revision)throw error('The Story changed before specification retention.','ENGINE_CONTEXT_CHANGED');
+            if(recoveryRequired)recovery=await policyWriter.retainRecovery(base,{snapshot,head:head.value,signal});
+            if(documentReviewPolicy)documentReview=await policyWriter.retainDocumentReview(base,{snapshot,head:head.value,signal});
             if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
             if(clarificationPolicy.mode!=='off')clarification=await policyWriter.retainClarification(base,{snapshot,head:head.value,signal});
             if(analysisPolicy)analysis=await policyWriter.retain(clarification?{...base,policyEvidence:[clarification]}:base,{snapshot,head:head.value,signal});
@@ -221,7 +227,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             if(artifactSet){const members=[];for(const member of observed.payload.members??[])members.push({path:member.path,data:await runtime.artifactMemberBytes(admission,member.path,{signal})});
               bundle=await policyWriter.retainArtifactSet(base,{snapshot,head:head.value,signal,members});}
           }
-          const policyEvidence=[...(convergence?[convergence.binding]:[]),...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
+          const policyEvidence=[...(recovery?[recovery.binding]:[]),...(documentReview?[documentReview.binding]:[]),...(convergence?[convergence.binding]:[]),...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
           const record=namespacePublicationRecord(base,{checks:s.checkEvidence??null,specifications,policyEvidence:policyEvidence.length?policyEvidence:null});
           namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,
@@ -250,6 +256,12 @@ export function createNamespacePublicationPort(options={},runtime=null) {
               snapshot.workflow.namespaceDocuments.push({id:'MEMBER-'+s.phaseId+'-GEN-'+generation+'-'+hash(member.path).slice(0,24),phase:s.phaseId,generation,
                 sourceKey:memberKey,role:'file',name:member.path,kind:'artifact-set-member',mimeType:member.encoding==='utf8'?'text/plain':'application/octet-stream',encoding:member.encoding,
                 locality:'project',status:'active',aliases:[],content:member.content});}}
+          if(recovery)snapshot.workflow.namespaceDocuments.push({id:'TEST-RECOVERY-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
+            sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-test-recovery-gen'+generation+'.json',
+            role:'file',name:'Confirmed test recovery agreement',kind:'test-recovery',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:recovery.report});
+          if(documentReview)snapshot.workflow.namespaceDocuments.push({id:'DOCUMENT-REVIEW-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
+            sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-document-review-gen'+generation+'.json',
+            role:'file',name:'Approved intent for document review',kind:'document-review',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:documentReview.report});
           if(analysis)snapshot.workflow.namespaceDocuments.push({id:'ANALYSIS-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-analysis-gen'+generation+'.json',
             role:'file',name:'Specification analysis',kind:'specification-analysis',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:analysis.report});

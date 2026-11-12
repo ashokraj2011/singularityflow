@@ -48,7 +48,7 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
     const original=await retention.accepted({operationId:code.report.preflight.source.operationId,workId,phaseId},{signal});
     if(!original||original.plan.sourceBinding.operationId!==workflow.sourceBindings?.current?.operationId)throw error('Code rework must retain its original Story source selection.','ENGINE_PORT_UNAVAILABLE',{required:['namespace-code-rework-source-selection']});
     if(!same(original.workflow.sourceBindings.current,workflow.sourceBindings.current))throw error('The Code successor changed its original source selection.');
-    return {request,binding,kind:route.kind??'loop',previous:previous[0],code,inherited,upstreamReferences:route.kind==='upstream'?route.references??[]:[],
+    return {request,binding,kind:route.kind??'loop',previous:previous[0],code,inherited,upstreamReferences:['upstream','amendment'].includes(route.kind)?route.references??[]:[],
       targeted:route.kind==='rejection'?value.source.targeted??null:null,artifactRepair:route.kind==='rejection'&&value.source.artifactRepair?.phase===phaseId?value.source.artifactRepair:null,earlierReturns};
   }
   async function opening(snapshot,phaseId,{signal,policyTraversal}={}){
@@ -104,11 +104,12 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
       const documentRepair=artifactRepair&&!targeted;
       if(documentRepair)assertArtifactOnlyCodeRepairDelta(repositories,{workId,phaseId});
       const sourceProfile=documentRepair?'sflow-namespace-code-history/v9':repair?'sflow-namespace-code-history/v8':inherited?'sflow-namespace-code-history/v7':kind==='upstream'?'sflow-namespace-code-history/v5':extended?'sflow-namespace-code-history/v3':kind==='rejection'?'sflow-namespace-code-history/v2':'sflow-namespace-code-history/v1';
-      return {profile:earlierReturns.length?'sflow-namespace-code-history/v10':sourceProfile,
-        ...(earlierReturns.length?{sourceProfile,earlierReturns}:{}),
+      const amended=kind==='amendment'||inherited?.profile==='sflow-namespace-code-history/v12'||earlierReturns.some(row=>row.kind==='amendment');
+      return {profile:amended?'sflow-namespace-code-history/v11':earlierReturns.length?'sflow-namespace-code-history/v10':sourceProfile,
+        ...(earlierReturns.length||amended?{sourceProfile,earlierReturns}:{}),
         ...(repair?{targeted:repair}:{}),
-        ...(documentRepair?{artifactRepair}:{}),...(earlierReturns.length||repair||extended||inherited||kind==='upstream'?{mode:changed?'changed':'revalidated'}:{}),...(inherited?{returns:inherited.returns}:{}),predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
-        return:{[kind==='upstream'?'upstream':kind==='choice'?'choice':kind==='rejection'?'rejection':'approval']:binding,request:structuredClone(request),...(upstreamReferences.length?{references:upstreamReferences}:{})},repositories};
+        ...(documentRepair?{artifactRepair}:{}),...(earlierReturns.length||repair||extended||inherited||['upstream','amendment'].includes(kind)?{mode:changed?'changed':'revalidated'}:{}),...(inherited?{returns:inherited.returns}:{}),predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
+        return:{[kind==='amendment'?'amendment':kind==='upstream'?'upstream':kind==='choice'?'choice':kind==='rejection'?'rejection':'approval']:binding,request:structuredClone(request),...(upstreamReferences.length?{references:upstreamReferences}:{})},repositories};
     });
   }
   return Object.freeze({inspect,opening,repairScope});

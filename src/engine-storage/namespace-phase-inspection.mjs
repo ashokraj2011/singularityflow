@@ -1,5 +1,6 @@
 /** Read-only candidate inspection. It neither stages publication nor runs or invents checks. */
 import {createHash} from 'node:crypto';
+import {documentReviewPublicationPolicy,DOCUMENT_REVIEW_OWNERS} from '../kernel/document-review.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
@@ -19,7 +20,7 @@ import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-confi
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex'),same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
-const repairable=new Set(['ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
+const repairable=new Set(['TEST_RECOVERY_AGREEMENT_REQUIRED','ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
   'ENGINE_SOURCE_EVIDENCE_REQUIRED','ENGINE_SOURCE_BASELINE_REQUIRED','CODE_DELIVERY_TEST_COVERAGE_INCOMPLETE',
   'CODE_TEST_WITNESS_INCOMPLETE','SPEC_PLANNED_TEST_BINDING_REQUIRED','SPEC_PLANNED_ALLOCATION_INVALID',
   'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE','ENGINE_ASSIGNMENT_REQUIRED','CONSTITUTION_POLICY_REQUIRED',
@@ -82,10 +83,10 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
         const configured={...phase,authoringBaseline:{generation:p.generation,fingerprint:'sha256:'+hash(original.fingerprintText)}};
         findings.push(...(observation?inspectRequiredArtifactObservation(observation,configured,{path:p.artifact.key,generation:p.generation,fingerprint})
           :inspectBinaryArtifactSize(data.byteLength,configured,{path:p.artifact.key})).map(row=>finding(row,phase.id)));
-        const spec=specificationPublicationPolicy(workflow,phase),analysis=specificationAnalysisPublicationPolicy(definition,workflow,phase),
+        const documentReview=documentReviewPublicationPolicy(workflow,phase),spec=specificationPublicationPolicy(workflow,phase),analysis=specificationAnalysisPublicationPolicy(definition,workflow,phase),
           clarification=resolvedClarificationPolicy(definition,workflow,phase),code=codePublicationPolicy(workflow,phase),
           convergence=convergencePublicationPolicy(workflow,phase),inputs=convergence?null:codeInputPublicationPolicy(workflow,phase),conformance=conformancePublicationPolicy(workflow,phase),bundle=artifactSets.declaration(definition,workflow,phase),assignment=phaseAssignmentRequired(workflow,definition),
-          available=[...(spec?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysis?['specification-analysis']:[]),
+          available=[...(workflow.resolution.testRecovery?.enabled?['test-recovery']:[]),...(documentReview?DOCUMENT_REVIEW_OWNERS:[]),...(spec?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysis?['specification-analysis']:[]),
             ...(clarification.mode!=='off'?['clarification-record']:[]),...(code?CODE_PUBLICATION_OWNERS:[]),
             ...(convergence?CONVERGENCE_PUBLICATION_OWNERS:[]),...(inputs?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformance?CONFORMANCE_PUBLICATION_OWNERS:[]),...(bundle?['artifact-set']:[]),...(assignment?['assignment-record']:[]),...(workflow.resolution.constitution?.mode!=='off'?['constitution-policy']:[]),'check-execution'];
         if(prepublish){const pending=primaryDocumentPublicationRequirements(workflow,phase,{definition}).filter(owner=>!available.includes(owner));
@@ -96,7 +97,9 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             draft:{revision:draft.revision,sha256:draft.bodySha256},actor:p.actor,agentId:p.agentId,publishedAt:p.updatedAt,authorship,
             artifact:{key:p.artifact.key,sourceKey:(definition.workItemRoot??'singularity/work-items')+'/'+workId+'/'+p.artifact.key,
               kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content,fingerprint},inputs:facts.resources};
+        if(workflow.resolution.testRecovery?.enabled)await attempt(()=>publications.policies.recoveryCandidate(candidate,snapshot,{signal}));
         if(spec)await attempt(()=>publications.specifications.derive(candidate,snapshot,{signal,artifactBytes:data}));
+        if(documentReview)await attempt(()=>publications.policies.documentReviewCandidate(candidate,snapshot,{signal}));
         if(convergence){const result=await attempt(()=>publications.policies.convergenceCandidate(candidate,snapshot,{signal,artifactBytes:data}));
           if(prepublish&&result)fresh.push(()=>publications.policies.freshConvergenceCandidate(result,sources,{signal}));}
         if(workflow.resolution.constitution?.mode!=='off'){const observed=await attempt(()=>publications.policies.constitutionCandidate(candidate,snapshot,{signal,artifactBytes:data}));

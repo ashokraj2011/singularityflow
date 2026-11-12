@@ -6,6 +6,7 @@ import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,NAMESPACE_SUBMISSION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 import {phaseAgentMutationFacts,skillPhaseHostRequirement} from '../kernel/phase-admission.mjs';
 import {phaseGovernancePlan,hasPublishedPhaseGeneration,phaseNeedsGeneration,isConvergencePhase} from '../kernel/phase-policy.mjs';
 import {primaryDocumentPublicationRequirements} from '../kernel/publication-intent.mjs';
@@ -151,6 +152,7 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
         const sequence=sequenceAdmission(workflow,{requestedPhase:s.phaseId});
         if(!sequence.allowed)throw error('Submission requires the current in-progress phase.','PHASE_DRAFT_NOT_ACTIVE',{sequence});
         const hold=phaseGovernancePlan(workflow,phase);if(hold)throw error('Resolve the phase hold before submission.',hold.code,hold);
+        if((workflow.forwardAmendments??[]).length)await createNamespaceForwardAmendmentOwners({observer,scope,workId}).assertReady(snapshot,phase.id,{signal});
         if(!same(approved.configuration,snapshot.configuration))throw error('Submission has another configuration pin.','ENGINE_STORAGE_CORRUPT');
         const mutation=phaseAgentMutationFacts({agents:Object.fromEntries(approved.compiled.definition.agentCatalog.map(item=>[item.id,item]))},workflow,phase,{agent:agent.agentId},'submit');
         if(!mutation.allowed)throw error('The selected agent cannot submit this phase.',mutation.code,mutation);

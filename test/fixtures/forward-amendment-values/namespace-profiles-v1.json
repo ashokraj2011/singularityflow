@@ -1,0 +1,139 @@
+{
+  "publication": [
+    {
+      "schemaVersion": 1,
+      "value": {
+        "version": 1,
+        "format": "sflow-namespace-phase-publication/v1",
+        "profile": "sflow-primary-document-publication/v1",
+        "checks": false
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "value": {
+        "version": 2,
+        "format": "sflow-namespace-phase-publication/v2",
+        "profile": "sflow-primary-document-publication/v2",
+        "checks": true
+      }
+    },
+    {
+      "schemaVersion": 3,
+      "value": {
+        "version": 3,
+        "format": "sflow-namespace-phase-publication/v3",
+        "profile": "sflow-specification-publication/v1",
+        "checks": true,
+        "optionalChecks": true,
+        "specifications": true
+      }
+    },
+    {
+      "schemaVersion": 4,
+      "value": {
+        "version": 4,
+        "format": "sflow-namespace-phase-publication/v4",
+        "profile": "sflow-policy-publication/v1",
+        "checks": true,
+        "optionalChecks": true,
+        "specifications": true,
+        "optionalSpecifications": true,
+        "policyEvidence": true
+      }
+    }
+  ],
+  "submission": [
+    {
+      "schemaVersion": 1,
+      "value": {
+        "version": 1,
+        "format": "sflow-namespace-phase-review-packet/v1",
+        "profile": "sflow-primary-document-submission/v1",
+        "routing": false
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "value": {
+        "version": 2,
+        "format": "sflow-namespace-phase-review-packet/v2",
+        "profile": "sflow-primary-document-submission/v2",
+        "routing": true
+      }
+    },
+    {
+      "schemaVersion": 3,
+      "value": {
+        "version": 3,
+        "format": "sflow-namespace-phase-review-packet/v3",
+        "profile": "sflow-primary-document-submission/v3",
+        "routing": true,
+        "checks": true
+      }
+    },
+    {
+      "schemaVersion": 4,
+      "value": {
+        "version": 4,
+        "format": "sflow-namespace-phase-review-packet/v4",
+        "profile": "sflow-primary-document-submission/v4",
+        "routing": true,
+        "checks": true,
+        "sourceReview": true
+      }
+    },
+    {
+      "schemaVersion": 5,
+      "value": {
+        "version": 5,
+        "format": "sflow-namespace-phase-review-packet/v5",
+        "profile": "sflow-primary-document-submission/v5",
+        "routing": true,
+        "checks": true,
+        "sourceReview": true,
+        "convergence": true
+      }
+    }
+  ],
+  "approval": [
+    {
+      "schemaVersion": 1,
+      "value": {
+        "version": 1,
+        "format": "sflow-namespace-phase-approval-vote/v1",
+        "profile": "sflow-primary-document-approval/v1",
+        "routing": false
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "value": {
+        "version": 2,
+        "format": "sflow-namespace-phase-approval-vote/v2",
+        "profile": "sflow-primary-document-approval/v2",
+        "routing": true
+      }
+    }
+  ],
+  "writers": [
+    {
+      "routing": false,
+      "value": {
+        "version": 1,
+        "format": "sflow-namespace-phase-approval-vote/v1",
+        "profile": "sflow-primary-document-approval/v1",
+        "routing": false
+      }
+    },
+    {
+      "routing": true,
+      "value": {
+        "version": 2,
+        "format": "sflow-namespace-phase-approval-vote/v2",
+        "profile": "sflow-primary-document-approval/v2",
+        "routing": true
+      }
+    }
+  ]
+}

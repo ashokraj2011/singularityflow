@@ -20,6 +20,8 @@ import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-r
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespacePublicationReader} from './namespace-publication-reader.mjs';
 import {createNamespaceWitnessOwners} from './namespace-witness-reader.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
+import {pendingForwardAmendments,pendingAmendmentRevalidations} from '../kernel/upstream-issues.mjs';
 import {STARTER_CHECKLIST} from '../engine-compatibility/node-specification-policy.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),commandsRules=storyTestCommandPolicies(NODE_TEXT_DIGESTS),
   reason={reason:{minimum:20,maximum:1000,default:''}};
@@ -50,6 +52,22 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
     }
     references.push(...await upstream.admitted(snapshot,{signal}));
     source.upstream={issues:workflow.upstreamIssues??[],decisions:workflow.upstreamIssueDecisions??[]};
+    if((workflow.forwardAmendments??[]).length){
+      references.push(...await createNamespaceForwardAmendmentOwners({observer,scope,workId}).admitted(snapshot,{signal}));
+      source.amendments={proposals:workflow.forwardAmendments,decisions:workflow.forwardAmendmentDecisions??[],revalidations:workflow.amendmentRevalidations??[]};
+      for(const row of pendingForwardAmendments(workflow)){
+        const choice=option('review-amendment','forward-amendment.decide',{amendmentId:row.id},workflow.phases[row.phase].approvalPolicy.authorities??[],{},false);
+        choice.action={operation:'forward-amendment.decide',inputs:{workId,amendmentId:row.id,confirmation:row.id},
+          requiredInputs:['operationId','decision','reason'],prerequisites:['authorized-human-reviews-exact-replacement']};
+        observations.push({kind:'forward-amendment',key:row.id,options:[choice]});
+      }
+      for(const row of pendingAmendmentRevalidations(workflow)){
+        const choice=option('review-amended-input','forward-amendment.revalidate',{phaseId:row.phase,amendmentId:row.amendment},workflow.phases[row.phase].approvalPolicy.authorities??[],{},false);
+        choice.action={operation:'forward-amendment.revalidate',inputs:{workId,phaseId:row.phase,amendmentId:row.amendment},requiredInputs:['operationId','outcome','reason'],
+          prerequisites:['authorized-human-reviews-amended-input-and-original-delivery']};
+        observations.push({kind:'amendment-revalidation',key:row.amendment+':'+row.phase,options:[choice]});
+      }
+    }
     const latest=new Date(Date.parse(at)+90*86400000).toISOString().slice(0,10),defaultExpiry=new Date(Date.parse(at)+30*86400000).toISOString().slice(0,10),
       riskNeeds={...reason,expires:{default:defaultExpiry,latest}};
     for(const row of upstreamIssueStates(workflow,at).filter(row=>['open','expired'].includes(row.status))){const issue=row.issue,groups=upstreamIssueAuthorities(workflow,issue.phase);

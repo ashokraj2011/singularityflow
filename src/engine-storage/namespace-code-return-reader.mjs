@@ -12,6 +12,7 @@ import {createNamespaceRejectionReader} from './namespace-rejection-reader.mjs';
 import {namespaceRoutingChoiceReceipts} from './namespace-routing-choice-contract.mjs';
 import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-reader.mjs';
 import {createNamespaceUpstreamReturnReader,namespaceReturnGenesis} from './namespace-upstream-return-reader.mjs';
+import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),error=(message,code='ENGINE_STORAGE_CORRUPT')=>new SingularityFlowError(message,{code});
 export function createNamespaceCodeReturnReader({observer,scope,workId}){
   async function accepted(snapshot,request,phaseId,{signal,policyTraversal,inherited=null,historical=false,includeEarlier=false}={}){
@@ -20,6 +21,8 @@ export function createNamespaceCodeReturnReader({observer,scope,workId}){
       votes=createNamespaceApprovalReader({observer,scope,workId,checks});let route=null;
     const upstream=await createNamespaceUpstreamReturnReader({observer,scope,workId}).accepted(snapshot,request,{signal,policyTraversal});
     if(upstream)route={...upstream,proof:null};
+    if(!route){const amendment=await createNamespaceForwardAmendmentOwners({observer,scope,workId}).returned(snapshot,request,{signal,policyTraversal});
+      if(amendment)route={...amendment,proof:null};}
     if(!route)for(const link of [...links].reverse()){
       const binding={schemaVersion:1,format:'sflow-namespace-phase-approval-binding/v1',generation:link.generation,record:link.record},value=await votes.decode(binding,link.phase,{signal});
       if(value.routing?.outcome?.kind!=='loop'||value.routing.outcome.target!==request.targetPhase||value.recordedAt!==request.requestedAt)continue;
@@ -59,13 +62,13 @@ export function createNamespaceCodeReturnReader({observer,scope,workId}){
     }
     if(!route)throw error('A copied change request cannot authorize Code rework.','ENGINE_CODE_REWORK_REQUIRED');
     const {binding,value,accepted,selected,proof}=route,actualRequest=accepted.state.workflow.changeRequests?.find(row=>row.id===request.id),
-      reviewPacket=route.kind==='upstream'?null:route.kind==='rejection'?value.source.reviewPacket.sha256:proof.binding.record.sha256;
+      reviewPacket=['upstream','amendment'].includes(route.kind)?null:route.kind==='rejection'?value.source.reviewPacket.sha256:proof.binding.record.sha256;
     const restored=accepted.state.workflow.phases[phaseId],originalReset=restored?.reworkRevalidation,isEarlier=includeEarlier&&restored?.generation<phase.generation,
       resetMatches=historical||isEarlier?restored?.generation<phase.generation&&originalReset?.generation===restored.generation&&originalReset.invalidatedAt===value.recordedAt
         :phase.reworkRevalidation?.invalidatedAt===value.recordedAt&&same(originalReset,phase.reworkRevalidation);
     if(!actualRequest||!(inherited||historical||isEarlier?same(namespaceReturnGenesis(actualRequest),namespaceReturnGenesis(request)):same(actualRequest,request))
       ||request.reviewPacketSha256!==reviewPacket||!resetMatches
-      ||!['rejection','upstream'].includes(route.kind)&&(request.decision?.id!==selected.outcome.decision||request.decision?.round!==selected.outcome.round))
+      ||!['rejection','upstream','amendment'].includes(route.kind)&&(request.decision?.id!==selected.outcome.decision||request.decision?.round!==selected.outcome.round))
       throw error('The Code return differs from its original accepted request.');
     return route;
   }

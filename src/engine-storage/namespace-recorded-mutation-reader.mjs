@@ -31,7 +31,8 @@ export function createNamespaceRecordedMutationReader({observer,scope,workId,ope
     const value=await decode(reference,{signal}),head=plan.basis.head,
       original=await observer.state(await observer.bytes(head.state,head.state.bytes,signal),head,{signal}),
       snapshot={revision:plan.basis.headVersion,configuration:head.configuration,workflow:original.workflow},
-      source=await owner.read(snapshot,value.request,{signal,at:value.recordedAt,policyTraversal,bound:value.source});
+      source=await owner.read(snapshot,value.request,{signal,at:value.recordedAt,policyTraversal,bound:value.source,head,
+        principal:{actor:value.actor,agentId:value.agentId,operationId:value.operationId,requestSha256:value.requestSha256}});
     if(value.operation!==operation||plan.operation!==operation||value.operationId!==plan.operationId||value.requestSha256!==plan.inputsSha256
       ||value.requestSha256!==hash({workId,request:value.request})||value.baseRevision!==plan.basis.headVersion
       ||!same(value.configuration,head.configuration)||value.generation!==source.generation||!same(value.source,source.identity)

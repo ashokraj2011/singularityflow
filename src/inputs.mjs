@@ -1,5 +1,5 @@
 import {nextPhaseGeneration} from './kernel/phase-policy.mjs';
-import {workflowInputsMode,resolvedPhaseInputs,approvedInputPhases,inputFindingSeverity,inputReadinessFindings} from './kernel/phase-inputs.mjs';
+import {workflowInputsMode,resolvedPhaseInputs,approvedInputPhases,inputFindingSeverity,inputReadinessFindings,extractInputsBlock} from './kernel/phase-inputs.mjs';
 export {workflowInputsMode,resolvedPhaseInputs,approvedInputPhases,inputFindingSeverity,inputReadinessFindings};
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -394,9 +394,7 @@ export function applyInputsBlock(text, block, mode) {
   return `${text.trimEnd()}\n\n${block}\n`;
 }
 
-export function extractInputsBlock(text) {
-  return text.match(INPUTS_PATTERN)?.[0] ?? null;
-}
+export {extractInputsBlock} from './kernel/phase-inputs.mjs';
 
 export async function recordInputs(root, workflow, phase, result, { itemDirectory } = {}) {
   const rendered = renderInputsBlock(result);

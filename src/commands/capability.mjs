@@ -488,6 +488,11 @@ async function runOnboard(context) {
         console.log(`    ${effect.action} ${effect.target}`);
       }
     } else console.log('  proposed effects: none');
+    if (result.configurationUpdate) {
+      console.log(`  optional upgrade: this SFlow version has ${result.configurationUpdate.files} newer shipped file(s) for sflow/config. `
+        + 'Setup goes on with the approved configuration; the team may propose the upgrade when it suits them:');
+      console.log(`    ${result.configurationUpdate.preview}`);
+    }
     if (result.omitted?.length) {
       console.log('  not carried forward:');
       for (const item of result.omitted) console.log(`    ${item}`);

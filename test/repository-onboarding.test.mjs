@@ -603,6 +603,53 @@ test('current configuration rebuilds its projection without deleting lifecycle s
   }
 });
 
+test('an onboarded repository whose configuration predates this build\'s shipped files is ready on a new laptop, with the upgrade optional [owner, 2026-11-12]', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'new-laptop-leads.json');
+  try {
+    // The team's configuration as an older SFlow wrote it: one shipped file this build would add is not there.
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const editor = path.join(fixture.base, 'older-configuration');
+    run('git', ['clone', '-q', '--no-hardlinks', '--branch', CONFIGURATION_BRANCH, fixture.remote, editor], { cwd: fixture.base });
+    run('git', ['config', 'user.name', 'Older Build'], { cwd: editor });
+    run('git', ['config', 'user.email', 'older@example.test'], { cwd: editor });
+    await rm(path.join(editor, '.github', 'agents', 'developer.agent.md'));
+    run('git', ['add', '-A'], { cwd: editor });
+    run('git', ['commit', '-qm', 'Configuration from an older SFlow'], { cwd: editor });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: editor });
+    const configurationBefore = run('git', ['rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: fixture.remote }).stdout.trim();
+
+    // A new laptop maps it: setup is ready at once and nothing stands in front of mapping.
+    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    assert.equal(plan.configuration.status, 'migration-required');
+    assert.equal(plan.status, 'ready');
+    assert.equal(plan.primaryAction, 'continue');
+    assert.equal(plan.canApply, true);
+    assert.equal(plan.effects.some((effect) => /^configuration-/u.test(effect.kind)), false, JSON.stringify(plan.effects));
+    assert.ok(plan.configurationUpdate?.optional === true && plan.configurationUpdate.files >= 1, JSON.stringify(plan.configurationUpdate));
+    assert.match(plan.configurationUpdate.preview.replace(/["']/gu, ''), /capability onboard .+ --migrate --dry-run --json$/u);
+    assert.ok(plan.availableModes.includes('migrate'), 'the upgrade stays one preview away');
+    const result = await applyRepositoryOnboarding(fixture.remote, { confirmPlan: plan.planId });
+    assert.equal(result.status, 'ready');
+    assert.equal(run('git', ['rev-parse', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: fixture.remote }).stdout.trim(), configurationBefore,
+      'the approved configuration is used as it is');
+    assert.equal(run('git', ['for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-change/'], { cwd: fixture.remote }).stdout.trim(), '',
+      'no upgrade proposal waits for review');
+    assert.deepEqual((await listLeadRepositories()).map((entry) => entry.url), [fixture.remote]);
+
+    // The team may still propose the upgrade, on purpose.
+    const migrate = await inspectRepositoryOnboarding(fixture.remote, { mode: 'migrate' });
+    assert.equal(migrate.status, 'update-available');
+    assert.ok(migrate.effects.some((effect) => effect.kind === 'configuration-migration'));
+    assert.equal(migrate.configurationUpdate, undefined);
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test('a failed state projection preserves configuration and returns an exact projection-only retry', async () => {
   const fixture = await repositoryFixture();
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;

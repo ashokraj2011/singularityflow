@@ -1554,14 +1554,10 @@ function deriveAutomaticSetup(state, configuration) {
       status: 'state-branch-not-recognized', primaryAction: 'choose-another-state-branch',
       canApply: false, effects: [], choices: []
     };
-    if (configuration.status === 'migration-required') return {
-      status: 'update-available', primaryAction: 'migrate-and-continue', canApply: true,
-      effects: [
-        { kind: 'configuration-migration', target: CONFIGURATION_BRANCH, action: 'propose' },
-        { kind: 'local-registration', target: 'lead-registry', action: 'remember' }
-      ],
-      choices: []
-    };
+    // A configuration this build reads at the current schema is used as it is approved. Newer shipped files (templates,
+    // agents, skills a later SFlow version brings) are an upgrade the team may propose when it suits them, through
+    // --migrate; they never stand in front of mapping a capability or registering the repository on another laptop
+    // [owner, 2026-11-12: mapping an onboarded repository on a new laptop forced an upgrade, slow and many clicks].
     if (configuration.status === 'invalid') return {
       status: 'needs-a-choice', primaryAction: 'review-choices', canApply: false, effects: [],
       choices: [choice('recreate', 'Recreate configuration',
@@ -2030,6 +2026,13 @@ export async function inspectRepositoryOnboarding(remote, {
       } : {}),
     ...(setup.stateRefreshPending ? {
       stateRefresh: Object.freeze({ status: 'pending', branch: state.branch })
+    } : {}),
+    // The upgrade an automatic preview no longer requires: what it would bring, and the preview that proposes it.
+    ...(selectedMode === 'auto' && configuration.status === 'migration-required' && setup.canApply ? {
+      configurationUpdate: Object.freeze({
+        optional: true, files: configuration.seedChanges.length,
+        preview: onboardingCommand(requestedRepository, { mode: 'migrate', stateBranch: branch })
+      })
     } : {}),
     ...(state.routing ? { routing: state.routing } : {}),
     ...(proposalBranch ? { proposalBranch } : {}),

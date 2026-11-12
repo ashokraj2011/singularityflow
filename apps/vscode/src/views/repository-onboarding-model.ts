@@ -108,6 +108,11 @@ export interface RepositoryOnboardingPlan {
   availableModes: RepositoryOnboardingExplicitMode[];
   routing: { leadUrl: string; capabilityIds: string[] } | null;
   organisation: unknown | null;
+  /**
+   * Newer shipped files this SFlow version could add to an approved configuration it reads as it is. Optional: an
+   * automatic preview goes on without them, and the Migrate configuration preview proposes them [owner, 2026-11-12].
+   */
+  configurationUpdate?: { files: number };
   canApply: boolean;
   planId: string;
   nextActions: { shell: string; copilot: string };
@@ -495,11 +500,20 @@ export function parseRepositoryOnboardingPlan(value: unknown): RepositoryOnboard
     availableModes: parsedAvailableModes,
     routing: parsedRouting,
     organisation: candidate.organisation ?? null,
+    ...(configurationUpdateFiles(candidate.configurationUpdate) != null
+      ? { configurationUpdate: { files: configurationUpdateFiles(candidate.configurationUpdate) as number } } : {}),
     canApply: candidate.canApply,
     planId,
     nextActions: parsedNext,
     dryRun: true
   };
+}
+
+/** The count of newer shipped files an optional configuration upgrade would bring, or null when there is none. */
+function configurationUpdateFiles(value: unknown): number | null {
+  const update = record(value);
+  return update && update.optional === true && Number.isSafeInteger(update.files) && Number(update.files) > 0
+    ? Number(update.files) : null;
 }
 
 /** Parse only a confirmed apply result bound to the expected preview. */

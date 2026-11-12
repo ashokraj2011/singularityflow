@@ -4308,6 +4308,37 @@ test('repository setup renders one primary action and keeps recovery choices und
   }), 'the explicit local-reset preview action is part of the closed contract');
 });
 
+test('an onboarded repository on a new laptop continues to mapping; newer shipped files are an optional upgrade [owner, 2026-11-12]', () => {
+  const repositoryUrl = 'https://git.example/application.git';
+  const preview = {
+    schemaVersion: 1, kind: 'repository-onboarding-plan/v1',
+    repository: { url: repositoryUrl, identity: `sha256:${'c'.repeat(64)}` },
+    mode: 'auto', status: 'ready', primaryAction: 'continue',
+    state: { kind: 'none', branch: 'state', commit: null },
+    configuration: { branch: 'sflow/config', commit: 'a'.repeat(40), status: 'migration-required', schemaVersion: 1, currentSchemaVersion: 1 },
+    configurationUpdate: { optional: true, files: 3, preview: `singularity-flow capability onboard ${repositoryUrl} --migrate --dry-run --json` },
+    observedRefs: {}, effects: [{ kind: 'local-registration', target: repositoryUrl, action: 'remember' }],
+    preserved: ['application branches'], omitted: [], choices: [], availableModes: ['migrate', 'recreate', 'reset-local'],
+    routing: null, organisation: null, canApply: true, planId: `sha256:${'b'.repeat(64)}`,
+    nextActions: { shell: `singularity-flow capability onboard ${repositoryUrl} --confirm-plan sha256:${'b'.repeat(64)} --json`, copilot: '/sf-capability-map' },
+    dryRun: true
+  };
+  const plan = parseRepositoryOnboardingPlan(preview);
+  assert.ok(plan);
+  assert.deepEqual(plan.configurationUpdate, { files: 3 });
+  assert.equal(repositoryOnboardingCanContinue(plan), true, 'nothing stands in front of mapping');
+  const html = mapCapabilityHtml({ ...EMPTY_MAP_FORM, repositoryUrl, repositorySetupPlan: plan });
+  assert.match(html, /data-repository-setup-status="ready"/);
+  assert.match(html, /data-repository-setup-update-note>[\s\S]*?This SFlow version has 3 newer shipped files for this repository's team configuration\. Setup goes on with the approved configuration; propose the upgrade from More options when it suits the team\./u);
+  assert.match(html, /data-repository-setup-mode="migrate">Migrate configuration<\/button>/u, 'the upgrade is one preview away');
+  assert.match(html, /data-repository-setup-optional-update>Migrate configuration proposes the 3 newer shipped files for review; nothing here waits for it\./u);
+  // A plan that only offers the upgrade on purpose (its own migrate preview), or one with no newer files, says nothing of it.
+  assert.equal(parseRepositoryOnboardingPlan({ ...preview, configurationUpdate: undefined }).configurationUpdate, undefined);
+  assert.doesNotMatch(mapCapabilityHtml({ ...EMPTY_MAP_FORM, repositoryUrl,
+    repositorySetupPlan: parseRepositoryOnboardingPlan({ ...preview, configurationUpdate: undefined }) }), /data-repository-setup-update-note/u);
+  assert.equal(parseRepositoryOnboardingPlan({ ...preview, configurationUpdate: { optional: true, files: 0 } }).configurationUpdate, undefined);
+});
+
 test('repository setup reports classified Git failures without exposing diagnostic secrets or paths', async () => {
   const repositoryUrl = 'https://git.example/application.git';
   const base = {

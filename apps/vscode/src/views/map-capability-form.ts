@@ -669,12 +669,18 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
       data-repository-setup-mode="${escape(mode)}">${escape(modeLabels[mode])}</button>`)
     .join(' ');
   const deferredStateRefresh = repositoryOnboardingCanDeferStateRefresh(plan);
+  // Newer shipped files are an upgrade the team may propose; the approved configuration is used as it is [owner, 2026-11-12].
+  const configurationUpdate = plan.mode === 'auto' && plan.availableModes.includes('migrate') ? plan.configurationUpdate ?? null : null;
+  const optionalUpdateNote = configurationUpdate
+    ? `<p class="muted" data-repository-setup-update-note>${icon('info')}This SFlow version has ${configurationUpdate.files} newer shipped file${configurationUpdate.files === 1 ? '' : 's'} for this repository's team configuration. Setup goes on with the approved configuration; propose the upgrade from More options when it suits the team.</p>`
+    : '';
   const optionalStateRefresh = deferredStateRefresh && plan.canApply
     ? '<button type="button" class="secondary" data-repository-setup-optional-apply>Refresh portable state index</button>'
     : '';
   const moreOptions = `<details class="configuration-advanced-tools"><summary>More options</summary>
     <p>${optionalStateRefresh}${optionalStateRefresh ? ' ' : ''}${optionalModeButtons}${optionalModeButtons ? ' ' : ''}<button type="button" class="secondary"
       data-repository-setup-diagnostics>Diagnostics</button></p>
+    ${configurationUpdate ? `<p class="muted" data-repository-setup-optional-update>Migrate configuration proposes the ${configurationUpdate.files} newer shipped file${configurationUpdate.files === 1 ? '' : 's'} for review; nothing here waits for it.</p>` : ''}
     ${deferredStateRefresh ? '<p class="muted">The approved configuration can be used now. Refreshing its portable state index helps another laptop discover this capability later; it is not required to describe the first capability.</p>' : ''}
     ${plan.availableModes.includes('reset-local') ? '<p class="muted">Reset local registration clears only this laptop\'s shortcut and cache, then checks Git again. It does not remove the approved configuration or capability map.</p>' : ''}
   </details>`;
@@ -689,6 +695,7 @@ function repositorySetupHtml(form: MapCapabilityForm): string {
     ${warnings}
     ${omitted}
     ${form.repositorySetupNotice ? `<p class="ok-text">${icon('ok')}${escape(form.repositorySetupNotice)}</p>` : ''}
+    ${optionalUpdateNote}
     ${inlineError}
     ${capabilityHandoff}
     ${existingMapLookup}

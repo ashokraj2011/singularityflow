@@ -1309,6 +1309,10 @@ Usage:
     [--include-proposals] [--refresh] [--state-branch NAME] [--json]
     (read-only portable state-link/self-hosted lookup by default; registered-map search and proposal
      enumeration are explicit because they can add remote Git requests)
+  singularity-flow capability projects <GIT-URL> [--branch NAME] [--lead URL] [--json]
+  singularity-flow capability projects --path <CHECKOUT> [--lead URL] [--json]
+    (read-only: the projects a monorepo's build tools declare, each with the capability map command
+     that scopes it: source roots, shared roots it depends on, and its sparse clone; maps nothing)
   singularity-flow capability test-setup [--source-root <MODULE>]... [--json]
                                                            read-only test runner suggestions; Copilot /sf-test-setup
   singularity-flow capability test-setup [--step <STEP> [--workflow <WORKFLOW>]] (--use <SUGGESTION-ID>... [--source-root <MODULE>]...

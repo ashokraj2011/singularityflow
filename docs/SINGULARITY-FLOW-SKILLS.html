@@ -2210,7 +2210,7 @@ offline and must not be represented as remote publication proof.
           <span class="pill">interactive</span>
           <span class="pill">organisation boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1233 body tokens</span>
+          <span class="pill">~1291 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-capability-map</code></dd></div>
@@ -2245,7 +2245,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 1. Ask for the credential-free Git URL; preview `singularity-flow capability onboard &lt;GIT-URL&gt; --dry-run --json`. Relay effects and preservation. Run the returned `--confirm-plan` command once only after confirmation.
 2. On `configuration-review-required`, inspect `singularity-flow capability setup-proposal &lt;SETUP-BRANCH&gt; --lead &lt;GIT-URL&gt; --json`; activate only after approval. Ask separately before `--acknowledge-unprotected`. Stop on other refusals.
 3. Diagnose with `singularity-flow capability inspect-repository &lt;GIT-URL&gt; --json`. An unreachable repository is not new.
-4. On explicit mapping request, ask for ID, name, kind, parent, and scope. Confirm:
+4. On explicit mapping request, run `singularity-flow capability projects &lt;GIT-URL&gt; --lead &lt;LEAD-URL&gt; --json` first. For several `projects`, ask which to map, confirm each one&#39;s ID, name and parent (`--parent`), and run each chosen `map.command` once. Otherwise ask for ID, name, kind, parent, and scope. Confirm:
 
    `singularity-flow capability map &lt;ID&gt; --lead &lt;LEAD-URL&gt; --kind &lt;KIND&gt; --json`
 

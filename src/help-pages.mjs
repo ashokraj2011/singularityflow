@@ -2473,6 +2473,8 @@ const PAGES = Object.freeze({
     options: [
       ['--lead URL', 'Configuration-authority repository to inspect or update.'],
       ['--dry-run', 'For onboard, inspect one repository and return a ref-bound plan without writing.'],
+      ['--path CHECKOUT', 'For projects, read a local checkout at its HEAD instead of a repository URL.'],
+      ['--branch NAME', 'For projects, the branch to read; the repository\'s default branch otherwise.'],
       ['--confirm-plan sha256:<PLAN>', 'For onboard, apply only the exact unchanged plan returned by dry-run.'],
       ['--migrate | --recreate | --reset-local', 'Choose one explicit recovery mode: current-v2 packaged-seed reconciliation, recreation, or lead-registry/organisation-cache reset. Preview it separately before confirmation.'],
       ['--state-branch NAME', 'Inspect an explicitly selected SFlow state branch; an unrecognized branch is never overwritten.'],
@@ -2490,6 +2492,7 @@ const PAGES = Object.freeze({
       ['singularity-flow capability setup-proposal <SETUP-BRANCH> --lead <URL> --json', 'Inspect the exact setup commit, changed files, source freshness, and target.'],
       ['singularity-flow capability setup-activate <SETUP-BRANCH> --lead <URL> --confirm <FULL-COMMIT>', 'Confirm the reviewed setup commit; external review or an explicit direct-push acknowledgement is required.'],
       ['singularity-flow capability inspect-repository https://git.example/payments.git --json', 'Check every registered capability authority before proposing a repository mapping.'],
+      ['singularity-flow capability projects https://git.example/shop.git --json', 'List the projects a monorepo declares (workspaces, Nx, Maven, Gradle, Go, Cargo, .NET, uv), each with the map command that scopes it; maps nothing.'],
       ['singularity-flow capability map payments --repository payments-api', 'Propose a capability.'],
       ['singularity-flow capability map payments --repository <URL> --source-roots apps/payments --clone-mode blobless-sparse --sparse-cone apps/payments --clone-fallback refuse', 'Propose a scoped capability and safe monorepo clone policy.'],
       ['singularity-flow capability activate <REVIEW-BRANCH> --lead <URL> --confirm <FULL-COMMIT>', 'Activate the exact reviewed proposal, or resume its missing audit after verified partial completion.'],

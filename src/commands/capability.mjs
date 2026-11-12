@@ -12,7 +12,7 @@ let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set([
   'add', 'protect', 'depend', 'auto', 'plain-chat', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard',
-  'setup-proposals', 'setup-proposal', 'setup-activate', 'inspect-repository', 'test-setup', 'activate'
+  'setup-proposals', 'setup-proposal', 'setup-activate', 'inspect-repository', 'test-setup', 'activate', 'projects'
 ]);
 
 /**
@@ -916,6 +916,8 @@ export async function run(argv, context = {}) {
     return result;
   }
   if (subcommand === 'inspect-repository') return runInspectRepository(context);
+  // A repository's projects, each proposed as a capability; a read that maps nothing.
+  if (subcommand === 'projects') return (await import('./capability-projects.mjs')).runCapabilityProjects(context);
   if (subcommand === 'onboard') return runOnboard(context);
   if (['setup-proposals', 'setup-proposal', 'setup-activate'].includes(subcommand)) {
     return runSetupProposalCommand(subcommand, context);

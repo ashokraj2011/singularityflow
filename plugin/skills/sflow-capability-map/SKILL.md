@@ -21,7 +21,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 1. Ask for the credential-free Git URL; preview `singularity-flow capability onboard <GIT-URL> --dry-run --json`. Relay effects and preservation. Run the returned `--confirm-plan` command once only after confirmation.
 2. On `configuration-review-required`, inspect `singularity-flow capability setup-proposal <SETUP-BRANCH> --lead <GIT-URL> --json`; activate only after approval. Ask separately before `--acknowledge-unprotected`. Stop on other refusals.
 3. Diagnose with `singularity-flow capability inspect-repository <GIT-URL> --json`. An unreachable repository is not new.
-4. On explicit mapping request, ask for ID, name, kind, parent, and scope. Confirm:
+4. On explicit mapping request, run `singularity-flow capability projects <GIT-URL> --lead <LEAD-URL> --json` first. For several `projects`, ask which to map, confirm each one's ID, name and parent (`--parent`), and run each chosen `map.command` once. Otherwise ask for ID, name, kind, parent, and scope. Confirm:
 
    `singularity-flow capability map <ID> --lead <LEAD-URL> --kind <KIND> --json`
 

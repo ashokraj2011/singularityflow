@@ -179,6 +179,7 @@ Every public operation is classified before its implementation module is importe
 | capability.onboard.preview | read | never | — | — |
 | capability.organisation | read | never | — | — |
 | capability.plain-chat | mutation | never | — | — |
+| capability.projects | read | never | — | — |
 | capability.proposal | read | never | — | — |
 | capability.proposals | read | never | — | — |
 | capability.protect | mutation | never | — | — |

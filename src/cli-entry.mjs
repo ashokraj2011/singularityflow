@@ -80,7 +80,7 @@ export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
   'rebase-proposal',
   'world-model', 'organisation', 'leads', 'inspect-repository', 'fsck', 'reconcile',
   'repository', 'repair-proposal', 'adopt-managed', 'onboard',
-  'setup-proposals', 'setup-proposal', 'setup-activate'
+  'setup-proposals', 'setup-proposal', 'setup-activate', 'projects'
 ]);
 
 // Consent and capability inspection belong to the machine, not to the repository that happened

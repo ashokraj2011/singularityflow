@@ -22,7 +22,7 @@ Relay one explicitly requested SGOS command to the same CLI family.
    Never prepend `workflow` or translate it into `singularity-flow workflow ...`.
 3. Preserve every CLI model, trust, identity, revision, exact-hash, confirmation, and authority
    check. Never invent a file, ID, choice, approval, credential, digest, or human response.
-4. Show a returned preview, plan, confirmation digest, or next command with its effects and stop.
+4. Show a returned preview, plan, or next command with its effects and stop.
    Confirm only after the contributor explicitly accepts the exact result in a later turn.
 5. Never run a returned next command automatically. Execute only the explicitly requested operation
    after all CLI guards pass.

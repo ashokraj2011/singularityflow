@@ -20,5 +20,5 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 1. Run `singularity-flow agent <WORK-ID>` with the entry's `workId`; add `--agent <ID>` only for a change the contributor asked for.
 2. The phase default is automatic. A `SELECTION_REQUIRED` refusal lists `details.choices`: present every label, ID and description, then rerun with `--agent <ID>`.
 3. Never pick for the contributor. Never infer human identity or approval authority from the agent.
-4. Run `singularity-flow session status --json`, then report the agent, source hash, phase compatibility, work-item scope, and Copilot-session binding.
+4. Run `singularity-flow session status --json`, then report the agent and its source, phase compatibility, work-item scope, and Copilot-session binding.
 5. Agent Markdown controls prompt instructions and world-model views. Git/Jira identity and configured approval groups control human decisions.

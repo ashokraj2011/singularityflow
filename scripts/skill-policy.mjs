@@ -160,9 +160,9 @@ const CONTRACT_TEXT_BY_SKILL = Object.freeze({
   'sflow-approve': 'Require human review of exact bound documents outside chat; refresh packet and explicit consent.',
   'sflow-start': 'Explicit choices; no preselection; preserve errors/artifacts/actions.',
   'sflow-recover': 'CLI validates/mutates; preserve exact results, warnings, publication status, artifacts/actions.',
-  'sflow-submit': 'Show artifact references, hashes, warnings, and confirmation before a decision.',
+  'sflow-submit': 'Show artifact references, warnings, and confirmation before a decision.',
   'sflow-refresh-configuration': "Preserve the CLI's exact plan, conflicts, branch effects, failures, and retry instructions.",
-  'sflow-review-source': 'Show the exact reviewed hashes, cited gaps, exclusions, questions, and test exceptions before any human approval.',
+  'sflow-review-source': 'Show the exact reviewed artifacts, cited gaps, exclusions, questions, and test exceptions before any human approval.',
   'sflow-revision-attachments': "Preserve the CLI's exact result, warnings, effects, and next actions.",
   'sflow-skill': "Report the CLI's exact package identity, candidates, findings, and limits. Inspection is not confirmation, configuration approval, host admission, or execution."
 });

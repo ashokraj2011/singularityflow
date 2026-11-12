@@ -17,7 +17,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow capability show [PATH] --json`. Omit `PATH` for the repository root.
-2. Relay the deterministic owner, permitted Story scope, required people, reason, and resolution digest.
+2. Relay the deterministic owner, permitted Story scope, required people, and reason.
 3. Do not ask for a capability selection when the result is the implicit `repository-root`; call it **This repository**.
 4. Do not calculate ownership, policy, or approvals yourself and do not invoke a model.
 5. Never edit `singularity/capabilities.yml`. For a requested distinction, use the corresponding

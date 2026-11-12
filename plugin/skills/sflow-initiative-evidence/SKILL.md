@@ -16,14 +16,14 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
-For listing, run `singularity-flow initiative evidence list [CHECK-ID] --json` and show hash, phase, check, assurance, observation time, freshness, source, and registrar identity.
+For listing, run `singularity-flow initiative evidence list [CHECK-ID] --json` and show phase, check, assurance, observation time, freshness, source, and registrar identity.
 
 For registration:
 
 1. Show the active checklist contract with `/sf-initiative-checklist`.
 2. Offer only the levels in that check's `acceptedAssurance` and require the contributor's explicit choice and source. `machine-verified` or `system-verified` also needs `--verification` naming the external verifier that produced the result (CI job, tool or system), never your own reading of a file or URL; without one, do not register that level.
-3. Preview the phase, checklist item, source, assurance, verification method, applicability decision, reason, and superseded hashes.
+3. Preview the phase, checklist item, source, assurance, verification method, applicability decision, reason, and the evidence it supersedes.
 4. Run `singularity-flow initiative evidence add <CHECK-ID> --assurance <LEVEL>` with the supplied `--path`, `--url`, `--external-id`, `--observed-state`, `--source-version`, `--verification`, `--decision`, `--reason`, and repeatable `--supersedes` values.
-5. Report the content hash, committed evidence copy, commit, and push.
+5. Report the committed evidence copy, commit, and push.
 
 Never infer higher assurance from a URL or file. Every registration is an append-only lifecycle event and must be committed and pushed.

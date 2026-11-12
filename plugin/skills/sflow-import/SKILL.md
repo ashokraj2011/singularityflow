@@ -1,6 +1,6 @@
 ---
 name: sflow-import
-description: Import an agent skill, artifact template, agent, or generated-artifact source from a public link or a trusted marketplace after the person reviews its exact content and hash.
+description: Import an agent skill, artifact template, agent, or generated-artifact source from a public link or a trusted marketplace after the person reviews its exact content.
 disable-model-invocation: true
 agent: agent
 argument-hint: "[preview LINK|market:ID/ENTRY --as skill|template|agent | add ... --sha256 HASH | list | check | remove IMPORT]"
@@ -17,7 +17,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Preview first: `singularity-flow import preview <LINK> --as skill|template|agent --json`. Show the
-   source, `sha256`, size, warnings and the full `text`: this exact-bytes review is the one exception to
+   source, size, warnings and the full `text`: this exact-bytes review is the one exception to
    the no-paste rule, because the person must see what will be vendored. Ask what it is for: which agent and steps for a
    skill, which steps for a template. Never supply these yourself.
 2. Add only the reviewed bytes, with the person's words for agent, ID and steps:

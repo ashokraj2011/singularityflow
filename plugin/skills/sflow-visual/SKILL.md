@@ -17,6 +17,6 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 1. Run `singularity-flow visual status --json` for a read-only inventory.
 2. For comparison, require explicit expected and actual records and run `singularity-flow visual compare --expected <EXPECTED> --actual <ACTUAL> --json`.
-3. Preserve profile, viewport, source hashes, thresholds, mismatches, evidence paths, and readiness exactly.
+3. Preserve profile, viewport, thresholds, mismatches, evidence paths, and readiness exactly.
 4. Never claim a screenshot comparison proves functional correctness. Use `/sf-mcp` when evidence must first be captured or attested by an MCP tool. Record a simulator, emulator or device screenshot with `singularity-flow visual record --phase <STEP> --profile-id <ID> --screen-id <ID> --state-id <ID> --file <PNG> --source <KIND> --device <NAME> --json`, never under an MCP tool.
 

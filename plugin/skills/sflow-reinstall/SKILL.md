@@ -28,7 +28,7 @@ credentials; Node.js; npm; and personal Copilot skills that lack the managed mar
 2. Preview with `singularity-flow reinstall --checkout "<CHECKOUT>" --dry-run`. `--registry "<URL>"` selects a company registry; `--cli-only` omits Copilot/VS Code only by request.
    `--skip-tests` needs explicit consent, never inferred from failures. Keep build/artifact checks;
    disclose skipped tests.
-3. Show the complete **Replace**, **Preserve**, artifact hashes, fingerprint and any unavailable
+3. Show the complete **Replace**, **Preserve**, fingerprint and any unavailable
    optional surface; never summarize away a preserved-data guarantee.
 4. The contributor must give the exact fingerprint-bound confirmation in a separate response; never
    generate, infer or submit it for them.

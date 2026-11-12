@@ -23,7 +23,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 5. Give every Story a configured repository, workflow type, REQ/AC allocation, dependencies, test expectations, and implementation boundaries. Group Stories by owning repository. Do not invent Jira keys or assignees.
 6. Run `singularity-flow epic planning publish`.
 7. Run `singularity-flow epic stories validate`. On failure, fix only the files you authored from governed evidence, republish and revalidate, at most twice; then relay the remaining failures and stop.
-8. Summarize with verified preview links and hashes, never bodies: the parent specification; every Story with repository, REQ/AC mappings, dependency, task count, and metadata; every per-Story specification.
+8. Summarize with verified preview links, never bodies: the parent specification; every Story with repository, REQ/AC mappings, dependency, task count, and metadata; every per-Story specification.
 9. Only when validation passes, say exactly: **“The Story package is ready. I will proceed only after approval in the Singularity Flow UI or with `/sf-initiative-approve phase --initiative <EPIC-ID>`.”** In their own terminal the reviewer can run `singularity-flow initiative approve phase --initiative <EPIC-ID>`. After approval, the next turn is `/sf-epic-publish`.
 10. Stop. Do not approve Planning, create or edit Jira issues, create Story branches, or invoke the publish skill.
 

@@ -17,7 +17,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Run `singularity-flow initiative documents [PHASE] [--initiative INIT-ID] --json`.
 2. Give a brief supported summary and verified Markdown-preview link for each output; never reproduce bodies/code/diffs in chat. Use the host's Markdown preview when available, otherwise link the verified path without claiming it opened.
-3. List output ID, kind, status, generation, byte count and SHA-256.
+3. List output ID, kind, status, generation and byte count.
 4. Summaries, links and opened previews do not establish human review. Approval separately requires the person's explicit review of complete exact-bound outputs; disclose unavailable/truncated material.
 5. For binary bundles, show metadata and the absolute local path instead of attempting text rendering.
 

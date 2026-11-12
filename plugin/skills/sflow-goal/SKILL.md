@@ -27,7 +27,7 @@ execution. Neither replaces a linked Story or Initiative lifecycle.
 5. For **abandon**, require a reason and exact ID; say linked work is untouched before `ask_user`.
 6. Start governed work with read-only `singularity-flow goal propose "<OUTCOME>" --success "<CRITERION>" --json`; it creates no branch or plan.
 7. Promotion creates a new identity. Show `singularity-flow goal show <GOL-ID> --json`, list copied fields, use `ask_user`, then `singularity-flow goal govern <GOL-ID> --json`. Preserve the personal Goal.
-8. For `GEX-*`, use `singularity-flow goal inspect <GEX-ID> --json`. Use `singularity-flow goal impact <GEX-ID> --json` for read-only scope. Compile with `singularity-flow goal plan <GEX-ID> --json`; show generation, steps, stops, write set, and full `planSha256`. Use `ask_user` before exact-hash approval.
+8. For `GEX-*`, use `singularity-flow goal inspect <GEX-ID> --json`. Use `singularity-flow goal impact <GEX-ID> --json` for read-only scope. Compile with `singularity-flow goal plan <GEX-ID> --json`; show generation, steps, stops, and write set. Use `ask_user` before approving that exact plan.
 9. Run one step with `singularity-flow goal run-next <GEX-ID> --json`. Follow its Story/Initiative skill and gates. Never turn `singularity-flow goal run-until-blocked` into a loop; bounded autonomy is closed.
 10. `singularity-flow goal verify <GEX-ID> --json` uses typed oracles. Preserve `verified`, `mixed`, `acknowledged`, and `unassessed`; terminal work does not prove human judgment.
 11. Inspect before pause, resume, change, trace, or governed abandon. Change is read-only. Abandon needs exact `GEX-*` ID and reason and leaves linked work untouched.

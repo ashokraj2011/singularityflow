@@ -1,6 +1,6 @@
 ---
 name: sflow-initiative-approve
-description: Review exact initiative output or phase-bundle hashes and record an authorized approval from GitHub Copilot.
+description: Review exact initiative outputs or phase bundles and record an authorized approval from GitHub Copilot.
 disable-model-invocation: true
 agent: agent
 argument-hint: "<OUTPUT-ID|phase> [--initiative INIT-ID]"
@@ -18,13 +18,13 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 Approval authority comes from configured local Git name/email groups, not the selected agent. Report identity assurance as `configured-local`, never cryptographic authentication.
 
-1. Use `/sf-initiative-documents` and `/sf-initiative-checklist` for exact output links/hashes, evidence assurance/freshness, prior approvals, child milestones and self-approval risk. Require the human's complete review of these bound outputs outside chat; opening a preview or a summary is not review. Changed bindings need fresh review before confirmation.
+1. Use `/sf-initiative-documents` and `/sf-initiative-checklist` for exact output links, evidence assurance/freshness, prior approvals, child milestones and self-approval risk. Require the human's complete review of these bound outputs outside chat; opening a preview or a summary is not review. Changed bindings need fresh review before confirmation.
 2. Run `singularity-flow initiative choices begin approve <INIT-ID> <OUTPUT-ID|phase> --json`.
 3. Present exactly the returned `choiceSets` with Copilot's `ask_user` (the `phase:subject` confirmation); the phase agent is the default; choosing an agent does not grant approval authority.
 4. The reviewer must choose the confirmation explicitly. Never infer, preselect, or synthesize approval intent.
 5. Record each answer with `singularity-flow initiative choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
 6. Only after `ready: true`, run `singularity-flow initiative approve <OUTPUT-ID|phase> --initiative <INIT-ID> --selection-receipt <TOKEN>`. A self-approval refusal: show it; only if the reviewer explicitly accepts self-approval, rerun with `--acknowledge-self-approval`.
-7. Report the approved content/bundle hash, actor identity, authority group, governed agent, self-approval warning, remaining distinct approvals, advancement, commit, and push.
+7. Report the approved output or bundle, actor identity, authority group, governed agent, self-approval warning, remaining distinct approvals, advancement, commit, and push.
 8. When phase approval advances the initiative, reproduce the CLI's context-boundary guidance. For `new`, stop and ask the contributor to run `/clear` followed by `/sf-initiative-next`; for `compact`, ask for `/compact` first. Do not author the next initiative phase in the old conversation.
 
 To reject instead, require the reviewer's explicit rejection and reason in their own words, then run once `singularity-flow initiative reject <OUTPUT-ID|phase> --initiative <INIT-ID> --reason "<REASON>"`. Report what it invalidated and its commit/push result, then hand off to the phase's authoring skill: `/sf-epic-requirements` or `/sf-epic-story-draft` for Epic stages, otherwise `/sf-initiative-phase`.

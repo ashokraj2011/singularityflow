@@ -16,6 +16,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Start with `singularity-flow knowledge list` and inspect a selected record with `singularity-flow knowledge show`.
-2. Before record, harvest, or resolve, show the exact source, destination, content hash, trust state, and remote/network requirement.
+2. Before record, harvest, or resolve, show the exact source, destination, trust state, and remote/network requirement.
 3. Require explicit consent for the selected mutation and never broaden an allowlist or trust an unpinned remote implicitly.
 4. Report immutable provenance and every changed file. Knowledge is evidence; it does not become an approved requirement or authority decision by being recorded.

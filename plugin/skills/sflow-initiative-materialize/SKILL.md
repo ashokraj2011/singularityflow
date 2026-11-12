@@ -21,6 +21,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 3. Show every Epic, story, repository, branch, blocking flag, dependency, contract and Jira operation (`singularity-flow initiative breakdown --initiative <INIT-ID> --json` with `--probe` adds reachability).
 4. Ask the contributor to type the exact initiative ID as mutation confirmation. Never infer, autocomplete, or submit it on their behalf.
 5. Only after that exact confirmation, run `singularity-flow initiative materialize --initiative <INIT-ID> --confirm <INIT-ID> --json`. A persistent terminal is not required; never supply or infer the confirmation before the contributor provides it.
-6. Report each repository/branch/commit receipt, Jira receipt when enabled, partial failure, retry status, commit, and push.
+6. Report each repository/branch receipt, Jira receipt when enabled, partial failure, retry status, commit, and push.
 
 Never force-push, overwrite an unrelated branch, or describe a partial result as complete.

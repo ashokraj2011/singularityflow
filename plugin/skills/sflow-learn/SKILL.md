@@ -30,8 +30,8 @@ checkout, Git history, Devices, a governed Process, approval, certification, or 
    - `singularity-flow learn explain-change <LESSON-ID> <STEP-ID> --role <ROLE> --module <REPOSITORY-FILE> [--pack <PACK-ID>] --trust <REPOSITORY-FILE> --json`
    - `singularity-flow learn workspace|progress <MISSION-SHA256> --json`
 4. `materialize`, `bundle-materialize`, `progress-import`, and `reset` are machine-local mutations.
-   Run the corresponding command without `--confirm` once, show its exact effects and confirmation
-   digest, and stop for explicit confirmation. On confirmation, rerun that same operation once with
+   Run the corresponding command without `--confirm` once, show its exact effects,
+   and stop for explicit confirmation. On confirmation, rerun that same operation once with
    the exact returned digest. Never hand-edit a fixture, module, bundle, manifest, or progress file.
 5. A learning check requires an explicit lesson, check ID, role, module, answer file, trust file,
    and optional Pack. Run `singularity-flow learn check ... --json` once. Do not display, retain, or
@@ -39,7 +39,7 @@ checkout, Git history, Devices, a governed Process, approval, certification, or 
 6. Preserve every unavailable, stale-Pack, revoked-Pack, binding, secret, size, tamper, interruption,
    and recovery diagnostic. Never fall back to unsigned lessons, the live repository, a model,
    external search, or executable commands embedded in lesson prose.
-7. Report the lesson/mission identity, Pack digest, disposable workspace status, completed check
+7. Report the lesson/mission identity, Pack, disposable workspace status, completed check
    IDs, and the explicit boundary: **learning only; no authority or certification**.
 
 Never run application tests or commands on behalf of a lesson, never copy a fixture into the live

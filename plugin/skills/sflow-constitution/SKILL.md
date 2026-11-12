@@ -18,4 +18,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 1. Use `singularity-flow constitution check --json` or `singularity-flow constitution show --json` for read-only inspection.
 2. Preview generation with `singularity-flow constitution generate --dry-run`; do not replace a customised file without an explicit reviewed request.
 3. For an exception, require the exact article ID, reason, scope, expiry, and Work ID as applicable. Show that an exception is an auditable waiver, not approval.
-4. Run only the requested mutation and preserve output path, hash, actor, scope, expiry, commit, and push result.
+4. Run only the requested mutation and preserve output path, actor, scope, expiry, commit, and push result.

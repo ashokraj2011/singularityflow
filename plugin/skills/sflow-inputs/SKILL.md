@@ -22,7 +22,7 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 2. Inspect preview `records`, `errors` and `warnings`; never infer truncation from a smaller byte count or `representation.complete: false`.
 3. Explain every missing, unapproved, truncated, hash-mismatched, missing-brief, stale-brief, or
    missing-expansion condition before continuing. When the record reports `approved-summary`, name
-   the brief hash and source-bound expansion handle. Expand an exact source section only when the
+   the brief and the source it summarizes. Expand an exact source section only when the
    task requires its wording; never replace the governed brief by an agent-authored summary.
 4. Run `singularity-flow inputs <phase> --for-agent --json` once to write the next-generation audit record and render the managed input block. The command revalidates the current binding and approved inputs; never self-confirm a sequence warning.
 5. Use returned `audit` and `artifact.managedBlock` metadata; preserve the marker-delimited managed block. `matchesRendered: false`: stop and relay the mismatch. Do not reread the audit, brief or artifact merely to locate markers. Read an exact returned path only when source wording is needed. Input `generation` is the preparation generation, not a published `phaseGeneration`.

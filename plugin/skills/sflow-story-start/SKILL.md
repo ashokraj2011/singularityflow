@@ -28,7 +28,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - Present the workflow-template and governed-agent options with `ask_user`.
    - Record answers with `singularity-flow choices answer`.
    - When ready, run `singularity-flow story start <STORY-KEY> --fetch --selection-receipt <TOKEN>` plus the step 5 policy flags; add step 5's `--target-url` when given.
-7. Show the Epic → Jira Story → canonical branch lineage, base/commit, workflow, agent, phase, outputs, commit, and push status of the Story ref. Verify the base ref did not move.
+7. Show the Epic → Jira Story → canonical branch lineage, base, workflow, agent, phase, outputs, commit, and push status of the Story ref. Verify the base ref did not move.
 8. The Repository brief is guidance: never run a World Model check or rebuild, and never wait for one; Story context comes from the governed workflow and never becomes a world-model task guide; `/sf-phase` composes the brief.
 9. Continue only when asked; offer `/sf-phase` and read-only `/sf-nextsteps`.
 

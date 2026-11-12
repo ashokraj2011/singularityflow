@@ -14,7 +14,7 @@
   "sflow-auto": [
     "argument-hint: \"plan <requirement> [--until <phase>] | plan --story <STORY-ID> | --goal <GOAL-ID> | adopt --from-adhoc <AHS-ID> | start <PLAN-ID> | list | continue <STORY-ID> | status|report|compare|needs-you|repair|respond|switch-unit|pause|stop|takeover|resume|discard <FLIGHT-ID>\"",
     "otherwise stop, and halt after a second failure;",
-    "After showing the complete checkpoint SHA-256, control with `singularity-flow auto pause|takeover|stop <FLIGHT-ID> --confirm <HASH> --json`;",
+    "After showing the checkpoint, control with `singularity-flow auto pause|takeover|stop <FLIGHT-ID> --confirm <HASH> --json`;",
     "`halt` aliases stop."
   ],
   "sflow-call": [
@@ -117,7 +117,7 @@
   "sflow-epic-requirements": [
     "If `ask_user` is unavailable, display the questions and stop before authoring or publication.",
     "If unready, act only on its `findings` and `correction`, rerun its `commands.recheck` at most twice, and stop on an unchanged `draftFingerprint` (an unedited draft);",
-    "Only when `status` is `ready`, run `singularity-flow epic requirements publish`, summarize every output with verified preview/file links and hashes, and stop for human review of the complete bound documents outside chat.",
+    "Only when `status` is `ready`, run `singularity-flow epic requirements publish`, summarize every output with verified preview/file links, and stop for human review of the complete bound documents outside chat.",
     "After explicit approval, hand off to `/sf-initiative-approve <EPIC-KEY> phase` for its receipt and self-approval flow."
   ],
   "sflow-epic-resume": [
@@ -157,7 +157,7 @@
   ],
   "sflow-goal": [
     "Stop for active/unavailable links.",
-    "show generation, steps, stops, write set, and full `planSha256`."
+    "show generation, steps, stops, and write set."
   ],
   "sflow-governance-rebuild": [
     "If `blockers` is not empty, stop: the plan cannot be confirmed.",
@@ -206,7 +206,7 @@
     "- If Jira rejects a transition because it requires additional screen fields, stop and tell the user to complete that transition in Jira."
   ],
   "sflow-learn": [
-    "digest, and stop for explicit confirmation."
+    "and stop for explicit confirmation."
   ],
   "sflow-local": [
     "Stop on remote-device, rerun, repository-adoption, or external-verifier requests: those levels are not implemented and must not be advertised as available."
@@ -266,7 +266,7 @@
     "`outcome-unknown` means stop: the remote could not be read, so another push is not authorized."
   ],
   "sflow-ready": [
-    "otherwise stop with Copilot `/sf-ready` and Shell",
+    "otherwise stop with its returned routes.",
     "Without `--repair`, stop."
   ],
   "sflow-receipt": [
@@ -381,7 +381,7 @@
     "End the turn;"
   ],
   "sflow-sgos": [
-    "Show a returned preview, plan, confirmation digest, or next command with its effects and stop."
+    "Show a returned preview, plan, or next command with its effects and stop."
   ],
   "sflow-sgos-create": [
     "Stop on refusal or no compatible pair.",
@@ -432,7 +432,7 @@
   "sflow-submit": [
     "`Out of sequence`: stop;",
     "For `terminal-obligations-required`, relay blockers/actions and stop—no submit or generic recovery.",
-    "show review/digest, stop on unresolved dispositions.",
+    "show its review, stop on unresolved dispositions.",
     "Stop on an unchanged condition or after three distinct repairs: automation only;"
   ],
   "sflow-upload": [

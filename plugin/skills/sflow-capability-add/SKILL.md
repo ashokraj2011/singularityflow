@@ -19,4 +19,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Run `singularity-flow capability show <DIRECTORY> --json` and show the current owner.
 3. After the contributor confirms the exact ID and directory, run once:
    `singularity-flow capability add <ID> --owns <DIRECTORY> [--name <TEXT>] [--team <TEXT>]... --json`.
-4. Relay the review branch, commit, receipt, and activation command. Stop; do not review, merge, activate, or hand-edit the map.
+4. Relay the review branch, receipt, and activation command. Stop; do not review, merge, activate, or hand-edit the map.

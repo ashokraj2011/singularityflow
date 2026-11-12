@@ -18,7 +18,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Ask for the last known-good revision if it is known, the bad revision (default `HEAD`), and any affected paths.
 2. Run `singularity-flow regression analyze --base <BASE> [--good <REF>] [--bad <REF>] [--path <PATH>]... --json`. `<BASE>` is a bound Story's recorded base (`executionContext.story.binding.baseRef` from `singularity-flow session current --for-agent --json`); without a Story, ask for the repository's default branch. Never assume `main`.
-3. Present the ranked candidate commits and merge commits. The ranking is triage evidence, not proof.
+3. Present the ranked candidate commits and merge commits by subject and date. The ranking is triage evidence, not proof.
 4. Inspect the top candidates from the result: each one's `files`, `matchedPaths`, `added` and `deleted`; narrow to one with `singularity-flow regression analyze --base <BASE> --good <SHA>^ --bad <SHA> --path <PATH> --json`, and read its files with your file tool. This read-only turn runs no Git (its options can write files): for a line-level diff, give the person `git show <SHA> -- <PATH>` for their own terminal.
 5. Use `singularity-flow wm knowledge show` (rules, journeys, tests) to explain which components, contracts, tests, and callers could be affected.
 6. Form explicit hypotheses and distinguish observed facts from inference. Establish causation only with a reproducible failing test, a bisect performed with user consent, or equivalent evidence.

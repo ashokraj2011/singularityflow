@@ -22,4 +22,4 @@ Use one requested action:
 - Adopt the recorded observation into a new governed Git generation: `singularity-flow epic drift adopt --epic <EPIC-KEY> --observation <SHA-256> --json`.
 - Prepare a reviewed plan that restores Git-owned fields: `singularity-flow epic drift restore-plan --epic <EPIC-KEY> --json`.
 
-Show changed fields and hashes before any mutation. Never silently copy Jira into Git or Git into Jira.
+Show changed fields before any mutation. Never silently copy Jira into Git or Git into Jira.

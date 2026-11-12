@@ -16,7 +16,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents. Use exact CLI-returned paths. `repositoryPath` is command cwd, not a prefix for absolute file paths. Never rebase paths or strip `.git/worktrees`. Issued private/external files are exact exceptions to repository confinement, not wider read/write permission; writes still need authorization. Resolve relative paths only against their declared base. On failure, preserve the path and error; never search or recreate it.
 
 1. Run `singularity-flow initiative checklist [PHASE] [--initiative INIT-ID] --json`.
-2. Show every checklist ID, requirement, gate mode, status, accepted assurance levels, current evidence hashes, expiration, and reason.
+2. Show every checklist ID, requirement, gate mode, status, accepted assurance levels, current evidence, expiration, and reason.
 3. Clearly separate blocking errors from warnings and optional items.
 4. For unmet checks, show an exact `singularity-flow initiative evidence add <CHECK-ID> ...` example without inventing evidence or assurance.
 5. Use `singularity-flow initiative verify [PHASE]` only when the contributor asks for current verification.

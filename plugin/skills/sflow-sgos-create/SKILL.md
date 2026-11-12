@@ -23,5 +23,5 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
    `singularity-flow intent workflow-create <INTENT-IR> --policy <FILE> --registry <FILE> --storage-profile-sha256 <SHA256> --id <LOWER-KEBAB> --operation <EXACT-ID> --verification-operation <EXACT-ID> --declaration-out <NEW-FILE> --out <NEW-FILE> [--title <TEXT>] [--maximum-attempts <N>] [--output-ref <REF>] --json`
 
-6. On refusal, relay it and stop; never hand-edit outputs. Otherwise show paths, hashes, clause map, graph, budgets, and the returned ratification-packet command. Label both files **unratified proposals** and leave them uncommitted.
+6. On refusal, relay it and stop; never hand-edit outputs. Otherwise show paths, clause map, graph, budgets, and the returned ratification-packet command. Label both files **unratified proposals** and leave them uncommitted.
 7. Stop. Never run `singularity-flow intent ratify`, `singularity-flow intent compile`, `singularity-flow program approve`, `singularity-flow process start`, `singularity-flow process step`, `singularity-flow process run`, a returned next command, or any `--confirm` action. Never claim that Copilot, this skill, or Workflow creation granted authority.

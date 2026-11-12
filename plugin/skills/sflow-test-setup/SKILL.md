@@ -41,7 +41,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 6. Inference and hidden approved argv (`argvWithheld: true`) need no YAML proposal/amendment.
    Existing Stories retain explicit pins. Only for explicit command revisions approved in sflow/config,
    use `singularity-flow story test-policy amend <WORK-ID>
-   --reason "<reason>" --json` (the current step) for preview only. Preserve code/documents; show digest/authority.
+   --reason "<reason>" --json` (the current step) for preview only. Preserve code/documents; show authority.
    The person runs the returned `--apply --confirm` line in their own terminal; never approve for the user. Fresh tests required.
 7. Report what was inspected, configured, adopted, or not done. Pair the inspection Shell command
    with Copilot `/sf-test-setup`; use `/sf-ready` for an explicitly requested baseline run.

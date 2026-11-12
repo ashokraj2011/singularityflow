@@ -48,7 +48,7 @@ Proposals need separate authorization.
 Relay dependency closure/locks and prerequisites. Never edit bundles.
 
 Import preview: `singularity-flow workflow import <FILE> --dry-run --propose --json`.
-After digest/path/collision review and acceptance run
+After path/collision review and acceptance run
 `singularity-flow workflow import <FILE> --confirm <PLAN-SHA256> --propose --json` once.
 Invocation is not confirmation. Never substitute digests, overwrite or retry stale plans.
 
@@ -62,5 +62,5 @@ Archive keeps a workflow and everything it uses; new Stories stop being offered 
 `singularity-flow workflow archive <[story|initiative:]ID> [--reason "<TEXT>"] [--new-default <ID>] --propose --json`;
 `singularity-flow workflow restore <[story|initiative:]ID> --propose --json` offers it again. Seeded workflows can be archived.
 Delete preview: `singularity-flow workflow delete <[story|initiative:]ID> --dry-run --json`. Relay `removed`, `kept`
-with `usedBy`, `trimmed`, `cleanups`, `stories` and `planSha256`. The person confirms: give them Workflow Studio → Delete…
+with `usedBy`, `trimmed`, `cleanups` and `stories`. The person confirms: give them Workflow Studio → Delete…
 or `singularity-flow workflow delete <ID> --confirm <PLAN-SHA256> --propose --json` for their terminal; the guard refuses it here.

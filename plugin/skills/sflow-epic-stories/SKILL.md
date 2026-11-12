@@ -18,7 +18,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Run `singularity-flow epic stories list --json` for the plan rows.
 2. Run `singularity-flow initiative documents epic-planning --initiative <EPIC-ID> --json` and use only its returned outputs and `repositoryPath` values: the Story plan and the Story specification index, whose `stories[].path` entries resolve against the index's directory. The initiative root is configurable: never construct these paths or search for them.
-3. Show a compact table with plan ID, title, repository, workflow type, REQ/AC allocation, dependencies, task count, metadata, parent mode, and specification hash.
+3. Show a compact table with plan ID, title, repository, workflow type, REQ/AC allocation, dependencies, task count, metadata, and parent mode.
 4. Use `singularity-flow epic stories update`, `split`, or `adopt` for requested terminal edits. Tasks may be supplied with `--tasks-file`; key/value metadata uses repeatable `--metadata KEY=VALUE`.
 5. Clearly state that any edit invalidates the former Planning package hash and returns it to UI review.
 6. Never invent a Jira key or assignee. Jira keys are returned only during the reviewed publish operation; assignment remains in Jira. An adopted Jira Story keeps its current parent, including no parent.

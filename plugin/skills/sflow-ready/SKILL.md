@@ -25,12 +25,12 @@ Setup only: Never change product behavior, weaken tests, upgrade versions, insta
 2. Select `dependency-test` unless `--full` is requested. Run
    `singularity-flow precheck --run --scope <SCOPE> --json` once for its plan. Retain any
    `--base-commit <OID>` in preview/execution; the CLI owns its temporary checkout. Show base,
-   digest, commands, adapters, timeouts, omissions, runtime flags/advisories, `planId`.
+   commands, adapters, timeouts, omissions, runtime flags/advisories.
    Blockers: never confirm/repeat; use quick precheck and offer a reviewed setup repair.
-3. Use `ask_user` to confirm the exact `planId`; otherwise stop with Copilot `/sf-ready` and Shell
-   `singularity-flow precheck --run --scope <SCOPE> --confirm-plan <PLAN-ID> --json` (retain base). Execute once.
+3. Use `ask_user` to confirm that exact plan; otherwise stop with its returned routes. On a yes, run
+   `singularity-flow precheck --run --scope <SCOPE> --confirm-plan <PLAN-ID> --json` once (retain base).
    Runtime repair needs approved `repositoryReadiness.testRuntime`, never shell-wide `NODE_OPTIONS`/`JAVA_TOOL_OPTIONS`/`PYTHONPATH`.
-4. Report receipt or failed baseline: exact base/plan, exit, report hash, failing test IDs.
+4. Report receipt or failed baseline: base, exit, failing test IDs.
    Missing reports stay unavailable. Never commit local dependency directories, build output,
    test reports, or receipts.
 5. Classify setup/existing failures. Use advertised TRP repair admission; required prerequisites remain.

@@ -25,7 +25,7 @@ Stop on `Out of sequence`; humans decide soft warnings. Story reads accept Work 
 - Record a Figma or other external reference with `singularity-flow documents upload --url <https-url> --name "<name>"`.
 - Scope: preview `singularity-flow documents scope <ID|NAME> --phases <PHASE,...|all> --reason "<reason>" --dry-run`; show retained published work. After explicit confirmation rerun without `--dry-run` with `--yes`.
 - Epic upload: `singularity-flow epic sources add --epic <EPIC-ID> --file <PATH>` once per file, expanding directories deterministically; authored text uses `singularity-flow epic sources note --epic <EPIC-ID> --text-file <PATH>`. HTTPS uses `singularity-flow epic sources add --epic <EPIC-ID> --url <URL> --label "<LABEL>"`. Add provider/MIME/label only when supplied or required.
-- Respect phase/provider/size policy; never fetch URLs implicitly or expose credentials. Report IDs, hashes, size, path/provider, commit/push and next action.
+- Respect phase/provider/size policy; never fetch URLs implicitly or expose credentials. Report IDs, size, path/provider, commit/push and next action.
 
 To detach evidence:
 

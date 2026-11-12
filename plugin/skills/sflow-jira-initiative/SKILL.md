@@ -26,7 +26,7 @@ Use this skill when a contributor wants to browse Jira hierarchy or connect an e
 - Read operations may run directly.
 - Always preview Epic adoption before changing initiative state.
 - Never invent repository ownership. Ask the user to map every unresolved Jira child to a configured repository.
-- Never run `jira-apply` without showing the complete plan, its SHA-256, and the exact fields affected.
+- Never run `jira-apply` without showing the complete plan and the exact fields affected.
 - The governed initiative write plan does not alter status, assignee, sprint, priority, or resolution. An explicit `/sf-jira-update` request is a separate operator action with exact Story-key confirmation.
 
 ## Read flow
@@ -46,14 +46,14 @@ Use this skill when a contributor wants to browse Jira hierarchy or connect an e
 3. Display both identifier columns: Singularity Work ID and Jira ID.
 4. Resolve every missing repository mapping with the user.
 5. Run the same command without `--dry-run`.
-6. Report the committed source snapshot hash, branch commit, and push result.
+6. Report the committed source snapshot, branch commit, and push result.
 
 ## Outbound write flow
 
 1. Run `singularity-flow initiative jira-plan`.
-2. Display every operation, subject, and field plus the exact plan SHA-256.
+2. Display every operation, subject, and field.
 3. Explain that `jira.writeMode: approved` and the approved Story-plan step the plan names are required.
-4. Ask the user to confirm the exact initiative ID and exact plan hash.
+4. Ask the user to confirm the exact initiative ID and that plan.
 5. Only then run `singularity-flow initiative jira-apply --plan <SHA-256> --confirm <INIT-ID>`, with the initiative ID exactly as the person typed it.
 6. Display each Jira key and the committed receipt/push result.
 

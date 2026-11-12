@@ -31,7 +31,7 @@ folder or branch names, and do not repair governed state by hand.
    `repositoryPath`, and run `singularity-flow capabilities doctor --json` there.
 4. If the repository maps ambiguously, show the candidates and ask the contributor
    to rerun with `--capability <id>`.
-5. Report the exact capability path, capability-map SHA-256, effective inherited
+5. Report the exact capability path, effective inherited
    policy, active break-glass leases, and lifecycle pin.
 6. Report the configured orphan state branch and its publication mode. A warning
    is not a pass when publication is `required`.

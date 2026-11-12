@@ -22,18 +22,18 @@ recompiles every workflow under the current rules, and archives every existing
 Story. It never touches application code, tests or documents.
 
 1. Run `singularity-flow governance rebuild --dry-run --json` first.
-2. Show the complete plan: `plan`, the configuration source and commit, every
-   `replaced` file with its old and new digest, `removed`, `kept`, every
+2. Show the complete plan: the configuration source, every
+   `replaced` file, `removed`, `kept`, every
    workflow with its owner and status, every failing workflow's findings and
-   repair action, every Story with its branch tips, and every blocker. Do not
+   repair action, every Story with its branches, and every blocker. Do not
    summarize away files, workflows or Stories.
 3. If `blockers` is not empty, stop: the plan cannot be confirmed. Relay each
    blocker and its repair, then preview again after the contributor repairs it.
 4. Otherwise ask the contributor whether to proceed. A failing repository
    workflow listed in `inactive` stays byte-identical and unstartable until it
    is repaired; the confirmation must name it with `--accept-inactive`.
-5. Only after the contributor gives the exact plan digest, run the returned
-   `next` command with `--json` and show `commit`, `receipt`, `archived`,
+5. Only after the contributor explicitly confirms that plan, run the returned
+   `next` command with `--json` and show `receipt`, `archived`,
    `backup` and `invariants`. Tell them to push the branch for teammates.
 6. To undo a rebuild, run `singularity-flow governance restore --plan <PLAN>
    --dry-run --json`, show every file, and confirm only with their consent.

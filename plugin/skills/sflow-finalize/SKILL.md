@@ -18,5 +18,5 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 1. Run `singularity-flow finalize`; it decides whether every step is settled (approved, or skipped by a workflow decision), so never pre-check it yourself. On refusal relay its findings or `Incomplete:` list with its `Recover:` commands, and stop.
 2. The command verifies a clean tree, the governed seed, parent and Story specification hashes, every phase artifact, approvals, quality evidence, model/token records, and exact source/test tree.
-3. Show the finalization packet path/hash, source commit/tree hash, commit, and push. Next: `/sf-epic-review` when the packet names an `epicId`, otherwise `/sf-pr`.
+3. Show the finalization packet path, commit, and push. Next: `/sf-epic-review` when the packet names an `epicId`, otherwise `/sf-pr`.
 4. Do not approve or promote the Story. Finalization changes delivery state to `finalized_for_review`; Product Owner review is a separate decision.

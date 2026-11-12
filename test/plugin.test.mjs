@@ -127,7 +127,7 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
   }
   assert.match(canonical, /complete package/i);
   assert.match(canonical, /reason/i);
-  assert.match(canonical, /IDs, hashes, size, path\/provider, commit\/push/);
+  assert.match(canonical, /IDs, size, path\/provider, commit\/push/);
 });
 
 test('capability mapping reviews and activates the exact proposal instead of stopping at publication', async () => {
@@ -222,7 +222,8 @@ test('revision skill preserves exact preview, confirmation, execution, and publi
   assert.match(content, /revise --dry-run --feedback-stdin/);
   assert.match(content, /same bytes and selectors/);
   assert.match(content, /--confirm sha256:<PLAN>/);
-  assert.match(content, /user to type that full digest/);
+  assert.match(content, /require the person's explicit confirmation of that preview/);
+  assert.doesNotMatch(content, /type that full digest/, 'a person confirms the preview, never by typing its digest');
   assert.match(content, /never argv, environment, logs, or repository files/i);
   assert.match(content, /never process\/configuration paths, Git, workflow state, approvals/);
   assert.match(content, /Never publish, submit, approve, merge, deploy/);
@@ -491,7 +492,7 @@ test('recovery skill reviews a dirty consumed-generation rollover with an exact 
   assert.match(content, /Follow action classifications, not blanket dirty-tree stops/);
   assert.match(content, /`begin-new-generation:<phase>` needs matching branch\/phase, authenticated changed publication/);
   assert.match(content, /Review diffs\/untracked bytes/);
-  assert.match(content, /human consent to exact `paths`\/`planId`/);
+  assert.match(content, /human consent to exact `paths`;/);
   assert.match(content, /`current-phase-review-required`\/`confirmation: none`/);
   assert.match(content, /review diff, preserve validated preparation context and exactly declared phase evidence; continue draft checks/);
   assert.match(content, /Preserve reports\/index; no gate waiver/);
@@ -730,10 +731,12 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   assert.match(finalize, /with its `Recover:` commands/);
   assert.match(finalize, /Next: `\/sf-epic-review` when the packet names an `epicId`, otherwise `\/sf-pr`/);
   assert.match(await skill('sflow-session'), /relay `remediationPlan` steps in order \(its condition first, then its refresh\/open\); never retry automatically/);
-  // The CLI treats the person's typed preview digest as the authorization; the agent never supplies it.
+  // The person's own explicit confirmation of the current preview authorizes a proposal; the agent never gives it,
+  // and the person never reads or types its digest (owner, 2026-11-12).
   const version = await skill('sflow-story-skill-version');
-  assert.match(version, /Only the person typing the \*\*full digest returned by the current preview\*\* authorizes it/);
-  assert.match(version, /Never type, copy or infer the digest yourself/);
+  assert.match(version, /Only the person's own explicit confirmation of \*\*the current preview\*\* authorizes it/);
+  assert.match(version, /Never confirm it yourself; Copilot-generated assent is not human authorization/);
+  assert.doesNotMatch(version, /full digest/);
   assert.doesNotMatch(version, /typed digest by itself is not human authorization/);
   const resume = await skill('sflow-resume');
   assert.match(resume, /never read `workflow\.json`, `STATUS\.md` or earlier artifacts/);
@@ -1124,7 +1127,7 @@ test('submit skill links generated documents without treating a summary as appro
   assert.match(content, /Pending amendment acknowledgement requires the person's explicit choice/);
   assert.match(content, /confirmationRequired: true.*human provides `continue`/s);
   assert.match(content, /Work-ID-pinned submit command/);
-  assert.match(content, /list each artifact\/brief's identity, generation\/hash and verified Markdown-preview link/);
+  assert.match(content, /list each artifact\/brief's identity, generation and verified Markdown-preview link/);
   assert.match(content, /singularity-flow phase show <phase>/);
   assert.match(content, /Offer the next route, not an approval decision/);
   assert.match(content, /offer `submitIfReady\.next`'s routes, else `\/sf-approve/);
@@ -1347,7 +1350,7 @@ test('phase skills summarize linked Markdown and keep source code out of chat', 
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /never paste document bodies, code or diffs into Copilot/i, `${name} must not display source code`);
     assert.match(content, /observed added\/deleted\/created line counts; unavailable stays unavailable/i);
-    assert.match(content, /verify hashes|Report `publishIfReady\.output` commit\/push\/artifact|Preserve returned telemetry, warnings, hashes and effects/i, `${name} must preserve hash bindings`);
+    assert.match(content, /verify hashes|Report `publishIfReady\.output` commit\/push\/artifact|Preserve returned telemetry, warnings and effects/i, `${name} must preserve what its result returned`);
     assert.doesNotMatch(content, /source files[\s\S]{0,100}reproduced.*full/i, `${name} must not replay source in full`);
   }
   const alias = await readFile(path.join(pluginRoot, 'skills', 'sflow-implement', 'SKILL.md'), 'utf8');
@@ -1391,7 +1394,7 @@ test('authoring preserves sanitized telemetry; next relays returned telemetry wi
       `${name} must report what its publication returned`);
   }
   const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
-  assert.match(next, /Preserve returned telemetry, warnings, hashes and effects/);
+  assert.match(next, /Preserve returned telemetry, warnings and effects/);
   assert.match(next, /No duplicate pause\/session\/status/);
 });
 
@@ -1473,9 +1476,11 @@ test('auto skill keeps planning storyless and requires exact human ratification'
   assert.match(content, /singularity-flow auto plan/);
   assert.match(content, /singularity-flow auto show-plan/);
   assert.match(content, /singularity-flow auto start/);
-  assert.match(content, /complete ratification-packet SHA-256/);
+  assert.match(content, /Show Plan\/Story\/branch and the ratification packet\./);
+  assert.match(content, /Start after the person explicitly confirms that packet/);
   assert.match(content, /--confirm <PACKET-SHA256>/);
-  assert.match(content, /complete checkpoint SHA-256/);
+  assert.match(content, /After showing the checkpoint, control with/);
+  assert.doesNotMatch(content, /SHA-256|types the full|user-typed/, 'a person never reads or types a digest');
   assert.match(content, /type the exact flight ID as confirmation/);
   assert.match(content, /Never invoke `singularity-flow auto flight-step` directly/);
 });

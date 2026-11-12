@@ -32,5 +32,5 @@ filesystem for a repository in that case.
 6. For an explicit Work ID or phase rail, first resolve that repository as above, then run
    `singularity-flow guide <WORK-ID>` there. State the workflow, source, phases, artifacts, agents,
    authorities, threshold, and exact recommended `/sf-*` action.
-7. Preserve the documentation boundary, topic version, source commit, content digest, and any state revision. Treat `HELP.md` as the canonical product manual, but do not search it when a packaged cited topic answered the question.
+7. Preserve the documentation boundary, topic version, and any state revision. Treat `HELP.md` as the canonical product manual, but do not search it when a packaged cited topic answered the question.
 8. Do not generate, submit, approve, reject, upload, commit, push, or execute a displayed command.

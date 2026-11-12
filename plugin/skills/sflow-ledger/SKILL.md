@@ -37,7 +37,7 @@ indexes, or durable intents by hand.
 8. Use `singularity-flow ledger archive --out <FILE>` only when the user asks for
    an export. Explain that the bundle is verified and does not delete retained state.
 9. Only when status reports pending intents, run `singularity-flow ledger reconcile [WORK-ID]`.
-10. Report the exact branch, sequence, head hash, pending count, and errors.
+10. Report the exact branch, sequence, pending count, and errors.
 
 Never describe a warning-only or unverifiable ledger as fully enforced. Never merge
 the ledger branch into `main`, use `--allow-unrelated-histories`, force-push a pin, or

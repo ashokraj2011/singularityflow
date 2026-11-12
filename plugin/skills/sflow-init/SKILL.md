@@ -21,10 +21,10 @@ Setup only: do not implement, submit, approve, reset, stash, force-push, or edit
 For explicitly requested smart or zero-manual initialization, require a fresh repository:
 
 1. Run `singularity-flow init --smart-detect --dry-run --json` once. Show stacks, commands, gaps,
-   suggestions, write set, and proposal SHA-256. Never run a detected command.
+   suggestions, and write set. Never run a detected command.
 2. Ask explicitly about unresolved candidates and optional protections. Never infer ambiguity or
    select unchecked suggestions.
-3. Show `--accept-proposal <file> --confirm <sha256>`; use `--yes` only after explicit acceptance.
+3. Use `--accept-proposal <file> --confirm <sha256>`; add `--yes` only after explicit acceptance.
 4. Activate only after exact confirmation. Preserve the receipt, commit, readiness, and next
    command. Proposal-only and review-proposal files are not active law.
 5. Run metadata-only `singularity-flow precheck --quick --json`. Offer Copilot `/sf-ready` and

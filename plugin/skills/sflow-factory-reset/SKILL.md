@@ -28,8 +28,8 @@ the reset or being deleted.
 
 1. Run `singularity-flow factory-reset --dry-run --json` first.
 2. Show the complete `remove`, `replace`, `preserve`, `uncommittedResetPaths`,
-   `uncommittedDiscardPaths`, `customAgentRecoveries`, and `resetScopeSha256`
-   values. For every custom-agent recovery show source, destination, digest,
+   `uncommittedDiscardPaths`, and `customAgentRecoveries`
+   values. For every custom-agent recovery show source, destination,
    byte count, and validation reason. Do not summarize away paths.
 3. Ask the contributor whether to proceed. The contributor must explicitly
    provide the exact `confirmation` string from the preview.

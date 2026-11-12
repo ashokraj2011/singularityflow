@@ -26,7 +26,7 @@ Default: `singularity-flow appeal preflight $ARGUMENTS --for-agent --json`; show
 
 `quality.status: pending-submission-evidence`: `/sf-submit`, fresh tests/claims; no republication/risk/old evidence.
 
-Eligible coverage/document risks: ask reason/expiry, preview returned selectors with `singularity-flow appeal risk-prepare`, then relay identical `risk-accept`/hash to a human terminal; never execute/answer. Label **unmet, accepted risk**, not passed. Soft mode is not acceptance. Changed/expired/revoked/stale decisions need review. Missing artifacts/sections, malformed records and integrity are ineligible.
+Eligible coverage/document risks: ask reason/expiry, preview returned selectors with `singularity-flow appeal risk-prepare`, then relay the identical `risk-accept` command to a human terminal; never execute/answer. Label **unmet, accepted risk**, not passed. Soft mode is not acceptance. Changed/expired/revoked/stale decisions need review. Missing artifacts/sections, malformed records and integrity are ineligible.
 
 Extra paths: exact `singularity-flow appeal prepare` selectors record departures a person decides on the decision list. Preserve unrelated edits.
 

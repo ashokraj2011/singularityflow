@@ -21,7 +21,7 @@ export function namespaceHumanDecisionValue(value,{projectId,workId}) {
     if(!same(storyActorValue(value.actor),value.actor)||value.actor.actorKind!=='human')throw Error('A decision needs an authenticated human.');
     if(value.agentId!==null)namespaceIdentifier(value.agentId);projectEnrollmentTimestamp(value.recordedAt);
     exactObject(value.request,value.operation==='conformance.decide'
-      ?['phaseId','expected','clauseId','ownerPhase','outcome','expires','reason']:['phaseId','target','reason','confirm']);
+      ?['phaseId','expected','clauseId','ownerPhase','outcome','expires','reason']:['phaseId','target','reason','confirm',...(profile.targeted?['clauseIds']:[])]);
     if(value.request.phaseId!==value.phase||typeof value.request.reason!=='string'||value.request.reason!==value.request.reason.trim()
       ||!value.request.reason.length||value.request.reason.length>2048||/[\u0000\u007f]/u.test(value.request.reason))throw Error('Invalid request.');
     if(value.operation==='conformance.decide'){
@@ -31,7 +31,10 @@ export function namespaceHumanDecisionValue(value,{projectId,workId}) {
       exactObject(value.outcome,['currentPhase','clauseId','ownerPhase','verdict','outcome','reason','expiresAt']);
     }else{namespaceIdentifier(value.request.target);if(!digest(value.request.confirm))throw Error('Invalid submitted packet.');
       exactObject(value.outcome,['currentPhase','changeRequest',...(profile.repairBudget?['repairBudget']:[])]);}
-    if(profile.repairBudget&&(value.operation!=='phase.reject'||value.source?.profile!=='sflow-namespace-reviewer-return/v2'))throw Error('Another bounded-return profile.');
+    if(profile.repairBudget&&(value.operation!=='phase.reject'||value.source?.profile!=='sflow-namespace-reviewer-return/v'+profile.version))throw Error('Another bounded-return profile.');
+    if(profile.targeted&&(!Array.isArray(value.request.clauseIds)||!value.request.clauseIds.length||value.request.clauseIds.length>128
+      ||new Set(value.request.clauseIds).size!==value.request.clauseIds.length||!value.source.targeted
+      ||!same(value.source.targeted.scope.clauseIds,[...value.request.clauseIds].sort())))throw Error('Another targeted return.');
     if(!value.source||typeof value.source!=='object'||Array.isArray(value.source))throw Error('Invalid source.');
     namespaceJson(value);return value;
   }catch(cause){throw new SingularityFlowError('The retained human decision is invalid.',{cause,
@@ -40,7 +43,7 @@ export function namespaceHumanDecisionValue(value,{projectId,workId}) {
 export function namespaceHumanDecisionRecord(value){
   if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format'].some(key=>Object.hasOwn(value,key)))throw new SingularityFlowError(
     'The human decision wire version belongs to its registered owner.',{code:'ENGINE_INPUT_INVALID'});
-  const profile=namespaceHumanDecisionProfile({schemaVersion:value.source?.profile==='sflow-namespace-reviewer-return/v2'?2:1});
+  const profile=namespaceHumanDecisionProfile({schemaVersion:value.source?.profile==='sflow-namespace-reviewer-return/v3'?3:value.source?.profile==='sflow-namespace-reviewer-return/v2'?2:1});
   try{return namespaceHumanDecisionValue({schemaVersion:profile.version,
     format:profile.format,...value},{projectId:value.projectId,workId:value.workId});}
   catch(cause){throw new SingularityFlowError('The human decision input does not satisfy its record contract.',{code:'ENGINE_INPUT_INVALID',cause});}

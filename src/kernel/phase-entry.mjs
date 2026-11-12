@@ -7,6 +7,7 @@ import {validDocumentReference} from './document-read.mjs';
 import {clarificationPublicationState,resolvedClarificationPolicy} from './clarification-responses.mjs';
 import {effectivePhasePublicationProducer,pinnedTestEvidenceSource} from './phase-policy.mjs';
 import {utf8Bytes} from './artifact-content.mjs';
+import {phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 
 const text=value=>typeof value==='string'&&value.length>0&&value.length<=4096;
 const count=value=>Number.isSafeInteger(value)&&value>=0;
@@ -17,6 +18,7 @@ const strings=value=>Array.isArray(value)&&value.every(text);
 function bad(){throw new SingularityFlowError('The phase entry port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});}
 
 export const CONTENT_PHASE_ENTRY_PROFILE='sflow-phase-entry-manifest/v2';
+export const TARGETED_PHASE_ENTRY_PROFILE='sflow-phase-entry-manifest/v4';
 const exact=(value,fields)=>keys(value,fields)&&Object.keys(value).length===fields.length;
 const contentRef=value=>exact(value,['namespace','sha256','bytes'])&&['config','state','evidence','runtime','local'].includes(value.namespace)
   &&digest(value.sha256)&&count(value.bytes)&&value.bytes<=134217728;
@@ -24,7 +26,7 @@ const contentRef=value=>exact(value,['namespace','sha256','bytes'])&&['config','
 export function phaseEntryProtocol(context) {
   if(context.manifestProfile===undefined)return {selection:phaseEntrySelection,inspection:phaseEntryInspection,
     composition:phaseEntryComposition,clarification:phaseEntryClarification,plan:phaseEntryPlan,manifest:phaseEntryManifest};
-  if(context.manifestProfile!==CONTENT_PHASE_ENTRY_PROFILE)throw new SingularityFlowError(
+  if(![CONTENT_PHASE_ENTRY_PROFILE,TARGETED_PHASE_ENTRY_PROFILE].includes(context.manifestProfile))throw new SingularityFlowError(
     'This phase-entry manifest requires its matching protocol.',{code:'ENGINE_STORAGE_UNSUPPORTED',details:{profile:context.manifestProfile}});
   return {selection:contentEntrySelection,inspection:contentEntryInspection,composition:contentEntryComposition,
     clarification:contentEntryClarification,plan:contentEntryPlan,manifest:contentEntryManifest};
@@ -38,12 +40,12 @@ function contentEntrySelection(context,inputs) {
     if(existing)existing.required=true;
     else binding.inputs.push({phase:testSource,required:true,...(Object.hasOwn(context.workflow.phases,testSource)
       ?phaseReviewSelection(context.workflow,testSource):{generation:null,retained:[]})});}
-  return {...binding,projectId:context.projectId,producer,authorAgentId:phase.defaultAgent??binding.agentId,
+  return {...binding,...(context.manifestProfile===TARGETED_PHASE_ENTRY_PROFILE?{targetedRepairProtocol:true}:{}),projectId:context.projectId,producer,authorAgentId:phase.defaultAgent??binding.agentId,
     clarificationPolicy:resolvedClarificationPolicy({},context.workflow,phase)};
 }
-export function phaseContextResources(value,{maximumBytes=65536}={}) {
+export function phaseContextResources(value,{maximumBytes=65536,targetedRepair=false}={}) {
   if(!Array.isArray(value)||value.length>4096||!count(maximumBytes)||maximumBytes>1048576)bad();
-  const roles=['constitution','agent','skill','instruction','story-source','approved-input','supporting-document','human-clarifications','artifact-template','generation-intent','current-draft'];
+  const roles=['constitution','agent','skill','instruction','story-source','approved-input','supporting-document','human-clarifications',...(targetedRepair?['repair-scope']:[]),'artifact-template','generation-intent','current-draft'];
   const rank=kind=>kind==='constitution'?0:['agent','skill','instruction'].includes(kind)?1:roles.indexOf(kind);
   const ids=new Set();
   for(const resource of value) {
@@ -59,7 +61,7 @@ export function phaseContextResources(value,{maximumBytes=65536}={}) {
 }
 function contentEntryInspection(binding,facts) {
   if(!exact(facts,['workId','phase','generation','inspectionGeneration','projectId','authoring','recovery','references','deterministic','documents','budgets','resources',
-    'contextIdentity','permissions','draft','blockers','configuration'])||facts.workId!==binding.workId||facts.phase!==binding.phase
+    'contextIdentity','permissions','draft','blockers','configuration',...(binding.targetedRepairProtocol?['repairScope']:[])])||facts.workId!==binding.workId||facts.phase!==binding.phase
     ||facts.generation!==binding.generation||facts.inspectionGeneration!==binding.inspectionGeneration||facts.projectId!==binding.projectId
     ||!admissionFactsValid(facts)||facts.deterministic!==binding.deterministic
     ||!exact(facts.budgets,['documentPreviewBytes','supportingTotalBytes'])||!count(facts.budgets.documentPreviewBytes)||facts.budgets.documentPreviewBytes>1048576
@@ -72,7 +74,7 @@ function contentEntryInspection(binding,facts) {
     ||!count(draft.generation)||draft.generation<1||!text(draft.revision)||!digest(draft.bodySha256)||!text(draft.baseRevision)
     ||!contentRef(draft.artifact)||draft.artifact.namespace!=='local'
     ||draft.intent!==null&&(!exact(draft.intent,['id','reference'])||!text(draft.intent.id)||!contentRef(draft.intent.reference)||draft.intent.reference.namespace!=='local')))bad();
-  const resources=phaseContextResources(facts.resources,{maximumBytes:facts.budgets.documentPreviewBytes}),admission=phaseCompositionAdmission(facts);
+  const resources=phaseContextResources(facts.resources,{maximumBytes:facts.budgets.documentPreviewBytes,targetedRepair:Boolean(binding.targetedRepairProtocol)}),admission=phaseCompositionAdmission(facts);
   const ofKind=kind=>resources.filter(item=>item.kind===kind),sameReference=(a,b)=>a.namespace===b.namespace&&a.sha256===b.sha256&&a.bytes===b.bytes;
   if(ofKind('story-source').length!==1||ofKind('artifact-template').length!==1||ofKind('agent').length!==(binding.authorAgentId===null?0:1)
     ||ofKind('constitution').length>1||ofKind('human-clarifications').length>1
@@ -85,6 +87,33 @@ function contentEntryInspection(binding,facts) {
       &&item.sha256===matches[0].reference.sha256&&(item.bytes===null||item.bytes===matches[0].reference.bytes)))bad();
   }
   if(ofKind('approved-input').some(item=>!binding.inputs.some(input=>input.phase===item.phase)))bad();
+  if(binding.targetedRepairProtocol){const repair=facts.repairScope;
+    if(!exact(repair,['profile','phase','generation','changeRequestId','sourceRecord','predecessor','original','current','plan','references'])
+      ||repair.profile!=='sflow-namespace-targeted-code-entry/v1'||repair.phase!==binding.phase||repair.generation!==binding.inspectionGeneration
+      ||!text(repair.changeRequestId)||!contentRef(repair.sourceRecord)||repair.sourceRecord.namespace!=='evidence'
+      ||!Array.isArray(repair.references)||repair.references.some(ref=>!contentRef(ref)||ref.namespace==='local')
+      ||!repair.plan||!text(repair.plan.phase)||!count(repair.plan.generation)||repair.plan.generation<1
+      ||!contentRef(repair.plan.publication)||repair.plan.publication.namespace!=='evidence'
+      ||!contentRef(repair.plan.reviewPacket)||repair.plan.reviewPacket.namespace!=='evidence')bad();
+    try{phasePublicationBindingValue(repair.predecessor);}catch{bad();}
+    if(repair.predecessor.generation!==binding.generation)bad();
+    for(const scope of [repair.original,repair.current]){
+      if(!exact(scope,['profile','phase','clauseIds','repositories'])||scope.profile!=='sflow-namespace-targeted-code-scope/v1'
+        ||scope.phase!==binding.phase||!strings(scope.clauseIds)||!scope.clauseIds.length||scope.clauseIds.length>128
+        ||new Set(scope.clauseIds).size!==scope.clauseIds.length||!Array.isArray(scope.repositories)||!scope.repositories.length||scope.repositories.length>32
+        ||new Set(scope.repositories.map(row=>row?.id)).size!==scope.repositories.length||!scope.repositories.some(row=>row?.paths?.length))bad();
+      for(const row of scope.repositories)if(!exact(row,['id','paths','shared'])||!text(row.id)||!strings(row.paths)||new Set(row.paths).size!==row.paths.length
+        ||!Array.isArray(row.shared)||new Set(row.shared.map(shared=>shared?.path)).size!==row.shared.length
+        ||row.paths.some(path=>!path||path.startsWith('/')||/^[A-Za-z]:/u.test(path)||/[\\*?\[\]{}\u0000-\u001f\u007f]/u.test(path)||path.split('/').some(part=>!part||part==='.'||part==='..'))
+        ||row.shared.some(shared=>!exact(shared,['path','clauseIds'])||!row.paths.includes(shared.path)||!strings(shared.clauseIds)
+          ||!shared.clauseIds.length||new Set(shared.clauseIds).size!==shared.clauseIds.length||shared.clauseIds.some(id=>scope.clauseIds.includes(id))))bad();
+    }
+    if(JSON.stringify(repair.original.clauseIds)!==JSON.stringify(repair.current.clauseIds)
+      ||JSON.stringify(repair.original.repositories.map(row=>row.id))!==JSON.stringify(repair.current.repositories.map(row=>row.id))
+      ||[repair.sourceRecord,repair.predecessor.record,repair.plan.publication,repair.plan.reviewPacket]
+        .some(ref=>!repair.references.some(item=>sameReference(item,ref)))
+      ||repair.references.some(ref=>!ofKind('repair-scope').some(row=>sameReference(row.reference,ref))))bad();
+  }
   const current=ofKind('current-draft'),intent=ofKind('generation-intent');
   if(current.length!==(draft===null?0:1)||draft!==null&&(!sameReference(current[0].reference,draft.artifact)||current[0].phase!==binding.phase||current[0].generation!==draft.generation)
     ||intent.length!==(draft?.intent?1:0)||draft?.intent&&(!sameReference(intent[0].reference,draft.intent.reference)||intent[0].phase!==binding.phase||intent[0].generation!==draft.generation))bad();
@@ -144,7 +173,8 @@ function contentEntryManifest(binding,inspection,composition,clarification,plan,
     :plan.status==='authoring-entry'?{operation:'phase.draft.write',inputs:{...inputs,expectedRevision:facts.draft.revision},prerequisites:['authored-content-reference','operation-id','reason']}
     :plan.status==='author-permission-required'?{operation:'phase.enter',inputs,prerequisites:['phase.draft.write-permission']}
     :{operation:'phase.enter',inputs,prerequisites:inspection.admission.blockers.map(item=>item.code)};
-  return {schemaVersion:withDocuments?3:2,contract:withDocuments?'sflow-phase-entry-manifest/v3':CONTENT_PHASE_ENTRY_PROFILE,
+  return {schemaVersion:binding.targetedRepairProtocol?4:withDocuments?3:2,contract:binding.targetedRepairProtocol?TARGETED_PHASE_ENTRY_PROFILE:withDocuments?'sflow-phase-entry-manifest/v3':CONTENT_PHASE_ENTRY_PROFILE,
+    ...(binding.targetedRepairProtocol?{repairScope:structuredClone(facts.repairScope)}:{}),
     ...(withDocuments?{documents:structuredClone(facts.documents)}:{}),purpose:'phase-authoring',projectId:binding.projectId,workId:binding.workId,phase:binding.phase,
     publishedGeneration:binding.generation,inspectionGeneration:binding.inspectionGeneration,prospectiveGeneration:binding.nextGeneration,
     agentId:binding.agentId,authorAgentId:binding.authorAgentId,configuration:facts.configuration,revision:binding.revision,budgets:facts.budgets,resources:facts.resources,

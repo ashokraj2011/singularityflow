@@ -16,7 +16,7 @@ obsolete-access removal and final distribution remain separate.
 
 ## Phase 7: complete namespace application execution
 
-- [ ] Finish Code repair history: unchanged revalidation, human route-choice returns, initial
+- [x] Finish Code repair history: unchanged revalidation, human route-choice returns, initial
   returns and targeted repair, preserving original source/test/approval evidence.
 - [ ] Finish artifact sets, constitution, comparison, visual acceptance and document/test risks.
 - [ ] Finish actual test recovery, command amendments and bounded repeated execution.
@@ -127,8 +127,8 @@ custom phases, expiry/renewal, interruption and offline shared-only replay are q
   late-publication plan revalidation, obligation/evidence/test decisions and decision batches,
   plus live application-review and witness-exception profiles.
 - Upstream amend outcomes and forward amendments.
-- Targeted Code repair; multiple Code predecessors now have their own authenticated profile
-  described below.
+- Targeted artifact-member and document-only repair; Code clause-targeted repair and multiple
+  Code predecessors now have authenticated profiles described below.
 - Comparison/live application acceptance and document/test risk owners.
 - Runtime test-recovery agreements, command amendments and bounded repair execution.
 - Required grounding, external design, skill/MCP host, person-presence, architecture,
@@ -195,3 +195,22 @@ seconds, alone and within its unchanged 120/60-second limits. Source validation 
 checks; VS Code types, the unchanged Git audit and all 13 original bundle ceilings pass.
 Automatic test-recovery agreements, targeted repair, convergence projection/advancement on
 namespace storage and the other owners above remain required; neither phase is complete.
+
+## Targeted Code repair qualification
+
+Clause-targeted reviewer returns now retain the actual submitted packet, predecessor Code proof,
+approved plan and exact repository scope. The current scope incorporates real human plan corrections
+without altering the original return or consuming another repair attempt. Repository-local coverage
+has its own profile; older reports keep their original evaluator view. Before editing, phase entry
+provides exact scope and provenance resources. See
+[the targeted repair record](ENGINE-SDK-TARGETED-CODE-REPAIR.md).
+
+Mac qualification passes 231 distinct affected checks: value/profile contracts, real journeys on
+filesystem/SQLite/application storage, mixed multi-Code and fresh-output/witness journeys, an offline
+installed consumer, 10 native compatibility cases, 96 architecture checks and the unchanged 34-check
+package qualifier. The package qualifier ran alone in 95.2 seconds within its original 120/60-second
+limits. Source validation, VS Code types, the unchanged Git audit and all 13 original bundle ceilings
+passed. The larger multi-Code/visual combination and generation-bound fresh-output return run on
+SQLite; the other targeted journeys cover all three stores. No Windows or production installation
+was run. Artifact-member repair, convergence and the other owners above remain open, so neither
+Phase 5 nor Phase 7 is complete.

@@ -12,7 +12,7 @@ const phases=['build','extend','finish'],items=[{file:'converter',name:'convert'
 const plan='# Delivery plan\n\n## Agent brief\n\nImplement each independently allocated converter and its own executed regression without claiming another phase\'s work.\n\n'
   +'| Clause | Expected paths | Planned tests | Steps |\n| --- | --- | --- | --- |\n'
   +items.flatMap((item,index)=>['REQ','AC'].map(kind=>'| STORY-1:'+kind+'-00'+(index+1)+' | `src/'+item.file+'.js` | `test/'+item.file+'.test.js` | '+phases[index]+' |')).join('\n')+'\n';
-export async function namespaceMultipleCodeCase(t,backend,{mixed=false,repositories=1,removal=false}={}){
+export async function namespaceMultipleCodeCase(t,backend,{mixed=false,repositories=1,removal=false,release=false}={}){
   let qualified=repositories===2?plan.replaceAll(/`(src|test)\/([^`]+)`/gu,(_match,folder,file)=>'`frontend/'+folder+'/'+file+'`, `backend/'+folder+'/'+file+'`')
     +'\n## Repository roots\n\n| Repository | Plan root |\n| --- | --- |\n| app | frontend |\n| service-1 | backend |\n':plan;
   if(removal)qualified=qualified.replace('| Planned tests | Steps |','| Planned tests | Steps | Fulfillment |')
@@ -28,6 +28,10 @@ export async function namespaceMultipleCodeCase(t,backend,{mixed=false,repositor
       source.definition.workTypes.simple.phases.push('extend','finish');source.definition.workTypes.simple.plannedClaims.owners={build:'design',extend:'design',finish:'design'};
       if(mixed){source.definition.artifactSets={last:{primary:'summary.md',members:[{path:'summary.md',role:'implementation-summary',required:true},
         {path:'proof.png',role:'supporting-evidence',required:true}]}};source.definition.phases.finish.artifactSet='last';}
+      if(release){source.definition.inputsMode='enforce';source.definition.phases.release={label:'Release review',artifact:{path:'artifacts/release/conformance.md',kind:'conformance-report'},defaultTemplate:'intake.md',
+        writeScope:'artifact-only',inputs:phases.map(phase=>({phase})),testEvidenceFrom:'finish',specificationQuality:{mode:'off'},clarification:{mode:'off',markers:{mode:'off'}},
+        approval:{authorities:['reviewers'],minimum:1,rejectTo:['finish','release'],allowSelfApproval:false}};
+        source.definition.workTypes.simple.phases.push('release');source.agents.push({...source.agents[0],id:'release-reviewer',label:'Release author',phases:['release'],defaultFor:['release']});}
     }});
   await f.engine.run('phase.publish',{phaseId:'build',...publish});
   let starts=f.starts();const units=[...f.checks.bindings];
@@ -79,6 +83,7 @@ export async function namespaceMultipleCodeCase(t,backend,{mixed=false,repositor
         reason:'The isolated fixture reviewer inspected the exact octal output against the approved visual criterion.'});}
     await approve(phaseId);
   }
+  if(release){assert.equal((await f.capture()).workflow.currentPhase,'release');return {f:{...f,engine,checks:{owner:f.checks.owner,bindings:units}},publications,starts:()=>starts,approve};}
   assert.equal((await f.capture()).workflow.status,'closed');assert.equal(starts,4*repositories,'The changed earlier input needed another actual last-phase execution after restoration.');
   for(const root of f.roots)await rm(root,{recursive:true,force:true});const replay=createNamespaceEngine({...f.common,clock:{now(){throw Error('A shared-only Code replay cannot restamp or rerun.');}}});
   for(const row of publications)assert.equal((await replay.run('phase.publish',{phaseId:row.phaseId,...publish})).status,'retained');

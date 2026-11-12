@@ -8,6 +8,7 @@ import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceHumanDecisionReader} from './namespace-human-decision-reader.mjs';
 import {createNamespaceRepairBudgetReader} from './namespace-repair-budget-reader.mjs';
+import {createNamespaceTargetedRepairReader} from './namespace-targeted-repair-reader.mjs';
 import {memoNamespaceObservedDecision} from './namespace-story-reader.mjs';
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceRejectionOwner({observer,scope,workId}){
@@ -23,10 +24,12 @@ export function createNamespaceRejectionOwner({observer,scope,workId}){
     if(skillPhaseHostRequirement(snapshot.workflow,phase))required.add('qualified-skill-host');
     if(required.size)throw error('This return needs its additional policy owners.','ENGINE_PORT_UNAVAILABLE',{required:[...required].sort()});
     const repairBudget=await createNamespaceRepairBudgetReader({observer,scope,workId}).inspect(snapshot,phase.id,request.target,{signal,policyTraversal});
+    const targeted=request.clauseIds?.length?await createNamespaceTargetedRepairReader({observer,scope,workId}).read(snapshot,request,{signal,policyTraversal}):null;
     return {generation:phase.generation,reviewPacket:proof.binding.record,repairBudget,
       identity:{publication:proof.value.publication,reviewPacket:proof.binding.record,...(repairBudget.selection||repairBudget.prior?{
-        profile:'sflow-namespace-reviewer-return/v2',repairBudget:repairBudget.selection,priorBudget:repairBudget.prior}:{})},
-      references:[proof.binding.record,proof.value.publication.record,proof.published.artifact.content,...packets.publicationPolicyEvidence(proof.published),...repairBudget.references]};
+        profile:'sflow-namespace-reviewer-return/v2',repairBudget:repairBudget.selection,priorBudget:repairBudget.prior}:{}),
+        ...(targeted?{profile:'sflow-namespace-reviewer-return/v3',repairBudget:repairBudget.selection,priorBudget:repairBudget.prior,targeted:targeted.identity}:{})},
+      references:[proof.binding.record,proof.value.publication.record,proof.published.artifact.content,...packets.publicationPolicyEvidence(proof.published),...repairBudget.references,...(targeted?.references??[])]};
   }
   return Object.freeze({read,plan:planNamespaceRejection,authority:(workflow,request,actor)=>requireApprovalAuthority(
     workflow.resolution.approvalAuthorities,workflow.phases[request.phaseId].approvalPolicy,actor.identity).authorityGroup});

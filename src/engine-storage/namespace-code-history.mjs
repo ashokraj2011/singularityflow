@@ -16,6 +16,8 @@ import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-r
 import {createNamespaceUpstreamReturnReader,namespaceReturnGenesis} from './namespace-upstream-return-reader.mjs';
 import {createNamespaceInitialCodeHistoryReader} from './namespace-code-initial-history.mjs';
 import {createNamespaceSourceRetentionReader} from './namespace-source-retention-reader.mjs';
+import {createNamespaceTargetedRepairReader} from './namespace-targeted-repair-reader.mjs';
+import {assertTargetedCodeRepairDelta} from '../kernel/conformance-decisions.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceCodeHistoryReader({observer,scope,workId}){
   async function predecessor(scoped,snapshot,phaseId,generation,{signal,policyTraversal}={}){
@@ -81,7 +83,8 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
     const original=await retention.accepted({operationId:code.report.preflight.source.operationId,workId,phaseId},{signal});
     if(!original||original.plan.sourceBinding.operationId!==workflow.sourceBindings?.current?.operationId)throw error('Code rework must retain its original Story source selection.','ENGINE_PORT_UNAVAILABLE',{required:['namespace-code-rework-source-selection']});
     if(!same(original.workflow.sourceBindings.current,workflow.sourceBindings.current))throw error('The Code successor changed its original source selection.');
-    return {request,binding,kind:route.kind??'loop',previous:previous[0],code,inherited,upstreamReferences:upstream?.references??[]};
+    return {request,binding,kind:route.kind??'loop',previous:previous[0],code,inherited,upstreamReferences:upstream?.references??[],
+      targeted:route.kind==='rejection'?value.source.targeted??null:null};
   }
   async function opening(snapshot,phaseId,{signal,policyTraversal}={}){
     return observer.withReadScope(async scoped=>{
@@ -89,11 +92,33 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
       return prior.code.sources.map(source=>({repository:structuredClone(source.repository),observed:structuredClone(source.observed)}));
     });
   }
+  /** Read the authenticated scope before authoring; decoding a candidate alone grants no write permission. */
+  async function repairScope(snapshot,phaseId,{signal,policyTraversal}={}){
+    const workflow=snapshot.workflow,phase=workflow.phases[phaseId];
+    if(!phase||phase.generation<1||phase.reworkRevalidation?.generation!==phase.generation)return null;
+    const requests=(workflow.changeRequests??[]).filter(row=>row.status==='open'&&row.targetPhase===phaseId),
+      returns=createNamespaceRejectionReader({observer,scope,workId});let selected=null;
+    for(const request of requests)for(const link of namespaceHumanDecisionReceipts(workflow).filter(row=>row.operation==='phase.reject'
+      &&row.phase===request.sourcePhase&&row.generation===request.sourceGeneration).reverse()){
+      const value=await returns.decode(link.record,{signal});
+      if(value.outcome.changeRequest.id===request.id&&value.source.targeted){selected=request;break;}
+    }
+    if(!selected)return null;
+    return observer.withReadScope(async scoped=>{
+      const prior=await predecessor(scoped,snapshot,phaseId,phase.generation+1,{signal,policyTraversal});
+      if(!prior.targeted||prior.request.id!==selected.id)throw error('The targeted authoring entry lost its original accepted return.');
+      const current=await createNamespaceTargetedRepairReader({observer:scoped,scope,workId}).current(snapshot,phaseId,prior.targeted.scope.clauseIds,
+        prior.code.sources.map(row=>row.repository.id),{signal});
+      return {profile:'sflow-namespace-targeted-code-entry/v1',phase:phaseId,generation:phase.generation+1,changeRequestId:prior.request.id,
+        sourceRecord:prior.binding.record,predecessor:prior.previous,original:prior.targeted.scope,current:current.scope,plan:current.plan,
+        references:[...new Map([prior.binding.record,prior.previous.record,prior.targeted.policy.record,prior.targeted.report,...current.references].map(ref=>[canonicalJson(ref),ref])).values()]};
+    });
+  }
   async function inspect(snapshot,phaseId,current,{signal,policyTraversal}={}){
     return observer.withReadScope(async scoped=>{
       const retention=createNamespaceSourceRetentionReader({...scoped.evidenceReads,observer:scoped}),verified=current?.plan?.input?await retention.accepted(current.plan.input,{signal}):null;
       if(!verified||!same(verified,current))throw error('A Code successor needs its unchanged accepted source archive.');
-      const {request,binding,kind,previous,code,inherited,upstreamReferences}=await predecessor(scoped,snapshot,phaseId,verified.plan.generation,{signal,policyTraversal}),workflow=snapshot.workflow,
+      const {request,binding,kind,previous,code,inherited,upstreamReferences,targeted}=await predecessor(scoped,snapshot,phaseId,verified.plan.generation,{signal,policyTraversal}),workflow=snapshot.workflow,
         definition=(await scoped.approved(snapshot,{signal})).compiled.definition,repositories=[];
       for(const source of current.plan.sources){const earlier=code.sources.find(row=>row.repository.id===source.repository.id);
         if(!earlier||!same(earlier.repository,source.repository))throw error('The Code successor changed its original repository binding.');
@@ -103,11 +128,18 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
         for(const path of [...new Set([...a.keys(),...b.keys()])].sort())if(!same(a.get(path)??null,b.get(path)??null))changes.push({path,before:a.get(path)??null,after:b.get(path)??null});
         repositories.push({id:source.repository.id,previous:earlier.observed,current:source.observed,changes});
       }
+      let repair=null;
+      if(targeted){
+        if(targeted.phase!==phaseId||!same(targeted.publication,previous)||!same(targeted.scope.clauseIds,[...request.clauseIds].sort()))throw error('The targeted Code return lost its exact predecessor or clause scope.');
+        const selected=await createNamespaceTargetedRepairReader({observer:scoped,scope,workId}).current(snapshot,phaseId,targeted.scope.clauseIds,repositories.map(row=>row.id),{signal});
+        assertTargetedCodeRepairDelta(selected.scope,repositories,{workId,phaseId,ownerPhase:selected.plan.phase});repair={source:targeted,scope:selected.scope,plan:selected.plan};
+      }
       const changed=repositories.some(row=>row.changes.length),extended=kind==='choice'||!changed;
-      return {profile:inherited?'sflow-namespace-code-history/v7':kind==='upstream'?'sflow-namespace-code-history/v5':extended?'sflow-namespace-code-history/v3':kind==='rejection'?'sflow-namespace-code-history/v2':'sflow-namespace-code-history/v1',
-        ...(extended||inherited||kind==='upstream'?{mode:changed?'changed':'revalidated'}:{}),...(inherited?{returns:inherited.returns}:{}),predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
+      return {profile:repair?'sflow-namespace-code-history/v8':inherited?'sflow-namespace-code-history/v7':kind==='upstream'?'sflow-namespace-code-history/v5':extended?'sflow-namespace-code-history/v3':kind==='rejection'?'sflow-namespace-code-history/v2':'sflow-namespace-code-history/v1',
+        ...(repair?{targeted:repair}:{}),
+        ...(repair||extended||inherited||kind==='upstream'?{mode:changed?'changed':'revalidated'}:{}),...(inherited?{returns:inherited.returns}:{}),predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
         return:{[kind==='upstream'?'upstream':kind==='choice'?'choice':kind==='rejection'?'rejection':'approval']:binding,request:structuredClone(request),...(upstreamReferences.length?{references:upstreamReferences}:{})},repositories};
     });
   }
-  return Object.freeze({inspect,opening});
+  return Object.freeze({inspect,opening,repairScope});
 }

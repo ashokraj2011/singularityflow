@@ -23,6 +23,7 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceOutputRetentionReader} from './namespace-output-retention-reader.mjs';
+import {repositoryCoverageProjection} from '../kernel/repository-plan.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=data=>createHash('sha256').update(data).digest('hex');
 const failure=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 const required=owner=>{throw failure('Code publication requires its named evidence owner.','ENGINE_PORT_UNAVAILABLE',{required:[owner]});};
@@ -59,14 +60,21 @@ function codePreflightReader(options,requireCurrentIndices){
       clauseFacts=await clauses.inspect(snapshot,phaseId,retained,original,{signal,control});
     if(clauseFacts.requiredPolicyOwners.length)required(clauseFacts.requiredPolicyOwners[0]);
     const outputs=binding&&!binding.outputs?null:await outputsReader.selection({phaseId,generation:retained.plan.generation,
-      configuration:snapshot.configuration,source:retained},{signal,...(binding?{binding:binding.outputs}:{})}),repositories=[];
+      configuration:snapshot.configuration,source:retained},{signal,...(binding?{binding:binding.outputs}:{})}),repositories=[],views=new Map();
+    for(const source of retained.plan.sources){const id=source.repository.id,projection=plan.repositoryPlan?repositoryPlanProjection(plan.repositoryPlan,id):null,
+      planned=projection?{...plan.planned,claims:projection.claims,supportingFiles:projection.supportingFiles,supportingFileDetails:projection.supportingFileDetails}:plan.planned,
+      amendments=projection?plan.records.filter(row=>row.amendment).map(row=>repositoryPlanAmendmentProjection(plan.repositoryPlan,row,id,{workflow,definition})).filter(Boolean):[],
+      earlier=predecessors.repository(priorCode,id,{workflow,definition}),records={indexes:plan.active.indexes,
+        planned:[...new Map([...(projection?[planned,...amendments]:plan.records),...earlier.records].map(row=>[canonicalJson(row),row])).values()],observed:earlier.observed,acceptance:[]};
+      views.set(id,{planned,earlier,records});}
+    const projected=plan.repositoryPlan?repositoryCoverageProjection(plan.active.indexes,[...views].map(([id,row])=>({id,
+      clauseIds:[...row.records.planned,...row.records.observed].flatMap(record=>Object.keys(record.claims??{}))}))):null,
+      repositoryScope=requireCurrentIndices?projected:binding?.repositoryScope??null;
+    if(repositoryScope&&!same(repositoryScope,projected))throw failure('Repository coverage differs from its original approved plan and actual predecessors.','ENGINE_STORAGE_CORRUPT');
     for(const source of retained.plan.sources){
       const id=source.repository.id,context=await files.capture(retained,original,id,{signal}),sourceBasis=context.sourceBasis,
-        projection=plan.repositoryPlan?repositoryPlanProjection(plan.repositoryPlan,id):null,
-        planned=projection?{...plan.planned,claims:projection.claims,supportingFiles:projection.supportingFiles,supportingFileDetails:projection.supportingFileDetails}:plan.planned,
-        amendments=projection?plan.records.filter(row=>row.amendment).map(row=>repositoryPlanAmendmentProjection(plan.repositoryPlan,row,id,{workflow,definition})).filter(Boolean):[],
-        earlier=predecessors.repository(priorCode,id,{workflow,definition}),
-        records={indexes:plan.active.indexes,planned:[...new Map([...(projection?[planned,...amendments]:plan.records),...earlier.records].map(row=>[canonicalJson(row),row])).values()],observed:earlier.observed,acceptance:[]},
+        {planned,earlier}=views.get(id),localClauses=new Set(repositoryScope?.repositories.find(row=>row.id===id)?.clauseIds??[]),
+        records={...views.get(id).records,indexes:repositoryScope?plan.active.indexes.map(index=>({...index,clauses:index.clauses.filter(row=>localClauses.has(row.id))})):plan.active.indexes},
         obligations=Object.entries(planned.claims).filter(([,claim])=>plannedClaimAllocatedTo(claim,phaseId)).map(([clauseId,claim])=>({clauseId,...claim})),
         scope=codeDeliveryCandidateScope(records.planned,workflow,phase),nativeEntries=files.changes(context,{signal}).map(entry=>({
           status:entry.status==='D'?'deleted':entry.status==='A'?'added':'modified',oldPath:entry.oldPath,newPath:entry.newPath,untracked:false,
@@ -170,7 +178,7 @@ function codePreflightReader(options,requireCurrentIndices){
     for(const binding of [control?.binding.index,...(control?.plan.origins??[]).flatMap(row=>[row.origin,row.baseline]).map(value=>value.index)])if(binding){
       const current=await observer.record('evidence',binding.key,false,signal);if(current?.version!==binding.version)throw failure('Code origin evidence changed during preflight.','ENGINE_CONTEXT_CHANGED');
     }
-    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history,plan:plan.proof,priorCode,outputs}),...(history?{history}:{}),...(priorCode?{priorCode}:{}),...(outputs?{outputs}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
+    return {profile:'sflow-namespace-code-preflight/v'+namespaceCodePreflightVersion({history,plan:plan.proof,priorCode,outputs,repositoryScope}),...(repositoryScope?{repositoryScope}:{}),...(history?{history}:{}),...(priorCode?{priorCode}:{}),...(outputs?{outputs}:{}),source:retained.binding,baseline:{operationId:original.plan.input.operationId,record:original.record,
       index:{key:original.indexKey,version:original.indexVersion}},plan:plan.proof,repositories};
   }
   return Object.freeze({inspect});

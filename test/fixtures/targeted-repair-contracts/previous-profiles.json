@@ -1,0 +1,269 @@
+{
+  "base": "ec32634ce850af257fb232cba61083f4a38d7a0b",
+  "human": [
+    {
+      "schemaVersion": 1,
+      "value": {
+        "version": 1,
+        "format": "sflow-namespace-human-decision/v1",
+        "repairBudget": false
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "value": {
+        "version": 2,
+        "format": "sflow-namespace-human-decision/v2",
+        "repairBudget": true
+      }
+    }
+  ],
+  "code": [
+    {
+      "schemaVersion": 1,
+      "value": {
+        "version": 1,
+        "rework": false,
+        "kind": "code-delivery/v1",
+        "format": "sflow-namespace-code-policy/v1"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "value": {
+        "version": 2,
+        "rework": true,
+        "kind": "code-delivery/v2",
+        "format": "sflow-namespace-code-policy/v2"
+      }
+    },
+    {
+      "schemaVersion": 3,
+      "value": {
+        "version": 3,
+        "rework": true,
+        "kind": "code-delivery/v3",
+        "format": "sflow-namespace-code-policy/v3"
+      }
+    },
+    {
+      "schemaVersion": 4,
+      "value": {
+        "version": 4,
+        "rework": true,
+        "kind": "code-delivery/v4",
+        "format": "sflow-namespace-code-policy/v4"
+      }
+    },
+    {
+      "schemaVersion": 5,
+      "value": {
+        "version": 5,
+        "rework": true,
+        "kind": "code-delivery/v5",
+        "format": "sflow-namespace-code-policy/v5"
+      }
+    },
+    {
+      "schemaVersion": 6,
+      "value": {
+        "version": 6,
+        "rework": true,
+        "optionalHistory": true,
+        "kind": "code-delivery/v6",
+        "format": "sflow-namespace-code-policy/v6"
+      }
+    },
+    {
+      "schemaVersion": 7,
+      "value": {
+        "version": 7,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "kind": "code-delivery/v7",
+        "format": "sflow-namespace-code-policy/v7"
+      }
+    },
+    {
+      "schemaVersion": 8,
+      "value": {
+        "version": 8,
+        "rework": true,
+        "optionalHistory": true,
+        "kind": "code-delivery/v8",
+        "format": "sflow-namespace-code-policy/v8"
+      }
+    },
+    {
+      "schemaVersion": 9,
+      "value": {
+        "version": 9,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "kind": "code-delivery/v9",
+        "format": "sflow-namespace-code-policy/v9"
+      }
+    },
+    {
+      "schemaVersion": 10,
+      "value": {
+        "version": 10,
+        "rework": true,
+        "optionalHistory": true,
+        "predecessors": true,
+        "kind": "code-delivery/v10",
+        "format": "sflow-namespace-code-policy/v10"
+      }
+    },
+    {
+      "schemaVersion": 11,
+      "value": {
+        "version": 11,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "predecessors": true,
+        "kind": "code-delivery/v11",
+        "format": "sflow-namespace-code-policy/v11"
+      }
+    },
+    {
+      "schemaVersion": 12,
+      "value": {
+        "version": 12,
+        "rework": true,
+        "optionalHistory": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "kind": "code-delivery/v12",
+        "format": "sflow-namespace-code-policy/v12"
+      }
+    },
+    {
+      "schemaVersion": 13,
+      "value": {
+        "version": 13,
+        "rework": true,
+        "optionalHistory": true,
+        "humanAcceptance": true,
+        "outputs": true,
+        "optionalPredecessors": true,
+        "kind": "code-delivery/v13",
+        "format": "sflow-namespace-code-policy/v13"
+      }
+    }
+  ],
+  "preflights": [
+    {
+      "input": {},
+      "value": 1
+    },
+    {
+      "input": {
+        "history": {
+          "profile": "sflow-namespace-code-history/v1"
+        }
+      },
+      "value": 2
+    },
+    {
+      "input": {
+        "history": {
+          "profile": "sflow-namespace-code-history/v2"
+        }
+      },
+      "value": 3
+    },
+    {
+      "input": {
+        "history": {
+          "profile": "sflow-namespace-code-history/v3"
+        }
+      },
+      "value": 4
+    },
+    {
+      "input": {
+        "history": {
+          "profile": "sflow-namespace-code-history/v4"
+        }
+      },
+      "value": 5
+    },
+    {
+      "input": {
+        "history": {
+          "profile": "sflow-namespace-code-history/v5"
+        }
+      },
+      "value": 8
+    },
+    {
+      "input": {
+        "history": {
+          "profile": "sflow-namespace-code-history/v6"
+        }
+      },
+      "value": 8
+    },
+    {
+      "input": {
+        "history": {
+          "profile": "sflow-namespace-code-history/v7"
+        }
+      },
+      "value": 8
+    },
+    {
+      "input": {
+        "plan": {
+          "amendments": [
+            {
+              "id": "PAM-001"
+            }
+          ]
+        },
+        "history": {
+          "profile": "sflow-namespace-code-history/v2"
+        }
+      },
+      "value": 6
+    },
+    {
+      "input": {
+        "priorCode": {
+          "profile": "sflow-namespace-code-predecessors/v1",
+          "phases": [
+            {}
+          ]
+        },
+        "history": {
+          "profile": "sflow-namespace-code-history/v5"
+        }
+      },
+      "value": 10
+    },
+    {
+      "input": {
+        "outputs": {
+          "profile": "sflow-namespace-code-outputs/v1",
+          "files": [
+            {}
+          ]
+        },
+        "priorCode": {
+          "profile": "sflow-namespace-code-predecessors/v1",
+          "phases": [
+            {}
+          ]
+        },
+        "history": {
+          "profile": "sflow-namespace-code-history/v2"
+        }
+      },
+      "value": 12
+    }
+  ]
+}

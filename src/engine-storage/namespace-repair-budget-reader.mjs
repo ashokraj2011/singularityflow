@@ -22,7 +22,7 @@ export function createNamespaceRepairBudgetReader({observer,scope,workId}){
         if(!links.length)continue;
         const reader=kind==='rejection'?createNamespaceRejectionReader({observer,scope,workId}):createNamespaceUpstreamOwners({observer,scope,workId}).readers.get('upstream.decide');
         for(const link of links){const value=await reader.decode(link.record,options);
-          if(Object.hasOwn(value.source,'repairBudget'))throw error('An accepted bounded return cannot lose its counter history.');}
+          if(Object.hasOwn(value.source,'repairBudget')&&(value.source.repairBudget!==null||value.source.priorBudget!==null))throw error('An accepted bounded return cannot lose its counter history.');}
       }
       return {prior:null,references:[]};}
     const last=history.at(-1),kind=last.kind,links=kind==='rejection'?namespaceHumanDecisionReceipts(w).filter(row=>row.operation==='phase.reject')

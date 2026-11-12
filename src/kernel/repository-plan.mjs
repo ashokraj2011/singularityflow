@@ -15,6 +15,16 @@ const cells=line=>{const text=line.trim();return text.startsWith('|')&&text.ends
 const code=value=>/^`[^`]+`$/u.test(value)?value.slice(1,-1):value;
 const order=(a,b)=>a.repositoryId<b.repositoryId?-1:a.repositoryId>b.repositoryId?1:0;
 const relative=value=>{try{return sourceRelativePath(value);}catch{fail('A repository plan needs an exact relative path.',{path:value});}};
+/** A local coverage view keeps globally unassigned clauses visible instead of silently excluding them. */
+export function repositoryCoverageProjection(indexes,repositories){
+  if(!Array.isArray(indexes)||!Array.isArray(repositories)||!repositories.length||repositories.length>32
+    ||repositories.some(row=>!id(row?.id)||!Array.isArray(row.clauseIds)||row.clauseIds.some(value=>typeof value!=='string'))
+    ||new Set(repositories.map(row=>row.id)).size!==repositories.length)fail('Repository coverage needs its exact clause inventory.',null,'ENGINE_REPOSITORY_COVERAGE_INVALID');
+  const known=[...new Set(indexes.flatMap(index=>(index.clauses??[]).map(row=>row.id)))].sort(),all=new Set(repositories.flatMap(row=>row.clauseIds)),
+    unassigned=known.filter(value=>!all.has(value)),rows=repositories.map(row=>{const owned=new Set(row.clauseIds);
+      return {id:row.id,clauseIds:known.filter(value=>owned.has(value)||unassigned.includes(value))};}).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+  return rows.every(row=>row.clauseIds.length===known.length)?null:{profile:'sflow-namespace-repository-coverage/v1',repositories:rows};
+}
 function rootsValue(roots){
   if(!Array.isArray(roots)||!roots.length||roots.length>32)fail('Repository roots must name between one and 32 repositories.');
   const ids=new Set(),prefixes=[];

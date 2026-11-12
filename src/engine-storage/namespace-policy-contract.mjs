@@ -9,7 +9,7 @@ export const SPECIFICATION_ANALYSIS_EVIDENCE='specification-analysis/v1';
 export const PHASE_ASSIGNMENT_EVIDENCE='phase-assignment/v1';
 export const CODE_DELIVERY_EVIDENCE='code-delivery/v1';
 export const CODE_REWORK_EVIDENCE='code-delivery/v2';
-export const isCodePolicyEvidence=kind=>[CODE_DELIVERY_EVIDENCE,CODE_REWORK_EVIDENCE,'code-delivery/v3','code-delivery/v4','code-delivery/v5','code-delivery/v6','code-delivery/v7','code-delivery/v8','code-delivery/v9','code-delivery/v10','code-delivery/v11','code-delivery/v12','code-delivery/v13'].includes(kind);
+export const isCodePolicyEvidence=kind=>[CODE_DELIVERY_EVIDENCE,CODE_REWORK_EVIDENCE,'code-delivery/v3','code-delivery/v4','code-delivery/v5','code-delivery/v6','code-delivery/v7','code-delivery/v8','code-delivery/v9','code-delivery/v10','code-delivery/v11','code-delivery/v12','code-delivery/v13','code-delivery/v14','code-delivery/v15','code-delivery/v16','code-delivery/v17','code-delivery/v18','code-delivery/v19'].includes(kind);
 export const CODE_INPUT_EVIDENCE='approved-code-inputs/v1';
 export const CONFORMANCE_EVIDENCE='conformance/v1';
 export const isConformanceEvidence=kind=>[CONFORMANCE_EVIDENCE,'conformance/v2'].includes(kind);

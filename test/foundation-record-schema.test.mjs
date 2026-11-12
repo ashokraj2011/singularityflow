@@ -70,7 +70,7 @@ test('Code profiles preserve original versions and separately admit reviewed add
       assert.deepEqual(admitRecordSchemaVersion(family,original),{record:original,storedVersion:version});
       assert.equal(admitRecordSchemaVersion(family,original).record,original);
     }
-    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:14}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceCodePolicyProfile(kind,{schemaVersion:20}),{code:'SCHEMA_VERSION_FUTURE'});
   }
   for(const version of [1,2,3,4,5,6])assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:version},{schemaVersion:version}),true);
   assert.equal(namespaceCodePolicyVersionsMatch({schemaVersion:1},{schemaVersion:2}),false);

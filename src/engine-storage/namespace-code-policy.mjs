@@ -54,7 +54,7 @@ function reportValue(value){
     exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance']);
     if(value.format!==profile.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
     const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[]),
-      ...((profile.optionalPredecessors?Boolean(p.priorCode):profile.predecessors)?['priorCode']:[]),...(profile.outputs?['outputs']:[])]);
+      ...((profile.optionalPredecessors?Boolean(p.priorCode):profile.predecessors)?['priorCode']:[]),...((profile.optionalOutputs?Boolean(p.outputs):profile.outputs)?['outputs']:[]),...(profile.repositoryCoverage?['repositoryScope']:[])]);
     const preflightVersion=profile.humanAcceptance?namespaceCodePreflightVersion(p):profile.version;
     if(p.profile!=='sflow-namespace-code-preflight/v'+preflightVersion||namespaceCodePreflightVersion(p)!==preflightVersion||!Array.isArray(p.repositories))throw Error('Another Code preflight.');
     sourceRetentionBinding(p.source);exactObject(p.baseline,['operationId','record','index']);namespaceIdentifier(p.baseline.operationId,'Baseline operation');
@@ -167,7 +167,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         }
       }
     }
-    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13}[preflightVersion]??7):preflightVersion,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
+    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19}[preflightVersion]??7):preflightVersion,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
     return {report,source,policy};
   }
   async function candidate(publication,snapshot,options){const value=await withReaders(readers=>candidateFor(publication,snapshot,options,readers));

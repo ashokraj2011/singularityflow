@@ -352,6 +352,10 @@ test('a real folder is proposed, activated, started with --agent and finished as
   await writeFile(path.join(root, 'singularity/work-items/CALL-1/artifacts/orchestrator/orchestrator.md'),
     '# Orchestrator\n\n## Plan\n- Add greet(name) to src/greet.mjs.\n- Add one test in test/greet.test.mjs.\n\n## Review\n- Risk: none beyond the new file; one focused test covers it.\n\n## Changes\nsrc/greet.mjs adds greet(); test/greet.test.mjs checks it. The test passes locally.\n');
   sflow('phase', 'publish', 'orchestrator');
+  // The user-defined agent's own work type is reviewed like every other (review level 2): the init-time opt-out
+  // above covers only the work types init wrote. Its reviewer reads the published step and keeps a ready review.
+  const { reviewStep } = await import('./helpers/step-review.mjs');
+  reviewStep((args) => JSON.parse(sflow(...args)), 'orchestrator');
   assert.match(refused('submit', 'orchestrator').message, /scope|plan/u, 'the omitted responsibilities wait for a person to record why');
   sflow('decision', 'applicability', '--responsibility', 'scope', '--reason', 'One small greet function was asked for; no requirement clauses were needed.');
   sflow('decision', 'applicability', '--responsibility', 'plan', '--reason', 'The orchestrator planned the change itself in its one step, recorded in its deliverable.');

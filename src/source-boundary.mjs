@@ -48,20 +48,28 @@ const TEST_SUPPORT_DIRECTORIES = new Set(['__mocks__', 'mocks', 'mock', 'fixture
   'stubs', 'stub', 'factories', 'page-object', 'page-objects', 'pageobjects', 'pom', 'test-utils', 'setup']);
 const TEST_SUPPORT_FILE = /(?:^|[._-])(?:mocks?|fixtures?|setup|teardown|helpers?|stubs?|factor(?:y|ies)|support|utils?)(?:[._-][a-z0-9]+)*\.[a-z0-9]+$/iu;
 
+// Setup a test runner names wherever it sits (Jest, Vitest, Create React App, Playwright global setup).
+const TEST_RUNNER_SETUP_FILE = /^(?:setupTests|setup-tests|(?:jest|vitest|playwright|test)[.-]setup|global[.-]?(?:setup|teardown))\.[a-z0-9]+$/iu;
+
 /**
  * A test-support module: a mock, fixture, setup, helper or page object, which a test uses but which proves nothing by
  * running. A plan listed three E2E setup and mock modules as an AC's planned tests; only the reviewer said so
- * (office, 2026-11-11). Narrow on purpose: a file named like a test case is never support, and an ordinary file in
- * a test folder (test/calculator.js) is not either.
+ * (office, 2026-11-11). Narrow on purpose: a file named like a test case is never support, an ordinary file in
+ * a test folder (test/calculator.js) is not either, and outside a test folder only what a test runner names
+ * (conftest.py, setupTests.js, __mocks__/) is: src/helper.mjs or src/setup.js is the application's own code.
  */
 export function isTestSupportPath(candidate) {
   const relative = posix(String(candidate ?? '')).replace(/^\.\//, '');
   if (!relative || relative.startsWith('../') || path.posix.isAbsolute(relative)) return false;
   const segments = relative.split('/');
   const basename = segments.at(-1) ?? '';
+  const directories = segments.slice(0, -1).map((segment) => segment.toLowerCase());
   if (TEST_CASE_FILE.test(basename)) return false;
-  if (basename === 'conftest.py' || /\.page\.[a-z0-9]+$/iu.test(basename)) return true;
-  if (segments.slice(0, -1).some((segment) => TEST_SUPPORT_DIRECTORIES.has(segment.toLowerCase()))) return true;
+  if (basename === 'conftest.py' || TEST_RUNNER_SETUP_FILE.test(basename) || directories.includes('__mocks__')) return true;
+  const inTestTree = directories.some((segment) => TEST_DIRECTORY_SEGMENTS.has(segment)) || isNativeTestPath(relative);
+  if (!inTestTree) return false;
+  if (/\.page\.[a-z0-9]+$/iu.test(basename)) return true;
+  if (directories.some((segment) => TEST_SUPPORT_DIRECTORIES.has(segment))) return true;
   return TEST_SUPPORT_FILE.test(basename);
 }
 

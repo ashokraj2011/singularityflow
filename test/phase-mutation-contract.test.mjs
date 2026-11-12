@@ -300,6 +300,50 @@ test('artifact edits and creation work, protected/state/other-repository paths d
   assert.equal(mutationPathDecision(contract, 'singularity/work-items/PMC-1/artifacts/custom-step/new.md').allowed, false);
 });
 
+test('SFlow\'s Copilot hooks are protected by default: an agent edit or shell write is refused with the person\'s route, SFlow\'s own write is not', async t => {
+  // An agent editing .github/hooks could switch off the guard those hooks run. The repository's own protectedPaths
+  // no longer has to name them: this one only protects policy/.
+  const f = await fixture(t, { writeScope: 'source-and-artifact', generationPolicy: { task: 'code' }, generationIntent: { status: 'open', generation: 1 } });
+  f.definition.governance.protectedPaths = ['policy'];
+  const contract = f.contract('authoring');
+  const { REPOSITORY_HOOK_FILE, REPOSITORY_HOOK_LAUNCHERS, REPOSITORY_HOOK_README, writeRepositoryHooks } = await import('../src/repository-hooks.mjs');
+  for (const target of [REPOSITORY_HOOK_FILE, ...REPOSITORY_HOOK_LAUNCHERS, REPOSITORY_HOOK_README, '.github/hooks', '.github/hooks/other.json', '.GitHub/Hooks/sflow.json']) {
+    assert.deepEqual(mutationPathDecision(contract, target), { allowed: false, reason: 'protected-path', path: target }, target);
+  }
+  for (const target of ['src/App.jsx', '.github/workflows/ci.yml', '.github/hooksmith.md']) assert.equal(mutationPathDecision(contract, target).allowed, true, target);
+
+  // An edit tool, alone or in a patch, in a turn that may edit application code.
+  const payload = await f.enter('/sf-code', 'hooks-author');
+  assert.deepEqual(await mutationToolGuard(payload), {}, 'the code itself stays editable');
+  for (const toolArgs of [{ path: REPOSITORY_HOOK_FILE }, { patch: '*** Begin Patch\n*** Update File: .github/hooks/sflow-hook.sh\n+exit 0\n*** End Patch' }]) {
+    const refused = await mutationToolGuard({ ...payload, toolName: toolArgs.patch ? 'apply_patch' : 'edit', toolArgs });
+    assert.equal(refused.permissionDecision, 'deny');
+    assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_HOOKS_PROTECTED: no agent changes \.github\/hooks: its Copilot hooks run SFlow's guard for every chat in this repository\. A person changes them in their own terminal, or runs singularity-flow doctor --repair-hooks there so SFlow writes them again for this repository's setting, then reviews and commits them\. Nothing was changed; tell the person, and go on with this turn's own work \(\.github\/hooks\//u);
+    assert.match(refused.permissionDecisionReason, /\n- Copilot: no verified equivalent\n- Shell: singularity-flow doctor --repair-hooks\n/u);
+    assert.deepEqual(refused.next.map(route => [route.command, route.copilotCommand]), [['singularity-flow doctor --repair-hooks', null]]);
+  }
+
+  // SFlow's own write: `doctor --repair-hooks` is a mutation, so the CLI moves the turn's shell baseline past it.
+  const { resolveOperation } = await import('../src/command-registry.mjs');
+  assert.equal(resolveOperation({ requestedCommand: 'doctor', positionals: ['doctor'], options: { 'repair-hooks': true } }).classification, 'mutation');
+  const shell = (command) => ({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  assert.deepEqual(await mutationToolGuard(shell('npm test')), {});
+  assert.deepEqual(await mutationPostToolGuard(shell('npm test')), {});
+  const repair = shell('singularity-flow doctor --repair-hooks');
+  assert.equal((await mutationToolGuard(repair)).permissionDecision, undefined);
+  assert.deepEqual((await writeRepositoryHooks(f.root)).sort(), [REPOSITORY_HOOK_FILE, ...REPOSITORY_HOOK_LAUNCHERS, REPOSITORY_HOOK_README].sort());
+  await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
+  assert.deepEqual(await mutationPostToolGuard(repair), {}, 'SFlow wrote them in its own process');
+
+  // A shell write the guard sees is stopped like any protected path, with the person's route beside recovery.
+  assert.deepEqual(await mutationToolGuard(shell('npm test')), {});
+  await writeFile(path.join(f.root, REPOSITORY_HOOK_FILE), '{"version":1,"hooks":{}}\n');
+  const stopped = await mutationPostToolGuard(shell('npm test'));
+  assert.equal(stopped.continue, false);
+  assert.match(stopped.stopReason, /^PHASE_MUTATION_SHELL_CHANGE_DETECTED: preserve bytes; stop authoring and inspect recovery; no agent changes \.github\/hooks: [^\n]*\(\.github\/hooks\/sflow\.json\)/u);
+  assert.deepEqual(stopped.next.map(route => route.command), ['singularity-flow recover PMC-1 --phase custom-step --json', 'singularity-flow doctor --repair-hooks']);
+});
+
 test('the shipped edit guard denies direct and batched source patches with three-surface remedies', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-phase');
   const refused = await mutationToolGuard(payload);

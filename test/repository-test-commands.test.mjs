@@ -186,3 +186,61 @@ test('[PHR:REQ-007] item 8: a code step also runs, before its approval, the repo
   assert.deepEqual(laterStepTestNotes(workflow).map((entry) => [entry.phase, entry.message]), [['implementation',
     'implementation also runs e2e-local before its approval, the tests verification runs, so those find nothing new. e2e-relay needs environment relay, so verification runs it, not implementation.']]);
 });
+
+test('[PHR:REQ-007] item 8: a test whose env or argv names a deployed host is not run at the code step; the later step that chose it runs it', async (t) => {
+  const { literalDeployedHosts } = await import('../src/external-command-policy.mjs');
+  // This machine is never a deployed environment; a placeholder is no literal host; only host[:port] is kept.
+  for (const url of ['http://localhost:3000', 'http://127.0.0.1:5173', 'http://[::1]:5173/app', 'http://shop.localhost', 'https://shop.test/x',
+    'http://$HOST:3000', 'https://${BASE_HOST}/app', 'ftp://files.example.com']) {
+    assert.deepEqual(literalDeployedHosts({ env: { BASE_URL: url } }), [], url);
+  }
+  assert.deepEqual(literalDeployedHosts({ argv: ['npx', 'playwright', 'test', '--base-url=https://bot:pw@QA.Example.com:8443/app?token=abc#top'] }),
+    ['qa.example.com:8443']);
+  assert.deepEqual(literalDeployedHosts({ command: 'BASE_URL=https://staging.example.com npx playwright test' }), ['staging.example.com']);
+  assert.deepEqual(literalDeployedHosts({ env: { RELAY: 'wss://relay.example.com/socket' } }), ['relay.example.com']);
+
+  const definition = await shipped(t);
+  const staging = command('e2e-staging', 'e2e', { env: { PLAYWRIGHT_BASE_URL: 'https://staging.example.com' } });
+  const qa = command('e2e-qa', 'e2e', { argv: ['npx', 'playwright', 'test', '--base-url=https://qa.example.com:8443/app?token=abc'] });
+  const tests = [unit, local, relay, staging, qa];
+  const narrowed = structuredClone({ ...definition, tests });
+  narrowed.phases.implementation.testLevels = ['unit'];
+  const code = phase(resolveWorkType(validateDefinition(narrowed), 'feature'), 'implementation');
+  // The local one runs here; the relay one needs its environment, and the deployed ones a build with this code.
+  assert.deepEqual(ids(code), ['shop-unit', 'e2e-local']);
+  assert.deepEqual(code.laterStepTests, { runs: [{ id: 'e2e-local', steps: ['verification'] }], cannotRunHere: [
+    { id: 'e2e-relay', steps: ['verification'], needs: 'environment relay' },
+    { id: 'e2e-staging', steps: ['verification'], needs: 'staging.example.com (a deployed environment)' },
+    { id: 'e2e-qa', steps: ['verification'], needs: 'qa.example.com:8443 (a deployed environment)' }] });
+
+  // A code step that chose them itself leaves them to the later step that chose them too, never run here and never
+  // looped back; its own environment-bound one stays its own, as before.
+  const everything = resolveWorkType(validateDefinition({ ...structuredClone(definition), tests }), 'feature');
+  const all = phase(everything, 'implementation');
+  assert.deepEqual(ids(all), ['shop-unit', 'e2e-local', 'e2e-relay']);
+  assert.deepEqual(all.laterStepTests, { runs: [], cannotRunHere: [
+    { id: 'e2e-staging', steps: ['verification'], needs: 'staging.example.com (a deployed environment)' },
+    { id: 'e2e-qa', steps: ['verification'], needs: 'qa.example.com:8443 (a deployed environment)' }] });
+  assert.deepEqual(ids(phase(everything, 'verification')), ['shop-unit', 'e2e-local', 'e2e-relay', 'e2e-staging', 'e2e-qa'],
+    'the later step keeps all it chose');
+  // One only the code step runs stays its own: nothing else would run it.
+  const alone = structuredClone({ ...definition, tests });
+  alone.phases.implementation.testIds = ['shop-unit', 'e2e-staging'];
+  alone.workTypes.feature.phaseOverrides.verification = { ...alone.workTypes.feature.phaseOverrides.verification, testIds: ['e2e-local'] };
+  const kept = phase(resolveWorkType(validateDefinition(alone), 'feature'), 'implementation');
+  assert.deepEqual(ids(kept), ['shop-unit', 'e2e-staging', 'e2e-local']);
+  assert.deepEqual(kept.laterStepTests.cannotRunHere, []);
+  // Same argv with another env is another run: a deployed twin of a local test the code step runs is still named.
+  const twin = structuredClone({ ...definition, tests: [unit, local, staging] });
+  twin.phases.implementation.testIds = ['shop-unit', 'e2e-local'];
+  assert.deepEqual(phase(resolveWorkType(validateDefinition(twin), 'feature'), 'implementation').laterStepTests,
+    { runs: [], cannotRunHere: [{ id: 'e2e-staging', steps: ['verification'], needs: 'staging.example.com (a deployed environment)' }] });
+
+  // The words: the host only, and an ID that is its argv never shows a user name, password or query.
+  const { laterStepTestLines, laterStepTestNotes } = await import('../src/later-step-tests.mjs');
+  const workflow = { phaseOrder: ['implementation', 'verification'], resolution: { phases: [{ id: 'implementation', laterStepTests: { runs: [],
+    cannotRunHere: [{ id: 'npx playwright test --base-url=https://bot:pw@qa.example.com/app?token=abc', steps: ['verification'], needs: 'qa.example.com (a deployed environment)' }] } }] } };
+  assert.deepEqual(laterStepTestLines(workflow, 'implementation'), [
+    'Cannot run here: npx playwright test --base-url=https://qa.example.com/app needs qa.example.com (a deployed environment); verification runs it.']);
+  assert.doesNotMatch(JSON.stringify(laterStepTestNotes(workflow)), /bot|pw@|token/u);
+});

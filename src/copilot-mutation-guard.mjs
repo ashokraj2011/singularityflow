@@ -20,6 +20,7 @@ import { adjudicationTableStep, ANSWER_BOUND_TURNS, DECIDE_SKILL_MUTATIONS, DECI
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 import { isTestRunnerOutputPath, isTransientTestResultPath } from './application-paths.mjs';
+import { COPILOT_HOOKS_PROTECTED, isCopilotHooksPath } from './governed-roots.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
 
@@ -2036,7 +2037,10 @@ async function mutationToolDecision(payload, record) {
       'PHASE_MUTATION_REPAIR_REQUIRED: this turn detected forbidden shell changes; preserve bytes and inspect recovery');
     const paths = targets(call.args);
     if (!paths.length) return mutationDenial(contract, 'PHASE_MUTATION_TARGET_UNKNOWN');
-    const denied = paths.filter(target => !mutationPathDecision(contract, target, call.args.cwd ?? payload.cwd ?? contract.repositoryRoot).allowed);
+    const decisions = paths.map(target => mutationPathDecision(contract, target, call.args.cwd ?? payload.cwd ?? contract.repositoryRoot));
+    const denied = paths.filter((target, index) => !decisions[index].allowed);
+    const hooks = decisions.filter(decision => decision.reason === 'protected-path' && isCopilotHooksPath(decision.path)).map(decision => decision.path);
+    if (hooks.length) return mutationDenial(contract, `PHASE_MUTATION_HOOKS_PROTECTED: ${COPILOT_HOOKS_PROTECTED}. Nothing was changed; tell the person, and go on with this turn's own work`, hooks, { routes: hooksRoutes() });
     const correction = stagingPathMismatch(contract, denied,
       call.args.cwd ?? payload.cwd ?? contract.repositoryRoot, 'write');
     if (correction) return correction;
@@ -2157,7 +2161,10 @@ export async function mutationPostToolGuard(payload = {}) {
   if (forbidden.length) {
     value.findings = [...new Set([...value.findings, ...forbidden])];
     await atomicRecord(recordFile(payload), value);
-    const denial = mutationDenial({ ...value.contract, next: recoveryRoutes(value.contract) }, 'PHASE_MUTATION_SHELL_CHANGE_DETECTED: preserve bytes; stop authoring and inspect recovery', forbidden);
+    // A changed hook file is the person's to put back: the guard it runs was changed from this turn.
+    const hooks = forbidden.some(isCopilotHooksPath);
+    const denial = mutationDenial({ ...value.contract, next: [...recoveryRoutes(value.contract), ...(hooks ? hooksRoutes() : [])] },
+      `PHASE_MUTATION_SHELL_CHANGE_DETECTED: preserve bytes; stop authoring and inspect recovery${hooks ? `; ${COPILOT_HOOKS_PROTECTED}` : ''}`, forbidden);
     return postFinding(denial);
   }
   value.baseline = after;
@@ -2244,6 +2251,12 @@ function postFinding(denial) {
   // The next pre-tool guard latches the file/shell restriction; this cannot undo execution.
   return { ...denial, continue: false, stopReason: denial.permissionDecisionReason,
     additionalContext: `Stop this SFlow authoring turn and preserve changes. ${denial.permissionDecisionReason}` };
+}
+
+/** SFlow writing its Copilot hooks again, a person's own terminal line: no Copilot route. */
+function hooksRoutes() {
+  const repair = safeCommandGuidance({ argv: ['doctor', '--repair-hooks'] });
+  return repair ? [{ ...repair, skill: null, copilotCommand: null }] : [];
 }
 
 function recoveryRoutes(contract) {

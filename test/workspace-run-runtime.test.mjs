@@ -270,6 +270,96 @@ test('an occupied port names who holds it: another Story checkout\'s SFlow run w
 });
 
 
+// What Windows prints (netstat -ano -p tcp / -p tcpv6, tasklist /FO CSV /NH), read by an injected exec on any machine.
+const NETSTAT_HEAD = '\r\nActive Connections\r\n\r\n  Proto  Local Address          Foreign Address        State           PID\r\n';
+const netstatRows = (rows) => NETSTAT_HEAD + rows.map((row) => `  ${row}\r\n`).join('');
+function windowsExec({ tcp = '', tcpv6 = '', tasklist = (pid) => ({ status: 0, stdout: `"node.exe","${pid}","Console","1","52,340 K"\r\n` }) } = {}) {
+  const calls = [];
+  const exec = (command, args, options) => {
+    calls.push([command, ...args]);
+    assert.equal(options.windowsHide, true);
+    if (command === 'netstat') return { status: 0, stdout: args.at(-1) === 'tcpv6' ? tcpv6 : tcp };
+    if (command === 'tasklist') return tasklist(Number(args[1].replace('PID eq ', '')));
+    throw new Error(`unexpected command ${command}`);
+  };
+  return { exec, calls };
+}
+
+test('Windows: the port holder is read from netstat LISTENING rows, IPv4 and IPv6, and named by tasklist', async () => {
+  const { windowsPortListener } = await import('../src/application-run.mjs');
+  const noise = ['TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1012',
+    'TCP    127.0.0.1:51730        0.0.0.0:0              LISTENING       7001',
+    'TCP    192.168.1.20:5173      0.0.0.0:0              LISTENING       7002',
+    'TCP    127.0.0.1:5173         127.0.0.1:60211        ESTABLISHED     7003'];
+  for (const [address, table] of [['0.0.0.0', 'tcp'], ['127.0.0.1', 'tcp'], ['[::]', 'tcpv6'], ['[::1]', 'tcpv6']]) {
+    const row = `TCP    ${address}:5173${' '.repeat(10)}${table === 'tcp' ? '0.0.0.0:0' : '[::]:0'}              LISTENING       4242`;
+    const { exec, calls } = windowsExec({ [table]: netstatRows([...noise, row]) });
+    assert.deepEqual(windowsPortListener(5173, { exec, host: '127.0.0.1' }), { pid: 4242, command: 'node.exe' }, address);
+    assert.deepEqual(calls.at(-1), ['tasklist', '/FI', 'PID eq 4242', '/FO', 'CSV', '/NH']);
+    assert.deepEqual(calls.filter(([command]) => command === 'netstat'), table === 'tcp' ? [['netstat', '-ano', '-p', 'tcp']]
+      : [['netstat', '-ano', '-p', 'tcp'], ['netstat', '-ano', '-p', 'tcpv6']], 'IPv4 first for an IPv4 host, then IPv6');
+  }
+  // An IPv6 host reads IPv6 first; a state Windows names in another language still counts by its zero remote port.
+  const v6 = windowsExec({ tcpv6: netstatRows(['TCP    [::1]:5173             [::]:0                 ABHÖREN         5150']) });
+  assert.deepEqual(windowsPortListener(5173, { exec: v6.exec, host: '::1' }), { pid: 5150, command: 'node.exe' });
+  assert.deepEqual(v6.calls[0], ['netstat', '-ano', '-p', 'tcpv6']);
+
+  // No listener on the port: no holder, and tasklist is never asked.
+  const none = windowsExec({ tcp: netstatRows(noise) });
+  assert.equal(windowsPortListener(5173, { exec: none.exec }), null);
+  assert.equal(none.calls.some(([command]) => command === 'tasklist'), false);
+  const listening = netstatRows(['TCP    127.0.0.1:5173         0.0.0.0:0              LISTENING       4242']);
+  // tasklist refuses (access denied), finds nothing, or answers for another pid: the pid without a name.
+  for (const tasklist of [() => ({ status: 1, stdout: '', stderr: 'ERROR: Access denied\r\n' }),
+    () => ({ status: 0, stdout: 'INFO: No tasks are running which match the specified criteria.\r\n' }),
+    () => ({ status: 0, stdout: '"other.exe","9999","Console","1","1,000 K"\r\n' })]) {
+    assert.deepEqual(windowsPortListener(5173, { exec: windowsExec({ tcp: listening, tasklist }).exec }), { pid: 4242, command: null });
+  }
+  // A missing command (or one that throws) is no holder, or a pid without a name.
+  const missing = (command) => (name, args) => name === command ? { error: Object.assign(new Error(`spawnSync ${name} ENOENT`), { code: 'ENOENT' }), status: null, stdout: null }
+    : name === 'netstat' ? { status: 0, stdout: listening } : { status: 0, stdout: '"node.exe","4242","Console","1","1 K"' };
+  assert.equal(windowsPortListener(5173, { exec: missing('netstat') }), null);
+  assert.deepEqual(windowsPortListener(5173, { exec: missing('tasklist') }), { pid: 4242, command: null });
+  assert.equal(windowsPortListener(5173, { exec: () => { throw new Error('spawn EPERM'); } }), null);
+});
+
+test('Windows: the refusal names taskkill /PID for the person\'s own terminal and a quoted checkout path in the stop route; SFlow kills nothing', async t => {
+  const socket = net.createServer(); await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
+  const port = socket.address().port;
+  try {
+    const repo = await fixture(t, [entry('web', port)]);
+    await withMachineState(repo.env, async () => {
+      const c = await context(repo.root);
+      const { exec, calls } = windowsExec({ tcp: netstatRows([`TCP    127.0.0.1:${port}         0.0.0.0:0              LISTENING       4242`]) });
+      const refusal = async () => {
+        try { await startApplication(repo.root, c, c.application.start[0], { output: quiet, signals: [], platform: 'win32', spawnSyncCommand: exec }); } catch (error) { return error; }
+        assert.fail('the start was not refused');
+      };
+      const plain = await refusal();
+      assert.equal(plain.code, 'APP_PORT_IN_USE');
+      assert.deepEqual(plain.details.holder, { pid: 4242, command: 'node.exe', personStop: 'taskkill /PID 4242' });
+      assert.match(plain.message, /process 4242 \(node\.exe\), which no SFlow run started, already listens there\. It is not SFlow's to stop: a person who asked for it stops it in their own terminal \(taskkill \/PID 4242\)\./u);
+      assert.doesNotMatch(plain.message, /\bkill 4242/u);
+      assert.equal(plain.details.nextAction.copilotCommand, '/sf-run-app suggest');
+      // Another Story checkout's SFlow run holds it: the stop route quotes its Windows path, in the shell's own form.
+      const checkout = 'C:\\Users\\dev\\Story Checkout';
+      const other = path.join(path.dirname(appRecordPath(repo.root, 'web', 'web')), '..', 'worktrees', 'c'.repeat(32), 'web', 'web.json');
+      await mkdir(path.dirname(other), { recursive: true });
+      await writeFile(other, JSON.stringify({ format: 'sflow-app-run/v1', capability: 'web', id: 'web', pid: process.pid, runId: 'r',
+        checkout, url: `http://127.0.0.1:${port}/`, startedAt: new Date().toISOString(),
+        commandSha256: `sha256:${'0'.repeat(64)}`, processStartedAt: null, environment: null, readyAt: null }));
+      const held = await refusal();
+      assert.deepEqual(held.details.holder, { pid: process.pid, command: null, sflowRun: { capability: 'web', startId: 'web', checkout } });
+      assert.equal(held.details.nextAction.command, "singularity-flow app stop web --capability web --context-root 'C:\\Users\\dev\\Story Checkout'");
+      assert.equal(held.details.nextAction.platformCommands.win32,
+        "& 'singularity-flow' 'app' 'stop' 'web' '--capability' 'web' '--context-root' 'C:\\Users\\dev\\Story Checkout'");
+      assert.ok(held.message.includes(`from the checkout ${checkout} (pid ${process.pid}) already listens there. Stop it with ${held.details.nextAction.platformCommands.win32}, or`), held.message);
+      // Reading who holds the port only ever asks netstat and tasklist: the agent never kills a process.
+      assert.deepEqual([...new Set(calls.map(([command]) => command))], ['netstat', 'tasklist']);
+    });
+  } finally { await new Promise(resolve => socket.close(resolve)); }
+});
+
 test('the editor preview accepts a complete service graph and rejects cycles before saving', async () => {
   const { previewApplication } = await import('../src/run-configurations.mjs');
   const base = { start: [entry('api', 4001), entry('web', 4002, ['api'])], tests: [] };

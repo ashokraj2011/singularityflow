@@ -448,7 +448,7 @@ async function removeFiles(files) {
  * what held the port (session mining N2, 2026-11-11). First an SFlow run of any checkout of this repository, then the
  * process the system names, by its short name only (a full command line can carry a secret). Best effort: null.
  */
-async function portHolder(root, port, { platform = process.platform, spawnSyncCommand = spawnSync } = {}) {
+async function portHolder(root, port, { platform = process.platform, spawnSyncCommand = spawnSync, host = null } = {}) {
   let base;
   try { base = path.join(gitCommonDir(root), 'singularity-flow', 'app'); } catch { base = null; }
   const files = [];
@@ -478,35 +478,69 @@ async function portHolder(root, port, { platform = process.platform, spawnSyncCo
       checkout: typeof record.checkout === 'string' ? record.checkout : null } };
   }
   try {
-    if (platform === 'win32') {
-      const listed = spawnSyncCommand('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', timeout: 2_000, windowsHide: true });
-      const line = String(listed?.stdout ?? '').split(/\r?\n/u).find((entry) => /\bLISTENING\b/u.test(entry) && new RegExp(`:${port}\\s`, 'u').test(entry));
-      const pid = Number(line?.trim().split(/\s+/u).at(-1));
-      if (!Number.isInteger(pid) || pid <= 0) return null;
-      const named = spawnSyncCommand('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', timeout: 2_000, windowsHide: true });
-      return { pid, command: String(named?.stdout ?? '').match(/^"([^"]+)"/u)?.[1] ?? null };
-    }
+    if (platform === 'win32') return windowsPortListener(port, { exec: spawnSyncCommand, host });
     const listed = spawnSyncCommand('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc'], { encoding: 'utf8', timeout: 2_000 });
     const pid = Number(String(listed?.stdout ?? '').match(/^p(\d+)$/mu)?.[1]);
     return Number.isInteger(pid) && pid > 0 ? { pid, command: String(listed.stdout).match(/^c(.+)$/mu)?.[1] ?? null } : null;
   } catch { return null; }
 }
 
+/**
+ * Who listens on a loopback port on Windows, by pid and image name, or null. `netstat -ano` lists IPv4 (`-p tcp`)
+ * and IPv6 (`-p tcpv6`) separately, and a dual-stack listener on `[::]` shows in the IPv6 one only: both are read,
+ * the application host's family first. A listening row is `LISTENING`, or, where Windows names states in another
+ * language, one with no remote port (`0.0.0.0:0`, `[::]:0`); its pid is the last column. The name comes from
+ * `tasklist /FI "PID eq <pid>" /FO CSV /NH` (`"node.exe","4242",...`). A missing command, a refusal (access
+ * denied) or no match leaves the pid without a name, or no holder.
+ */
+export function windowsPortListener(port, { exec = spawnSync, host = null } = {}) {
+  const printed = (command, args) => {
+    try {
+      const result = exec(command, args, { encoding: 'utf8', timeout: 2_000, windowsHide: true });
+      return result?.error || result?.status ? '' : String(result?.stdout ?? '');
+    } catch { return ''; }
+  };
+  const tables = [['tcp', ['0.0.0.0', '127.0.0.1']], ['tcpv6', ['[::]', '[::1]']]];
+  if (String(host ?? '').includes(':')) tables.reverse();
+  let pid = null;
+  for (const [protocol, addresses] of tables) {
+    for (const line of printed('netstat', ['-ano', '-p', protocol]).split(/\r?\n/u)) {
+      const columns = line.trim().split(/\s+/u);
+      const [proto, local = '', foreign = ''] = columns;
+      const at = local.lastIndexOf(':');
+      if (!/^TCP(?:v6)?$/iu.test(proto ?? '') || columns.length < 4 || at < 1 || local.slice(at + 1) !== String(port)
+          || !addresses.includes(local.slice(0, at)) || !(columns.includes('LISTENING') || /:0$/u.test(foreign))) continue;
+      const listed = Number(columns.at(-1));
+      if (Number.isSafeInteger(listed) && listed > 0) { pid = listed; break; }
+    }
+    if (pid) break;
+  }
+  if (!pid) return null;
+  const row = printed('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']).split(/\r?\n/u)
+    .map((line) => [...line.matchAll(/"([^"]*)"/gu)].map((match) => match[1])).find((fields) => fields[1] === String(pid));
+  return { pid, command: row?.[0] || null };
+}
+
 /** The port refusal: who holds it, and the one route that frees it or gives this checkout its own port. */
-function portInUse(root, context, entry, subject, applicationUrl, holder) {
+function portInUse(root, context, entry, subject, applicationUrl, holder, platform = process.platform) {
   const ownPort = { command: `singularity-flow app suggest --capability ${context.capabilityId} --json`, copilotCommand: '/sf-run-app suggest',
     label: 'Give this checkout its own port: /sf-run-app suggest drafts the entry; change its port and save it on this checkout only (app config save-local).' };
   const run = holder?.sflowRun;
-  const elsewhere = run?.checkout && path.resolve(run.checkout) !== path.resolve(root);
+  // Windows paths compare without case, and its shell takes the quoted PowerShell form of a checkout path.
+  const same = (a, b) => (platform === 'win32' ? path.win32.resolve(a).toLowerCase() === path.win32.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b));
+  const elsewhere = run?.checkout && !same(run.checkout, root);
   const stop = run ? safeCommandGuidance({ argv: ['app', 'stop', run.startId, '--capability', run.capability, ...(elsewhere ? ['--context-root', run.checkout] : [])] }) : null;
+  const stopLine = platform === 'win32' ? stop?.platformCommands?.win32 ?? stop?.command : stop?.command;
+  // The person's own line for a process SFlow has no stop for; the agent never runs it.
+  const personStop = holder && !stop ? (platform === 'win32' ? `taskkill /PID ${holder.pid}` : `kill ${holder.pid}`) : null;
   const who = run ? `SFlow's run of '${run.startId}'${elsewhere ? ` from the checkout ${run.checkout}` : ''} (pid ${holder.pid})`
     : holder ? `process ${holder.pid}${holder.command ? ` (${holder.command})` : ''}, which no SFlow run started,` : 'another process';
-  const then = run && stop ? `Stop it with ${stop.command}, or give this checkout its own port (/sf-run-app suggest, saved on this checkout only).`
-    : holder ? `It is not SFlow's to stop: a person who asked for it stops it in their own terminal (kill ${holder.pid}). Or give this checkout its own port (/sf-run-app suggest, saved on this checkout only).`
+  const then = stop ? `Stop it with ${stopLine}, or give this checkout its own port (/sf-run-app suggest, saved on this checkout only).`
+    : holder ? `${run ? 'A' : "It is not SFlow's to stop: a"} person who asked for it stops it in their own terminal (${personStop}). Or give this checkout its own port (/sf-run-app suggest, saved on this checkout only).`
       : 'Stop it, or give this checkout its own port (/sf-run-app suggest, saved on this checkout only).';
   return new SingularityFlowError(`${subject} cannot bind ${applicationUrl.origin}: ${who} already listens there. ${then} Nothing was started.`, {
     code: 'APP_PORT_IN_USE', details: { startId: entry.id, url: applicationUrl.origin, port: Number(applicationUrl.port || 0) || null,
-      holder: holder ? { pid: holder.pid, command: holder.command ?? null, ...(run ? { sflowRun: run } : {}) } : null,
+      holder: holder ? { pid: holder.pid, command: holder.command ?? null, ...(run ? { sflowRun: run } : {}), ...(personStop ? { personStop } : {}) } : null,
       nextAction: stop ? { ...stop, label: `Stop SFlow's run of '${run.startId}' that holds the port.` } : ownPort } });
 }
 
@@ -587,8 +621,10 @@ async function runSingleApplication(root, context, entry, {
   }
   const applicationUrl = loopbackApplicationUrl(entry.url);
   const applicationPort = Number(applicationUrl.port || (applicationUrl.protocol === 'https:' ? 443 : 80));
-  if (await debugPortAccepts(applicationPort, { host: applicationUrl.hostname.replace(/^\[|\]$/gu, ''), timeoutMs: 300 })) {
-    throw portInUse(root, context, entry, subject, applicationUrl, await portHolder(root, applicationPort, { platform, spawnSyncCommand }));
+  const applicationHost = applicationUrl.hostname.replace(/^\[|\]$/gu, '');
+  if (await debugPortAccepts(applicationPort, { host: applicationHost, timeoutMs: 300 })) {
+    throw portInUse(root, context, entry, subject, applicationUrl,
+      await portHolder(root, applicationPort, { platform, spawnSyncCommand, host: applicationHost }), platform);
   }
   // Before-launch steps get the application's environment without the debugger's variables: a build
   // step must not start a JDWP agent or an inspector on the port the application will debug on.

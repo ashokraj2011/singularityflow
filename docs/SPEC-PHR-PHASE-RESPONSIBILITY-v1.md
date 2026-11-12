@@ -65,6 +65,12 @@ Where answer 7 stands (batch 2, 2026-11-10), each for a Story that pinned the ow
   not run there, never allowance-listed and never looped back; Story start and the code step's runs say so
   ("Cannot run here: … needs environment …; <step> runs it"). A code step that changes the code after it owns the
   result.
+  - (2026-11-12) So does a test whose own `env`, argv or command holds a literal URL to a host other than this
+    machine (localhost, 127.0.0.1, [::1], *.localhost, *.test), for example `BASE_URL=https://staging.example.com`:
+    that deployed build does not have the code step's code yet. It reads "needs staging.example.com (a deployed
+    environment)", host and port only, never a user name, password or query. One the code step chose itself leaves
+    it too when a later step runs it; one only the code step runs stays its own. Two tests with the same argv but
+    another `env` or `environment` are two runs.
 - `gate.visual.threshold` (owner, 2026-11-10: "person accepts the risk"): a failed visual comparison stays in the
   evidence for good, so its repair is a person's accepted risk on that exact comparison, recorded at the visual
   verification step in an approver's own terminal (`decision visual-risk`, with an expiry and a reason). The visual

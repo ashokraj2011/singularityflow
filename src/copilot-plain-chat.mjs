@@ -18,6 +18,7 @@ import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { environmentFileProtection, repositoryOf, usesSflow } from './copilot-environment-files-guard.mjs';
 import { notePromptLog, promptSecret, readSessionCopy, sessionKey, writeSessionCopy } from './plain-chat-prompts.mjs';
+import { COPILOT_HOOKS_PROTECTED, isCopilotHooksPath } from './governed-roots.mjs';
 
 // capabilities.mjs PLAIN_CHAT_EDITS_DEFAULT (decision 8), here so a guard that reads no map loads no capability code.
 const DEFAULT_EDITS = 'record';
@@ -289,6 +290,11 @@ export async function plainChatChangeGuard(payload, { policyFor = plainChatEdits
       const repository = sflowRepositoryAt(place);
       if (!repository) continue;
       const relative = change.targets.length ? path.relative(repository.root, place).split(path.sep).join('/') : '';
+      // The hooks that run this guard are no chat's to edit, whatever the capability allows.
+      if (change.kind === 'edit' && isCopilotHooksPath(relative)) {
+        return { permissionDecision: 'deny', next: [], permissionDecisionReason:
+          `PLAIN_CHAT_HOOKS_PROTECTED: this edit to ${relative} did not run: ${COPILOT_HOOKS_PROTECTED}. Tell the person; do not retry it` };
+      }
       const policy = await policyFor(repository.root, relative);
       if (policy === 'allow') continue;
       if (policy !== 'refuse') { recorded.push(repository); continue; }

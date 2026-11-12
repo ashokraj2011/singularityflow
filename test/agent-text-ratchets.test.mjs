@@ -186,7 +186,7 @@ test('/sf-run-app frees a held port the way the refusal names, and never kills a
   // "Never kill any other process" overrode the person's own "kill the app on 5173 and start this one" (session mining N2).
   const { readFile } = await import('node:fs/promises');
   const skill = await readFile(new URL('../plugin/skills/sflow-run-app/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /`APP_PORT_IN_USE` names the port's holder: an SFlow run \(any checkout\) ends by its `details\.nextAction` once the person confirms; another process only the person ends, one they named, in their own terminal \(`kill <pid>` from `details\.holder`\)\. Never kill a process yourself\./u);
+  assert.match(skill, /`APP_PORT_IN_USE` names the port's holder: an SFlow run \(any checkout\) ends by its `details\.nextAction` once the person confirms; another process only the person ends, one they named, in their own terminal \(`details\.holder\.personStop`: `kill <pid>`, on Windows `taskkill \/PID <pid>`\)\. Never kill a process yourself\./u);
 });
 
 test('every skill line that starts a long-running command says how to wait for it', async () => {

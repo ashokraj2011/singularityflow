@@ -710,6 +710,8 @@ function resolveTokensOperation(definition, positionals) {
 }
 
 function resolveDoctorOperation(definition, options) {
+  // It writes .github/hooks, which an agent never edits: a mutation, so the turn's shell baseline moves past SFlow's own write.
+  if (optionBoolean(options, 'repair-hooks')) return never('doctor.repair-hooks', definition, 'mutation');
   if (optionBoolean(options, 'git-speed')) {
     return never('doctor.git-speed', definition, optionBoolean(options, 'apply') ? 'mutation' : 'read');
   }

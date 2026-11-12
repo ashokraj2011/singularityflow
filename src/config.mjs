@@ -46,7 +46,8 @@ import { isSpecificationDefinitionPhase, normalizeSpecPolicy, skillPhasePrimaryO
 import { normalizeHarnessImports } from './harness-import-policy.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import {
-  assertRepositoryTestSelection, hasOwnTestCommand, normalizeExternalCommand, repositoryTestCommands, selectedRepositoryTests
+  assertRepositoryTestSelection, hasOwnTestCommand, literalDeployedHosts, normalizeExternalCommand, repositoryTestCommands,
+  selectedRepositoryTests
 } from './external-command-policy.mjs';
 import { normalizeRepairBudget, normalizeReworkLoops } from './repair-budget.mjs';
 import { normalizeDecisions } from './workflow-decisions.mjs';
@@ -1884,33 +1885,48 @@ export { mergePhaseOverride };
  * adapter, so a failure is repaired where the code is written and the later step's run only confirms it on the
  * same code (a passing attempt on this exact code is not run again, TCE:REQ-080). A test bound to a declared
  * environment needs what only its later step has, so it is not run here: the step records it as such
- * (`laterStepTests.cannotRunHere`), and the later step runs it. A code step after them owns its own change.
- * The resolved shape moves only where a later step chose a repository test its code step does not run.
+ * (`laterStepTests.cannotRunHere`), and the later step runs it. So does one naming a deployed host
+ * (`BASE_URL=https://staging.example.com`), which lacks this code yet, even one the code step chose too.
+ * A code step after them owns its own change. The resolved shape moves only where a later step chose a repository
+ * test its code step does not run, or one naming a deployed host.
  */
 function withLaterStepTests(phases, chosen) {
   if (!chosen.size) return phases;
+  // The same command under another name is the same run: its argv in its folder, env and environment.
+  const key = (command) => JSON.stringify([command?.argv ?? command?.command ?? null, command?.workingDirectory ?? '.',
+    Object.entries(command?.env ?? {}).sort(), command?.environment ?? null]);
+  const needs = (command) => {
+    if (command.environment) return `environment ${command.environment}`;
+    const hosts = literalDeployedHosts(command);
+    return hosts.length ? `${hosts.join(', ')} (a deployed environment)` : null;
+  };
   return phases.map((phase, index) => {
     if (!phaseRequiresCodeDelivery(phase)) return phase;
-    // The same command under another name is the same run: its ID and its argv in its folder are both its own.
-    const key = (command) => JSON.stringify([command?.argv ?? command?.command ?? null, command?.workingDirectory ?? '.']);
     const ownTests = (phase.qualityCommands ?? []).filter((command) => command?.kind === 'test');
     const own = new Set([...ownTests.map((command) => command.id), ...ownTests.map(key)]);
     const later = new Map();
+    const leaves = new Set();
     for (const next of phases.slice(index + 1)) {
       if (phaseRequiresCodeDelivery(next)) break;
       for (const command of chosen.get(next.id) ?? []) {
-        if (own.has(command.id) || own.has(key(command))) continue;
+        if (own.has(command.id) || own.has(key(command))) {
+          // Its own repository test naming a deployed host: the later step that chose it too runs it.
+          const mine = (chosen.get(phase.id) ?? []).filter((test) => test.id === command.id || key(test) === key(command));
+          if (!mine.length || command.environment || !literalDeployedHosts(command).length) continue;
+          for (const test of mine) leaves.add(test.id);
+        }
         if (!later.has(command.id)) later.set(command.id, { command, steps: [] });
         later.get(command.id).steps.push(next.id);
       }
     }
     if (!later.size) return phase;
-    const runs = [...later.values()].filter((entry) => !entry.command.environment);
-    const cannotRunHere = [...later.values()].filter((entry) => entry.command.environment)
-      .map((entry) => ({ id: entry.command.id, steps: entry.steps, needs: `environment ${entry.command.environment}` }));
+    const runs = [...later.values()].filter((entry) => !needs(entry.command));
+    const cannotRunHere = [...later.values()].filter((entry) => needs(entry.command))
+      .map((entry) => ({ id: entry.command.id, steps: entry.steps, needs: needs(entry.command) }));
     return {
       ...phase,
-      qualityCommands: [...(phase.qualityCommands ?? []), ...runs.map((entry) => structuredClone(entry.command))],
+      qualityCommands: [...(phase.qualityCommands ?? []).filter((command) => !(command?.kind === 'test' && leaves.has(command.id))),
+        ...runs.map((entry) => structuredClone(entry.command))],
       laterStepTests: { runs: runs.map((entry) => ({ id: entry.command.id, steps: entry.steps })), cannotRunHere }
     };
   });

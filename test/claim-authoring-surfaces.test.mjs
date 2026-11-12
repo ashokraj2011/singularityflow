@@ -42,7 +42,9 @@ test('Figma Mobile and POC define namespaced clauses before their planned-test o
   assert.match(mobile, /\[\{\{work\.id\}\}:AC-001\]/);
   assert.match(mobile, /\[\{\{work\.id\}\}:IFC-001\]/);
   assert.match(mobile, /^## Planned implementation evidence$/m);
-  assert.match(pocIntake, /\[POC:AC-001\]/);
+  // Each POC Story's clauses carry its own Work ID, never a fixed POC name another Story shares [office, 2026-11-12].
+  assert.match(pocIntake, /\[\{\{work\.id\}\}:AC-001\]/);
+  assert.doesNotMatch(pocIntake + pocExploration, /POC:(?:AC|REQ)-/);
   assert.match(pocExploration, /^## Planned test generation evidence$/m);
 
   for (const [label, content] of [['figma-mobile', mobile], ['poc-workflow', pocExploration]]) {

@@ -45,13 +45,13 @@ singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>
 
 ## Test intent and acceptance criteria
 
-<!-- sflow:guidance Create stable acceptance criteria such as `[POC:AC-001]` from the contributor's actual request. Each criterion must name an observable journey, state, or quality property and its expected result. Include positive, negative, accessibility, visual, and boundary behavior only when applicable; do not manufacture scenarios merely to fill categories. -->
+<!-- sflow:guidance Create stable acceptance criteria such as `[{{work.id}}:AC-001]` from the contributor's actual request. Each criterion must name an observable journey, state, or quality property and its expected result. Include positive, negative, accessibility, visual, and boundary behavior only when applicable; do not manufacture scenarios merely to fill categories. -->
 
 | Authoritative clause | Observable journey or property | Expected result | In scope |
 |---|---|---|---|
-| [POC:AC-001] | TODO: replace with the approved observable journey or quality property | TODO: replace with its measurable expected result | yes/no |
+| [{{work.id}}:AC-001] | TODO: replace with the approved observable journey or quality property | TODO: replace with its measurable expected result | yes/no |
 
-<!-- sflow:guidance Add, remove, and renumber rows to match the approved POC intent. Keep every anchor fully qualified as `POC:AC-nnn`; later exploration, generated tests, validation, and review must cite these exact IDs. -->
+<!-- sflow:guidance Add, remove, and renumber rows to match the approved POC intent. Keep every anchor fully qualified as `{{work.id}}:AC-nnn`; later exploration, generated tests, validation, and review must cite these exact IDs. -->
 
 ## Safety and access
 

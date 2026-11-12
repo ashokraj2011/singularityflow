@@ -597,7 +597,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,650,700 (measured 9,650,625): scope choices say which is which, "included" (a clause of this Story states it) and
     // "existing" (the product had it before), wherever a person or an agent is offered them (decision-list.mjs,
     // owed-decisions.mjs, scope/extract.mjs, scope/authoring.mjs). No new eager file [office, 2026-11-12].
-    assert.ok(closure.bytes <= 9_650_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,651,700 (measured 9,651,687): the POC workflow's six templates take each Story's Work ID in their clause anchors,
+    // and their released bytes stay registered (packaged-asset-history.mjs +1,062) [office, 2026-11-12].
+    assert.ok(closure.bytes <= 9_651_700, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -865,7 +867,9 @@ test('the common session projection does not import attach, state stores or publ
   // one-line, marked template guidance (packaged-asset-history.mjs +14.8 KB) and the governed-roots and deployed-URL
   // checks. No new eager file.
   // 4,244,150 (measured 4,244,138): a confirmation route's short code (confirm-code.mjs, the one new file above).
-  assert.ok(current.bytes <= 4_244_150, `session current loads ${current.bytes} source bytes`);
+  // 4,245,250 (measured 4,245,212): the POC workflow templates' released bytes stay registered after their clause
+  // anchors took each Story's Work ID (packaged-asset-history.mjs +1,062) [office, 2026-11-12]. No new eager file.
+  assert.ok(current.bytes <= 4_245_250, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

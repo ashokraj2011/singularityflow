@@ -4940,10 +4940,10 @@ test('the packaged POC release candidate journey survives publication, review, C
     if (phaseId === 'poc-ui-exploration') {
       // The prepared artifact carries the planned-evidence row; fill it with the exact test path
       // before the prose TODO fill below, which would otherwise put prose in a path cell.
-      const plannedRow = /^\| (?:`POC:AC-001`|\[POC:AC-001\]) \| - \|[^\n]*\|$/m;
+      const plannedRow = /^\| (?:`POC-RC-1:AC-001`|\[POC-RC-1:AC-001\]) \| - \|[^\n]*\|$/m;
       assert.match(phaseText, plannedRow, 'the packaged POC exploration template carries the AC-001 planned-evidence row');
       phaseText = phaseText.replace(plannedRow,
-        '| `POC:AC-001` | - | `tests/poc-generated.test.mjs` | test-only | The existing checkout scenario has executable regression coverage. |');
+        '| `POC-RC-1:AC-001` | - | `tests/poc-generated.test.mjs` | test-only | The existing checkout scenario has executable regression coverage. |');
     }
     phaseText = phaseText
       .replace(/TODO:[^\n]*/g, 'Verified evidence is bound to the authorized checkout target, exact Story branch, and reviewed POC acceptance criterion.')
@@ -4957,7 +4957,7 @@ test('the packaged POC release candidate journey survives publication, review, C
         "import assert from 'node:assert/strict';",
         "import test from 'node:test';",
         '',
-        '/** @ac:POC:AC-001 */',
+        '/** @ac:POC-RC-1:AC-001 */',
         "test('generated POC scenario is executable', () => assert.equal(true, true));",
         ''
       ].join('\n'));
@@ -4968,7 +4968,7 @@ test('the packaged POC release candidate journey survives publication, review, C
       const scope = cli(['evidence', 'scope', '--json'], reviewer.name);
       assert.equal(scope.status, 0, scope.stderr);
       for (const item of JSON.parse(scope.stdout).data.scope.items.filter((entry) => entry.disposition === 'unresolved')) {
-        const decision = cli(['decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'POC:AC-001',
+        const decision = cli(['decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'POC-RC-1:AC-001',
           '--reason', 'This offline lifecycle fixture accepts the checkout requirement through its exact test-only clause.'], reviewer.name);
         assert.equal(decision.status, 0, decision.stderr);
       }

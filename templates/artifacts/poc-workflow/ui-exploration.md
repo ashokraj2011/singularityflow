@@ -12,7 +12,7 @@ TODO: Record the approved environment, exact origin, browser project, viewport, 
 
 | Scenario / AC | Actions performed | Observed state | Expected state | Result |
 |---|---|---|---|---|
-| `[POC:AC-nnn]` | navigation and human-like actions | exact observation | approved expectation | matched/gap/blocked |
+| `[{{work.id}}:AC-nnn]` | navigation and human-like actions | exact observation | approved expectation | matched/gap/blocked |
 
 <!-- sflow:guidance Use browser observations to refine the impact map. Do not turn a transient live response into a product requirement and do not execute destructive or production-like actions without explicit authorization. -->
 
@@ -38,10 +38,10 @@ TODO: List the states not observed, why they were unavailable, and whether gener
 
 ## Planned test generation evidence
 
-<!-- sflow:guidance Translate the approved `[POC:AC-nnn]` clauses and observed material risks into the exact repository contract for the next test-generation phase. Add exactly one row for every authoritative clause, using its fully qualified ID. List only exact repository-relative source and test paths in backticks; do not use directories, globs, module names, or prose in path cells. This workflow's test generation uses fulfillment `test-only`, `Expected paths` = `-`, and the exact test files under `Planned tests`. Never repeat a test file in both columns or authorize product-code changes through this row. For a genuinely non-testable clause, write `not-applicable:` followed by your concrete reviewed explanation under `Planned tests`; never defer a test or replace an unknown path with that disposition. -->
+<!-- sflow:guidance Translate the approved `[{{work.id}}:AC-nnn]` clauses and observed material risks into the exact repository contract for the next test-generation phase. Add exactly one row for every authoritative clause, using its fully qualified ID. List only exact repository-relative source and test paths in backticks; do not use directories, globs, module names, or prose in path cells. This workflow's test generation uses fulfillment `test-only`, `Expected paths` = `-`, and the exact test files under `Planned tests`. Never repeat a test file in both columns or authorize product-code changes through this row. For a genuinely non-testable clause, write `not-applicable:` followed by your concrete reviewed explanation under `Planned tests`; never defer a test or replace an unknown path with that disposition. -->
 
 | Clause | Expected paths | Planned tests | Fulfillment | Observable result |
 |---|---|---|---|---|
-| `POC:AC-001` | - | TODO: replace with exact backticked repository-relative Playwright test paths | test-only | TODO: what a person can observe when it works |
+| `{{work.id}}:AC-001` | - | TODO: replace with exact backticked repository-relative Playwright test paths | test-only | TODO: what a person can observe when it works |
 
 <!-- sflow:guidance Fulfillment: new, modified, existing (behaviour already at the listed paths), removed, test-only (tests are the whole delivery; Expected paths is -), document, configuration, or evidence (retained files under this Story's evidence/ directory). Do not put screenshots in Planned tests or product-source rows. An evidence AC needs a primary visual/inspection Verification contract; file presence is not a visual pass. Observable result states what is observed. Multi-code-step plans add Steps to allocate each row. -->

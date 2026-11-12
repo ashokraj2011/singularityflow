@@ -10,7 +10,7 @@ TODO: Record the remote, base branch and pinned base commit, Story branch, curre
 
 ## Change and coverage summary
 
-<!-- sflow:guidance Summarize changed Page Objects, specs, fixtures, helpers, and configuration. Map the proposed PR to approved `[POC:AC-nnn]` items and the regression footprint. Include an exact diff/stat and identify any non-test source change for special review. -->
+<!-- sflow:guidance Summarize changed Page Objects, specs, fixtures, helpers, and configuration. Map the proposed PR to approved `[{{work.id}}:AC-nnn]` items and the regression footprint. Include an exact diff/stat and identify any non-test source change for special review. -->
 
 TODO: Summarize the changed files and map the proposed PR to the approved acceptance items.
 

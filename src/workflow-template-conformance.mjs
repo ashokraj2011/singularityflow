@@ -134,6 +134,22 @@ export async function templateConformanceFindings(resolved, { read, label = (id)
         stopsAt: { step: phase.id, when: 'entry' } });
       continue;
     }
+    // Anchors under a fixed name give every Story the same clause IDs: [NS:AC-001] in each, never its own [office, 2026-11-12].
+    // A workflow that configures one namespace for all its Stories chose that; another name there is the anchors check's.
+    const { fixedNamespaceAnchors } = spec.namespace ? { fixedNamespaceAnchors: () => [] } : await import('./workflow-fix/templates.mjs');
+    const fixedNames = fixedNamespaceAnchors(source.text);
+    if (fixedNames.length) {
+      const first = fixedNames[0];
+      add({ code: 'CHECK_TEMPLATE_CLAUSE_NAMESPACE', severity: 'problem',
+        title: `The clause anchors in the template of ${label(phase.id)} carry a fixed name, not each Story's`,
+        detail: `${source.file} defines [${first.id}]${fixedNames.length > 1 ? ` and ${fixedNames.length - 1} more` : ''} under the name ${first.namespace}, so every Story drafted from it `
+          + `defines the same clause IDs (${first.namespace}:${first.type}-${first.number}) instead of its own (<WORK-ID>:${first.type}-${first.number}), and one Story's clauses, `
+          + 'code tags and tests are taken for another\'s.',
+        location: { file: source.file, line: first.line || lineOf(source.text, source.text.indexOf(`[${first.id}]`)) },
+        fix: `Write each anchor as [{{work.id}}:<TYPE>-<NNN>] (and each backticked citation of it as {{work.id}}:<TYPE>-<NNN>): every Story's draft then carries its own Work ID. `
+          + 'A workflow that names one namespace for all its Stories sets spec.namespace instead.',
+        stopsAt: { step: phase.id, when: 'publication' } });
+    }
     const guidance = phase.generation?.producer === 'deterministic' ? null : guidanceNote(source, label(phase.id));
     if (guidance) add(guidance);
     const structure = parseMarkdownStructure(rendered);

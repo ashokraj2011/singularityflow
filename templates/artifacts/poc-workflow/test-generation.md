@@ -20,7 +20,7 @@ TODO: Describe the Playwright configuration and conventions this repository alre
 
 | Acceptance / risk | Test title and path | Assertions | Negative/boundary coverage |
 |---|---|---|---|
-| `[POC:AC-nnn]` or impact item | exact spec location | observable expectations | exact variants or not applicable |
+| `[{{work.id}}:AC-nnn]` or impact item | exact spec location | observable expectations | exact variants or not applicable |
 
 <!-- sflow:guidance Every automated claim must trace to approved intent or observed risk. Do not weaken an expectation, add arbitrary waits, or catch an exception merely to produce a passing run. -->
 

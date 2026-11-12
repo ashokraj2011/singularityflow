@@ -38,7 +38,7 @@ import { newStepTemplate } from '../step-outputs.mjs';
 import { markTemplateGuidance } from '../template-guidance.mjs';
 import { lineNumberOf, removeLine, retargetLink, unlinkTarget } from './text.mjs';
 import {
-  rebuiltPlannedTable, renumberedAnchors, templateAnchors, withClauseAnchors, withPlannedTable, withSections, withStepsColumn, withSupportedTokens
+  rebuiltPlannedTable, renumberedAnchors, templateAnchors, withClauseAnchors, withPlannedTable, withSections, withStepsColumn, withSupportedTokens, withWorkIdAnchors
 } from './templates.mjs';
 
 const PLANNED_HEADER = /^\|\s*clause\s*\|\s*expected paths\s*\|\s*planned tests\s*\|/imu;
@@ -296,6 +296,14 @@ async function templateAnchorsFix(findings, ctx) {
   }
   await ctx.draft.edit(target, (current) => renumberedAnchors(current, taken));
   return { summary: `Template ${template}: each clause anchor written once as [{{work.id}}:<TYPE>-<NNN>], numbered after the clauses earlier steps define.` };
+}
+
+/** Anchors under a fixed name take each Story's Work ID, citations of them too [office, 2026-11-12]. */
+async function templateNamespaceFix([finding], ctx) {
+  const template = finding.subject.template;
+  const allowed = ctx.resolved(workflowOf(ctx, finding)?.id)?.spec?.namespace ?? null;
+  await ctx.draft.edit({ kind: 'template', path: template }, (text) => withWorkIdAnchors(text, { allowed }));
+  return { summary: `Template ${template}: each clause anchor under a fixed name now opens with {{work.id}}, so every Story's clauses carry its own ID; numbers and wording are kept.` };
 }
 
 async function templatePlannedTable(findings, ctx) {
@@ -1028,6 +1036,7 @@ export const WORKFLOW_FIXERS = Object.freeze({
   // Templates: a missing one is made first, its tokens fixed, then anchors before the table that cites them.
   CHECK_TEMPLATE_MISSING: change(20, templateMissing),
   CHECK_TEMPLATE_TOKEN_UNSUPPORTED: change(22, templateTokens, { group: byTemplate }),
+  CHECK_TEMPLATE_CLAUSE_NAMESPACE: change(23, templateNamespaceFix, { group: byTemplate }),
   CHECK_TEMPLATE_CLAUSE_ANCHORS: change(24, templateAnchorsFix, { group: byTemplate }),
   CHECK_TEMPLATE_PLANNED_TABLE: change(26, templatePlannedTable, { group: byTemplate }),
   CHECK_TEMPLATE_HEADING_MISSING: change(28, templateSections, { group: byTemplate }),

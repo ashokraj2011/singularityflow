@@ -183,6 +183,32 @@ export function renumberedAnchors(text, taken = []) {
 }
 
 /**
+ * The clause anchors a template defines under a fixed name instead of each Story's own [office, 2026-11-12]: an anchor
+ * written `[NS:AC-001]` gave every Story the same clause IDs. `allowed` is the workflow's configured spec namespace.
+ * Each anchor carries the line it is defined on (a guidance comment that mentions it does not count).
+ */
+export function fixedNamespaceAnchors(text, { allowed = null } = {}) {
+  const visible = visibleLines(text);
+  return templateAnchors(text).filter((anchor) => !/^\{\{(?:work\.id|WORK_ID)\}\}$/u.test(anchor.namespace)
+    && (!allowed || anchor.namespace !== allowed))
+    .map((anchor) => ({ ...anchor, line: visible.findIndex((line) => line.replace(/`[^`]*`/gu, '').includes(`[${anchor.id}]`)) + 1 }));
+}
+
+/**
+ * The template with those names replaced by the Work ID token wherever it names one of its own clauses: `[NS:AC-001]`
+ * becomes `[{{work.id}}:AC-001]`, and so do a backticked citation (`NS:AC-001` in a planned-claims row) and its guidance
+ * (`NS:AC-nnn`), so nothing left in it teaches an author the fixed name. Another namespace's clause, such as a library's
+ * `CQF:REQ-043`, numbers, and every other character stay as they are.
+ */
+export function withWorkIdAnchors(text, { allowed = null } = {}) {
+  const names = [...new Set(fixedNamespaceAnchors(text, { allowed }).map((anchor) => anchor.namespace))];
+  if (!names.length) return String(text);
+  const escaped = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('|');
+  const own = new RegExp(`(?<![A-Za-z0-9._{}-])(?:${escaped}):(${GOVERNED_CLAUSE_TYPE_PATTERN})-(\\d{3}|n{3}|N{3})(?![A-Za-z0-9_-])`, 'gu');
+  return String(text).replace(own, (whole, type, number) => `${WORK_ID}:${type}-${number}`);
+}
+
+/**
  * The planned-claims table with a Steps column after Fulfillment (or after Planned tests), empty in
  * every row for the Story's author to name each row's code step. Null when there is no such table.
  */

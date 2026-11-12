@@ -85,7 +85,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'f0b14cf81aa72451e3cbf0de71a2dad050200177d66622d0f575541066d6ddf9',
     '43e53c4476249bdd4a9b8af681ca77529d163ec66680d6c4514b0731b9cb1182',
     // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
-    'ba1d1918737d8753d51c1d59b368eab9980dbf0b587ddaab88174c68bdd986b1'
+    'ba1d1918737d8753d51c1d59b368eab9980dbf0b587ddaab88174c68bdd986b1',
+    // Before its clause anchors took each Story's Work ID instead of the fixed name POC (2026-11-12).
+    'cd97cd1b49710ed2c80cfd766320694f887099d4283ad17a96cf7b290b10824b'
   ]),
   'singularity/templates/benchmark/design.md': Object.freeze([
     '92ba1c0684e20d201a7bfa1c9ae7b61a87001ca0c724ff0a61af2d387b23f9ba',
@@ -467,7 +469,9 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   ]),
   'singularity/templates/poc-workflow/intake.md': Object.freeze(['511fa3a7c281bf8a4c84977668478392b5f73d14273d3149db6392eeba3b805d',
     // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
-    '48c577ec3df824a95022a4abdd02a09f0c1040ed7f057b1150bd05a0beff4a14'
+    '48c577ec3df824a95022a4abdd02a09f0c1040ed7f057b1150bd05a0beff4a14',
+    // Before its clause anchors took each Story's Work ID instead of the fixed name POC (2026-11-12).
+    'e48da83e3d4139a42da68f69a3ba48d52d574817195b19331eee25ef41464a34'
   ]),
   'singularity/templates/spec-code-test-loop/conformance.md': Object.freeze(['b22de4f73720b8bf645faef0e2484031838d511fe4ea06810c6bf9b16c8bae1a',
     // Before the conformance templates said the clause table alone states verdicts (2026-10-19).
@@ -552,10 +556,22 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/initiatives/ux-concept.md': Object.freeze(['d12e90b0412fcf41cf07fec6bcfe8c83d80949fc01fec2973d23a24a62e73b89']),
   'singularity/templates/poc-lite/act.md': Object.freeze(['f9c3c015c593a51b7d3fd11ba5ec9fc104eaf00f45e2c78ea50a9b78d061c383']),
   'singularity/templates/poc-lite/verify.md': Object.freeze(['c31624345a1b3803f1cfe267b670e570e1ad1ae3742e88898d123f962b913a58']),
-  'singularity/templates/poc-workflow/impact-analysis.md': Object.freeze(['16b58133b53c74c225f9e0a10b36301678d3ae5cd1a2686f23d1cbe414ec6c93']),
-  'singularity/templates/poc-workflow/publication-review.md': Object.freeze(['e5d0e59595e5dd01899883adf781a728bdc6636a07efe4290b57c55b808288d1']),
-  'singularity/templates/poc-workflow/test-generation.md': Object.freeze(['6fa0c17056fe263eb9f47699a84a0759a899b8e67c35a3d53df8961f1ca59b25']),
-  'singularity/templates/poc-workflow/validation.md': Object.freeze(['b1d121afbd49c09538d221cbac60b352a21f7eb7699bc4cba08d35b88ba47fb6']),
+  'singularity/templates/poc-workflow/impact-analysis.md': Object.freeze(['16b58133b53c74c225f9e0a10b36301678d3ae5cd1a2686f23d1cbe414ec6c93',
+    // Before its clause anchors took each Story's Work ID instead of the fixed name POC (2026-11-12).
+    'e064cb953fe74b9ff472c30b021de4419327e92596b2a77e10ac7f4332f99e80'
+  ]),
+  'singularity/templates/poc-workflow/publication-review.md': Object.freeze(['e5d0e59595e5dd01899883adf781a728bdc6636a07efe4290b57c55b808288d1',
+    // Before its clause anchors took each Story's Work ID instead of the fixed name POC (2026-11-12).
+    '41973e2ec380ff8b6e933516adf5d7aa11effacabf5e418db67c7a0361012582'
+  ]),
+  'singularity/templates/poc-workflow/test-generation.md': Object.freeze(['6fa0c17056fe263eb9f47699a84a0759a899b8e67c35a3d53df8961f1ca59b25',
+    // Before its clause anchors took each Story's Work ID instead of the fixed name POC (2026-11-12).
+    'f01f9dd2668d4b6e4df5c15fdea58bcdacba096c9e1141d56a436c6f125beba5'
+  ]),
+  'singularity/templates/poc-workflow/validation.md': Object.freeze(['b1d121afbd49c09538d221cbac60b352a21f7eb7699bc4cba08d35b88ba47fb6',
+    // Before its clause anchors took each Story's Work ID instead of the fixed name POC (2026-11-12).
+    '56d2f39844aa4ef48926a0b0f78ff807839b0a63ad746a1089f8fe5f56568224'
+  ]),
   'singularity/templates/quick-fix/implement.md': Object.freeze(['dff093133a1be4c93115cfbbb0d994c8ce391fc19279caee30b441ec27a05c0a']),
   'singularity/templates/quick-fix/verify.md': Object.freeze(['a21900d99d044d35de501f0e43888a8a3ebcfe860e702a5d1b3eec61fdd06f27']),
   'singularity/templates/spec-driven/convergence.md': Object.freeze(['eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2'])
@@ -745,12 +761,12 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/poc-lite/finalize.md': '7e0f82599de4dbe35f391e0ed1b34d266bdcde712ae77b43d1306bd0d32673e2',
   'singularity/templates/poc-lite/plan.md': '347f3de8f838d6c0ac57a535d79a2d21096fb50c0b65d2faf37d162e412b7b0c',
   'singularity/templates/poc-lite/verify.md': '1fd14ad56daddc335cbb26d23ad3fb2e616b87b6ebc7ff0e67aef499963c8426',
-  'singularity/templates/poc-workflow/impact-analysis.md': 'e064cb953fe74b9ff472c30b021de4419327e92596b2a77e10ac7f4332f99e80',
-  'singularity/templates/poc-workflow/intake.md': 'e48da83e3d4139a42da68f69a3ba48d52d574817195b19331eee25ef41464a34',
-  'singularity/templates/poc-workflow/publication-review.md': '41973e2ec380ff8b6e933516adf5d7aa11effacabf5e418db67c7a0361012582',
-  'singularity/templates/poc-workflow/test-generation.md': 'f01f9dd2668d4b6e4df5c15fdea58bcdacba096c9e1141d56a436c6f125beba5',
-  'singularity/templates/poc-workflow/ui-exploration.md': 'cd97cd1b49710ed2c80cfd766320694f887099d4283ad17a96cf7b290b10824b',
-  'singularity/templates/poc-workflow/validation.md': '56d2f39844aa4ef48926a0b0f78ff807839b0a63ad746a1089f8fe5f56568224',
+  'singularity/templates/poc-workflow/impact-analysis.md': '2935ce4d7b841d372db41bb79ccf7db08c5f44f3683d582e6f0e0ae7dfcca3e9',
+  'singularity/templates/poc-workflow/intake.md': 'b1114bfef65e8e15a026266011c6f9c46c9a0c1acd96362e4fb9f0c964183651',
+  'singularity/templates/poc-workflow/publication-review.md': '05d9456cedaf8e49edf95011360a44eab6f5ad941c89f628bffcbc41b22f10db',
+  'singularity/templates/poc-workflow/test-generation.md': '3b525c13136d52f66c56ae3e4e61a601bf814b32e25f62915d2bf71ba85fd60d',
+  'singularity/templates/poc-workflow/ui-exploration.md': 'ed4664f08f43e319a5ac52fdb2628daa29cbb0451473609270b0c2e052096efa',
+  'singularity/templates/poc-workflow/validation.md': '6d547ce42bab537561a9ec677fef49517fdbb677aa2e12ed68d724dfb8ef11f6',
   'singularity/templates/quick-fix/implement.md': 'a252cd732cfb91a944f9c38b01c02710191291fccca5a190d9008ecff4f4459a',
   'singularity/templates/quick-fix/intake.md': '5fc0dfa8dbd78cb24656d72962d5e67bd13d6d407b550d7dba28b5bd85cf8493',
   'singularity/templates/quick-fix/verify.md': 'f54cccabc38f645bcd987cb3096070f7ea18732c689bb8c1ee90d4222b966632',

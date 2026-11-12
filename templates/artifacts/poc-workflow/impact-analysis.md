@@ -26,7 +26,7 @@ TODO: Record the pinned base commit, the current Story commit and tree, the comp
 
 ## Proposed scenarios
 
-<!-- sflow:guidance Map each approved `[POC:AC-nnn]` item and each material changed-code risk to an executable scenario or an explicit reason it is out of scope. Prioritize a small demonstration path plus meaningful regression coverage; do not claim full application coverage from a partial diff. -->
+<!-- sflow:guidance Map each approved `[{{work.id}}:AC-nnn]` item and each material changed-code risk to an executable scenario or an explicit reason it is out of scope. Prioritize a small demonstration path plus meaningful regression coverage; do not claim full application coverage from a partial diff. -->
 
 TODO: Map each approved acceptance item and material changed-code risk to a scenario, or say why it is out of scope.
 

@@ -211,6 +211,52 @@ test('the fmly-qa-test-automation findings: one change set that leaves nothing t
   assert.match(text, /Propose for review: singularity-flow workflow studio apply --change-set .+ --propose$/mu);
 });
 
+test('a template whose clause anchors carry a fixed name, as /sf-fix-workflow once wrote [NS:AC-001], is fixed to each Story\'s Work ID [office, 2026-11-12]', async () => {
+  const root = await fmlyRepository();
+  const file = path.join(root, 'singularity/templates/fmly/requirements.md');
+  // What the office's workflow held: guidance naming NS, anchors under NS and the planned-claims row citing one; a
+  // library's clause is another namespace's and stays.
+  const fixedName = REQUIREMENTS.replace('TODO: List what the tests must cover.\n', '<!-- sflow:guidance Write requirements such as `[NS:REQ-001]`; keep every anchor as `NS:REQ-nnn`. -->\nTODO: List what the tests must cover.\n\n- TODO: one observable requirement per line. [NS:REQ-001]\n')
+    .replace('TODO: List how a person knows it works.\n', 'TODO: List how a person knows it works.\n\n- TODO: one testable criterion per line. [NS:AC-001]\n\n<!-- e.g. [NS:AC-009] -->\n\nFollows `CQF:REQ-043` of the code-quality library.\n\n'
+      + '## Planned implementation evidence\n\n| Clause | Expected paths | Planned tests | Fulfillment | Observable result |\n|---|---|---|---|---|\n'
+      + '| `NS:AC-001` | TODO: path | TODO: test | implemented | TODO: what a person sees |\n');
+  await writeFile(file, fixedName);
+  run('git', ['commit', '-qam', 'anchors under a fixed name'], root);
+
+  const checked = json(root, ['workflow', 'check', WORKFLOW]);
+  const findingsOf = (result) => (result.workflows ?? []).flatMap((entry) => entry.findings ?? []);
+  const found = findingsOf(checked).filter((finding) => finding.code === 'CHECK_TEMPLATE_CLAUSE_NAMESPACE');
+  assert.equal(found.length, 1, JSON.stringify(findingsOf(checked).map((finding) => finding.code)));
+  assert.equal(found[0].severity, 'problem');
+  assert.match(found[0].detail, /\[NS:REQ-001\] and 1 more under the name NS/u);
+  assert.match(found[0].detail, /instead of its own \(<WORK-ID>:REQ-001\)/u);
+  assert.equal(found[0].location.line, fixedName.split('\n').findIndex((line) => line.startsWith('- TODO') && line.includes('[NS:REQ-001]')) + 1,
+    'the line that defines it, not the guidance that mentions it');
+
+  const result = json(root, ['workflow', 'fix', WORKFLOW, '--write']);
+  const change = result.changes.find((entry) => entry.code === 'CHECK_TEMPLATE_CLAUSE_NAMESPACE');
+  assert.match(change.summary, /now opens with \{\{work\.id\}\}/u);
+  const template = result.changeSet.changes.find((entry) => entry.op === 'template.update' && entry.path === 'fmly/requirements.md');
+  assert.match(template.content, /^- TODO: one observable requirement per line\. \[\{\{work\.id\}\}:REQ-001\]$/mu);
+  assert.match(template.content, /^- TODO: one testable criterion per line\. \[\{\{work\.id\}\}:AC-001\]$/mu);
+  assert.match(template.content, /^\| `\{\{work\.id\}\}:AC-001` \|/mu, 'the planned row cites the renamed clause');
+  assert.match(template.content, /^<!-- sflow:guidance Write requirements such as `\[\{\{work\.id\}\}:REQ-001\]`; keep every anchor as `\{\{work\.id\}\}:REQ-nnn`\. -->$/mu,
+    'its guidance no longer teaches the fixed name');
+  assert.ok(template.content.includes('<!-- e.g. [{{work.id}}:AC-009] -->'));
+  assert.ok(template.content.includes('`CQF:REQ-043`'), 'a citation of another namespace\'s clause stays');
+  assert.doesNotMatch(template.content, /\bNS:/u);
+  assert.equal(result.after.counts.problem, 0, JSON.stringify(result.after));
+
+  // A workflow that names one namespace for all its Stories is not flagged.
+  const config = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  config.workTypes[WORKFLOW].spec = { ...(config.workTypes[WORKFLOW].spec ?? {}), namespace: 'NS' };
+  await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(config));
+  run('git', ['commit', '-qam', 'one namespace for the workflow'], root);
+  const named = json(root, ['workflow', 'check', WORKFLOW]);
+  assert.ok(findingsOf(named).length > 0, 'the check still reads the workflow');
+  assert.ok(!findingsOf(named).some((finding) => finding.code === 'CHECK_TEMPLATE_CLAUSE_NAMESPACE'), JSON.stringify(findingsOf(named).map((finding) => finding.code)));
+});
+
 test('what only a person can decide is asked, and the answers become changes', async () => {
   const root = await fmlyRepository({ skillLines: ['', 'Always squash commits before merging.', 'Never squash commits.'], security: { autoEnrollNewIdentities: false } });
   const result = json(root, ['workflow', 'fix', WORKFLOW]);

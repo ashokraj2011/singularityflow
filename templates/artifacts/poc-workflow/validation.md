@@ -20,7 +20,7 @@ TODO: Name the Story commit and tree, the tests, environment, browsers and viewp
 
 | Scenario / AC | Browser / viewport | Result | Assertion or failure | Evidence |
 |---|---|---|---|---|
-| `[POC:AC-nnn]` | exact project | passed/failed/not-run/blocked | exact outcome | report/trace/screenshot/log path |
+| `[{{work.id}}:AC-nnn]` | exact project | passed/failed/not-run/blocked | exact outcome | report/trace/screenshot/log path |
 
 <!-- sflow:guidance Never infer a pass from generated code, a screenshot, or another scenario. -->
 

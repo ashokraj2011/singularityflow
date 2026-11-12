@@ -216,8 +216,11 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.equal(reviewJson.documents[0].truncated, false);
   assert.equal(reviewJson.documents[0].previewBytes, reviewJson.documents[0].size);
   assert.equal(reviewJson.handoff[0].copilotCommand, '/sf-submit');
-  assert.equal(reviewJson.handoff[1].copilotCommand, '/sf-phase-documents intake');
+  // A change before submitting starts the next draft in the same step (requested-successor), then the optional document view.
+  assert.equal(reviewJson.handoff[1].copilotCommand, '/sf-phase intake <what to change>');
   assert.equal(reviewJson.handoff[1].optional, true);
+  assert.equal(reviewJson.handoff[2].copilotCommand, '/sf-phase-documents intake');
+  assert.equal(reviewJson.handoff[2].optional, true);
   assert.equal(reviewJson.handoffScope, 'after-publication');
   assert.equal(reviewJson.continuation.nextCommand, 'singularity-flow submit intake --work-id DOCS-1');
   assert.equal(reviewJson.continuation.copilotCommand, '/sf-submit');

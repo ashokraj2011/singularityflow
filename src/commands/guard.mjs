@@ -280,7 +280,7 @@ function statusText(result) {
   }
   for (const problem of result.problems) lines.push(`  Problem (${problem.code}): ${problem.message}`);
   if (result.configuration) {
-    lines.push(`  Approved configuration ${String(result.configuration.commit).slice(0, 12)}: ${result.configuration.counts ? result.configuration.label ?? result.configuration.state : `${result.configuration.reason}. Nothing refuses it: anyone with access to this repository can change the configuration`}.`);
+    lines.push(`  Approved configuration: ${result.configuration.counts ? result.configuration.label ?? result.configuration.state : `${result.configuration.reason}. Nothing refuses it: anyone with access to this repository can change the configuration`}.`);
   }
   const unstamped = result.agents.filter((row) => row.stamp !== 'stamped');
   if (result.status === 'required' && result.agents.length) {

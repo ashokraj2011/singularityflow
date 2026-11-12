@@ -1,7 +1,8 @@
 /**
  * `singularity-flow governance`: rebuild this repository's governance onto the current model, or
- * restore it from a rebuild [E2G §11]. Every change is plan-first: `rebuild --dry-run` prints the
- * plan digest a confirmation must name, and `restore` previews before it changes anything.
+ * restore it from a rebuild [E2G §11]. Every change is plan-first: `rebuild --dry-run` gives the
+ * plan a confirmation must name (a person types its short code, never the plan digest), and `restore`
+ * previews before it changes anything; without --plan it restores the most recent rebuild.
  * `verify --presence` is SF Guard's required remote check (SPEC-PSS-v1 REQ-030): it reads only.
  */
 import { identity, repoRoot } from '../git.mjs';
@@ -33,7 +34,7 @@ async function rebuildPreview(root, options) {
     }),
     effects: noEffects(),
     why: [because('governance.from-approved-configuration', 'evidence', {
-      slots: { mode: plan.configuration.mode, commit: plan.configuration.commit.slice(0, 12) }, topic: 'governance-rebuild'
+      slots: { mode: plan.configuration.mode, branch: plan.configuration.mode === 'authority' ? plan.configuration.ref.replace(/^refs\/remotes\//u, '') : null }, topic: 'governance-rebuild'
     })],
     next: plan.ready ? [action({
       id: 'governance-rebuild-confirm',
@@ -94,7 +95,7 @@ async function restore(root, options) {
     return emitCommandResult(commandResult({
       operation: { id: 'governance.restore.preview', classification: 'read' },
       subject: { kind: 'repository', id: result.preview.commit.slice(0, 12) },
-      outcome: succeeded('governance.restore-previewed', { plan: result.preview.plan, files: result.preview.restores.length }),
+      outcome: succeeded('governance.restore-previewed', { plan: result.preview.plan, rebuiltAt: result.preview.rebuiltAt, files: result.preview.restores.length }),
       effects: noEffects(),
       next: result.preview.dirty.length ? [] : [action({
         id: 'governance-restore-confirm', label: 'Restore every file the rebuild changed, as one new commit.',
@@ -108,7 +109,7 @@ async function restore(root, options) {
   return emitCommandResult(commandResult({
     operation: { id: 'governance.restore', classification: 'mutation' },
     subject: { kind: 'repository', id: result.restored.slice(0, 12) },
-    outcome: succeeded('governance.restore-completed', { plan: result.preview.plan, commit: result.restored.slice(0, 12), files: result.preview.restores.length }),
+    outcome: succeeded('governance.restore-completed', { plan: result.preview.plan, rebuiltAt: result.preview.rebuiltAt, commit: result.restored.slice(0, 12), files: result.preview.restores.length }),
     effects: effects({ stateChanged: true, filesChanged: true }),
     restState: 'complete',
     data: { restore: result.preview, commit: result.restored }

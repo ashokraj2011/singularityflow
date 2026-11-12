@@ -216,7 +216,7 @@ test('apm install from the CLI: plain words, the Story checkout refusal, and Cop
   git(root, 'push', '-q', '-u', 'origin', 'main');
   const installed = flow(['apm', 'install', '../review-pack']);
   assert.equal(installed.status, 0, installed.stderr);
-  assert.match(installed.stdout, /Committed [0-9a-f]{12} on apm\/install-review-pack \(new, from main\): 6 files apm 0\.35\.0 changed\./u);
+  assert.match(installed.stdout, /Committed on apm\/install-review-pack \(new, from main\): 6 files apm 0\.35\.0 changed\./u);
   assert.match(installed.stdout, /apm audit --ci passed\. APM: Could not determine org from git remote; enforcement skipped\n\.github\/workflows\/apm-audit\.yml runs the same audit on every pull request\./u);
   assert.match(installed.stdout, /review-pack \(local\): agent review-pack; skill review-pack-skill\./u);
   assert.match(installed.stdout, /apm\.yml now pins apm 0\.35\.0/u);

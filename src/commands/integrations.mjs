@@ -211,7 +211,7 @@ async function retryCommand(root, config, positionals, options, operation, json)
       console.log(`${state.padEnd(16)} ${entry.action} → ${entry.target} (${entry.phaseId}, ${entry.trigger})${entry.detail ? `: ${entry.detail}` : ''}`);
     }
     for (const entry of report.skipped) console.log(`${'skipped'.padEnd(16)} ${entry.key}: ${entry.reason}`);
-    if (recorded?.written?.length) console.log(`Recorded ${recorded.written.length} after-step receipt(s) in commit ${recorded.publication.sha.slice(0, 8)}${recorded.publication.pushed ? ' and pushed' : ''}, so the next step is not held.`);
+    if (recorded?.written?.length) console.log(`Recorded ${recorded.written.length} after-step receipt(s) in a new commit${recorded.publication.pushed ? ' and pushed it' : ''}, so the next step is not held.`);
   }
   return emitCommandResult(result(operation, succeeded('integrations.retried', {
     count: report.delivered.length + report.retrying.length + report.unavailable.length + report.failed.length,
@@ -299,7 +299,7 @@ async function deliverCommand(root, config, options, operation, json) {
       console.log(`${state.padEnd(16)} ${entry.action} → ${entry.target} (${entry.phaseId}, ${entry.trigger})${entry.detail ? `: ${entry.detail}` : ''}`);
     }
     for (const entry of untrusted) console.log(`${'not trusted'.padEnd(16)} ${entry.action} → ${entry.target} (${delivery.event.phaseId}, ${entry.trigger}): ${entry.reason}`);
-    if (delivery.receipts?.recorded) console.log(`Recorded ${delivery.receipts.count} after-step receipt(s) in commit ${delivery.receipts.commit.slice(0, 8)}${delivery.receipts.pushed ? ' and pushed' : ''}.`);
+    if (delivery.receipts?.recorded) console.log(`Recorded ${delivery.receipts.count} after-step receipt(s) in a new commit${delivery.receipts.pushed ? ' and pushed it' : ''}.`);
     else if (delivery.receipts) console.log(`Receipts not recorded: ${delivery.receipts.reason}`);
   }
   // A pipeline job shows red when a delivery did not go out or was not trusted, so someone looks.

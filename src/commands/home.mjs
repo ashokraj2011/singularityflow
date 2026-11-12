@@ -55,7 +55,7 @@ function render(homeEnvelope, answerEnvelope, { context, selected, actor }, conv
   console.log(`Singularity Flow home — ${context.workspaceName ?? 'local setup'}`);
   console.log(`Actor: ${actor.name}${actor.email ? ` <${actor.email}>` : ''}`);
   console.log(selected
-    ? `Repository: ${selected.id} · ${selected.branch} @ ${(selected.head ?? 'unavailable').slice(0, 12)}`
+    ? `Repository: ${selected.id} · ${selected.branch}${selected.head ? '' : ' (no commit)'}`
     : 'Repository: none selected');
   console.log(`Freshness: ${new Date().toISOString()} · local only`);
   if (homeEnvelope.data?.personalization?.replyName) console.log(`\nHello, ${homeEnvelope.data.personalization.replyName}.`);

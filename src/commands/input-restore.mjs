@@ -224,7 +224,7 @@ export async function applyInputRestore(root, config, workflow, phaseId = null, 
       const bytes = committedFileBytes(root, entry.source.commit, entry.path);
       if (!bytes || sha256(bytes) !== plain(entry.approvedSha256)) {
         throw new SingularityFlowError(
-          `The approved bytes of ${entry.path} are no longer readable from ${entry.source.commit.slice(0, 12)}. Nothing further was restored; checkpoint ${checkpoint.id} holds the earlier copy.`,
+          `The approved bytes of ${entry.path} are no longer readable from the commit that held them. Nothing further was restored; checkpoint ${checkpoint.id} holds the earlier copy.`,
           { code: 'INPUT_RESTORE_SOURCE_UNAVAILABLE', details: { workId: workflow.workItem.id, phase: phase.id,
             path: entry.path, checkpoint: checkpoint.id, restored } }
         );
@@ -252,13 +252,15 @@ export async function applyInputRestore(root, config, workflow, phaseId = null, 
   });
 }
 
+// Each file by its path, its step and what differs; the digests stay in --json, and the restore is confirmed by its
+// short code (confirm-code.mjs), never the plan digest.
 function planLines(plan) {
-  const lines = [`Input restore plan — ${plan.workId}/${plan.phase}`, `Plan: ${plan.planSha256}`, ''];
+  const lines = [`Input restore plan — ${plan.workId}/${plan.phase}`, ''];
   if (!plan.entries.length) lines.push('Every approved input already matches its approved bytes.');
   for (const entry of plan.entries) {
     lines.push(`${entry.restorable ? 'RESTORE' : 'KEEP'} ${entry.path ?? entry.phase} (from ${entry.phase}, ${entry.status})`);
-    lines.push(`  approved ${entry.approvedSha256 ?? 'none'}; now ${entry.currentSha256 ?? 'missing'}`);
-    if (entry.restorable) lines.push(`  bytes come from HEAD ${entry.source.commit.slice(0, 12)}, which holds the approved copy`);
+    lines.push(`  ${entry.currentSha256 ? 'its bytes differ from the approved ones' : 'it is missing'}${entry.approvedSha256 ? '' : '; no approved copy is recorded'}`);
+    if (entry.restorable) lines.push('  the approved copy comes from the checked-out commit, which holds it');
     if (entry.reason) lines.push(`  ${entry.reason}`);
   }
   return lines;
@@ -289,7 +291,11 @@ export async function inputsRestoreCommand(root, positionals, options) {
       return;
     }
     const lines = planLines(plan);
-    if (plan.confirmCommand) lines.push('', `Restore with: ${plan.confirmCommand}`, 'A private checkpoint of every dirty file and the Git index is saved first; nothing is staged or committed.');
+    if (plan.confirmCommand) {
+      const { safeCommandGuidance, commandRouteLines } = await import('../safe-command-guidance.mjs');
+      lines.push('', 'Restore it:', ...commandRouteLines(safeCommandGuidance({ command: plan.confirmCommand }) ?? {}),
+        'A private checkpoint of every dirty file and the Git index is saved first; nothing is staged or committed.');
+    }
     if (plan.routes.length || plan.notes.length) lines.push('', ...routeLines(plan));
     console.log(lines.join('\n'));
     return;
@@ -301,7 +307,7 @@ export async function inputsRestoreCommand(root, positionals, options) {
   }
   console.log([
     `Restored ${result.restored.length} approved input file(s) for ${result.phase}:`,
-    ...result.restored.map((entry) => `  ${entry.path} (from ${entry.phase}) → ${entry.approvedSha256}`),
+    ...result.restored.map((entry) => `  ${entry.path} (from ${entry.phase}), back to its approved bytes`),
     `Checkpoint of the earlier copies: ${result.checkpoint.id}`,
     `  Inspect it with: ${result.checkpoint.next}`,
     `Check the inputs again with: ${result.next}`,

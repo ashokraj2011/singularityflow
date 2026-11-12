@@ -233,12 +233,23 @@ export function filterKnowledge(entries, { type = null, status = null, query = n
     && (!needle || `${record.id} ${record.text}`.toLowerCase().includes(needle)));
 }
 
+/**
+ * Whether `wanted` names this entry: its record ID (`K-…`, what a person reads in `knowledge list`) or its SHA-256 or a
+ * prefix of it (what a script holds).
+ */
+export function knowledgeEntryNamed(entry, wanted) {
+  const value = String(wanted ?? '').trim();
+  if (!value) return false;
+  if (/^K-[0-9a-f]{12}$/iu.test(value)) return entry.record?.id?.toLowerCase() === value.toLowerCase();
+  return entry.sha256 === value || entry.sha256.startsWith(value);
+}
+
 export async function resolveKnowledge(root, sha256, { resolution } = {}) {
   const entries = await readKnowledge(root);
-  const matches = entries.filter((entry) => entry.sha256 === sha256 || entry.sha256.startsWith(sha256));
-  if (matches.length !== 1) throw new SingularityFlowError(matches.length ? `Knowledge hash '${sha256}' is ambiguous.` : `No knowledge entry matches '${sha256}'.`);
+  const matches = entries.filter((entry) => knowledgeEntryNamed(entry, sha256));
+  if (matches.length !== 1) throw new SingularityFlowError(matches.length ? `Knowledge entry '${sha256}' is ambiguous.` : `No knowledge entry matches '${sha256}'.`);
   const target = matches[0];
-  if (target.record.type !== 'uncertainty') throw new SingularityFlowError(`Only an uncertainty can be resolved; '${sha256}' is a ${target.record.type}.`);
+  if (target.record.type !== 'uncertainty') throw new SingularityFlowError(`Only an uncertainty can be resolved; ${target.record.id} is a ${target.record.type}.`);
   const text = String(resolution ?? '').trim();
   if (!text) throw new SingularityFlowError('Resolving an uncertainty requires the answer.');
   return recordKnowledge(root, {

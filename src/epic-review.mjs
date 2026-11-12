@@ -150,13 +150,14 @@ async function checkoutSubmission(root, initiativeId, storyReference, packetSha2
   , { details: { nextAction: { executable: 'singularity-flow', argv: ['recover', workId, '--json'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   if (packetSha256 && finalized?.finalization.reviewPacketSha256 !== packetSha256) {
     throw new SingularityFlowError(
-      `Review packet '${packetSha256.slice(0, 12)}' is not the packet referenced by the latest developer finalization `
-      + `'${finalized?.finalization.packetSha256?.slice(0, 12) ?? 'missing'}'.`
+      `That review packet is not the one ${workId}'s latest finalization names. Nothing was decided. Open the latest: singularity-flow epic review ${workId} --epic ${initiativeId}`,
+      { details: { supplied: packetSha256, finalized: finalized?.finalization.reviewPacketSha256 ?? null } }
     );
   }
   if (packetSha256 && latest?.submission.packetSha256 !== packetSha256) {
     throw new SingularityFlowError(
-      `Review packet '${packetSha256.slice(0, 12)}' is stale. Open the latest submitted packet '${latest.submission.packetSha256.slice(0, 12)}' before deciding.`
+      `That review packet is stale: ${workId} submitted a newer one. Nothing was decided. Open it before deciding: singularity-flow epic review ${workId} --epic ${initiativeId}`,
+      { details: { supplied: packetSha256, latest: latest.submission.packetSha256 } }
     );
   }
   const submittedBranch = selected.ref.replace(/^origin\//, '');
@@ -251,7 +252,7 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
   if (!preview.reviewerAuthority.authorized) throw new SingularityFlowError(preview.reviewerAuthority.reason);
   if (decision === 'approve' && !preview.evidence?.ready) {
     throw new SingularityFlowError(
-      `Exact-SHA checks have not passed for packet '${packetSha256.slice(0, 12)}'. Run and record checks before approval.`
+      'The checks have not passed for this exact review packet. Run and record checks before approval.'
     );
   }
   await setAgentSession(

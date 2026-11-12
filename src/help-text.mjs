@@ -120,7 +120,7 @@ Usage:
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT" --expect-scope-sha256 SHA256] [--allow-dirty] [--include-local-documents] [--discard-pending-publications] [--json]
   singularity-flow governance rebuild --dry-run [--remote origin] [--json]
   singularity-flow governance rebuild --confirm-plan grb-DIGEST [--accept-inactive WORKFLOW,...] [--strict] [--json]
-  singularity-flow governance restore --plan grb-DIGEST [--dry-run | --confirm grb-DIGEST] [--json]
+  singularity-flow governance restore [--plan grb-DIGEST] [--dry-run | --confirm grb-DIGEST] [--json]
   singularity-flow governance verify --presence [--base REF] [--pull-request N] [--state-records] [--json]
   sflow reset-all [--yes] [--discard-pending-publications] [--json]
   singularity-flow local-reset [--dry-run | --confirm "RESET LOCAL"] [--discard-pending-publications] [--json]
@@ -1051,11 +1051,11 @@ Usage:
   singularity-flow initiative resume <INIT-ID> [--fetch]
   singularity-flow initiative restart <INIT-ID> [--reason TEXT] [--confirm INIT-ID]
   singularity-flow knowledge [list] [--type TYPE] [--status open|resolved] [--tag TAG] [--query TEXT] [--json]
-  singularity-flow knowledge show <SHA256> [--json]
+  singularity-flow knowledge show <K-ID> [--json]
   singularity-flow knowledge record <insight|decision|gotcha|constraint|uncertainty> --title TEXT [--detail TEXT]
   singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]
   singularity-flow knowledge harvest [--initiative INIT-ID] [--phase PHASE] [--dry-run] [--json]
-  singularity-flow knowledge resolve <SHA256> --resolution TEXT [--json]
+  singularity-flow knowledge resolve <K-ID> --resolution TEXT [--json]
 
   singularity-flow initiative status [INIT-ID] [--json]
   singularity-flow initiative next [INIT-ID] [--json]
@@ -1105,6 +1105,7 @@ Usage:
     tasks <PLAN-ID> list|add|update|remove [TASK-ID] [--title TEXT] [--description TEXT]
   singularity-flow epic jira preview [--epic EPIC-KEY] [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
   singularity-flow epic jira apply --epic EPIC-KEY --plan SHA256 --confirm EPIC-KEY
+  singularity-flow epic jira apply --epic EPIC-KEY --plan current     (your own terminal: shows the reviewed plan, asks for the Epic ID)
   singularity-flow epic create-stories [--epic EPIC-KEY] [--plan SHA256] [--confirm EPIC-KEY]  Deprecated mapping target
     [--artifact PHASE/OUTPUT]... [--artifact-to epic|stories|both]
   singularity-flow epic status|sync|next|report|resume|journey [EPIC-KEY]

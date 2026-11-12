@@ -46,6 +46,6 @@ export async function readAgents({ positionals, options }) {
     { key: 'resources', label: 'REMOTE' }, { key: 'source', label: 'SOURCE' }
   ]));
   for (const entry of rows) for (const dependency of entry.dependencies) {
-    console.log(`  ${entry.id}/${dependency.id}\t${dependency.type}\t${dependency.status}\t${dependency.sha256?.slice(0, 12) ?? ''}`);
+    console.log(`  ${entry.id}/${dependency.id}\t${dependency.type}\t${dependency.status}${dependency.sha256 ? '\tlocked' : ''}`);
   }
 }

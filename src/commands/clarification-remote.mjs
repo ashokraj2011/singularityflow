@@ -49,7 +49,7 @@ export async function clarificationImportCommand(root, config, workflow, phase, 
   if (!json) {
     if (!found.accepted.length && !found.refused.length) console.log(`No answers from another clone are waiting for ${phase.id} generation ${found.generation}.`);
     for (const entry of recorded) console.log(`Recorded ${entry.answers} answer${entry.answers === 1 ? '' : 's'} from ${entry.by} for ${phase.id} generation ${found.generation}.`);
-    for (const entry of found.refused) console.log(`Not recorded: ${entry.ref.split('/').pop()} (${entry.commit.slice(0, 12)}): ${entry.why}.`);
+    for (const entry of found.refused) console.log(`Not recorded: an answer from another clone: ${entry.why}.`);
   }
   emitCommandResult(commandResult({
     operation: { id: 'clarification.import', classification: 'mutation' }, subject: { kind: 'story', id: workflow.workItem.id },

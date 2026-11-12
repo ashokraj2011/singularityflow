@@ -8,8 +8,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { confirmCode } from '../src/confirm-code.mjs';
+import { TYPED_TERMINAL_AVAILABLE, typedInTerminal } from './helpers/typed-terminal.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// A run of 7 to 64 hexadecimal characters with a letter and a digit (person-text-no-hashes.test.mjs): a person reads none.
+const HEX_RUN = /(?<![0-9A-Za-z_])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,64}(?![0-9A-Za-z_])/iu;
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
 function command(executable, args, cwd, { ok = true, env = {} } = {}) {
@@ -380,11 +384,24 @@ Preserve this custom repository agent during a factory reset.
   assert.equal(plan.operation, 'factory-reset');
   // The token binds to this checkout at this commit. A token that is only the directory name is
   // derivable without ever seeing the preview, and matches a different clone of the same repository.
-  assert.equal(plan.confirmation, `RESET ${path.basename(root)} ${beforeHead.slice(0, 7)}`);
+  // A person types it, so the commit is in it as a short code derived from this checkout and that commit, never a hash.
+  assert.equal(plan.confirmation, `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${plan.repository} ${beforeHead}`)}`);
+  assert.match(plan.confirmation, /^RESET \S+ [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
   assert.notEqual(plan.confirmation, `RESET ${path.basename(root)}`);
   const humanPreview = command(process.execPath, [cli, 'factory-reset', '--dry-run'], root).stdout;
-  assert.match(humanPreview, new RegExp(`--expect-scope-sha256 ${plan.resetScopeSha256}`),
-    'the copyable apply command is bound to the exact reviewed reset scope');
+  // The person resets in their own terminal, which shows the preview, asks, and binds the scope that same process read.
+  assert.match(humanPreview, /Shell: singularity-flow factory-reset\n/u);
+  assert.doesNotMatch(humanPreview, new RegExp(plan.resetScopeSha256), 'a person never copies the scope digest');
+  assert.doesNotMatch(humanPreview.split(plan.repository).join(' '), HEX_RUN, 'the preview names no commit or digest');
+  if (TYPED_TERMINAL_AVAILABLE) {
+    // A wrong answer resets nothing; the confirmation it asked for is the one the preview showed.
+    const declined = await typedInTerminal({ argv: [process.execPath, cli, 'factory-reset'], cwd: root, env: process.env,
+      prompt: `Type ${plan.confirmation} to reset, or press Enter to cancel: `, answer: 'RESET WRONG' });
+    assert.equal(declined.status, 0, declined.output);
+    assert.match(declined.output, /Nothing was removed\./u);
+    assert.doesNotMatch(declined.output.split(plan.repository).join(' '), HEX_RUN);
+    assert.equal(await readFile(workflow, 'utf8').then((text) => text.includes('local customization')), true);
+  }
   assert.equal(plan.localRuntimeRoots.length, 1,
     'filesystem aliases for the same ordinary-checkout Git directory are deduplicated');
   assert.ok(plan.uncommittedDiscardPaths.some((entry) => entry.includes('.github/agents/qa.agent.md')),

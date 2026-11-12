@@ -1602,7 +1602,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
     const mirrorCommit = configurationRepositoryHead(source, frozen.env);
     if (expectedCommit && mirrorCommit !== expectedCommit) {
       throw new SingularityFlowError(
-        `Approved state configuration authority moved from ${expectedCommit.slice(0, 12)} to ${mirrorCommit.slice(0, 12)} while its snapshot was being prepared. Refresh and retry; nothing was changed.`,
+        `The approved configuration on ${branch} changed while its snapshot was being prepared. Refresh and retry; nothing was changed.`,
         {
           code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
           details: {
@@ -1960,7 +1960,7 @@ export async function loadStoryConfigurationDefinition(authority) {
 function missingStoryConfigurationWorkflow(authority, sourceCommit) {
   const commit = String(sourceCommit ?? authority?.sourceCommit ?? authority?.commit ?? 'unknown');
   return new SingularityFlowError(
-    `Approved configuration ${CONFIGURATION_BRANCH}@${commit.slice(0, 12)} is incomplete: it does not contain singularity/workflow.yml. Nothing was changed. Preview the seeded-only workspace reinitialization, review its exact plan, and apply that plan before creating a Story.`,
+    `The approved configuration on ${CONFIGURATION_BRANCH} is incomplete: it does not contain singularity/workflow.yml. Nothing was changed. Preview the seeded-only workspace reinitialization, review its exact plan, and apply that plan before creating a Story.`,
     {
       code: 'STORY_CONFIGURATION_WORKFLOW_MISSING',
       details: {
@@ -2903,7 +2903,7 @@ async function loadStoryConfigurationSnapshotFresh(authority, {
         sourceCommit = mirror.sourceCommit;
         if (authority.sourceCommit && mirror.sourceCommit !== authority.sourceCommit) {
           throw new SingularityFlowError(
-            `Approved configuration source moved from ${authority.sourceCommit.slice(0, 12)} to ${mirror.sourceCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
+            `The approved configuration on ${authority.branch ?? CONFIGURATION_BRANCH} changed while Story intake was being prepared. Refresh and retry; nothing was changed.`,
             {
               code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
               details: {
@@ -2920,7 +2920,7 @@ async function loadStoryConfigurationSnapshotFresh(authority, {
       }
       if (authority.commit && observedCommit !== authority.commit) {
         throw new SingularityFlowError(
-          `Approved configuration authority moved from ${authority.commit.slice(0, 12)} to ${observedCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
+          `The approved configuration on ${authority.branch ?? CONFIGURATION_BRANCH} changed while Story intake was being prepared. Refresh and retry; nothing was changed.`,
           {
             code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
             details: { branch: authority.branch, expectedCommit: authority.commit, actualCommit: observedCommit }
@@ -3194,8 +3194,8 @@ function captureStoryConfigurationSnapshotAssets(snapshot, { selectPaths = null 
     const missing = [...selected].filter((relative) => !available.has(relative));
     if (missing.length) {
       throw new SingularityFlowError(
-        `Approved configuration ${snapshot.authority.branch}@${snapshot.sourceCommit.slice(0, 12)} does not contain '${missing[0]}'.`,
-        { code: 'APPROVED_CONFIGURATION_INCOMPLETE', details: { missing } }
+        `The approved configuration on ${snapshot.authority.branch} does not contain '${missing[0]}'.`,
+        { code: 'APPROVED_CONFIGURATION_INCOMPLETE', details: { missing, commit: snapshot.sourceCommit } }
       );
     }
   }
@@ -3497,7 +3497,7 @@ export async function materializeConfigurationSnapshot(root, {
     incrementCommandCounter('configuration.assets-written', changed.length);
     if (!files.includes('singularity/workflow.yml')) {
       throw new SingularityFlowError(
-        `${CONFIGURATION_BRANCH}@${commit.slice(0, 12)} does not contain singularity/workflow.yml.`);
+        `The configuration on ${CONFIGURATION_BRANCH} does not contain singularity/workflow.yml.`, { details: { commit } });
     }
     const assets = Object.fromEntries(materialized.map((entry) => [entry.relative, {
       sha256: entry.sha256,

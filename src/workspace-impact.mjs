@@ -207,7 +207,7 @@ async function materializeSandbox(workspace, record) {
       const clone = run('git', ['clone', '--no-local', '--no-checkout', repository.sourcePath, target], { allowFailure: true });
       if (clone.status !== 0) throw new SingularityFlowError(`Could not create detached analysis copy for '${repository.id}': ${clone.stderr.trim() || clone.stdout.trim()}`);
       const checkout = run('git', ['checkout', '--detach', repository.commit], { cwd: target, allowFailure: true });
-      if (checkout.status !== 0) throw new SingularityFlowError(`Could not check out ${repository.id}@${repository.commit.slice(0, 12)} in the analysis sandbox.`);
+      if (checkout.status !== 0) throw new SingularityFlowError(`Could not check out ${repository.id} at the commit it was pinned to, in the analysis sandbox.`, { details: { repository: repository.id, commit: repository.commit } });
       if (repository.worldModel.present && repository.worldModel.source === 'state-branch') {
         const resolved = await resolvedRepositoryWorldModel(repository.sourcePath, repository.commit, false);
         if (!resolved.present || resolved.sha256 !== repository.worldModel.sha256

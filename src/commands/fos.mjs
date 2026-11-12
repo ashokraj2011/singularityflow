@@ -40,8 +40,8 @@ function output(value, json, kind, { bootstrappedRoot = null } = {}) {
     outcome: succeeded(messageId, {
       status: value.status,
       operationId: value.operationId ?? null,
-      authority: value.descriptor?.authority
-        ? `${value.descriptor.authority.branch}@${value.descriptor.authority.commit.slice(0, 12)}` : null,
+      // By its branch, never its commit: the headline is person text; data.result keeps the commit and the pin.
+      authority: value.descriptor?.authority ? `the approved configuration on ${value.descriptor.authority.branch}` : null,
       pin: value.descriptor?.descriptorSha256 ?? null,
       removedEntries: value.removedEntries ?? null
     }),

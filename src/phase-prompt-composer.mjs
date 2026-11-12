@@ -1260,7 +1260,7 @@ export async function compose(root, options, {
   if (dryRun) {
     console.log(`phase: ${signals.phase}  agent: ${agent}  prompt: ${promptStudy ? `${promptStudy.variant.id} · ${promptStudy.studyRunId}` : 'agent default'}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  reference repositories: ${referenceRepositories.repositories.length}  AST facts: ${structural.record?.factsReturned ?? 0}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
-    remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
+    remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes)`));
     return;
   }
 

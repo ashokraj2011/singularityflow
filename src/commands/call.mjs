@@ -66,7 +66,12 @@ async function addCommand(folder, options) {
     if (!json) {
       for (const line of userDefinedPlanLines(plan)) console.log(line);
       for (const problem of problems) console.log(`  Problem: ${problem}`);
-      console.log(problems.length ? 'Nothing can be proposed until these are fixed.' : `Plan: ${plan.planSha256}\nPropose it: ${confirmCommand}`);
+      if (problems.length) console.log('Nothing can be proposed until these are fixed.');
+      else {
+        // Proposed by its short code, never the plan digest (confirm-code.mjs).
+        const { safeCommandGuidance, commandRouteLines } = await import('../safe-command-guidance.mjs');
+        console.log(['Propose it:', ...commandRouteLines(safeCommandGuidance({ command: confirmCommand }) ?? {})].join('\n'));
+      }
     }
     emitCommandResult(commandResult({
       operation: { id: 'call.add.preview', classification: 'read' },

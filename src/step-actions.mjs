@@ -619,7 +619,8 @@ export function stepActionText(event) {
   const story = [event?.story?.id, event?.story?.title].filter(Boolean).join(' ');
   const lines = [`Singularity Flow — ${step} ${TRIGGER_WORDS[event?.delivery?.trigger] ?? event?.delivery?.trigger ?? 'changed'}`];
   if (story) lines.push(`${story}${Number.isSafeInteger(event?.step?.generation) ? ` · generation ${event.step.generation}` : ''}`);
-  const where = [event?.story?.branch ? `Branch ${event.story.branch}` : null, event?.commit?.sha ? `commit ${event.commit.sha.slice(0, 12)}` : null].filter(Boolean);
+  // Where by its branch, never its commit: people read this in chat (a Jira comment adds the hashes as its record).
+  const where = [event?.story?.branch ? `Branch ${event.story.branch}` : null].filter(Boolean);
   if (where.length) lines.push(where.join(' · '));
   if (event?.decision?.returnedTo) lines.push(`Returned to ${event.decision.returnedTo}${event.decision.reason ? `: ${clip(event.decision.reason, 200)}` : ''}`);
   if (event?.summary?.title) lines.push(`${event.summary.title}`);

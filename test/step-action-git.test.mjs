@@ -75,7 +75,7 @@ test('a git delivery commits the artifact over the branch as it was, once, and n
   const record = gitRecord(remote);
   const first = await deliverToGit(record, { root: identityRoot, env: ENV });
   assert.equal(first.outcome, 'delivered', first.detail);
-  assert.match(first.detail, /^Committed specs\/STORY-9\/intake\/intake\.md to docs as [0-9a-f]{12}\.$/);
+  assert.match(first.detail, /^Committed specs\/STORY-9\/intake\/intake\.md to docs\.$/);
   const after = git(base, '--git-dir', remote, 'rev-parse', 'docs');
   assert.equal(git(base, '--git-dir', remote, 'rev-parse', `${after}^`), before, 'a fast-forward of the tip it read');
   assert.equal(git(base, '--git-dir', remote, 'show', `${after}:specs/STORY-9/intake/intake.md`), '# Intake\n\nApproved.');
@@ -87,7 +87,7 @@ test('a git delivery commits the artifact over the branch as it was, once, and n
   assert.equal(git(base, '--git-dir', remote, 'log', '-1', '--format=%an <%ae>', after), 'Delivery Tester <delivery.tester@example.com>');
 
   const again = await deliverToGit(record, { root: identityRoot, env: ENV });
-  assert.match(again.detail, /^Already on docs as [0-9a-f]{12}\.$/);
+  assert.match(again.detail, /^Already on docs\.$/);
   assert.equal(git(base, '--git-dir', remote, 'rev-parse', 'docs'), after, 'a retry writes nothing');
 
   const sameBytes = await deliverToGit(gitRecord(remote, { key: `sad_${'2'.repeat(40)}`, trigger: 'submitted' }), { root: identityRoot, env: ENV });

@@ -667,7 +667,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       return;
     }
     console.log(`${context.work.id} · ${context.phase?.id ?? 'closed'} · ${context.slice} context`);
-    console.log(`Revision: ${(context.sourceRevision.commit ?? 'unavailable').slice(0, 12)}`);
+    console.log(`Revision: ${context.sourceRevision.commit ? 'the checked-out commit' : 'unavailable'}`);
     console.log(`Included: ${context.accounting.includedContentBytes}/${context.accounting.maximumOutputBytes} bytes · ~${context.accounting.estimatedInputTokens} tokens`);
     if (context.omissions.length) console.log(`Omitted: ${context.omissions.join(', ')}`);
     console.log(JSON.stringify(context.payload, null, 2));
@@ -813,7 +813,7 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
     // the caller is standing, saying which one is the difference between an attach and a surprise.
     if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace)`);
     if (managedWorktree) console.log(`Story worktree: ${attachmentRoot}`);
-    console.log(`Attached to ${id} from ${remote}/${targetBranch} at ${remoteSha.slice(0, 8)}.`);
+    console.log(`Attached to ${id} from ${remote}/${targetBranch}.`);
     console.log(`Current phase: ${workflow.currentPhase ?? 'none'} · status: ${workflow.status}`);
     if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);

@@ -441,6 +441,28 @@ function sourceRecord(root, source = {}) {
   };
 }
 
+/** The ID a person reads and types for one evidence record (`EV-` and the start of its SHA-256), never the bare digest. */
+export function evidenceRecordId(entry) {
+  return `EV-${String(entry?.sha256 ?? '').slice(0, 12)}`;
+}
+
+/**
+ * Each superseded record by its full SHA-256: a person names one by its EV- ID (what `evidence list` shows); a script
+ * may still give the digest. An ID that names no record, or several, is refused.
+ */
+async function supersededRecordDigests(root, portfolio, initiativeId, values) {
+  if (!values.length) return [];
+  const records = await readInitiativeRecords(root, portfolio, initiativeId, 'evidence');
+  return values.map((value) => {
+    const text = String(value ?? '').trim();
+    if (/^[a-f0-9]{64}$/u.test(text)) return text;
+    const prefix = text.replace(/^EV-/iu, '').toLowerCase();
+    const matches = /^[a-f0-9]{12,63}$/u.test(prefix) ? records.filter((entry) => entry.sha256.startsWith(prefix)) : [];
+    if (matches.length !== 1) throw new SingularityFlowError(`--supersedes ${text} names ${matches.length ? 'several evidence records' : 'no evidence record'} of ${initiativeId}; use the EV- ID evidence list shows.`);
+    return matches[0].sha256;
+  });
+}
+
 export async function registerInitiativeEvidence(root, {
   initiativeId,
   phaseId,
@@ -542,7 +564,7 @@ export async function registerInitiativeEvidence(root, {
     subject,
     decision,
     reason: reason?.trim() || null,
-    supersedes: [...new Set(supersedes)]
+    supersedes: [...new Set(await supersededRecordDigests(root, portfolio, initiative.initiative.id, supersedes))]
   };
   const appended = await appendInitiativeRecord(root, portfolio, initiative.initiative.id, 'evidence', record);
   initiative.history.push({
@@ -551,7 +573,7 @@ export async function registerInitiativeEvidence(root, {
     agent,
     event: decision ? `initiative_check_${decision}` : 'initiative_evidence_registered',
     phase: phaseId,
-    detail: `${checkId} ${assurance} ${appended.sha256.slice(0, 12)}`
+    detail: `${checkId} ${assurance} ${evidenceRecordId(appended)}`
   });
   await saveInitiativeDraft(root, portfolio, initiative);
   return appended;

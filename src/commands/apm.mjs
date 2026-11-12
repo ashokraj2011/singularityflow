@@ -56,10 +56,9 @@ function print(status) {
     lines.push(`${status.lock.path}: ${plural(status.lock.packages, 'locked package')}${status.lock.apmVersion ? `, written by apm ${status.lock.apmVersion}` : ''}.`);
   }
   for (const entry of status.packages) {
-    const at = entry.commit ? ` @ ${entry.commit.slice(0, 12)}` : '';
     const via = entry.marketplace && !entry.label.includes('@') ? ` (from ${entry.marketplace})` : '';
     const what = primitiveWords(entry.primitives);
-    lines.push(`  ${entry.label}${at}${via}${entry.depth > 1 ? ' (needed by another package)' : ''}: ${plural(entry.files.total, 'file')}${what ? `; ${what}` : ''}.`);
+    lines.push(`  ${entry.label}${via}${entry.depth > 1 ? ' (needed by another package)' : ''}: ${plural(entry.files.total, 'file')}${what ? `; ${what}` : ''}.`);
   }
   if (status.local?.files.total) {
     const what = primitiveWords(status.local.primitives);
@@ -90,7 +89,8 @@ function print(status) {
   console.log(lines.join('\n'));
 }
 
-const versionWords = ({ commit, version }) => [version, commit ? `@ ${commit.slice(0, 12)}` : null].filter(Boolean).join(' ') || 'unversioned';
+// A package by its version; one locked to a commit alone reads as such, never as the commit (a hash).
+const versionWords = ({ commit, version }) => version || (commit ? 'a locked commit' : 'unversioned');
 
 function printInstall(result) {
   const verb = result.resultType === 'sflow-apm-update' ? 'update' : 'install';
@@ -100,10 +100,10 @@ function printInstall(result) {
     return console.log([verb === 'update' ? 'Every package is already at the latest version its apm.yml entry allows; nothing to commit.'
       : `apm install changed nothing to commit (apm status: ${result.state}).`, ...waiting].join('\n'));
   }
-  const lines = [`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}: ${result.changed.length} file${result.changed.length === 1 ? '' : 's'} apm ${result.apmVersion} changed.`];
+  const lines = [`Committed on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}: ${result.changed.length} file${result.changed.length === 1 ? '' : 's'} apm ${result.apmVersion} changed.`];
   for (const entry of result.installed ?? []) {
     const what = primitiveWords(entry.primitives);
-    lines.push(`  ${entry.label}${entry.commit ? ` @ ${entry.commit.slice(0, 12)}` : ''}${what ? `: ${what}` : ''}.`);
+    lines.push(`  ${entry.label}${what ? `: ${what}` : ''}.`);
   }
   for (const entry of result.updated ?? []) lines.push(`  ${entry.label}: ${entry.from ? `${versionWords(entry.from)} -> ` : 'new, '}${versionWords(entry)}.`);
   lines.push(...waiting);
@@ -121,7 +121,7 @@ function printMarketplaceInit(result) {
     return console.log([`Would make this repository the ${result.name} APM marketplace on ${result.branch}, with apm ${result.apmVersion}: ${result.files.join(', ')}.`,
       'Nothing was changed.'].join('\n'));
   }
-  const lines = [`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}: the ${result.name} APM marketplace, with no packages yet.`,
+  const lines = [`Committed on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}: the ${result.name} APM marketplace, with no packages yet.`,
     `apm.yml pins apm ${result.apmVersion} (x-sflow.apm-cli); apm pack compiled .github/plugin/marketplace.json.`];
   if (result.workflowWritten) lines.push('.github/workflows/apm-marketplace.yml runs APM\'s gates on every pull request.');
   lines.push('Nothing was pushed. Review and share it:');
@@ -142,7 +142,7 @@ function printPublish(result) {
   }
   if (result.skills.length) lines.push('The skills travel as the package\'s own: APM deploys them to .agents/skills, where Copilot finds each one by its description.');
   if (result.dryRun) return console.log([...lines, 'Nothing was changed.'].join('\n'));
-  lines.push(`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''} in the marketplace's checkout; apm pack listed it in ${result.indexed.join(', ')}.`);
+  lines.push(`Committed on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''} in the marketplace's checkout; apm pack listed it in ${result.indexed.join(', ')}.`);
   lines.push('Nothing was pushed. Review and share it:');
   for (const action of result.nextActions) lines.push(`  ${action.command}${action.why.startsWith('Once') ? `  (${action.why})` : ''}`);
   console.log(lines.join('\n'));
@@ -153,7 +153,7 @@ function printPolicy(result) {
   for (const note of result.notes) lines.push(note);
   if (result.dryRun) return console.log([...lines, result.text.trimEnd(), 'Nothing was changed.'].join('\n'));
   for (const warning of result.warnings) lines.push(`APM: ${warning}`);
-  lines.push(`Committed ${result.commit.slice(0, 12)} on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}; apm ${result.apmVersion} accepts it.`);
+  lines.push(`Committed on ${result.branch}${result.createdBranch ? ` (new, from ${result.from})` : ''}; apm ${result.apmVersion} accepts it.`);
   lines.push('Nothing was pushed. Review and share it:');
   for (const action of result.nextActions) lines.push(`  ${action.command}${action.why.startsWith('Once') ? `  (${action.why})` : ''}`);
   console.log(lines.join('\n'));

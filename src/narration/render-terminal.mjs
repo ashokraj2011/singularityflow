@@ -13,6 +13,7 @@ import { contextXrayText } from '../context-xray.mjs';
 import { tokenLedgerText } from '../token-ledger.mjs';
 import { table } from '../util.mjs';
 import { safeCommandGuidance, commandGuidanceLines } from '../safe-command-guidance.mjs';
+import { commandRouteRows } from '../model-free-commands.mjs';
 import * as style from '../style.mjs';
 import { nextSuggestionsHeading } from '../personalization.mjs';
 
@@ -70,11 +71,13 @@ function nextLines(result) {
     // guessing a slash command from prose.
     .map((entry) => {
       const guidance = safeCommandGuidance(entry);
+      // A confirmation a person types by its short code reads the same in their terminal, never the digest (confirm-code.mjs).
+      const shell = guidance ? commandRouteRows(guidance)[1].command ?? guidance.command : null;
       return guidance
         ? [
           `  ${style.detail(entry.rank.padEnd(5))} ${entry.label}`,
           `        Copilot: ${style.action(guidance.copilotCommand)}`,
-          `        Shell: ${style.action(guidance.command)}`,
+          `        Shell: ${style.action(shell)}`,
           `        VS Code (model-free): ${style.action(guidance.modelFreeCommand ?? 'not available for this action')}`
         ].join('\n')
         : [
@@ -529,14 +532,13 @@ const REST_STATE_LINES = Object.freeze({
 
 function governanceRebuildPreview(result) {
   const plan = result.data.plan;
-  const short = (value) => (value ? String(value).slice(0, 12) : 'absent');
   const failing = plan.workflowFindings ?? [];
+  // Files, Stories and branches by name, never a commit or digest: the plan ID and every digest stay in --json.
   return [
     style.heading(headline(result)),
-    `Plan: ${plan.plan}`,
-    `Configuration: ${plan.configuration.mode === 'authority' ? `authority ${plan.configuration.ref}` : 'committed checkout'} at ${short(plan.configuration.commit)} · package ${plan.product.version ?? 'unknown'}`,
+    `Configuration: ${plan.configuration.mode === 'authority' ? `the approved configuration on ${String(plan.configuration.ref).replace(/^refs\/remotes\//u, '')}` : 'this checkout\'s committed configuration'} · package ${plan.product.version ?? 'unknown'}`,
     '', style.heading(`Framework files replaced (${plan.replaced.length}):`),
-    ...(plan.replaced.length ? plan.replaced.map((entry) => `  ${entry.path}  ${short(entry.before)} → ${short(entry.after)}`) : ['  none: every framework file is current']),
+    ...(plan.replaced.length ? plan.replaced.map((entry) => `  ${entry.path}${entry.before ? '' : '  (new)'}`) : ['  none: every framework file is current']),
     ...(plan.removed.length ? ['', style.heading(`Framework files removed (${plan.removed.length}):`), ...plan.removed.map((entry) => `  ${entry}`)] : []),
     ...(plan.kept.length ? ['', style.heading(`Repository settings kept as they are (${plan.kept.length}):`), ...plan.kept.map((entry) => `  ${entry}`)] : []),
     '', style.heading(`Workflows (${plan.workflows.length}): ${plan.workflows.length - failing.length} compile under the current rules.`),
@@ -545,7 +547,7 @@ function governanceRebuildPreview(result) {
       ...(entry.findings[0]?.resolvingAction ? [`    Fix: ${entry.findings[0].resolvingAction}`] : [])
     ]),
     '', style.heading(`Stories to archive (${plan.storyDetails.length}):`),
-    ...(plan.storyDetails.length ? plan.storyDetails.map((story) => `  ${story.id} (${story.statuses.join('/')}): ${story.locations.map((location) => `${location.ref}@${short(location.commit)}`).join(', ')}`) : ['  none']),
+    ...(plan.storyDetails.length ? plan.storyDetails.map((story) => `  ${story.id} (${story.statuses.join('/')}): ${[...new Set(story.locations.map((location) => location.ref))].join(', ')}`) : ['  none']),
     ...(plan.blockers.length ? ['', style.heading('Resolve before activation:'), ...plan.blockers.map((blocker) => `  - ${blocker.code}: ${blocker.message}`)] : []),
     '', plan.blockers.length
       ? 'Nothing changed. This plan cannot be confirmed; resolve the issues above and preview again.'
@@ -606,7 +608,7 @@ export function renderCommandResult(result) {
     const order = ['unresolved', 'included', 'existing', 'excluded', 'deferred', 'informative', 'duplicate', 'superseded'];
     return [
       style.heading(headline(result)),
-      `Structurally complete: ${scope.structurallyComplete ? 'yes, every identified statement has a disposition' : 'no'} (inventory ${scope.inventorySha256.slice(7, 19)})`,
+      `Structurally complete: ${scope.structurallyComplete ? 'yes, every identified statement has a disposition' : 'no'}`,
       `Completeness reviewed: ${result.data.completenessReview ? `yes, by ${result.data.completenessReview.actor} through ${result.data.completenessReview.authorityGroup} on ${result.data.completenessReview.at.slice(0, 10)}` : 'no'}`,
       'Correctness: never claimed; a review says a person assessed the interpretation.',
       ...(result.data.preview ? ['Preview: the open specification step\'s clauses link statements here; they become evidence once it is approved.'] : []),
@@ -627,8 +629,10 @@ export function renderCommandResult(result) {
     const restore = result.data.restore;
     return [
       style.heading(headline(result)),
-      `Rebuild commit: ${restore.commit.slice(0, 12)} (restores the bytes of ${restore.parent.slice(0, 12)})`,
-      ...restore.restores.map((entry) => `  ${entry.action === 'remove' ? 'remove ' : 'restore'} ${entry.path}`),
+      `Puts back each file as it was before ${restore.rebuiltAt ? `the governance rebuild of ${restore.rebuiltAt.slice(0, 16).replace('T', ' ')}` : 'the governance rebuild'}, as one new commit:`,
+      // The rebuild's receipt is named after its plan ID (a hash): it reads as what it is.
+      ...restore.restores.map((entry) => `  ${entry.action === 'remove' ? 'remove ' : 'restore'} ${
+        /^singularity\/governance\/rebuilds\/grb-[0-9a-f]{24}\.json$/u.test(entry.path) ? `${entry.path.slice(0, entry.path.lastIndexOf('/') + 1)} (the rebuild's receipt)` : entry.path}`),
       ...(restore.dirty.length ? [style.heading('Commit or discard these changes first:'), ...restore.dirty.map((entry) => `  ${entry}`)] : []),
       ...(result.next.length ? [style.heading(nextSuggestionsHeading(result.data?.personalization)), ...nextLines(result)] : []),
       style.detail(preservationLine(result))
@@ -644,8 +648,8 @@ export function renderCommandResult(result) {
     }));
     return [
       style.heading(headline(result)),
-      `Plan: ${plan.planId}`,
-      `Source: ${plan.sourceCommit} · ${plan.platform}/${plan.arch} · scope ${plan.scope ?? 'full'}`,
+      // The plan and its exact base by what they are; the IDs and commit stay in --json, and the run confirms by code.
+      `Source: the base commit as it is now · ${plan.platform}/${plan.arch} · scope ${plan.scope ?? 'full'}`,
       `Structured tests: ${plan.structuredTestContract.status}`,
       ...(plan.blockers?.length
         ? ['', style.heading('Resolve before execution:'),
@@ -668,8 +672,7 @@ export function renderCommandResult(result) {
     return [
       style.heading(headline(result)),
       ...receipt.commandResults.map((entry) => `${entry.status === 'pass' ? style.pass('✓') : style.failure('✖')} ${entry.purpose}: ${entry.id} (${entry.durationMs} ms)`),
-      `Receipt: ${receipt.receiptSha256}`,
-      `Exact base: ${receipt.sourceCommit} · ${receipt.platform}/${receipt.arch}`,
+      `Exact base: the commit the plan named · ${receipt.platform}/${receipt.arch}`,
       `Stored Git-private: ${result.data.file}`,
       'The receipt contains hashes and outcomes, not command output or secrets.'
     ].filter(Boolean).join('\n');
@@ -720,7 +723,7 @@ export function renderCommandResult(result) {
       `TOKEN ECONOMY · ${status} · ${policy.mode} · profile ${profile.id}`,
       `Estimated prompt ${profile.maximumEstimatedPromptTokens.toLocaleString('en-US')} · reserved output ${profile.reservedOutputTokens.toLocaleString('en-US')} · expansion ${profile.maxExpansionTokens.toLocaleString('en-US')} tokens`,
       `Observation firewall ${policy.observationFirewall ? 'on' : 'off'} · progressive retrieval ${policy.progressiveRetrieval ? 'on' : 'off'} · provider telemetry ${policy.providerTelemetry}`,
-      `Configuration ${configurationDigest}`
+      `Configuration: ${configurationDigest ? 'read and bound' : 'unavailable'}`
     ].join('\n');
   }
   if (result.operation.id === 'tokens' && result.data?.ledger) {

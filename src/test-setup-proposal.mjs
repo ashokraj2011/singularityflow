@@ -280,7 +280,12 @@ export async function runTestCommandProposal(options) {
       for (const replaced of plan.replaces) console.log(`  Replaces the test command '${replaced.id}' already there.`);
       if (diff) console.log(diff);
       for (const problem of problems) console.log(`  Problem: ${problem}`);
-      console.log(problems.length ? 'Nothing can be proposed until these are fixed.' : `Plan: ${plan.planSha256}\nPropose it: ${confirmCommand}`);
+      if (problems.length) console.log('Nothing can be proposed until these are fixed.');
+      else {
+        // Proposed by its short code, never the plan digest (confirm-code.mjs).
+        const { safeCommandGuidance, commandRouteLines } = await import('./safe-command-guidance.mjs');
+        console.log(['Propose it:', ...commandRouteLines(safeCommandGuidance({ command: confirmCommand }) ?? {})].join('\n'));
+      }
     }
     const targets = entries.filter((entry) => entry.targetVariables?.length).map((entry) => ({ id: entry.command.id, variables: entry.targetVariables }));
     emitCommandResult(commandResult({

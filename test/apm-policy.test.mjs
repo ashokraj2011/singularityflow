@@ -108,7 +108,7 @@ test('policy init from the shell prints the policy and its next steps, and is th
   assert.match(preview.stdout, /Would write apm-policy\.yml: acme agent packages, allowing acme\/team-catalog\/\*\*, enforcement block\.\n# The organisation's APM policy/u);
   const written = flow(['apm', 'policy', 'init', '--marketplace', 'acme/team-catalog', '--name', 'Acme approved agents']);
   assert.equal(written.status, 0, written.stderr);
-  assert.match(written.stdout, /Committed [0-9a-f]{12} on apm\/policy-init \(new, from main\); apm 0\.35\.0 accepts it\.\nNothing was pushed\./u);
+  assert.match(written.stdout, /Committed on apm\/policy-init \(new, from main\); apm 0\.35\.0 accepts it\.\nNothing was pushed\./u);
   const second = flow(['apm', 'policy', 'init', '--marketplace', 'acme/other', '--dry-run', '--json']);
   assert.notEqual(second.status, 0, 'a second policy is refused even as a preview');
   assert.match(second.stdout + second.stderr, /APM_POLICY_EXISTS/u);

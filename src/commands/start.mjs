@@ -2146,7 +2146,7 @@ async function startCommandAtRoot(positionals, options) {
       });
     }
     if (automaticEnrollment?.changed && automaticEnrollment.pushed) {
-      console.log(`Approval enrollment: current Git identity added to configured authorities on ${CONFIGURATION_BRANCH}@${automaticEnrollment.commit.slice(0, 12)} (published).`);
+      console.log(`Approval enrollment: current Git identity added to configured authorities on ${CONFIGURATION_BRANCH} (published).`);
     } else if (automaticEnrollment?.changed) {
       console.log(`Approval enrollment pending: ${enrollmentPendingNotice(automaticEnrollment).message}`);
     }

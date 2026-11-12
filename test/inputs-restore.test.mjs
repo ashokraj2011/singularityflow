@@ -113,7 +113,9 @@ test('uncommitted drift previews, refuses a stale confirmation, then checkpoints
   assert.equal(await readFile(path.join(item.root, SPEC), 'utf8'), EDITED, 'a preview changes nothing');
   const human = item.invoke('inputs', 'restore', 'planning');
   assert.match(human.stdout, /RESTORE team\/stories\/RESTORE-1\/artifacts\/specification\/spec\.md \(from specification, hash_mismatch\)/);
-  assert.match(human.stdout, /Restore with: singularity-flow inputs restore planning --confirm sha256:/);
+  // A person restores by the plan's short code, never its digest.
+  assert.match(human.stdout, /Restore it:\n- Copilot: \/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}\n- Shell: singularity-flow confirm [0-9A-Z]{4}-[0-9A-Z]{4}\n/);
+  assert.doesNotMatch(human.stdout.split(item.root).join(' '), /(?<![0-9A-Za-z_])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,64}(?![0-9A-Za-z_])/iu);
 
   const stale = item.json('inputs', 'restore', 'planning', '--confirm', `sha256:${'0'.repeat(64)}`);
   assert.notEqual(stale.status, 0);

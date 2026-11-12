@@ -90,7 +90,7 @@ export async function knowledgeCommand(root, positionals, options) {
       areas: knowledge.areas
     };
     if (json) { console.log(JSON.stringify(summary, null, 2)); return summary; }
-    console.log(`Knowledge for ${knowledge.repository.name ?? 'repository'} at ${String(knowledge.repository.commit).slice(0, 12)}${knowledge.repository.area ? ` (area ${knowledge.repository.area})` : ''}: ${knowledge.metrics.items} items from ${knowledge.repository.files} code files (${result.cache === 'hit' ? 'cached' : `built in ${result.durationMs} ms`}).`);
+    console.log(`Knowledge for ${knowledge.repository.name ?? 'repository'} at its checked-out commit${knowledge.repository.area ? ` (area ${knowledge.repository.area})` : ''}: ${knowledge.metrics.items} items from ${knowledge.repository.files} code files (${result.cache === 'hit' ? 'cached' : `built in ${result.durationMs} ms`}).`);
     console.log(`  Levels: ${levelLine(knowledge.levels)}`);
     for (const [level, value] of Object.entries(knowledge.levels)) if (value.status !== 'ready') console.log(`  ${level}: ${value.reason}`);
     const kinds = knowledge.metrics.byKind;
@@ -367,7 +367,7 @@ async function briefCommand(root, result, knowledge, options, target) {
   const codeFiles = knowledge.repository.files ?? 0;
   const branch = target.ref === 'HEAD' ? null : target.ref;
   const nothing = !codeFiles && !documentation.statements.length;
-  const at = `${branch ? `branch ${branch}` : 'this commit'} (${String(knowledge.repository.commit).slice(0, 12)})`;
+  const at = branch ? `branch ${branch}` : 'the checked-out commit';
   let reason = null;
   let explained = null;
   if (!written && nothing) {

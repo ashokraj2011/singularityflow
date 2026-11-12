@@ -75,8 +75,9 @@ test('runtime Epic Jira guidance carries every exact guarded operand', async () 
     'a refusal must not omit the exact Epic and confirmation operands');
   assert.match(source,
     /singularity-flow epic jira apply --epic \$\{initiativeId\} --plan \$\{result\.plan\.sha256\} --confirm \$\{initiativeId\}/);
-  assert.match(source,
-    /singularity-flow epic jira apply --epic \$\{initiativeId\} --plan \$\{planSha256\} --confirm \$\{initiativeId\}/);
+  // A person applies the reviewed plan in their own terminal, which shows it again: never by copying its digest.
+  assert.match(source, /singularity-flow epic jira apply --epic \$\{initiativeId\} --plan current`/);
+  assert.doesNotMatch(source, /console\.log\(`[^`\n]*Jira write plan \$\{result\.plan\.sha256\}/, 'the plan is named by its operations, never its digest');
 });
 
 test('Epic completion checks authority before confirmation and publishes the decision as one unit of work', async () => {

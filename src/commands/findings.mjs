@@ -184,7 +184,7 @@ function printResult(result) {
     return;
   }
   if (result.resultType === 'sflow-findings-import') {
-    console.log(`${result.dryRun ? 'Would import' : 'Imported'} ${result.file.name} (${result.file.sha256.slice(0, 19)}…) from source ${result.source} as ${result.importId}.`);
+    console.log(`${result.dryRun ? 'Would import' : 'Imported'} ${result.file.name} from source ${result.source} as ${result.importId}.`);
     if (result.nothingImported) { console.log(result.message); return; }
     for (const [feed, counts] of Object.entries(result.feeds)) {
       console.log(`  ${feed === 'tlm' ? 'TLM' : 'Security'}: ${counts.imported} rows imported (${counts.added} new, ${counts.updated} updated, ${counts.unchanged} unchanged`
@@ -197,7 +197,7 @@ function printResult(result) {
     for (const sheet of result.ignoredSheets) console.log(`  Not read: sheet "${sheet.sheet}": ${sheet.reason}.`);
     for (const [feed, headers] of Object.entries(result.unknownHeaders)) console.log(`  ${feed === 'tlm' ? 'TLM' : 'Security'} headers not used: ${headers.map((header) => JSON.stringify(header)).join(', ')}.`);
     for (const warning of result.warnings) console.log(`  Warning: ${warning}`);
-    console.log(result.dryRun ? `Nothing was written. ${result.storeMessage}` : `${result.storeMessage}${result.commit ? ` (${result.branch} ${result.commit.slice(0, 12)})` : ''}`);
+    console.log(result.dryRun ? `Nothing was written. ${result.storeMessage}` : `${result.storeMessage}${result.commit ? ` (committed on ${result.branch})` : ''}`);
     return;
   }
   if (result.resultType === 'sflow-findings-list') {

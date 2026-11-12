@@ -27,6 +27,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
+import { confirmCode } from '../src/confirm-code.mjs';
 import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
 import { createInitiative, initiativeDir, prepareInitiativePhase, saveInitiative } from '../src/initiative-state.mjs';
 import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
@@ -959,7 +960,7 @@ Preserve this custom repository agent during reinitialization.
   registered.selfApprovalAnswer = 'Discard all local SFlow data';
   registered.warningAnswers = ['View details'];
   registered.informationAnswer = 'Continue review';
-  registered.typed = `RESET ${path.basename(root)} ${beforeHead.slice(0, 7)}`;
+  registered.typed = `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${await realpath(root)} ${beforeHead}`)}`;
   await registered.commands.get('singularityFlow.factoryReset')();
 
   const fullReview = registered.openedDocuments.find(document => document.content?.includes('Factory reset all local'))?.content;
@@ -1018,7 +1019,7 @@ test('VS Code refuses a destructive reset when HEAD changes while its review mod
   const extension = loadExtension(api);
   await extension.activate(context());
   registered.pickedFolder = root;
-  registered.typed = `RESET ${path.basename(root)} ${reviewedHead.slice(0, 7)}`;
+  registered.typed = `RESET ${path.basename(root)} ${confirmCode(`factory-reset ${await realpath(root)} ${reviewedHead}`)}`;
   let reviewDialogs = 0;
   api.window.showWarningMessage = async (message, ...rest) => {
     registered.warnings.push(message);

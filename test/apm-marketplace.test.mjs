@@ -283,7 +283,7 @@ test('the shell commands print the change and its next steps, and a marketplace 
   const app = await source(space);
   const catalog = await space.repository('catalog', { remote: false });
   const init = ok(space.flow(catalog, ['apm', 'marketplace', 'init', '--name', 'team-catalog', '--owner', 'acme']));
-  assert.match(init.stdout, /Committed [0-9a-f]{12} on apm\/marketplace-init \(new, from main\): the team-catalog APM marketplace/u);
+  assert.match(init.stdout, /Committed on apm\/marketplace-init \(new, from main\): the team-catalog APM marketplace/u);
   assert.match(init.stdout, /apm marketplace add <owner>\/<repository> --name team-catalog/u);
   const published = ok(space.flow(app, ['apm', 'publish', 'reviewer', '--marketplace', '../catalog']));
   assert.match(published.stdout, /Published reviewer 1\.0\.0 \(new\) to team-catalog: agent reviewer; skill code-review\./u);

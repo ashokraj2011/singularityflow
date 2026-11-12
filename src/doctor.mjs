@@ -231,9 +231,9 @@ export async function doctorSnapshot(root, {
       'documentation',
       matches ? 'pass' : 'fail',
       matches
-        ? `CLI ${VERSION} · ${topics.length} documentation topics, content ${actual.slice(0, 12)} from ${manifest.sourceCommit ? manifest.sourceCommit.slice(0, 7) : 'an unstamped build'}.`
+        ? `CLI ${VERSION} · ${topics.length} documentation topics, content matching ${manifest.sourceCommit ? 'its build' : 'an unstamped build'}.`
         : stamped
-          ? `CLI ${VERSION} · documentation is misconfigured: ${topics.length} topics hash to ${actual.slice(0, 12)} but the manifest was stamped from ${stamped.slice(0, 12)}.`
+          ? `CLI ${VERSION} · documentation is misconfigured: ${topics.length} topics do not match the content the manifest was stamped from.`
           : `CLI ${VERSION} · ${topics.length} documentation topics are installed with no stamped manifest.`,
       matches ? null : 'Rebuild it with: node scripts/build-docs-manifest.mjs — until then, sflow explain citations name a version this build did not ship.'
     ));
@@ -452,7 +452,7 @@ export async function doctorSnapshot(root, {
         'state-planes',
         planes.healthy ? 'pass' : 'fail',
         planes.healthy
-          ? `Lifecycle authority, local selection, publication recovery, ledger mirror, and projections agree at ${planes.lifecycle.head.slice(0, 8)}.`
+          ? 'Lifecycle authority, local selection, publication recovery, ledger mirror, and projections agree on the current commit.'
           : planes.issues.map((issue) => issue.message).join(' '),
         planes.healthy
           ? null

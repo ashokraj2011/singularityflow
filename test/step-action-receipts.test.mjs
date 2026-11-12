@@ -385,7 +385,7 @@ test('a required delivery that went out at approval is recorded at once, so the 
   const { root, cli } = await requiredStory(t, local);
   const approved = await cli('approve', 'intake', '--yes');
   assert.equal(local.requests.length, 1);
-  assert.match(approved.stdout, /Recorded 1 after-step receipt in commit [0-9a-f]{8} \(pushed\), so the next step is not held\./);
+  assert.match(approved.stdout, /Recorded 1 after-step receipt in a new commit \(pushed\), so the next step is not held\./);
   assert.equal(run('git', ['log', '-1', '--format=%s'], root).stdout.trim(), '[REQ-1][integrations][record] after-step action receipts');
   await cli('prepare', 'implement');
   const status = JSON.parse((await cli('integrations', 'status', '--all', '--json')).stdout);

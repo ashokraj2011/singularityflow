@@ -123,7 +123,7 @@ export async function run({ positionals, options, invocationCwd = process.cwd() 
   if (json) return console.log(JSON.stringify(result, null, 2));
   console.log(`${workId} is ready at ${checkout} (${attached ? 'attached from the remote' : opened.value.remoteSync?.status === 'unavailable'
     ? 'local checkout; the remote could not be reached' : 'local checkout, synchronized with the remote'}).`);
-  console.log(`Agent: ${agent ?? 'none (Story closed)'} · phase: ${opened.value.phase ?? status.value.phase ?? '—'} · commit: ${String(opened.value.head ?? '').slice(0, 8) || '—'}`);
+  console.log(`Agent: ${agent ?? 'none (Story closed)'} · phase: ${opened.value.phase ?? status.value.phase ?? '—'}`);
   console.log(`Work there with: cd ${JSON.stringify(checkout)}`);
   const actions = next.value?.actions ?? next.value?.data?.actions ?? [];
   if (actions.length) {

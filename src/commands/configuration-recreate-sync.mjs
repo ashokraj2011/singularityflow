@@ -14,14 +14,13 @@ async function ask(question) {
   try { return await io.question(question); } finally { io.close(); }
 }
 
-const short = commit => String(commit ?? '').slice(0, 12);
-
 /** The exact packet a person confirms: each proposal, its tip, author, summary and files. */
 export function recreateSyncReviewLines(preview) {
   const pending = preview.proposals.filter(item => !item.merged);
   const merged = preview.proposals.filter(item => item.merged);
-  const lines = [`Recreate & sync onto approved ${preview.targetBranch}@${short(preview.baseCommit)}.`];
-  const proposal = item => `  ${item.branch} @ ${short(item.commit)}${item.author ? ` by ${item.author}` : ''}${item.summary ? ` — ${item.summary}` : ''}`;
+  // Each proposal by its branch, author and summary; the commits stay in --json (the confirmation binds them).
+  const lines = [`Recreate & sync onto the approved ${preview.targetBranch} as it is now.`];
+  const proposal = item => `  ${item.branch}${item.author ? ` by ${item.author}` : ''}${item.summary ? ` — ${item.summary}` : ''}`;
   if (pending.length) lines.push(`Replays ${pending.length} pending proposal${pending.length === 1 ? '' : 's'}, teammates' unreviewed ones included:`);
   for (const item of pending) lines.push(proposal(item), ...(item.files ?? []).map(file => `      ${file}`));
   if (merged.length) lines.push(`Retires ${merged.length} already merged proposal${merged.length === 1 ? '' : 's'} (archived as tags):`, ...merged.map(proposal));

@@ -176,7 +176,7 @@ test('apm status prints in plain words, and refuses an unknown subcommand or opt
   const shown = spawnSync(process.execPath, [bin, 'apm', 'status'], { cwd: root, encoding: 'utf8', env });
   assert.equal(shown.status, 0, shown.stderr);
   assert.match(shown.stdout, /APM project payments-agents 1\.0\.0: 2 declared packages\./u);
-  assert.match(shown.stdout, /acme\/review-pack @ aaaaaaaaaaaa: 2 files; agent reviewer; skill code-review\./u);
+  assert.match(shown.stdout, /acme\/review-pack: 2 files; agent reviewer; skill code-review\./u);
   assert.match(shown.stdout, /Every deployed APM file matches apm\.lock\.yaml and is committed\./u);
   assert.match(shown.stdout, /No APM CLI on this machine's PATH/u);
   const json = JSON.parse(spawnSync(process.execPath, [bin, 'apm', 'status', '--json'], { cwd: root, encoding: 'utf8', env }).stdout);

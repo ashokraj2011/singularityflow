@@ -840,7 +840,7 @@ test('a genuinely incomplete Story authority is classified with plan-first reini
       loadStoryConfigurationSnapshot(authority),
       (error) => {
         assert.equal(error?.code, 'STORY_CONFIGURATION_WORKFLOW_MISSING');
-        assert.match(error.message, /approved configuration sflow\/config@[0-9a-f]{12} is incomplete/iu);
+        assert.match(error.message, /the approved configuration on sflow\/config is incomplete/iu);
         assert.match(error.message, /Nothing was changed/u);
         assert.deepEqual(error.details?.missing, ['singularity/workflow.yml']);
         assert.deepEqual(error.details?.recoveryCommand, {

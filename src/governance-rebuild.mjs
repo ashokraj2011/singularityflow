@@ -20,7 +20,7 @@ import YAML from 'yaml';
 
 import { assertWorkTypeStartable, loadDefinition, resolveWorkType } from './config.mjs';
 import {
-  changedPaths, checkedOutBranch, commitAddingPath, commitChangedPaths, commitIsolated, committedFileBytes, committedFileDigests,
+  changedPaths, checkedOutBranch, commitAddingPath, commitChangedPaths, commitIsolated, commitShape, committedFileBytes, committedFileDigests,
   committedFileText, createRefsBundle, exportCommitPaths, gitCommonDir, localBranches, refCommit, refSnapshot, remoteBranches, topLevelEntries
 } from './git.mjs';
 import { GOVERNANCE_ARCHIVE_PATH, mergeGovernanceArchive, readGovernanceArchive } from './governance-archive.mjs';
@@ -68,8 +68,8 @@ async function exportConfiguration(root, commit) {
   const entries = topLevelEntries(root, commit);
   const present = CONFIGURATION_PATHS.filter((entry) => entries.has(entry));
   if (!present.includes('singularity')) {
-    throw new SingularityFlowError(`Commit ${commit.slice(0, 12)} has no singularity/ configuration to rebuild.`, {
-      code: 'GOVERNANCE_REBUILD_NOT_GOVERNED'
+    throw new SingularityFlowError('The configuration this rebuild reads has no singularity/ folder to rebuild.', {
+      code: 'GOVERNANCE_REBUILD_NOT_GOVERNED', details: { commit }
     });
   }
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-governance-rebuild-'));
@@ -362,7 +362,7 @@ export async function activateGovernanceRebuild(root, {
     const { plan, directory } = await buildGovernanceRebuild(root, { remote });
     try {
       if (plan.plan !== confirmation) {
-        refuse('GOVERNANCE_REBUILD_PLAN_STALE', `Something the rebuild depends on changed since the preview; the plan is now ${plan.plan}. Preview again and review it before confirming.`, { expected: confirmation, current: plan.plan });
+        refuse('GOVERNANCE_REBUILD_PLAN_STALE', 'Something the rebuild depends on changed since the preview. Nothing changed. Preview again with singularity-flow governance rebuild --dry-run and review it before confirming.', { expected: confirmation, current: plan.plan });
       }
       if (!plan.ready) {
         refuse('GOVERNANCE_REBUILD_BLOCKED', `The rebuild is blocked:\n- ${plan.blockers.map((entry) => `${entry.code}: ${entry.message}`).join('\n- ')}`);
@@ -424,7 +424,7 @@ export async function activateGovernanceRebuild(root, {
         repositoryDefinitionsKept: definitions.length === 0
       };
       if (outside.length || moved.length || definitions.length) {
-        refuse('GOVERNANCE_REBUILD_INVARIANT_BROKEN', `The rebuild commit ${commit.slice(0, 12)} changed more than it should: ${[...outside, ...moved, ...definitions].join(', ')}. Restore it with singularity-flow governance restore --plan ${plan.plan}.`);
+        refuse('GOVERNANCE_REBUILD_INVARIANT_BROKEN', `The rebuild's commit changed more than it should: ${[...outside, ...moved, ...definitions].join(', ')}. Restore it: singularity-flow governance restore --dry-run shows what it puts back.`, { commit, plan: plan.plan });
       }
       return Object.freeze({ plan, commit, branch, receiptPath, archived: receipt.archived.length, backup, invariants });
     } finally {
@@ -433,12 +433,22 @@ export async function activateGovernanceRebuild(root, {
   });
 }
 
+/** The plan of the most recent governance rebuild on this branch: the receipt its commit added. Null when none ran. */
+function latestGovernanceRebuild(root) {
+  const commit = commitAddingPath(root, GOVERNANCE_RECEIPT_ROOT);
+  const receipt = commit ? commitChangedPaths(root, commit).find((relative) => relative.startsWith(`${GOVERNANCE_RECEIPT_ROOT}/`) && relative.endsWith('.json')) : null;
+  return receipt ? path.posix.basename(receipt, '.json') : null;
+}
+
 /**
  * Undo a rebuild by restoring every file its commit changed to the bytes before it, as one new
  * governed commit. History is kept; nothing is reset. The backup bundle stays for anything else.
  */
-export async function restoreGovernanceRebuild(root, { plan: planId, confirm = null } = {}) {
-  if (!/^grb-[0-9a-f]{24}$/u.test(String(planId ?? ''))) refuse('GOVERNANCE_RESTORE_PLAN_REQUIRED', 'Name the rebuild to restore with --plan grb-...');
+export async function restoreGovernanceRebuild(root, { plan: named = null, confirm = null } = {}) {
+  // Without --plan, the most recent rebuild on this branch: a person names it by when it ran, never by its plan ID.
+  const planId = named ?? latestGovernanceRebuild(root);
+  if (named == null && !planId) refuse('GOVERNANCE_RESTORE_UNKNOWN', 'No governance rebuild is in this branch\'s history; nothing to restore.');
+  if (!/^grb-[0-9a-f]{24}$/u.test(String(planId ?? ''))) refuse('GOVERNANCE_RESTORE_PLAN_REQUIRED', 'Name the rebuild to restore with --plan grb-..., or leave --plan out for the most recent one.');
   const receiptPath = `${GOVERNANCE_RECEIPT_ROOT}/${planId}.json`;
   const commit = commitAddingPath(root, receiptPath);
   if (!commit) refuse('GOVERNANCE_RESTORE_UNKNOWN', `No rebuild ${planId} is in this branch's history.`);
@@ -446,9 +456,9 @@ export async function restoreGovernanceRebuild(root, { plan: planId, confirm = n
   const paths = commitChangedPaths(root, commit);
   const dirty = changedPaths(root, paths);
   const restores = paths.map((relative) => ({ path: relative, action: committedFileBytes(root, parent, relative) ? 'restore' : 'remove' }));
-  const preview = Object.freeze({ plan: planId, commit, parent, restores, dirty });
+  const preview = Object.freeze({ plan: planId, commit, parent, rebuiltAt: commitShape(root, commit)?.committedAt ?? null, restores, dirty });
   if (confirm == null) return { preview, restored: null };
-  if (confirm !== planId) refuse('GOVERNANCE_RESTORE_CONFIRMATION_MISMATCH', `Confirm the restore with --confirm ${planId}.`);
+  if (confirm !== planId) refuse('GOVERNANCE_RESTORE_CONFIRMATION_MISMATCH', 'That confirmation is not this rebuild\'s. Nothing changed. Preview the restore again with singularity-flow governance restore --dry-run and confirm with the code it gives.', { expected: planId, supplied: confirm });
   if (dirty.length) refuse('GOVERNANCE_RESTORE_DIRTY', `Commit or discard changes to these files first: ${dirty.join(', ')}.`);
   return withRepositoryResetBarrier(root, async () => {
     await assertNoActiveSubjectLocks(root);

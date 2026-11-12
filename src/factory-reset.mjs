@@ -12,6 +12,7 @@ import { initializeDefinition, loadDefinition } from './config.mjs';
 import { assertNoActiveSubjectLocks, withRepositoryResetBarrier } from './subject-lock.mjs';
 import { withMachineStateResetBarrier } from './machine-state-reset.mjs';
 import { SingularityFlowError, run } from './util.mjs';
+import { confirmCode } from './confirm-code.mjs';
 
 const CONTROL_ROOTS = ['singularity', '.singularity', '.sdlc'];
 const LOCAL_RUNTIME_ROOT = 'singularity-flow';
@@ -102,7 +103,17 @@ async function machineOnlyDocumentEntries(store) {
   for (const relative of (await regularFiles(store)).sort()) {
     const [workId, sha256, ...name] = relative.split(path.sep);
     if (!workId || !/^[a-f0-9]{64}$/.test(sha256 ?? '') || !name.length || name.at(-1).startsWith('.')) continue;
-    entries.push({ workId, name: name.join('/'), sha256, display: `${workId}/${name.join('/')} (${sha256.slice(0, 12)})` });
+    entries.push({ workId, name: name.join('/'), sha256, display: `${workId}/${name.join('/')}` });
+  }
+  // Two copies of one file name are told apart by their order, never their digest.
+  const seen = new Map();
+  for (const entry of entries) seen.set(entry.display, (seen.get(entry.display) ?? 0) + 1);
+  const counted = new Map();
+  for (const entry of entries) {
+    if (seen.get(entry.display) < 2) continue;
+    const index = (counted.get(entry.display) ?? 0) + 1;
+    counted.set(entry.display, index);
+    entry.display = `${entry.display} (copy ${index} of ${seen.get(entry.display)})`;
   }
   return entries;
 }
@@ -971,9 +982,11 @@ export async function factoryResetPlan(root, { packageVersion = null, includeLoc
   // derivable from the directory you are standing in, so a token copied out of shell history — or
   // computed by an agent that never showed anybody the preview — matched a different clone of the
   // same repository just as happily as the one it was produced for.
+  // A person types it, so the commit is in it as a short code derived from this checkout and its commit (never a
+  // hash): the same binding as the commit itself, unforgeable from the directory name alone.
   const identity = repositoryIdentity(repository);
   const revision = identity.head;
-  const confirmation = `RESET ${path.basename(repository)} ${revision ? revision.slice(0, 7) : 'unborn'}`;
+  const confirmation = `RESET ${path.basename(repository)} ${revision ? confirmCode(`factory-reset ${repository} ${revision}`) : 'unborn'}`;
   const uncommittedEntries = changedResetEntries(repository, { caseInsensitive });
   const uncommittedResetPaths = uncommittedEntries.map((entry) => entry.display);
   const packagedAgentSources = new Map((await regularFiles(PACKAGED_AGENTS_ROOT)).map((relative) => [
@@ -1129,13 +1142,14 @@ async function factoryResetRepositoryLocked(root, {
   const plan = await factoryResetPlan(root, { packageVersion, includeLocalDocuments, discardPendingPublications });
   if (expectedScopeSha256 && expectedScopeSha256 !== plan.resetScopeSha256) {
     throw new SingularityFlowError(
-      `Factory-reset scope changed after preview (expected ${expectedScopeSha256}, current ${plan.resetScopeSha256}). `
-      + 'Nothing was removed. Preview and confirm the current reset boundary again.'
+      'The factory reset\'s scope changed after preview: what it would remove is not what the preview showed. Nothing was removed. '
+      + 'Preview it again and confirm what it shows now.', { code: 'FACTORY_RESET_SCOPE_CHANGED', details: { expected: expectedScopeSha256, current: plan.resetScopeSha256 } }
     );
   }
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(
-      `Factory reset requires exact confirmation '${plan.confirmation}'. Run with --dry-run first, then pass --confirm ${JSON.stringify(plan.confirmation)}.`
+      `Factory reset requires exact confirmation '${plan.confirmation}'. Nothing was removed. Preview it first (singularity-flow factory-reset --dry-run), `
+      + 'or run singularity-flow factory-reset in your own terminal, which shows the preview and asks you to type it.', { code: 'FACTORY_RESET_CONFIRMATION_REQUIRED' }
     );
   }
   // Refused rather than warned about. These paths were computed, printed after the reset had

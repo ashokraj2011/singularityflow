@@ -2050,7 +2050,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
         );
       } else if (bindProposalToBase && observedBase && observedBase !== baseCommit) {
         throw new SingularityFlowError(
-          `Approved configuration advanced from ${baseCommit} to ${observedBase} while the capability proposal was being created. No proposal ref was published; retry against the current map.`, {
+          'The approved configuration changed while the capability proposal was being created. No proposal ref was published; retry against the current map.', {
             code: 'CAPABILITY_CONFIGURATION_PLAN_STALE',
             details: capabilityRecovery({
               stage: 'proposal', state: 'configuration-advanced', remote,
@@ -2328,7 +2328,7 @@ async function loadCapabilityStateSnapshot(remote, branch, commit, { env = proce
     }).stdout.trim();
     if (observedCommit !== commit) {
       throw new SingularityFlowError(
-        `Configured state branch '${branch}' moved from ${commit} to ${observedCommit} while it was being verified.`
+        `Configured state branch '${branch}' changed while it was being verified. Retry; nothing was changed.`, { details: { branch, commit, observedCommit } }
       );
     }
     let manifest;
@@ -2773,7 +2773,7 @@ export async function readOrganisation(url, {
         : sameSourceButDifferentAssets
           ? {
               status: 'invalid', branch: state.branch, commit: state.commit,
-              error: `State configuration claims ${CONFIGURATION_BRANCH}@${configurationCommit}, but its complete asset set does not match that approved commit.`
+              error: `The state branch's configuration does not match the approved configuration on ${CONFIGURATION_BRANCH} it names: its asset set differs.`
             }
         : state
           ? { status: 'stale', branch: state.branch, commit: state.commit, error: null }
@@ -3395,7 +3395,7 @@ export async function applyCapabilityReconciliation(repositoryUrl, canonicalLead
   });
   if (String(confirmPlan ?? '').trim() !== preview.plan.planId) {
     throw new SingularityFlowError(
-      `Capability reconciliation confirmation must equal the current plan '${preview.plan.planId}'. Nothing was changed.`, {
+      'The capability reconciliation plan changed since its preview, or this is not its confirmation. Nothing was changed. Preview it again and confirm the plan it shows.', {
         code: 'CAPABILITY_RECONCILIATION_CONFIRMATION_REQUIRED',
         details: { plan: preview.plan }
       }
@@ -3568,7 +3568,7 @@ export async function applyStaleCapabilityAuthorityLinkRetirement(repositoryUrl,
   );
   if (String(confirmPlan ?? '').trim() !== preview.plan.planId) {
     throw new SingularityFlowError(
-      `Capability stale-link retirement confirmation must equal the current plan '${preview.plan.planId}'. Nothing was changed.`, {
+      'The stale-link retirement plan changed since its preview, or this is not its confirmation. Nothing was changed. Preview it again and confirm the plan it shows.', {
         code: 'CAPABILITY_RECONCILIATION_CONFIRMATION_REQUIRED',
         details: { plan: preview.plan }
       }
@@ -5832,7 +5832,7 @@ export async function capabilityFsck(url, {
         }
         checks.push(capabilityFsckCheck(
           checkId, 'info',
-          `Canonical lead checkout pins reviewed configuration ${pinned.branch}@${pinned.commit.slice(0, 12)}; an older Story snapshot is intentional.`,
+          `Canonical lead checkout pins the reviewed configuration on ${pinned.branch}; an older Story snapshot is intentional.`,
           {
             branch: storyBranch,
             commit: pinned.commit,
@@ -6121,7 +6121,7 @@ async function deleteCapabilityProposal(url, branch, {
   }
   if (refreshedCommit !== expected) {
     throw new SingularityFlowError(
-      `Confirmation no longer equals the exact direct proposal ref '${refreshedCommit ?? '(absent)'}'. Nothing was changed.`, {
+      `The proposal on ${proposalBranch} ${refreshedCommit ? 'changed' : 'is gone'} since it was confirmed. Nothing was changed.`, {
         code: 'CAPABILITY_PROPOSAL_DISCARD_CONFIRMATION_MISMATCH',
         details: {
           lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
@@ -6545,7 +6545,7 @@ export async function repairCapabilityProposal(url, branch, {
         skill: '/sf-capability-map'
       };
       throw new SingularityFlowError(
-        `Confirmation must be the exact proposal commit '${proposalCommit}'. Nothing was changed.`, {
+        'That confirmation is not the reviewed proposal\'s, or the proposal changed since. Nothing was changed. Preview it again and confirm what it shows.', {
           code: 'CAPABILITY_PROPOSAL_REPAIR_CONFIRMATION_MISMATCH',
           details: capabilityRecovery({
             stage: 'proposal-repair', state: 'confirmation-required', remote,
@@ -6967,7 +6967,7 @@ export async function activateCapabilityProposal(url, branch, {
           skill: '/sf-capability-map'
         };
         throw new SingularityFlowError(
-          `Confirmation must be the exact proposal commit '${proposalCommit}'. Nothing was changed. Re-run: ${nextAction.command}`, {
+          `That confirmation is not the reviewed proposal on ${proposalBranch}'s, or the proposal changed since. Nothing was changed. Confirm it again by the route below.`, {
             code: 'CAPABILITY_PROPOSAL_CONFIRMATION_MISMATCH',
             details: capabilityRecovery({
               stage: 'activation', state: 'confirmation-required', remote,
@@ -7589,10 +7589,10 @@ export async function activateCapabilityProposal(url, branch, {
           skill: '/sf-capability-map'
         };
         throw new SingularityFlowError(
-          `Capability configuration reached '${CONFIGURATION_BRANCH}' at ${targetCommit}, but its `
+          `Capability configuration reached '${CONFIGURATION_BRANCH}', but its `
           + `activation audit could not be appended. ${safeGitDiagnosticReference({
             status: error?.exitCode ?? 1, error
-          }, 'Activation audit append failed')}. Re-run to reconcile: ${nextAction.command}`,
+          }, 'Activation audit append failed')}. Re-run it to reconcile, by the route below.`,
           {
             code: 'CAPABILITY_ACTIVATION_AUDIT_PENDING',
             details: {
@@ -7653,8 +7653,8 @@ export async function activateCapabilityProposal(url, branch, {
           const currentAuthority = projectionAuthority.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
           if (currentAuthority !== currentConfigurationCommit) {
             throw new SingularityFlowError(
-              `Approved configuration advanced from ${currentConfigurationCommit} to ${currentAuthority ?? 'an unavailable ref'} before state projection. Re-publish the current authority instead of mirroring stale bytes.`,
-              { code: 'CAPABILITY_PROJECTION_AUTHORITY_MOVED' }
+              `The approved configuration ${currentAuthority ? 'changed' : 'became unavailable'} before state projection. Re-publish the current authority instead of mirroring stale bytes.`,
+              { code: 'CAPABILITY_PROJECTION_AUTHORITY_MOVED', details: { expected: currentConfigurationCommit, current: currentAuthority ?? null } }
             );
           }
           return publishCapabilityMap(root, {
@@ -7841,7 +7841,7 @@ export async function adoptManagedCapabilityMap(leadUrl, { confirm = null } = {}
       const plan = managedAdoptionPlan(definition);
       if (String(confirm).trim() !== plan.planSha256) {
         throw new SingularityFlowError(
-          `Managed-adoption confirmation must equal the current plan ${plan.planSha256}. Nothing was changed.`,
+          'The managed-adoption plan changed since its preview, or this is not its confirmation. Nothing was changed. Preview it again and confirm the plan it shows.',
           { code: 'PCD_MANAGED_ADOPTION_STALE', details: { expected: plan.planSha256 } }
         );
       }
@@ -8540,7 +8540,7 @@ function retainedGovernanceProposal(root, governanceRef, sourceHead, env) {
   const [, type, commit, parents = ''] = row;
   if (type === 'commit' && (commit === sourceHead || parents.trim() === sourceHead)) return commit;
   throw new SingularityFlowError(
-    `Local configuration review branch '${governanceRef.slice('refs/heads/'.length)}' already exists and is not the configuration proposal for ${sourceHead.slice(0, 8)}. Remove it before retrying.`
+    `Local configuration review branch '${governanceRef.slice('refs/heads/'.length)}' already exists and is not the configuration proposal for this branch as it is now. Remove it before retrying.`
   );
 }
 

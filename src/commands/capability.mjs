@@ -98,8 +98,8 @@ async function runActivation(context) {
   if (optionBoolean(options, 'json')) { console.log(JSON.stringify(result, null, 2)); return result; }
   if (!result.activated) {
     console.log(`Capability activation is ${result.status}.`);
-    console.log(`  proposal retained: ${result.branch}@${result.proposalCommit}`);
-    console.log(`  approved ${result.targetBranch} remains at ${result.targetCommit}`);
+    console.log(`  proposal retained: ${result.branch}`);
+    console.log(`  approved ${result.targetBranch} is unchanged`);
     if (result.failure?.message) console.log(`  reason: ${result.failure.message}`);
     if (result.externalAction) console.log(
       `  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
@@ -110,9 +110,9 @@ async function runActivation(context) {
   }
   console.log(result.alreadyMerged
     ? `${branch} was already merged into ${result.targetBranch}.`
-    : `Merged ${branch}@${result.proposalCommit.slice(0, 12)} into ${result.targetBranch} at ${result.targetCommit.slice(0, 12)}.`);
+    : `Merged ${branch} into ${result.targetBranch}.`);
   if (result.projection?.published) {
-    console.log(`Published the capability projection to ${result.projection.branch} at ${result.projection.commit.slice(0, 12)}.`);
+    console.log(`Published the capability projection to ${result.projection.branch}.`);
   } else {
     console.log(result.projection?.branch
       ? `The ${result.projection.branch} capability projection is already current.`
@@ -152,9 +152,8 @@ async function runInspectRepository(context) {
     console.warn(`    ${conflict.remediation}`);
   }
   for (const match of result.pendingMatches ?? []) {
-    const commit = match.proposalCommit ? `@${match.proposalCommit.slice(0, 12)}` : '';
     const capabilities = match.capabilities?.length ? ` (${match.capabilities.join(', ')})` : '';
-    console.log(`  awaiting review ${match.proposalBranch ?? '<proposal>'}${commit} on ${match.lead}: ${match.repositoryId}${capabilities}`);
+    console.log(`  awaiting review ${match.proposalBranch ?? '<proposal>'} on ${match.lead}: ${match.repositoryId}${capabilities}`);
   }
   if (result.proposalCoverage !== 'complete') {
     console.warn(`  pending proposal coverage: ${result.proposalCoverage} (${result.proposalInspection?.inspected ?? 0}/${result.proposalInspection?.total ?? 0} inspected); no new mapping is authorized`);
@@ -424,8 +423,7 @@ async function runMapTeam(context) {
   }
   console.log(`Proposed team ${teamId} with ${members.length} new-member selection(s) and ${result.linkedCapabilityIds.length} link selection(s).`);
   console.log(`  review branch: ${result.branch}`);
-  console.log(`  base: ${result.baseBranch}@${result.baseCommit.slice(0, 8)}`);
-  console.log(`  commit: ${result.commit.slice(0, 8)}`);
+  console.log(`  base: ${result.baseBranch}`);
   console.log('  approved configuration and application branches were not changed.');
   const commands = capabilityProposalCommands(lead, result.branch, result.commit);
   await printCommandRoutes(
@@ -480,7 +478,7 @@ async function runOnboard(context) {
   console.log(`Repository setup: ${result.status}`);
   if (result.dryRun) {
     console.log(`  action: ${result.primaryAction}`);
-    console.log(`  state: ${result.state.kind}${result.state.commit ? ` (${result.state.branch}@${result.state.commit.slice(0, 12)})` : ''}`);
+    console.log(`  state: ${result.state.kind}${result.state.commit ? ` (${result.state.branch})` : ''}`);
     console.log(`  configuration: ${result.configuration.status}`);
     if (result.effects.length) {
       console.log('  proposed effects:');
@@ -497,7 +495,6 @@ async function runOnboard(context) {
       console.log('  not carried forward:');
       for (const item of result.omitted) console.log(`    ${item}`);
     }
-    console.log(`  plan: ${result.planId}`);
   } else {
     console.log(`  changed: ${result.changed ? 'yes' : 'no'}`);
     if (result.proposal?.reviewRequired) console.log(`  review branch: ${result.proposal.branch}`);
@@ -511,8 +508,12 @@ async function runOnboard(context) {
     ? (result.dryRun ? null : result.review?.inspectCommand ?? result.nextActions?.shell)
     : result.nextActions?.shell;
   if (shell || result.nextActions?.copilot) {
+    // A plan a person confirms reads as its short code in both routes, never the plan digest (confirm-code.mjs).
+    const { safeCommandGuidance } = await import('../safe-command-guidance.mjs');
+    const guidance = shell ? safeCommandGuidance({ command: shell, skill: result.nextActions?.copilot ?? null }) : null;
     const { formatCommandRouteLines } = await import('../model-free-commands.mjs');
-    for (const line of formatCommandRouteLines({ command: shell, copilotCommand: result.nextActions?.copilot })) console.log(line);
+    for (const line of formatCommandRouteLines(guidance?.copilotCommand?.startsWith('/sf-confirm ') ? guidance
+      : { command: shell, copilotCommand: result.nextActions?.copilot })) console.log(line);
   }
   return result;
 }
@@ -547,7 +548,7 @@ async function runSetupProposalCommand(subcommand, context) {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else if (!proposals.length) console.log('No pending repository setup proposals.');
     else for (const proposal of proposals) {
-      console.log(`${proposal.branch}  ${proposal.proposalCommit?.slice(0, 12) ?? 'unreadable'}  ${proposal.status}`);
+      console.log(`${proposal.branch}  ${proposal.proposalCommit ? '' : '(unreadable)  '}${proposal.status}`);
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
     }
     return result;
@@ -568,9 +569,9 @@ async function runSetupProposalCommand(subcommand, context) {
     console.log(JSON.stringify(result, null, 2));
     return result;
   }
-  console.log(`${result.branch} (${result.proposalCommit})`);
+  console.log(`${result.branch}`);
   console.log(`  setup: ${result.status}`);
-  console.log(`  approved: ${result.targetBranch}@${result.targetCommit ?? '<missing>'}`);
+  console.log(`  approved: ${result.targetBranch}${result.targetCommit ? '' : ' (missing)'}`);
   for (const file of result.changedFiles) {
     console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
   }
@@ -815,7 +816,6 @@ async function runMutation(subcommand, context) {
   if (result.materialized) console.log('The repository-root capability was materialized without changing existing Story rules.');
   console.log(`Proposal created: ${result.receipt.changeId}`);
   console.log(`  branch: ${result.branch}`);
-  console.log(`  commit: ${result.commit}`);
   console.log(`  receipt: ${result.receiptPath}`);
   console.log('Nothing has been applied yet.');
   await printCommandRoutes(`singularity-flow capability proposal ${result.branch} --lead ${lead}`, { label: 'Review' });
@@ -965,9 +965,7 @@ export async function run(argv, context = {}) {
       return result;
     }
     if (result.preview) {
-      console.log('Managed capability adoption preview:');
-      console.log(`  current map: ${result.plan.beforeSha256}`);
-      console.log(`  plan: ${result.plan.planSha256}`);
+      console.log('Managed capability adoption preview: the current capability map, adopted as it is now.');
       console.log('No file, proposal, Story, or authority was changed.');
       await printCommandRoutes(
         `singularity-flow capability adopt-managed --lead ${lead} --confirm ${result.plan.planSha256}`,
@@ -981,7 +979,6 @@ export async function run(argv, context = {}) {
     }
     console.log(`Proposal created: ${result.receipt.changeId}`);
     console.log(`  branch: ${result.branch}`);
-    console.log(`  commit: ${result.commit}`);
     console.log('Nothing has been applied yet. Existing Stories keep their pinned capability rules.');
     return result;
   }

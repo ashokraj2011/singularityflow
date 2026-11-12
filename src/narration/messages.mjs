@@ -16,6 +16,16 @@ function slot(value, fallback = '') {
   return value === undefined || value === null ? fallback : String(value);
 }
 
+/** A governance rebuild by when it ran (a person never reads its plan ID, a hash). */
+function rebuildName(s) {
+  const at = typeof s.rebuiltAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u.test(s.rebuiltAt) ? s.rebuiltAt.slice(0, 16).replace('T', ' ') : null;
+  return at ? `the governance rebuild of ${at}` : 'the governance rebuild';
+}
+
+function capitalized(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** The source statements a prepared scope-owning draft has yet to link, each with its reference. */
 function preparedScope(scope) {
   if (scope?.status === 'unavailable') return ` Its scope preview is unavailable${scope.reason ? ` (${slot(scope.reason)})` : ''}, so which source statements it must link is not known: ${slot(scope.inspect)}.`;
@@ -181,11 +191,11 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'fos.authority-refreshed': {
-    headline: (s) => `Repository authority pin was refreshed to ${slot(s.authority)}.`,
+    headline: (s) => `Repository authority pin was refreshed to ${slot(s.authority)} as it is now.`,
     preserves: false
   },
   'fos.authority-current': {
-    headline: (s) => `Repository authority pin is already current at ${slot(s.authority)}.`,
+    headline: (s) => `Repository authority pin is already current: ${slot(s.authority)}.`,
     preserves: true
   },
   'fos.cache-cleared': {
@@ -397,7 +407,7 @@ export const MESSAGES = Object.freeze({
     preserves: false
   },
   'governance.rebuild-planned': {
-    headline: (s) => `Governance rebuild ${slot(s.plan)} would replace ${slot(s.replaced, '0')} framework file(s) and archive ${slot(s.stories, '0')} ${Number(s.stories) === 1 ? 'Story' : 'Stories'}; nothing changed.`,
+    headline: (s) => `A governance rebuild would replace ${slot(s.replaced, '0')} framework file(s) and archive ${slot(s.stories, '0')} ${Number(s.stories) === 1 ? 'Story' : 'Stories'}; nothing changed.`,
     preserves: true
   },
   'governance.rebuild-blocked': {
@@ -405,15 +415,15 @@ export const MESSAGES = Object.freeze({
     preserves: true
   },
   'governance.rebuild-activated': {
-    headline: (s) => `Governance rebuild ${slot(s.plan)} is committed on ${slot(s.branch)} as ${slot(s.commit)}; ${slot(s.archived, '0')} ${Number(s.archived) === 1 ? 'Story is' : 'Stories are'} archived and read-only.`,
+    headline: (s) => `The governance rebuild is committed on ${slot(s.branch)}; ${slot(s.archived, '0')} ${Number(s.archived) === 1 ? 'Story is' : 'Stories are'} archived and read-only.`,
     preserves: false
   },
   'governance.restore-previewed': {
-    headline: (s) => `Restoring governance rebuild ${slot(s.plan)} would put back ${slot(s.files, '0')} file(s); nothing changed.`,
+    headline: (s) => `Restoring ${rebuildName(s)} would put back ${slot(s.files, '0')} file(s); nothing changed.`,
     preserves: true
   },
   'governance.restore-completed': {
-    headline: (s) => `Governance rebuild ${slot(s.plan)} is restored: ${slot(s.files, '0')} file(s) put back in commit ${slot(s.commit)}.`,
+    headline: (s) => `${capitalized(rebuildName(s))} is restored: ${slot(s.files, '0')} file(s) put back in a new commit.`,
     preserves: false
   },
   'precheck.reported': {
@@ -1054,7 +1064,7 @@ export const MESSAGES = Object.freeze({
     headline: (s) => s.dryRun
       ? `Would record ${slot(s.pending, '0')} after-step receipt(s); nothing was committed.`
       : s.count
-        ? `Recorded ${slot(s.count)} after-step receipt(s) in commit ${slot(String(s.commit ?? '').slice(0, 8))}.`
+        ? `Recorded ${slot(s.count)} after-step receipt(s) in a new commit${s.branch ? ` on ${slot(s.branch)}` : ''}.`
         : `Nothing to record; ${slot(s.recorded, '0')} after-step receipt(s) already recorded.`
   },
   'integrations.pipeline-delivered': {
@@ -1257,7 +1267,7 @@ export const REASONS = Object.freeze({
     render: (s) => `the commit changed only the rebuilt framework files, the archive registry and the receipt ${slot(s.receipt)}; every other ref and every repository-owned definition is unchanged`
   },
   'governance.from-approved-configuration': {
-    render: (s) => `the plan was built from the ${slot(s.mode)} configuration at ${slot(s.commit)}, exported into a scratch directory; the checkout and its branches were not touched`
+    render: (s) => `the plan was built from the ${slot(s.mode)} configuration${s.branch ? ` on ${slot(s.branch)}` : ''}, exported into a scratch directory; the checkout and its branches were not touched`
   },
   'approvals.from-pinned-state': {
     render: () => 'the phase order, documents, authority groups, and decisions came from the pinned Story aggregate'

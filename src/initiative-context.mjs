@@ -169,7 +169,8 @@ const KNOWLEDGE_ORDER = { uncertainty: 0, constraint: 1, gotcha: 2, decision: 3,
 
 function knowledgeLine(entry) {
   const { sha256, record } = entry;
-  const origin = record.provenance.map((item) => `${item.workId}:${item.artifact}@${item.sha256.slice(0, 12)}`).join(', ');
+  // The source by its work, artifact and approved revision, never its digest: this text can reach a person.
+  const origin = record.provenance.map((item) => `${item.workId}:${item.artifact} revision ${item.approvedRevision}`).join(', ');
   return `- **${record.type}${record.type === 'uncertainty' ? ` (${record.status})` : ''}** ${record.text}\n  \`${record.id}\` · ${origin}`;
 }
 

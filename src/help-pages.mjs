@@ -2621,7 +2621,7 @@ const PAGES = Object.freeze({
       ['--confirm-plan grb-DIGEST', 'Activate exactly the plan the preview printed; refused if anything moved since.'],
       ['--accept-inactive WORKFLOW,...', 'Name every failing repository workflow the rebuild leaves byte-identical and unstartable.'],
       ['--strict', 'Refuse to leave any workflow unstartable.'],
-      ['--plan grb-DIGEST', 'With restore: the rebuild to undo.'],
+      ['--plan grb-DIGEST', 'With restore: the rebuild to undo; without it, the most recent one, named by when it ran.'],
       ['--confirm grb-DIGEST', 'With restore: perform the previewed restore.'],
       ['--remote NAME', 'Read Story branches and the configuration authority from this remote (default origin).'],
       ['--presence', 'With verify: run SF Guard\'s remote check.'],
@@ -2634,8 +2634,8 @@ const PAGES = Object.freeze({
       ['singularity-flow governance rebuild --dry-run', 'Review what a rebuild would replace, keep and archive.'],
       ['singularity-flow governance verify --presence --base origin/main', 'SF Guard\'s remote check against the default branch.'],
       ['singularity-flow governance rebuild --dry-run --json', 'The same plan, for a skill or a script.'],
-      ['singularity-flow governance rebuild --confirm-plan grb-0123456789abcdef01234567', 'Activate the reviewed plan.'],
-      ['singularity-flow governance restore --plan grb-0123456789abcdef01234567 --dry-run', 'Preview undoing a rebuild.']
+      ['singularity-flow confirm K7Q2-M8DX', 'Activate the reviewed plan by the code its preview gave (/sf-confirm K7Q2-M8DX in Copilot).'],
+      ['singularity-flow governance restore --dry-run', 'Preview undoing the most recent rebuild.']
     ],
     seeAlso: ['factory-reset', 'workflow', 'configuration']
   },

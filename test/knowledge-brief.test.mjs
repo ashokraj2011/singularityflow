@@ -272,7 +272,8 @@ test('a checked-out branch with no code is briefed from the newest branch with c
   assert.equal(named.source.chosen, 'requested');
   assert.equal(named.evidence.codeFiles, 0);
   assert.equal(named.mode, 'template');
-  assert.match(named.reason, /^There is nothing to brief at branch main \([0-9a-f]{12}\): .*Name a branch that has code\.$/u);
+  // The reason a person reads names the branch, never its commit.
+  assert.match(named.reason, /^There is nothing to brief at branch main: .*Name a branch that has code\.$/u);
   await assert.rejects(() => knowledgeCommand(repository, ['brief'], { json: true, ref: 'missing' }), { code: 'KNOWLEDGE_REF_UNKNOWN' });
 });
 

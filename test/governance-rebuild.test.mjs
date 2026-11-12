@@ -22,6 +22,9 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
 }
 
 const sflow = (cwd, ...args) => run(process.execPath, [CLI, '--no-model', ...args], cwd);
+// A run of 7 to 64 hexadecimal characters with a letter and a digit (person-text-no-hashes.test.mjs): a person reads none.
+const HEX_RUN = /(?<![0-9A-Za-z_])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,64}(?![0-9A-Za-z_])/iu;
+const withoutPaths = (text, ...paths) => paths.reduce((shown, value) => shown.split(value).join(' '), String(text));
 const git = (cwd, ...args) => run('git', args, cwd).stdout.trim();
 
 /**
@@ -157,9 +160,16 @@ test('activation backs up, commits only governance files, archives every Story r
   git(root, 'checkout', '-q', 'POC-1');
   const cancelled = run(process.execPath, [CLI, '--no-model', 'cancel', 'POC-1', '--confirm', 'POC-1', '--reason', 'No longer needed after the rebuild.'], root, { allowFailure: true });
   assert.notEqual(cancelled.status, 0);
-  assert.match(`${cancelled.stdout}${cancelled.stderr}`, /archived by governance rebuild grb-[0-9a-f]{24}/);
+  assert.match(`${cancelled.stdout}${cancelled.stderr}`, /archived by the governance rebuild of \d{4}-\d{2}-\d{2}/);
+  assert.doesNotMatch(withoutPaths(`${cancelled.stdout}${cancelled.stderr}`, root, os.tmpdir()), HEX_RUN, 'the refusal names the rebuild by its date');
   git(root, 'checkout', '-q', 'main');
 
+  // Without --plan the most recent rebuild is restored, named by when it ran; its confirmation is a short code.
+  const restoreText = sflow(root, 'governance', 'restore', '--dry-run').stdout;
+  assert.match(restoreText, /Restoring the governance rebuild of \d{4}-\d{2}-\d{2} \d{2}:\d{2} would put back \d+ file\(s\)/);
+  assert.match(restoreText, /Shell: singularity-flow confirm [0-9A-Z]{4}-[0-9A-Z]{4}/);
+  assert.doesNotMatch(withoutPaths(restoreText, root, os.tmpdir()), HEX_RUN, 'the restore preview shows no commit or plan ID');
+  assert.equal((await restoreGovernanceRebuild(root)).preview.plan, plan.plan);
   const preview = await restoreGovernanceRebuild(root, { plan: plan.plan });
   assert.equal(preview.restored, null);
   assert.ok(preview.preview.restores.some((entry) => entry.path === 'singularity/governance/archive.json' && entry.action === 'remove'));
@@ -179,6 +189,8 @@ test('the CLI previews the plan, refuses an incomplete confirmation, and activat
   assert.match(text, /Framework files replaced \(\d+\):/);
   assert.match(text, /team-sketch \(repository\)/);
   assert.match(text, /Stories to archive \(1\):\n {2}POC-1 \(in_progress\)/);
+  assert.match(text, /Shell: singularity-flow confirm [0-9A-Z]{4}-[0-9A-Z]{4}/, 'a person confirms the plan by its short code');
+  assert.doesNotMatch(withoutPaths(text, root, os.tmpdir()), HEX_RUN, 'the preview names files, Stories and branches, never a commit, digest or plan ID');
   const refused = run(process.execPath, [CLI, '--no-model', 'governance', 'rebuild', '--confirm-plan', preview.data.plan.plan], root, { allowFailure: true });
   assert.equal(refused.status, 2);
   assert.match(`${refused.stdout}${refused.stderr}`, /--accept-inactive: team-sketch/);

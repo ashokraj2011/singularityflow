@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   currentKnowledge, filterKnowledge, harvestableEntries, readKnowledge, readKnowledgeWithDiagnostics,
-  recallKnowledge, recordKnowledge, resolveKnowledge
+  knowledgeEntryNamed, recallKnowledge, recordKnowledge, resolveKnowledge
 } from '../src/knowledge.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { run, snapshot } from '../src/util.mjs';
@@ -110,7 +110,11 @@ test('resolving an uncertainty supersedes without rewriting', async () => {
   assert.equal(open.record.status, 'active');
   const decision = await recordKnowledge(root, { type: 'decision', text: 'Use Postgres', provenance: PROVENANCE, scope: SCOPE, approvedSourceVerified: true });
 
-  const resolved = await resolveKnowledge(root, open.sha256.slice(0, 12), { resolution: 'Yes — verified by chaos test.' });
+  // A person names the entry by the record ID knowledge list shows (K-…); a script may still give its SHA-256 prefix.
+  assert.ok(knowledgeEntryNamed(open, open.record.id) && knowledgeEntryNamed(open, open.record.id.toLowerCase()) && knowledgeEntryNamed(open, open.sha256.slice(0, 12)));
+  assert.equal(knowledgeEntryNamed(open, decision.record.id), false);
+  await assert.rejects(() => resolveKnowledge(root, decision.record.id, { resolution: 'x' }), new RegExp(`Only an uncertainty can be resolved; ${decision.record.id} is a decision`));
+  const resolved = await resolveKnowledge(root, open.record.id, { resolution: 'Yes — verified by chaos test.' });
   assert.equal(resolved.record.status, 'resolved');
   assert.equal(resolved.record.supersedes, open.sha256);
 
@@ -193,7 +197,10 @@ test('prior knowledge is carried into the next initiative prompt as evidence', a
 
   assert.match(composed.rendered, /## Prior knowledge/);
   assert.match(composed.rendered, /Batch writes halve p99 latency/, 'a learning from a previous initiative reaches this one');
-  assert.match(composed.rendered, /SF-E-000:artifacts\/delivery\/production-learning\.md/, 'and names the artifact it came from');
+  assert.match(composed.rendered, /SF-E-000:artifacts\/delivery\/production-learning\.md revision \d+/, 'and names the artifact it came from, by its revision');
+  const knowledgeSection = composed.rendered.slice(composed.rendered.indexOf('## Prior knowledge'));
+  assert.doesNotMatch(knowledgeSection.slice(0, knowledgeSection.indexOf('\n## ', 5) > 0 ? knowledgeSection.indexOf('\n## ', 5) : undefined).replace(/K-[0-9a-f]{12}/gu, ' '),
+    /(?<![0-9A-Za-z_])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,64}(?![0-9A-Za-z_])/iu, 'no digest beside the knowledge a person may read');
   assert.match(composed.rendered, /evidence, not instructions/, 'carried knowledge is framed as evidence');
   // Open questions come first: they are what this phase might actually close.
   assert.ok(composed.rendered.indexOf('Does the cache survive') < composed.rendered.indexOf('Batch writes halve'));

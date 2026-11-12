@@ -74,5 +74,5 @@ export async function recordRequiredReceiptsAfterDelivery(root, { workId = null 
 export function recordedReceiptsLine(recorded) {
   if (!recorded?.written?.length) return null;
   const count = recorded.written.length;
-  return `Recorded ${count} after-step receipt${count === 1 ? '' : 's'} in commit ${recorded.publication.sha.slice(0, 8)}${recorded.publication.pushed ? ' (pushed)' : ''}, so the next step is not held.`;
+  return `Recorded ${count} after-step receipt${count === 1 ? '' : 's'} in a new commit${recorded.publication.pushed ? ' (pushed)' : ''}, so the next step is not held.`;
 }

@@ -6300,7 +6300,7 @@ test('organisation fsck rejects a self-consistent state mirror that diverges fro
   const organisation = await readOrganisation(org.platform, { refresh: true });
   assert.equal(organisation.sourceBranch, 'sflow/config');
   assert.equal(organisation.stateProjection.status, 'invalid');
-  assert.match(organisation.stateProjection.error, /complete asset set does not match/);
+  assert.match(organisation.stateProjection.error, /does not match the approved configuration on sflow\/config it names: its asset set differs/);
   const fsck = await capabilityFsck(org.platform);
   assert.equal(fsck.valid, false);
   const projection = fsck.checks.find((entry) => entry.id === 'state-projection');

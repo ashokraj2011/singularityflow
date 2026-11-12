@@ -492,13 +492,14 @@ const UPGRADE_KNOWN = Object.freeze({
   PRODUCT_ALIGNMENT_VERIFICATION_FAILED: () => productAlignmentSteps(
     'A surface did not verify after alignment. Check which build each surface runs.'),
   STORY_ARCHIVED_BY_REBUILD: (argv, error) => {
+    // The preview restores the most recent rebuild and names it by when it ran; a person never types its plan ID.
     const plan = /^grb-[0-9a-f]{24}$/u.test(String(error?.details?.plan ?? '')) ? error.details.plan : null;
     return [
       step('start-new-story', 'This Story was explicitly retired and stays read-only. Start a new Story with a new ID under the current Flow Policy.',
         'singularity-flow start <WORK-ID> --from-branch <BASE> --title <TITLE>', 'remediation'),
       ...(plan ? [step('preview-governance-restore',
         'Only if the rebuild itself was a mistake: preview restoring the Flow Policy it replaced, a reviewed change for the whole repository.',
-        `singularity-flow governance restore --plan ${plan} --dry-run`)] : [])
+        'singularity-flow governance restore --dry-run')] : [])
     ];
   }
 });

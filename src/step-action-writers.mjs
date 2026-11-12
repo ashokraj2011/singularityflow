@@ -288,7 +288,7 @@ export async function deliverToGit(record, { root = null, env = process.env, git
         await service.fetchIsolatedDeliveryHistory(scratch, { remote: target.repository, commit: tip, depth: MAX_HISTORY_SCANNED });
         const history = service.isolatedCommitMessages(scratch, { commit: tip, limit: MAX_HISTORY_SCANNED });
         const mine = history.find((entry) => trailer(entry.message, 'Sflow-Delivery') === record.key);
-        if (mine) return { outcome: 'delivered', status: 200, detail: `Already on ${target.branch} as ${mine.commit.slice(0, 12)}.` };
+        if (mine) return { outcome: 'delivered', status: 200, detail: `Already on ${target.branch}.` };
         const newer = history.find((entry) => trailer(entry.message, 'Sflow-Story') === record.workId
           && trailer(entry.message, 'Sflow-Step') === record.phaseId && Number(trailer(entry.message, 'Sflow-Generation')) > record.generation);
         if (newer) return { outcome: 'delivered', status: 200, detail: `Superseded on ${target.branch} by generation ${trailer(newer.message, 'Sflow-Generation')}.` };
@@ -299,7 +299,7 @@ export async function deliverToGit(record, { root = null, env = process.env, git
       if (!commit) return { outcome: 'delivered', status: 200, detail: `${relative} on ${target.branch} already holds these bytes.` };
       const pushed = await service.pushIsolatedDeliveryCommit(scratch, { remote: target.repository, commit, branch: target.branch });
       if (pushed === 'moved') return { outcome: 'retry', code: 'STEP_ACTION_GIT_BRANCH_MOVED', detail: `${target.branch} moved while this delivery was written; it is tried again on the new tip.` };
-      return { outcome: 'delivered', status: 200, detail: `Committed ${relative} to ${target.branch} as ${commit.slice(0, 12)}.` };
+      return { outcome: 'delivered', status: 200, detail: `Committed ${relative} to ${target.branch}.` };
     });
   } catch (error) {
     return gitAttemptResult(error);

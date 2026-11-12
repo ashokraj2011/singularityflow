@@ -6610,7 +6610,7 @@ test('Story intake refuses to fall through to an interactive workflow prompt', (
 });
 
 test('one aggregate configuration-authority failure is not rendered as two Story blockers', () => {
-  const authorityFailure = 'sflow/config@2dffdf937030 does not contain singularity/workflow.yml.';
+  const authorityFailure = 'The configuration on sflow/config does not contain singularity/workflow.yml.';
   const form = intake({
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'Retry checkout',
     description: 'Retry once', storyWorkflows: [], availableStoryWorkflows: [], workType: null,
@@ -6619,7 +6619,7 @@ test('one aggregate configuration-authority failure is not rendered as two Story
     basePreflightPassed: false
   });
   const html = intakeHtml(form);
-  assert.equal((html.match(/sflow\/config@2dffdf937030 does not contain singularity\/workflow\.yml\./g) ?? []).length, 1,
+  assert.equal((html.match(/The configuration on sflow\/config does not contain singularity\/workflow\.yml\./g) ?? []).length, 1,
     'the aggregate catalog error is not repeated by workflow, branch, and summary sections');
   assert.match(html, /Not checked because approved Story configuration/);
   assert.match(html, /Refresh or reinitialize repository configuration/);

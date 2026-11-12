@@ -101,10 +101,10 @@ import { agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { answerSelectionReceipt, beginCustomSelectionReceipt, consumeSelectionReceipt, resolveCustomSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio, usesEpicPlanningLifecycle } from './initiative-config.mjs';
-import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
+import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, knowledgeEntryNamed, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
 import { importKnowledgeSeedManifest } from './knowledge-seed-import.mjs';
 import { commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives, availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState, syncInitiativePublication, validateInitiativeId } from './state-stores.mjs';
-import { approveInitiative, evaluateInitiativePhase, initiativeBundle, initiativePhaseDraftCheck, publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence } from './initiative-evidence.mjs';
+import { approveInitiative, evaluateInitiativePhase, evidenceRecordId, initiativeBundle, initiativePhaseDraftCheck, publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
 import { impactDocument, impactFindings, initiativeImpact } from './initiative-impact.mjs';
 import { initiativeBreakdownReview, initiativeMergeState, loadInitiativeBreakdown, materializeInitiative, syncInitiativeRepositories } from './initiative-repositories.mjs';
@@ -418,7 +418,7 @@ async function initCommand(options) {
       } else if (configurationRelation) {
         console.log(`Authority relationship: ${configurationRelation.state}`);
       } else if (approvedAuthority) {
-        console.log(`Authority: ${approvedAuthority.ref}@${String(approvedAuthority.sourceCommit).slice(0, 12)}`);
+        console.log(`Authority: the approved configuration on ${approvedAuthority.ref}`);
         console.log('Application branches do not need a local configuration copy.');
       }
       console.log(`Assets: ${status.presentFiles.length}/${status.expectedFiles.length} present`);
@@ -473,10 +473,10 @@ async function initCommand(options) {
   }
 }
 
-function renderFactoryResetPlan(plan) {
+function renderFactoryResetPlan(plan, { asking = false } = {}) {
   console.log(`Singularity Flow factory reset — ${plan.completed ? 'complete' : 'preview'}`);
   console.log(`Repository: ${plan.repository}`);
-  console.log(`Branch: ${plan.branch ?? 'detached'} · HEAD ${String(plan.head ?? 'unborn').slice(0, 12)}`);
+  console.log(`Branch: ${plan.branch ?? 'detached'}${plan.head ? '' : ' (no commits yet)'}`);
   console.log(`Npm package: ${plan.packageVersion ?? 'unknown'}`);
   console.log('\nRemove:');
   for (const item of plan.remove) console.log(`- ${item}`);
@@ -504,7 +504,7 @@ function renderFactoryResetPlan(plan) {
     console.log('\nInvalid custom agents preserved outside active discovery:');
     for (const item of plan.customAgentRecoveries) {
       console.log(`- ${item.sourceDisplay} -> ${item.recoveryDisplay}`);
-      console.log(`  ${item.sha256} · ${item.bytes} bytes · ${item.reason}`);
+      console.log(`  ${item.bytes} bytes · ${item.reason}`);
     }
   }
   if (plan.uncommittedDiscardPaths?.length && !plan.completed) {
@@ -520,13 +520,13 @@ function renderFactoryResetPlan(plan) {
   }
   if (!plan.completed) {
     console.log(`\nConfirmation required: ${plan.confirmation}`);
+    if (asking) return;
     const discard = plan.pendingPublicationsDiscarded ? ' --discard-pending-publications' : '';
-    const command = plan.operation === 'factory-reset-all'
-      ? `sflow reset-all --yes${discard}`
-      : `singularity-flow factory-reset --confirm ${JSON.stringify(plan.confirmation)} `
-        + `--expect-scope-sha256 ${plan.resetScopeSha256}`
-        + `${plan.machineOnlyDocuments?.included ? ' --include-local-documents' : ''}${discard}`;
-    printCommandRoutes(command);
+    // A person never copies the scope digest: in their own terminal `factory-reset` shows this preview, asks them to
+    // type the confirmation, and resets bound to the scope that same process read. --json keeps both for a host.
+    if (plan.operation === 'factory-reset-all') printCommandRoutes(`sflow reset-all --yes${discard}`);
+    else printCommandRoutes(`singularity-flow factory-reset${plan.machineOnlyDocuments?.included ? ' --include-local-documents' : ''}${discard}`,
+      { label: 'To reset, run this in your own terminal: it shows this preview again and asks you to type the confirmation' });
   } else {
     for (const warning of plan.warnings ?? []) console.log(`\nWarning: ${warning}`);
     console.log('\nThe replacement is intentionally uncommitted.');
@@ -540,21 +540,41 @@ async function factoryResetCommand(options) {
   const root = repoRoot();
   const dryRun = optionBoolean(options, 'dry-run');
   if (dryRun && options.confirm != null) throw new SingularityFlowError('factory-reset --dry-run does not accept --confirm. Review the preview first.');
-  const expectedScopeSha256 = optionString(options, 'expect-scope-sha256');
-  if (!dryRun && !expectedScopeSha256) {
-    throw new SingularityFlowError(
-      'Factory reset requires the exact --expect-scope-sha256 value from a current --dry-run preview. '
-      + 'Nothing was removed. Preview again and copy the complete generated command.'
-    );
-  }
+  let expectedScopeSha256 = optionString(options, 'expect-scope-sha256');
+  let confirmation = optionString(options, 'confirm');
   // Machine-only Story documents are kept unless this flag is on both the preview and the reset.
   const includeLocalDocuments = optionBoolean(options, 'include-local-documents');
   // Waiting publications refuse the reset unless this flag is on both the preview and the reset.
   const discardPendingPublications = optionBoolean(options, 'discard-pending-publications');
+  // In a person's own terminal, `factory-reset` alone shows the preview and asks them to type its confirmation; the
+  // reset is then bound to the scope this same process read, so a person never copies the scope digest.
+  if (!dryRun && !expectedScopeSha256 && confirmation == null && !optionBoolean(options, 'json')
+      && process.stdin.isTTY === true && process.stdout.isTTY === true) {
+    const plan = await factoryResetPlan(root, { packageVersion: VERSION, includeLocalDocuments, discardPendingPublications });
+    renderFactoryResetPlan(plan, { asking: true });
+    const readline = await import('node:readline/promises');
+    const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
+    let answer = '';
+    try { answer = (await terminal.question(`Type ${plan.confirmation} to reset, or press Enter to cancel: `)).trim(); }
+    finally { terminal.close(); }
+    if (answer !== plan.confirmation) {
+      console.log('Nothing was removed.');
+      return plan;
+    }
+    confirmation = plan.confirmation;
+    expectedScopeSha256 = plan.resetScopeSha256;
+  }
+  if (!dryRun && !expectedScopeSha256) {
+    throw new SingularityFlowError(
+      'Factory reset requires the exact --expect-scope-sha256 value from a current --dry-run --json preview with --confirm. Nothing was removed. '
+      + 'In your own terminal, run singularity-flow factory-reset: it shows the preview and asks you to type its confirmation.',
+      { code: 'FACTORY_RESET_CONFIRMATION_REQUIRED' }
+    );
+  }
   const result = dryRun
     ? await factoryResetPlan(root, { packageVersion: VERSION, includeLocalDocuments, discardPendingPublications })
     : await factoryResetRepository(root, {
-      confirmation: optionString(options, 'confirm'),
+      confirmation,
       packageVersion: VERSION,
       allowDirty: optionBoolean(options, 'allow-dirty'),
       expectedScopeSha256,
@@ -1396,7 +1416,7 @@ async function returnCommand(positionals, options) {
   if (!optionBoolean(options, 'apply')) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
     console.log(`Return plan: ${subject.id}`);
-    console.log(`Source: ${remoteRef} @ ${plan.sourceCommit?.slice(0, 12) ?? 'unavailable'}`);
+    console.log(`Source: ${remoteRef}${plan.sourceCommit ? '' : ' (unavailable)'}`);
     console.log(`Destination: local ${targetBranch}`);
     console.log(`Worktree: ${plan.worktree.clean ? 'clean' : `${plan.worktree.changedPaths} changed path(s) — must be committed or stashed by you`}`);
     console.log(`Local branch: ${plan.localBranch.disposition}${plan.localBranch.blocksApply ? ' — automatic attach is blocked; reconcile it yourself' : ''}`);
@@ -1438,7 +1458,7 @@ async function returnCommand(positionals, options) {
   const json = optionBoolean(options, 'json');
   if (!json) {
     summary(workflow);
-    console.log(`Returned from ${plan.freshness} evidence at ${plan.sourceCommit.slice(0, 12)}.`);
+    console.log(`Returned from ${plan.freshness} evidence.`);
     console.log(`Active agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
   const active = currentPhase(workflow);
@@ -1871,7 +1891,7 @@ async function actionCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...plan,
       ...(publication ? { publicationReadiness: publication.readiness } : {}) }, null, 2));
     console.log(`Action plan: ${plan.planId}`);
-    console.log(`Bound to: ${plan.revision.branch}@${plan.revision.head.slice(0, 12)} · expires ${plan.expiresAt}`);
+    console.log(`Bound to: ${plan.revision.branch ?? 'this checkout'} as it is now · expires ${plan.expiresAt}`);
     console.log(table(plan.actions.map((action) => ({
       id: action.actionId.slice(0, 10), timing: action.timing, intent: action.intent,
       executable: action.executable ? 'yes' : 'no', reason: action.reason
@@ -1901,7 +1921,7 @@ async function actionCommand(positionals, options) {
     const prior = await readActionResult(root, plan, action);
     if (prior) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ replayed: true, record: prior }, null, 2));
-      console.log(`Action ${action.actionId.slice(0, 10)} already completed at ${prior.completedAt}; no command was repeated.`);
+      console.log(`Action ${action.order ?? ''} (${action.intent ?? action.command}) already completed at ${prior.completedAt}; no command was repeated.`.replace('Action  (', 'Action ('));
       return;
     }
   }
@@ -1948,7 +1968,7 @@ async function actionCommand(positionals, options) {
     head: head(root)
   });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify({ replayed: false, record: result }, null, 2));
-  else console.log(`Action ${action.actionId.slice(0, 10)} completed and was recorded locally.`);
+  else console.log(`Action ${action.order ?? ''} (${action.intent ?? action.command}) completed and was recorded locally.`.replace('Action  (', 'Action ('));
   if (!action.effect?.mutatesState) return {};
   return {
     harnessEvidence: {
@@ -2167,7 +2187,7 @@ async function documentsCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(result.instruction);
     for (const record of result.missing) {
-      console.log(`${record.id} — ${record.name} (${record.bytes} bytes; SHA-256 ${record.sha256})`);
+      console.log(`${record.id} — ${record.name} (${record.bytes} bytes)`);
       printCommandRoutes(record.commandGuidance.command);
     }
     return;
@@ -2307,7 +2327,7 @@ async function documentsCommand(positionals, options) {
     });
     const result = { ...detached, publication, next };
     if (json) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Decision: ${detached.decision.sha256}`);
+    console.log('Decision recorded.');
     console.log(`Commit: ${publication.pushed ? 'pushed' : 'retained locally'}`);
     if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
     console.log(`Invalidated phases: ${detached.affectedPhases.length ? detached.affectedPhases.join(', ') : 'none'}`);
@@ -2322,7 +2342,7 @@ async function documentsCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(documentTitle(result.record));
     if (result.record.url) console.log(`URL: ${result.record.url}`);
-    else if (result.previewable) console.log(`Inline preview verified at ${result.sha256}.`);
+    else if (result.previewable) console.log('Inline preview verified against the document\'s exact bytes.');
     else if (result.binary) console.log('This binary type requires its native viewer.');
     else if (result.content != null) process.stdout.write(`\n${result.content}`);
     return;
@@ -2374,7 +2394,7 @@ async function documentsCommand(positionals, options) {
     if (optionString(options, 'provider') === 'epic') {
       const result = await browseEpicSources(root, config, workflow);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Epic ${result.epicId} sources at ${result.commit.slice(0, 12)}`);
+      console.log(`Epic ${result.epicId} sources, as this Story was cut from them`);
       if (result.entries.length) {
         console.log(table(result.entries.map((entry) => ({ name: entry.name, id: entry.id, type: entry.mimeType ?? '', size: entry.size, status: entry.imported ? 'imported' : '' })), [
           { key: 'name', label: 'NAME' }, { key: 'id', label: 'SOURCE ID' }, { key: 'type', label: 'TYPE' }, { key: 'size', label: 'BYTES' }, { key: 'status', label: 'IN STORY' }
@@ -2515,7 +2535,7 @@ async function documentsScopeCommand(root, positionals, options) {
   });
   const result = { ...scoped, publication, next };
   if (json) return console.log(JSON.stringify(result, null, 2));
-  console.log(`Decision: ${scoped.decision.sha256}`);
+  console.log('Decision recorded.');
   console.log(`Commit: ${publication.pushed ? 'pushed' : 'retained locally'}`);
   if (!publication.pushed) printCommandRoutes('singularity-flow sync', { label: 'Publish the retained commit' });
   printCommandRoutes('singularity-flow nextsteps', { label: 'Continue' });
@@ -2632,7 +2652,7 @@ async function clarificationCommand(positionals, options) {
   const json = optionBoolean(options, 'json');
   if (!json) {
     console.log(`${result.reused ? 'Reused the exact recorded' : 'Recorded'} ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
-    console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);
+    console.log(`Record: ${result.path}`);
     console.log(result.record.completed
       ? `Next: author the phase artifact, then run ${phasePublicationCommandForMode(phase) ?? `singularity-flow phase prepublish ${phase.id}`}`
       : 'Publication remains blocked because at least one material decision is unresolved.');
@@ -2742,7 +2762,7 @@ async function specCommand(positionals, options) {
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(index, null, 2));
       console.log(`${optionBoolean(options, 'dry-run') ? 'Validated' : 'Indexed'} ${index.clauses.length} standalone clause(s) from ${index.source.path}.`);
-      if (!optionBoolean(options, 'dry-run')) console.log(`Local index: ${outputPath} (${index.indexSha256.slice(0, 12)})`);
+      if (!optionBoolean(options, 'dry-run')) console.log(`Local index: ${outputPath}`);
       return;
     }
   }
@@ -2789,7 +2809,7 @@ async function specCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(index, null, 2));
     console.log(`${optionBoolean(options, 'dry-run') ? 'Validated' : 'Indexed'} ${index.clauses.length} clause(s) from ${index.source.path}.`);
-    if (!optionBoolean(options, 'dry-run')) console.log(`Index: ${outputPath} (${index.indexSha256.slice(0, 12)})`);
+    if (!optionBoolean(options, 'dry-run')) console.log(`Index: ${outputPath}`);
     return;
   }
 
@@ -2921,7 +2941,7 @@ async function specCommand(positionals, options) {
 
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(assisted ? { ...gate.report, assisted: assisted.record } : gate.report, null, 2));
     console.log(`Specification quality — ${phase.label} generation ${generation}`);
-    console.log(`  artifact:  ${gate.report.binding.artifactPath} (${gate.report.binding.artifactSha256.slice(0, 12)})`);
+    console.log(`  artifact:  ${gate.report.binding.artifactPath}`);
     console.log(`  policy:    quality ${gate.qualityMode}, markers ${gate.markerMode}, checklist ${gate.checklist}`);
     console.log(`  clauses:   ${gate.report.clauseCount}`);
     console.log(`  markers:   ${gate.report.markers.open.length} open, ${gate.report.markers.resolved.length} resolved since the last generation`);
@@ -2991,8 +3011,8 @@ async function specCommand(positionals, options) {
     }
     await writeText(path.join(root, target), rendered);
     console.log(`Derived ${map.items.length} advisory task(s) into ${target}.`);
-    console.log(`Bound to specification generation ${map.derivedFrom.specification.generation} (${map.derivedFrom.specification.sha256.slice(0, 12)})`
-      + `${map.derivedFrom.planning ? ` and plan generation ${map.derivedFrom.planning.generation} (${map.derivedFrom.planning.sha256.slice(0, 12)})` : '; no approved plan yet'}.`);
+    console.log(`Bound to specification generation ${map.derivedFrom.specification.generation}`
+      + `${map.derivedFrom.planning ? ` and plan generation ${map.derivedFrom.planning.generation}` : '; no approved plan yet'}.`);
     console.log('Advisory only: ticking these boxes is not evidence that implementation or verification is complete.');
     return;
   }
@@ -3103,7 +3123,7 @@ async function mcpCommand(positionals, options) {
       serverId, entry: descriptor.host, inputs: descriptor.inputs, replaceServer: optionBoolean(options, 'replace-server')
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, serverId, host: descriptor.host }, null, 2));
-    console.log(`${result.changed ? 'Added' : 'Verified'} MCP host entry '${serverId}' in ${result.path} (${result.sha256.slice(0, 12)}).`);
+    console.log(`${result.changed ? 'Added' : 'Verified'} MCP host entry '${serverId}' in ${result.path}.`);
     console.log(descriptor.host.type === 'stdio'
       ? `  It runs: ${[descriptor.host.command, ...descriptor.host.args].join(' ')}`
       : `  It connects to: ${descriptor.host.url}`);
@@ -3139,7 +3159,7 @@ async function mcpCommand(positionals, options) {
       local: optionBoolean(options, 'local'),
       replaceServer: optionBoolean(options, 'replace-server') || optionBoolean(options, 'replace')
     });
-    console.log(`${result.changed ? 'Updated' : 'Verified'} ${result.path} (${result.sha256.slice(0, 12)}). Review and commit it before trusting or starting the server in VS Code or Copilot CLI. The managed host entry invokes the global singularity-flow launcher; a VSIX-only installation cannot serve it.`);
+    console.log(`${result.changed ? 'Updated' : 'Verified'} ${result.path}. Review and commit it before trusting or starting the server in VS Code or Copilot CLI. The managed host entry invokes the global singularity-flow launcher; a VSIX-only installation cannot serve it.`);
     printCommandRoutes(`singularity-flow mcp warm ${server} --network`, { label: 'Then warm it' });
     return;
   }
@@ -3178,7 +3198,7 @@ async function mcpCommand(positionals, options) {
       const result = await playwrightAuthProfileStatus(root);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       if (result.status === 'configured') {
-        console.log(`Playwright authentication profile '${result.profileId}' is configured (${result.storageStateSha256}).`);
+        console.log(`Playwright authentication profile '${result.profileId}' is configured.`);
       } else if (result.status === 'none') console.log('No managed Playwright authentication profile is configured.');
       else console.log(`Managed Playwright authentication profile is invalid (${result.reason}).`);
       return;
@@ -3191,15 +3211,18 @@ async function mcpCommand(positionals, options) {
         const preview = await previewPlaywrightAuthImport(root, { storageState, profileId });
         if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
         console.log(`Playwright authentication profile '${preview.profileId}' is ready to ${preview.status}.`);
-        console.log(`Storage-state digest: ${preview.storageStateSha256}`);
-        console.log(`Review the local source, then repeat the same command with --confirm ${preview.confirmation}. No state was changed.`);
+        // A person confirms the reviewed storage state by its short code, never its digest (confirm-code.mjs).
+        console.log('Review the local source. No state was changed.');
+        printCommandRoutes(renderPlatformCommand(['singularity-flow', 'mcp', 'auth', 'import', 'playwright',
+          ...(profileId ? ['--profile', profileId] : []), ...(storageState ? ['--storage-state', storageState] : []), '--confirm', preview.confirmation]),
+        { label: 'Then confirm it' });
         return;
       }
       const result = await importPlaywrightAuthProfile(root, {
         storageState, profileId, confirmation
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Playwright authentication profile '${result.profileId}' is ${result.status} (${result.storageStateSha256}).`);
+      console.log(`Playwright authentication profile '${result.profileId}' is ${result.status}.`);
       console.log('The copied state is Git-local and private. Re-attest and re-warm Playwright before relying on previous readiness evidence.');
       return;
     }
@@ -3584,7 +3607,7 @@ async function stackCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     printStack(result.stack);
     console.log('\nOrphan state-branch publications:');
-    result.publications.forEach((item) => console.log(`  ${item.repository}: ${item.changed ? item.commit.slice(0, 8) : 'unchanged'} on ${item.branch}`));
+    result.publications.forEach((item) => console.log(`  ${item.repository}: ${item.changed ? 'committed' : 'unchanged'} on ${item.branch}`));
     return;
   }
   if (subcommand === 'status') {
@@ -4797,7 +4820,7 @@ async function ledgerCommand(positionals, options) {
     console.log(pinRepairHeadline(result));
     if (result.refspec.installed) console.log(`  installed ${result.refspec.refspec}`);
     result.localActions.forEach((item) => console.log(`  ${item.status} ${item.pinRef}`));
-    result.restored.forEach((item) => console.log(`  restored ${item.pinRef} at ${item.commit} to ${item.remote}`));
+    result.restored.forEach((item) => console.log(`  restored ${item.pinRef} to ${item.remote}`));
     result.unresolved.forEach((item) => console.warn(`  unresolved ${item.pinRef}: ${item.status}`));
     if (result.dryRun && result.pins.some((item) => item.restoreCandidate)) {
       const source = result.sourceRemote ? ` --source-remote ${result.sourceRemote}` : '';
@@ -4914,7 +4937,7 @@ async function capabilitiesCommand(positionals, options) {
       const diagnosed = await capabilityDoctorSafely(root, { capabilityId, offline });
       result = capabilityDoctorWithChecks(diagnosed, [{
         id: 'configuration-pin', status: 'pass',
-        summary: `Canonical Story configuration is pinned to ${pin.source.branch}@${pin.source.commit.slice(0, 12)}.`,
+        summary: `Canonical Story configuration is pinned to the reviewed configuration on ${pin.source.branch}.`,
         detail: 'The current shared authority was intentionally not substituted for this immutable Story input.'
       }]);
     } else if (offline) {
@@ -5165,7 +5188,7 @@ async function workflowCommand(positionals, options) {
     if (!proposals.length) return console.log('No workflow configuration proposals are waiting.');
     for (const proposal of proposals) {
       const subjects = (proposal.workflows ?? []).map((entry) => `${entry.id} (${entry.change})`).join(', ');
-      console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
+      console.log(`${proposal.branch}  `
         + `${proposal.merged ? 'merged' : proposal.valid ? 'pending review' : 'blocked'}`);
       if (subjects) console.log(`  workflows: ${subjects}`);
       if (proposal.repositoryTests) {
@@ -5181,8 +5204,8 @@ async function workflowCommand(positionals, options) {
     const branch = requirePositional(positionals, 2, 'workflow proposal branch');
     const proposal = await inspectWorkflowConfigurationProposal(root, branch);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(proposal, null, 2));
-    console.log(`${proposal.branch} (${proposal.proposalCommit})`);
-    console.log(`  target: ${proposal.targetBranch}@${proposal.targetCommit}`);
+    console.log(`${proposal.branch}`);
+    console.log(`  target: ${proposal.targetBranch}`);
     console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid ? 'ready for review' : 'invalid'}`);
     for (const workflow of proposal.workflows) {
       console.log(`  ${workflow.change.padEnd(8)} ${workflow.governs} workflow ${workflow.id}`);
@@ -5208,7 +5231,7 @@ async function workflowCommand(positionals, options) {
       root, branch, optionString(options, 'commit')
     );
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`${result.branch}@${result.proposalCommit.slice(0, 12)}: ${result.merged ? 'merged' : result.branchStatus}`);
+    console.log(`${result.branch}: ${result.merged ? 'merged' : result.branchStatus}`);
     return;
   }
 
@@ -5221,7 +5244,7 @@ async function workflowCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.activated) {
       console.log(`Workflow activation is ${result.status}.`);
-      console.log(`  proposal retained: ${result.branch}@${result.proposalCommit}`);
+      console.log(`  proposal retained: ${result.branch}`);
       if (result.failure?.message) console.log(`  reason: ${result.failure.message}`);
       if (result.externalAction) {
         console.log(`  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
@@ -5344,7 +5367,6 @@ async function workflowCommand(positionals, options) {
       exportWorkflowBundle(root, workflowIds, absolute), { preferAuthority: true });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} to ${absolute}.`);
-    console.log(`  Bundle: ${result.bundleSha256 ?? result.sha256}`);
     if (result.dependencies) {
       const { bundleContentsLines } = await import('./workflow-transfer-resolution.mjs');
       console.log('  It carries everything the workflow needs:');
@@ -5412,7 +5434,13 @@ async function workflowCommand(positionals, options) {
       console.log(`Workflow copy preview: ${sourceId} → ${targetId}.`);
       console.log('  The complete workflow record is copied; phase, template, artifact, agent, and authority contracts remain shared.');
       if (plan.changedPaths?.length) console.log(`  Changed paths: ${plan.changedPaths.join(', ')}`);
-      console.log(`  Confirm plan: ${plan.planSha256}`);
+      // Confirmed by the plan's short code, never its digest (confirm-code.mjs).
+      const resolveAll = options['resolve-all'];
+      printCommandRoutes(renderPlatformCommand(['singularity-flow', 'workflow', subcommand, sourceId, targetId, '--label', label,
+        ...(subcommand === 'copy' && optionBoolean(options, 'independent') ? ['--independent'] : []),
+        ...optionStrings(options, 'resolve').flatMap((value) => ['--resolve', value]),
+        ...(resolveAll === true ? ['--resolve-all'] : resolveAll ? ['--resolve-all', String(resolveAll)] : []),
+        '--confirm', plan.planSha256]), { label: 'Copy it' });
       return;
     }
     const expectedPlanSha256 = optionString(options, 'confirm');
@@ -6406,6 +6434,34 @@ async function confirmInitiativeExact(prompt, expected, options = null) {
   finally { io.close(); }
 }
 
+/**
+ * The Jira write plan an apply binds. `--plan current` is a person's route: in their own terminal the stored plan is
+ * shown again and they type the Epic ID, and the apply binds the plan SHA-256 this same process read; a person never
+ * copies the plan's digest. Any other value is the exact SHA-256 an agent passes from --json, confirmed as before.
+ */
+async function reviewedJiraPlan(root, initiativeId, supplied, prompt, options) {
+  if (supplied !== 'current') {
+    if (!(await confirmInitiativeExact(prompt(supplied), initiativeId, options))) throw new SingularityFlowError('Jira apply cancelled.');
+    return supplied;
+  }
+  if (!input.isTTY || !output.isTTY) {
+    throw new SingularityFlowError(`--plan current shows the reviewed Jira write plan again and asks you to confirm it, so it runs only in your own terminal. Nothing was applied. Run it there: singularity-flow epic jira apply --epic ${initiativeId} --plan current`,
+      { code: 'JIRA_PLAN_CURRENT_NEEDS_TERMINAL' });
+  }
+  const { portfolio } = await loadInitiativeAggregate(root, initiativeId);
+  const plan = await (await import('./jira-initiative.mjs')).readJiraWritePlan(root, portfolio, initiativeId);
+  console.log(`The reviewed Jira write plan for ${initiativeId}: ${plan.operations.length} operation(s).`);
+  console.log(table(plan.operations.map((operation) => ({ action: operation.action, target: operation.subject?.jiraKey ?? operation.subject?.id ?? '' })),
+    [{ key: 'action', label: 'ACTION' }, { key: 'target', label: 'TARGET' }]));
+  // The plan this process just showed is the one bound, so the person's typed Epic ID is the confirmation; --confirm never stands in for it.
+  if (!(await confirmExact(prompt(null), initiativeId))) throw new SingularityFlowError('Jira apply cancelled. Nothing was applied.');
+  return plan.sha256;
+}
+
+function jiraPlanPersonRoute(initiativeId) {
+  return `singularity-flow epic jira apply --epic ${initiativeId} --plan current`;
+}
+
 function initiativeFlowText(progress) {
   // A skipped phase is not an unknown one. It reads as a dash rather than a tick precisely because
   // it was never approved — an Initiative that entered the lifecycle late must not look like one
@@ -6656,9 +6712,8 @@ async function capabilityCommand(positionals, options) {
       console.warn(`    ${conflict.remediation}`);
     }
     for (const match of result.pendingMatches ?? []) {
-      const commit = match.proposalCommit ? `@${match.proposalCommit.slice(0, 12)}` : '';
       const capabilities = match.capabilities?.length ? ` (${match.capabilities.join(', ')})` : '';
-      console.log(`  awaiting review ${match.proposalBranch ?? '<proposal>'}${commit} on ${match.lead}: ${match.repositoryId}${capabilities}`);
+      console.log(`  awaiting review ${match.proposalBranch ?? '<proposal>'} on ${match.lead}: ${match.repositoryId}${capabilities}`);
     }
     if (result.proposalCoverage !== 'complete') {
       const inspected = result.proposalInspection?.inspected ?? 0;
@@ -6703,13 +6758,16 @@ async function capabilityCommand(positionals, options) {
           });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       if (!confirmation) {
-        console.log(`Stale capability authority-link retirement plan ${result.plan.planId}`);
-        console.log(`  authority checked: ${result.plan.approvedAuthority.remote}@${result.plan.approvedAuthority.commit.slice(0, 12)}`);
-        console.log(`  state CAS: ${result.plan.observedLink.stateBranch}@${result.plan.observedLink.stateCommit.slice(0, 12)}`);
+        // Named by remote and branch; the plan, its commits and the state check stay in --json, and a person
+        // confirms by the plan's short code (confirm-code.mjs).
+        console.log('Stale capability authority-link retirement plan');
+        console.log(`  authority checked: the approved configuration on ${result.plan.approvedAuthority.remote}`);
+        console.log(`  state: the link on ${result.plan.observedLink.stateBranch} as it is now`);
         console.log(`  change: delete only ${result.plan.writes[0].path}; preserve every other state file and ref`);
-        return console.log(`Apply with --confirm-plan ${result.plan.planId}`);
+        return printCommandRoutes(`singularity-flow capability reconcile ${repositoryUrl} --remove-stale --lead ${lead} --state-branch ${stateBranch} --confirm-plan ${result.plan.planId}`,
+          { label: 'Apply this plan' });
       }
-      console.log(`Retired the stale capability authority link at ${result.publication.commit.slice(0, 12)}.`);
+      console.log(`Retired the stale capability authority link on ${stateBranch}.`);
       console.log(`  preserved: ${result.publication.preserved.join(', ')}`);
       return result;
     }
@@ -6726,11 +6784,12 @@ async function capabilityCommand(positionals, options) {
       : await previewCapabilityReconciliation(repositoryUrl, canonicalLead);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!confirmation) {
-      console.log(`Capability authority reconciliation plan ${result.plan.planId}`);
-      console.log(`  canonical: ${result.plan.canonicalAuthority.remote}@${result.plan.canonicalAuthority.commit.slice(0, 12)}`);
+      console.log('Capability authority reconciliation plan');
+      console.log(`  canonical: the approved configuration on ${result.plan.canonicalAuthority.remote}`);
       console.log(`  observed authorities: ${result.plan.observedAuthorities.length}`);
       console.log('  changes: publish one routing link; no capability map or application branch is changed');
-      return console.log(`Apply with --confirm-plan ${result.plan.planId}`);
+      return printCommandRoutes(`singularity-flow capability reconcile ${repositoryUrl} --canonical-lead ${canonicalLead} --confirm-plan ${result.plan.planId}`,
+        { label: 'Apply this plan' });
     }
     console.log(`Capability authority routing reconciled to ${result.plan.canonicalAuthority.remote}.`);
     if (result.unresolvedIndependentAuthorities) {
@@ -6837,8 +6896,7 @@ async function capabilityCommand(positionals, options) {
     if (mapped.commit) {
       const commands = capabilityProposalCommands(leadUrl, mapped.branch, mapped.commit);
       console.log(`  review branch: ${mapped.branch}`);
-      console.log(`  base: ${mapped.baseBranch}@${mapped.baseCommit.slice(0, 8)}`);
-      console.log(`  commit: ${mapped.commit.slice(0, 8)}`);
+      console.log(`  base: ${mapped.baseBranch}`);
       console.log(`  approved ${mapped.baseBranch} was not changed.`);
       console.log('  the application default branch is not part of this configuration change.');
       console.log(`  review: ${commands.review}`);
@@ -6879,8 +6937,7 @@ async function capabilityCommand(positionals, options) {
     if (edited.commit) {
       const commands = capabilityProposalCommands(leadUrl, edited.branch, edited.commit);
       console.log(`  review branch: ${edited.branch}`);
-      console.log(`  base: ${edited.baseBranch}@${edited.baseCommit.slice(0, 8)}`);
-      console.log(`  commit: ${edited.commit.slice(0, 8)}`);
+      console.log(`  base: ${edited.baseBranch}`);
       console.log(`  approved ${edited.baseBranch} was not changed.`);
       console.log('  the application default branch is not part of this configuration change.');
       console.log(`  review: ${commands.review}`);
@@ -6897,7 +6954,7 @@ async function capabilityCommand(positionals, options) {
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...state }, null, 2));
     if (state.published) {
-      return console.log(`Published the reviewed ${state.baseBranch} capability map to ${state.branch} at ${state.commit.slice(0, 8)}.`);
+      return console.log(`Published the reviewed ${state.baseBranch} capability map to ${state.branch}.`);
     }
     return console.log(state.branch
       ? `The ${state.branch} capability projection is already current.`
@@ -6950,7 +7007,7 @@ async function capabilityCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     for (const item of result.checks) {
       console.log(`${style.mark(item.status === 'info' ? 'pass' : item.status)} ${item.id}: ${item.summary}`);
-      if (item.branch) console.log(`  branch: ${item.branch}${item.commit ? `@${item.commit}` : ''}`);
+      if (item.branch) console.log(`  branch: ${item.branch}`);
       if (item.remediation) console.log(`  remediation: ${item.remediation}`);
       for (const alternative of item.details?.alternatives ?? []) console.log(`  option: ${alternative}`);
     }
@@ -6975,7 +7032,7 @@ async function capabilityCommand(positionals, options) {
     });
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`${result.cancelled ? 'Cancelled' : 'Discarded stale'} capability proposal ${result.branch}@${result.proposalCommit}.`);
+    console.log(`${result.cancelled ? 'Cancelled' : 'Discarded stale'} capability proposal ${result.branch}.`);
     console.log(`  reason: ${result.reason}`);
     console.log(`  preserved: ${result.preserved.join(', ')}`);
     printCommandRoutes(result.nextAction.command, {
@@ -6995,8 +7052,8 @@ async function capabilityCommand(positionals, options) {
     if (result.status !== 'preview') await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (result.status === 'preview') {
-      console.log(`Rebase preview for ${result.plan.branch}@${result.plan.sourceCommit}.`);
-      console.log(`  current authority: ${result.plan.targetBranch}@${result.plan.targetCommit}`);
+      console.log(`Rebase preview for ${result.plan.branch}.`);
+      console.log(`  current authority: ${result.plan.targetBranch} as it is now`);
       console.log(`  proposed review branch: ${result.plan.reviewBranch}`);
       console.log(`  added capability: ${result.plan.capabilityId}`);
       console.log(`  added repositories: ${result.plan.addedRepositoryIds.join(', ') || 'none'}`);
@@ -7006,8 +7063,8 @@ async function capabilityCommand(positionals, options) {
       });
       return result;
     }
-    console.log(`Rebased capability proposal ${result.branch}@${result.commit}.`);
-    console.log(`  source proposal preserved: ${result.supersedes.branch}@${result.supersedes.commit}`);
+    console.log(`Rebased capability proposal ${result.branch}.`);
+    console.log(`  source proposal preserved: ${result.supersedes.branch}`);
     console.log('  approved configuration and application branches were not changed.');
     printCommandRoutes(result.nextAction.command, {
       skill: result.nextAction.skill, indent: '  ', label: 'Review'
@@ -7037,14 +7094,13 @@ async function capabilityCommand(positionals, options) {
     }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.repaired) {
-      console.log(`Capability proposal ${result.branch}@${result.proposalCommit} is already compatible.`);
+      console.log(`Capability proposal ${result.branch} is already compatible.`);
       return printCommandRoutes(result.nextAction.command, {
         skill: result.nextAction.skill ?? null, indent: '  ', label: 'Activate'
       });
     }
     console.log(`Prepared packaged compatibility repair for ${result.branch}.`);
-    console.log(`  previous commit: ${result.previousProposalCommit}`);
-    console.log(`  review commit: ${result.proposalCommit}`);
+    console.log('  the repair is a new commit on that branch, for review; the earlier one is kept in its history');
     for (const file of result.changedFiles) console.log(`  repaired: ${file}`);
     console.log('  approved configuration and application branches were not changed.');
     printCommandRoutes(result.nextAction.command, {
@@ -7071,7 +7127,7 @@ async function capabilityCommand(positionals, options) {
     }
     if (!proposals.length) return console.log('No pending capability proposals.');
     for (const proposal of proposals) {
-      console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
+      console.log(`${proposal.branch}  `
         + `${proposal.merged ? 'merged' : proposal.valid && proposal.mergeable === false
           ? 'conflicting — discard, then map again' : proposal.valid && proposal.mergeable === true
             ? 'ready for review' : proposal.valid ? 'mergeability not verified — review before activation'
@@ -7097,14 +7153,14 @@ async function capabilityCommand(positionals, options) {
     const proposal = await inspectCapabilityProposal(leadUrl, branch);
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(proposal, null, 2));
-    console.log(`${proposal.branch} (${proposal.proposalCommit})`);
-    console.log(`  target: ${proposal.targetBranch}@${proposal.targetCommit}`);
+    console.log(`${proposal.branch}`);
+    console.log(`  target: ${proposal.targetBranch}`);
     console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid && proposal.mergeable === false
       ? 'conflicting — discard, then map again' : proposal.valid && proposal.mergeable === true
         ? 'ready for review' : proposal.valid ? 'mergeability not verified — review before activation'
           : 'invalid'}`);
     if (proposal.valid && proposal.mergeable === false) {
-      console.log(`  authority: ${proposal.targetCommit}`);
+      console.log(`  authority: ${proposal.targetBranch} as it is now`);
       for (const conflict of proposal.mergeability?.conflicts ?? []) {
         console.log(`  changed differently: ${conflict.path} ${conflict.pointers.join(', ')}`);
       }
@@ -7355,7 +7411,7 @@ async function knowledgeCommand(positionals, options) {
     }
     return console.log(
       `Imported ${result.created} ${result.created === 1 ? 'entry' : 'entries'} from ${result.manifest.path}; `
-      + `${result.skipped} already existed.${commitSha ? ` Commit ${commitSha.slice(0, 8)}.` : ''}`
+      + `${result.skipped} already existed.${commitSha ? ' Committed.' : ''}`
     );
   }
 
@@ -7383,12 +7439,12 @@ async function knowledgeCommand(positionals, options) {
   }
 
   if (subcommand === 'resolve') {
-    const result = await resolveKnowledge(root, requirePositional(positionals, 2, 'knowledge entry hash'), {
+    const result = await resolveKnowledge(root, requirePositional(positionals, 2, 'knowledge entry ID (K-…)'), {
       resolution: optionString(options, 'resolution') ?? positionals.slice(3).join(' ')
     });
     commitKnowledge(root, `[knowledge][resolve] ${result.record.supersedes.slice(0, 12)}`);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    return console.log(`Resolved ${result.record.supersedes.slice(0, 12)} as ${result.record.id}: ${result.record.text}`);
+    return console.log(`Resolved K-${result.record.supersedes.slice(0, 12)} as ${result.record.id}: ${result.record.text}`);
   }
 
   if (subcommand === 'harvest') {
@@ -7410,14 +7466,15 @@ async function knowledgeCommand(positionals, options) {
   }
 
   if (subcommand === 'show') {
-    const wanted = requirePositional(positionals, 2, 'knowledge entry hash');
+    const wanted = requirePositional(positionals, 2, 'knowledge entry ID (K-…)');
     const entries = await readKnowledge(root);
-    const found = entries.find((entry) => entry.sha256 === wanted || entry.sha256.startsWith(wanted));
+    const found = entries.find((entry) => knowledgeEntryNamed(entry, wanted));
     if (!found) throw new SingularityFlowError(`No knowledge entry matches '${wanted}'.`);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(found, null, 2));
-    console.log(`${found.record.type} ${found.sha256}`);
+    // By its record ID and its source's revision; the digests stay in --json.
+    console.log(`${found.record.type} ${found.record.id}`);
     console.log(`\n${found.record.text}`);
-    for (const source of found.record.provenance) console.log(`\nFrom ${source.workId}:${source.artifact}@${source.sha256.slice(0, 12)} revision ${source.approvedRevision}`);
+    for (const source of found.record.provenance) console.log(`\nFrom ${source.workId}:${source.artifact} revision ${source.approvedRevision}`);
     return console.log(`Recorded ${found.record.createdAt} by ${found.record.createdBy ?? 'unknown'}`);
   }
 
@@ -7815,7 +7872,7 @@ async function initiativeCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`${initiative.phases[phaseId]?.label ?? phaseId} draft: ${result.status}.`);
       for (const output of result.outputs) {
-        console.log(`- ${output.id}: ${output.path}${output.sha256 ? ` · ${output.sha256}` : ' · missing'}`);
+        console.log(`- ${output.id}: ${output.path}${output.sha256 ? '' : ' · missing'}`);
       }
       for (const finding of result.findings) console.log(`  - ${finding.message}`);
       if (result.status === 'correction-required') {
@@ -7899,7 +7956,7 @@ async function initiativeCommand(positionals, options) {
       const { context, ...result } = prepared;
       await issueInitiativeDrafts(root, result.outputs.filter((document) => !document.generated && !document.awaitingUpload));
       console.log(`Prepared ${result.outputs.length} ${phaseId} documents. Committed${publication.pushed ? ' and pushed' : ''}.`);
-      console.log(`Copilot prompt: ${context.record.promptPath} (${context.record.renderedSha256.slice(0, 12)})`);
+      console.log(`Copilot prompt: ${context.record.promptPath}`);
       context.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
       result.outputs.forEach((document) => {
         const detail = document.awaitingUpload
@@ -8012,7 +8069,7 @@ async function initiativeCommand(positionals, options) {
         { appendOnly: true }
       );
       const appended = value.appended;
-      console.log(`Evidence ${appended.sha256.slice(0, 12)} committed${publication.pushed ? ' and pushed' : ''}.`);
+      console.log(`Evidence ${evidenceRecordId(appended)} for ${checkId} (${phaseId}) committed${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
     if (action === 'list') {
@@ -8020,8 +8077,9 @@ async function initiativeCommand(positionals, options) {
       const checkId = positionals[3];
       const selected = checkId ? records.filter((entry) => entry.record.check === checkId) : records;
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(selected, null, 2));
-      else console.log(table(selected.map((entry) => ({ hash: entry.sha256.slice(0, 12), phase: entry.record.phase, check: entry.record.check, assurance: entry.record.assurance, observed: entry.record.observedAt })), [
-        { key: 'hash', label: 'HASH' }, { key: 'phase', label: 'PHASE' }, { key: 'check', label: 'CHECK' }, { key: 'assurance', label: 'ASSURANCE' }, { key: 'observed', label: 'OBSERVED' }
+      // Each record by its EV- ID, the name --supersedes takes; the digest stays in --json.
+      else console.log(table(selected.map((entry) => ({ id: evidenceRecordId(entry), phase: entry.record.phase, check: entry.record.check, assurance: entry.record.assurance, observed: entry.record.observedAt })), [
+        { key: 'id', label: 'EVIDENCE' }, { key: 'phase', label: 'PHASE' }, { key: 'check', label: 'CHECK' }, { key: 'assurance', label: 'ASSURANCE' }, { key: 'observed', label: 'OBSERVED' }
       ]));
       return;
     }
@@ -8150,7 +8208,7 @@ async function initiativeCommand(positionals, options) {
     });
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'adopt', epicKey } }, `[${initiativeId}][initiative:jira-adopt] ${epicKey}`);
     console.log(`Adopted ${epicKey} as ${result.breakdown.epics.length} Epic and ${result.breakdown.stories.length} stories.`);
-    console.log(`Source snapshot: ${result.sourceSha256.slice(0, 12)} · Committed${publication.pushed ? ' and pushed' : ''}.`);
+    console.log(`Source snapshot recorded · Committed${publication.pushed ? ' and pushed' : ''}.`);
     return;
   }
   if (subcommand === 'jira-plan') {
@@ -8158,7 +8216,7 @@ async function initiativeCommand(positionals, options) {
     const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][initiative:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
     else {
-      console.log(`Jira write plan ${result.plan.sha256} contains ${result.plan.operations.length} operations.`);
+      console.log(`The Jira write plan contains ${result.plan.operations.length} operations.`);
       console.log(table(result.plan.operations.map((operation) => ({
         id: operation.id,
         action: operation.action,
@@ -8173,9 +8231,10 @@ async function initiativeCommand(positionals, options) {
     return;
   }
   if (subcommand === 'jira-apply') {
-    const planSha256 = optionString(options, 'plan');
-    if (!planSha256) throw new SingularityFlowError('jira-apply requires --plan with the exact reviewed write-plan SHA-256.');
-    if (!(await confirmInitiativeExact(`Apply reviewed Jira plan ${planSha256} for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Jira apply cancelled.');
+    const supplied = optionString(options, 'plan');
+    if (!supplied) throw new SingularityFlowError('jira-apply requires --plan: current in your own terminal (it shows the reviewed plan and asks you), or the exact write-plan SHA-256 from --json.');
+    const planSha256 = await reviewedJiraPlan(root, initiativeId, supplied,
+      (exact) => `Apply ${exact ? 'this reviewed Jira write plan' : 'the reviewed Jira write plan above'} for ${initiativeId}?`, options);
     const result = await applyJiraWritePlan(root, initiativeId, {
       planSha256,
       confirmation: initiativeId,
@@ -8227,7 +8286,7 @@ async function initiativeCommand(positionals, options) {
       });
       const fresh = await loadInitiativeAggregate(root, initiativeId);
       const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, payload: { contractId: result.contract.id, contractVersion: result.contract.version } }, `[${initiativeId}][initiative:contract] ${result.contract.id}@${result.contract.version}`);
-      console.log(`Registered ${result.contract.id}@${result.contract.version} (${result.contract.sha256.slice(0, 12)}). Committed${publication.pushed ? ' and pushed' : ''}.`);
+      console.log(`Registered ${result.contract.id}@${result.contract.version}. Committed${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
     const contracts = await interfaceContractStatus(root, initiativeId);
@@ -9232,7 +9291,6 @@ async function workspaceCommand(positionals, options) {
     else if (!result.results.length) console.log('No registered workspace repositories require configuration refresh.');
     else {
       console.log(`${result.dryRun ? 'Configuration refresh preview' : 'Configuration refresh'}: ${result.status}`);
-      if (result.planId) console.log(`  Plan: ${result.planId}`);
       for (const item of result.results) {
         const configuration = item.configurationChanged ? 'configuration updated' : 'configuration unchanged';
         const state = item.stateChanged ? 'state projection updated' : 'state projection unchanged';
@@ -9245,10 +9303,19 @@ async function workspaceCommand(positionals, options) {
         if (item.error) console.log(`    ${item.error}`);
       }
       for (const warning of result.warnings ?? []) console.log(`  Warning: ${warning}`);
+      // A preview's plan is confirmed by its short code, never its plan ID (confirm-code.mjs).
+      if (result.dryRun && result.planId) {
+        const workspace = positionals[2] ?? optionString(options, 'workspace');
+        printCommandRoutes(renderPlatformCommand(['singularity-flow', 'workspace', 'refresh-configuration', ...(workspace ? [workspace] : []),
+          ...optionStrings(options, 'repository').flatMap((value) => ['--repository', value]),
+          ...(optionBoolean(options, 'accept-bundled-conflicts') ? ['--accept-bundled-conflicts'] : []),
+          ...optionStrings(options, 'resolve').flatMap((value) => ['--resolve', value]),
+          ...(optionBoolean(options, 'review-only') ? ['--review-only'] : []), '--confirm-plan', result.planId]), { label: 'Apply this plan' });
+      }
       if (!result.dryRun) {
         const stalePlan = result.results.some((item) => item.status === 'stale-plan');
         if (stalePlan) {
-          console.log('Do not repeat the apply command with the stale plan ID. Remove --confirm-plan, add --dry-run, review the refreshed preview, then apply its new plan ID.');
+          console.log('Do not repeat that confirmation: the plan changed. Remove --confirm-plan, add --dry-run, review the refreshed preview, then confirm it by the code it gives.');
         } else if (result.status === 'partial') {
           console.log('Re-run the same command to retry only incomplete publications; current repositories become no-ops.');
         } else if (result.status === 'blocked') {
@@ -9281,7 +9348,6 @@ async function workspaceCommand(positionals, options) {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else {
       console.log(`Workspace reinitialization${result.dryRun ? ' preview' : ''}: ${result.status}`);
-      if (result.planId) console.log(`  Plan: ${result.planId}`);
       for (const item of result.results) {
         const configuration = item.configurationChanged ? 'configuration update' : 'configuration current';
         const state = item.stateChanged ? 'state projection update' : 'state projection current';
@@ -9730,7 +9796,7 @@ async function workspaceCommand(positionals, options) {
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       if (optionBoolean(options, 'dry-run')) {
         console.log(`\nPrepared advisory impact analysis ${result.id}; nothing was written and Copilot was not called.`);
-        console.log(`Repositories: ${result.repositories.map((repository) => `${repository.id}@${repository.commit.slice(0, 12)}`).join(', ')}`);
+        console.log(`Repositories: ${result.repositories.map((repository) => repository.id).join(', ')}`);
         return;
       }
       console.log(`\nWorkspace impact analysis ${result.id}: ${result.status} · ${result.freshness}`);
@@ -9791,7 +9857,9 @@ async function workspaceCommand(positionals, options) {
       if (preview.preservedLeadRepository) {
         console.log(`  Preserved lead repository: ${preview.preservedLeadRepository}`);
       }
-      console.log(`Apply with --confirm-plan ${preview.planId}`);
+      // Confirmed by the plan's short code, never its digest (confirm-code.mjs).
+      printCommandRoutes(renderPlatformCommand(['singularity-flow', 'workspace', subcommand, workspacePath, capabilityId,
+        ...(dropLocal ? ['--drop-local'] : []), '--confirm-plan', preview.planId]), { label: 'Apply this plan' });
       return preview;
     }
     const result = await changeWorkspaceCapability(workspacePath, capabilityId, {
@@ -10064,7 +10132,7 @@ async function workspaceCommand(positionals, options) {
       if (!files.length) throw new SingularityFlowError('workspace documents import requires at least one file.');
       const result = await stageWorkspaceDocuments(workspacePath, files);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      result.added.forEach((item) => console.log(`${item.name} · ${item.bytes} bytes · ${item.sha256.slice(0, 12)} · staged, not in a Story yet`));
+      result.added.forEach((item) => console.log(`${item.name} · ${item.bytes} bytes · staged, not in a Story yet`));
       return;
     }
     const documents = await listWorkspaceDocuments(workspacePath);
@@ -10256,7 +10324,7 @@ async function epicCommand(positionals, options) {
       );
       const result = { ...detached, publication };
       if (json) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Decision: ${detached.decision.sha256}`);
+      console.log('Decision recorded.');
       console.log(`Commit: ${publication.pushed ? 'pushed' : 'retained locally'}`);
       if (!publication.pushed) {
         printCommandRoutes(`singularity-flow initiative sync ${initiativeId}`, { label: 'Publish the retained commit' });
@@ -10301,7 +10369,7 @@ async function epicCommand(positionals, options) {
       const output = { record: result.record, recordSha256: result.recordSha256, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
       console.log(`Registered ${result.record.sourceId}: ${result.record.name}`);
-      console.log(`Provider: ${result.record.provider} · ${result.record.bytes} bytes · ${result.record.sha256}`);
+      console.log(`Provider: ${result.record.provider} · ${result.record.bytes} bytes`);
       console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
       return;
     }
@@ -10374,7 +10442,7 @@ async function epicCommand(positionals, options) {
       if (!phase) throw new SingularityFlowError(`Epic does not contain ${phaseId}.`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(phase, null, 2));
       console.log(`${loaded.initiative.initiative.id} · ${phase.label} · ${phase.status} · generation ${phase.generation}`);
-      Object.values(phase.outputs).forEach((output) => console.log(`- ${output.label}: ${output.status}${output.sha256 ? ` @${output.sha256.slice(0, 12)}` : ''}`));
+      Object.values(phase.outputs).forEach((output) => console.log(`- ${output.label}: ${output.status}${output.generation ? ` · generation ${output.generation}` : ''}`));
       return;
     }
     if (loaded.initiative.currentPhase !== phaseId) {
@@ -10656,8 +10724,8 @@ async function epicCommand(positionals, options) {
       materialized.failures.forEach((failure) => console.warn(`- ${failure.storyId}: ${failure.error}`));
       return;
     }
-    const planSha256 = optionString(options, 'plan');
-    if (!planSha256) {
+    const suppliedPlan = optionString(options, 'plan');
+    if (!suppliedPlan) {
       const result = await createJiraWritePlan(root, initiativeId, {
         artifactSelections: selectedJiraArtifacts(options)
       });
@@ -10665,22 +10733,25 @@ async function epicCommand(positionals, options) {
       // dry run can return the real plan and leave the repository untouched.
       if (optionBoolean(options, 'dry-run')) {
         if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication: null }, null, 2));
-        console.log(`Jira write plan ${result.plan.sha256} previewed. Nothing was committed or pushed.`);
-        printCommandRoutes(`singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}`, { label: 'Next command' });
+        console.log(`A Jira write plan with ${result.plan.operations.length} operation(s) was previewed. Nothing was committed or pushed.`);
+        console.log(`To create and publish it for review: singularity-flow epic jira apply --epic ${initiativeId}`);
         return;
       }
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-plan] ${result.plan.sha256.slice(0, 12)}`);
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
-      console.log(`Created and published Jira write plan ${result.plan.sha256}.`);
-      printCommandRoutes(`singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}`, { label: 'Review it, then run' });
+      // An agent reads the exact apply from --json; a person applies in their own terminal, which shows the plan again.
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication,
+        next: { command: `singularity-flow epic jira apply --epic ${initiativeId} --plan ${result.plan.sha256} --confirm ${initiativeId}` } }, null, 2));
+      console.log(`Created and published a Jira write plan with ${result.plan.operations.length} operation(s).`);
+      printCommandRoutes(jiraPlanPersonRoute(initiativeId), { label: 'Review it, then run this in your own terminal: it shows the plan again and asks you to type the Epic ID' });
       return;
     }
     if (optionBoolean(options, 'dry-run')) {
       throw new SingularityFlowError(
-        `Applying reviewed plan ${planSha256} writes to Jira and cannot be previewed. `
-        + `After review, run exactly: singularity-flow epic jira apply --epic ${initiativeId} --plan ${planSha256} --confirm ${initiativeId}`);
+        `Applying the reviewed plan writes to Jira and cannot be previewed. `
+        + `After review, run it in your own terminal, which shows the plan again: ${jiraPlanPersonRoute(initiativeId)}`);
     }
-    if (!(await confirmInitiativeExact(`Create the reviewed Jira Stories and canonical Git branches for ${initiativeId}?`, initiativeId, options))) throw new SingularityFlowError('Epic Story creation cancelled.');
+    const planSha256 = await reviewedJiraPlan(root, initiativeId, suppliedPlan,
+      () => `Create the reviewed Jira Stories and canonical Git branches for ${initiativeId}?`, options);
     const applied = await applyJiraWritePlan(root, initiativeId, {
       planSha256,
       confirmation: initiativeId,
@@ -10789,7 +10860,7 @@ async function epicCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
     console.log(`Epic ${initiativeId} marked complete.`);
     console.log(`Spec-to-code report: ${result.reportPath}`);
-    console.log(`Decision: ${result.record.sha256}`);
+    console.log('Decision recorded.');
     console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
     return;
   }
@@ -10835,12 +10906,19 @@ async function epicCommand(positionals, options) {
     if (['approve', 'reject'].includes(requested)) {
       const decision = requested;
       const story = requirePositional(positionals, 3, 'Story key');
-      const packetSha256 = optionString(options, 'packet');
-      if (!packetSha256) throw new SingularityFlowError(`Epic Story ${decision} requires --packet with the exact full review-packet SHA-256.`);
+      // A person decides in their own terminal on the packet this same process opens and names, never by copying its
+      // digest; --packet with the exact SHA-256 stays the route a script or agent passes from --json.
+      const ownTerminal = !optionString(options, 'packet');
+      if (ownTerminal && (!input.isTTY || !output.isTTY)) {
+        throw new SingularityFlowError(`Epic Story ${decision} needs the packet you reviewed: run it in your own terminal (singularity-flow epic review ${decision} ${story} --epic ${initiativeId}), `
+          + 'which opens the latest finalized packet and asks you to confirm it, or pass --packet with its exact SHA-256 from --json.', { code: 'EPIC_REVIEW_PACKET_REQUIRED' });
+      }
       if (decision === 'reject' && !optionString(options, 'reason')) {
         throw new SingularityFlowError('Rejecting an Epic Story requires --reason.');
       }
-      const review = await epicReviewStory(root, initiativeId, story, { packetSha256 });
+      const review = await epicReviewStory(root, initiativeId, story, ownTerminal ? {} : { packetSha256: optionString(options, 'packet') });
+      const packetSha256 = review.packet.packetSha256;
+      if (ownTerminal) console.log(`${story}: the latest finalized review packet, from ${review.submittedBranch}.`);
       const definition = epicReviewChoiceDefinition(review, decision);
       const receiptToken = optionString(options, 'selection-receipt');
       const receipt = receiptToken
@@ -10854,9 +10932,9 @@ async function epicCommand(positionals, options) {
           ?? await chooseFromOptions('Return to phase', targetChoices))
         : null;
       if (!receipt && !(await confirmInitiativeExact(
-        `${decision === 'approve' ? 'Approve' : 'Reject'} exact Story packet ${packetSha256}?`,
+        `${decision === 'approve' ? 'Approve' : 'Reject'} ${story}'s ${ownTerminal ? 'latest finalized' : 'named'} review packet?`,
         definition.confirmation,
-        options
+        ownTerminal ? null : options
       ))) {
         throw new SingularityFlowError(`Epic Story ${decision} cancelled.`);
       }
@@ -10871,9 +10949,8 @@ async function epicCommand(positionals, options) {
       });
       if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`${decision === 'approve' ? 'Approved' : 'Rejected'} ${story} packet ${packetSha256}.`);
-      console.log(`Story commit: ${result.publication.sha.slice(0, 8)}${result.publication.pushed ? ' pushed' : ' local'}`);
-      console.log(`Epic commit: ${result.initiativePublication.sha.slice(0, 8)}${result.initiativePublication.pushed ? ' pushed' : ' local'}`);
+      console.log(`${decision === 'approve' ? 'Approved' : 'Rejected'} ${story}'s review packet.`);
+      console.log(`Story record: committed${result.publication.pushed ? ' and pushed' : ' locally'}; Epic record: committed${result.initiativePublication.pushed ? ' and pushed' : ' locally'}.`);
       if (result.selfApproval) console.warn('Warning: this is a self-approval and is not independent review.');
       return;
     }
@@ -10894,9 +10971,8 @@ async function epicCommand(positionals, options) {
       packetSha256: optionString(options, 'packet')
     });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`${result.story.workId ?? result.story.id} review packet ${result.packet.packetSha256}`);
+    console.log(`${result.story.workId ?? result.story.id}: the review packet submitted on ${result.submittedBranch}`);
     console.log(`Lineage: ${initiativeId} → ${result.story.planId ?? result.story.id} → ${result.story.jiraKey ?? 'not created'} → ${result.submittedBranch}`);
-    console.log(`Exact source commit: ${result.packet.sourceCommit}`);
     process.stdout.write(`\n${result.review.markdown}`);
     return;
   }
@@ -10981,9 +11057,9 @@ async function epicCommand(positionals, options) {
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
     else {
-      console.log(`Recorded checks for ${story} packet ${result.packet.packetSha256.slice(0, 12)}.`);
-      console.log(`Ready: ${result.checks.evidence.ready ? 'yes' : 'no'} · evidence ${result.checks.evidence.evidenceSha256.slice(0, 12)}`);
-      console.log(`Story commit ${result.checks.publication.sha.slice(0, 8)}; Epic commit ${result.publication.sha.slice(0, 8)}.`);
+      console.log(`Recorded checks for ${story}'s review packet.`);
+      console.log(`Ready: ${result.checks.evidence.ready ? 'yes' : 'no'}`);
+      console.log(`Story record: committed${result.checks.publication.pushed ? ' and pushed' : ''}; Epic record: committed${result.publication.pushed ? ' and pushed' : ''}.`);
     }
     if (!result.checks.evidence.ready) process.exitCode = 2;
     return;
@@ -10998,7 +11074,7 @@ async function epicCommand(positionals, options) {
       const output = { record: result.record, publication };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
       console.log(`Jira drift: ${result.record.observations.filter((entry) => entry.drifted).length}/${result.record.observations.length} issue(s).`);
-      console.log(`Observation ${result.record.observationSha256}; commit ${publication.sha.slice(0, 8)}.`);
+      console.log(`Observation recorded; committed${publication.pushed ? ' and pushed' : ''}. To adopt it: singularity-flow epic drift adopt --epic ${initiativeId}`);
       return;
     }
     if (action === 'adopt') {
@@ -11008,14 +11084,15 @@ async function epicCommand(positionals, options) {
       });
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'adopt-drift', observationSha256: result.observation.observationSha256 } }, `[${initiativeId}][epic:jira-drift] adopt ${result.observation.observationSha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ observation: result.observation, publication }, null, 2));
-      console.log(`Adopted Jira observations into a new Git generation. Commit ${publication.sha.slice(0, 8)}.`);
+      console.log(`Adopted Jira observations into a new Git generation; committed${publication.pushed ? ' and pushed' : ''}.`);
       return;
     }
     if (action === 'restore-plan') {
       const result = await createJiraWritePlan(root, initiativeId);
       const publication = await commitInitiativeChange(root, result.portfolio, result.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { system: 'jira', operation: 'restore-plan', planSha256: result.plan.sha256 } }, `[${initiativeId}][epic:jira-restore] ${result.plan.sha256.slice(0, 12)}`);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ plan: result.plan, publication }, null, 2));
-      console.log(`Created reviewed Jira restore plan ${result.plan.sha256}. No Jira fields were changed.`);
+      console.log(`Created a reviewed Jira restore plan with ${result.plan.operations.length} operation(s). No Jira fields were changed.`);
+      printCommandRoutes(jiraPlanPersonRoute(initiativeId), { label: 'Review it, then apply it in your own terminal: it shows the plan again and asks you to type the Epic ID' });
       return;
     }
     throw new SingularityFlowError(`Unknown Epic drift action '${action}'.`);
@@ -11096,7 +11173,7 @@ async function constitutionCommand(positionals, options) {
         effects: noEffects(), restState: 'informational', data: index
       }), { json: true });
     }
-    console.log(`Constitution — ${constitution.path} (${constitution.fileSha256.slice(0, 12)}), index ${index.indexSha256.slice(0, 12)}`);
+    console.log(`Constitution — ${constitution.path}`);
     for (const article of index.articles) {
       console.log(`  ${article.id} [${article.type}${article.type === 'judged' ? `/${article.level}${article.evidenceRequired ? ', evidence required' : ''}` : ''}]${article.status === 'withdrawn' ? ' (withdrawn)' : ''} ${article.title ?? ''}`);
       if (article.policy) console.log(`      policy: ${article.policy}`);
@@ -11179,8 +11256,8 @@ async function constitutionCommand(positionals, options) {
       data: { present: true, index, findings: constitution.findings }
     }), { json: true });
   }
-  console.log(`Constitution — ${constitution.path} (${constitution.fileSha256.slice(0, 12)})`);
-  console.log(`  mode: ${policy.mode} · articles: ${index.articles.length} · index ${index.indexSha256.slice(0, 12)}`);
+  console.log(`Constitution — ${constitution.path}`);
+  console.log(`  mode: ${policy.mode} · articles: ${index.articles.length}`);
   if (!constitution.findings.length) return console.log('\nNo integrity problems found.');
   console.log('');
   for (const finding of constitution.findings) console.log(`  ${finding.kind}: ${finding.message}`);
@@ -11222,9 +11299,8 @@ export async function finalizeCommand(options) {
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
   console.log(`Story ${workflow.workItem.id} finalized for Product Owner review.`);
   console.log(`Packet: ${result.path}`);
-  console.log(`Packet hash: ${result.packet.packetSha256}`);
-  if (result.impact) console.log(`Impact receipt: ${result.impact.path} · ${result.impact.receipt.integrity.sha256.slice(0, 12)}`);
-  console.log(`Source: ${result.packet.sourceCommit.slice(0, 12)} · tree ${result.packet.sourceTreeSha256.slice(0, 12)}`);
+  if (result.impact) console.log(`Impact receipt: ${result.impact.path}`);
+  console.log(`Source: the Story branch as finalized; the packet binds its exact commit and tree.`);
   console.log(`Commit: ${publication.pushed ? 'pushed' : 'local'}`);
 }
 

@@ -108,6 +108,58 @@ test('agents are told never to show a person a hash, in every skill and in an ag
   assert.match(act.ask.how, /in plain words \(the step, its generation, its files; never this value, a hash or a commit SHA\)/u);
 });
 
+// --- Confirmations and admin previews: what a person types and reads to confirm a reviewed change ------------
+
+test('every confirmation route a person reads is its short code, never the digest, plan ID or commit it binds', async () => {
+  const { safeCommandGuidance, commandRouteLines } = await import('../src/safe-command-guidance.mjs');
+  const digest = `sha256:${'c0ffee12'.repeat(8)}`;
+  const commit = 'b4d5e6f7'.repeat(5);
+  const found = [];
+  for (const [command, skill] of [
+    [`singularity-flow story advance --work-id QF-1 --confirm ${digest}`, '/sf-submit'],
+    ['singularity-flow governance rebuild --confirm-plan grb-0123456789abcdef01234567', null],
+    ['singularity-flow governance restore --plan grb-0123456789abcdef01234567 --confirm grb-0123456789abcdef01234567', null],
+    [`singularity-flow capability reconcile https://example.test/a.git --canonical-lead https://example.test/l.git --confirm-plan capr_${'ab12'.repeat(8)}`, null],
+    [`singularity-flow capability activate capability/map-x --lead https://example.test/l.git --confirm ${commit}`, null],
+    [`singularity-flow capability onboard https://example.test/a.git --confirm-plan ${digest} --json`, '/sf-capability-map'],
+    [`singularity-flow auto resume AFL-1 --confirm ${digest}`, null],
+    [`singularity-flow capability reconcile https://example.test/a.git --remove-stale --lead https://example.test/l.git --state-branch state --confirm-plan capr_${'ab12'.repeat(8)}`, null],
+    [`singularity-flow workspace refresh-configuration /work/space --confirm-plan cfgp-${'ab12'.repeat(6)}`, null],
+    [`singularity-flow workspace attach-capability /work/space payments --confirm-plan ${digest}`, null],
+    [`singularity-flow workflow copy bugfix bugfix-2 --label 'Bug fix two' --confirm ${digest}`, null],
+    [`singularity-flow inputs restore planning --confirm ${digest}`, null],
+    [`singularity-flow capability adopt-managed --lead https://example.test/l.git --confirm ${digest}`, null],
+    [`singularity-flow mcp auth import playwright --profile staff --storage-state /work/state.json --confirm ${digest}`, null],
+    [`singularity-flow call add agents/reviewer --confirm ${digest}`, null]
+  ]) {
+    const guidance = safeCommandGuidance({ command, skill });
+    assert.ok(guidance, command);
+    assert.match(guidance.copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u, command);
+    for (const line of leaks(commandRouteLines(guidance).join('\n'), { strip: ['https://example.test/a.git', 'https://example.test/l.git'] })) found.push(`${command.slice(0, 60)}: ${line}`);
+  }
+  assert.deepEqual(found, []);
+});
+
+test('admin previews on a fresh repository (factory reset, governance, knowledge, initialization) carry no hash', { timeout: 300_000 }, async (t) => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-no-hash-admin-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Ratchet Tester', SINGULARITY_FLOW_NO_MODEL: '1' };
+  const git = (...args) => { const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', env }); assert.equal(result.status, 0, result.stderr); return result.stdout.trim(); };
+  const sflow = (...args) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd: root, encoding: 'utf8', env });
+  git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Ratchet Tester'); git('config', 'user.email', 'ratchet@example.test');
+  await writeFile(path.join(root, 'README.md'), '# Admin fixture\n');
+  git('add', '.'); git('commit', '-qm', 'Start');
+  assert.equal(sflow('init').status, 0);
+  git('add', '.'); git('commit', '-qm', 'Govern the fixture');
+  const found = [];
+  for (const args of [['factory-reset', '--dry-run'], ['governance', 'rebuild', '--dry-run'], ['governance', 'restore', '--dry-run'],
+    ['knowledge'], ['init', '--check'], ['factory-reset', '--confirm', 'RESET WRONG']]) {
+    const result = sflow(...args);
+    for (const line of leaks(`${result.stdout}\n${result.stderr}`, { strip: [root, os.tmpdir()] })) found.push(`sflow ${args.join(' ')}: ${line}`);
+  }
+  assert.deepEqual(found, [], 'a person read a hash');
+});
+
 // --- The person-step guard: what it says when it refuses a person's step ---------------------------------------
 
 const GOLDEN = JSON.parse(readFileSync(new URL('./fixtures/person-step-golden.json', import.meta.url), 'utf8'));

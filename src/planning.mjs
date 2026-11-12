@@ -866,7 +866,8 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
         agent: selectedAgent,
         event: 'planning_artifact_promoted',
         phase: definition.id,
-        detail: `${targetDefinition.id}@${current.sha256.slice(0, 12)}`
+        // By what was promoted and where, never its digest: history details reach a person (promoted[] keeps the digest).
+        detail: `${targetDefinition.id}: ${target.relative}`
       });
     }
 
@@ -939,7 +940,8 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     agent: selectedAgent,
     event: 'planning_artifact_promoted',
     phase: phase.id,
-    detail: `${current.sha256.slice(0, 12)}`
+    // By the artifact and generation, never its digest: history details reach a person (the audit manifest keeps it).
+    detail: `${phase.requiredArtifact.path} for generation ${nextPhaseGeneration(phase)}`
   });
   const publication = await commitAndPublish(
     root,

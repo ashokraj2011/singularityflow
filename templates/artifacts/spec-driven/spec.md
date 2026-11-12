@@ -72,9 +72,13 @@ TODO: Name each actor and the authority each one holds.
 
 <!-- sflow:guidance Who may do each thing, and what a reader without that authority sees instead. -->
 
+TODO: Say who may do each thing, and what someone without that authority sees instead.
+
 ## Boundary conditions
 
 <!-- sflow:guidance Limits, sizes, counts, timeouts, and what happens exactly at and beyond each one. -->
+
+TODO: State each limit, size, count or timeout, and what happens at and beyond it.
 
 ## Requirements
 
@@ -103,6 +107,8 @@ TODO: Name each actor and the authority each one holds.
 
 <!-- sflow:guidance Use governed requirement anchors here too (for example `[{{work.id}}:REQ-003]`); `NFR-001` by itself is only a display label and is not a stable clause identity. -->
 
+TODO: State each non-functional requirement with its number and how it is measured, or write None for this change.
+
 ## Constitution articles
 
 <!-- sflow:guidance Cite the article IDs this specification is bound by `[SPK:REQ-100]`. The kernel validates that each cited ID exists at the pinned revision before publication `[SPK:REQ-101]`. -->
@@ -113,9 +119,13 @@ TODO: Name each actor and the authority each one holds.
 
 <!-- sflow:guidance What this specification takes as true without proving. An assumption that turns out false is a change request, not a defect — which is only true if it was written down. -->
 
+TODO: List what this specification takes as true without proving, or write None.
+
 ## Out of scope
 
 <!-- sflow:guidance Named explicitly, so the boundary is reviewable rather than inferred. -->
+
+TODO: Name what this change does not do.
 
 ## Sources
 

@@ -207,7 +207,10 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     '16b14ed5980306d956ebab2701eaa015d1a4a3adb7046cd2bab93a58152182ac',
     'c6e1ea9cb3d43631d47fedc023295faf39204e7efa40da81db1a51c3d4c0f1d9',
     // Before its guidance was one line per paragraph, marked for publication to remove (2026-11-12).
-    'fbb7f5f29844d24836c6b918e2796940cbc21c24ae0a7aa252d4e1207588e2cb'
+    'fbb7f5f29844d24836c6b918e2796940cbc21c24ae0a7aa252d4e1207588e2cb',
+    // Before Permissions, Boundary conditions, Non-functional requirements, Assumptions and Out of scope had a
+    // TODO line: with guidance removed at publication they were empty, and the plan's brief preserves them (2026-11-12).
+    'bf74e36ca2163588de73b18cd91340c54f4ddcba78a8c4bb4cc05bf2c0691f06'
   ]),
   // Before the instruction demo agents carried the active-repository boundary.
   '.github/agents/demo-instruction-analyst.agent.md': Object.freeze(['5c527291e89f935e0586657bcffc3a8317dfdddfa140f2701d2fe4a7eea3a478', 'b54384818163336db79044d2fb1ac84d609f3ffbd742e1cf4fd213af3584d8bb']),
@@ -757,7 +760,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/convergence.md': '922df3ebcd5e081ca202606f29f640f1b0439d9b9c17a94a2ff2478aad2a4d5a',
   'singularity/templates/spec-driven/plan.md': '8ac870c047c0155d5ca4ca7391a11acb7310b52aae746d66f40e1d77ecdb14ec',
   'singularity/templates/spec-driven/release.md': '8f7c0be1d576e781de1724a50bc906ad8f511807e665328e753bf40fd4e881a6',
-  'singularity/templates/spec-driven/spec.md': 'bf74e36ca2163588de73b18cd91340c54f4ddcba78a8c4bb4cc05bf2c0691f06',
+  'singularity/templates/spec-driven/spec.md': 'c3b2d1434d1d37fefc2ae168f849e9f801992433a7b81c7eb9f27b78c7f66d4e',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',
   'singularity/templates/starter-packs/skp-team-notes/draft-input.json': 'fbc136911e7dfecf14be06091b6d759770fa72c133c39de74710511bfee57410'
 });

@@ -186,3 +186,40 @@ test('conformance never counts guidance: not a clause, not a placeholder, not a 
   assert.ok(short.findings.some((finding) => finding.code === 'artifact.required.too-short'));
   assert.equal(short.bytes, Buffer.byteLength(stripTemplateGuidance(spec).text));
 });
+
+test('every section a later step\'s brief preserves keeps visible text in its packaged template once guidance is removed', async () => {
+  // spec-driven's planning brief preserves Permissions, Boundary conditions and three more sections; with their
+  // guidance removed at publication they were empty, and a specification left as drafted could not brief planning
+  // (projection.agent-brief.agent-brief-preserved-section-required, found by workflow walk, 2026-11-12).
+  const definition = YAML.parse(await readFile(path.join(ROOT, 'templates', 'workflow.yml'), 'utf8'));
+  const visible = (text) => {
+    const stripped = stripTemplateGuidance(text);
+    return typeof stripped === 'string' ? stripped : stripped.text;
+  };
+  const sectionText = (text, heading) => {
+    const lines = text.split(/\r?\n/u);
+    const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
+    if (start < 0) return null;
+    const end = lines.findIndex((line, index) => index > start && /^#{1,2}\s/u.test(line));
+    return lines.slice(start + 1, end < 0 ? undefined : end).filter((line) => line.trim() && !/^<!--[\s\S]*-->$/u.test(line.trim())).join('\n');
+  };
+  const empty = [];
+  let checked = 0;
+  for (const [workTypeId, workType] of Object.entries(definition.workTypes ?? {})) {
+    for (const [consumer, override] of Object.entries(workType.phaseOverrides ?? {})) {
+      for (const input of override?.inputs ?? []) {
+        if (!Array.isArray(input?.preserve)) continue;
+        const relative = workType.templateOverrides?.[input.phase] ?? definition.phases?.[input.phase]?.defaultTemplate;
+        if (!relative) continue;
+        const text = visible(await readFile(path.join(ARTIFACTS, relative), 'utf8'));
+        for (const heading of input.preserve) {
+          const body = sectionText(text, heading);
+          checked += 1;
+          if (body !== null && !body.trim()) empty.push(`${workTypeId}: ${consumer} preserves "${heading}" of ${relative}`);
+        }
+      }
+    }
+  }
+  assert.ok(checked > 0, 'the packaged briefs were read');
+  assert.deepEqual(empty, [], 'each needs a TODO line the author replaces, so publication names it instead of the brief refusing');
+});

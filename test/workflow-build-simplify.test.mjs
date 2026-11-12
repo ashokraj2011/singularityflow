@@ -331,7 +331,10 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
   // /sf-fix-workflow's path: the fix command writes its drafted changes to the issued draft file, and only questions are left for a person.
   const drafted = JSON.parse(h.flow(root, report.fixDraft.fixCommand.split(' ').slice(1)).stdout);
   assert.deepEqual([drafted.draft.written, drafted.draft.path], [true, report.fixDraft.changeSetPath]);
-  assert.deepEqual(drafted.changes.filter((change) => change.code.startsWith('CHECK_TEMPLATE_')).map((change) => change.code).sort(), ['CHECK_TEMPLATE_CLAUSE_ANCHORS', 'CHECK_TEMPLATE_PLANNED_TABLE']);
+  // The fixture's own lines ("What the change must do.") read as guidance a published document would keep, so the
+  // same draft also marks them for publication to remove (CHECK_TEMPLATE_GUIDANCE).
+  assert.deepEqual(drafted.changes.filter((change) => change.code.startsWith('CHECK_TEMPLATE_')).map((change) => change.code).sort(),
+    ['CHECK_TEMPLATE_CLAUSE_ANCHORS', 'CHECK_TEMPLATE_GUIDANCE', 'CHECK_TEMPLATE_PLANNED_TABLE']);
   assert.ok(drafted.questions.every((question) => question.ask && question.choices.length), JSON.stringify(drafted.questions));
   const confirmed = JSON.parse(h.flow(root, ['workflow', 'check', 'fmly', '--change-set', report.fixDraft.changeSetPath, '--json']).stdout);
   assert.deepEqual(confirmed.workflows[0].findings.filter((entry) => entry.severity === 'problem'), [], 'the written draft clears both template problems');

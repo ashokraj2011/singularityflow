@@ -12786,7 +12786,7 @@ test('the Testing view lists test commands and cases with their file and line, r
     ['failed', 'checkout-app/module-tests', '1 passed, 1 failed, 1 skipped of 3', undefined, null]
   ]);
   assert.deepEqual(run.output.slice(0, 2), ['Local preview, not evidence [local-preview]\r\n',
-    'Run RUN-3, environment dev, commit abc1234: 1 passed, 1 failed of 3.\r\n'], 'the engine\'s label and evidence class lead the output');
+    'Run RUN-3, environment dev: 1 passed, 1 failed of 3.\r\n'], 'the engine\'s label and evidence class lead the output');
   assert.ok((await cli.log()).some((entry) => entry.argv.join(' ') === 'tests summary --capability checkout-app --run=RUN-3 --json'));
   assert.equal(moduleTests.children.get('["Cart","new one"]').range.start.line, 49, 'a case the run found is listed for the editor');
 

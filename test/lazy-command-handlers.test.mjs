@@ -582,7 +582,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,609,100 (measured 9,609,085, commands/phase-lifecycle.mjs): test support (mocks, fixtures, setup, helpers) is refused from
     // Planned tests with the move to make and has its own Supporting files class (source-boundary.mjs isTestSupportPath,
     // supporting-changes.mjs, specifications.mjs) [office, 2026-11-11]. No new eager file.
-    assert.ok(closure.bytes <= 9_609_100, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,642,500 (measured 9,642,434, commands/phase-lifecycle.mjs): the 2026-11-12 after-demo merge. Template guidance is
+    // removed at publication and the 95 new packaged template digests are registered (packaged-asset-history.mjs +14.8 KB,
+    // markdown-structure.mjs); a file changed after publication is caught at submit and the next draft is offered for any
+    // authored step (t2); deployed-URL tests, Windows port holders and the .github/hooks guard (config.mjs,
+    // external-command-policy.mjs, governed-roots.mjs); the walk, fix and simplify commands' registry entries; hashes kept
+    // out of person text (t1); the hook working folder (t4). No new eager file.
+    assert.ok(closure.bytes <= 9_642_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -669,7 +675,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // which every command reads to dispatch; the command itself loads lazily.
   // 864,550 (measured 864,534): /sf-status and the other utility reads accept --work-id, and a refused read names
   // the option and the exact command to run (utility-entry.mjs +2.3 KB) [Story anu-bin, 2026-11-11].
-  assert.ok(root.bytes <= 864_550, `root dispatch loads ${root.bytes} source bytes`);
+  // 864,800 (measured 864,795): `workflow walk` and `workflow fix` (command-registry.mjs), and doctor --repair-hooks
+  // classified as SFlow's own mutation so a live turn's baseline moves past it (command-registry.mjs) [2026-11-12].
+  assert.ok(root.bytes <= 864_800, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -839,7 +847,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,212,000 (measured 4,211,990): the 2026-11-11 class sweep merged (agent-input refusals and copy-slip checks in
   // text-lines.mjs, the utility entry's --work-id, agent-view wording). No new eager file.
   // 4,214,950 (measured 4,214,929): the same test-support rule (source-boundary.mjs, supporting-changes.mjs) [office, 2026-11-11].
-  assert.ok(current.bytes <= 4_214_950, `session current loads ${current.bytes} source bytes`);
+  // 4,237,150 (measured 4,237,138): the 2026-11-12 after-demo merge, mostly the packaged template digests of the
+  // one-line, marked template guidance (packaged-asset-history.mjs +14.8 KB) and the governed-roots and deployed-URL
+  // checks. No new eager file.
+  assert.ok(current.bytes <= 4_237_150, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

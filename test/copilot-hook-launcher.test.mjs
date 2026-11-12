@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { copilotHookCommand } from '../src/copilot-hook-commands.mjs';
+import { COPILOT_HOOK_CWD } from '../src/repository-hooks.mjs';
 import { hookCliLine, setHookCli } from '../src/copilot-mode.mjs';
 import { RUNTIME_UNAVAILABLE_MARKER } from '../src/copilot-repository-boundary.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
@@ -833,4 +834,38 @@ test('a hook started in a chat folder that no longer exists still runs, never re
   assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(result.stdout, /SFLOW_HOOK_RUNTIME_UNAVAILABLE/u);
   assert.equal(existsSync(path.join(directory, 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER)), false, 'no marker denies later tools');
+});
+
+test('every hook starts in the chat\'s project root, so a plugin copy removed under a running chat never stops the host starting it', {
+  skip: process.platform === 'win32'
+}, async (t) => {
+  // Session mining N6: Copilot CLI starts a plugin hook with no `cwd` in the plugin's own folder. A copy removed under a
+  // running chat (a reinstall, an uninstall, a retired copy cleaned up) failed every later hook with "spawn /bin/bash
+  // ENOENT" and denied every tool "(hook errored)" before any SFlow code ran. Live probes (Copilot CLI 1.0.107 to
+  // 1.0.109): a relative `cwd` resolves against the project root, also from a subfolder; VS Code joins it to the
+  // workspace folder it uses anyway, and hands that folder on as the payload's cwd.
+  const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'hooks.json'), 'utf8'));
+  assert.equal(COPILOT_HOOK_CWD, '.');
+  for (const event of events) assert.equal(manifest.hooks[event][0].cwd, COPILOT_HOOK_CWD, event);
+  const item = await fixture(t);
+  const project = path.join(item.directory, 'shop');
+  await mkdir(path.join(project, 'src'), { recursive: true });
+  const removed = path.join(item.directory, 'removed plugin copy');
+  const recorded = path.join(item.directory, 'current plugin copy');
+  await mkdir(recorded);
+  await writeFile(path.join(recorded, 'hook-launcher.sh'), 'printf \'{"action":"%s","cwd":"%s"}\\n\' "$1" "$(pwd -P)"\n');
+  await writeFile(path.join(item.directory, 'copilot-plugin'), `${recorded}\n`);
+  // The host's rule, as the probes saw it: the entry's folder against the project root, else the plugin's own folder.
+  const startIn = (entry) => (entry.cwd === undefined ? removed : path.resolve(project, entry.cwd));
+  for (const [index, event] of events.entries()) {
+    const entry = manifest.hooks[event][0];
+    const result = spawnSync('/bin/bash', ['-c', entry.bash], { cwd: startIn(entry), env: rootEnvironment(item.env, { PLUGIN_ROOT: removed }),
+      input: '{}', encoding: 'utf8', timeout: childTimeout(10_000) });
+    assert.equal(result.error, undefined, `${event}: ${result.error}`);
+    assert.equal(result.status, 0, `${event}: ${result.stderr}`);
+    assert.deepEqual(JSON.parse(result.stdout), { action: actions[index], cwd: realpathSync(project) }, event);
+    // Started in the removed copy, as before, the host could not start the shell at all.
+    const before = spawnSync('/bin/bash', ['-c', entry.bash], { cwd: startIn({ ...entry, cwd: undefined }), encoding: 'utf8' });
+    assert.equal(before.error?.code, 'ENOENT', event);
+  }
 });

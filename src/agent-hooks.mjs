@@ -52,9 +52,10 @@ async function activeInitiative(root) {
 
 function sourceKind(value) { return ['startup', 'resume', 'new'].includes(value) ? value : 'startup'; }
 
-function copilotAgentName(payload = {}) {
+async function copilotAgentName(payload = {}) {
   const value = payload.agentName ?? payload.agent_name;
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+  // SFlow's own plugin agents by their own names, without Copilot CLI's plugin prefix (review-subagent.mjs).
+  return typeof value === 'string' && value.trim() ? (await import('./review-subagent.mjs')).ownAgentName(value) : null;
 }
 
 function pathGroundingContext(root, workId = null, workItemRoot = DEFAULT_WORK_ITEM_ROOT) {
@@ -91,7 +92,7 @@ export async function copilotAgentStartHook(root, payload = {}) {
   // The Story's reviewer started as a sub-agent in an author's chat gets its own review turn there (review-subagent.mjs).
   const reviewer = await (await import('./review-subagent.mjs')).reviewerSubagentStart(root, payload);
   if (reviewer) return reviewer;
-  const agentName = copilotAgentName(payload);
+  const agentName = await copilotAgentName(payload);
   if (!agentName) return {};
   const log = repositoryLogger(root, null, {
     context: { hook: 'agent-start', sessionId: payload.sessionId ?? payload.session_id ?? null, agentName }

@@ -808,6 +808,25 @@ test('the built extension activates against a real repository and populates the 
   assert.deepEqual(registered.errors, [], 'activation raised no error dialogs');
 });
 
+test('a VS Code older than 1.141 is warned once as the extension activates, which still activates; a newer one is not', async (t) => {
+  // Owner, 2026-11-12: an office runs VS Code 1.114. A warning only (vscode-host-version.mjs); engines.vscode is unchanged.
+  if (!requireBundle(t)) return;
+  for (const [version, warned] of [['1.114.0', true], ['1.146.0', false]]) {
+    const { api, registered } = stubVscode();
+    api.version = version;
+    api.workspace.workspaceFolders = [];
+    const extension = loadExtension(api);
+    await extension.activate(context());
+    assert.ok(registered.commands.has('singularityFlow.refresh'), `${version}: the extension activated`);
+    const warning = registered.warnings.find((message) => /older than 1\.141/u.test(String(message)));
+    if (!warned) { assert.equal(warning, undefined, version); continue; }
+    assert.equal(warning, `VS Code ${version} is older than 1.141, so parts of SFlow's Copilot chat do not work here. Update VS Code, then reload the window.`);
+    const details = registered.output.find((line) => /^VS Code 1\.114\.0 is older than 1\.141/u.test(String(line)));
+    assert.match(details, /chat\.plugins\.enabled[^]*singularity-flow plugin install[^]*Fix: Update VS Code/u, 'the output names what does not work and the fix');
+    assert.deepEqual(registered.errors, [], 'a warning, never an error');
+  }
+});
+
 test('a legacy workflow blocks Lifecycle but leaves all repairable configuration visible', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();

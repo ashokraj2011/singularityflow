@@ -31,6 +31,14 @@ export const answerBoundStep = (step) => ANSWER_BOUND_STEPS.includes(step?.id);
 
 const comparable = (text) => String(text ?? '').normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim().replace(/[.!?;,]+$/u, '');
 
+/** Every string a parsed answer holds, at most MAX_ANSWERS of them. */
+function stringLeaves(value, found = []) {
+  if (found.length >= MAX_ANSWERS) return found;
+  if (typeof value === 'string') found.push(value);
+  else if (value && typeof value === 'object') for (const entry of Object.values(value)) stringLeaves(entry, found);
+  return found;
+}
+
 /** What one question's result says the person answered, on whichever host; `canned` when the host answered instead. */
 export function answerOfQuestion(payload) {
   const result = payload.toolResult ?? payload.tool_result ?? payload.tool_response ?? null;
@@ -38,12 +46,16 @@ export function answerOfQuestion(payload) {
   const raw = typeof result === 'string' ? result : result.textResultForLlm ?? result.content ?? '';
   if (typeof raw !== 'string' || !raw.trim()) return { texts: [], canned: false };
   if (HOST_AUTO_REPLY.test(raw)) return { texts: [], canned: true };
-  let answers = null;
-  try { answers = JSON.parse(raw)?.answers ?? null; } catch { answers = null; }
+  let parsed = null;
+  try { parsed = JSON.parse(raw); } catch { parsed = null; }
+  const answers = parsed?.answers ?? null;
   if (answers && typeof answers === 'object') {
     return { canned: false, texts: Object.values(answers).filter((entry) => entry && !entry.skipped)
       .flatMap((entry) => [...(entry.selected ?? []), ...(entry.freeText ? [entry.freeText] : [])]).map(comparable).filter(Boolean) };
   }
+  // Another JSON shape (an older or newer VS Code than 1.145): each of its words as the person gave it, never the
+  // JSON text, whose escaping would make their own words read as not theirs.
+  if (parsed && typeof parsed === 'object') return { canned: false, texts: stringLeaves(parsed).map(comparable).filter(Boolean) };
   const said = raw.replace(/^user (?:responded|selected|answered):?\s*/iu, '');
   return DECLINED.test(raw) ? { texts: [], canned: false } : { texts: [comparable(said)], canned: false };
 }

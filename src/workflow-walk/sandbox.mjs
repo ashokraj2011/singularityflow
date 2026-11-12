@@ -217,7 +217,9 @@ export async function createSandbox({ configuration = null, timeoutMs = 120_000,
     await must(sandbox.git(['commit', '-q', '-m', 'The workflow configuration under walk']), 'git commit');
     await must(sandbox.git(['init', '-q', '--bare', '-b', 'main', remote], { cwd: base }), 'git init --bare');
     await must(sandbox.git(['remote', 'add', 'origin', remote]), 'git remote add');
-    await must(sandbox.git(['push', '-q', '-u', 'origin', 'main']), 'git push');
+    // The throwaway project's own branch, pushed by name of the checked-out branch: no application branch is a
+    // literal push target in source (architecture-boundaries).
+    await must(sandbox.git(['push', '-q', '-u', 'origin', 'HEAD']), 'git push');
     return sandbox;
   } catch (error) {
     await sandbox.dispose();

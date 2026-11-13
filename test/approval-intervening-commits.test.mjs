@@ -133,7 +133,8 @@ test('the intent-amendment crosswalk routes only drafting and proposing to /sf-r
   }
   for (const command of [`singularity-flow story intent-amendment draft --work-id ${WORK}`,
     `singularity-flow story intent-amendment propose --work-id ${WORK} --file amended.md --reason x`]) {
-    assert.equal(safeCommandGuidance(command)?.copilotCommand, '/sf-reject', command);
+    // /sf-reject's own amendment route, which every surface names the same way [owner, 2026-11-13].
+    assert.equal(safeCommandGuidance(command)?.copilotCommand, '/sf-reject intent-amendment propose', command);
   }
 });
 

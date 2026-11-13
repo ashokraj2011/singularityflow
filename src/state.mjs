@@ -105,7 +105,7 @@ import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { assertIntentAmendmentAcknowledged, pendingIntentAmendmentAcknowledgement, sourceReviewRequired } from './source-review-policy.mjs';
 import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
-import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
+import { assertIntentAmendmentNotPausing, assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
 // The review of a step is read only where it gates submission and approval, from the CLI source: the CLI's eager
 // graph and the editor bundles that submit or approve do not carry the whole review evaluator [review level 2].
 const readSourceReviewStatus = async (...args) => (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'source-review-lifecycle.mjs')).href))
@@ -2303,6 +2303,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
   const session = await loadSession(root, { required: false });
   assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId], session, 'begin');
   assertIntentAmendmentAcknowledged(workflow);
+  assertIntentAmendmentNotPausing(workflow, phaseId);
   await assertNoPendingPublication(root, config, workflow, 'begin code generation');
   const phase = await assertPhaseSequence(root, workflow, 'begin code generation', { requestedPhase: phaseId });
   await assertDocumentInputs(root, config, workflow, phase);
@@ -2339,6 +2340,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     workflow.phases?.[requested ?? workflow.currentPhase],
     session, 'prepare');
   if (!dryRun) assertIntentAmendmentAcknowledged(workflow);
+  if (!dryRun) assertIntentAmendmentNotPausing(workflow, requested ?? workflow.currentPhase);
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
@@ -3723,6 +3725,7 @@ export async function publishGeneration(root, config, workflow, {
   assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase],
     selectedSession, 'publish');
   assertIntentAmendmentAcknowledged(workflow);
+  assertIntentAmendmentNotPausing(workflow, phaseId ?? workflow.currentPhase);
   if (authorship?.governedAgentContext?.agentId) assertPhaseAgentMayMutate(config, workflow,
     workflow.phases?.[phaseId ?? workflow.currentPhase], { agent: authorship.governedAgentContext.agentId }, 'publish');
   await verifyAcceptedTestCommandAmendment(root, config, workflow);
@@ -9006,6 +9009,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       id: proposal.id,
       state: directlyAffected ? 'affected' : 'evidence-preserved',
       changedClauses,
+      // Each kind of change by name, so the reopened step's prompt says what to cover and what to drop [owner, 2026-11-13].
+      ...Object.fromEntries(['added', 'revised', 'removed'].map((kind) => [kind, [...(proposal.diff?.[kind] ?? [])]])),
       acknowledgedAt: null,
       revalidatedAt: null
     };

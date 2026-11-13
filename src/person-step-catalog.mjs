@@ -83,6 +83,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['workflow-delete', ([command, sub], options) => command === 'workflow' && sub === 'delete' && options.confirm !== undefined],
   ['target-origin-pin', ([command, sub], options) => command === 'story' && sub === 'target-origin' && options.confirm !== undefined],
   ['intent-amendment-decision', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'decide'],
+  // Acknowledging an approved one is a person's too, recorded on the decisions card; no turn runs it [owner, 2026-11-13].
+  ['intent-amendment-acknowledgement', ([command, sub, verb]) => command === 'story' && sub === 'intent-amendment' && verb === 'acknowledge'],
   ['knowledge-confirmation', ([command, sub, verb]) => command === 'wm'
     && ((sub === 'rules' && verb === 'confirm') || (sub === 'knowledge' && ['confirm', 'correct', 'reject'].includes(verb)))],
   ['spec-drift-decision', ([command, sub, verb]) => command === 'spec' && sub === 'drift' && verb === 'decide'],

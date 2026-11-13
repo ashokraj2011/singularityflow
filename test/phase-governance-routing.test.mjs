@@ -38,9 +38,13 @@ test('every eligible seeded downstream step routes pending acknowledgement befor
           const readiness = submissionReadinessSnapshot(workflow);
           assert.equal(readiness.lifecycleReady, false, `${id}/${phaseId}/${status}`);
           assert.equal(readiness.nextCommand, hold.actions[0].command);
-          // No skill acknowledges an amendment (/sf-reject's turn may not), so the hold names none.
-          assert.equal(readiness.nextSkill, null);
-          assert.deepEqual([hold.actions[0].skill, hold.actions[0].copilotCommand], [null, null]);
+          // A person acknowledges it on the decisions card, which /sf-decide opens; the exact command is
+          // theirs in a terminal, with no Copilot route, since no agent turn runs it [owner, 2026-11-13].
+          assert.equal(readiness.nextSkill, '/sf-decide');
+          assert.deepEqual([hold.actions[0].command, hold.actions[0].skill, hold.actions[0].copilotCommand],
+            ['singularity-flow decisions ACK-1', '/sf-decide', '/sf-decide ACK-1']);
+          assert.deepEqual([hold.actions[1].command, hold.actions[1].copilotCommand, hold.actions[1].optional],
+            ['singularity-flow story intent-amendment acknowledge AMD-001 --work-id ACK-1', null, true]);
           assert.equal(workflowGuide(workflow).nextActions[0].command, hold.actions[0].command);
           assert.throws(() => assertIntentAmendmentAcknowledged(workflow), { code: hold.code });
           assert.throws(() => assertPhaseGovernanceMayAdvance(workflow, phase), { code: hold.code });

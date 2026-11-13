@@ -258,7 +258,12 @@ function withRoute(act, action) {
   if (!route) return act;
   // A person's own terminal step is refused in every Copilot turn: "ask in chat, then run do.shell"
   // sent the agent into that refusal (route closure, 2026-10-28).
-  if (route.shell && ownTerminalStep(route.shell)) return { ...act, state: 'confirm-in-terminal', do: { ...route, copilot: null },
+  const own = route.shell ? ownTerminalStep(route.shell) : null;
+  // An intent amendment's decision or acknowledgement is the person's on the decisions card, which /sf-decide opens [owner, 2026-11-13].
+  const work = own?.startsWith('intent-amendment-') ? /\s--work-id\s+([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(route.shell)?.[1] ?? '' : null;
+  if (work !== null) return { ...act, state: 'confirm-in-terminal', do: { ...route, copilot: `/sf-decide ${work}`.trim() },
+    said: oneLine(`${act.said ? `${act.said} ` : ''}This is the person's own step, on the decisions card: give them do.copilot, or do.shell for their own terminal; never run it.`) };
+  if (own) return { ...act, state: 'confirm-in-terminal', do: { ...route, copilot: null },
     said: oneLine(`${act.said ? `${act.said} ` : ''}This is the person's own step: show them do.shell to run in their own terminal; never run it.`) };
   // A raw command (git diff, git stash) is the person's: a turn that is not authoring refuses raw shell.
   if (route.shell && !route.copilot && !/^\s*(?:singularity-flow|sflow)\s/u.test(route.shell)) return { ...act, state: 'ask-person', do: route,

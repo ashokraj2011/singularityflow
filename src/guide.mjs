@@ -1,4 +1,5 @@
-import { intentAmendmentSource, isConvergencePhase } from './phase-roles.mjs';
+import { isConvergencePhase } from './phase-roles.mjs';
+import { decisionsCardAction, intentAmendmentProposable } from './intent-amendment-pause.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction, directCopilotSkill } from './copilot-guidance.mjs';
@@ -128,7 +129,11 @@ function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {
   if (!phase) return [
     copilotAction({ skill: '/sflow-progress', command: `singularity-flow progress ${workflow.workItem.id}`, reason: 'Review the completed workflow and final conformance.' })
   ];
+  // An amendment proposed after the submission holds the approval: the card where it is decided leads [owner, 2026-11-13].
+  const amendment = phase.status === 'awaiting_approval' ? (workflow.intentAmendments ?? []).find((entry) => entry?.status === 'proposed') : null;
   if (phase.status === 'awaiting_approval') return [
+    ...(amendment ? [copilotAction({ ...decisionsCardAction(workflow),
+      reason: `A person who approves the scope decides ${amendment.id} on the decisions card; approving ${phase.id} waits for it.` })] : []),
     copilotAction({ skill: '/sflow-approve', command: `singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, reason: `Approve ${phase.id} using an authorized human Git identity; the phase-default agent is recorded automatically.` }),
     ...(phaseCorrectionTargets(phase).length ? [copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to ${phase.id} --reason <reason>`,
       reason: `Request an authorized correction within ${phase.id}; prior phase approvals remain unchanged.` })] : [])
@@ -174,10 +179,11 @@ export function workflowGuide(workflow, { sourceReviewEvidence = null, authoring
     }),
     nextActions: [
       ...nextActions(workflow, active, sourceReviewEvidence, authoringProgress),
-      ...(intentAmendmentSource(workflow) ? [copilotAction({
+      // Offered only where it can succeed: none waits for a decision or an acknowledgement [owner, 2026-11-13].
+      ...(intentAmendmentProposable(workflow) ? [copilotAction({
         skill: '/sflow-reject',
         command: `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file <AMENDED-SPEC.md> --reason <reason>`,
-        reason: 'If the approved intent must change, propose a reviewed amendment; no convergence finding or revision loop is required. Existing intent stays approved until the scope authority decides.',
+        reason: 'If the approved intent must change, propose a reviewed amendment; no convergence finding or revision loop is required. Existing intent stays approved until the scope authority decides on the decisions card, and this step pauses until then.',
         optional: true
       })] : [])
     ]

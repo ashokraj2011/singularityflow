@@ -2581,6 +2581,10 @@ const OWNER_STEP_STRATEGIES = Object.freeze({
   EVIDENCE_INSPECTION_MISSING: 'person-decides-in-step',
   VISUAL_THRESHOLD_EXCEEDED: 'person-decides-in-step',
   INTENT_AMENDMENT_PLAN_STALE: 'person-decides-in-step',
+  // A step paused while an amendment proposed from it waits, or one an approved amendment reopened before a person
+  // acknowledged it: a person decides or acknowledges it on the card, and nothing is repaired [owner, 2026-11-13].
+  INTENT_AMENDMENT_PENDING_PAUSE: 'person-decides-in-step',
+  INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'person-decides-in-step',
   WITNESS_DEFERRAL_INVALID: 'person-decides-in-step',
   VISUAL_RISK_INVALID: 'person-decides-in-step'
 });

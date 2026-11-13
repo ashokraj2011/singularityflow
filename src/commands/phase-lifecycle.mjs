@@ -22,6 +22,7 @@ import { operationContext } from '../operation-context.mjs';
 import { phaseRequiresCodeDelivery, generationSkillForPhase, applicationReviewOffer, codeOutcomeReviewOffer } from '../code-delivery-policy.mjs';
 import { agentPublicationProducer, effectivePhasePublicationProducer, normalizeAuthorshipOptions, assertProducerAllowed, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact, importManualArtifact, buildGenerationAuthorship } from '../manual-authorship.mjs';
 import { isConvergencePhase } from '../phase-roles.mjs';
+import { assertIntentAmendmentNotPausing } from '../phase-governance-routing.mjs';
 import { actionActor } from './kernel.mjs';
 import path from 'node:path';
 import { directCopilotSkill } from '../copilot-guidance.mjs';
@@ -293,6 +294,8 @@ export async function phaseCommand(positionals, options) {
     printPhaseReview(await phaseReview(root, config, workflow, requestedPhase), { showArtifact: optionBoolean(options, 'show-artifact') });
     return;
   }
+  // Before anything this command records: a step paused for an amendment proposed from it publishes nothing [owner, 2026-11-13].
+  assertIntentAmendmentNotPausing(workflow, requestedPhase.id);
   const sourcePath = optionString(options, 'from');
   // A publish after a publish: planning went 1, 2, 3, 4 on one real run, each pair seconds apart. A
   // document unchanged since its publication already is that publication, so nothing is recorded.

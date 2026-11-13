@@ -124,8 +124,11 @@ test('the pinned source names only the intent-conflict route its own workflow ac
     resolution: { phases: [], obligationGraph: { nodes: ids.map((id) => ({ id, responsibilities: id === scopeId ? ['scope'] : [] })) } } });
   const scoped = story(['shape', 'build'], 'shape');
   const later = intentConflictRecovery({}, scoped, scoped.phases.build);
-  assert.match(later, /propose it from this step with `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"`/u);
+  assert.match(later, /propose it from this step with `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>" --authored governed-agent --channel copilot-host`/u);
   assert.match(later, /approved scope of `shape`/u);
+  // An approved requirement the person says changed is drafted, proposed and decided on the card; the step pauses [owner, 2026-11-13].
+  assert.match(later, /never edit the approved scope: run `singularity-flow story intent-amendment draft --work-id IC-1 --clause <ID>`, write only the changed clauses/u);
+  assert.match(later, /decide it on the decisions card: `\/sf-decide IC-1`\. This step pauses until it is decided\./u);
   const own = intentConflictRecovery({}, scoped, scoped.phases.shape);
   assert.match(own, /`shape` is not approved yet: revise\/review the scope draft/u);
   assert.doesNotMatch(own, /clarification/u, 'clarification off: never name a refused clarification record');

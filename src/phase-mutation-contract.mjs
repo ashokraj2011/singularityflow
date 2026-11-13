@@ -9,6 +9,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { phaseNeedsGeneration } from './phase-generation-need.mjs';
 import { sourceReviewKind } from './phase-roles.mjs';
+import { intentAmendmentPause, intentAmendmentPauseReason } from './intent-amendment-pause.mjs';
 import { AUTHORING_VERIFICATION_PROTOCOL, CLI_PATH_CONTRACT, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
@@ -146,8 +147,12 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
       if (exact.startsWith(`${item}/evidence/`) && !exact.endsWith('/') && !exact.split('/').includes('..')) artifacts.push(exact);
     }
   }
+  // An undecided amendment proposed from this step pauses it: no file of it changes and nothing moves it, so the
+  // proposal cannot go stale; reads and the amendment's own status and draft stay open [owner, 2026-11-13].
+  const pause = phase ? intentAmendmentPause(workflow, phase.id) : null;
+  const paused = pause && ['authoring', 'kernel-only', 'publish-only'].includes(turnMode);
   // A deterministic code step builds only its summary; its code is written in the open generation.
-  const application = turnMode === 'authoring' && editable && (!deterministic || code)
+  const application = turnMode === 'authoring' && editable && !pause && (!deterministic || code)
     && phase?.writeScope === 'source-and-artifact' && (!code || openGeneration);
   const next = !phase ? [route(['session', 'current', '--for-agent', '--json'], 'Resolve the Story binding first.')]
     : turnMode === 'read-only-review'
@@ -161,6 +166,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     : turnMode === 'decision-only'
       ? [route(['decision', 'show', workId, '--json'],
         "Record only the person's typed choice and reason; no authoring, submission, approval, rejection or next.", '/sf-decide')]
+    : paused ? [route(['decisions', workId], `A person who approves the scope decides ${pause.id} on the decisions card.`, '/sf-decide')]
     : turnMode === 'publish-only'
       ? [route(['phase', 'publish', phase.id, '--authored', phasePublicationContract(phase).producer,
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]
@@ -174,7 +180,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
         : !editable
           ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes; inspect the reviewed successor or return route.')]
           : [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', generationSkillForPhase(phase, workflow))];
-  const summary = turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
+  const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`story intent-amendment status\` and \`draft\`, stay open.`
+    : turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
     : turnMode !== 'authoring' ? `${turnMode}: no direct repository edits; only explicitly issued staging files and permitted kernel operations.`
       : !editable || (deterministic && !code) ? 'No direct edits to this retained or deterministic generation. Use the returned kernel/recovery action.'
         : deterministic && application ? 'May edit application paths within pinned policy; the summary is built by `singularity-flow prepare` from what changed, never edited by hand.'
@@ -187,8 +194,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     authoringSkill: phase ? directCopilotSkill(generationSkillForPhase(phase, workflow)) : null,
     repositoryRoot,
     policy: { writeScope: phase?.writeScope ?? 'artifact-only', sourceBoundary: phase?.sourceBoundary ?? 'unrestricted',
-      requiresOpenGeneration: code, openGeneration, editable, supportingChangesOnly: !code && !ownsCode },
-    allow: { artifacts: turnMode === 'authoring' && editable && !deterministic ? artifacts : [], application, staging },
+      requiresOpenGeneration: code, openGeneration, editable, supportingChangesOnly: !code && !ownsCode,
+      ...(pause ? { intentAmendmentPause: { id: pause.id, phaseId: phase.id } } : {}) },
+    allow: { artifacts: turnMode === 'authoring' && editable && !deterministic && !pause ? artifacts : [], application, staging },
     deny: { protectedPaths: [...new Set([...(definition?.governance?.protectedPaths ?? []),
       ...(workflow?.resolution?.governance?.protectedPaths ?? []),
       ...(workflow?.resolution?.capability?.policy?.protectedPaths ?? [])])],

@@ -3,7 +3,7 @@ name: sflow-reject
 description: Propose or review an intent amendment in any workflow, request changes to a submitted or closed Story, or safely return/abandon rework. Records authority and invalidation without rewriting Git history.
 disable-model-invocation: true
 agent: agent
-argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | intent-amendment [status|propose|decide|acknowledge] | roll-forward [CR-ID]"
+argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | intent-amendment [status|draft|propose] | roll-forward [CR-ID]"
 
 ---
 # Request governed changes
@@ -24,15 +24,14 @@ human. Never edit managed state to bypass a gate.
 For `singularity-flow story intent-amendment`, use this route, not phase rejection:
 
 1. Inspect `singularity-flow status --for-agent --json`. Confirm the human's changed intent and reason.
-   Draft separate amended scope Markdown;
+   Write only the changed clauses in the file `singularity-flow story intent-amendment draft` issues;
    never edit approved intent in place.
-2. Run `singularity-flow story intent-amendment propose --work-id <WORK-ID> --file <FILE> --reason "<REASON>" --authored governed-agent --channel copilot-host --json`.
-   Every workflow supports it after scope approval; do not invent an `update-intent` convergence
-   finding or change YAML. The CLI binds the phase and exact clause diff. Propose only when nextsteps returns the
+2. Run `singularity-flow story intent-amendment propose --work-id <WORK-ID> --file <FILE> --reason "<REASON>" --authored governed-agent --channel copilot-host --json`;
+   do not invent an `update-intent` convergence finding or change YAML. Propose only when nextsteps returns the
    `singularity-flow story intent-amendment propose` action; otherwise record the change in clarification and revise the scope draft.
-3. Show amendment ID, diff and blast radius. Only a human scope authority decides with exact confirmation;
-   never self-approve. They may reject and replace stale proposals without changing approved intent.
-4. Acknowledge only as requested with the issued command. Revalidate downstream inputs/grounding;
+3. Show amendment ID, diff and blast radius. Only a human scope authority decides with exact confirmation,
+   on the card `/sf-decide <WORK-ID>`; its step pauses until then. They may reject and replace stale proposals without changing approved intent.
+4. The person acknowledges an approved one there; never decide or acknowledge here. Revalidate downstream inputs/grounding;
    waive no tests or approvals. Closed Stories need reviewed reopening. Stop after the action.
 
 ## Phase correction

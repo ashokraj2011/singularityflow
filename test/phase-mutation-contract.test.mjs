@@ -9,7 +9,7 @@ import test from 'node:test';
 import { deriveMutationContract, mutationContractPresentation, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { hookAnswerForEveryHost, recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn, repositoryPostToolGuard, repositoryToolGuard } from '../src/copilot-repository-boundary.mjs';
 import { ANSWER_BOUND_TURNS, answerOfQuestion, wordsOfCommand } from '../src/copilot-answer-binding.mjs';
-import { ANSWER_BOUND_SKILLS, captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueSpecStudioStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
+import { ANSWER_BOUND_SKILLS, captureMutationTurn, mutationToolGuard, mutationPostToolGuard, personStepDenial, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, issueFixWorkflowStaging, issueSpecStudioStaging, issueRunAppDraftStaging, issueDraftStaging, epicSourceTextDraftPath, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
 import { copilotModeFile } from '../src/copilot-mode.mjs';
 import { hookCliLine, setCopilotPaused, setHookCli } from '../src/copilot-mode.mjs';
@@ -801,23 +801,36 @@ test('no agent turn accepts that a step\'s tests cannot run here or ran narrowed
   }
 });
 
-test('no agent turn decides an intent amendment; reading and acknowledging it stay where they were', async t => {
+test('no agent turn decides or acknowledges an intent amendment; reading it stays allowed, and the decisions card is the route', async t => {
   const f = await fixture(t);
   const decide = 'singularity-flow story intent-amendment decide AMD-001 --decision reject --confirm AMD-001 --work-id PMC-1';
-  for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-code', 'code'], ['/sf-recover', 'kernel'], ['/sf-reject', 'reject'], ['/sf-decide PMC-1', 'decider']]) {
+  const acknowledge = 'singularity-flow story intent-amendment acknowledge AMD-001 --work-id PMC-1';
+  // D1/D2: a person decides it and acknowledges an approved one on the decisions card [owner, 2026-11-13].
+  for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-code', 'code'], ['/sf-recover', 'kernel'], ['/sf-next', 'next'],
+    ['/sf-reject', 'reject'], ['/sf-decide PMC-1', 'decider'], ['/sf-approve', 'approver']]) {
     const payload = await f.enter(skill, session);
     const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
     assert.deepEqual(await shell('singularity-flow story intent-amendment status --work-id PMC-1 --json'), {}, `${skill}: reading is allowed`);
-    for (const command of [decide, decide.replace('reject', 'approve')]) {
+    for (const command of [decide, decide.replace('reject', 'approve'), acknowledge]) {
       const denied = await shell(command);
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
-      assert.match(denied.permissionDecisionReason, /an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn/u, skill);
+      assert.match(denied.permissionDecisionReason, command === acknowledge
+        ? /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: acknowledging an approved intent amendment is a person's own step, recorded on the decisions card, never by this turn\. Tell them to open it with \/sf-decide PMC-1/u
+        : /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, on the decisions card, never by this turn\. Tell them to open it with \/sf-decide PMC-1 \(a stale one is refreshed there\)/u, `${skill}: ${command}`);
+      assert.deepEqual([denied.next[0].copilotCommand, denied.next[0].skill, denied.next[0].command], ['/sf-decide PMC-1', '/sf-decide', command], `${skill}: ${command}`);
     }
   }
-  // An authoring turn may still acknowledge an approved amendment at the contributor's explicit choice.
-  const author = await f.enter('/sf-phase', 'author-ack');
-  assert.deepEqual(await mutationToolGuard({ ...author, toolName: 'bash', toolArgs: {
-    command: 'singularity-flow story intent-amendment acknowledge AMD-001 --work-id PMC-1', cwd: f.root } }), {});
+  // Chained, or with no turn at all (a plain prompt): the person's own step, with the same card route.
+  const author = await f.enter('/sf-phase', 'author-chain');
+  const chained = await mutationToolGuard({ ...author, toolName: 'bash', toolArgs: { command: `singularity-flow status && ${acknowledge}`, cwd: f.root } });
+  assert.match(chained.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: acknowledging an approved intent amendment is a person's own step, recorded on the decisions card[^\n]*\/sf-decide PMC-1/u);
+  assert.equal(chained.next[0].copilotCommand, '/sf-decide PMC-1');
+  for (const command of [decide, acknowledge]) {
+    const plain = personStepDenial({ cwd: f.root, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    assert.equal(plain.permissionDecision, 'deny', command);
+    assert.match(plain.permissionDecisionReason, /on the decisions card[^\n]*\/sf-decide PMC-1/u, command);
+    assert.equal(plain.next[0].copilotCommand, '/sf-decide PMC-1', command);
+  }
 });
 
 test('no agent turn confirms what a business rule means or reviews a knowledge item; listing and drafting stay allowed', async t => {
@@ -910,6 +923,8 @@ test('every step only a person takes in their own terminal is refused in every t
     'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],
     'target-origin-pin': [`singularity-flow story target-origin PMC-1 --url https://staging.example.test --reason "Approved staging target." --confirm ${digest}`],
     'intent-amendment-decision': ['singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001'],
+    // Acknowledging an approved one is the person's too, on the decisions card [owner, 2026-11-13].
+    'intent-amendment-acknowledgement': ['singularity-flow story intent-amendment acknowledge AMD-001 --work-id PMC-1', 'singularity-flow story intent-amendment acknowledge'],
     'knowledge-confirmation': ['singularity-flow wm rules confirm R-0123456789ab --json', 'singularity-flow wm knowledge reject K-rule-0123456789abcdef --note "Not a rule."'],
     'spec-drift-decision': ['singularity-flow spec drift decide PMC-1:REQ-001 --accept --reason "The code is right."'],
     'spec-library-decision': ['singularity-flow spec author decide SPEC-CHK-004 GAP-001 --option O1 --reason "Strictly above."',

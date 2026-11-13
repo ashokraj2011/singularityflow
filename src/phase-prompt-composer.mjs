@@ -272,7 +272,12 @@ export function intentConflictRecovery(definition, workflow, phase) {
   }
   const position = phase ? order.indexOf(phase.id) : -1;
   if (position >= 0 && position > order.indexOf(scope.id)) {
-    return `${confirm} Then propose it from this step with ${propose} (it amends the approved scope of \`${scope.id}\`); no convergence finding or revision loop is required. Recompose after authorized approval and acknowledgement. ${never}`;
+    // An approved requirement the person says changed is amended, never edited in place; the person decides it on
+    // the decisions card and this step pauses until then [owner, 2026-11-13].
+    const workId = workflow.workItem?.id ?? '<WORK-ID>';
+    return `${confirm} When they say an approved requirement changed, never edit the approved scope: run \`singularity-flow story intent-amendment draft --work-id ${workId} --clause <ID>\`, write only the changed clauses in the draft, `
+      + `then propose it from this step with ${propose.slice(0, -1)} --authored governed-agent --channel copilot-host\` (it amends the approved scope of \`${scope.id}\`; no convergence finding or revision loop). `
+      + `Tell the person to decide it on the decisions card: \`/sf-decide ${workId}\`. This step pauses until it is decided. ${never}`;
   }
   if (position >= 0) {
     return `${confirm} \`${scope.id}\` is not approved yet: ${record}revise/review the scope draft normally. After its approval a later step can use ${propose}. ${never}`;
@@ -440,6 +445,19 @@ function clauseIdentityLines(definition, workflow, phase) {
 }
 
 /**
+ * A step an approved intent amendment reopened: which clauses it added, revised and removed, and what this
+ * generation does about each, so it covers the amended scope without renumbering [owner, 2026-11-13].
+ */
+function intentAmendmentRevalidationLines(phase) {
+  const revalidation = phase?.intentAmendmentRevalidation;
+  if (!revalidation?.id || revalidation.revalidatedAt) return [];
+  const changes = ['added', 'revised', 'removed'].filter((kind) => revalidation[kind]?.length)
+    .map((kind) => `${kind} ${revalidation[kind].join(', ')}`).join('; ') || `changed ${(revalidation.changedClauses ?? []).join(', ') || 'the approved scope'}`;
+  return [`- Intent amendment ${revalidation.id} reopened this step: it ${changes}. Cover each added and revised clause by its full ID; `
+    + 'remove every citation and `@clause`/`@ac` tag that names a removed one; renumber nothing.'];
+}
+
+/**
  * Which optional specification tables a scope step asks for: one its policy requires, its required
  * headings name or its rendered template carries. Null (no template known) keeps the full contract.
  */
@@ -495,6 +513,8 @@ export function phasePromptExecutionContract(definition, workflow, phase, { temp
     `- Clarification mode: \`${clarification.mode}\`${clarification.mode === 'off' ? '; do not ask phase clarification questions or run `clarification record`' : ''}`,
     '- Clarification authority: this pinned mode overrides generic skill, agent, and template guidance.',
     ...(deterministicOnly ? [] : clauseIdentityLines(definition, workflow, phase)),
+    // A deterministic code step's code carries the tags too; only a kernel-built document has none.
+    ...(deterministicOnly && !deterministicCode ? [] : intentAmendmentRevalidationLines(phase)),
     `- Exact publication command: \`${command}\``,
     '- Publication boundary: Use the exact configured producer, channel, and command. Never substitute a convenient authorship route.',
     ...phaseAuthoringContractLines(phaseAuthoringContract(definition, workflow, effectivePhase), {

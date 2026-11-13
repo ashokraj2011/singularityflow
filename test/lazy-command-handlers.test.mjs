@@ -608,7 +608,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,656,000 (measured 9,655,995): an intent amendment is decided on the decisions card, and the card offers Refresh
     // for a proposal the step moved under, read with the same staleness check its approval makes (state.mjs
     // intentAmendmentStaleness, +1,258, exported through state-stores.mjs, +52) [owner, 2026-11-13]. No new eager file.
-    assert.ok(closure.bytes <= 9_656_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,661,700 (measured 9,661,666, commands/phase-lifecycle.mjs): intent amendments from chat [owner, 2026-11-13]: a step
+    // whose amendment waits pauses, refused at begin, prepare, publish and submit with the decisions card as its route
+    // (intent-amendment-pause.mjs, the one new eager file, +2,257; phase-governance-routing.mjs +2,320; state.mjs +505;
+    // phase-lifecycle.mjs +273), an acknowledgement is a person's own step (person-step-catalog.mjs, source-review-policy.mjs),
+    // /sf-reject's propose route and the authoring draft (copilot-guidance.mjs, phase-staging-paths.mjs, upstream-routes.mjs).
+    // 9,663,250 (measured 9,663,230, commands/phase-lifecycle.mjs): the three above together, set once at the combined measurement.
+    assert.ok(closure.bytes <= 9_663_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -881,7 +887,12 @@ test('the common session projection does not import attach, state stores or publ
   // 4,246,800 (measured 4,246,748): the same, the applicability rule and Test run's registered assets [owner, 2026-11-12].
   // 4,247,750 (measured 4,247,717): confirmation routes read as short codes for commits and plan IDs too (confirm-code.mjs
   // and the route words, +969) [owner, "fix the remaining hash screens", 2026-11-12]. No new eager file.
-  assert.ok(current.bytes <= 4_247_750, `session current loads ${current.bytes} source bytes`);
+  // 4,249,300 (measured 4,249,267): intent amendments from chat [owner, 2026-11-13]: acknowledging one is a person's own
+  // step (person-step-catalog.mjs +266) on the decisions card (source-review-policy.mjs +344), an authoring turn may write
+  // the amendment draft (phase-staging-paths.mjs +382), /sf-reject's propose route (copilot-guidance.mjs +303) and the
+  // clarification protocol's amendment route (clarifications.mjs +255). The pause itself stays out of this graph
+  // (intent-amendment-pause.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_249_300, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

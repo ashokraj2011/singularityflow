@@ -12,7 +12,8 @@
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { departureStandsAccepted } from './departure-acceptance.mjs';
-import { intentAmendmentSource, latestStepBefore, scopeStepOf } from './phase-roles.mjs';
+import { latestStepBefore, scopeStepOf } from './phase-roles.mjs';
+import { intentAmendmentProposable } from './intent-amendment-pause.mjs';
 import { clauseMentionPattern } from './traceability-ids.mjs';
 import { DIFFERENCE_VERDICTS } from './conformance-differences.mjs';
 
@@ -65,11 +66,11 @@ export function upstreamChangeRoutes(workflow, producerId, { currentPhaseId = wo
   } else if (earlier && !allowed.includes(producerId)) {
     notes.push(`${current.id} may not return work to ${producerId}; its allowed return targets are ${allowed.join(', ') || 'none'}. A workflow maintainer decides how ${producerId} is corrected.`);
   }
-  if (scopeStepOf(workflow)?.id === producerId && intentAmendmentSource(workflow, current.id)) {
+  if (scopeStepOf(workflow)?.id === producerId && intentAmendmentProposable(workflow, current.id)) {
     routes.push({
       kind: 'intent-amendment', phase: producerId, legal: true, skill: null,
       command: 'singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <reason>',
-      label: `Propose a reviewed amendment of the approved ${producerId} scope from ${current.id}. Its approvers decide; ${current.id} keeps its draft meanwhile.`
+      label: `Propose a reviewed amendment of the approved ${producerId} scope from ${current.id}. Its approvers decide it on the decisions card; ${current.id} pauses until then.`
     });
   }
   const raised = raiseUpstreamIssueRoute(workflow, producerId, current.id);

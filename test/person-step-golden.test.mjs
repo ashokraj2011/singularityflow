@@ -81,6 +81,7 @@ const COMMANDS = Object.freeze({
   'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],
   'target-origin-pin': [`singularity-flow story target-origin PMC-1 --url https://staging.example.test --reason "Approved staging target." --confirm ${digest}`],
   'intent-amendment-decision': ['singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001'],
+  'intent-amendment-acknowledgement': ['singularity-flow story intent-amendment acknowledge AMD-001 --work-id PMC-1'],
   'knowledge-confirmation': ['singularity-flow wm rules confirm R-0123456789ab --json', 'singularity-flow wm knowledge reject K-rule-0123456789abcdef --note "Not a rule."'],
   'spec-drift-decision': ['singularity-flow spec drift decide PMC-1:REQ-001 --accept --reason "The code is right."'],
   'spec-library-decision': ['singularity-flow spec author decide SPEC-CHK-004 GAP-001 --option O1 --reason "Strictly above."', 'singularity-flow spec author settle SPEC-CHK-004 --all-articles satisfied',

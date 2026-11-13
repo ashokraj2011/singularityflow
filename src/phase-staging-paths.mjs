@@ -9,7 +9,7 @@
  */
 import path from 'node:path';
 import { phaseInspectionGeneration } from './phase-inspection-generation.mjs';
-import { sourceReviewKind } from './phase-roles.mjs';
+import { intentAmendmentSource, sourceReviewKind } from './phase-roles.mjs';
 import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
 
 const STAGING_DIRECTORIES = Object.freeze({ clarification: 'clarification-responses', 'source-review': 'source-reviews' });
@@ -60,7 +60,9 @@ export function intentAmendmentDraftPath(gitDirectory, workflow) {
 
 /**
  * The staging files a turn in `turnMode` may write for the current step. An authoring turn gets the
- * clarification file while the step's checkpoint is on; a source-review turn gets the report file
+ * clarification file while the step's checkpoint is on, and the Story's intent-amendment draft once the
+ * step may propose one (the person says an approved requirement changed: the turn drafts and proposes
+ * it, never edits the approved scope [owner, 2026-11-13]); a source-review turn gets the report file
  * unless the reviewer would review its own work; a /sf-reject turn gets the Story's intent-amendment
  * draft, whatever the step's status (its skill drafts the amended scope there and proposes it; the
  * scope's approvers decide it). Every other turn gets none.
@@ -70,8 +72,9 @@ export function phaseStagingPaths({ gitDirectory, definition, workflow, phase = 
     return [intentAmendmentDraftPath(gitDirectory, workflow)];
   }
   if (!gitDirectory || !phase?.id || phase.status !== 'in_progress' || workflow?.currentPhase !== phase.id) return [];
-  if (turnMode === 'authoring' && pinnedClarificationMode(definition, workflow, phase) !== 'off') {
-    return [clarificationStagingPath(gitDirectory, workflow, phase)];
+  if (turnMode === 'authoring') {
+    return [...(pinnedClarificationMode(definition, workflow, phase) !== 'off' ? [clarificationStagingPath(gitDirectory, workflow, phase)] : []),
+      ...(workflow.workItem?.id && intentAmendmentSource(workflow, phase.id) ? [intentAmendmentDraftPath(gitDirectory, workflow)] : [])];
   }
   if (turnMode === 'read-only-review' && workflow.workItem?.id && sourceReviewKind(workflow, phase.id)
       && !sourceReviewAuthorConflict(workflow, phase)) {

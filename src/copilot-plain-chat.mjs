@@ -81,12 +81,18 @@ export async function checkoutStory(repository) {
     if (state?.workItem?.id !== id || !storyBranches(state).includes(branch) || state.status !== 'in_progress') continue;
     const phase = state.phases?.[state.currentPhase];
     if (!phase) return null;
-    const [{ askedForGeneration, typedFocusOff }, { phaseRequiresCodeDelivery }] = await Promise.all([
-      import('./asked-for.mjs'), import('./code-delivery-policy.mjs')]);
+    const [{ askedForGeneration, typedFocusOff }, { phaseRequiresCodeDelivery }, { scopeStepOf }, { intentAmendmentPause }] = await Promise.all([
+      import('./asked-for.mjs'), import('./code-delivery-policy.mjs'), import('./phase-roles.mjs'), import('./intent-amendment-pause.mjs')]);
     let code = false;
     try { code = phaseRequiresCodeDelivery(phase); } catch { /* an unreadable step is no code step */ }
+    // The approved requirements, which change only through an intent amendment, and an amendment that pauses this step.
+    const scope = scopeStepOf(state);
+    const paused = intentAmendmentPause(state)?.id;
+    const scopeArtifact = scope?.status === 'approved' && typeof scope.requiredArtifact?.path === 'string'
+      ? path.posix.normalize(`${workItemRoot}/${id}/${scope.requiredArtifact.path}`) : null;
     return { workId: id, phase: phase.id, label: phase.label ?? phase.id, code, generation: askedForGeneration(phase),
-      typedFocusOff: typedFocusOff(state), gitDir: repository.gitDir };
+      typedFocusOff: typedFocusOff(state), gitDir: repository.gitDir, ...(scopeArtifact ? { scopeArtifact } : {}),
+      ...(paused ? { paused } : {}) };
   }
   return null;
 }
@@ -211,8 +217,9 @@ export async function notePrompt(payload, { skill = null, now = Date.now() } = {
  */
 async function routeLine(story, repository) {
   const policy = await plainChatEditsPolicy(repository.root, '').catch(() => DEFAULT_EDITS);
-  const route = story ? `${story.workId} is at ${story.label}. To change it, the person types /sf-${story.code ? 'code' : 'phase'} ${story.workId} …`
-    : 'No Story is in progress in this checkout. To change it, the person starts one with /sf-start <NEW-ID> …';
+  const route = story?.paused ? `${story.workId} is at ${story.label}, paused: ${story.paused} waits for the requirements approvers, who decide it on the decisions card (/sf-decide ${story.workId})`
+    : story ? `${story.workId} is at ${story.label}. To change it, the person types /sf-${story.code ? 'code' : 'phase'} ${story.workId} …`
+      : 'No Story is in progress in this checkout. To change it, the person starts one with /sf-start <NEW-ID> …';
   const tail = { refuse: ' A plain chat\'s edits and writing commands are refused here.',
     record: ' A change made in a plain chat is recorded, and its step\'s approval waits for it.', allow: '' }[policy] ?? '';
   return `SFlow: ${route}; answer questions freely.${tail}`;
@@ -262,6 +269,22 @@ function lineToType(story, words, root) {
   return `/sf-start <NEW-ID>${asked}${quickFix ? ' (its quick-fix workflow suits a small change)' : ''}`;
 }
 
+/**
+ * An edit of the approved requirements, or of a step paused for an amendment proposed from it, in any policy: the
+ * requirements change only through an intent amendment that a person decides on the decisions card, and the
+ * paused step stays as its amendment was proposed against [owner, 2026-11-13].
+ */
+function amendmentRefusal(story, relative) {
+  const card = `/sf-decide ${story.workId}`;
+  return { permissionDecision: 'deny', next: [], permissionDecisionReason: relative === story.scopeArtifact
+    ? `PLAIN_CHAT_APPROVED_SCOPE: ${relative} holds ${story.workId}'s approved requirements, which change only through an intent amendment, so this edit did not run. `
+      + `Draft one with singularity-flow story intent-amendment draft --work-id ${story.workId} --clause <CLAUSE-ID>, write only the changed clauses in the draft, `
+      + `propose it with singularity-flow story intent-amendment propose --work-id ${story.workId} --file <DRAFT> --reason "<why>" --authored governed-agent --channel copilot-host, `
+      + `then tell the person to decide it on the decisions card: ${card}. ${story.phase} pauses until it is decided. Do not retry the edit`
+    : `PLAIN_CHAT_STEP_PAUSED: ${story.paused} waits for the requirements approvers, and ${story.phase} pauses until it is decided, so this edit${relative ? ` to ${relative}` : ''} did not run. `
+      + `Tell the person to decide it on the decisions card: ${card} (a stale one is refreshed there). Do not retry it` };
+}
+
 function changeRefusal(change, line, relative) {
   const what = change.kind === 'command' ? 'this command' : change.kind === 'run' ? 'this SFlow plan' : `this edit${relative ? ` to ${relative}` : ''}`;
   return { permissionDecision: 'deny', next: [], permissionDecisionReason:
@@ -283,6 +306,7 @@ export async function plainChatChangeGuard(payload, { policyFor = plainChatEdits
   const changes = (await import('./copilot-mutation-guard.mjs')).plainChatChanges(payload, { rootOf });
   if (!changes.length) return null;
   const recorded = [];
+  const stories = new Map();
   for (const change of changes) {
     const base = typeof change.cwd === 'string' ? change.cwd : process.cwd();
     const places = change.targets.length ? change.targets.slice(0, 16).map((target) => path.resolve(base, target)) : [base];
@@ -294,6 +318,11 @@ export async function plainChatChangeGuard(payload, { policyFor = plainChatEdits
       if (change.kind === 'edit' && isCopilotHooksPath(relative)) {
         return { permissionDecision: 'deny', next: [], permissionDecisionReason:
           `PLAIN_CHAT_HOOKS_PROTECTED: this edit to ${relative} did not run: ${COPILOT_HOOKS_PROTECTED}. Tell the person; do not retry it` };
+      }
+      if (change.kind === 'edit' && relative && !/^\.git(?:\/|$)/u.test(relative)) {
+        if (!stories.has(repository.root)) stories.set(repository.root, await checkoutStory(repository).catch(() => null));
+        const story = stories.get(repository.root);
+        if (story && (story.paused || relative === story.scopeArtifact)) return amendmentRefusal(story, relative);
       }
       const policy = await policyFor(repository.root, relative);
       if (policy === 'allow') continue;

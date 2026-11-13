@@ -177,6 +177,8 @@ function skillRouteForCommand(command, skill, fallback) {
       && value.match(/^(?:singularity-flow|sflow)\s+decisions\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
     return match && match[1] !== 'record' ? `${selected} ${match[1]}` : selected;
   }
+  // /sf-reject drafts and proposes an amendment through its own route; its bare form returns a phase [owner, 2026-11-13].
+  if (selected === '/sf-reject' && /^(?:singularity-flow|sflow)\s+story\s+intent-amendment\s+(?:draft|propose)(?:\s|$)/u.test(value)) return '/sf-reject intent-amendment propose';
   if (selected === '/sf-approve') {
     const selectors = approvalSelectors(value);
     return selectors ? `${selected} ${selectors}` : selected;

@@ -115,10 +115,12 @@ export function assertIntentAmendmentAcknowledged(workflow) {
   const amendment = pendingIntentAmendmentAcknowledgement(workflow);
   if (!amendment) return;
   const command = `singularity-flow story intent-amendment acknowledge ${amendment.id} --work-id ${workflow.workItem.id}`;
-  throw new SingularityFlowError(`Intent amendment '${amendment.id}' changed ${amendment.changedClauses?.join(', ') || 'the approved scope'}. Acknowledge it before downstream revalidation with ${command}.`, {
+  // A person acknowledges it on the decisions card, which /sf-decide opens; no agent turn does [owner, 2026-11-13].
+  throw new SingularityFlowError(`Intent amendment '${amendment.id}' changed ${amendment.changedClauses?.join(', ') || 'the approved scope'}. A person acknowledges it before downstream revalidation, on the decisions card (/sf-decide ${workflow.workItem.id}) or with ${command}.`, {
     code: 'INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED',
     details: { workId: workflow.workItem.id, phase: workflow.currentPhase,
-      actions: [{ command, skill: '/sf-reject', detail: 'Review the amendment and acknowledge only with an explicit human choice.' }] }
+      actions: [{ command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide', detail: `A person reads ${amendment.id} and acknowledges it on the decisions card.` },
+        { command, detail: 'Or they acknowledge it in their own terminal; an agent never does.' }] }
   });
 }
 

@@ -652,6 +652,8 @@ export function argvAllowed(argv, mode, value) {
       && (action !== 'approve' || approvalChatDecisions(options));
   }
   if (classification === 'read') return true;
+  // While an amendment proposed from this step waits, nothing moves the step it is bound to [owner, 2026-11-13].
+  if (pausedStepCommand(positionals, options, value.contract)) return false;
   if (mode === 'review-decision-only') return !value.decisionEnded && positionals[0] === 'review-source'
     && positionals[1] === 'decide' && positionals[2] === value.contract.phaseId
     && options['work-id'] === value.contract.workId && typeof options.finding === 'string'
@@ -738,8 +740,9 @@ export function argvAllowed(argv, mode, value) {
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
   // agent may raise one and keep working, never decide it.
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return false;
-  // So is deciding an intent amendment: the scope's approvers decide it, in their own terminal.
-  if (intentAmendmentDecision(positionals)) return false;
+  // So is deciding an intent amendment, and acknowledging an approved one: a person records each on the
+  // decisions card, never an agent turn [owner, 2026-11-13].
+  if (intentAmendmentPersonStep(positionals)) return false;
   // Accepting that a step's tests cannot run here or ran narrowed, reusing another step's recorded run
   // for it, or saying one of its screen sizes does not apply, is its approvers' call too; the refusal names it.
   if (positionals[0] === 'decision' && ['test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'visual-profile'].includes(positionals[1])) return false;
@@ -880,13 +883,49 @@ function upstreamIssueDecision(call, value) {
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
 }
 
-/** `story intent-amendment decide`: a person who approves the scope decides it, never an agent turn. */
-function intentAmendmentDecision(positionals) {
-  return positionals[0] === 'story' && positionals[1] === 'intent-amendment' && positionals[2] === 'decide';
+/** `story intent-amendment decide|acknowledge`: a person's, on the decisions card, never an agent turn's [owner, 2026-11-13]. */
+function intentAmendmentPersonStep(positionals) {
+  return positionals[0] === 'story' && positionals[1] === 'intent-amendment' && ['decide', 'acknowledge'].includes(positionals[2]);
 }
-function intentAmendmentDecisionCall(call, value) {
+/** A verified `story intent-amendment decide|acknowledge` as { argv, verb }, or null. */
+function intentAmendmentPersonCall(call, value) {
   const safe = verifiedShellForm(call, value);
-  return Boolean(safe) && intentAmendmentDecision(parseCli(safe.argv).positionals);
+  const { positionals } = safe ? parseCli(safe.argv) : { positionals: [] };
+  return intentAmendmentPersonStep(positionals) ? { argv: safe.argv, verb: positionals[2] } : null;
+}
+/**
+ * The decisions card as a person's route for an intent amendment's decision or acknowledgement: /sf-decide
+ * opens it, and the same line is theirs in a terminal [owner, 2026-11-13].
+ */
+function decisionsCardRoute(argv, workId = null) {
+  const guidance = argv ? safeCommandGuidance({ argv }) : null;
+  const options = argv ? parseCli(argv).options : {};
+  const work = typeof options['work-id'] === 'string' ? options['work-id'] : workId;
+  return guidance ? { ...guidance, skill: '/sf-decide', copilotCommand: `/sf-decide${work ? ` ${work}` : ''}` } : null;
+}
+const INTENT_AMENDMENT_CARD_DENIALS = Object.freeze({
+  decide: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, on the decisions card, never by this turn. Tell them to open it with /sf-decide <WORK-ID> (a stale one is refreshed there), or to run the decide command in their own terminal. Do not retry it',
+  acknowledge: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: acknowledging an approved intent amendment is a person\'s own step, recorded on the decisions card, never by this turn. Tell them to open it with /sf-decide <WORK-ID>, or to run the acknowledge command in their own terminal. Do not retry it'
+});
+
+/**
+ * A command that would move the step an undecided amendment was proposed from, while it waits, so its
+ * proposal stays bound to the step as it was [owner, 2026-11-13]. Its previews stay open.
+ */
+function pausedStepCommand(positionals, options, contract) {
+  const pause = contract?.policy?.intentAmendmentPause;
+  if (!pause || (options['work-id'] && options['work-id'] !== contract.workId)) return false;
+  const [command, sub, third] = positionals;
+  const named = (step) => !step || step === pause.phaseId;
+  if (['prepare', 'submit'].includes(command)) return named(sub) && options['dry-run'] !== true;
+  return command === 'phase' && named(third) && (['publish', 'begin'].includes(sub)
+    || (sub === 'prepublish' && options['publish-if-ready'] === true) || (sub === 'rollover' && options.confirm !== undefined));
+}
+function pausedStepCall(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseCli(safe.argv);
+  return pausedStepCommand(positionals, options, value.contract);
 }
 
 /** A verified `env bind` or `env unbind`: only the person supplies or removes environment values. */
@@ -925,7 +964,9 @@ const OWN_STEP_DENIALS = Object.freeze({
   'spec-slice-change': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: dropping a clause of a Story\'s specification slice changes what the Story was asked to deliver; that is the person\'s own step. Show the user the command and stop; do not retry it',
   'spec-split-publication': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing a split divides a specification revision among child specifications and Story slices for everyone who takes them; that is the person\'s own step (proposing one with --propose may run here). Show the user the command and stop; do not retry it',
   'configuration-approve': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a configuration proposal activates it for every Story that starts after it; the reviewer runs it in their own terminal, where it shows the change and asks, or in Workflow Studio. Show the user the command and stop; do not retry it',
-  'workflow-activate': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: activating a configuration proposal changes it for every Story that starts after it; the person runs this exact line in their own terminal, or uses Workflow Studio, Changes, Review and activate. Show the user the line and stop; do not retry it'
+  'workflow-activate': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: activating a configuration proposal changes it for every Story that starts after it; the person runs this exact line in their own terminal, or uses Workflow Studio, Changes, Review and activate. Show the user the line and stop; do not retry it',
+  'intent-amendment-decision': INTENT_AMENDMENT_CARD_DENIALS.decide,
+  'intent-amendment-acknowledgement': INTENT_AMENDMENT_CARD_DENIALS.acknowledge
 });
 const OWN_STEP_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this is the person\'s own step; they run this exact command in their own terminal and no turn runs it. Show the user the command and stop; do not retry it';
 const LOCK_RELEASE_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: ending a lock another process holds is the person\'s own step: they check that the process the refusal named no longer works on it (`singularity-flow lock show` or `lock show-file` reads it), then run this exact release in their own terminal. Show the user who holds the lock and the command, and stop; do not retry it or wait for the lock';
@@ -1233,9 +1274,12 @@ function personStepRefusal({ id, argv, owners }) {
   // A step a turn owns keeps that turn as its Copilot route: the reason names it, and "no verified
   // equivalent" under it sent a person to a terminal for what /sf-decide records in chat (2026-11-06).
   const witness = id === 'witness' ? witnessPageRoute(argv) : null;
-  const routes = witness ? [witness] : guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
-  const reason = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
+  // An intent amendment's decision or acknowledgement: the decisions card [owner, 2026-11-13].
+  const card = id.startsWith('intent-amendment-') ? decisionsCardRoute(argv) : null;
+  const routes = witness ? [witness] : card ? [card] : guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
+  const said = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
     : PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
+  const reason = card?.copilotCommand.includes(' ') ? said.replace('/sf-decide <WORK-ID>', card.copilotCommand) : said;
   return { permissionDecision: 'deny', next: routes,
     permissionDecisionReason: `${reason}.${routes.length ? `\n\n${routes.map(route => formatCommandRouteLines(route).join('\n')).join('\n\n')}` : ''}` };
 }
@@ -1993,8 +2037,12 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest', [], own());
         if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL, [], own());
         if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL, [], own());
-        if (intentAmendmentDecisionCall(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an intent amendment is decided by a person who approves the scope, in their own terminal, not by this turn. Show the user the amendment and the decide command, and stop; do not retry it', [], own());
+        const amendmentStep = intentAmendmentPersonCall(call, value);
+        if (amendmentStep) return mutationDenial(contract, INTENT_AMENDMENT_CARD_DENIALS[amendmentStep.verb].replace('<WORK-ID>', contract.workId ?? '<WORK-ID>'),
+          [], { routes: [decisionsCardRoute(amendmentStep.argv, contract.workId)].filter(Boolean) });
+        if (pausedStepCall(call, value)) return mutationDenial(contract,
+          `INTENT_AMENDMENT_PENDING_PAUSE: this would move the step ${contract.policy.intentAmendmentPause.id} was proposed from, which pauses until a person decides it on the decisions card, so it does not run. Do not retry it; tell the person`,
+          [], { routes: [decisionsCardRoute(['decisions', contract.workId], contract.workId)].filter(Boolean) });
         if (approvalEvidenceConfirmationCall(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving with --confirm-evidence also records the step\'s screenshots and inspections as witnessed, the word of the approver who looked at them, in their own terminal; an agent never signs off evidence. Approve here without it, or show the user the command and stop; do not retry it', [], own());
         if (clarificationAnswerCall(call, value)) return mutationDenial(contract,
@@ -2086,6 +2134,9 @@ async function mutationToolDecision(payload, record) {
     if (correction) return correction;
     const unissued = await unissuedStagingRefusal(value, denied, call.args.cwd ?? payload.cwd ?? contract.repositoryRoot);
     if (unissued) return unissued;
+    // The paused step's files and the application stay as the amendment was proposed against [owner, 2026-11-13].
+    if (denied.length && contract.policy?.intentAmendmentPause) return mutationDenial(contract,
+      'INTENT_AMENDMENT_PENDING_PAUSE: no file of this step changes while its amendment waits; tell the person, and do not retry it', denied);
     if (denied.length) return mutationDenial(contract, 'PHASE_MUTATION_PATH_DENIED', denied);
   }
   return {};

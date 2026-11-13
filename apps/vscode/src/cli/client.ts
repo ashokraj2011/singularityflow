@@ -437,8 +437,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'inputs') return enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   if (args[0] === 'documents') return ['list', 'browse', 'artifacts'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'decision') return (args[1] ?? 'show') === 'show' ? 'read' : 'mutation';
-  // The decision list and a preview of choices read; only `decisions record` writes.
-  if (args[0] === 'decisions') return args[1] === 'record' ? 'mutation' : 'read';
+  // The decision list and a preview of choices read; only `decisions record` and `decisions undo` write.
+  if (args[0] === 'decisions') return ['record', 'undo'].includes(args[1] ?? '') ? 'mutation' : 'read';
   // A user-defined agent folder is proposed only by a confirmed `call add`.
   // The gateway's stdio server hosts confirmed mutations; its schema and event listings only read.
   if (args[0] === 'gateway') return args[1] === 'serve' ? 'mutation' : 'read';

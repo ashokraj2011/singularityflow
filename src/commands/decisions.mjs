@@ -25,6 +25,12 @@ import { formatCommandRouteLines } from '../model-free-commands.mjs';
  * A pending intent amendment is approved, rejected or refreshed here, and an approved one acknowledged,
  * through `story intent-amendment`'s own functions with every check they make, each alone in its run and
  * said to come from the card when an answers file carries it [owner, 2026-11-13].
+ *
+ *   singularity-flow decisions undo [WORK-ID] --settled STL-001 [--reason TEXT] [--json]
+ *
+ * What the agent or SFlow settled for the person is listed as "Settled for you" with its evidence; undoing one,
+ * here or with the card's Undo, makes it a question for the person again on its own route [owner, 2026-11-13].
+ * Only a person undoes: the Copilot guard refuses it in every turn (person-step-catalog.mjs).
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -40,6 +46,7 @@ import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowErro
 
 const SHOW_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'phase', 'choose', 'reason', 'expires', 'cause', 'clause', 'card']);
 const RECORD_OPTIONS = Object.freeze([...SHOW_OPTIONS, 'confirm', 'answers', 'fetch']);
+const UNDO_OPTIONS = Object.freeze(['json', 'help', 'no-model', 'work-id', 'settled', 'reason', 'fetch']);
 const DIGEST = /^sha256:[a-f0-9]{64}$/u;
 
 export const DECISIONS_USAGE = [
@@ -49,6 +56,7 @@ export const DECISIONS_USAGE = [
   '       singularity-flow decisions record [WORK-ID] --choose ITEM=OPTION [...] --confirm sha256:DIGEST [--json]   (a script or a /sf-decide turn)',
   '       singularity-flow decisions record [WORK-ID] --answers FILE',
   '       singularity-flow decisions record [WORK-ID]   (interactive terminal)',
+  '       singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT]   (what was settled for you becomes your question again)',
   'Lists what people must decide before the step can move, in plain words with choices, and records the',
   'choices with one confirmation. Each choice is checked against the deciding person\'s approval group and',
   'written as the same records its own command writes. Options with a recommendation are shown first.'
@@ -111,7 +119,7 @@ async function answersFrom(options) {
 const answered = (answers) => answers.choose.size > 0;
 
 /** An item of the list, or one it offers beside what it waits on. */
-const listedItem = (packet, id) => [...packet.items, ...(packet.offered ?? [])].find((item) => item.id === id);
+const listedItem = (packet, id) => [...packet.items, ...(packet.offered ?? []), ...(packet.settled ?? [])].find((item) => item.id === id);
 
 /** The values a person changed from the defaults, so the exact record command carries only those. */
 function changedValues(packet, plan) {
@@ -187,9 +195,16 @@ function itemLines(item, index, { numbered = false } = {}) {
 /** The VS Code command that opens the decisions card, as its Command Palette shows it. */
 const VSCODE_DECISIONS_CARD = 'Command Palette: Singularity Flow: Decide Everything This Step Waits On';
 
+/** What was settled for the person, each with its evidence and its undo [owner, 2026-11-13]. */
+function settledLines(packet) {
+  if (!packet.settled?.length) return [];
+  return ['', 'Settled for you (nobody was asked; undo one to make it your question again):', ...packet.settled.flatMap((item) => [
+    `${item.id}. ${item.answerWords}`, `   ${item.why}`, `   Undo: ${item.details.commands[0]}`])];
+}
+
 function packetText(packet) {
   const lines = [packet.headline, ...(packet.recorded?.length ? ['', 'Recorded plan accounting (separate from visual sign-off):',
-    ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : [])];
+    ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : []), ...settledLines(packet)];
   if (!packet.items.length && !packet.offered?.length) return `${lines.join('\n')}\n`;
   lines.push('');
   for (const [index, item] of packet.items.entries()) lines.push(...itemLines(item, index), '');
@@ -423,6 +438,12 @@ function sameProposal(workflow, effect) {
 
 /** Write one effect with the function its own command uses; returns the record it wrote. */
 async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent, channel = 'terminal' }) {
+  if (effect.kind === 'settled-undo') {
+    // The card's Undo: the same function as `decisions undo`, said to come from the card [owner, 2026-11-13].
+    const { undoSettledDecision } = await import('../settled-decisions.mjs');
+    const { undo, reraised } = await undoSettledDecision(root, config, workflow, effect.settled, { actor, agent, reason: step.values.reason || null, channel });
+    return { id: undo.id, undoes: undo.undoes, reraised, words: `${undo.undoes} is undone: ${reraised.words}` };
+  }
   if (effect.kind === 'intent-amendment-decision' || effect.kind === 'intent-amendment-refresh') {
     // The same functions as `story intent-amendment decide`, with every check they make, said to come from the card.
     sameProposal(workflow, effect);
@@ -524,6 +545,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
 }
 
 function recordId(kind, record) {
+  if (kind === 'settled-undo') return `${record?.undoes} undone`;
   if (kind === 'intent-amendment-decision') return `${record?.id} ${record?.reached === false ? 'approval recorded' : record?.decision}`;
   if (kind === 'intent-amendment-refresh') return `${record?.id} refreshed as ${record?.refreshedAs}`;
   if (kind === 'intent-amendment-acknowledge') return `${record?.id} acknowledged`;
@@ -639,7 +661,7 @@ async function record(root, options, workId, io) {
     // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
     const draftedItems = new Set([...drafted, ...unchanged].map((entry) => entry.item));
     // What an intent amendment's decision did, beside what was chosen: a partial approval waits for the rest.
-    const said = new Map(outcome.recorded.filter((entry) => /^intent-amendment-(?:decision|refresh|acknowledge)$/u.test(entry.kind) && entry.record?.words)
+    const said = new Map(outcome.recorded.filter((entry) => /^(?:intent-amendment-(?:decision|refresh|acknowledge)|settled-undo)$/u.test(entry.kind) && entry.record?.words)
       .map((entry) => [entry.item, entry.record.words]));
     const decided = plan.steps.filter((step) => !draftedItems.has(step.item))
       .map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}${said.has(step.item) ? `. ${said.get(step.item)}` : ''}` }));
@@ -698,17 +720,51 @@ async function show(root, options, workId) {
   return emitShow(shown, options, workflow);
 }
 
-export async function run(argv, { positionals = argv, options = {}, io = { input: processInput, output: processOutput } } = {}) {
-  const mode = positionals[1] === 'record' ? 'record' : 'show';
-  if (options.help === true) return console.log(DECISIONS_USAGE);
-  const allowed = new Set(mode === 'record' ? RECORD_OPTIONS : SHOW_OPTIONS);
-  for (const key of Object.keys(options)) {
-    if (!allowed.has(key)) refused(`Unsupported decisions ${mode === 'record' ? 'record ' : ''}option --${key}.`, 'DECISIONS_OPTIONS_INVALID');
+/**
+ * `decisions undo --settled STL-ID`: a person hands a settled decision back to themselves [owner, 2026-11-13]. Its
+ * question goes back on its own route, which the result names; nothing it settled is reversed here.
+ */
+async function undo(root, options, workId) {
+  const id = optionString(options, 'settled');
+  if (!id) refused('Name the settled decision to undo: singularity-flow decisions undo [WORK-ID] --settled STL-001. `singularity-flow decisions` lists what was settled.', 'DECISIONS_OPTIONS_INVALID');
+  const { config, workflow } = await storyContext(root, workId, { record: true, fetch: optionBoolean(options, 'fetch') });
+  if (workflow.status !== 'in_progress') {
+    refused(`Story ${workflow.workItem.id} is ${workflow.status}; what was settled is undone while it is in progress.`, 'DECISIONS_STORY_CLOSED');
   }
-  const idIndex = mode === 'record' ? 2 : 1;
-  if (positionals.length > idIndex + 1) refused('Name at most one Story: singularity-flow decisions [record] [WORK-ID].', 'DECISIONS_OPTIONS_INVALID');
+  const [{ undoSettledDecision }, { actionActor }, { loadSession }] = await Promise.all([
+    import('../settled-decisions.mjs'), import('./kernel.mjs'), import('../session.mjs')]);
+  const session = await loadSession(root, { required: false });
+  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
+  const result = await undoSettledDecision(root, config, workflow, id, { actor: actionActor(root), agent,
+    reason: optionString(options, 'reason') ?? null, channel: 'terminal' });
+  if (!optionBoolean(options, 'json')) {
+    console.log(`Undid ${result.settled.id}: ${result.settled.answer}`);
+    console.log(result.reraised.words);
+    console.log(`Next: ${result.reraised.copilotCommand ?? result.reraised.command}`);
+  }
+  emitCommandResult(commandResult({
+    operation: { id: 'decisions.undo', classification: 'mutation' },
+    subject: { kind: 'story', id: workflow.workItem.id },
+    outcome: succeeded('decisions.undo.succeeded', { settled: result.settled.id, undo: result.undo.id }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
+    next: [action({ id: 'settled-undo.reraised', label: result.reraised.words, command: result.reraised.command,
+      skill: result.reraised.copilotCommand?.split(' ')[0] ?? null, rank: 'NOW', kind: 'workflow' })],
+    data: { undo: result.undo, settled: result.settled, reraised: result.reraised, commit: result.publication?.sha ?? null, pushed: result.publication?.pushed ?? false }
+  }), { json: optionBoolean(options, 'json'), postState: workflow });
+}
+
+export async function run(argv, { positionals = argv, options = {}, io = { input: processInput, output: processOutput } } = {}) {
+  const mode = ['record', 'undo'].includes(positionals[1]) ? positionals[1] : 'show';
+  if (options.help === true) return console.log(DECISIONS_USAGE);
+  const allowed = new Set(mode === 'record' ? RECORD_OPTIONS : mode === 'undo' ? UNDO_OPTIONS : SHOW_OPTIONS);
+  for (const key of Object.keys(options)) {
+    if (!allowed.has(key)) refused(`Unsupported decisions ${mode === 'show' ? '' : `${mode} `}option --${key}.`, 'DECISIONS_OPTIONS_INVALID');
+  }
+  const idIndex = mode === 'show' ? 1 : 2;
+  if (positionals.length > idIndex + 1) refused('Name at most one Story: singularity-flow decisions [record|undo] [WORK-ID].', 'DECISIONS_OPTIONS_INVALID');
   const workId = positionals[idIndex] ?? optionString(options, 'work-id') ?? null;
   const { repoRoot } = await import('../git.mjs');
   const root = repoRoot();
+  if (mode === 'undo') return undo(root, options, workId);
   return mode === 'record' ? record(root, options, workId, io) : show(root, options, workId);
 }

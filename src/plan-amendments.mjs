@@ -110,6 +110,15 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
   return amendment;
 }
 
+/** Plan changes SFlow settled and nobody undid, as settled-decisions.mjs reads them, without loading it [owner, 2026-11-13]. */
+export function settledPlanChanges(workflow) {
+  const list = countedRecords(workflow, workflow?.settledDecisions, (entry) => Boolean(entry?.undoes));
+  const undone = new Set(list.map((entry) => entry.undoes));
+  return list.filter((entry) => !entry.undoes && !undone.has(entry.id)).flatMap(({ kind, effect: e = {}, answer, at }) => (
+    kind === 'plan-accounting' && e.path ? [{ kind: 'add-location', clauseId: e.clauseId, path: e.path, at }]
+      : kind === 'node-version' && e.file ? [{ kind: 'add-supporting', path: e.file, class: e.class, reason: String(answer).slice(0, 500), at }] : []));
+}
+
 /**
  * Every amendment as one more planned record, merged by the plan's readers: added locations are
  * accounted paths of their row, supporting changes join the plan's list. It claims nothing new, so
@@ -117,10 +126,11 @@ export function recordPlanAmendment(workflow, { changes = [], reason, actor, aut
  */
 export function planAmendmentRecord(workflow) {
   const amendments = countedRecords(workflow, workflow?.planAmendments);
-  if (!amendments.length) return null;
+  const settled = settledPlanChanges(workflow);
+  if (!amendments.length && !settled.length) return null;
   const accountedPaths = {};
   const supportingFileDetails = [];
-  for (const change of amendments.flatMap((amendment) => amendment.changes ?? [])) {
+  for (const change of [...amendments.flatMap((amendment) => amendment.changes ?? []), ...settled]) {
     if (change.kind === 'add-location') {
       accountedPaths[change.clauseId] = [...new Set([...(accountedPaths[change.clauseId] ?? []), change.path])].sort();
     } else if (change.kind === 'add-supporting' && !supportingFileDetails.some((entry) => entry.path === change.path)) {
@@ -135,7 +145,7 @@ export function planAmendmentRecord(workflow) {
   const owner = owners[0] ?? workflow.phaseOrder?.find((id) => stepResponsibilities(workflow, id).includes('plan')) ?? null;
   return {
     kind: 'planned', amendment: true, workId: workflow.workItem?.id ?? null, phase: owner,
-    generation: Number(workflow.phases?.[owner]?.generation ?? 0), recordedAt: amendments.at(-1).at,
+    generation: Number(workflow.phases?.[owner]?.generation ?? 0), recordedAt: settled.length ? [...amendments, ...settled].map((entry) => entry.at).sort().at(-1) : amendments.at(-1).at,
     claims: {}, accountedPaths,
     ...(supportingFileDetails.length ? { supportingFiles: supportingFileDetails.map((entry) => entry.path), supportingFileDetails } : {})
   };

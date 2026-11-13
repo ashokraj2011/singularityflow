@@ -23,6 +23,7 @@ import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
+import { evidenceWords, reraisedRoute, settledByWords, settledDecisions } from './settled-decisions.mjs';
 import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';
 import { testSetupFiles } from './test-support-files.mjs';
 import { testRunCauseWords } from './test-run-cause.mjs';
@@ -40,7 +41,7 @@ const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
 // A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
-const EFFECT_ORDER = Object.freeze(['intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['settled-undo', 'intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
 const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure', 'intent-amendment-decision', 'intent-amendment-refresh']);
 /**
@@ -101,7 +102,8 @@ function effectGroups(workflow, effect) {
   if (effect.kind === 'amendment-revalidation') return issueGroups(workflow, effect.phase);
   // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
   // Anyone working on the Story acknowledges an approved one [owner, 2026-11-13, D2].
-  if (['upstream-issue', 'intent-amendment-draft', 'intent-amendment-acknowledge'].includes(effect.kind)) return null;
+  // So does undoing what was settled for a person: it only hands the question back [owner, 2026-11-13].
+  if (['upstream-issue', 'intent-amendment-draft', 'intent-amendment-acknowledge', 'settled-undo'].includes(effect.kind)) return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
   // `story adjudicate` checks the convergence step's approval authority.
   if (effect.kind === 'convergence-adjudication') return issueGroups(workflow, effect.phase);
@@ -1356,6 +1358,32 @@ function testSetupItem(workflow, context, hold, files, { need }) {
   };
 }
 
+const SETTLED_SHOWN = 20;
+
+/**
+ * What the agent or SFlow settled for the person and that still stands, newest first [owner, 2026-11-13]: never a
+ * question, so it holds nothing and is not counted; each shows its answer and evidence, and one option, Undo,
+ * which makes it the person's question again on its own route (settled-decisions.mjs).
+ */
+function settledItems(workflow, context) {
+  const workId = workflow.workItem.id;
+  return settledDecisions(workflow).filter((entry) => !entry.undone).reverse().slice(0, SETTLED_SHOWN).map((entry) => {
+    const route = reraisedRoute(workflow, entry);
+    const by = settledByWords(entry);
+    const evidence = evidenceWords(entry);
+    const undo = `singularity-flow decisions undo ${workId} --settled ${entry.id}`;
+    return {
+      kind: 'settled', settled: true, title: `Settled for you: ${entry.answer}`.slice(0, 200), subject: entry.subject,
+      answerWords: entry.answer, evidenceWords: evidence, by: entry.by, at: entry.at,
+      why: `${by.replace(/^./u, (first) => first.toUpperCase())} settled this because ${evidence}. Nobody was asked; undo it if it is wrong.`,
+      options: [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
+        effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo }],
+      details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence,
+        reraised: route, commands: [undo] }
+    };
+  });
+}
+
 /** The step's approval itself: always the list's last item. */
 function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal }) {
   const workId = workflow.workItem.id;
@@ -1498,12 +1526,14 @@ const HOLDS_WORDS = Object.freeze({
  */
 export const DECISION_OUTCOMES = Object.freeze({
   accept: 'Accept', 'accept-risk': 'Accept as a risk until a date', return: 'Return to a step', 'change-spec': 'Change the spec',
-  'not-applicable': 'Not applicable', defer: 'Decide later', dismiss: 'Dismiss: not real', route: 'Choose the route', 'own-step': 'Your own step'
+  'not-applicable': 'Not applicable', defer: 'Decide later', dismiss: 'Dismiss: not real', route: 'Choose the route', 'own-step': 'Your own step',
+  undo: 'Undo: ask me instead'
 });
 
 /** The outcome an option is, from its kind and ID; anything not named below accepts what the item asks about. */
 export function optionOutcome(item, entry) {
   const id = String(entry.id ?? '');
+  if (item.kind === 'settled') return 'undo';
   if (item.kind === 'routing-decision' || /^(?:choose|to)-/u.test(id) || id === 'route') return 'route';
   // Approving an intent amendment changes the approved clauses.
   if (item.kind === 'intent-amendment' && id === 'approve') return 'change-spec';
@@ -1690,6 +1720,11 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
     decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing,
     answer: itemAnswer({ ...item, options: item.options }, workflow.workItem.id) }));
+  // Settled for you: numbered after everything else, so no item's number changes when one is settled or undone.
+  const settled = settledItems(workflow, context).map((item, index) => ({ id: `d${items.length + offered.length + index + 1}`, ...item,
+    options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
+    decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing,
+    answer: itemAnswer(item, workflow.workItem.id) }));
   if (door) items.unshift({ id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true, holds: 'approval', holdsWords: HOLDS_WORDS.approval,
     answer: itemAnswer(door, workflow.workItem.id) });
   // What holds the approval: the approval item's heldBy, counted the one way. `open` counts every
@@ -1705,6 +1740,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     items: boundItems.map((item) => ((DECIDED_HERE.has(item.kind) || item.options.some((entry) => entry.recordable !== false)) && !item.details?.code ? decidedHere(item)
       : { id: item.id, kind: item.kind, details: Object.fromEntries(Object.entries(item.details ?? {}).filter(([key]) => key !== 'commands')) })),
     ...(offered.length ? { offered: offered.map(decidedHere) } : {}),
+    // An undo from a card that showed another settlement is refused like any changed list.
+    ...(settled.length ? { settled: settled.map(decidedHere) } : {}),
     state: facts.state ?? null
   };
   const digest = `sha256:${recordSha256(bound)}`;
@@ -1746,6 +1783,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     headline, rule: CONFORMANCE_GAP_RULE,
     items, holding, open: items.length,
     ...(offered.length ? { offered } : {}),
+    ...(settled.length ? { settled } : {}),
     ...(facts.inactiveTestCommands?.length ? { inactiveTestCommands: facts.inactiveTestCommands } : {}),
     next: first && !takenNow(first) ? { item: first.id, kind: first.kind, title: first.title, notYet: first.options[0]?.words ?? first.why,
       command: `singularity-flow nextsteps ${workId} --json`, copilotCommand: `/sf-next ${workId}` }
@@ -1851,13 +1889,13 @@ export function decisionRecordPlan(packet, answers, { at }) {
   const refusedItems = [];
   // An item that is not on this list was dropped without a word, or read as "you may not decide what
   // you chose" when it was the only one: name it and the items there are [agent input repairs].
-  const listed = [...packet.items, ...(packet.offered ?? [])].map((item) => item.id);
+  const listed = [...packet.items, ...(packet.offered ?? []), ...(packet.settled ?? [])].map((item) => item.id);
   for (const flag of ['choose', 'reason', 'expires', 'cause', 'clause', 'article']) {
     const unknown = [...(answers[flag]?.keys() ?? [])].filter((item) => !listed.includes(item));
     if (unknown.length) refused(`--${flag} names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'is not an item' : 'are not items'} of this list; its items are ${listed.join(', ') || 'none'}. Nothing was recorded.`,
       'DECISIONS_ANSWER_INVALID', { items: listed, unknown });
   }
-  for (const item of [...packet.items, ...(packet.offered ?? [])]) {
+  for (const item of [...packet.items, ...(packet.offered ?? []), ...(packet.settled ?? [])]) {
     const chosen = answers.choose.get(item.id);
     if (!chosen) {
       for (const flag of ['reason', 'expires', 'cause', 'clause', 'article']) {
@@ -1939,6 +1977,7 @@ export function effectWords(workflow, effect, values = {}) {
     return `reject ${effect.amendment} and propose the same change again against the step as it is now (intent amendment refresh)`;
   }
   if (effect.kind === 'intent-amendment-acknowledge') return `acknowledge ${effect.amendment} (intent amendment acknowledgement)`;
+  if (effect.kind === 'settled-undo') return `undo ${effect.settled}, so it is a question for a person again (undo of a settled decision)`;
   if (effect.kind === 'intent-amendment-draft') {
     return `draft ${stepName(workflow, effect.phase)}'s scope with a slot for ${listWords((effect.clauses ?? []).map((clause) => clauseName(workflow, clause)))}`
       + `${effect.path ? ` at ${effect.path}` : ''}; nothing is recorded or decided (intent-amendment draft)`;

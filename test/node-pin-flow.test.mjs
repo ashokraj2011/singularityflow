@@ -52,6 +52,20 @@ async function failingOnThisNode(t, files = {}) {
 test('a failed run on the wrong Node leads to one choice, and choosing it clears the gate', { ...posix, ...slowLane({ timeout: 480_000 }) }, async (t) => {
   const { root, run, json } = await failingOnThisNode(t);
 
+  // The package's engines range accepts one installed major here, so the repository named the answer: nobody is
+  // asked, and the agent's prepublish pins it, settled with that evidence and an undo [owner, 2026-11-13].
+  assert.equal(json('decisions', 'QF-1').value.data.items.some((item) => item.kind === 'node-pin'), false, 'never asked');
+  const settling = json('phase', 'prepublish', 'implement', '--for-agent');
+  assert.ok(settling.value, settling.stderr);
+  assert.equal(await readFile(path.join(root, '.nvmrc'), 'utf8'), '22\n');
+  const pinned = json('decisions', 'QF-1').value.data.settled.find((entry) => entry.details.settledKind === 'node-version');
+  assert.match(pinned.evidenceWords, /the repository asks for Node >=20 <25 \(package\.json engines\.node\)/u);
+  // Undone, the file SFlow wrote goes, and the choice is the person's from here on, as below.
+  const undone = json('decisions', 'undo', 'QF-1', '--settled', pinned.details.settledId);
+  assert.equal(undone.status, 0, JSON.stringify(undone.value));
+  assert.match(undone.value.data.reraised.words, /is on the decision list again/u);
+  await assert.rejects(stat(path.join(root, '.nvmrc')), 'the pin SFlow wrote is gone');
+
   // Early: the choice is listed, and nothing waits on it.
   const early = json('decisions', 'QF-1').value.data;
   const offered = early.items.find((item) => item.kind === 'node-pin');

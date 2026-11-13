@@ -1651,8 +1651,9 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     return never(`instruction.${action}${!['list', 'show'].includes(action) && optionBoolean(options, 'dry-run') ? '.preview' : ''}`, definition,
       ['list', 'show'].includes(action) || optionBoolean(options, 'dry-run') ? 'read' : 'mutation');
   }
-  // The decision list reads; only `decisions record` writes (its second word may be a Story ID).
+  // The decision list reads; only `decisions record` and a person's `decisions undo` write (its second word may be a Story ID).
   if (definition.name === 'decisions') {
+    if (positionals[1] === 'undo') return never('decisions.undo', definition, 'mutation');
     return positionals[1] === 'record' ? never('decisions.record', definition, 'mutation') : never('decisions.show', definition, 'read');
   }
   if (definition.name === 'gateway') return gatewayOperation(definition, positionals[1] ?? 'tools');
@@ -1983,6 +1984,7 @@ export function operationCatalog() {
     ...DEPARTURE_SUBCOMMANDS.map(name => never(`departure.${name}`, commandDefinition('departure'), DEPARTURE_WRITES.includes(name) ? 'mutation' : 'read')),
     never('decisions.show', commandDefinition('decisions'), 'read'),
     never('decisions.record', commandDefinition('decisions'), 'mutation'),
+    never('decisions.undo', commandDefinition('decisions'), 'mutation'),
     ...['add.preview', 'list', 'show'].map(name => never(`call.${name}`, commandDefinition('call'), 'read')),
     never('call.add', commandDefinition('call'), 'mutation'),
     ...GATEWAY_ACTIONS.map(name => gatewayOperation(commandDefinition('gateway'), name)),

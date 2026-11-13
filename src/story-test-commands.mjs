@@ -14,6 +14,7 @@
  */
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
+import { activeSettled } from './settled-decisions.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID', details = undefined) => {
@@ -43,13 +44,20 @@ export function pinDiffWords(entry) {
   return `${name}: before ${quoted(entry.before)}, after ${quoted(entry.after)}`;
 }
 
-/** A request by its ID, and whether a person accepted or revoked it. */
+/**
+ * The settlement standing for a request: the only command the repository itself declares for the module,
+ * so nobody was asked to accept it [owner, 2026-11-13]. Undone, the request waits for a person again.
+ */
+const settledRequest = (workflow, id) => activeSettled(workflow, 'test-command').find((entry) => entry.effect?.request === id) ?? null;
+
+/** A request by its ID, and whether a person accepted or revoked it, or SFlow settled it (`settled`). */
 export function storyTestCommandState(workflow, id) {
   const request = decisions(workflow).find((entry) => entry.id === id) ?? null;
   if (!request) return null;
   const accepted = decisions(workflow).find((entry) => entry.accepts === id) ?? null;
   const revoked = decisions(workflow).find((entry) => entry.revokes === id) ?? null;
-  return { request, accepted, revoked, state: revoked ? 'revoked' : accepted ? 'accepted' : 'requested' };
+  const settled = accepted || revoked || request.repin ? null : settledRequest(workflow, id);
+  return { request, accepted, revoked, ...(settled ? { settled } : {}), state: revoked ? 'revoked' : accepted || settled ? 'accepted' : 'requested' };
 }
 
 /** Requests of a step that wait for a person who approves it. */
@@ -72,8 +80,10 @@ export function matchingPendingTestCommand(workflow, { phaseId, command, repin =
 export function activeStoryTestCommands(workflow, phaseId) {
   const latest = new Map();
   for (const entry of decisions(workflow)) {
-    if (!entry.accepts || entry.phase !== phaseId) continue;
-    const { request, state } = storyTestCommandState(workflow, entry.accepts);
+    // A settled request counts where a person's acceptance would, in the order it was requested.
+    const id = entry.accepts ?? (entry.id && settledRequest(workflow, entry.id) ? entry.id : null);
+    if (!id || entry.phase !== phaseId) continue;
+    const { request, state } = storyTestCommandState(workflow, id);
     if (state === 'accepted' && !request.repin) latest.set(request.command.id, request);
   }
   return [...latest.values()].map((request) => ({
@@ -85,6 +95,11 @@ function refreshStep(workflow, phaseId) {
   const active = activeStoryTestCommands(workflow, phaseId);
   if (active.length) workflow.phases[phaseId].storyTestCommands = active;
   else delete workflow.phases[phaseId].storyTestCommands;
+}
+
+/** A step's accepted commands after a settlement or its undo (settled-decisions.mjs), so the gate's check holds. */
+export function refreshStoryTestCommands(workflow, phaseId) {
+  if (workflow?.phases?.[phaseId]) refreshStep(workflow, phaseId);
 }
 
 /** Every step's accepted commands are exactly its active decisions; anything else was not decided. */

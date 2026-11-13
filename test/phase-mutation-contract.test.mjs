@@ -918,6 +918,8 @@ test('every step only a person takes in their own terminal is refused in every t
       `singularity-flow decisions record PMC-1 --choose d1=accept-test-command --confirm ${digest}`,
       `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=accept-test-command --confirm ${digest}`],
     'set-aside': [`singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm ${digest} --json`],
+    // What was settled for the person is theirs to hand back, on the card or in their own terminal [owner, 2026-11-13].
+    'settled-undo': ['singularity-flow decisions undo PMC-1 --settled STL-001', 'singularity-flow decisions undo PMC-1 --settled STL-002 --reason "Not the Story I meant." --json'],
     'publication-set-aside': [`singularity-flow sync PMC-1 --set-aside --confirm ${'a'.repeat(40)}`,
       `singularity-flow initiative sync INIT-1 --set-aside --confirm ${'a'.repeat(40)}`],
     'workflow-delete': [`singularity-flow workflow delete team-flow --confirm ${digest}`],

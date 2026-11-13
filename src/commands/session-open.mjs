@@ -7,8 +7,9 @@
  * check stay exactly as they were; this runs them. Each step is the same command with `--json`;
  * reads share the loaded runtime and mutations remain in their own process. A refusal keeps its
  * own message, code and recovery plan, and nothing here
- * re-implements a rule. Without a work ID it returns the candidate table, because choosing a Story
- * is the person's decision, never inferred.
+ * re-implements a rule. Without a work ID it returns the candidate table for the person to choose,
+ * unless exactly one Story records the branch checked out where the session runs: that one is opened,
+ * settled with its evidence and undone on the decisions card [owner, 2026-11-13].
  */
 import { step, stop as stopStep } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
@@ -40,7 +41,7 @@ export function pausedSessionOpenResult(agentInstruction = null) {
 export async function run({ positionals, options, invocationCwd = process.cwd() }) {
   validateSessionOpenRequest({ positionals, options });
   const json = options.json === true;
-  const workId = positionals[2] ?? null;
+  let workId = positionals[2] ?? null;
   const boundRoot = boundExecutionContextRoot();
   const cwd = boundRoot ?? process.cwd();
   const pause = await step(['pause', 'status', '--json'], cwd);
@@ -53,14 +54,20 @@ export async function run({ positionals, options, invocationCwd = process.cwd() 
   }
   // Explicit selectors win; otherwise the active workspace's exact scope, never the host cwd's.
   let selectors = [];
+  let places = [];
   if (options.workspace || options.repository) {
     selectors = [...(options.workspace ? ['--workspace', options.workspace] : []), ...(options.repository ? ['--repository', options.repository] : [])];
   } else if (!boundRoot) {
     const current = await step(['workspace', 'current', '--json'], cwd);
     if (current.ok && current.value?.active && current.value.workspacePath && current.value.repositoryId) {
       selectors = ['--workspace', current.value.workspacePath, '--repository', current.value.repositoryId];
+      places = [current.value.repositoryPath];
     }
   }
+  // Settled, never asked, when one Story records the branch checked out here; a person's own scope or refresh is theirs.
+  const settled = !workId && !options.workspace && !options.repository && !options.refresh
+    ? await (await import('../story-selection-settle.mjs')).settledStorySelection([boundRoot ?? invocationCwd, ...places]) : null;
+  if (settled) workId = settled.workId;
   if (!workId) {
     const listings = await import('./session.mjs');
     listings.takeListingWithoutLocalClone();
@@ -90,6 +97,9 @@ export async function run({ positionals, options, invocationCwd = process.cwd() 
   }
   const checkout = opened.value?.repositoryPath;
   if (!checkout) throw new SingularityFlowError(`Opening ${workId} returned no checkout path.`, { code: 'SESSION_OPEN_STEP_FAILED' });
+  const selection = settled ? { ...await (await import('../story-selection-settle.mjs')).recordStorySelection(checkout, settled),
+    kind: 'story-selection', workId, answer: settled.answer, evidence: settled.evidence,
+    words: `Settled for you: ${settled.answer} Nobody was asked; undo it on the decisions card (/sf-decide ${workId}).` } : null;
   const projection = process.env.SINGULARITY_FLOW_SESSION_READS === 'legacy' ? null
     : await (await import('../session-read-service.mjs')).readOpenedSession(checkout, { workId });
   const status = projection ? { ok: true, value: projection.session } : await step(['session', 'status', '--json'], checkout);
@@ -110,7 +120,8 @@ export async function run({ positionals, options, invocationCwd = process.cwd() 
     localOnly: !attached, attachedFromRemote: attached, open: opened.value, session: status.value,
     context: context.value, nextsteps: next.value,
     executionContext: projection?.executionContext ?? await (await import('../execution-context.mjs')).captureExecutionContext(checkout, { fresh: true }),
-    repositoryChecks: (await import('../repository-check-cache.mjs')).repositoryCheckStatus(checkout)
+    repositoryChecks: (await import('../repository-check-cache.mjs')).repositoryCheckStatus(checkout),
+    ...(selection ? { settled: selection } : {})
   };
   if (options['for-agent']) await (await import('../copilot-story-follow.mjs')).recordCopilotStoryFollow({
     originPath: invocationCwd, repositoryPath: checkout, workId
@@ -121,6 +132,7 @@ export async function run({ positionals, options, invocationCwd = process.cwd() 
     executionContext: (await import('../execution-context.mjs')).agentExecutionContext(result.executionContext ?? null),
     agentInstruction: 'Reuse this verified binding, brief and nextsteps. Do not repeat pause, workspace, session, context or nextsteps lookups; selection changes and later readiness or consent still need fresh checks.' });
   if (json) return console.log(JSON.stringify(result, null, 2));
+  if (selection) console.log(selection.words);
   console.log(`${workId} is ready at ${checkout} (${attached ? 'attached from the remote' : opened.value.remoteSync?.status === 'unavailable'
     ? 'local checkout; the remote could not be reached' : 'local checkout, synchronized with the remote'}).`);
   console.log(`Agent: ${agent ?? 'none (Story closed)'} · phase: ${opened.value.phase ?? status.value.phase ?? '—'}`);

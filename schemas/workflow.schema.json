@@ -931,6 +931,39 @@
         "additionalProperties": false
       }
     },
+    "settledDecisions": {
+      "description": "Append-only decisions the agent or SFlow settled because one clear answer had evidence SFlow can name, so no person was asked [owner, 2026-11-13]: which Story a session opens, the author's own correction of its unreviewed draft, the Node a module's tests run on, a test command the repository alone declares, a changed file a plan row already covers. Each names its answer and evidence. A person's undo ({ undoes }) makes it their question again; an undo is a person's record SF Guard signs.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "at"],
+        "properties": {
+          "presence": { "$ref": "#/$defs/personPresence" },
+          "id": { "type": "string", "pattern": "^STL-[0-9]{3,}$" },
+          "undoes": { "type": "string", "pattern": "^STL-[0-9]{3,}$" },
+          "kind": { "enum": ["story-selection", "own-correction", "node-version", "test-command", "plan-accounting"] },
+          "subject": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "phase": { "type": "string", "minLength": 1 },
+          "answer": { "type": "string", "minLength": 1, "maxLength": 600 },
+          "evidence": {
+            "type": "array", "minItems": 1, "maxItems": 8,
+            "items": {
+              "type": "object", "required": ["what", "where"],
+              "properties": { "what": { "type": "string", "minLength": 1, "maxLength": 500 }, "where": { "type": "string", "minLength": 1, "maxLength": 300 } },
+              "additionalProperties": false
+            }
+          },
+          "by": { "enum": ["agent", "sflow"] },
+          "effect": { "type": "object" },
+          "reason": { "type": "string", "maxLength": 1000 },
+          "channel": { "type": "string", "maxLength": 64 },
+          "actor": { "type": "string", "minLength": 1 },
+          "agent": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "findingRisks": {
       "description": "Append-only acceptances by a person of one lint, static-analysis or security finding a code step keeps, or of a scanner that cannot run under enforce, and their revocations [CQF:REQ-047]. Each binds the finding's fingerprint, rule, tool and tool version until it expires (at most 90 days) or is revoked. A security finding is accepted by the workflow's security reviewers when it names them, otherwise by the step's approvers.",
       "type": "array",

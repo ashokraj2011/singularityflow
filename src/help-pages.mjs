@@ -1674,10 +1674,14 @@ const PAGES = Object.freeze({
       'refusal names who decides and the line to share). Each record is written by the same function its own',
       'command uses, under the same approval-group check, so nothing is decided for anyone and every choice keeps',
       'its history. In an interactive terminal it asks for each choice, shows a summary and asks y/N.',
-      'Accepting a reused run never certifies a run that was not recorded: the run stays the earlier step\'s.'
+      'Accepting a reused run never certifies a run that was not recorded: the run stays the earlier step\'s.',
+      'A question with one clear answer that evidence names is not asked: the agent or SFlow settles it and lists',
+      'it under "Settled for you" with that evidence. decisions undo --settled STL-ID, or Undo on the card, makes it',
+      'your question again on its own route; only a person undoes, never an agent.'
     ],
     options: [
       ['--phase PHASE', 'The step whose decisions to list; the current step by default.'],
+      ['--settled STL-ID', 'undo only: the settled decision to hand back to a person.'],
       ['--choose ITEM=OPTION', 'Choose an option for an item, such as d1=reuse; repeat per item.'],
       ['--reason ITEM=TEXT', 'Replace the default reason of a chosen item (20 to 1000 characters).'],
       ['--expires ITEM=YYYY-MM-DD', 'Replace the default date of a chosen item (at most 90 days ahead).'],
@@ -1688,7 +1692,8 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow decisions BIN-501', 'Shows what Release waits for, in plain words, with the choices.'],
       ['singularity-flow decisions record BIN-501 --choose d1=reuse --confirm sha256:<DIGEST>',
-        'Records the recommended reuse and the issue decision it implies, then approval can go ahead.']
+        'Records the recommended reuse and the issue decision it implies, then approval can go ahead.'],
+      ['singularity-flow decisions undo BIN-501 --settled STL-001', 'Undoes what was settled for you; its question is yours again.']
     ],
     seeAlso: ['approve', 'upstream-issue', 'decision']
   },

@@ -337,6 +337,8 @@ function isConsumedGenerationTerminalCallAllowed(payload, phase) {
     `^${flow} recover ${id}(?: --phase ${id})?(?: --json)?$`,
     `^${flow} phase begin ${phase.id}(?: --adopt-existing --confirm sha256:[a-f0-9]{64})?(?: --json)?$`,
     `^${flow} phase rollover ${phase.id}(?: --json| --confirm sha256:[a-f0-9]{64})?$`,
+    // The author's own correction of its unreviewed generation, settled by the engine or refused there [owner, 2026-11-13].
+    `^${flow} phase rollover ${phase.id} --correction (?:"[^"\\\\]{20,1000}"|'[^']{20,1000}') --json$`,
     `^${flow} phase show ${phase.id}(?: --json| --show-artifact){0,2}$`,
     `^${flow} submit ${phase.id}(?: --work-id ${id})?(?: --skip-checks)?(?: --json)?$`,
     `^${flow} phase publish ${phase.id} --authored (?:governed-agent|deterministic) --channel (?:copilot-host|kernel-generator)(?: --change-origin [a-z-]+)*(?: --usage-json [A-Za-z0-9._/-]+)?(?: --json)?$`,

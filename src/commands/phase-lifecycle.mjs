@@ -103,6 +103,13 @@ export async function phaseCommand(positionals, options) {
       'Return the submitted packet through authorized rejection before opening a successor; direct rollover is not legal while awaiting approval.',
       { code: 'GENERATION_ROLLOVER_REVIEW_REQUIRED', details: { actions: [plan.action] } }
     );
+    // The author's own correction of its unreviewed draft is settled, never asked [owner, 2026-11-13]; with files
+    // changed since publication, or once a review or an approval exists, the rollover stays the person's.
+    if (options.correction !== undefined) {
+      if (plan) throw new SingularityFlowError(`Files changed after ${phase.id} generation ${phase.generation} was published, so starting the next generation is the person's to confirm. Preview it: singularity-flow phase rollover ${phase.id} --json.`,
+        { code: 'GENERATION_OWN_CORRECTION_CHANGED', details: { phase: phase.id, nextAction: { command: `singularity-flow phase rollover ${phase.id} --json`, skill: '/sf-recover' } } });
+      return (await import('../own-correction-rollover.mjs')).ownCorrectionRollover(root, config, workflow, phase, options);
+    }
     // Unchanged published bytes: the next generation opens for a change the person asks for.
     if (!plan) return (await import('../requested-successor.mjs')).requestedSuccessorRollover(root, config, workflow, phase, options);
     if (optionString(options, 'reason', null) !== null && plan.action.mode !== 'manual' && plan.action.command) {
@@ -209,6 +216,12 @@ export async function phaseCommand(positionals, options) {
       );
     }
     const session = await loadSession(root, { required: false });
+    // What the repository or the plan already answers is settled before anything is asked or recorded as a
+    // departure: the Node the tests run on, a changed file a plan row covers [owner, 2026-11-13].
+    if (subcommand === 'prepublish' && optionBoolean(options, 'for-agent') && phaseRequiresCodeDelivery(phase)) {
+      await (await import('../settle-before-publication.mjs')).settleBeforePublication(root, config, workflow, phase,
+        { actor: actionActor(root), agent: session?.workId === workflow.workItem.id ? session.agent ?? null : null, accounting: true });
+    }
     // The agent's prepublish records the files publication would leave out as departures first, so the
     // step publishes them and a person decides each once, before its approval [CQF:REQ-021]. A person's
     // own check records nothing: a departure is the agent's record, never theirs.
@@ -296,6 +309,9 @@ export async function phaseCommand(positionals, options) {
   }
   // Before anything this command records: a step paused for an amendment proposed from it publishes nothing [owner, 2026-11-13].
   assertIntentAmendmentNotPausing(workflow, requestedPhase.id);
+  // A Node the repository names is pinned before the gate runs the tests, settled, never asked [owner, 2026-11-13].
+  if (phaseRequiresCodeDelivery(requestedPhase)) await (await import('../settle-before-publication.mjs')).settleBeforePublication(root, config, workflow, requestedPhase,
+    { actor: actionActor(root), agent: null, accounting: false });
   const sourcePath = optionString(options, 'from');
   // A publish after a publish: planning went 1, 2, 3, 4 on one real run, each pair seconds apart. A
   // document unchanged since its publication already is that publication, so nothing is recorded.

@@ -919,7 +919,9 @@ function pausedStepCommand(positionals, options, contract) {
   const named = (step) => !step || step === pause.phaseId;
   if (['prepare', 'submit'].includes(command)) return named(sub) && options['dry-run'] !== true;
   return command === 'phase' && named(third) && (['publish', 'begin'].includes(sub)
-    || (sub === 'prepublish' && options['publish-if-ready'] === true) || (sub === 'rollover' && Object.hasOwn(options, 'confirm')));
+    || (sub === 'prepublish' && options['publish-if-ready'] === true)
+    // The author's own correction opens the next generation as a confirmed rollover does [owner, 2026-11-13].
+    || (sub === 'rollover' && (Object.hasOwn(options, 'confirm') || Object.hasOwn(options, 'correction'))));
 }
 function pausedStepCall(call, value) {
   const safe = verifiedShellForm(call, value);
@@ -966,7 +968,9 @@ const OWN_STEP_DENIALS = Object.freeze({
   'configuration-approve': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a configuration proposal activates it for every Story that starts after it; the reviewer runs it in their own terminal, where it shows the change and asks, or in Workflow Studio. Show the user the command and stop; do not retry it',
   'workflow-activate': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: activating a configuration proposal changes it for every Story that starts after it; the person runs this exact line in their own terminal, or uses Workflow Studio, Changes, Review and activate. Show the user the line and stop; do not retry it',
   'intent-amendment-decision': INTENT_AMENDMENT_CARD_DENIALS.decide,
-  'intent-amendment-acknowledgement': INTENT_AMENDMENT_CARD_DENIALS.acknowledge
+  'intent-amendment-acknowledgement': INTENT_AMENDMENT_CARD_DENIALS.acknowledge,
+  // What was settled for the person is theirs to hand back [owner, 2026-11-13]: the card's undo, never a turn's.
+  'settled-undo': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: undoing a settled decision hands its question back to the person, so only they undo it, on the decisions card (/sf-decide <WORK-ID> opens it) or with this exact command in their own terminal. Tell them what was settled and that its undo is on the card; keep working, and do not retry it'
 });
 const OWN_STEP_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this is the person\'s own step; they run this exact command in their own terminal and no turn runs it. Show the user the command and stop; do not retry it';
 const LOCK_RELEASE_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: ending a lock another process holds is the person\'s own step: they check that the process the refusal named no longer works on it (`singularity-flow lock show` or `lock show-file` reads it), then run this exact release in their own terminal. Show the user who holds the lock and the command, and stop; do not retry it or wait for the lock';
@@ -1275,7 +1279,8 @@ function personStepRefusal({ id, argv, owners }) {
   // equivalent" under it sent a person to a terminal for what /sf-decide records in chat (2026-11-06).
   const witness = id === 'witness' ? witnessPageRoute(argv) : null;
   // An intent amendment's decision or acknowledgement: the decisions card [owner, 2026-11-13].
-  const card = id.startsWith('intent-amendment-') ? decisionsCardRoute(argv) : null;
+  const card = id.startsWith('intent-amendment-') ? decisionsCardRoute(argv)
+    : id === 'settled-undo' ? decisionsCardRoute(argv, parseCli(argv).positionals[2] ?? null) : null;
   const routes = witness ? [witness] : card ? [card] : guidance ? [{ ...guidance, ...(decision || owners?.length ? {} : { skill: null, copilotCommand: null }) }] : [];
   const said = id === 'test-environment' ? TEST_ENVIRONMENT_DENIAL : owners ? personDecisionReason(owners)
     : PERSON_DECISION_DENIALS[id] ?? OWN_STEP_DENIALS[id] ?? OWN_STEP_DENIAL;
@@ -2060,6 +2065,13 @@ async function mutationToolDecision(payload, record) {
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it', [], own());
         const ownStep = ownTerminalStepCall(call, value);
+        if (ownStep === 'settled-undo') {
+          // The card is the person's route for an undo, as for an intent amendment's decision [owner, 2026-11-13].
+          const argv = verifiedShellForm(call, value)?.argv ?? null;
+          const workId = (argv ? parseCli(argv).positionals[2] : null) ?? contract.workId ?? null;
+          return mutationDenial(contract, OWN_STEP_DENIALS['settled-undo'].replace('<WORK-ID>', workId ?? '<WORK-ID>'), [],
+            { routes: [decisionsCardRoute(argv, workId)].filter(Boolean) });
+        }
         if (ownStep) return mutationDenial(contract, OWN_STEP_DENIALS[ownStep] ?? OWN_STEP_DENIAL, [], own());
         // Inside a chain or wrapper the checks above cannot read the command; a person's step there is
         // refused for what it is too, with its exact line (an approval turn keeps its own approve route).

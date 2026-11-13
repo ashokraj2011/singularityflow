@@ -27,7 +27,7 @@ import { loadSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
 import { pinDiffWords, recordStoryTestCommandDecision, recordStoryTestCommandRequest, storyTestCommandState } from '../story-test-commands.mjs';
 import { testRunRiskAuthorities } from '../test-run-risk.mjs';
-import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 import { actionActor } from './kernel.mjs';
 
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID') => { throw new SingularityFlowError(message, { code }); };
@@ -164,9 +164,15 @@ export async function decisionTestCommandCommand(positionals, options) {
   const agent = session?.workId === id ? session.agent ?? null : null;
   const { record, publication, reused = false } = await recordStoryTestCommand(root, config, workflow,
     { phaseId, command, repin, accept, revoke, reason: optionString(options, 'reason') ?? '' }, { actor, agent });
+  // The only command the repository itself declares for the module is settled, not asked [owner, 2026-11-13].
+  const settled = record.id && !record.repin && optionStrings(options, 'use').length === 1
+    ? await (await import('../test-command-settle.mjs')).settleDeclaredTestCommand(root, config, workflow, record,
+      { use: optionStrings(options, 'use')[0], sourceRoots: optionStrings(options, 'source-root'), actor, agent }) : null;
   const recordId = record.id ?? accept ?? revoke;
   const repinned = accept ? storyTestCommandState(workflow, accept)?.request?.repin ?? null : null;
-  if (!optionBoolean(options, 'json')) {
+  if (!optionBoolean(options, 'json') && settled) {
+    console.log(`Requested ${record.id}, and settled it as ${settled.id}: ${settled.answer} Nobody was asked; a person can undo it on the decisions card (/sf-decide ${id}). Publish the step again.`);
+  } else if (!optionBoolean(options, 'json')) {
     console.log(record.repin?.removed
       ? `Requested ${record.id}: ${record.phase} no longer runs ${record.command.id} once a person who approves it accepts: ${storyTestCommandAcceptCommand(workflow, record.id)}, or from the decision list (/sf-decide ${id}).`
       : record.repin
@@ -187,10 +193,11 @@ export async function decisionTestCommandCommand(positionals, options) {
     outcome: reused ? noop('decision.test-command.reused', { request: record.id })
       : succeeded('decision.test-command.succeeded', { record: record.id ? `request ${record.id}` : `the ${accept ? 'acceptance' : 'revocation'} of ${recordId}` }),
     effects: effects({ stateChanged: !reused, filesChanged: !reused, publicationCreated: !reused }),
-    next: record.id ? [action({ id: 'decision.test-command.review', command: `singularity-flow decisions ${id} --json`, rank: 'NOW', kind: 'review',
+    next: record.id && !settled ? [action({ id: 'decision.test-command.review', command: `singularity-flow decisions ${id} --json`, rank: 'NOW', kind: 'review',
       label: 'Review the exact request and required human authority. Copilot can explain the decision; it cannot accept it.' }),
     action({ id: 'decision.test-command.accept', command: storyTestCommandAcceptCommand(workflow, record.id), rank: 'SOON', kind: 'review',
       label: `A person who approves ${record.phase} accepts the requested command in their own terminal; an agent never accepts it.` })] : [],
-    data: { commit: publication?.sha ?? null, pushed: publication?.pushed ?? false, reused, record }
+    data: { commit: publication?.sha ?? null, pushed: publication?.pushed ?? false, reused, record,
+      ...(settled ? { settled: { id: settled.id, kind: settled.kind, answer: settled.answer, evidence: settled.evidence } } : {}) }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }

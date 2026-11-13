@@ -77,6 +77,20 @@ test('session open lists the Stories without an ID and opens one with its status
   assert.match(choose.table, /OPEN-1/);
   assert.match(choose.nextAction, /^singularity-flow session open <WORK-ID>/);
 
+  // From the Story's own worktree nobody is asked: the one Story on its branch opens, settled with that
+  // evidence and recorded once on the Story, with an undo on the decisions card [owner, 2026-11-13].
+  const worktree = path.join(base, 'story-worktrees', 'OPEN-1');
+  const settled = JSON.parse(must(process.execPath, [cli, 'session', 'open', '--json'], worktree).stdout);
+  assert.equal(settled.status, 'ready');
+  assert.equal(settled.workId, 'OPEN-1');
+  assert.deepEqual([settled.settled.kind, settled.settled.recorded], ['story-selection', true]);
+  assert.match(settled.settled.answer, /^Opened OPEN-1: the only Story whose branch, OPEN-1, is checked out where this session runs\.$/u);
+  const againText = must(process.execPath, [cli, 'session', 'open', '--for-agent', '--json'], worktree).stdout;
+  const again = completeAgentResult(againText);
+  assert.deepEqual([again.settled.id, again.settled.reused], [settled.settled.id, true], 'recorded once');
+  assert.match(JSON.parse(againText).act.said, /SFlow chose the Story \(settled\): report it, never ask which\./u);
+  assert.ok(JSON.parse(againText).act.read.includes('settled'));
+
   const opened = JSON.parse(must(process.execPath, [cli, 'session', 'open', 'OPEN-1', '--json']).stdout);
   assert.equal(opened.status, 'ready');
   assert.equal(opened.workId, 'OPEN-1');

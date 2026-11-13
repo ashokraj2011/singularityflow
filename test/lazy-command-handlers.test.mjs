@@ -709,7 +709,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // post-tool hook to hand over when a host showed nothing (cli-json-output.mjs +20) [office, 2026-11-12].
   // 865,900 (measured 865,873): a refused request for objects by ID, which a second laptop's blobless clone makes,
   // has its own classification and advice (git-remote-diagnostics.mjs +590) [owner, 2026-11-13].
-  assert.ok(root.bytes <= 865_900, `root dispatch loads ${root.bytes} source bytes`);
+  // 866,100 (measured 866,068): `decisions undo`, a person's undo of what was settled for them, is a registered
+  // mutation (command-registry.mjs +195) [owner, 2026-11-13]. No new eager file.
+  assert.ok(root.bytes <= 866_100, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -897,7 +899,12 @@ test('the common session projection does not import attach, state stores or publ
   // 4,250,100 (measured 4,250,094): a second laptop's blobless clone [owner, 2026-11-13]: a refused request for
   // objects by ID has its own classification and advice (git-remote-diagnostics.mjs +590), and a Story's
   // creation blobs are asked for without "have" lines (workflow-snapshots.mjs +206). No new eager file.
-  assert.ok(current.bytes <= 4_250_100, `session current loads ${current.bytes} source bytes`);
+  // 4,251,800 (measured 4,251,750): settled decisions [owner, 2026-11-13]: a person's undo is their own step and its
+  // record a review-safe person record, read on every hook (person-step-catalog.mjs +560); a file a plan row covers and
+  // a settled Node's version file count with the plan, read where the plan is (plan-amendments.mjs +901, no import);
+  // `decisions undo` is registered (command-registry.mjs +195); /sf-session's entry says a settled Story is opened
+  // (copilot-mode.mjs +93). What records, reads and undoes them stays lazy (settled-decisions.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_251_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

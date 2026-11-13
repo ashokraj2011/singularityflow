@@ -76,6 +76,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   ['decision-list-record', ([command, sub], options) => command === 'decisions' && sub === 'record'
     && !(options.choose !== undefined && options.answers === undefined
       && [options.choose].flat().every((entry) => typeof entry === 'string' && CHAT_CHOICE.test(entry)))],
+  // Undoing a settled decision hands it back to the person [owner, 2026-11-13].
+  ['settled-undo', ([command, sub]) => command === 'decisions' && sub === 'undo'],
   ['set-aside', ([command], options) => command === 'recover' && options['set-aside'] === true],
   // Without --confirm it is a preview anyone may run.
   ['publication-set-aside', ([command, sub], options) => (command === 'sync' || (command === 'initiative' && sub === 'sync'))
@@ -268,6 +270,9 @@ export const PERSON_STEPS = Object.freeze([
     family: { list: 'testRecovery.selectionConfirmations', path: ['testRecovery', 'selectionConfirmations'], action: 'story.test-selection', label: 'Test selection confirmation', isPerson: always } },
   { id: 'test-risk-review', guard: 'own:live-terminal-review',
     family: { list: 'testRecovery.riskReviews', path: ['testRecovery', 'riskReviews'], action: 'story.test-risk', label: 'Test risk review', isPerson: always } },
+  // A settled decision and a person's signed undo of it, one entry each [owner, 2026-11-13].
+  { id: 'settled-decision', guard: 'own:settled-undo', review: { kind: 'settled', entry: safe({ settledDecisions: 'decision_settled' }) },
+    family: { list: 'settledDecisions', action: 'decisions.undo', label: 'Undo of a settled decision', isPerson: (entry) => Boolean(entry?.undoes) } },
   // Recorded on a commit, and signed by nothing yet.
   // A change of which tests the Story's gates run (`story test-policy scope`): what was recorded stays as it was.
   { id: 'test-scope', guard: null, review: { kind: 'test-scope', entry: safe({ testScopeChanges: 'test_scope_changed' }) } },
@@ -280,7 +285,7 @@ export const PERSON_STEP_FAMILIES = Object.freeze(PERSON_STEPS.filter((row) => r
 
 // The order a commit's lists are read in (REVIEW_SAFE_DECISION_LISTS).
 const REVIEW_KIND_ORDER = Object.freeze(['applicability', 'scope', 'completeness', 'plan', 'departure', 'risk', 'test-risk', 'test-narrowing', 'finding-risk', 'evidence-reuse', 'test-scope', 'visual-profile',
-  'witness-exception', 'witness-defer', 'visual-risk', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'workflow']);
+  'witness-exception', 'witness-defer', 'visual-risk', 'approver-refresh', 'quality-risk', 'witness', 'upstream-issue', 'forward-amendment', 'test-command', 'phase-appeal', 'evidence-contract-correction', 'target-origin', 'settled', 'workflow']);
 /** What each decision kind does to a submitted review: REVIEW_EFFECTS's `decision-made:*` (state.mjs). */
 export const PERSON_STEP_REVIEW_EFFECTS = Object.freeze(Object.fromEntries(REVIEW_KIND_ORDER.map((kind) =>
   [`decision-made:${kind}`, PERSON_STEPS.find((row) => row.review?.kind === kind).review.entry])));

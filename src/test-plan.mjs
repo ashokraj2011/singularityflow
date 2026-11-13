@@ -448,8 +448,14 @@ export async function nodeVersionChecks(root, commands, { environment, reads }) 
     const pin = (node) => (node ? { pin: { file: '.nvmrc', version: String(major(node)), node } } : {});
     const range = parsedManifest(await reads.read(joined(directory, 'package.json')))?.engines?.node;
     if (typeof range === 'string' && nodeRangeAccepts(range, version) === false) {
+      // When the range accepts one installed major only, the repository named the answer: SFlow settles the pin
+      // with this evidence instead of asking (node-version-settle.mjs) [owner, 2026-11-13].
+      const accepted = others.filter((other) => nodeRangeAccepts(range, other) === true);
+      const named = new Set(accepted.map(major)).size === 1 ? { source: { file: joined(directory, 'package.json'), field: 'engines.node', range } } : {};
+      const offered = pin(accepted[0]);
       found.push(check('node-version', `${joined(directory, 'package.json')} asks for Node ${range}, and tests here would run on Node ${version}.${offer}`,
-        'Switch Node before starting, or a person pins it: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.', { node: version, installed, ...pin(others.find((other) => nodeRangeAccepts(range, other) === true)) }));
+        'Switch Node before starting, or a person pins it: a .nvmrc in the repository makes SFlow run tests on that version. It is a repository change, so name it in the plan.',
+        { node: version, installed, ...(offered.pin ? { pin: { ...offered.pin, ...named } } : {}) }));
       continue;
     }
     if (major(version) >= 25 && await usesVitestDomStorage(root, directory, node, reads)) {

@@ -964,6 +964,7 @@ Usage:
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
   singularity-flow decisions [WORK-ID] [--phase PHASE] [--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]]... [--json]
   singularity-flow decisions record [WORK-ID] [--phase PHASE] (--choose ITEM=OPTION [--reason ITEM=TEXT] [--expires ITEM=YYYY-MM-DD] [--cause ITEM=TEXT]... [--confirm sha256:DIGEST] | --answers FILE) [--fetch] [--json]
+  singularity-flow decisions undo [WORK-ID] --settled STL-ID [--reason TEXT] [--fetch] [--json]
   singularity-flow gateway serve --transport stdio [--workspace WORKSPACE]
   singularity-flow gateway tools [--json]
   singularity-flow gateway events [--json] [--host HOST] [--operation ID] [--outcome STATUS] [--reason CODE] [--subject ID] [--correlation ID]

@@ -398,6 +398,11 @@ export const MESSAGES = Object.freeze({
       + (Number(s.refused) > 0 ? `; ${slot(s.refused)} you may not decide were not recorded.` : '.'),
     preserves: false
   },
+  'decisions.undo.succeeded': {
+    // What was settled for a person is their question again [owner, 2026-11-13].
+    headline: (s) => `Undid ${slot(s.settled)}; it is a question for a person again.`,
+    preserves: false
+  },
   'upstream-issue.decide.succeeded': {
     headline: (s) => `Decided ${slot(s.issue)}: ${slot(s.outcome)}.`,
     preserves: false

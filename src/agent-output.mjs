@@ -367,8 +367,8 @@ export function agentAct(result) {
           commit: typeof open.head === 'string' ? open.head.slice(0, 12) : null, agent: open.agent ?? result.session?.activeAgent ?? null,
           phase: open.phase ?? result.session?.phase ?? null, localOnly: result.localOnly ?? null,
           ...(open.remoteSync?.status ? { remoteSync: open.remoteSync.status } : {}) },
-        ...(next.length ? { next } : {}), read: ['nextsteps', 'context'],
-        said: `The exact session is attached and verified.${open.remoteSync?.status === 'unavailable'
+        ...(next.length ? { next } : {}), read: [...(result.settled ? ['settled'] : []), 'nextsteps', 'context'],
+        said: `The exact session is attached and verified.${result.settled ? ' SFlow chose the Story (settled): report it, never ask which.' : ''}${open.remoteSync?.status === 'unavailable'
           ? ' Say that the remote could not be reached, so the local checkout was opened as it is and may be behind.' : ''} Report story, relay its next actions in order and end the session-only turn; do not repeat context or nextsteps lookups.` };
     }
   }

@@ -935,7 +935,9 @@ test('session skill synchronizes work-item state and activates the phase agent a
   assert.match(content, /No separate pause\/workspace\/session lookups/);
   assert.match(content, /reuse `open`'s explicit active scope; host cwd must not override it/);
   // The first packet is reused only within this invocation; a new /sf-session checks pause again.
-  assert.match(content, /Without a Work ID, reuse the matching entry; relay `table` verbatim/);
+  assert.match(content, /Without a Work ID, reuse the matching entry\. [\s\S]*Else relay `table` verbatim/);
+  // The one Story on this checkout's branch is settled by `session open`, never asked [owner, 2026-11-13].
+  assert.match(content, /`ready` with `settled`: SFlow opened the only Story on this checkout's branch[\s\S]*never ask which Story/);
   assert.ok(content.indexOf('session open --for-agent --json') < content.indexOf('session open <WORK-ID> --for-agent --json'));
   assert.match(content, /Binding\/first row is not selection/);
   assert.match(content, /Stop if no choice/);

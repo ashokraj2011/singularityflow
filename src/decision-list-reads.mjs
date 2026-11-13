@@ -444,7 +444,9 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     : { pending: requests, inactive: [], bindings: [], unavailable: [] };
   blocking.unavailable = [...(blocking.unavailable ?? []), ...commandReviews.unavailable];
   // A count reads no test command unless a run failed: then the pin is what the step waits on, and it is counted.
-  const nodePin = await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: !answering }).catch(() => null);
+  const offeredPin = await (await import('./node-pin.mjs')).storyNodePin(root, config, workflow, phase, { failedOnly: !answering }).catch(() => null);
+  // A Node the repository names is settled before the tests run, never asked [owner, 2026-11-13]; undone, it is asked again.
+  const nodePin = offeredPin?.source && (await import('./settled-decisions.mjs')).settleableNodePin(workflow, phase, offeredPin) ? null : offeredPin;
   try { evidence = await evidenceDecisionFacts(root, config, workflow, phase); }
   catch (error) { blocking.unavailable = [...(blocking.unavailable ?? []), { phase: phase.id, reason: error.code ?? 'evidence-unavailable' }]; }
   blocking.unavailable = blocking.unavailable ?? [];

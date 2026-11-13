@@ -14,6 +14,8 @@ questions:
   - How does a person choose what happens next in a Story?
   - Why was a phase skipped?
   - Why does my Story ask whether a responsibility applies before it can finish?
+  - Why was I not asked which Story to open, or which Node the tests run on?
+  - How do I undo something SFlow settled for me?
 commands:
   - decision
   - decisions
@@ -22,7 +24,7 @@ related:
   - workflow-authoring
   - story-lifecycle
   - approvals
-version: 15
+version: 16
 ---
 A decision sits after one phase of a Story workflow and chooses what happens next: the next phase, a later one (skipping those between), an earlier one, or the end of the Story. Running Stories keep the decisions they started with.
 
@@ -47,6 +49,39 @@ In new reports, name the owning phase and each affected qualified clause ID in t
 Impact or Clause field, and cite an already-filed UPI-ID in the relevant comparison row. Avoid
 ambiguous phrases such as “some clauses.” Legacy “both clauses” is resolved only for an actual
 two-clause table and a matching source-item provenance; an unrelated section issue cannot claim it.
+
+## Settled for you
+
+A question with one clear answer that SFlow can back with evidence is not asked. The agent or SFlow
+takes that answer, records it on the Story with its evidence, and the decisions list shows it under
+**Settled for you** (`data.settled` in `singularity-flow decisions <WORK-ID> --json`), never counted
+as an open decision. Each one has an **Undo**: on the decisions card (`/sf-decide <WORK-ID>`, or Decide
+in VS Code), or `singularity-flow decisions undo <WORK-ID> --settled STL-001` in your own terminal.
+Undo makes it an ordinary question for a person again, on its own route, and SFlow does not settle the
+same thing again. Only a person undoes; an agent never does.
+
+What is settled, and only when its evidence holds:
+
+- **Which Story a session opens.** `/sf-session` without a Work ID opens the one Story whose branch is
+  checked out where the session runs. Explicit selectors, a branch no Story records, or two Stories:
+  the roster is shown and you choose.
+- **The author's own correction.** Before any independent review report or approval exists for its
+  published draft, the author opens the next generation to correct it (`phase rollover <STEP>
+  --correction TEXT`), naming what the draft contradicts. Once a review or an approval exists, or files
+  changed after publication, the rollover is yours to confirm, as before. Undo leaves the opened
+  generation as it is; the author asks you before correcting that step again.
+- **The Node the tests run on.** When the module's `package.json` engines range accepts exactly one
+  installed Node major, SFlow writes `.nvmrc` with it before the tests run and lists it as a supporting
+  change. Undo removes the file when it still holds that version, and the choice is back on the list.
+- **A test command the repository declares.** A Story-only test command requested from the only
+  command the repository's own build files or written instructions declare for the module, in files this
+  Story has not changed, runs as accepted. Undo makes it a request a person who approves the step accepts.
+- **A file a plan row covers.** A changed file beside a path one row of the step names, with the same
+  name before its first dot (`Pricing.tsx` and `Pricing.module.css`), is accounted to that row instead of
+  becoming a departure. Undo makes it a question again.
+
+Approvals, sign-offs, accepted risks, scope and intent amendments, where the Story goes next and whether
+a responsibility applies always stay yours.
 
 ## Plan accounting and human evidence reviews
 

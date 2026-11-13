@@ -11,7 +11,7 @@ import {phaseAccessIdentity} from '../kernel/phase-preparation.mjs';
 import {namespaceArtifactSetPolicies,NAMESPACE_ARTIFACT_SET_LIMITS} from '../kernel/namespace-artifact-sets.mjs';
 import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
-import { phaseBeginSelection,nextPhaseGeneration } from '../kernel/phase-policy.mjs';
+import { phaseBeginSelection,nextPhaseGeneration,phaseRequiresCodeDelivery } from '../kernel/phase-policy.mjs';
 import {workflowInputsMode} from '../kernel/phase-inputs.mjs';
 import { projectEnrollmentTimestamp } from '../kernel/project-enrollment.mjs';
 import { storyActorValue } from '../kernel/story-creation.mjs';
@@ -29,7 +29,8 @@ import {createNamespaceRepositoryPlanReader} from './namespace-repository-plan.m
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
 import {createNamespaceCodePredecessorReader} from './namespace-code-predecessors.mjs';
 import {createNamespaceLocalContentReader} from './namespace-local-content-reader.mjs';
-import {namespaceGenerationValue,namespaceGenerationOriginalBasis,verifyNamespaceGenerationContinuation} from './namespace-generation-reader.mjs';
+import {namespaceGenerationValue,namespaceGenerationOriginalBasis,verifyNamespaceGenerationContinuation,namespaceReviewedSourceOpening} from './namespace-generation-reader.mjs';
+import {createNamespaceSourceOpeningReader} from './namespace-source-opening-reader.mjs';
 import {createNamespaceConvergenceDecisionOwner} from './namespace-convergence-decisions-reader.mjs';
 import {createNamespaceArtifactRepairReader} from './namespace-artifact-repair-reader.mjs';
 
@@ -54,6 +55,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   let artifactRepairOwner;const artifactRepairs=()=>artifactRepairOwner??=createNamespaceArtifactRepairReader({observer,scope,workId});
   const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
   const packets=createNamespaceSubmissionReader({observer,scope,workId,checks});
+  let openingReader;const reviewedSources=()=>openingReader??=createNamespaceSourceOpeningReader({observer,scope,workId,sources});
   const repositoryPlans=createNamespaceRepositoryPlanReader({records,content,scope,workId,authority,observer,checks});
   if(typeof access?.current!=='function'||typeof clock?.now!=='function'||typeof modelEnabled!=='boolean'||!Array.isArray(sources)||sources.length>32) {
     throw error('Preparation needs explicit access, clock, source and model-mode ports.','ENGINE_INPUT_INVALID');
@@ -163,7 +165,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     }catch(cause){if(cause.code==='ENGINE_STORAGE_UNSUPPORTED')throw cause;
       throw error('The retained private input context or generation intent has another binding.','ENGINE_STORAGE_CORRUPT',{workId,phase:captured.phase.id},cause);}
     if(generation)await verifyNamespaceGenerationContinuation(generation,{observer,workId,phaseId:captured.phase.id,signal});
-    return {...found,payload:p,currentBytes,initialBytes,generationBytes:intentBytes};
+    return {...found,payload:p,currentBytes,initialBytes,generationBytes:intentBytes,generation};
   }
   async function contract(captured,agent,signal) {
     const w=captured.snapshot.workflow,phase=captured.phase;
@@ -182,19 +184,19 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     return {records:result,rendered:result.filter(item=>item.kind==='approved-input')
       .map(item=>`- ${item.phase}, generation ${item.generation}: sha256:${item.reference.sha256}`).join('\n\n')};
   }
-  async function sourceBindings(captured,signal,{previous=null}={}) {
+  async function sourceBindings(captured,signal,{previous=null,reviewed=null}={}) {
     const w=captured.snapshot.workflow,repositories=w.sourceBindings?.current?.repositories;
     await repositoryPlans.guard(captured.snapshot,captured.phase.id,Array.isArray(repositories)?repositories.map(row=>row.id):[],{signal});
     if(!Array.isArray(repositories)||!repositories.length)throw error('Bind actual repository sources before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE');
     const continuing=previous?.payload.generation===nextPhaseGeneration(captured.phase)&&same(previous.payload.configuration,captured.snapshot.configuration)
       &&same(previous.payload.sources,repositories)&&previous.generationBytes!==null,
-      priorCode=!continuing&&captured.phase.generation===0?await createNamespaceCodePredecessorReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):null,
-      predecessor=!continuing&&captured.phase.generation>0?await createNamespaceCodeHistoryReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):priorCode?.sources??null,
+      priorCode=!reviewed&&!continuing&&captured.phase.generation===0?await createNamespaceCodePredecessorReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):null,
+      predecessor=!reviewed&&!continuing&&captured.phase.generation>0?await createNamespaceCodeHistoryReader({observer,scope,workId}).opening(captured.snapshot,captured.phase.id,{signal}):priorCode?.sources??null,
       observedRows=[];
     for(const repository of repositories) {
       const unit=units.get(repository.id);if(!unit)throw error('Configure the bound source unit before opening code generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repository.id});
       if(!same(unit.descriptor,repository.descriptor))throw error('The source unit differs from its accepted binding. Rebind the actual checkout before generation.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repository.id});
-      // Opening a human-authorized successor starts at the exact delivered predecessor.
+      // An admitted successor starts at the exact delivered predecessor.
       // The generation still retains the original Story baseline for cumulative accounting.
       const prior=predecessor?.find(source=>source.repository.id===repository.id),expected=prior?{snapshot:prior.observed.content,revision:prior.observed.revision}:repository;
       if(predecessor&&(!prior||!same(prior.repository,repository)))throw error('The Code predecessor has another source selection.','ENGINE_STORAGE_CORRUPT');
@@ -204,12 +206,15 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
       const observed=await unit.capture({signal});sourceSnapshot(observed.snapshot,unit.descriptor);
       const revision='sha256:'+hash(canonicalJson(observed.snapshot));
       if(observed.revision!==revision)throw error('The source unit returned another digest.','ENGINE_PORT_RESULT_INVALID');
-      if(!continuing&&(!same(retained.entries,observed.snapshot.entries)||!same(retained.selection,observed.snapshot.selection)))throw error('Source bytes changed after their accepted binding.','ENGINE_SOURCE_CHANGED',{repositoryId:repository.id});
+      if(reviewed){const row=reviewed.context.repositories.find(row=>row.repository.id===repository.id);
+        if(!row||!same(row.repository,repository)||row.observedRevision!==revision)throw error('Source changed after review; preserve the draft and refresh its exact opening preview.','GENERATION_ROLLOVER_STALE',{repositoryId:repository.id});}
+      else if(!continuing&&(!same(retained.entries,observed.snapshot.entries)||!same(retained.selection,observed.snapshot.selection)))throw error('Source bytes changed after their accepted binding.','ENGINE_SOURCE_CHANGED',{repositoryId:repository.id});
       observedRows.push({repositoryId:repository.id,revision});
     }
-    return {repositories:structuredClone(repositories),continuing,observedRows,...(priorCode?{priorCode:priorCode.proof}:{})};
+    return {repositories:structuredClone(repositories),continuing:!reviewed&&continuing,observedRows,...(priorCode?{priorCode:priorCode.proof}:{}),
+      ...(reviewed?{reviewed,...(reviewed.context.priorCode?{priorCode:reviewed.context.priorCode}:{})}:{})};
   }
-  async function makePayload(captured,binding,agent,previous,signal) {
+  async function makePayload(captured,binding,agent,previous,signal,{reviewed=null}={}) {
     const deterministic=binding.mode==='deterministic-convergence';
     if(!deterministic&&binding.producer==='deterministic'&&!binding.authoringRequired)throw error('This phase needs its actual deterministic producer before preparation can complete.','PHASE_DETERMINISTIC_PRODUCER_REQUIRED');
     const {approval,phase}=await contract(captured,agent,signal),compiled=approval.compiled,w=captured.snapshot.workflow;
@@ -228,16 +233,18 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
     if(repair&&!projected&&previous?.payload.generation!==binding.generation)
       artifact.current=await captured.store.put(await observer.bytes(repair.publication.artifact.content,repair.publication.artifact.content.bytes,signal),{signal});
     if(typeof artifact.key!=='string'||!artifact.key)throw error('This phase needs its configured artifact contract.','ENGINE_ARTIFACT_CONTRACT_REQUIRED');
-    const opening=binding.codeDeliveryRequired?await sourceBindings(captured,signal,{previous}):null,sources=opening?.repositories??[];
+    if(reviewed&&!previous&&reviewed.context.predecessor)artifact.current=await captured.store.put(
+      await observer.bytes(reviewed.context.predecessor.artifact.content,reviewed.context.predecessor.artifact.content.bytes,signal),{signal});
+    const opening=binding.codeDeliveryRequired?await sourceBindings(captured,signal,{previous,reviewed}):null,sources=opening?.repositories??[];
     let generationIntent=null;
     if(binding.codeDeliveryRequired) {
       const continuation=opening.continuing?{basis:await namespaceGenerationOriginalBasis(captured,previous.payload,{observer,workId,signal}),
         draft:{reference:previous.body,value:JSON.parse(utf8(await captured.store.bytes(previous.body,{signal}),'Original private draft'))},
         intent:{reference:previous.payload.generationIntent.record,value:JSON.parse(utf8(previous.generationBytes,'Original generation intent'))}}:null;
-      const version=continuation?2:opening.priorCode?3:1,
+      const version=opening.reviewed?4:continuation?2:opening.priorCode?3:1,
         intent={schemaVersion:version,format:'sflow-namespace-source-generation/v'+version,workId,phase:phase.id,generation:binding.generation,
         baseRevision:captured.snapshot.revision,configuration:captured.snapshot.configuration,actor:agent.actor,agentId:agent.agentId,createdAt:at,sources,inputContext,
-        ...(continuation?{continuation}:{}),...(opening.priorCode?{predecessors:{basis:{head:captured.basis.head,revision:captured.snapshot.revision},proof:opening.priorCode}}:{})};
+        ...(continuation?{continuation}:{}),...(opening.reviewed?{opening:opening.reviewed}:{}),...(opening.priorCode?{predecessors:{basis:{head:captured.basis.head,revision:captured.snapshot.revision},proof:opening.priorCode}}:{})};
       namespaceGenerationValue(intent,{workId,phaseId:phase.id});await verifyNamespaceGenerationContinuation(intent,{observer,workId,phaseId:phase.id,signal});
       const record=await captured.store.put(Buffer.from(canonicalJson(intent)),{signal});
       generationIntent={id:'generation-'+record.sha256,generation:binding.generation,record};
@@ -262,6 +269,12 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   async function prepareDraft(context,binding,permission,signal){
       const saved=selected(context),{captured,found}=saved,agent=await authorize(permission,signal);
       saved.agent=agent;await contract(captured,agent,signal);
+      if(saved.reviewed){const reviewed=saved.reviewed,value=await makePayload(captured,binding,agent,found,signal,{reviewed});
+        await sourceBindings(captured,signal,{previous:found,reviewed});await authorize(permission,signal,agent);await unchanged(captured,signal);
+        const parametersSha256=hash(canonicalJson({binding,base:captured.snapshot.revision,previous:found?.body??null,opening:reviewed}));
+        saved.accepted=await captured.store.save({operationId:'opening-'+parametersSha256,parametersSha256,expectedRevision:found?.revision??null,payload:value},{signal});
+        saved.opened=!saved.accepted.replayed;return;
+      }
       if(found&&binding.mode==='deterministic-convergence'){
         const value=await makePayload(captured,binding,agent,found,signal);
         if(found.payload.baseRevision===captured.snapshot.revision&&found.payload.generation===binding.generation
@@ -403,19 +416,63 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
   function beginFacts(saved){const p=payload(saved.accepted.payload,saved.captured.phase.id),reference=p.generationIntent?.record??p.inputContext;
     return {workId,phase:saved.captured.phase.id,generation:p.generation,intent:{profile:'sflow-namespace-generation-intent/v1',
       id:p.generationIntent?.id??'draft-'+reference.sha256,sha256:'sha256:'+reference.sha256,baselineRevision:p.baseRevision,status:'open'}};}
+  async function loadGeneration(input,permission,signal){
+    if(input.workId!==undefined&&input.workId!==workId)throw error('Source opening is bound to another Story.','ACTIVE_SUBJECT_MISMATCH');
+    await authorize(permission,signal);
+    const context=await phasePreparation.load(input,{signal}),saved=selected(context),{captured,found}=saved,phase=captured.phase;
+    await authorize(permission,signal);saved.permission=permission;saved.input=input;
+    if(phaseRequiresCodeDelivery(phase)&&phase.status==='awaiting_approval')throw error('Return the submitted packet through authorized rejection before opening another generation.',
+      'GENERATION_ROLLOVER_REVIEW_REQUIRED',{actions:[{operation:'phase.review',inputs:{workId,phaseId:phase.id}}]});
+    await contract(captured,await authorize(permission,signal),signal);
+    if(!phaseRequiresCodeDelivery(phase)&&(permission==='phase.rollover'||input.adoptExisting||input.confirm))throw error(
+      'Source adoption and rollover require a Code generation.','GENERATION_INTENT_NOT_APPLICABLE');
+    if(permission==='phase.rollover'&&(!phaseRequiresCodeDelivery(phase)||phase.generation<1))throw error(
+      'Rollover requires a published Code predecessor. Begin its first generation explicitly.','GENERATION_ROLLOVER_UNAVAILABLE',{
+        actions:[{operation:'phase.begin',inputs:{workId,phaseId:phase.id}}]});
+    if(found&&found.payload.generation===nextPhaseGeneration(phase)&&found.payload.baseRevision!==captured.snapshot.revision)throw error(
+      'Continue the existing generation through its exact draft rebase before requesting another source opening.','ENGINE_DRAFT_BASIS_CHANGED',{
+        workId,phase:phase.id,revision:found.revision,confirm:found.body.sha256,operation:'phase.draft.rebase'});
+    if(found&&found.payload.generation===nextPhaseGeneration(phase)&&found.payload.baseRevision===captured.snapshot.revision){
+      const reference=found.payload.generationIntent?.record??found.payload.inputContext;
+      context.workflow.phases[phase.id].generationIntent={profile:'sflow-namespace-generation-intent/v1',status:'open',generation:found.payload.generation,
+        id:found.payload.generationIntent?.id??'draft-'+reference.sha256,receiptSha256:'sha256:'+reference.sha256,baselineRevision:found.payload.baseRevision};
+      saved.retainedOpening=found.generation?namespaceReviewedSourceOpening(found.generation):null;
+      if(permission==='phase.begin')return context;
+      if(saved.retainedOpening?.confirmation){saved.reviewed=saved.retainedOpening;return context;}
+      throw error('This generation is already open. Continue its original intent instead of rolling it over again.','GENERATION_ROLLOVER_UNAVAILABLE',{
+        actions:[{operation:'phase.begin',inputs:{workId,phaseId:phase.id}}]});
+    }
+    if(!phaseRequiresCodeDelivery(phase))return context;
+    const source=await reviewedSources().context(captured.snapshot,phase.id,{basis:{head:captured.basis.head,revision:captured.snapshot.revision,configuration:captured.snapshot.configuration},
+      previousDraft:found?{revision:found.revision,reference:found.body}:null,artifact:found?{key:found.payload.artifact.key,content:found.payload.artifact.current}:null},{signal});
+    saved.openingContext=source.value;
+    if(permission==='phase.begin'){
+      const reviewed=reviewedSources().rules.admit(source.value,input);
+      if(input.adoptExisting||phase.generation>0||source.value.repositories.some(row=>row.observedRevision!==row.baseline.revision))saved.reviewed=reviewed;
+    }
+    await unchanged(captured,signal);return context;
+  }
   const phaseBegin={
-    async load(input,{signal}={}){if(input.adoptExisting||input.confirm)throw error('Review current source adoption through its explicit generation owner.',
-      'ENGINE_PORT_UNAVAILABLE',{operation:'phase.rollover',required:['namespace-reviewed-source-adoption']});
-      const context=await phasePreparation.load(input,{signal}),saved=selected(context),found=saved.found;
-      if(found&&found.payload.generation===nextPhaseGeneration(saved.captured.phase)&&found.payload.baseRevision===saved.captured.snapshot.revision){
-        const reference=found.payload.generationIntent?.record??found.payload.inputContext;
-        context.workflow.phases[saved.captured.phase.id].generationIntent={profile:'sflow-namespace-generation-intent/v1',status:'open',generation:found.payload.generation,
-          id:found.payload.generationIntent?.id??'draft-'+reference.sha256,receiptSha256:'sha256:'+reference.sha256,baselineRevision:found.payload.baseRevision};}
-      return context;},
+    load:(input,{signal}={})=>loadGeneration(input,'phase.begin',signal),
     async verify(context,_binding,_input,{signal}={}){const saved=selected(context),binding=phasePreparationSelection(saved.captured.snapshot.workflow,{phaseId:saved.captured.phase.id},modelEnabled);
       await prepareDraft(context,binding,'phase.begin',signal);return beginFacts(saved);},
     async begin(context,_binding,_input,{signal}={}){const saved=selected(context),binding=phasePreparationSelection(saved.captured.snapshot.workflow,{phaseId:saved.captured.phase.id},modelEnabled);
       await prepareDraft(context,binding,'phase.begin',signal);return beginFacts(saved);}
+  };
+  const phaseRollover={
+    load:(input,{signal}={})=>loadGeneration(input,'phase.rollover',signal),
+    async inspect(context,_binding,_input,{signal}={}){const saved=selected(context),{captured}=saved,
+      opening=saved.retainedOpening?.context??saved.openingContext,plan=reviewedSources().rules.plan(opening,{retained:Boolean(saved.retainedOpening)});
+      if(!saved.retainedOpening&&!plan.review.changedPathCount&&opening.artifact?.content.sha256===opening.predecessor?.artifact.content.sha256
+        &&opening.artifact?.content.bytes===opening.predecessor?.artifact.content.bytes)throw error('The published result has no changed source or artifact to roll over. Begin a clean generation explicitly when another authored result is needed.',
+          'GENERATION_ROLLOVER_UNAVAILABLE',{actions:[{operation:'phase.begin',inputs:{workId,phaseId:captured.phase.id}}]});
+      await authorize('phase.rollover',signal);await unchanged(captured,signal);return plan;},
+    async begin(context,_binding,plan,{signal}={}){const saved=selected(context),{captured}=saved;
+      if(saved.retainedOpening){if(saved.retainedOpening.confirmation!==plan.confirmation)throw error('The existing successor has another confirmed opening.','GENERATION_ROLLOVER_STALE');
+        saved.accepted=saved.found;await authorize('phase.rollover',signal);await unchanged(captured,signal);return beginFacts(saved);}
+      saved.reviewed=reviewedSources().rules.admit(saved.openingContext,{adoptExisting:Boolean(plan.changeSetDigest),confirm:plan.confirmation,rollover:true});
+      const binding=phasePreparationSelection(captured.snapshot.workflow,{phaseId:captured.phase.id},modelEnabled);
+      await prepareDraft(context,binding,'phase.rollover',signal);return beginFacts(saved);}
   };
   const phaseInputs={
     load:phasePreparation.load,
@@ -445,7 +502,7 @@ export function createNamespacePreparationRuntime({records,content,localRecords,
         draft:draft?{generation:draft.payload.generation,revision:draft.revision,bodySha256:draft.bodySha256}:null,set:declared?.set??null,
         members:(draft?.payload.members??[]).map(row=>({path:row.path,reference:row.content,generation:row.generation,recordedAt:row.recordedAt,principalId:row.actor.principalId}))};}
   };
-  const ports={phasePreparation,phaseBegin,phaseInputs,phaseDraftRead,phaseArtifactInspection,
+  const ports={phasePreparation,phaseBegin,phaseRollover,phaseInputs,phaseDraftRead,phaseArtifactInspection,
     phaseDraftWrite:mutationPort('write'),phaseDraftRebase:mutationPort('rebase'),phaseArtifactAttach:mutationPort('attach'),phaseArtifactRemove:mutationPort('remove')};
   function draftCapture(token) {const value=draftCaptures.get(token);if(!value)throw error('Use the issued private draft capture.','ENGINE_INPUT_INVALID');return value;}
   function admission(token) {const value=admissions.get(token);if(!value)throw error('Use the issued private draft admission.','ENGINE_INPUT_INVALID');return value;}

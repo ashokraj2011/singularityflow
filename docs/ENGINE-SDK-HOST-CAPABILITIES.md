@@ -21,9 +21,10 @@ advertise coordinators they actually contain.
 
 The namespace composition declares its actual standalone decision and upstream owners, including
 the cohort, Code/recovery risk, witness-exception, decision-batch and forward-amendment operations.
-The current vocabulary has 93 operations: 42 native Git bindings and 86 namespace bindings before
+The current vocabulary has 95 operations: 42 native Git bindings and 89 namespace bindings before
 optional execution. Native terminal plan ceremonies, visual-profile decisions, native narrowing
-and reviewed source rollover retain their explicit unbound status in this namespace composition.
+retain their explicit unbound status in this namespace composition. Reviewed source adoption and
+rollover use the existing private preparation owner and their separate versioned opening records.
 Optional local checks and bounded repair remain unbound when their execution port was
 not supplied. They are not advertised as connected simply because they occur in the vocabulary.
 The same selection is used by dispatch and by the manifest. Native Git composition declares

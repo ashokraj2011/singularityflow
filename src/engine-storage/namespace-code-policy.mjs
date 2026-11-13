@@ -1,5 +1,5 @@
 /** Recompute Code publication from original source, approved claims and actual check receipts. */
-import {namespaceCodeExecutionRiskProfile,isNamespaceTestRiskPolicy,canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch,namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
+import {namespaceCodeExecutionRiskProfile,namespaceCodeExecutionRiskEvidenceAllowed,isNamespaceTestRiskPolicy,canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch,namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
 import {createNamespaceTestRiskOwner} from './namespace-test-risk-reader.mjs';
 import {namespaceCodeEnvironmentRiskCoverage} from '../kernel/test-recovery.mjs';
 import {createHash} from 'node:crypto';
@@ -53,12 +53,12 @@ export async function verifyCodePolicyInTraversal(reader,observer,publication,bi
 }
 function reportValue(value){
   try{const wire=namespaceCodePolicyProfile('codeReport',value),profile=wire.executionRisk?namespaceCodePolicyProfile('codeReport',{schemaVersion:value.evidenceVersion}):wire;
-    if(wire.executionRisk&&(!Number.isInteger(value.evidenceVersion)||value.evidenceVersion<1||value.evidenceVersion>31||value.checks!==null
+    if(wire.executionRisk&&(!namespaceCodeExecutionRiskEvidenceAllowed(wire,value.evidenceVersion)||value.checks!==null
       ||value.executionException?.profile!==(wire.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1')||wire.knownFailureRisk&&value.executionException.failedAcceptanceWaived!==false||value.executionException.testsPassed!==false))throw Error('Another execution exception.');
     exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance',...(wire.executionRisk?['evidenceVersion','executionException']:[])]);
     if(value.format!==wire.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
     const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[]),
-      ...((profile.optionalPredecessors?Boolean(p.priorCode):profile.predecessors)?['priorCode']:[]),...((profile.optionalOutputs?Boolean(p.outputs):profile.outputs)?['outputs']:[]),...(profile.repositoryCoverage?['repositoryScope']:[])]);
+      ...((profile.optionalPredecessors?Boolean(p.priorCode):profile.predecessors)?['priorCode']:[]),...((profile.optionalOutputs?Boolean(p.outputs):profile.outputs)?['outputs']:[]),...((profile.repositoryCoverage||profile.optionalRepositoryCoverage&&p.repositoryScope)?['repositoryScope']:[])]);
     const preflightVersion=profile.humanAcceptance?namespaceCodePreflightVersion(p):profile.version;
     if(p.profile!=='sflow-namespace-code-preflight/v'+preflightVersion||namespaceCodePreflightVersion(p)!==preflightVersion||!Array.isArray(p.repositories))throw Error('Another Code preflight.');
     sourceRetentionBinding(p.source);exactObject(p.baseline,['operationId','record','index']);namespaceIdentifier(p.baseline.operationId,'Baseline operation');
@@ -177,8 +177,8 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         }
       }
     }
-    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31}[preflightVersion]??7):preflightVersion;
-    const riskProfile=risk?namespaceCodeExecutionRiskProfile(risk.report):null,report=reportValue({schemaVersion:riskProfile?.version??version,format:riskProfile?.format??'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
+    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31,34:35}[preflightVersion]??7):preflightVersion;
+    const riskProfile=risk?namespaceCodeExecutionRiskProfile(risk.report,{evidenceVersion:version}):null,report=reportValue({schemaVersion:riskProfile?.version??version,format:riskProfile?.format??'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
       ...(risk?{evidenceVersion:version,executionException:{profile:riskProfile.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1',...(riskProfile.knownFailureRisk?{failedAcceptanceWaived:false}:{}),checks:risk.binding,testsPassed:false,policy:publication.policyEvidence?.find(row=>isNamespaceTestRiskPolicy(row.kind)&&row.kind!=='test-risk/v1')??null}}:{})});
     return {report,source,policy};
   }
@@ -211,7 +211,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   function evidence(value){const p=value.report.preflight;return [value.binding.record,value.manifest.report,p.source.result.content,p.baseline.record.content,
     p.plan.publication,p.plan.reviewPacket,p.plan.planned,...p.plan.indices.map(row=>row.record),...(p.plan.repositoryPlan?[p.plan.repositoryPlan]:[]),
     ...(p.plan.amendments??[]).map(row=>row.record),...(p.outputs?.files??[]).flatMap(row=>[row.content,row.retention.result.content]),...(value.source.workflow.planAmendments??[]).flatMap(row=>(row.operations??[]).filter(operation=>operation.op==='reclassify-evidence').map(operation=>operation.content)),
-    ...(p.priorCode?.phases??[]).flatMap(row=>row.references),...(['sflow-namespace-code-history/v4','sflow-namespace-code-history/v6','sflow-namespace-code-history/v12'].includes(p.history?.profile)?p.history.returns.flatMap(row=>row.references):p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,(p.history.return.amendment??p.history.return.upstream??p.history.return.choice??p.history.return.rejection??p.history.return.approval).record,...(p.history.return.references??[]),...(p.history.returns??[]).flatMap(row=>row.references),...(p.history.earlierReturns??[]).flatMap(row=>row.references)]:[])];}
+    ...(p.priorCode?.phases??[]).flatMap(row=>row.references),...(p.history?.profile==='sflow-namespace-code-history/v13'?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report]:['sflow-namespace-code-history/v4','sflow-namespace-code-history/v6','sflow-namespace-code-history/v12'].includes(p.history?.profile)?p.history.returns.flatMap(row=>row.references):p.history?[p.history.predecessor.publication.record,p.history.predecessor.policy.record,p.history.predecessor.report,(p.history.return.amendment??p.history.return.upstream??p.history.return.choice??p.history.return.rejection??p.history.return.approval).record,...(p.history.return.references??[]),...(p.history.returns??[]).flatMap(row=>row.references),...(p.history.earlierReturns??[]).flatMap(row=>row.references)]:[])];}
   async function freshSources(publication,units,{signal}={}){
     const value=proof(publication);if(!value)throw error('Verify the exact Code proof before checking source freshness.','ENGINE_INPUT_INVALID');
     return readFreshSources(value,publication,units,{signal});

@@ -86,6 +86,7 @@ function codePreflightReader(options,requireCurrentIndices){
           baseline:entry.before?{sha256:entry.before.sha256,size:entry.before.bytes,executable:entry.before.executable}:null})),
         changeSet={schemaVersion:1,profile:'sflow-namespace-code-change-set/v1',sourceBasis,entries:nativeEntries},
         bound=clauseFacts.repositories.find(row=>row.id===id)?.value;
+      const previousDelivery=history?.profile==='sflow-namespace-code-history/v13'?history.repositories.find(row=>row.id===id)?.delivery:null;
       let coverage=null;
       const correctedEvidence=new Map();
       for(const amendment of plan.amendments)for(const operation of amendment.operations??[]){
@@ -135,7 +136,15 @@ function codePreflightReader(options,requireCurrentIndices){
           case 'outside-candidates':return priorCode?path=>earlier.paths.has(path):null;
           case 'unreconciled-candidates':return scope?[...new Set(nativeEntries.flatMap(entry=>[entry.oldPath,entry.newPath].filter(path=>path&&!scope.allows(path)&&!earlier.paths.has(path))))].sort():[];
           case 'executable-test-path':return files.facts(context,request.candidate,{signal}).regular&&isExecutableTestSourceCandidate(request.candidate,{sourceExtensions:request.sourceExtensions});
-          case 'reusable-paths':if(request.candidates.length)required('namespace-code-history');return [];
+          case 'reusable-paths':{
+            if(!request.candidates.length)return [];
+            if(!previousDelivery||!same(request.priorEvidence,previousDelivery.paths))required('namespace-code-history');
+            const allowed=request.options.role==='test'?previousDelivery.testPaths:previousDelivery.sourcePaths,paths=[];
+            for(const candidate of request.candidates){const old=previousDelivery.paths.find(row=>row.path===candidate);
+              if(!allowed.includes(candidate)||!old?.exists||old.fileKind!=='regular-file')continue;
+              const current=await readBytes(candidate);if(current&&current.length===old.size&&hash(current)===old.sha256)paths.push(candidate);
+            }return paths;
+          }
           case 'reviewed-baseline-tests':return (workflow.namespaceKnownTestRisks??[]).length
             ?knownRisks().baselineTestPaths(snapshot,phaseId,id,{signal}):[];
           case 'allocated-obligations':return obligations;
@@ -176,7 +185,8 @@ function codePreflightReader(options,requireCurrentIndices){
           default:required(request.kind);
         }
       };
-      const delivery=await replay(namespaceCodeDeliveryPreflightReplay(definition,workflow,phase,{sourceBasis,strictCoverage:true,requireReconciled:true}),read);
+      const effectivePhase=previousDelivery?{...phase,deliveryEvidence:previousDelivery}:phase,
+        delivery=await replay(namespaceCodeDeliveryPreflightReplay(definition,workflow,effectivePhase,{sourceBasis,strictCoverage:true,requireReconciled:true}),read);
       await files.finish(context,{signal});repositories.push({id,delivery,coverage});
     }
     for(const binding of [control?.binding.index,...(control?.plan.origins??[]).flatMap(row=>[row.origin,row.baseline]).map(value=>value.index)])if(binding){

@@ -390,17 +390,26 @@ export function phaseRolloverSelection(workflow,inputs) {
 }
 
 export function phaseRolloverPlan(binding,facts) {
-  const fields=['workId','phase','fromGeneration','toGeneration','confirmation','changeSetDigest','currentResultDigest'];
+  const namespaced=facts?.profile==='sflow-namespace-reviewed-rollover/v1',
+    fields=['workId','phase','fromGeneration','toGeneration','confirmation','changeSetDigest','currentResultDigest',...(namespaced?['profile','retained','review']:[])];
+  const reviewFields=['profile','kind','sourceBindingId','previousPublication','draft','artifact','repositories','changedPaths','changedPathCount','truncated','violations','violationCount','dirtyStartPolicy'];
   const digest=value=>typeof value==='string'&&/^sha256:[a-f0-9]{64}$/u.test(value);
   if(!facts||typeof facts!=='object'||Array.isArray(facts)||Object.keys(facts).length!==fields.length
     ||Object.keys(facts).some(key=>!fields.includes(key))||facts.workId!==binding.workId||facts.phase!==binding.phase
     ||facts.fromGeneration!==binding.fromGeneration||facts.toGeneration!==binding.generation
     ||!digest(facts.confirmation)||!digest(facts.currentResultDigest)
     ||facts.changeSetDigest!==null&&!digest(facts.changeSetDigest)
-    ||facts.confirmation!==(facts.changeSetDigest??facts.currentResultDigest)) {
+    ||facts.confirmation!==(facts.changeSetDigest??facts.currentResultDigest)
+    ||namespaced&&(typeof facts.retained!=='boolean'||facts.review?.profile!=='sflow-namespace-source-opening-preview/v1'
+      ||Object.keys(facts.review).length!==reviewFields.length||Object.keys(facts.review).some(key=>!reviewFields.includes(key))
+      ||!Array.isArray(facts.review.changedPaths)||facts.review.changedPaths.length>200||!Number.isSafeInteger(facts.review.changedPathCount)
+      ||facts.review.changedPathCount<facts.review.changedPaths.length||facts.review.truncated!==(facts.review.changedPathCount>facts.review.changedPaths.length)
+      ||!Array.isArray(facts.review.repositories)||!facts.review.repositories.length||facts.review.repositories.length>32
+      ||!Array.isArray(facts.review.violations)||facts.review.violations.length>200||!Number.isSafeInteger(facts.review.violationCount)
+      ||facts.review.violationCount<facts.review.violations.length)) {
     throw new SingularityFlowError('The rollover port returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});
   }
-  return {schemaVersion:1,contract:'sflow-generation-rollover-plan/v1',...facts,
+  return {schemaVersion:namespaced?2:1,contract:namespaced?'sflow-generation-rollover-plan/v2':'sflow-generation-rollover-plan/v1',...facts,
     finalBindingChecked:false,mutationAuthorityGranted:false,approvalRecorded:false};
 }
 

@@ -1,4 +1,4 @@
-/** Authenticate a Code successor from the original human-approved loop, never a copied CR flag. */
+/** Authenticate the published predecessor and its genuine return or exact author-confirmed opening. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceBaselineInventory} from '../engine-compatibility/node-source-policy.mjs';
@@ -12,8 +12,36 @@ import {createNamespaceTargetedRepairReader} from './namespace-targeted-repair-r
 import {assertTargetedCodeRepairDelta,assertArtifactOnlyCodeRepairDelta} from '../kernel/conformance-decisions.mjs';
 import {createNamespaceCodeReturnReader} from './namespace-code-return-reader.mjs';
 import {selectCurrentCodeReturn} from '../kernel/code-delivery-evidence.mjs';
+import {namespaceReviewedSourceOpening} from './namespace-generation-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),error=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>new SingularityFlowError(message,{code,details});
 export function createNamespaceCodeHistoryReader({observer,scope,workId}){
+  async function localSuccessor(scoped,snapshot,phaseId,verified,{signal,policyTraversal}={}){
+    const phase=snapshot.workflow.phases[phaseId],retention=createNamespaceSourceRetentionReader({...scoped.evidenceReads,observer:scoped}),
+      generation=await retention.json(verified.plan.generationIntent.reference,null,signal),opening=namespaceReviewedSourceOpening(generation);
+    if(!opening||opening.context.kind!=='successor')return null;
+    const c=opening.context,previous=phase.publicationBindings?.find(row=>row.generation===phase.generation);
+    if(c.fromGeneration!==phase.generation||c.generation!==verified.plan.generation||!same(c.predecessor?.publication,previous))throw error('The reviewed successor lost its exact published predecessor.');
+    const checks=createNamespacePhaseCheckReader({...scoped.evidenceReads,observer:scoped}),publications=createNamespacePublicationReader({observer:scoped,scope,workId,checks}),
+      published=await publications.accepted(previous,phaseId,{signal,policyTraversal}),code=publications.policies.codeEvidence(published);
+    if(!code||!same(c.predecessor.policy,code.binding)||!same(c.predecessor.report,code.manifest.report))throw error('The reviewed successor has another original Code proof.');
+    const definition=(await scoped.approved(snapshot,{signal})).compiled.definition,repositories=[];
+    for(const source of verified.plan.sources){const earlier=code.sources.find(row=>row.repository.id===source.repository.id);
+      if(!earlier||!same(earlier.repository,source.repository))throw error('The reviewed successor changed its original repository binding.');
+      const left=await retention.snapshot(earlier.observed.content,source.repository.descriptor,earlier.observed.revision,signal),
+        right=await retention.snapshot(source.observed.content,source.repository.descriptor,source.observed.revision,signal),
+        inventory=value=>new Map(sourceBaselineInventory(value,{workflow:snapshot.workflow,definition}).entries.map(row=>[row.path,row])),a=inventory(left),b=inventory(right),changes=[];
+      for(const path of [...new Set([...a.keys(),...b.keys()])].sort())if(!same(a.get(path)??null,b.get(path)??null))changes.push({path,before:a.get(path)??null,after:b.get(path)??null});
+      const delivery=code.report.preflight.repositories.find(row=>row.id===source.repository.id)?.delivery;
+      if(!delivery)throw error('The reviewed successor lost its predecessor\'s actual delivered paths.');
+      repositories.push({id:source.repository.id,previous:earlier.observed,current:source.observed,changes,delivery});
+    }
+    if((snapshot.workflow.changeRequests??[]).some(row=>row.status==='open'&&row.targetPhase===phaseId))throw error(
+      'The pending reviewer return needs its current-generation repair lineage before another author-only successor.',
+      'GENERATION_ROLLOVER_REVIEW_REQUIRED',{actions:[{operation:'phase.review',inputs:{workId,phaseId}}],required:['reviewed-successor-repair-lineage']});
+    return {profile:'sflow-namespace-code-history/v13',mode:repositories.some(row=>row.changes.length)?'changed':'revalidated',
+      predecessor:{publication:previous,policy:code.binding,report:code.manifest.report},
+      opening:{profile:opening.profile,confirmation:opening.confirmation,intent:verified.plan.generationIntent.reference},repositories};
+  }
   async function predecessor(scoped,snapshot,phaseId,generation,{signal,policyTraversal}={}){
     const workflow=snapshot.workflow,phase=workflow.phases[phaseId],
       previous=phase.publicationBindings?.filter(row=>row.generation===generation-1);
@@ -84,6 +112,8 @@ export function createNamespaceCodeHistoryReader({observer,scope,workId}){
     return observer.withReadScope(async scoped=>{
       const retention=createNamespaceSourceRetentionReader({...scoped.evidenceReads,observer:scoped}),verified=current?.plan?.input?await retention.accepted(current.plan.input,{signal}):null;
       if(!verified||!same(verified,current))throw error('A Code successor needs its unchanged accepted source archive.');
+      if(snapshot.workflow.phases[phaseId].reworkRevalidation?.generation!==snapshot.workflow.phases[phaseId].generation){
+        const reviewed=await localSuccessor(scoped,snapshot,phaseId,verified,{signal,policyTraversal});if(reviewed)return reviewed;}
       const {request,binding,kind,previous,code,inherited,upstreamReferences,targeted,artifactRepair,earlierReturns}=await predecessor(scoped,snapshot,phaseId,verified.plan.generation,{signal,policyTraversal}),workflow=snapshot.workflow,
         definition=(await scoped.approved(snapshot,{signal})).compiled.definition,repositories=[];
       for(const source of current.plan.sources){const earlier=code.sources.find(row=>row.repository.id===source.repository.id);

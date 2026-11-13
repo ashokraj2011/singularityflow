@@ -20,3 +20,16 @@ export interface SourceTextHunk {readonly beforeStart:number;readonly beforeLine
 export interface SourceTextDiff {readonly profile:typeof SOURCE_TEXT_DIFF_PROFILE;readonly beforeLines:number;readonly afterLines:number;
   readonly hunks:readonly SourceTextHunk[];readonly work:number;readonly traceCells:number}
 export declare function sourceTextHunks(before:string,after:string,limits?:{readonly maximumTextUnits?:number;readonly maximumWork?:number;readonly maximumTraceCells?:number}):SourceTextDiff;
+import type {JsonValue} from './namespace.mjs';
+import type {SpecificationDigests} from './specifications.mjs';
+import type {SourceSnapshot,SourceDescriptor} from './source.mjs';
+export interface NamespaceSourceOpeningValues {
+  hash(value:JsonValue):string;
+  restored(before:SourceSnapshot,changes:unknown,descriptor:SourceDescriptor):SourceSnapshot;
+  summary(context:Readonly<Record<string,JsonValue>>):Readonly<Record<string,JsonValue>>;
+  plan(context:Readonly<Record<string,JsonValue>>,options?:{readonly retained?:boolean}):Readonly<Record<string,JsonValue>>;
+  admit(context:Readonly<Record<string,JsonValue>>,input?:{readonly adoptExisting?:boolean;readonly confirm?:string|null;readonly rollover?:boolean}):Readonly<Record<string,JsonValue>>;
+  assert(value:Readonly<Record<string,JsonValue>>):Readonly<Record<string,JsonValue>>;
+}
+/** Values preserve reviewed identities; storage and authority stay with actual host ports. */
+export declare function namespaceSourceOpeningPolicies(digests:SpecificationDigests):Readonly<NamespaceSourceOpeningValues>;

@@ -4,7 +4,8 @@ import {ENGINE_OPERATIONS} from '../src/engine-sdk/index.mjs';
 test('every default native registry operation names a real compatibility qualifier without opening infrastructure',async()=>{
   const report=engineOperationInventory();assert.equal(report.profile,'sflow-engine-operation-inventory/v1');
   assert.deepEqual(report.operations.map(row=>row.id),ENGINE_OPERATIONS.map(row=>row.id));
-  assert.equal(report.totals.registered,95);assert.equal(report.totals.native,42);assert.equal(report.totals.namespace,88);
+  assert.equal(report.totals.registered,95);assert.equal(report.totals.native,42);assert.equal(report.totals.namespace,89);
+  assert.equal(report.operations.find(row=>row.id==='phase.rollover').namespaceBound,true);
   for(const id of ['test-risk.known-context','test-risk.confirm-known','test-cohort.context','test-cohort.confirm','test-risk.confirm-recovery']){
     const row=report.operations.find(row=>row.id===id);assert.equal(row.namespaceBound,true);assert.equal(row.nativeBound,false);
     assert.deepEqual(row.nativeQualification,[],'new namespace ceremonies cannot claim native compatibility bindings');}

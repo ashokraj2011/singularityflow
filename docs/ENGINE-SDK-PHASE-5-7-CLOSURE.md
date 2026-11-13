@@ -5,10 +5,22 @@ remain historical evidence. Neither phase is complete until its remaining owners
 cross-agent journeys are qualified. Phase 8 authority migration and Phase 9 production cutover,
 obsolete-access removal and final distribution remain separate.
 
-The latest slice adds [independently inventoried known-failure recovery](ENGINE-SDK-KNOWN-FAILURES.md),
-including original-owner renewal, planned new passing tests and honest downstream Verification
-and Release evidence. The supported full-command owner is delivered; selective execution,
-environment-sensitive reuse, live application review and the other owners below remain open.
+The latest slice adds [reviewed source adoption and rollover](ENGINE-SDK-SOURCE-OPENINGS.md),
+including exact source confirmation, retained successors, original repair scopes and fresh
+execution through Verification and Release. The preceding known-failure owner remains delivered;
+selective execution, environment-sensitive reuse, live application review and the other owners
+below remain open.
+
+The source-opening delivery passes 289 distinct affected Mac checks across 37 files, including
+the unchanged 34-check package qualifier, run alone in 50.5 seconds within its original 120/60
+second limits. Actual Code successors cover all three stores, two repositories, changed-source
+and permission refusals, lost acknowledgements, independent witnesses, targeted repair and a
+second device's empty private store. Passing and known-failure successors reach independently
+approved Verification and Release without borrowing or relabelling a test run. The vocabulary
+remains 95 operations, with 42 native and 89 namespace bindings before optional execution.
+Source validation passes 4,408 checks; VS Code types, the unchanged 2,011-site Git audit and all
+13 original bundle ceilings pass. Gateway remains 852/852 modules (6,941,897 bytes).
+Neither phase is marked complete while its remaining owners below are open.
 
 ## Phase 5: shared operation and rule owners
 
@@ -29,6 +41,8 @@ environment-sensitive reuse, live application review and the other owners below 
 - [x] Finish Code repair history: unchanged revalidation, human route-choice returns, initial
   returns and targeted repair, preserving original source/test/approval evidence.
 - [x] Finish typed artifact sets, exact member returns, constitution and judged-article exceptions.
+- [x] Connect reviewed source adoption and rollover to original source bindings, retained
+  predecessor proofs, private conditional saves and fresh execution/independent approval.
 - [x] Finish mixed test/inspection/visual-slot witnesses and fresh generation-bound output retention.
 - [ ] Finish live application review/comparison and document/test risk decisions.
 - [x] Finish confirmed full-command recovery, command amendments and bounded repeated execution.
@@ -139,7 +153,8 @@ See [the boundary and compatibility record](ENGINE-SDK-NAMESPACE-DECISIONS-AND-R
 - Shared human-witness hash/checklist/result rules, preserving captured native records and errors.
 - Namespace generation begin and phase-input preparation share the actual private draft and
   retained input audit. Portable manifests use explicit content/revision profiles; native Git
-  manifests keep their original fields. Reviewed source adoption/rollover remains separate work.
+  manifests keep their original fields. Reviewed source adoption/rollover is now delivered through
+  its separate [opening record](ENGINE-SDK-SOURCE-OPENINGS.md).
 - Invocation-local immutable proof reuse, a narrow Auto Plan/inventory read closure, and the
   unchanged installed-package qualifier passing all 34 checks in 67 seconds on this Mac.
 
@@ -205,7 +220,6 @@ custom phases, expiry/renewal, interruption and offline shared-only replay are q
 
 - Remaining native runtime query/rule extraction and behavior parity. The source entry-point
   inventory is complete; its audit does not execute or qualify every native handler.
-- Reviewed source adoption and rollover with original source authority and retained history.
 - Unsupported combined evidence-correction and application-revalidation variants. Exact member,
   document-only return, targeted Code, multiple-Code, witness and forward-amendment profiles
   retain their delivered qualification records.

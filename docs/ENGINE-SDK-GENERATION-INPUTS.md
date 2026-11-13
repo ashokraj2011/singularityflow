@@ -22,8 +22,9 @@ errors. Preparation is not authorship, passing tests, publication or human appro
 
 Mac qualification passes 47 affected checks: the existing native begin/input contracts, ordinary
 private preparation, all three namespace backends, retained Code begin, missing-content errors
-and rejection of malformed input manifests. Reviewed source adoption/rollover and deterministic
-producer integration remain explicit completion-ledger work.
+and rejection of malformed input manifests. [Reviewed source adoption and rollover](ENGINE-SDK-SOURCE-OPENINGS.md)
+now have a separate namespace owner; deterministic convergence has its own delivered producer.
+Other required producers remain explicit completion-ledger work.
 
 The human-witness hash, checklist, record and active-result rules now have one pure kernel owner.
 The native adapter retains file reads and its existing recovery rendering. Frozen pre-extraction

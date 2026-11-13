@@ -1054,9 +1054,10 @@ async function rolloverPhase(port,inputs,signal) {
         throw error;
       }
     }
-    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.rollover',status:intent?'begun':'preview',
+    const retained=intent&&plan.profile==='sflow-namespace-reviewed-rollover/v1'&&plan.retained;
+    return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'phase.rollover',status:intent?retained?'retained':'begun':'preview',
       subject:{kind:'story',id:binding.workId},phase:binding.phase,generation:binding.generation,plan,intent,
-      effects:{localOnly:true,generationOpened:Boolean(intent),draftSaved:Boolean(intent),
+      effects:{localOnly:true,generationOpened:Boolean(intent)&&!retained,draftSaved:Boolean(intent)&&!retained,
         testsRun:false,modelInvocations:0,committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
   }catch(error){
     attachDiagnostic(error,'enginePhaseRollover',{operation:'phase.rollover',

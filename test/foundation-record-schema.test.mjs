@@ -100,7 +100,8 @@ test('Code opening v3 binds approved predecessors without changing original v1/v
   assert.deepEqual(namespaceGenerationProfile({schemaVersion:1}),{version:1,continuation:false,format:'sflow-namespace-source-generation/v1'});
   assert.deepEqual(namespaceGenerationProfile({schemaVersion:2}),{version:2,continuation:true,format:'sflow-namespace-source-generation/v2'});
   assert.deepEqual(namespaceGenerationProfile({schemaVersion:3}),{version:3,continuation:false,predecessors:true,format:'sflow-namespace-source-generation/v3'});
-  assert.throws(()=>namespaceGenerationProfile({schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.deepEqual(namespaceGenerationProfile({schemaVersion:4}),{version:4,continuation:false,reviewedOpening:true,optionalPredecessors:true,format:'sflow-namespace-source-generation/v4'});
+  assert.throws(()=>namespaceGenerationProfile({schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
 });
 test('private member and witness context wire versions are admitted by one pure owner',()=>{
   const old={format:'sflow-namespace-prepared-phase/v1',data:'original'},copy=structuredClone(old);

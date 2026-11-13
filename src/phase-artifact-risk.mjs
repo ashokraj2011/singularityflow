@@ -1,6 +1,7 @@
 /** Review-document exceptions apply by responsibility, never by a built-in phase name. */
 import { recordSha256, canonicalJson } from './records.mjs';
 import { phaseAuthoredReviewArtifacts, inspectPhaseAuthoredReviewContent, artifactFindingMessage } from './publication-preflight.mjs';
+import { stripTemplateGuidance } from './markdown-structure.mjs';
 import { isArtifactQualityFinding, phaseFindingIdentity } from './phase-finding-policy.mjs';
 import { phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
@@ -19,7 +20,9 @@ const identities = findings => [...new Map(findings.map(finding => {
 })).values()].sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
 
 export async function artifactQualityBinding(root, config, workflow, phase, { generation = null } = {}) {
-  const documents = await phaseAuthoredReviewArtifacts(root, config, workflow, phase);
+  // Publication strips template guidance after review: bind what it keeps, same before and after.
+  const documents = await phaseAuthoredReviewArtifacts(root, config, workflow, phase,
+    { retained: text => stripTemplateGuidance(text).text });
   const order = workflow.phaseOrder ?? [];
   const prior = order.slice(0, order.indexOf(phase.id)).map(id => ({ id, phase: workflow.phases[id] }));
   return { workId: workflow.workItem.id, phaseId: phase.id,

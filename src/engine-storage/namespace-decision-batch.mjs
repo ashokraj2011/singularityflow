@@ -13,7 +13,7 @@ import {namespaceHumanDecisionReceipts} from './namespace-human-decision-contrac
 import {namespaceRoutingChoiceReceipts} from './namespace-routing-choice-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex'),
   fail=(message,code,details=null)=>{throw new SingularityFlowError(message,{code,details});},
-  operations=new Set(['decision.scope','decision.completeness','decision.applicability','upstream.decide','test-command.decide','conformance.decide','decision.choose']);
+  operations=new Set(['decision.scope','decision.completeness','decision.applicability','upstream.decide','test-command.decide','decision.test-risk','conformance.decide','decision.choose']);
 export function createNamespaceDecisionBatchPort(options,runtime,executeOperation){
   const {scope,workId,authority,access,clock}=options,observer=createNamespaceStoryObserver(options),
     reader=createNamespaceDecisionListReader({observer,scope,workId,runtime}),journal=createNamespaceDecisionBatchJournal({...options,observer}),states=new WeakMap();
@@ -40,7 +40,8 @@ export function createNamespaceDecisionBatchPort(options,runtime,executeOperatio
       const request={option:inputs.option??null,to:inputs.to??null,expected:inputs.expected??null,reason:inputs.reason.trim()},digest=hash({workId,request});
       return namespaceRoutingChoiceReceipts(workflow,{projectId:scope.projectId,workId}).some(row=>row.requestSha256===digest&&row.principalId===s.principal.actor.principalId);
     }
-    const phaseId=operation==='test-command.decide'?(s.snapshot.workflow.testCommandDecisions??[]).find(row=>row.id===(inputs.accept??inputs.revoke))?.phase:inputs.phaseId,
+    const phaseId=operation==='test-command.decide'?(s.snapshot.workflow.testCommandDecisions??[]).find(row=>row.id===(inputs.accept??inputs.revoke))?.phase
+      :operation==='decision.test-risk'&&inputs.revoke?(s.snapshot.workflow.namespaceTestRunRisks??[]).find(row=>row.id===inputs.revoke)?.phase:inputs.phaseId,
       request=operation==='conformance.decide'?{phaseId,expected:inputs.expected,clauseId:inputs.clauseId,ownerPhase:inputs.ownerPhase,outcome:inputs.outcome,
         expires:inputs.expires??null,reason:inputs.reason.trim()}:{...standaloneDecisionRequest(operation,inputs),phaseId},digest=hash({workId,request});
     return (operation==='conformance.decide'?namespaceHumanDecisionReceipts(workflow):namespaceDecisionReceipts(workflow))

@@ -246,6 +246,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
         const policy=checklistAuthority??principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
         const outcome=policy.reached&&s.routed?decisionOutcomeFacts(workflow,phase):null;
         s.approvalPolicy={reached:policy.reached,reworkTarget:outcome?.kind==='loop'?outcome.target:null};
+        if(s.proof.published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await packets.publicationReader.policies.freshTestRisk(s.proof.published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.proof.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await packets.publicationReader.policies.freshReuseSources(s.proof.published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         s.dispositionRequired=packets.publicationRequiresDisposition(s.proof.published,s.approvalPolicy);
         s.dispositionEvidence=await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot,
@@ -307,6 +308,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this approval preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
       return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,s.reviewer);await unchanged(p.snapshot,signal);
+        if(s.proof.published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await packets.publicationReader.policies.freshTestRisk(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.proof.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await packets.publicationReader.policies.freshReuseSources(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.dispositionRequired)await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot:p.snapshot,at:projectEnrollmentTimestamp(await now()),signal});},{signal});
     },

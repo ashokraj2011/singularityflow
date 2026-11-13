@@ -20,7 +20,7 @@ import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-confi
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex'),same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
-const repairable=new Set(['ENGINE_EVIDENCE_REUSE_INCOMPLETE','TEST_RECOVERY_AGREEMENT_REQUIRED','ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
+const repairable=new Set(['TEST_RUN_RISK_NOT_COVERED','TEST_RUN_RISK_NOT_ELIGIBLE','ENGINE_EVIDENCE_REUSE_INCOMPLETE','TEST_RECOVERY_AGREEMENT_REQUIRED','ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
   'ENGINE_SOURCE_EVIDENCE_REQUIRED','ENGINE_SOURCE_BASELINE_REQUIRED','CODE_DELIVERY_TEST_COVERAGE_INCOMPLETE',
   'CODE_TEST_WITNESS_INCOMPLETE','SPEC_PLANNED_TEST_BINDING_REQUIRED','SPEC_PLANNED_ALLOCATION_INVALID',
   'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE','ENGINE_ASSIGNMENT_REQUIRED','CONSTITUTION_POLICY_REQUIRED',
@@ -64,6 +64,8 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
       if(!bound)throw error('The retained phase has no original publication binding.','ENGINE_STORAGE_CORRUPT');
       const published=await publications.accepted(bound,phase.id,{signal});fingerprint=published.artifact.fingerprint;producer=published.authorship.producer;
       if(published.checks)requiredTests='retained-passing';
+      if(published.policyEvidence?.some(row=>row.kind==='test-risk/v1')){requiredTests='accepted-environment-failure';
+        if(prepublish)fresh.push(async()=>publications.policies.freshTestRisk(published,snapshot,sources,{signal,at:await clock.now()}));}
       if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1')){requiredTests='reused-not-executed';
         if(prepublish)fresh.push(async()=>publications.policies.freshReuseSources(published,snapshot,sources,{signal,at:await clock.now()}));}
       if(prepublish){
@@ -117,15 +119,20 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
         if(prepublish){
           let tested=null;
           let reused=null;
+          let testRisk=null;
           if(commandProof.commands.length){const checkInput={phaseId:phase.id,generation:p.generation,baseRevision:snapshot.revision,
             draft:{workId,phase:phase.id,revision:draft.revision,bodySha256:draft.bodySha256},artifact:p.artifact.current,configuration:snapshot.configuration};
             const current=await checks.inspectDraft(checkInput,{signal});
             if(!current&&(workflow.namespaceEvidenceReuses??[]).some(row=>row.id&&row.phase===phase.id))reused=await attempt(async()=>publications.policies.reuseCandidate(
               candidate,snapshot,{signal,at:await clock.now(),units:sources}));
-            if(!reused)tested=await attempt(()=>checks.forDraft(checkInput,{signal}));}
+            if(current&&current.found.body.verdict!=='passed'&&!code&&!workflow.resolution.testRecovery?.enabled)testRisk=await attempt(async()=>publications.policies.testRiskCandidate(
+              candidate,snapshot,{signal,at:await clock.now(),checked:current,checkInput}));
+            if(!reused&&!testRisk)tested=await attempt(()=>checks.forDraft(checkInput,{signal}));}
           candidate.checks=tested;
           if(tested){requiredTests='retained-passing';fresh.push(()=>checks.freshSources(tested,phase.id,sources,{signal}));}
           else if(reused)requiredTests='reused-not-executed';
+          else if(testRisk){requiredTests='accepted-environment-failure';
+            fresh.push(()=>checks.freshObservedSources(testRisk.report.checks,phase.id,sources,{signal}));}
           else if(commandProof.commands.length)requiredTests='evidence-required';
           if(code){const result=await attempt(()=>publications.policies.codeCandidate(candidate,snapshot,{signal}));
             if(result)fresh.push(()=>publications.policies.freshCodeCandidate(result,candidate,sources,{signal}));}

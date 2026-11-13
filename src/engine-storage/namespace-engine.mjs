@@ -43,6 +43,7 @@ import {createNamespaceWorkflowAssetsPort} from './namespace-workflow-assets.mjs
 import {createNamespaceWitnessPorts} from './namespace-witness-decisions.mjs';
 import {createNamespaceTestCommandPorts} from './namespace-test-commands.mjs';
 import {createNamespaceEvidenceReusePorts} from './namespace-evidence-reuse.mjs';
+import {createNamespaceTestRiskPorts} from './namespace-test-risks.mjs';
 import {createNamespaceTestRecoveryPorts} from './namespace-test-recovery.mjs';
 import {createNamespaceTestRepairPort} from './namespace-test-repair.mjs';
 import {createNamespaceDecisionListPorts} from './namespace-decision-list.mjs';
@@ -112,6 +113,7 @@ export function createNamespaceEngine(options={}) {
     return port[stage](...parameters);
   }]))};
   let engine,executeOperation;
+  let riskPorts;const risks=()=>riskPorts??=createNamespaceTestRiskPorts(common);
   const ports={...lazyPorts(()=>sourceReviews(),{sourceReviewContext:['load','read']}),...createNamespaceReadPorts(common,{authority}),
     ...lazyPorts(()=>createNamespaceDecisionListPorts(common,runtime),{decisionList:['load','read']}),
     ...lazyPorts(()=>({decisions:createNamespaceDecisionBatchPort(common,runtime,executeOperation)}),{decisions:['load','prepare','apply','finish']}),
@@ -121,6 +123,7 @@ export function createNamespaceEngine(options={}) {
     planCorrectionContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>plans().correctionContext[stage](...args)])),
     witnessContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>witnesses().witnessContext[stage](...args)])),
     ...lazyPorts(()=>createNamespaceStoryQueryPorts(common,runtime),{storyStatus:['load','read'],storyGuide:['load'],storyNext:['load']}),
+    testRiskContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>risks().context[stage](...args)])),
     evidenceReuseContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>reuse().context[stage](...args)])),
     testRecoveryContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>recovery().context[stage](...args)])),
     ...lazyPorts(()=>({workflowAssets:createNamespaceWorkflowAssetsPort(common)}),{workflowAssets:['load','read']}),
@@ -135,7 +138,7 @@ export function createNamespaceEngine(options={}) {
     sourceBaselineRetention:createNamespaceSourceBaselinePort(common),
     phaseDeliveryInspection:createNamespaceDeliveryInspectionPort(common,runtime),
     phaseTestWitnessInspection:createNamespaceTestWitnessInspectionPort(common,runtime),
-    ...lazyPorts(()=>createNamespaceTestCommandPorts(common),{testCommandContext:['load','read']}),testDecisionRecord:{operations:['decision.evidence-reuse','test-command.request','test-command.decide'],...Object.fromEntries(['load','prepare','resolve','commit','finish'].map(stage=>[stage,(...args)=>{const operation=args.at(-1)?.operation?.id;return (operation==='decision.evidence-reuse'?reuse().decision:(commandPorts??=createNamespaceTestCommandPorts(common)).testDecisionRecord)[stage](...args);}]))},publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
+    ...lazyPorts(()=>createNamespaceTestCommandPorts(common),{testCommandContext:['load','read']}),testDecisionRecord:{operations:['decision.test-risk','decision.evidence-reuse','test-command.request','test-command.decide'],...Object.fromEntries(['load','prepare','resolve','commit','finish'].map(stage=>[stage,(...args)=>{const operation=args.at(-1)?.operation?.id;return (operation==='decision.test-risk'?risks().decision:operation==='decision.evidence-reuse'?reuse().decision:(commandPorts??=createNamespaceTestCommandPorts(common)).testDecisionRecord)[stage](...args);}]))},publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...routing,decisionRecord,
     ...lazyPorts(()=>scoped(),{scopeContext:['load','read']}),
     ...Object.fromEntries(Object.entries(lazyPorts(()=>({upstream:createNamespaceUpstreamPort(common,runtime)}),{upstream:['load','resolve','commit','finish']})).map(([name,port])=>[name,{...port,operations:['upstream.list','upstream.raise','upstream.decide','forward-amendment.propose','forward-amendment.decide','forward-amendment.revalidate']}])),

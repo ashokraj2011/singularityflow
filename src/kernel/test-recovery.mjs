@@ -877,3 +877,159 @@ function recordStoryTestCommandDecision(workflow, { id, outcome, reason = '', ac
 
 return Object.freeze({pinDiffWords,storyTestCommandState,pendingStoryTestCommands,matchingPendingTestCommand,activeStoryTestCommands,assertStoryTestCommands,recordStoryTestCommandRequest,recordStoryTestCommandDecision});
 }
+
+/** Native-compatible test risk values. The caller supplies admitted attempts, explicit time and authority metadata.
+ * These functions never authenticate, retain or turn a failed run into a pass. */
+export function testRunRiskRecordPolicies(values){
+  const {classifyTestRunCause,testRunCauseCategory,testRunCauseWords}=values??{};
+  if([classifyTestRunCause,testRunCauseCategory,testRunCauseWords].some(value=>typeof value!=='function'))throw new SingularityFlowError(
+    'Bind the cause value rules before constructing test-risk values.',{code:'ENGINE_INPUT_INVALID'});
+  const MAX_TEST_RUN_RISK_DAYS=90,DAY=24*60*60*1000,NOT_RUN_STATUSES=new Set(['failed','blocked']),ARGV_DIGEST=/^[a-f0-9]{64}$/u;
+
+
+/** How many tests a recorded attempt executed: passed plus failed; skipped ones did not run. */
+function testsExecuted(attempt) {
+  const tests = attempt?.tests;
+  if (!tests || typeof tests !== 'object') return 0;
+  return (Number(tests.passed) || 0) + (Number(tests.failed) || 0);
+}
+
+/** A run of the command failed or was blocked before any test executed. */
+function noTestExecuted(attempt) {
+  return Boolean(attempt) && NOT_RUN_STATUSES.has(attempt.status) && testsExecuted(attempt) === 0;
+}
+
+
+/**
+ * What stopped a failed or blocked attempt: the cause recorded with it, or, for an attempt recorded
+ * before causes were classified, what its shape alone says (a missing launcher, a timeout, every
+ * test skipped, tests that failed; anything else is unrecognised).
+ */
+function testRunCause(attempt) {
+  if (attempt?.cause && typeof attempt.cause === 'object' && testRunCauseCategory(attempt.cause.class) === attempt.cause.category) return attempt.cause;
+  return classifyTestRunCause({ check: { status: attempt?.status, timedOut: attempt?.timedOut === true,
+    infrastructureUnavailable: attempt?.process?.infrastructureUnavailable === true }, tests: attempt?.tests });
+}
+
+
+/** A cause as a person reads it: its words, the changed file it names, its class and marker. */
+function testRunCauseText(cause) {
+  return `${testRunCauseWords(cause?.class)}${cause?.file ? ` in ${cause.file}` : ''} (${[cause?.class, cause?.signal].filter(Boolean).join(', ')})`;
+}
+
+
+function textBetween(value, minimum, maximum, option, what) {
+  const text = String(value ?? '').trim();
+  if (text.length < minimum || text.length > maximum) {
+    throw new SingularityFlowError(`Say ${what} in ${minimum} to ${maximum} characters with ${option}.`, {
+      code: 'TEST_RUN_RISK_INVALID'
+    });
+  }
+  return text;
+}
+
+
+/** Why a person may not accept the risk of this attempt, or null when they may: only an environment cause. */
+function testRunRiskIneligibility(attempt) {
+  if (!attempt) return 'no run of this command is recorded for the step in this checkout yet; publish or submit it first so its failure is recorded, or name the cause class and command digest its refusal gave with --cause-class and --argv-sha256';
+  if (attempt.status === 'passed') return 'its latest run passed';
+  if (!NOT_RUN_STATUSES.has(attempt.status)) return `its latest run is ${attempt.status}, not a run that failed or was blocked`;
+  const cause = testRunCause(attempt);
+  if (cause.category === 'environment') return null;
+  const executed = testsExecuted(attempt);
+  if (cause.category === 'code') {
+    return `its latest run stopped on a code cause, ${testRunCauseText(cause)}; ${executed > 0 ? `${executed} test(s) executed, and ` : ''}a code fault is fixed, never accepted`;
+  }
+  return `nothing in its latest run says the environment stopped it: ${testRunCauseText(cause)}; fix the cause and run it again`;
+}
+
+
+/**
+ * Record a decision on the aggregate; the caller found the attempt and checked authority. With no
+ * run recorded in this checkout, the command is bound by `commandId`, its `argvSha256` and the
+ * `causeClass` its refusal named instead.
+ */
+function recordTestRunRisk(workflow, { phaseId, attempt, commandId = null, argvSha256 = null, causeClass = null, cause, reason, expires, actor, authorityGroup, identityAssurance = null, at }) {
+  const byDigest = !attempt && Boolean(commandId) && ARGV_DIGEST.test(String(argvSha256 ?? ''));
+  const ineligible = byDigest ? null : testRunRiskIneligibility(attempt);
+  const named = attempt?.commandId ?? commandId ?? 'this test command';
+  if (ineligible) {
+    throw new SingularityFlowError(`The risk of ${named} cannot be accepted: ${ineligible}.`, {
+      code: 'TEST_RUN_RISK_NOT_ELIGIBLE', details: { phase: phaseId, commandId: attempt?.commandId ?? commandId ?? null }
+    });
+  }
+  const observed = byDigest ? null : testRunCause(attempt);
+  if (byDigest && testRunCauseCategory(causeClass) !== 'environment') {
+    throw new SingularityFlowError('Name the environment cause class the refusal gave with --cause-class, beside --argv-sha256.', { code: 'TEST_RUN_RISK_INVALID' });
+  }
+  if (observed && causeClass && causeClass !== observed.class) {
+    throw new SingularityFlowError(`The risk of ${named} cannot be accepted as ${causeClass}: its latest run stopped on ${testRunCauseText(observed)}.`, {
+      code: 'TEST_RUN_RISK_NOT_ELIGIBLE', details: { phase: phaseId, commandId: named }
+    });
+  }
+  const statedCause = textBetween(cause, 10, 300, '--cause', 'what in the environment stops the tests');
+  const text = textBetween(reason, 20, 1000, '--reason', 'why the risk is acceptable');
+  const expiry = /^\d{4}-\d{2}-\d{2}$/u.test(String(expires ?? '')) ? new Date(`${expires}T23:59:59.999Z`) : null;
+  const now = new Date(at);
+  if (!expiry || Number.isNaN(expiry.getTime()) || expiry <= now || expiry - now > MAX_TEST_RUN_RISK_DAYS * DAY) {
+    throw new SingularityFlowError(`--expires must be a date after today and at most ${MAX_TEST_RUN_RISK_DAYS} days ahead (YYYY-MM-DD).`, {
+      code: 'TEST_RUN_RISK_INVALID'
+    });
+  }
+  workflow.testRunRisks ??= [];
+  const decision = {
+    id: `TRR-${String(workflow.testRunRisks.filter((entry) => !entry.revokes).length + 1).padStart(3, '0')}`,
+    phase: phaseId, commandId: byDigest ? commandId : attempt.commandId, argvSha256: byDigest ? argvSha256 : attempt.argvSha256,
+    causeClass: byDigest ? causeClass : observed.class,
+    cause: statedCause, reason: text, expiresAt: expiry.toISOString(),
+    // Bound by digest, the decision saw no run here; each run it lets through is checked at use.
+    ...(byDigest ? { boundBy: 'command-digest' } : { observation: {
+      attemptId: attempt.attemptId, status: attempt.status,
+      exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, testsExecuted: testsExecuted(attempt)
+    } }),
+    actor, authorityGroup, identityAssurance, at
+  };
+  workflow.testRunRisks.push(decision);
+  return decision;
+}
+  return Object.freeze({MAX_TEST_RUN_RISK_DAYS,testsExecuted,noTestExecuted,testRunCause,testRunCauseText,
+    testRunRiskText:textBetween,testRunRiskIneligibility,recordTestRunRisk});
+}
+
+/** Status over admitted namespace records and explicit time; it does not verify authority or execution. */
+export function namespaceTestRiskState(workflow,decision,{at}){
+  const rows=workflow.namespaceTestRunRisks??[];
+  if(rows.some(row=>row.revokes===decision.id))return 'revoked';
+  if(new Date(decision.expiresAt)<=new Date(at))return 'expired';
+  const latest=rows.filter(row=>row.id&&row.phase===decision.phase&&row.commandId===decision.commandId
+    &&row.argvSha256===decision.argvSha256&&row.causeClass===decision.causeClass).at(-1);
+  return latest?.id===decision.id?'active':'superseded';
+}
+/** A renewal carries an original exact risk binding without rewriting its historical observation. */
+export function namespaceTestRiskCoverage(workflow,decision,{at}){
+  const rows=workflow.namespaceTestRunRisks??[],latest=rows.filter(row=>row.id&&row.phase===decision.phase&&row.commandId===decision.commandId
+    &&row.argvSha256===decision.argvSha256&&row.causeClass===decision.causeClass&&row.commandSha256===decision.commandSha256).at(-1);
+  return latest&&namespaceTestRiskState(workflow,latest,{at})==='active'?latest:null;
+}
+/** One versioned namespace risk ceremony. Native risk collections retain their original shape. */
+export function namespaceTestRiskPlan(workflow,request,facts,source,rules){
+  const proposed=structuredClone(workflow),rows=proposed.namespaceTestRunRisks??=[],common={actor:facts.actorId,authorityGroup:facts.authorityGroup,at:facts.at};
+  let record;
+  if(request.revoke){
+    const target=rows.find(row=>row.id===request.revoke);
+    if(!target)throw new SingularityFlowError('This Story has no such test-run risk. ',{code:'TEST_RUN_RISK_UNKNOWN'});
+    if(rows.some(row=>row.revokes===request.revoke))throw new SingularityFlowError('This test-run risk is already revoked.',{code:'TEST_RUN_RISK_REVOKED'});
+    record={schemaVersion:1,profile:'sflow-namespace-test-run-risk/v1',revokes:request.revoke,phase:target.phase,commandId:target.commandId,
+      reason:rules.testRunRiskText(request.reason,20,1000,'--reason','why the decision is revoked'),...common};
+  }else{
+    if(rows.some(row=>row.id&&row.phase===request.phaseId&&row.commandId===request.commandId&&row.argvSha256===request.argvSha256
+      &&row.causeClass===request.causeClass&&namespaceTestRiskState(proposed,row,{at:facts.at})==='active'))throw new SingularityFlowError(
+      'A standing decision already covers this exact command and environment cause. Use it or revoke it before replacing it.',{code:'TEST_RUN_RISK_ALREADY_RECORDED'});
+    const value=rules.recordTestRunRisk({testRunRisks:structuredClone(rows)},{...request,attempt:null,...common});
+    record={schemaVersion:1,profile:'sflow-namespace-test-run-risk/v1',...value,commandSha256:source.commandSha256};
+  }
+  proposed.namespaceTestRunRisks=[...rows,record];
+  proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'test_run_risk_decided',phase:request.phaseId,
+    detail:(record.id??record.revokes)+(record.revokes?' revoked. ':' accepts only its exact environment cause. ')+record.reason});
+  return {workflow:proposed,outcome:{currentPhase:workflow.currentPhase,record}};
+}

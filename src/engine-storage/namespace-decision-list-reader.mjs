@@ -15,6 +15,8 @@ import {routingChoiceSelection} from '../kernel/routed-approval.mjs';
 import {createNamespaceScopeDecisionOwners} from './namespace-scope-reader.mjs';
 import {createNamespaceUpstreamOwners} from './namespace-upstream-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
+import {createNamespaceTestRiskOwner} from './namespace-test-risk-reader.mjs';
+import {namespaceTestRiskState} from '../kernel/test-recovery.mjs';
 import {createNamespaceConformanceDecisionOwner} from './namespace-conformance-decision-reader.mjs';
 import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-reader.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
@@ -88,6 +90,16 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
       }
     }
     source.commands=identities;
+    if((workflow.namespaceTestRunRisks??[]).length){
+      const risks=await createNamespaceTestRiskOwner({observer,scope,workId}).admitted(snapshot,{signal});
+      source.testRunRisks=risks.map(row=>row.reference);references.push(...source.testRunRisks);
+      for(const proof of risks){const row=proof.value.outcome.record;if(!row.id||phaseId!==null&&row.phase!==phaseId)continue;
+        const state=namespaceTestRiskState(workflow,row,{at}),groups=testRunRiskAuthorities(workflow,row.phase),
+          choice=state==='active'?option('revoke-test-risk','decision.test-risk',{revoke:row.id},groups):option('review-test-risk','test-risk.context',{phaseId:row.phase},groups,{},false);
+        if(state!=='active')choice.action={operation:'test-risk.context',inputs:{workId,phaseId:row.phase},requiredInputs:[],prerequisites:['inspect-original-command-and-current-risk']};
+        observations.push({kind:'test-run-risk',key:row.id+':'+state,offered:true,options:[choice]});
+      }
+    }
     const phase=workflow.phases[phaseId],binding=phase?.publicationBindings?.find(row=>row.generation===phase.generation);
     if(binding&&!phaseNeedsGeneration(workflow,phase)){
       const publication=await publications.accepted(binding,phaseId,{signal});references.push(binding.record,...publications.policies.evidence(publication));

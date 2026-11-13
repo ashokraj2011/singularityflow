@@ -29,6 +29,7 @@
     "./execution/runtime": { "types": "./dist/execution/runtime.d.mts", "import": "./dist/execution/runtime.mjs" },
     "./testing/reports": { "types": "./dist/testing/reports.d.mts", "import": "./dist/testing/reports.mjs" },
     "./testing/causes": { "types": "./dist/testing/causes.d.mts", "import": "./dist/testing/causes.mjs" },
+    "./testing/risks": { "types": "./dist/testing/risks.d.mts", "import": "./dist/testing/risks.mjs" },
     "./testing/reuse": { "types": "./dist/testing/reuse.d.mts", "import": "./dist/testing/reuse.mjs" },
     "./testing/recovery": { "types": "./dist/testing/recovery.d.mts", "import": "./dist/testing/recovery.mjs" },
     "./testing/node": { "types": "./dist/testing/node.d.mts", "import": "./dist/testing/node.mjs" },

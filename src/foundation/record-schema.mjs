@@ -254,6 +254,14 @@ export function namespaceTestRecoveryRecordProfile(kind,value){
 export const NAMESPACE_EVIDENCE_REUSE_SCHEMAS=Object.freeze({
   record:frozenFamily('namespace-evidence-reuse'),context:frozenFamily('namespace-evidence-reuse-context'),
   policy:frozenFamily('namespace-evidence-reuse-policy-manifest'),report:frozenFamily('namespace-evidence-reuse-policy')});
+export const NAMESPACE_TEST_RISK_SCHEMAS=Object.freeze({record:frozenFamily('namespace-test-run-risk'),
+  context:frozenFamily('namespace-test-risk-context'),policy:frozenFamily('namespace-test-risk-policy-manifest'),report:frozenFamily('namespace-test-risk-policy')});
+export function namespaceTestRiskRecordProfile(kind,value){
+  const family=NAMESPACE_TEST_RISK_SCHEMAS[kind];
+  if(!family)throw new SingularityFlowError('Unknown test-risk record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(family,value);
+  return Object.freeze({version:storedVersion,profile:'sflow-'+family.id+'/v'+storedVersion});
+}
 export function namespaceEvidenceReuseRecordProfile(kind,value){
   const family=NAMESPACE_EVIDENCE_REUSE_SCHEMAS[kind];
   if(!family)throw new SingularityFlowError('Unknown evidence-reuse record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});

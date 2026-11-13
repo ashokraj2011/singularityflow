@@ -46,6 +46,7 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       if(!binding){if(phase.generation>0)fail('A current generation has no retained publication.',undefined,{phase:id});continue;}
       const publication=acceptedPublications.get(id)??await publications.accepted(binding,id,{signal});
       references.push(binding.record,publication.artifact.content,...publications.policies.evidence(publication),...publications.specifications.evidence(publication));
+      if(publication.policyEvidence?.some(row=>row.kind==='test-risk/v1'))excluded.push({phase:id,generation:phase.generation,reason:'failed-tests-with-accepted-environment-risk-are-not-passing-evidence'});
       if(publication.specifications){
         const manifest=namespaceSpecificationManifest(await json(publication.specifications.record,signal),{scope,workId,phaseId:id});
         if(manifest.index)records.indexes.push(await json(manifest.index,signal));

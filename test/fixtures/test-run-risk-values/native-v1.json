@@ -1,0 +1,743 @@
+{
+  "capturedFrom": "9d2ab9f54",
+  "sourceSha256": "1721b65ad5cdd629f1b22054f7a1d9290372881c20f7bcb3e2ede78c44379853",
+  "cases": [
+    {
+      "name": "eligibility-missing",
+      "ok": true,
+      "value": "no run of this command is recorded for the step in this checkout yet; publish or submit it first so its failure is recorded, or name the cause class and command digest its refusal gave with --cause-class and --argv-sha256"
+    },
+    {
+      "name": "record-missing",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of this test command cannot be accepted: no run of this command is recorded for the step in this checkout yet; publish or submit it first so its failure is recorded, or name the cause class and command digest its refusal gave with --cause-class and --argv-sha256.",
+        "details": {
+          "phase": "assess",
+          "commandId": null
+        }
+      }
+    },
+    {
+      "name": "count-missing",
+      "ok": true,
+      "value": {
+        "executed": 0,
+        "none": false
+      }
+    },
+    {
+      "name": "eligibility-passed",
+      "ok": true,
+      "value": "its latest run passed"
+    },
+    {
+      "name": "record-passed",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of unit cannot be accepted: its latest run passed.",
+        "details": {
+          "phase": "assess",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "count-passed",
+      "ok": true,
+      "value": {
+        "executed": 2,
+        "none": false
+      }
+    },
+    {
+      "name": "eligibility-not-run",
+      "ok": true,
+      "value": "its latest run is not-run, not a run that failed or was blocked"
+    },
+    {
+      "name": "record-not-run",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of unit cannot be accepted: its latest run is not-run, not a run that failed or was blocked.",
+        "details": {
+          "phase": "assess",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "count-not-run",
+      "ok": true,
+      "value": {
+        "executed": 2,
+        "none": false
+      }
+    },
+    {
+      "name": "eligibility-environment",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "record-environment",
+      "ok": true,
+      "value": {
+        "record": {
+          "id": "TRR-001",
+          "phase": "assess",
+          "commandId": "unit",
+          "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "causeClass": "service-unreachable",
+          "cause": "The integration service is unavailable on this device.",
+          "reason": "The independent deployment pipeline exercises this service before release.",
+          "expiresAt": "2026-11-20T23:59:59.999Z",
+          "observation": {
+            "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+            "status": "failed",
+            "exitCode": 1,
+            "testsExecuted": 2
+          },
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-13T12:00:00.000Z"
+        },
+        "workflow": {
+          "testRunRisks": [
+            {
+              "id": "TRR-001",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2026-11-20T23:59:59.999Z",
+              "observation": {
+                "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+                "status": "failed",
+                "exitCode": 1,
+                "testsExecuted": 2
+              },
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "count-environment",
+      "ok": true,
+      "value": {
+        "executed": 2,
+        "none": false
+      }
+    },
+    {
+      "name": "eligibility-no-tests",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "record-no-tests",
+      "ok": true,
+      "value": {
+        "record": {
+          "id": "TRR-001",
+          "phase": "assess",
+          "commandId": "unit",
+          "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "causeClass": "service-unreachable",
+          "cause": "The integration service is unavailable on this device.",
+          "reason": "The independent deployment pipeline exercises this service before release.",
+          "expiresAt": "2026-11-20T23:59:59.999Z",
+          "observation": {
+            "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+            "status": "failed",
+            "exitCode": 1,
+            "testsExecuted": 0
+          },
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-13T12:00:00.000Z"
+        },
+        "workflow": {
+          "testRunRisks": [
+            {
+              "id": "TRR-001",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2026-11-20T23:59:59.999Z",
+              "observation": {
+                "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+                "status": "failed",
+                "exitCode": 1,
+                "testsExecuted": 0
+              },
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "count-no-tests",
+      "ok": true,
+      "value": {
+        "executed": 0,
+        "none": true
+      }
+    },
+    {
+      "name": "eligibility-unknown",
+      "ok": true,
+      "value": "its latest run stopped on a code cause, tests ran and failed (assertion-failure, failed tests without messages); 2 test(s) executed, and a code fault is fixed, never accepted"
+    },
+    {
+      "name": "record-unknown",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of unit cannot be accepted: its latest run stopped on a code cause, tests ran and failed (assertion-failure, failed tests without messages); 2 test(s) executed, and a code fault is fixed, never accepted.",
+        "details": {
+          "phase": "assess",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "count-unknown",
+      "ok": true,
+      "value": {
+        "executed": 2,
+        "none": false
+      }
+    },
+    {
+      "name": "eligibility-timeout",
+      "ok": true,
+      "value": "nothing in its latest run says the environment stopped it: the run timed out (timeout, timeout); fix the cause and run it again"
+    },
+    {
+      "name": "record-timeout",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of unit cannot be accepted: nothing in its latest run says the environment stopped it: the run timed out (timeout, timeout); fix the cause and run it again.",
+        "details": {
+          "phase": "assess",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "count-timeout",
+      "ok": true,
+      "value": {
+        "executed": 2,
+        "none": false
+      }
+    },
+    {
+      "name": "eligibility-code",
+      "ok": true,
+      "value": "its latest run stopped on a code cause, tests ran and failed (assertion-failure, assertion); 2 test(s) executed, and a code fault is fixed, never accepted"
+    },
+    {
+      "name": "record-code",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of unit cannot be accepted: its latest run stopped on a code cause, tests ran and failed (assertion-failure, assertion); 2 test(s) executed, and a code fault is fixed, never accepted.",
+        "details": {
+          "phase": "assess",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "count-code",
+      "ok": true,
+      "value": {
+        "executed": 2,
+        "none": false
+      }
+    },
+    {
+      "name": "eligibility-syntax",
+      "ok": true,
+      "value": "its latest run stopped on a code cause, a syntax error in src/value.js (syntax-error, SyntaxError); 2 test(s) executed, and a code fault is fixed, never accepted"
+    },
+    {
+      "name": "record-syntax",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of unit cannot be accepted: its latest run stopped on a code cause, a syntax error in src/value.js (syntax-error, SyntaxError); 2 test(s) executed, and a code fault is fixed, never accepted.",
+        "details": {
+          "phase": "assess",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "count-syntax",
+      "ok": true,
+      "value": {
+        "executed": 2,
+        "none": false
+      }
+    },
+    {
+      "name": "digest",
+      "ok": true,
+      "value": {
+        "record": {
+          "id": "TRR-001",
+          "phase": "assess",
+          "commandId": "unit",
+          "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "causeClass": "service-unreachable",
+          "cause": "The integration service is unavailable on this device.",
+          "reason": "The independent deployment pipeline exercises this service before release.",
+          "expiresAt": "2026-11-20T23:59:59.999Z",
+          "boundBy": "command-digest",
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-13T12:00:00.000Z"
+        },
+        "workflow": {
+          "testRunRisks": [
+            {
+              "id": "TRR-001",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2026-11-20T23:59:59.999Z",
+              "boundBy": "command-digest",
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "digest-no-class",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "Name the environment cause class the refusal gave with --cause-class, beside --argv-sha256.",
+        "details": null
+      }
+    },
+    {
+      "name": "digest-code",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "Name the environment cause class the refusal gave with --cause-class, beside --argv-sha256.",
+        "details": null
+      }
+    },
+    {
+      "name": "digest-invalid",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of unit cannot be accepted: no run of this command is recorded for the step in this checkout yet; publish or submit it first so its failure is recorded, or name the cause class and command digest its refusal gave with --cause-class and --argv-sha256.",
+        "details": {
+          "phase": "assess",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "cause-mismatch",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_NOT_ELIGIBLE",
+        "message": "The risk of unit cannot be accepted as registry-unreachable: its latest run stopped on a service the tests connect to is not reachable (service-unreachable, ECONNREFUSED).",
+        "details": {
+          "phase": "assess",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "cause-short",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "Say what in the environment stops the tests in 10 to 300 characters with --cause.",
+        "details": null
+      }
+    },
+    {
+      "name": "cause-long",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "Say what in the environment stops the tests in 10 to 300 characters with --cause.",
+        "details": null
+      }
+    },
+    {
+      "name": "reason-short",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "Say why the risk is acceptable in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "reason-long",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "Say why the risk is acceptable in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "trimmed",
+      "ok": true,
+      "value": {
+        "record": {
+          "id": "TRR-001",
+          "phase": "assess",
+          "commandId": "unit",
+          "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "causeClass": "service-unreachable",
+          "cause": "The integration service is unavailable on this device.",
+          "reason": "The independent deployment pipeline exercises this service before release.",
+          "expiresAt": "2026-11-20T23:59:59.999Z",
+          "observation": {
+            "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+            "status": "failed",
+            "exitCode": 1,
+            "testsExecuted": 2
+          },
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-13T12:00:00.000Z"
+        },
+        "workflow": {
+          "testRunRisks": [
+            {
+              "id": "TRR-001",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2026-11-20T23:59:59.999Z",
+              "observation": {
+                "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+                "status": "failed",
+                "exitCode": 1,
+                "testsExecuted": 2
+              },
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "expiry-2026-11-12",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-2026-11-13",
+      "ok": true,
+      "value": {
+        "record": {
+          "id": "TRR-001",
+          "phase": "assess",
+          "commandId": "unit",
+          "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "causeClass": "service-unreachable",
+          "cause": "The integration service is unavailable on this device.",
+          "reason": "The independent deployment pipeline exercises this service before release.",
+          "expiresAt": "2026-11-13T23:59:59.999Z",
+          "observation": {
+            "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+            "status": "failed",
+            "exitCode": 1,
+            "testsExecuted": 2
+          },
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-13T12:00:00.000Z"
+        },
+        "workflow": {
+          "testRunRisks": [
+            {
+              "id": "TRR-001",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2026-11-13T23:59:59.999Z",
+              "observation": {
+                "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+                "status": "failed",
+                "exitCode": 1,
+                "testsExecuted": 2
+              },
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "expiry-2027-02-10",
+      "ok": true,
+      "value": {
+        "record": {
+          "id": "TRR-001",
+          "phase": "assess",
+          "commandId": "unit",
+          "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "causeClass": "service-unreachable",
+          "cause": "The integration service is unavailable on this device.",
+          "reason": "The independent deployment pipeline exercises this service before release.",
+          "expiresAt": "2027-02-10T23:59:59.999Z",
+          "observation": {
+            "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+            "status": "failed",
+            "exitCode": 1,
+            "testsExecuted": 2
+          },
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-13T12:00:00.000Z"
+        },
+        "workflow": {
+          "testRunRisks": [
+            {
+              "id": "TRR-001",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2027-02-10T23:59:59.999Z",
+              "observation": {
+                "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+                "status": "failed",
+                "exitCode": 1,
+                "testsExecuted": 2
+              },
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "expiry-2027-02-11",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-2027-05-01",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-2026-11-31",
+      "ok": true,
+      "value": {
+        "record": {
+          "id": "TRR-001",
+          "phase": "assess",
+          "commandId": "unit",
+          "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "causeClass": "service-unreachable",
+          "cause": "The integration service is unavailable on this device.",
+          "reason": "The independent deployment pipeline exercises this service before release.",
+          "expiresAt": "2026-12-01T23:59:59.999Z",
+          "observation": {
+            "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+            "status": "failed",
+            "exitCode": 1,
+            "testsExecuted": 2
+          },
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-13T12:00:00.000Z"
+        },
+        "workflow": {
+          "testRunRisks": [
+            {
+              "id": "TRR-001",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2026-12-01T23:59:59.999Z",
+              "observation": {
+                "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+                "status": "failed",
+                "exitCode": 1,
+                "testsExecuted": 2
+              },
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "expiry-invalid",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-null",
+      "ok": false,
+      "error": {
+        "code": "TEST_RUN_RISK_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "sequence-preserves-revocation",
+      "ok": true,
+      "value": {
+        "record": {
+          "id": "TRR-002",
+          "phase": "assess",
+          "commandId": "unit",
+          "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "causeClass": "service-unreachable",
+          "cause": "The integration service is unavailable on this device.",
+          "reason": "The independent deployment pipeline exercises this service before release.",
+          "expiresAt": "2026-11-20T23:59:59.999Z",
+          "observation": {
+            "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+            "status": "failed",
+            "exitCode": 1,
+            "testsExecuted": 2
+          },
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-13T12:00:00.000Z"
+        },
+        "workflow": {
+          "testRunRisks": [
+            {
+              "id": "TRR-001",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2026-11-20T23:59:59.999Z",
+              "observation": {
+                "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+                "status": "failed",
+                "exitCode": 1,
+                "testsExecuted": 2
+              },
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            },
+            {
+              "revokes": "TRR-001"
+            },
+            {
+              "id": "TRR-002",
+              "phase": "assess",
+              "commandId": "unit",
+              "argvSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "causeClass": "service-unreachable",
+              "cause": "The integration service is unavailable on this device.",
+              "reason": "The independent deployment pipeline exercises this service before release.",
+              "expiresAt": "2026-11-20T23:59:59.999Z",
+              "observation": {
+                "attemptId": "TA-bbbbbbbbbbbbbbbbbbbb",
+                "status": "failed",
+                "exitCode": 1,
+                "testsExecuted": 2
+              },
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-13T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -26,6 +26,12 @@ Install the resulting local archive in the host project with `npm install /path/
 The archive contains the runtime, declarations and source inventory; it needs no SFlow checkout.
 The ordinary CLI and extension installers and their existing package exports remain unchanged.
 
+`testing/causes` and `testing/risks` provide pure classification and risk-record values. Namespace
+hosts use `test-risk.context` and `decision.test-risk` for actual human decisions; the artifact-phase
+`test-risk/v1` publication profile retains genuine failed execution and never claims passing tests.
+See `docs/ENGINE-SDK-TEST-RISKS.md` in the source repository for authority, renewal, replay and the
+explicitly unsupported Code/recovery combinations.
+
 For the implemented namespace lifecycle, use one explicitly bound host:
 
 ```js

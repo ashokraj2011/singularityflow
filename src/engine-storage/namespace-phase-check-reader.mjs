@@ -165,27 +165,32 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
       operation:'phase.checks.run',workId,phase:input.phaseId,generation:input.generation});
     assertPassing(selected.found,input.phaseId);return selected.binding;
   }
-  async function publication(value,{signal}={}) {
+  async function publicationObservation(value,{signal}={}) {
     const found=await proof(value.checks,value.phase,{signal}),plan=found.plan;
     if(plan.generation!==value.generation||plan.basis.headVersion!==value.baseRevision||!same(plan.basis.configuration,value.configuration)
       ||!same(plan.draft,{workId,phase:value.phase,revision:value.draft.revision,bodySha256:value.draft.sha256})
       ||plan.artifact.sha256!==value.artifact.content.sha256||plan.artifact.bytes!==value.artifact.content.bytes)
       throw error('The publication differs from its accepted check evidence.','ENGINE_STORAGE_CORRUPT');
-    assertPassing(found,value.phase);return found;
+    return found;
+  }
+  async function publication(value,options={}){
+    const found=await publicationObservation(value,options);assertPassing(found,value.phase);return found;
   }
   const readBindings=binding=>{phaseCheckEvidenceBinding(binding);return [
     {namespace:'evidence',key:binding.result.key,version:binding.result.version},
     {namespace:'evidence',key:binding.index.key,version:binding.index.version}];};
-  async function assertCurrent(binding,phaseId,{signal}={}) {
+  async function currentObservation(binding,phaseId,{signal}={}) {
     const found=await proof(binding,phaseId,{signal}),current=await observer.record('evidence',binding.index.key,false,signal);
     codec.index(current.value);
     if(current.version!==binding.index.version||current.value.manifestKey!==binding.result.key)
       throw error('The draft check result changed. Reinspect the current result before publication.','ENGINE_CONTEXT_CHANGED',{
         operation:'phase.checks.run',workId,phase:phaseId});
-    assertPassing(found,phaseId);return found;
+    return found;
   }
-  async function freshSources(binding,phaseId,sources,{signal}={}) {
-    const found=await assertCurrent(binding,phaseId,{signal});
+  async function assertCurrent(binding,phaseId,options={}){
+    const found=await currentObservation(binding,phaseId,options);assertPassing(found,phaseId);return found;
+  }
+  async function compareSources(found,phaseId,sources,{signal}={}) {
     const units=new Map(sources.map(unit=>[validateSourceUnit(unit).repositoryId,unit]));
     for(const selected of found.plan.sources){const unit=units.get(selected.id),descriptor=unit&&validateSourceUnit(unit);
       if(!descriptor||descriptor.projectId!==scope.projectId||!same(descriptor.selection,selected.descriptor.selection))
@@ -198,5 +203,11 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     }
     return found;
   }
-  return Object.freeze({codec,observer,intent,accepted,observations,snapshot,proof,forDraft,inspectDraft,publication,readBindings,assertCurrent,freshSources});
+  async function freshObservedSources(binding,phaseId,sources,options={}){
+    return compareSources(await currentObservation(binding,phaseId,options),phaseId,sources,options);
+  }
+  async function freshSources(binding,phaseId,sources,options={}){
+    return compareSources(await assertCurrent(binding,phaseId,options),phaseId,sources,options);
+  }
+  return Object.freeze({codec,observer,intent,accepted,observations,snapshot,proof,forDraft,inspectDraft,publication,publicationObservation,readBindings,assertCurrent,currentObservation,freshSources,freshObservedSources});
 }

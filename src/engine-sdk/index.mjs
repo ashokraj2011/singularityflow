@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -146,6 +146,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestCommandContext'},
   {id:'evidence-reuse.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'evidenceReuseContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectEvidenceReuseContext'},
+  {id:'test-risk.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRiskContext',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRiskContext'},
   {id:'test-recovery.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRecoveryContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRecoveryContext'},
   {id:'source-review.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'sourceReviewContext',
@@ -770,6 +772,21 @@ function planCorrectionContextInput(value,operation){const input=data(value);if(
   ||input.operations.some(row=>!row||typeof row!=='object'||Array.isArray(row))||typeof input.reason!=='string'
   ||['workId','ownerPhase','upstreamIssue'].some(key=>input[key]!=null&&typeof input[key]!=='string'))throw new SingularityFlowError(
   'Name a bounded correction and its review reason.',{code:'ENGINE_INPUT_INVALID'});return input;}
+async function inspectTestRiskContext(port,input,signal){
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const binding=data({subject:context?.subject,workId:context?.workflow?.workItem?.id,phase:context?.phase?.id}),facts=data(await port.read(context,{signal}));notCancelled(signal);
+  let profile;try{profile=namespaceTestRiskRecordProfile('context',facts);}catch{ /* Another wire is refused. */ }
+  if(!profile||facts.profile!==profile.profile||binding.subject?.kind!=='story'||binding.subject.id!==binding.workId
+    ||input.workId!=null&&input.workId!==binding.workId||input.phaseId!=null&&input.phaseId!==binding.phase
+    ||facts.workId!==binding.workId||facts.phase!==binding.phase||typeof facts.revision!=='string'||!facts.revision
+    ||facts.testsPassed!==false||facts.executionObserved!==false||!Array.isArray(facts.commands)||facts.commands.length>1024
+    ||facts.commands.some(row=>!row.command?.id||!Array.isArray(row.command.argv)||!/^[a-f0-9]{64}$/u.test(row.argvSha256??'')
+      ||!/^sha256:[a-f0-9]{64}$/u.test(row.commandSha256??''))||!Array.isArray(facts.decisions)||!Array.isArray(facts.authorities)||!Array.isArray(facts.environmentCauses))
+    throw new SingularityFlowError('The risk context returned another Story, command or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-risk.context',subject:binding.subject,manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+}
+
 async function inspectEvidenceReuseContext(port,input,signal){
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   const binding=data({subject:context?.subject,workId:context?.workflow?.workItem?.id,phase:context?.phase?.id}),
@@ -1906,7 +1923,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    inspectEvidenceReuseContext,inspectTestRecoveryContext,inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseRepairInput,runPhaseRepair,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
+    inspectTestRiskContext,inspectEvidenceReuseContext,inspectTestRecoveryContext,inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseRepairInput,runPhaseRepair,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectDecisionList, inspectStoryGuide, inspectStoryNext,

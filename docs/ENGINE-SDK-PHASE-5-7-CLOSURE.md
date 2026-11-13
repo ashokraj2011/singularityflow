@@ -12,6 +12,7 @@ obsolete-access removal and final distribution remain separate.
 - [x] Connect human scope/completeness/applicability, exact plan corrections and witness decisions
   to namespace transactions, preserving their real authority and confirmation contracts.
 - [x] Connect exact artifact-phase execution reuse to original approved executions and human receipts.
+- [x] Connect exact artifact-phase environment risks to real failed executions, human decisions and renewal.
 - [ ] Finish witness-exception renewal and the remaining evidence/test risk and cohort-reuse ceremonies.
 - [x] Connect upstream issues, forward amendments, their list query and recorded decision batches.
 - [ ] Qualify final decisions, approval, rejection and continuation through the single registry.
@@ -25,6 +26,7 @@ obsolete-access removal and final distribution remain separate.
 - [ ] Finish live application review/comparison and document/test risk decisions.
 - [x] Finish confirmed full-command recovery, command amendments and bounded repeated execution.
 - [x] Add source-bound, human-authorized artifact-phase reuse without claiming a receiving execution.
+- [x] Add retained environment-risk publication, independent approval and shared-only replay for artifact phases.
 - [ ] Add baseline/cohort selection, Code/environment-sensitive reuse and test-risk ceremony owners.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through explicit
@@ -32,6 +34,11 @@ obsolete-access removal and final distribution remain separate.
 - [ ] Qualify application journeys on filesystem, SQLite and application storage with real
   source changes, actual tests, independent human decisions, interruption and cross-agent takeover.
 - [ ] Qualify installed offline consumers and NodeNext contracts without raising existing deadlines.
+
+The [test-risk delivery](ENGINE-SDK-TEST-RISKS.md) qualifies exact human environment-risk decisions,
+real failed SGOS observations, renewal, revocation, mixed compiler checks and shared-only replay.
+All 307 affected Mac checks and the original package, deadline and bundle limits pass. Code/recovery
+risk combinations and the other unchecked owners remain required; neither phase is complete.
 
 ## Execution constraints
 

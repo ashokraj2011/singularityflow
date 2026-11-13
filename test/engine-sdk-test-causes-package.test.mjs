@@ -13,19 +13,30 @@ test('installed cause rules reproduce the original capture with infrastructure a
   await buildEngineSdk({outdir:path.join(artifact,'dist')});const packed=JSON.parse(npm(['pack','--offline','--ignore-scripts','--json','--pack-destination',archives],artifact))[0];
   await writeFile(path.join(consumer,'package.json'),'{"type":"module","private":true}\n');npm(['install',path.join(archives,packed.filename),'--offline','--ignore-scripts','--no-audit','--no-fund'],consumer);
   const capture=JSON.parse(await readFile(new URL('./fixtures/test-run-cause-values/native-v1.json',import.meta.url),'utf8')),
+    risks=JSON.parse(await readFile(new URL('./fixtures/test-run-risk-values/native-v1.json',import.meta.url),'utf8')),
+    riskHelper=(await readFile(new URL('./helpers/test-run-risk-values-fixture.mjs',import.meta.url),'utf8')).replace('export function','function'),
     helper=(await readFile(new URL('./helpers/test-run-cause-values-fixture.mjs',import.meta.url),'utf8')).replace('export function','function');
   await writeFile(path.join(consumer,'values.mjs'),[
     'import assert from "node:assert/strict";import {registerHooks} from "node:module";',
     'const hook=registerHooks({resolve(specifier,context,next){if(specifier.startsWith("node:"))throw Error("Unexpected infrastructure "+specifier);return next(specifier,context);}});',
     'const {testRunCausePolicies}=await import("'+packageName+'/testing/causes"),rules=testRunCausePolicies({toBytes:value=>Buffer.from(value)});',
+    'const {testRunRiskRecordPolicies}=await import("'+packageName+'/testing/risks"),riskValues=testRunRiskRecordPolicies(rules);',
     'Date.now=()=>{throw Error("No ambient cause clock");};',helper,
+    riskHelper,'const expectedRisks='+JSON.stringify(risks.cases)+';',
+    'for(const [index,row]of testRunRiskValueCases(riskValues).entries())assert.deepEqual(row,expectedRisks[index],row.name);',
     'const expected='+JSON.stringify(capture.cases)+';',
     'for(const [index,row]of testRunCauseValueCases(rules).entries())assert.deepEqual(row,expected[index],row.name);',
     'assert.throws(()=>{rules.TEST_RUN_CAUSES["syntax-error"][0]="environment";},TypeError);hook.deregister();'
   ].join('\n'));child(process.execPath,['values.mjs'],{cwd:consumer,env:{...env,PATH:''}});
   const types=path.join(consumer,'types.mts');await writeFile(types,[
     'import {testRunCausePolicies,type TestRunCause} from "'+packageName+'/testing/causes";',
+    'import {testRunRiskRecordPolicies} from "'+packageName+'/testing/risks";',
     'const values=testRunCausePolicies({toBytes:value=>typeof value==="string"?new TextEncoder().encode(value):new Uint8Array(value)});',
+    'const risks=testRunRiskRecordPolicies(values);',
+    '// @ts-expect-error Risk values cannot authenticate or retain an approval.',
+    'risks.approve();',
+    '// @ts-expect-error Risk values require an explicit timestamp and reviewer metadata.',
+    'risks.recordTestRunRisk({}, {phaseId:"assess"});',
     'const cause:TestRunCause=values.classifyTestRunCause({check:{status:"failed",stderr:"SyntaxError: invalid"},changedPaths:["src/app.js"]});',
     '// @ts-expect-error Classification is not a human risk acceptance operation.',
     'values.acceptRisk(cause);',

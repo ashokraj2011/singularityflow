@@ -32,54 +32,18 @@ import { countedRecords } from './presence/counted.mjs';
 import { classifyTestRunCause, testRunCauseCategory, testRunCauseWords } from './engine-compatibility/node-test-causes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import {testRunRiskAuthorities} from './kernel/approval-fallback.mjs';
+import {testRunRiskRecordPolicies} from './kernel/test-recovery.mjs';
 export {testRunRiskAuthorities};
 
-export const MAX_TEST_RUN_RISK_DAYS = 90;
-const DAY = 24 * 60 * 60 * 1000;
+const riskValues=testRunRiskRecordPolicies({classifyTestRunCause,testRunCauseCategory,testRunCauseWords});
+export const {MAX_TEST_RUN_RISK_DAYS,testsExecuted,noTestExecuted,testRunCause,testRunCauseText,testRunRiskIneligibility,recordTestRunRisk}=riskValues;
+const textBetween=riskValues.testRunRiskText;
 const NOT_RUN_STATUSES = new Set(['failed', 'blocked']);
 const ARGV_DIGEST = /^[a-f0-9]{64}$/u;
-
-/** How many tests a recorded attempt executed: passed plus failed; skipped ones did not run. */
-export function testsExecuted(attempt) {
-  const tests = attempt?.tests;
-  if (!tests || typeof tests !== 'object') return 0;
-  return (Number(tests.passed) || 0) + (Number(tests.failed) || 0);
-}
-
-/** A run of the command failed or was blocked before any test executed. */
-export function noTestExecuted(attempt) {
-  return Boolean(attempt) && NOT_RUN_STATUSES.has(attempt.status) && testsExecuted(attempt) === 0;
-}
-
-/**
- * What stopped a failed or blocked attempt: the cause recorded with it, or, for an attempt recorded
- * before causes were classified, what its shape alone says (a missing launcher, a timeout, every
- * test skipped, tests that failed; anything else is unrecognised).
- */
-export function testRunCause(attempt) {
-  if (attempt?.cause && typeof attempt.cause === 'object' && testRunCauseCategory(attempt.cause.class) === attempt.cause.category) return attempt.cause;
-  return classifyTestRunCause({ check: { status: attempt?.status, timedOut: attempt?.timedOut === true,
-    infrastructureUnavailable: attempt?.process?.infrastructureUnavailable === true }, tests: attempt?.tests });
-}
-
-/** A cause as a person reads it: its words, the changed file it names, its class and marker. */
-export function testRunCauseText(cause) {
-  return `${testRunCauseWords(cause?.class)}${cause?.file ? ` in ${cause.file}` : ''} (${[cause?.class, cause?.signal].filter(Boolean).join(', ')})`;
-}
 
 /** The digest an execution or check binds a decision by. */
 export function testRunRiskSha256(decision) {
   return `sha256:${recordSha256(decision)}`;
-}
-
-function textBetween(value, minimum, maximum, option, what) {
-  const text = String(value ?? '').trim();
-  if (text.length < minimum || text.length > maximum) {
-    throw new SingularityFlowError(`Say ${what} in ${minimum} to ${maximum} characters with ${option}.`, {
-      code: 'TEST_RUN_RISK_INVALID'
-    });
-  }
-  return text;
 }
 
 /** The command a person who approves the step runs to accept, or renew, the risk of one command and cause. */
@@ -88,69 +52,6 @@ export function testRunRiskDecisionCommand(workflow, { phaseId, commandId, argvS
     + (testRunCauseCategory(causeClass) === 'environment' ? ` --cause-class ${causeClass}` : '')
     + ' --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires <YYYY-MM-DD>'
     + (ARGV_DIGEST.test(String(argvSha256 ?? '')) ? ` --argv-sha256 ${argvSha256}` : '');
-}
-
-/** Why a person may not accept the risk of this attempt, or null when they may: only an environment cause. */
-export function testRunRiskIneligibility(attempt) {
-  if (!attempt) return 'no run of this command is recorded for the step in this checkout yet; publish or submit it first so its failure is recorded, or name the cause class and command digest its refusal gave with --cause-class and --argv-sha256';
-  if (attempt.status === 'passed') return 'its latest run passed';
-  if (!NOT_RUN_STATUSES.has(attempt.status)) return `its latest run is ${attempt.status}, not a run that failed or was blocked`;
-  const cause = testRunCause(attempt);
-  if (cause.category === 'environment') return null;
-  const executed = testsExecuted(attempt);
-  if (cause.category === 'code') {
-    return `its latest run stopped on a code cause, ${testRunCauseText(cause)}; ${executed > 0 ? `${executed} test(s) executed, and ` : ''}a code fault is fixed, never accepted`;
-  }
-  return `nothing in its latest run says the environment stopped it: ${testRunCauseText(cause)}; fix the cause and run it again`;
-}
-
-/**
- * Record a decision on the aggregate; the caller found the attempt and checked authority. With no
- * run recorded in this checkout, the command is bound by `commandId`, its `argvSha256` and the
- * `causeClass` its refusal named instead.
- */
-export function recordTestRunRisk(workflow, { phaseId, attempt, commandId = null, argvSha256 = null, causeClass = null, cause, reason, expires, actor, authorityGroup, identityAssurance = null, at }) {
-  const byDigest = !attempt && Boolean(commandId) && ARGV_DIGEST.test(String(argvSha256 ?? ''));
-  const ineligible = byDigest ? null : testRunRiskIneligibility(attempt);
-  const named = attempt?.commandId ?? commandId ?? 'this test command';
-  if (ineligible) {
-    throw new SingularityFlowError(`The risk of ${named} cannot be accepted: ${ineligible}.`, {
-      code: 'TEST_RUN_RISK_NOT_ELIGIBLE', details: { phase: phaseId, commandId: attempt?.commandId ?? commandId ?? null }
-    });
-  }
-  const observed = byDigest ? null : testRunCause(attempt);
-  if (byDigest && testRunCauseCategory(causeClass) !== 'environment') {
-    throw new SingularityFlowError('Name the environment cause class the refusal gave with --cause-class, beside --argv-sha256.', { code: 'TEST_RUN_RISK_INVALID' });
-  }
-  if (observed && causeClass && causeClass !== observed.class) {
-    throw new SingularityFlowError(`The risk of ${named} cannot be accepted as ${causeClass}: its latest run stopped on ${testRunCauseText(observed)}.`, {
-      code: 'TEST_RUN_RISK_NOT_ELIGIBLE', details: { phase: phaseId, commandId: named }
-    });
-  }
-  const statedCause = textBetween(cause, 10, 300, '--cause', 'what in the environment stops the tests');
-  const text = textBetween(reason, 20, 1000, '--reason', 'why the risk is acceptable');
-  const expiry = /^\d{4}-\d{2}-\d{2}$/u.test(String(expires ?? '')) ? new Date(`${expires}T23:59:59.999Z`) : null;
-  const now = new Date(at);
-  if (!expiry || Number.isNaN(expiry.getTime()) || expiry <= now || expiry - now > MAX_TEST_RUN_RISK_DAYS * DAY) {
-    throw new SingularityFlowError(`--expires must be a date after today and at most ${MAX_TEST_RUN_RISK_DAYS} days ahead (YYYY-MM-DD).`, {
-      code: 'TEST_RUN_RISK_INVALID'
-    });
-  }
-  workflow.testRunRisks ??= [];
-  const decision = {
-    id: `TRR-${String(workflow.testRunRisks.filter((entry) => !entry.revokes).length + 1).padStart(3, '0')}`,
-    phase: phaseId, commandId: byDigest ? commandId : attempt.commandId, argvSha256: byDigest ? argvSha256 : attempt.argvSha256,
-    causeClass: byDigest ? causeClass : observed.class,
-    cause: statedCause, reason: text, expiresAt: expiry.toISOString(),
-    // Bound by digest, the decision saw no run here; each run it lets through is checked at use.
-    ...(byDigest ? { boundBy: 'command-digest' } : { observation: {
-      attemptId: attempt.attemptId, status: attempt.status,
-      exitCode: Number.isInteger(attempt.exitCode) ? attempt.exitCode : null, testsExecuted: testsExecuted(attempt)
-    } }),
-    actor, authorityGroup, identityAssurance, at
-  };
-  workflow.testRunRisks.push(decision);
-  return decision;
 }
 
 /** Revoke a decision; the record stays, and so does the revocation. */

@@ -114,9 +114,13 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
         ...(isConvergencePhase(phase)?{confirmation:input.confirmation??null}:{})};
       const basis={revision:observed.snapshot.revision,authorityVersion:observed.basis.authorityVersion};
       let requestSha256=hash(canonicalJson(request)),operationId=null;
-      const acknowledging=phase.status==='awaiting_approval';
+      const acknowledging=['awaiting_approval','approved'].includes(phase.status)&&Boolean(phase.namespaceSubmission);
       if(acknowledging) {
         const previous=await decodedPacket(phase.namespaceSubmission,phaseId,signal);
+        if(phase.status==='approved'&&previous.origin)throw error(
+          'This generation has a forward-amendment origin. Inspect its retained decision and continue the current active phase; no original submission is being retried.',
+          'PHASE_DRAFT_NOT_ACTIVE',{profile:'sflow-namespace-forward-submission-handoff/v1',actions:[
+            {operation:'upstream.list',inputs:{workId}},{operation:'story.next',inputs:{workId}}]});
         operationId=previous.operationId;requestSha256=previous.requestSha256;
       }
       const context={subject:{kind:'story',id:workId},workflow,phase};
@@ -170,6 +174,7 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
           await publications.policies.freshConvergenceSources(published,sources,{signal});
         }
         for(const owner of [...publications.specifications.owners(published),...publications.policies.owners(published)])required.delete(owner);
+        if(published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await publications.policies.freshTestRisk(published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publications.policies.freshReuseSources(published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(published.checks){await checks.assertCurrent(published.checks,s.phaseId,{signal});required.delete('check-execution');}
         if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
@@ -225,6 +230,7 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this submission preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
       return commitNamespaceOperation(committer,s.operationId,async()=>{
+        if(p.published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await publications.policies.freshTestRisk(p.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(p.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publications.policies.freshReuseSources(p.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(p.convergence)await publications.policies.freshConvergenceSources(p.published,sources,{signal});
         await authorize(signal,p.agent);await unchanged(p.snapshot,signal);},{signal});

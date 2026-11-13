@@ -30,7 +30,7 @@ import { processResultCompleted, processResultSucceeded } from './process-result
 import { inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { sourceRevision } from './source-inspection.mjs';
 import {
-  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
+  classifyGitRemoteFailure, configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference, stateRefreshError
 } from './git-remote-diagnostics.mjs';
 
@@ -3856,17 +3856,32 @@ export async function ledgerStoryPointers(root, rawConfig, { offline = false, ru
   });
   const commit = directRefObservation(root, ref).commit;
   const { readSessionStateIndex } = await import('./session-state-index.mjs');
+  let whole = false;
   const snapshot = await readSessionStateIndex(root, commit, { ref, hydrate: offline ? null : async oids => {
+    if (whole) return;
     const transport = ledgerFetchTransport(root, config);
     if (!transport) throw new SingularityFlowError('The state metadata remote is unavailable.', {
       code: 'SESSION_STATE_INDEX_OBJECTS_UNAVAILABLE'
     });
     const frozen = frozenRemoteTransport(transport.remote, { env: transport.env });
     const started = performance.now();
-    const fetched = await runGit(['fetch', '--no-tags', '--no-write-fetch-head', '--refmap=', frozen.remote, ...oids], {
+    // Ask as Git's own lazy fetch does, with no "have" lines [owner, 2026-11-13]. A second laptop's
+    // blobless clone holds this state commit, so a negotiated fetch told the server it had these
+    // blobs; a server answering from reachability bitmaps (any hosted one) sent none, and Git's own
+    // check failed (REMOTE_UNKNOWN).
+    const fetch = (verb, wants) => runGit([...verb, '--no-tags', '--no-write-fetch-head', '--refmap=', frozen.remote, ...wants], {
       cwd: root, operation: 'remote-configuration',
       env: inheritEnterpriseGitEnvironment(frozen.env, { ...frozen.env, GIT_NO_LAZY_FETCH: '1' })
     });
+    let fetched = await fetch(['-c', 'fetch.negotiationAlgorithm=noop', 'fetch'], oids);
+    // A server that gives no object by ID (protocol v0, some proxies) still serves its advertised
+    // state branch: take it whole, once (--refetch: its tip commit is already here). It is small;
+    // no application branch or tracking ref is touched.
+    if (!processResultSucceeded(fetched) && ['object-request-refused', 'unknown']
+      .includes((fetched.failure ?? classifyGitRemoteFailure(fetched)).classification)) {
+      whole = true;
+      fetched = await fetch(['fetch', '--refetch'], [`refs/heads/${config.branch}`]);
+    }
     if (!processResultSucceeded(fetched)) throw stateRefreshError(config, 'metadata', fetched, {
       elapsedMs: performance.now() - started
     });

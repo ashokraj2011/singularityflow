@@ -1741,11 +1741,13 @@ function hydrateMissingSnapshotBlobs(root, objectIds, label, maximumObjectBytes 
   // An exact blob want cannot bring an application tree into the worktree. The server-side limit
   // refuses oversized objects before they transfer; the local reader still enforces the limit and
   // verifies every returned Git hash. Filtered fetch may persist this one-shot alias in the local
-  // Git config; the remote Git runner removes it after every filtered fetch.
+  // Git config; the remote Git runner removes it after every filtered fetch. No "have" lines, as in
+  // Git's lazy fetch: these blobs sit under local refs, so a server answering from bitmaps would
+  // send none of them [owner, 2026-11-13].
   for (let offset = 0; offset < missing.length; offset += 128) {
     try {
       runRemoteGit([
-        'fetch', '--no-tags', '--no-write-fetch-head',
+        '-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '--no-tags', '--no-write-fetch-head',
         `--filter=blob:limit=${maximumObjectBytes + 1}`, transport.remote,
         ...missing.slice(offset, offset + 128)
       ], {

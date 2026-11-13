@@ -314,6 +314,32 @@ const classificationCases = [
     result: failed("fatal: repository 'https://git.example/acme/missing.git/' not found"),
     classification: 'remote-not-found',
     advice: /repository URL/
+  },
+  // A blobless clone's request for objects by ID [owner, 2026-11-13]: the words Git 2.54 printed
+  // against a protocol v0 server, against one that allows only tips, and after a bitmap answer.
+  {
+    name: 'a protocol v0 server allows no request for an object by ID',
+    result: failed('error: Server does not allow request for unadvertised object 025da8a06c3ced9b8d1164e3664895a72dafcdd8'),
+    classification: 'object-request-refused',
+    advice: /objects asked for by ID/
+  },
+  {
+    name: 'the server refuses an object that is not a branch tip',
+    result: failed('error: git upload-pack: not our ref 025da8a06c3ced9b8d1164e3664895a72dafcdd8\nfatal: remote error: upload-pack: not our ref 025da8a06c3ced9b8d1164e3664895a72dafcdd8'),
+    classification: 'object-request-refused',
+    advice: /whole branch/
+  },
+  {
+    name: 'the server answers a request by ID without the objects',
+    result: failed("fatal: bad revision '7f43876d623b366106881ea2fe56e801e1fe5838'\nerror: https://git.example/acme/app.git did not send all necessary objects"),
+    classification: 'object-request-refused',
+    advice: /blobless clone/
+  },
+  {
+    name: 'a JGit server finds a wanted object not valid',
+    result: failed('fatal: remote error: want 7f43876d623b366106881ea2fe56e801e1fe5838 not valid'),
+    classification: 'object-request-refused',
+    advice: /protocol v2/
   }
 ];
 
@@ -366,6 +392,16 @@ test('office classifications win over less specific trailing Git errors', () => 
     'error: failed to push some refs'
   ].join('\n')));
   assert.equal(policyThenGenericRemoteFailure.classification, 'policy-rejected');
+
+  // An SSH server can hang up after its refusal; the refusal, not a retry, is the cause.
+  const refusedThenDisconnect = classifyGitRemoteFailure(failed([
+    'fatal: remote error: upload-pack: not our ref 025da8a06c3ced9b8d1164e3664895a72dafcdd8',
+    'fatal: the remote end hung up unexpectedly'
+  ].join('\n')));
+  assert.equal(refusedThenDisconnect.classification, 'object-request-refused');
+  assert.equal(refusedThenDisconnect.retryable, false);
+  // Git's filter warning stays unclassified: clone-strategy.mjs reads it to fall back to a full clone.
+  assert.equal(classifyGitRemoteFailure(failed('warning: filtering not recognized by server, ignoring')).classification, 'unknown');
 
   const atomicThenDisconnect = classifyGitRemoteFailure(failed([
     'fatal: the receiving end does not support --atomic push',

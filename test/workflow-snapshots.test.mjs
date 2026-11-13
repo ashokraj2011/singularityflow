@@ -203,6 +203,9 @@ test('accepted Story snapshot hydrates only immutable closure blobs from a blobl
     run('git', ['add', workflowRelative], { cwd: value.root });
     run('git', ['commit', '-q', '-m', 'advance Story after creation'], { cwd: value.root });
     run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: value.root });
+    // Answer from reachability bitmaps, as hosted servers do: a negotiated request for these blobs
+    // got none of them back once the creation commit was here [owner, 2026-11-13].
+    run('git', ['repack', '-a', '-d', '-b', '-q'], { cwd: value.root });
 
     const partial = path.join(base, 'partial');
     run('git', ['clone', '--quiet', '--depth=1', '--filter=blob:none', '--no-checkout',

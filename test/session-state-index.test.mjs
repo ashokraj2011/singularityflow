@@ -12,16 +12,22 @@ import { prepareWorkspaceBranch } from '../src/workspace-branch-checkout.mjs';
 import { readWorkspace } from '../src/workspace-manifest.mjs';
 import { readActiveWorkspaceContext } from '../src/workspace-context.mjs';
 
-async function partialFixture(t) {
-  const f = await createSessionListingFixture(); t.after(f.cleanup);
+const gitVerb = args => args[0] === '-c' ? args[2] : args[0];
+
+async function indexStory(f, workId = 'INDEX-1') {
   await appendLedgerIntent(f.source, { ...f.definition.ledger, pinTransport: 'none' }, createLedgerIntent({
     eventType: 'binding', capabilityId: 'fixture', actor: { name: 'Fixture', email: 'fixture@example.invalid' },
     // A current summary records who created the Story and when (main c8e340ef); one without them is
     // proven from the Story's committed state instead, which this fixture does not publish.
-    subject: { kind: 'story', workId: 'INDEX-1', branch: 'INDEX-1', title: 'Indexed Story',
+    subject: { kind: 'story', workId, branch: workId, title: 'Indexed Story',
       createdAt: '2026-10-20T08:00:00.000Z', createdBy: { name: 'Fixture' },
       status: 'in_progress', currentPhase: 'specification', progress: { total: 6, approved: 0 } }
   }), f.git(f.source, 'rev-parse', 'HEAD'));
+}
+
+async function partialFixture(t) {
+  const f = await createSessionListingFixture(); t.after(f.cleanup);
+  await indexStory(f);
   const partial = path.join(f.directory, 'partial');
   f.git(f.directory, 'clone', '--quiet', '--filter=blob:none', '--no-checkout', '--single-branch',
     '--branch', 'main', pathToFileURL(f.remote).href, partial);
@@ -47,9 +53,12 @@ test('blobless state listing hydrates only ledger objects once, without history 
   });
   const calls = [];
   const read = () => ledgerStoryPointers(f.partial, f.definition.ledger, { runGit: async (args, options) => {
-    calls.push(args);
-    assert.ok(['ls-remote', 'fetch'].includes(args[0]));
-    if (args[0] === 'fetch') {
+    calls.push(gitVerb(args));
+    assert.ok(['ls-remote', 'fetch'].includes(gitVerb(args)));
+    if (gitVerb(args) === 'fetch') {
+      // Git's own lazy-fetch request: no "have" lines, nothing re-fetched whole.
+      assert.deepEqual(args.slice(0, 2), ['-c', 'fetch.negotiationAlgorithm=noop']);
+      assert.equal(args.includes('--refetch'), false);
       assert.ok(args.includes('--no-write-fetch-head'));
       assert.ok(args.slice(args.indexOf('--refmap=') + 2).every(oid => /^[0-9a-f]{40}$/u.test(oid)));
       assert.equal(options.env.GIT_NO_LAZY_FETCH, '1');
@@ -64,7 +73,7 @@ test('blobless state listing hydrates only ledger objects once, without history 
   assert.equal(f.present(f.headBlob), true);
   assert.equal(f.present(f.appBlob), false, 'no application blobs should be fetched');
   await read();
-  assert.deepEqual(calls.map(args => args[0]), ['ls-remote', 'fetch', 'ls-remote']);
+  assert.deepEqual(calls, ['ls-remote', 'fetch', 'ls-remote']);
   assert.deepEqual(await ledgerStoryPointers(f.partial, f.definition.ledger, { offline: true }), first);
   assert.equal(f.git(f.partial, 'show-ref'), before.refs);
   assert.equal(f.git(f.partial, 'rev-parse', 'HEAD'), before.head);
@@ -75,7 +84,7 @@ test('blobless state listing hydrates only ledger objects once, without history 
 test('missing state blobs retain metadata fetch timeout details without blind retries', async t => {
   const f = await partialFixture(t), calls = [];
   await assert.rejects(ledgerStoryPointers(f.partial, f.definition.ledger, { runGit: async args => {
-    calls.push(args[0]);
+    calls.push(gitVerb(args));
     if (args[0] === 'ls-remote') return { status: 0, stdout: `${f.commit}\trefs/heads/state\n`, stderr: '' };
     return { status: null, signal: 'SIGTERM', timedOut: true, timeoutMs: 300000, stdout: '', stderr: '' };
   } }), error => {
@@ -103,6 +112,92 @@ test('session candidates recover a blobless workspace index, then composed open 
   assert.equal(opened.child.status, 0, opened.child.stdout + opened.child.stderr);
   assert.equal(opened.packet.status, 'choose');
   assert.match(opened.packet.table, /INDEX-1/u);
+});
+
+/**
+ * A second laptop [owner, 2026-11-13]: a new workspace clones the capability blobless, so it holds
+ * every branch's commits and trees, the state tip's included, but none of their blobs. The remote
+ * answers as hosted Git servers do, from reachability bitmaps, and gives no object by ID outside
+ * protocol v2. The first laptop, which wrote the state, already had every object.
+ */
+async function secondLaptopFixture(t) {
+  const f = await createSessionListingFixture(); t.after(f.cleanup);
+  await indexStory(f);
+  f.git(f.remote, 'config', 'uploadpack.allowAnySHA1InWant', 'false');
+  f.git(f.remote, 'repack', '-a', '-d', '-b', '-q');
+  const laptop = path.join(f.directory, 'laptop-b');
+  f.git(f.directory, 'clone', '--quiet', '--filter=blob:none', '--branch', 'main', pathToFileURL(f.remote).href, laptop);
+  // The workspace clone keeps the manifest's exact URL (workspace.mjs restoreExactOrigin).
+  f.git(laptop, 'remote', 'set-url', 'origin', f.remote);
+  await rename(f.original, path.join(f.directory, 'laptop-a'));
+  await rename(laptop, f.original);
+  const present = oid => spawnSync('git', ['cat-file', '-e', oid], {
+    cwd: f.original, env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }, timeout: 5000
+  }).status === 0;
+  const commit = f.git(f.original, 'rev-parse', 'refs/remotes/origin/state');
+  const headBlob = f.git(f.original, 'ls-tree', commit, 'ledger/head.json').split(/\s+/u)[2];
+  assert.equal(present(headBlob), false, 'the second laptop must hold the state commit without its blobs');
+  return { ...f, commit, headBlob, present };
+}
+
+const listed = async (f, result, ids) => {
+  assert.equal(result.child.status, 0, result.child.stdout + result.child.stderr);
+  assert.equal(result.packet.repositoryPath, await realpath(f.original), 'listed from the laptop\'s own clone');
+  assert.deepEqual(result.packet.items.map(item => item.id).sort(), ids);
+};
+
+test('a second laptop lists, refreshes and opens Stories from a bitmap-serving remote', async t => {
+  const f = await secondLaptopFixture(t);
+  await listed(f, await f.invoke({ options: ['--refresh'] }), ['INDEX-1']);
+  assert.equal(f.present(f.headBlob), true);
+  await listed(f, await f.invoke(), ['INDEX-1']);
+  for (const options of [[], ['--refresh']]) {
+    const opened = await f.invoke({ command: ['session', 'open'], options });
+    assert.equal(opened.child.status, 0, opened.child.stdout + opened.child.stderr);
+    assert.equal(opened.packet.status, 'choose');
+    assert.match(opened.packet.table, /INDEX-1/u);
+  }
+  // The state moves after this laptop's clone: a refresh fetches the new tip, then reads its index.
+  await indexStory(f, 'INDEX-2');
+  f.git(f.remote, 'repack', '-a', '-d', '-b', '-q');
+  await listed(f, await f.invoke({ options: ['--refresh'] }), ['INDEX-1', 'INDEX-2']);
+});
+
+test('the laptop that holds every state object reads the index with no object request', async t => {
+  const f = await createSessionListingFixture(); t.after(f.cleanup);
+  await indexStory(f);
+  const calls = [];
+  const read = () => ledgerStoryPointers(f.original, f.definition.ledger, { runGit: async (args, options) => {
+    calls.push(args);
+    return runRemoteGitAsync(args, options);
+  } });
+  assert.deepEqual((await read()).items.map(item => item.id), ['INDEX-1']);
+  assert.ok(calls.every(args => args[0] !== '-c' && !args.includes('--refetch')), 'a full clone never hydrates');
+  calls.length = 0;
+  await read();
+  assert.deepEqual(calls.map(gitVerb), ['ls-remote'], 'an unchanged state tip costs one observation');
+});
+
+test('a remote that refuses objects by ID still gives the second laptop its state branch whole', async t => {
+  const f = await secondLaptopFixture(t);
+  // Protocol v0 without uploadpack.allow*SHA1InWant: Git refuses a request for one object outright.
+  f.git(f.original, 'config', 'protocol.version', '0');
+  const fetches = [];
+  const roster = await ledgerStoryPointers(f.original, f.definition.ledger, { runGit: async (args, options) => {
+    const result = await runRemoteGitAsync(args, options);
+    if (gitVerb(args) === 'fetch') fetches.push({ args, result });
+    return result;
+  } });
+  assert.deepEqual(roster.items.map(item => item.id), ['INDEX-1']);
+  assert.equal(f.present(f.headBlob), true);
+  assert.equal(fetches.length, 2);
+  assert.equal(fetches[0].result.failure?.code, 'REMOTE_OBJECT_REQUEST_REFUSED');
+  assert.deepEqual(fetches[1].args.slice(-1), ['refs/heads/state']);
+  assert.ok(fetches[1].args.includes('--refetch'));
+  assert.ok(fetches.every(({ args }) => args.includes('--no-write-fetch-head') && args.includes('--refmap=')));
+  assert.equal(fetches[1].result.status, 0);
+  assert.equal(f.git(f.original, 'rev-parse', 'refs/remotes/origin/state'), f.commit, 'no tracking ref moved');
+  await listed(f, await f.invoke({ options: ['--refresh'] }), ['INDEX-1']);
 });
 
 test('corrupt and absent ledger metadata is not accepted as an empty roster or repaired by fetching', async t => {

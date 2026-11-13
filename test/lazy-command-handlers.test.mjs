@@ -707,7 +707,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // (command-registry.mjs, cli-entry.mjs); the expansion itself loads lazily [owner, 2026-11-12].
   // 865,300 (measured 865,257): every kept --for-agent result also keeps the view the agent was shown, for the
   // post-tool hook to hand over when a host showed nothing (cli-json-output.mjs +20) [office, 2026-11-12].
-  assert.ok(root.bytes <= 865_300, `root dispatch loads ${root.bytes} source bytes`);
+  // 865,900 (measured 865,873): a refused request for objects by ID, which a second laptop's blobless clone makes,
+  // has its own classification and advice (git-remote-diagnostics.mjs +590) [owner, 2026-11-13].
+  assert.ok(root.bytes <= 865_900, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -892,7 +894,10 @@ test('the common session projection does not import attach, state stores or publ
   // the amendment draft (phase-staging-paths.mjs +382), /sf-reject's propose route (copilot-guidance.mjs +303) and the
   // clarification protocol's amendment route (clarifications.mjs +255). The pause itself stays out of this graph
   // (intent-amendment-pause.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_249_300, `session current loads ${current.bytes} source bytes`);
+  // 4,250,100 (measured 4,250,094): a second laptop's blobless clone [owner, 2026-11-13]: a refused request for
+  // objects by ID has its own classification and advice (git-remote-diagnostics.mjs +590), and a Story's
+  // creation blobs are asked for without "have" lines (workflow-snapshots.mjs +206). No new eager file.
+  assert.ok(current.bytes <= 4_250_100, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

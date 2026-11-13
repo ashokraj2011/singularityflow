@@ -29,6 +29,7 @@ export const REMOTE_FAILURE_CLASSES = Object.freeze([
   'rate-limited',
   'policy-rejected',
   'atomic-push-unsupported',
+  'object-request-refused',
   'protocol-unsupported',
   'unknown'
 ]);
@@ -53,6 +54,7 @@ const ADVICE = Object.freeze({
   'rate-limited': 'Wait for the provider limit to reset, then retry the same bootstrap session.',
   'policy-rejected': 'Review the repository rule or server hook reported by the Git provider. Correct the proposal or use the organisation\'s normal reviewed merge path, then retry the exact operation.',
   'atomic-push-unsupported': 'This remote cannot provide the atomic multi-ref update required by the operation. Use a repository/provider that supports atomic push or complete the returned reviewed recovery path.',
+  'object-request-refused': 'The Git server would not send objects asked for by ID, which a blobless clone needs. If fetching the whole branch did not help, ask the Git administrator for Git protocol v2, or reclone this repository in full.',
   'protocol-unsupported': 'Use a Git transport supported by this installation and the remote provider.',
   unknown: 'Run workspace doctor --network and inspect Git access outside SFlow before retrying.'
 });
@@ -842,6 +844,8 @@ export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable =
   // Provider policy and capability negotiation are conclusive even when Git appends a generic
   // disconnect or "failed to push" trailer. Classify those before transient transport wording so
   // callers do not recommend a blind retry for a deterministic server refusal.
+  // Objects asked for by ID, refused or not sent [owner, 2026-11-13]; a filter warning stays unknown (clone-strategy.mjs).
+  else if (/request for unadvertised object|upload-pack: not our ref|did not send all necessary objects|\bwant [0-9a-f]{40,64} not valid/i.test(output)) classification = 'object-request-refused';
   else if (atomicPushUnsupported(output)) classification = 'atomic-push-unsupported';
   else if (explicitRepositoryPolicyRejected(output)) classification = 'policy-rejected';
   else if (tlsTrustFailure(output)) classification = 'tls-trust';

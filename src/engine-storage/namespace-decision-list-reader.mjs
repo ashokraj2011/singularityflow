@@ -16,6 +16,7 @@ import {createNamespaceScopeDecisionOwners} from './namespace-scope-reader.mjs';
 import {createNamespaceUpstreamOwners} from './namespace-upstream-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceTestRiskOwner} from './namespace-test-risk-reader.mjs';
+import {createNamespaceWitnessRenewalOwner} from './namespace-witness-renewals.mjs';
 import {createNamespaceObligationRiskOwner} from './namespace-obligation-risk-reader.mjs';
 import {qualifiedClauseIds} from '../foundation/traceability-ids.mjs';
 import {namespaceTestRiskState} from '../kernel/test-recovery.mjs';
@@ -74,6 +75,18 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
     }
     const latest=new Date(Date.parse(at)+90*86400000).toISOString().slice(0,10),defaultExpiry=new Date(Date.parse(at)+30*86400000).toISOString().slice(0,10),
       riskNeeds={...reason,expires:{default:defaultExpiry,latest}};
+    if(Object.values(workflow.phases).some(phase=>(phase.approvals??[]).some(row=>row.witnessMappings?.length))){
+      const actual=await createNamespaceWitnessRenewalOwner({observer,scope,workId}).effective(snapshot,{signal});
+      source.witnessRenewals={decisions:actual.decisions,references:actual.references};references.push(...actual.references);
+      for(const mapping of actual.decisions.filter(row=>row.decision==='exception'&&Date.parse(row.expiresAt)<=Date.parse(at))){
+        const phase=workflow.phases[actual.owners[mapping.mappingSha256]];if(!phase)continue;
+        if(observations.some(row=>row.key==='witness-exception:'+mapping.mappingSha256))continue;
+        const choice=option('renew-original-exception','decision.witness-exception',{phaseId:phase.id,mappingSha256:mapping.mappingSha256},phase.approvalPolicy.authorities,{},false);
+        choice.action={operation:'decision.witness-exception',inputs:{workId,phaseId:phase.id,mappingSha256:mapping.mappingSha256},requiredInputs:['expires','reason'],
+          prerequisites:['original-phase-authorized-human-reviews-exact-test-exception']};
+        observations.push({kind:'witness-exception-renewal',key:'witness-exception:'+mapping.mappingSha256,options:[choice]});
+      }
+    }
     if((permissions.includes('decision.risk')||(workflow.namespaceObligationRisks??[]).length)&&workflow.resolution.spec?.mode==='enforce'){
       const owner=createNamespaceObligationRiskOwner({observer,scope,workId});obligationRisks={...await owner.observations(snapshot,{signal,at}),rules:owner.rules};
       const {observed,proofs,bindings}=obligationRisks,records=proofs.map(row=>row.value.outcome.record);

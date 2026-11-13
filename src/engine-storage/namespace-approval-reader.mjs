@@ -11,6 +11,8 @@ import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mj
 import {createNamespacePublicationPolicyReader} from './namespace-policy-reader.mjs';
 import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 import {createNamespaceTerminalEvidenceOwner} from './namespace-terminal-evidence.mjs';
+import {namespaceWitnessMappingContext,namespaceWitnessMappingReview,assertNamespaceWitnessMappingReview} from './namespace-witness-mapping-reader.mjs';
+import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=(message,cause)=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT',cause});
 /** V1 hashes its native payload. V2 also binds generation, so coarse clocks cannot reuse a question. */
@@ -22,7 +24,7 @@ export function namespaceRoutingQuestionKey(pending,generation,version) {
   return createHash('sha256').update(canonicalJson(identity)).digest('hex').slice(0,16);
 }
 export function createNamespaceApprovalReader({observer,scope,workId,checks=null}) {
-  const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks}),policyEvidence=new WeakMap();let amendments;
+  const policies=createNamespacePublicationPolicyReader({observer,scope,workId,checks}),specifications=createNamespaceSpecificationReader({observer,scope,workId,checks}),policyEvidence=new WeakMap();let amendments;
   async function json(reference,signal) {
     const data=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}
@@ -44,6 +46,13 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
       throw corrupt('The vote artifact set differs from the retained publication.');
     }
     await policies.verify(proof.published,{signal,policyTraversal});
+    if(value.witnessReview){const original=approvalCandidate?.operationId===value.operationId?approvalCandidate.snapshot:null,
+      accepted=original?null:await observer.accepted(value.operationId,{signal}),snapshot=original??{workflow:accepted.basisState.workflow,
+        configuration:accepted.plan.basis.head.configuration,revision:accepted.plan.basis.headVersion},
+      selected=await specifications.sourcePlan(snapshot,phaseId,{signal}),
+      context=namespaceWitnessMappingContext(snapshot,proof.published,selected,policies.codeEvidence(proof.published));
+      assertNamespaceWitnessMappingReview(value.witnessReview,namespaceWitnessMappingReview(context,value.witnessReview.answers,value.recordedAt,value.witnessReview.contextSha256,
+        [...(snapshot.workflow.phases[phaseId].approvals??[])].reverse().filter(row=>!row.invalidatedAt&&row.generation===value.generation).flatMap(row=>row.witnessMappings??[])));}
     let dispositionEvidence=[];
     const disposition={reached:value.thresholdReached,reworkTarget:value.routing?.outcome?.kind==='loop'?value.routing.outcome.target:null};
     if(policies.requiresDisposition(proof.published,disposition)){

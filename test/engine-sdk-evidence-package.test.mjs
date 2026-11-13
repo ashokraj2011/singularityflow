@@ -29,7 +29,25 @@ test('an offline consumer evaluates the native evidence capture with infrastruct
     'const api={...witnessExceptionRenewalPolicies({renewedWitnessExpiry}),renewedWitnessExpiry};',renewalHelper,
     'const expected='+JSON.stringify(renewals.cases)+';for(const[index,row]of witnessRenewalValueCases(api).entries())assert.deepEqual(row,expected[index],row.name);hook.deregister();'
   ].join('\n'));child(process.execPath,['renewals.mjs'],{cwd:consumer,env:{...env,PATH:''}});
+  const mappings=JSON.parse(await readFile(new URL('./fixtures/witness-mapping-values/native-v1.json',import.meta.url),'utf8')),
+    mappingHelper=(await readFile(new URL('./helpers/witness-mapping-values-fixture.mjs',import.meta.url),'utf8'))
+      .replace("import {createHash} from 'node:crypto';import {canonicalJson} from '../../src/foundation/record-schema.mjs';",'').replaceAll('export function','function');
+  await writeFile(path.join(consumer,'mappings.mjs'),[
+    'import assert from "node:assert/strict";import {createHash} from "node:crypto";import {registerHooks} from "node:module";',
+    'const hook=registerHooks({resolve(specifier,context,next){if(specifier.startsWith("node:"))throw Error("No mapping infrastructure: "+specifier);return next(specifier,context);}});',
+    'Date.now=()=>{throw Error("No ambient mapping clock");};',
+    'const {canonicalJson,TEXT_DIGEST_PROFILE}=await import("'+packageName+'/specifications");',
+    'const {witnessMappingReviewPolicies}=await import("'+packageName+'/evidence");',
+    'const values=witnessMappingReviewPolicies({byteLengthUtf8:value=>Buffer.byteLength(value,"utf8")},Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:value=>createHash("sha256").update(value).digest("hex")}));',
+    mappingHelper,'const expected='+JSON.stringify(mappings.cases)+';for(const[index,row]of witnessMappingCases().entries())assert.deepEqual(observeWitnessMapping(values.evaluateWitnessMappingReview,row.input),expected[index].observation,row.name);hook.deregister();'
+  ].join('\n'));child(process.execPath,['mappings.mjs'],{cwd:consumer,env:{...env,PATH:''}});
   const types=path.join(consumer,'types.mts');await writeFile(types,[
+    'import {witnessMappingReviewPolicies} from "'+packageName+'/evidence";',
+    'declare const mappingValues:ReturnType<typeof witnessMappingReviewPolicies>;mappingValues.evaluateWitnessMappingReview({now:0});',
+    '// @ts-expect-error Mapping review requires explicit observation time.',
+    'mappingValues.evaluateWitnessMappingReview({});',
+    '// @ts-expect-error Only the five declared adequacy facets can be excepted.',
+    'mappingValues.evaluateWitnessMappingReview({now:0,decisions:[{mappingSha256:"digest",decision:"exception",inadequate:["unknown"]}]});',
     'import {witnessExceptionRenewalPolicies,witnessRenewalExpiryValue} from "'+packageName+'/evidence";',
     'const renewal=witnessExceptionRenewalPolicies({renewedWitnessExpiry:(workflow,phase,generation,mapping)=>witnessRenewalExpiryValue(workflow.witnessExceptionRenewals??[],phase,generation,mapping)});',
     '// @ts-expect-error Renewal value rules cannot approve evidence or authenticate a human.',

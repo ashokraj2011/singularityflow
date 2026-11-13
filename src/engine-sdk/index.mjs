@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile,namespaceWitnessMappingProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -51,7 +51,7 @@ const CONVERGENCE_FIELDS = Object.freeze([...SUBMIT_FIELDS, 'confirmation']);
 const ADVANCE_FIELDS = Object.freeze(['workId','confirmation','runChecks','decisionValues']);
 const WRITE_STAGES = Object.freeze(['load', 'retained', 'prepare', 'commit', 'finish']);
 const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','selectionReceipt','fetch','agent',
-  'checklist','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason']);
+  'checklist','witnessMappings','witnessReviewContext','bindingDecisions','decisions','confirmEvidence','evidenceReason']);
 const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
 const CORRECTION_FIELDS=Object.freeze(['ownerPhase','operations','reason','upstreamIssue']);
 const SINGLE_DECISIONS = Object.freeze([
@@ -148,6 +148,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectEvidenceReuseContext'},
   {id:'test-risk.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRiskContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRiskContext'},
+  {id:'test-witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testWitnessContext',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestWitnessContext'},
   {id:'test-recovery.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRecoveryContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRecoveryContext'},
   {id:'source-review.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'sourceReviewContext',
@@ -598,7 +600,7 @@ async function inspectStoryEvidence(port,input,signal){
   const evidenceProfile=namespaceEvidenceContextProfile(facts);
   if(subject?.kind!=='story'||subject.id!==facts.workId||input.workId!=null&&input.workId!==facts.workId
     ||facts.profile!==evidenceProfile.profile||typeof facts.revision!=='string'||!facts.revision
-    ||facts.report?.profile!==(evidenceProfile.version===2?'sflow-evidence-evaluation/v2':'sflow-evidence-evaluation/v1')||facts.report.workId!==facts.workId||facts.report.mode!=='projection'||facts.report.boundary!=='view'
+    ||facts.report?.profile!==('sflow-evidence-evaluation/v'+evidenceProfile.version)||facts.report.workId!==facts.workId||facts.report.mode!=='projection'||facts.report.boundary!=='view'
     ||facts.localSourceChecked!==false||facts.terminalDecision!==false||facts.approvalRecorded!==false||!Array.isArray(facts.references))
     throw new SingularityFlowError('The evidence reader returned another Story or an unsupported authority claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'story.evidence',subject,manifest:facts,
@@ -784,6 +786,18 @@ async function inspectTestRiskContext(port,input,signal){
       ||!/^sha256:[a-f0-9]{64}$/u.test(row.commandSha256??''))||!Array.isArray(facts.decisions)||!Array.isArray(facts.authorities)||!Array.isArray(facts.environmentCauses))
     throw new SingularityFlowError('The risk context returned another Story, command or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-risk.context',subject:binding.subject,manifest:facts,
+    effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+}
+
+async function inspectTestWitnessContext(port,input,signal){
+  notCancelled(signal);const context=await port.load(input,{signal}),binding=data({subject:context?.subject,workId:context?.workflow?.workItem?.id,phase:context?.phase?.id}),
+    facts=data(await port.read(context,{signal}));notCancelled(signal);
+  let profile;try{profile=namespaceWitnessMappingProfile('context',facts);}catch{ /* Never reinterpret another context version. */ }
+  if(!profile||binding.subject?.kind!=='story'||binding.subject.id!==binding.workId||facts.profile!==profile.profile
+    ||facts.workId!==binding.workId||facts.phase!==binding.phase||input.workId!=null&&input.workId!==binding.workId||input.phaseId!=null&&input.phaseId!==binding.phase
+    ||!/^sha256:[a-f0-9]{64}$/u.test(facts.contextSha256??'')||!Array.isArray(facts.mappings)||facts.mappings.length>1000||facts.approvalRecorded!==false)
+    throw new SingularityFlowError('The witness context returned another Story or an approval claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-witness.context',subject:binding.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
 }
 
@@ -1289,7 +1303,7 @@ function approvalInput(value) {
   const input=data(value);
   if(!input || Array.isArray(input) || typeof input!=='object'
     || Object.keys(input).some(key=>!APPROVAL_FIELDS.includes(key)))invalid('Unknown approval input field.');
-  for(const key of ['workId','phaseId','selectionReceipt','agent','evidenceReason']) {
+  for(const key of ['workId','phaseId','selectionReceipt','agent','evidenceReason','witnessReviewContext']) {
     if(input[key]!=null && typeof input[key]!=='string')invalid(`Approval ${key} must be a string or null.`);
   }
   for(const key of ['fetch','confirmEvidence'])if(input[key]!=null && typeof input[key]!=='boolean')invalid(`Approval ${key} must be a boolean.`);
@@ -1561,9 +1575,10 @@ function singleDecisionResult(binding, facts, operation) {
   if(operation.id==='decision.risk'&&result?.profile==='sflow-namespace-obligation-risk-outcome/v1'){
     try{namespaceRisk=result.record?.profile===namespaceObligationRiskRecordProfile(result.record).profile;}catch{ /* Refuse another port wire below. */ }
   }
-  const canAcknowledge=operation.allowRetained===true||namespaceRisk;
+  const namespaceRenewal=operation.id==='decision.witness-exception'&&result?.profile==='sflow-namespace-witness-renewal-outcome/v1',namespaceAcknowledgement=namespaceRisk||namespaceRenewal;
+  const canAcknowledge=operation.allowRetained===true||namespaceAcknowledgement;
   const fields=['workId','phase','recordKind','record','revision','pushed','actorId','authorityGroup','currentPhase',
-    ...(namespaceRisk?['profile']:[]),...(canAcknowledge?['retained']:[])];
+    ...(namespaceAcknowledgement?['profile']:[]),...(canAcknowledge?['retained']:[])];
   const text=value=>typeof value==='string'&&value.length>0&&value.length<=512;
   const retained=canAcknowledge&&result?.retained===true;
   if(!result || Object.keys(result).some(key=>!fields.includes(key))
@@ -1579,7 +1594,7 @@ function singleDecisionResult(binding, facts, operation) {
     throw new SingularityFlowError('The decision writer returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});
   }
   return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,status:retained?'retained':'recorded',
-    ...(namespaceRisk?{profile:result.profile}:{}),
+    ...(namespaceAcknowledgement?{profile:result.profile}:{}),
     subject:Object.freeze({kind:'story',id:binding.workId}),phase:binding.phase,revision:result.revision,
     effects:Object.freeze({committed:!retained,pushed:result.pushed}),recordKind:result.recordKind,record:result.record,
     actorId:result.actorId,authorityGroup:result.authorityGroup,currentPhase:result.currentPhase});
@@ -1929,7 +1944,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    inspectTestRiskContext,inspectEvidenceReuseContext,inspectTestRecoveryContext,inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseRepairInput,runPhaseRepair,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
+    inspectTestRiskContext,inspectTestWitnessContext,inspectEvidenceReuseContext,inspectTestRecoveryContext,inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseRepairInput,runPhaseRepair,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectDecisionList, inspectStoryGuide, inspectStoryNext,

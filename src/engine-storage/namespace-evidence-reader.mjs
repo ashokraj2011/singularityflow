@@ -15,6 +15,8 @@ import {createNamespacePlanDecisionOwners} from './namespace-plan-decisions-read
 import {createNamespaceWitnessOwners} from './namespace-witness-reader.mjs';
 import {namespaceWitnessAttempt} from './namespace-check-witnesses.mjs';
 import {createNamespaceObligationRiskOwner} from './namespace-obligation-risk-reader.mjs';
+import {createNamespaceWitnessRenewalOwner} from './namespace-witness-renewals.mjs';
+import {namespaceWitnessMappingInput} from './namespace-witness-mapping-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),rules=evidenceEvaluationPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_VALUE_SYNTAX,NODE_TEXT_DIGESTS),
   corrections=planCorrectionPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS),fail=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>{
     throw new SingularityFlowError(message,{code,details});};
@@ -39,7 +41,8 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
     for(const [index,id]of approved.entries()){
       const proof=votes[index];if(!proof)fail('An approved phase has no actual submitted and approved delivery.');
       references.push(proof.binding.record,...(workflow.phases[id].approvals??[]).filter(row=>row.namespaceVote).map(row=>row.namespaceVote.record));
-      if((workflow.namespaceObligationRisks??[]).length&&workflow.status==='closed'&&workflow.currentPhase===null){
+      if(workflow.status==='closed'&&workflow.currentPhase===null&&((workflow.namespaceObligationRisks??[]).length
+        ||Object.values(workflow.phases).some(phase=>phase.approvals?.some(row=>row.witnessMappings?.length)))){
         for(const row of workflow.phases[id].approvals.filter(row=>row.namespaceVote&&!row.invalidatedAt)){
           const vote=await json(row.namespaceVote.record,signal);if(!vote.terminalEvidence)continue;
           // inspectApprovedMany already authenticated this vote and recomputed its original terminal proposal.
@@ -109,10 +112,14 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       }
     }
     const review=(workflow.completenessReviews??[]).findLast(row=>!row.withdrawnAt&&row.inventorySha256===source.inventory.inventorySha256)??null,
-      graph=rules.evidenceGraph({workflow,records,deliveries,inspections,witnessRecords,scope:source.inventory,terminal},{completenessReview:review}),
-      report=rules.evaluateEvidence(graph,{at,boundary:'view',mode:'projection'});
+      rawGraph=rules.evidenceGraph({workflow,records,deliveries,inspections,witnessRecords,scope:source.inventory,terminal},{completenessReview:review}),
+      mappingReviews=Object.values(workflow.phases).some(phase=>(phase.approvals??[]).some(row=>row.witnessMappings?.length)),
+      reviewed=mappingReviews||(workflow.namespaceWitnessExceptionRenewals??[]).length?await createNamespaceWitnessRenewalOwner({observer,scope,workId}).effective(snapshot,{signal}):null,
+      admission=reviewed?{witnessMappings:reviewed.decisions}:{},graph=reviewed?namespaceWitnessMappingInput(rawGraph,reviewed.decisions,reviewed.references):rawGraph,
+      report=rules.evaluateEvidence(graph,{at,boundary:'view',mode:'projection',admission});
+    if(reviewed)references.push(...reviewed.references);
     if(!same(graph.workflow,workflow))fail('The evidence projection changed its source workflow.');
-    return {report,graph,excluded,source:source.identity,readBindings:source.readBindings,references:[...new Map(references.map(ref=>[canonicalJson(ref),ref])).values()],fresh:async()=>{await source.fresh();for(const binding of source.readBindings){
+    return {report,graph,admission,witnessRenewals:reviewed?.references??[],excluded,source:source.identity,readBindings:source.readBindings,references:[...new Map(references.map(ref=>[canonicalJson(ref),ref])).values()],fresh:async()=>{await source.fresh();for(const binding of source.readBindings){
         const current=await observer.record(binding.namespace,binding.key,false,signal,true);
         if((current?.version??null)!==binding.version)fail('The clarification evidence changed while the view was being read.','ENGINE_CONTEXT_CHANGED');
       }}};
@@ -123,7 +130,7 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
     const owned=createNamespaceObligationRiskOwner({observer,scope,workId}),proofs=await owned.admitted(snapshot,options);
     value.graph={...value.graph,inputSha256:'sha256:'+createHash('sha256').update(canonicalJson({profile:'sflow-namespace-evidence-input/v2',
       source:value.graph.inputSha256,risks:proofs.map(row=>row.reference)})).digest('hex')};
-    value.report=rules.evaluateEvidence(value.graph,{at:options.at,boundary:'view',mode:'projection',admission:{riskDecisions:proofs.map(row=>row.value.outcome.record),
+    value.report=rules.evaluateEvidence(value.graph,{at:options.at,boundary:'view',mode:'projection',admission:{...value.admission,riskDecisions:proofs.map(row=>row.value.outcome.record),
       riskBindings:owned.bindings(snapshot,value.report,proofs)}});
     for(const row of value.report.rows)for(const action of row.actions??[])if(action.operation==='decision.risk')
       action.requiredInputs=[...new Set(['operationId',...(action.requiredInputs??[])])];

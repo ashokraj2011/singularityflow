@@ -13,7 +13,8 @@ obsolete-access removal and final distribution remain separate.
   to namespace transactions, preserving their real authority and confirmation contracts.
 - [x] Connect exact artifact-phase execution reuse to original approved executions and human receipts.
 - [x] Connect exact artifact-phase environment risks to real failed executions, human decisions and renewal.
-- [ ] Finish witness-exception renewal and the remaining evidence/test risk and cohort-reuse ceremonies.
+- [x] Finish exact witness-mapping approval and original-phase exception renewal.
+- [ ] Finish the remaining evidence/test risk and cohort-reuse ceremonies.
 - [x] Connect upstream issues, forward amendments, their list query and recorded decision batches.
 - [ ] Qualify final decisions, approval, rejection and continuation through the single registry.
 
@@ -40,17 +41,22 @@ real failed SGOS observations, renewal, revocation, mixed compiler checks and sh
 All 307 affected Mac checks and the original package, deadline and bundle limits pass. Code/recovery
 risk combinations and the other unchecked owners remain required; neither phase is complete.
 
-Witness-exception selection and renewal now have one [shared value owner](ENGINE-SDK-WITNESS-RENEWAL-VALUES.md).
-Native SDK/CLI renewals and person-presence counting retain their original behavior; namespace
-mapping/exception ceremonies still require their actual approved-mapping owner. The new value
-exports do not establish or approve a namespace exception.
+Witness-exception selection and renewal have one [shared value owner](ENGINE-SDK-WITNESS-RENEWAL-VALUES.md).
+The actual [namespace mapping and renewal owner](ENGINE-SDK-WITNESS-MAPPINGS.md) now binds published
+tests, original approved criteria/plans, human approval and append-only renewal receipts. Native
+SDK/CLI renewals and person-presence counting retain their original behavior. Namespace evidence
+evaluation v3 uses authenticated renewals without rewriting original approval records.
+This checkpoint passes 339 distinct affected Mac checks. The original 34-check package qualifier
+passes alone in 44.2 seconds with its unchanged 120/60-second limits. Source validation passes
+4,380 checks; VS Code types, the Git boundary audit and all 13 original bundle ceilings pass.
+The gateway remains 852/852 modules. Both phases stay open for the remaining owners below.
 
 Exact clause-obligation risks now have a [registered namespace owner and final evidence evaluation](ENGINE-SDK-OBLIGATION-RISKS.md).
 Human decisions bind their actual observations and owning publications; replacement generations,
 expiry, revocation and lost acknowledgements preserve their original records. Document-only
 inspection has a separate retained profile. New sequential/routed closing votes retain the real
 final evaluation without claiming an uncommitted vote is an accepted receipt. Story-wide risks,
-approved witness exceptions and the other unchecked evidence/execution owners remain required.
+the other unchecked evidence/execution owners remain required.
 
 The obligation-risk checkpoint passes 311 distinct affected Mac checks, including all three stores,
 native decision/approval compatibility, configured routes, conformance, forward profiles and actual

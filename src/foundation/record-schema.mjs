@@ -268,7 +268,7 @@ export function namespaceEvidenceReuseRecordProfile(kind,value){
   const {storedVersion}=admitRecordSchemaVersion(family,value);
   return Object.freeze({version:storedVersion,profile:'sflow-'+family.id+'/v'+storedVersion});
 }
-export const NAMESPACE_EVIDENCE_CONTEXT_SCHEMA=Object.freeze({id:'namespace-evidence-context',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+export const NAMESPACE_EVIDENCE_CONTEXT_SCHEMA=Object.freeze({id:'namespace-evidence-context',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,
   unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'});
 export const NAMESPACE_OBLIGATION_RISK_SCHEMA=frozenFamily('namespace-obligation-risk');
 export function namespaceObligationRiskRecordProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_OBLIGATION_RISK_SCHEMA,value);
@@ -456,7 +456,7 @@ export function namespaceSubmissionWriterProfile({routing=false,checks=false,sou
   return namespaceSubmissionRecordProfile({schemaVersion:convergence?5:sourceReview?4:checks?3:routing?2:1});
 }
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
-  vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:5,minimumReadableVersion:1,maximumReadableVersion:5,
+  vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:9,minimumReadableVersion:1,maximumReadableVersion:9,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),binding:frozenFamily('namespace-phase-approval-binding'),
   artifactSet:Object.freeze({id:'namespace-primary-approval-artifact-set',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
@@ -473,6 +473,9 @@ export const NAMESPACE_CONSTITUTION_EXCEPTION_CONTEXT_SCHEMA=frozenFamily('names
 export function namespaceConstitutionExceptionContextProfile(input){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_CONSTITUTION_EXCEPTION_CONTEXT_SCHEMA,input);
   return Object.freeze({version:storedVersion,format:'sflow-namespace-constitution-exception-context/v'+storedVersion});}
 export const NAMESPACE_DECISION_SCHEMA=frozenFamily('namespace-recorded-decision');
+export const NAMESPACE_WITNESS_MAPPING_SCHEMAS=Object.freeze({context:frozenFamily('namespace-witness-mapping-context'),review:frozenFamily('namespace-witness-mapping-review')});
+export function namespaceWitnessMappingProfile(kind,value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_WITNESS_MAPPING_SCHEMAS[kind],value);
+  return Object.freeze({version:storedVersion,profile:'sflow-'+NAMESPACE_WITNESS_MAPPING_SCHEMAS[kind].id+'/v'+storedVersion});}
 export const NAMESPACE_DECISION_BATCH_SCHEMAS=Object.freeze({body:frozenFamily('namespace-decision-batch'),reference:frozenFamily('namespace-decision-batch-reference'),outcome:frozenFamily('namespace-decision-batch-outcome')});
 export function namespaceDecisionBatchProfile(kind,value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_DECISION_BATCH_SCHEMAS[kind],value);
   return Object.freeze({version:storedVersion,format:'sflow-'+NAMESPACE_DECISION_BATCH_SCHEMAS[kind].id+'/v'+storedVersion});}
@@ -482,11 +485,12 @@ export const NAMESPACE_ROUTING_CHOICE_SCHEMAS=Object.freeze({
 export function namespaceApprovalRecordProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.vote,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-approval-vote/v${storedVersion}`,
-    profile:storedVersion===3?'sflow-forward-amendment-approval/v1':storedVersion>=4?`sflow-terminal-evidence-approval/v${storedVersion-3}`:`sflow-primary-document-approval/v${storedVersion}`,
-    routing:storedVersion===2||storedVersion===5,...(storedVersion===3?{forwardAmendment:true}:{}),...(storedVersion>=4?{terminalEvidence:true}:{})});
+    profile:storedVersion>=6?`sflow-witness-mapping-approval/v${storedVersion-5}`:storedVersion===3?'sflow-forward-amendment-approval/v1':storedVersion>=4?`sflow-terminal-evidence-approval/v${storedVersion-3}`:`sflow-primary-document-approval/v${storedVersion}`,
+    routing:[2,5,7,9].includes(storedVersion),...(storedVersion===3?{forwardAmendment:true}:{}),...([4,5,8,9].includes(storedVersion)?{terminalEvidence:true}:{}),
+    ...(storedVersion>=6?{witnessReview:true}:{})});
 }
-export function namespaceApprovalWriterProfile({routing=false,terminalEvidence=false}={}) {
-  return namespaceApprovalRecordProfile({schemaVersion:terminalEvidence?routing?5:4:routing?2:1});
+export function namespaceApprovalWriterProfile({routing=false,terminalEvidence=false,witnessReview=false}={}) {
+  return namespaceApprovalRecordProfile({schemaVersion:witnessReview?terminalEvidence?routing?9:8:routing?7:6:terminalEvidence?routing?5:4:routing?2:1});
 }
 export function namespaceApprovalRoutingProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.routing,input);

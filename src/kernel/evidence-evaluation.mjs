@@ -225,6 +225,8 @@ function evidenceGraph({ workflow, records, deliveries = [], inspections = [], w
 }
 
 function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requiredAssurance = DEFAULT_REQUIRED_ASSURANCE, at, admission = {} } = {}) {
+  if(admission.witnessMappings!==undefined&&(!Array.isArray(admission.witnessMappings)||admission.witnessMappings.length>1000))
+    throw new SingularityFlowError('Admit a bounded set of authenticated exact witness reviews.',{code:'ENGINE_INPUT_INVALID'});
   if(admission.riskBindings!==undefined&&(!admission.riskBindings||typeof admission.riskBindings!=='object'||Array.isArray(admission.riskBindings)
     ||Object.keys(admission.riskBindings).length>128||Object.values(admission.riskBindings).some(value=>!['current','overtaken'].includes(value))))
     throw new SingularityFlowError('Risk binding observations must name current or overtaken original deliveries.',{code:'ENGINE_INPUT_INVALID'});
@@ -344,6 +346,7 @@ function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requi
       for (const mapping of approval.witnessMappings ?? []) adequacy.set(mapping.mappingSha256, mapping);
     }
   }
+  for(const mapping of admission.witnessMappings??[])if(adequacy.has(mapping.mappingSha256))adequacy.set(mapping.mappingSha256,mapping);
   const adequacyDecision = (entry, id, contract) => {
     if (!entry.witness.identity || (entry.witness.gaps ?? []).length) return null;
     return adequacy.get(witnessMappingSha256(witnessMappingCore(entry.witness, { clauseBodySha256: clauseBodies.get(id), contract }))) ?? null;
@@ -746,7 +749,7 @@ function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requi
   })));
   return {
     schemaVersion: 1, // schema-transient: computed evaluation, never persisted by this version
-    profile:admission.riskBindings===undefined?EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v2',
+    profile:admission.witnessMappings!==undefined?'sflow-evidence-evaluation/v3':admission.riskBindings===undefined?EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v2',
     workId,
     ...(localIntegrationRuns.length ? { localIntegrationRuns } : {}),
     title: workflow.workItem.title ?? null,

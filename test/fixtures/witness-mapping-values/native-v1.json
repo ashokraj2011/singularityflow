@@ -1,0 +1,1615 @@
+{
+  "schemaVersion": 1,
+  "baseline": "3c0d359d5",
+  "source": "src/wel-review.mjs",
+  "sha256": "97c439900f54974741ce975f84f4a712c8d0ded5b14cc09c7d7910f6e2802c8b",
+  "cases": [
+    {
+      "name": "empty",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "one batch",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "sorted batch",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            },
+            {
+              "mappingSha256": "sha256:9d4254282c163d29e34f73875fcff9b3ca2a6d236030d27a7766e78f7bc6f258",
+              "clauseId": "EXAMPLE:AC-002",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:21f1f158c57934a2c56a37f72b0f2fa25cd5baca7c32bc450780e5191a477bea",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "duplicate mapping",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b'"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "missing mapping",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping '(missing)'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "false mapping digest",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:9d6f965ac832e40a5df6c06afe983e3b449c07b843ff51ce76204de05c690d11'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid clauseId \"bad\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:216278672b9c9987ac40cd1c5b9b2655a3e790b327ee4f0d718543276f01d925'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid clauseId \"EXAMPLE:REQ-001\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:6ff4ae8530de20b55410c50621009b8ce2785c5ca83e39c60a56a86b6ddc79e7'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid clauseId \"EXAMPLE:AC-01\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:107d20032a683a4158ae1271e6a09ffae753a0764da623cdecba90279ea9c8c2'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid witnessType \"file\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:9fcb5bb9b46e7db2ed29b12525dfe056dcc7d67d88143f15d4291f7a0b1013ec'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid executionProfile \"unknown\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:996c139cfbf45e6c2a1c32780c81322e213d2e1a1360dd8e6e7e6503a64fff99'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid executionProfile \"module-counts-v1\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:48ac6b03be36ea93e99636a83890eb897c2f0e31dda1dd16e7ed674d3a308bb9'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid logicalTestId \"missing\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:03c7982d3b236b739e466d6a4824a23273b82173a1edf50050034ad039373f2e'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid sourcePath \"/absolute\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:1d381e7f8dc39a859bc8350bf197d3f61d2c3d00d39a2f20414e8450e606cc78'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid sourcePath \"../escape\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:1ef7d81d2b0b8df0e5c91491cb9993bda8643405934df49b146c25b5731bd2a6'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid sourcePath \"a/../b\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:c9dbd6c9067865b492e871d17c16323b270f8758ef71132822d25cfac0984dd8'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid sourcePath \"test\\\\value.test.mjs\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:0a9a4fdf7fa59b547c8c52be377dd02ae99000b78d85526ba91b7e2b030872d8'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid sourcePath \"bad\\u0000path\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:6d60dde59542def6e08bde13bfd9e031d7d7139658db1b29963933fff033c416'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid sourcePath \"\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:8c1486b781b011287084a6d68d05c19f0dbffa5a2a81d8a4d51351d0d04bf84f'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid sourceDeclarationSha256 \"bad\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:ed027e0952143ada09e9b53f98a11a575b92443cc0b6b01bb108bf170b6a276e'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid supportSha256 \"bad\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:cc7416ab538c2ac209317899aed664a8952c15c465fd00f5edb1050b65966fce'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid clauseBodySha256 \"bad\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:e7b1323599185b8771459f0c10d702bdf2965d1c7429aa398a6a679916ca67c4'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid contractSha256 \"bad\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:5d09aa99d95c74210dc91df759a3d139377731dbecbc3099ce2ec2a0045d316d'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid slot \"Wrong\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:dd6ea9ca216af501f17a78db68816d695e578fe9712fbbcbae91a02eae6b37f7'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid slot \"bad_slot\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:63561628bab85bb501b41b36e3367927cbfcdc6cf9b0c5f3be1bdb73981ea8a7'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "invalid slot \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "invalid or repeated witness mapping 'sha256:c0fd1b938460b340a401651477c0072f435f674c57d9481d2221eaa7e4ac963e'"
+          ],
+          "decisions": []
+        }
+      }
+    },
+    {
+      "name": "optional nulls",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:a047e4d7b6c96576f847e32a58a52992010decc3adf6dda199b0b175f59fb61f",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": null,
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "valid support",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:6da7313889d15bb6465648a0f98fc8b1ea135713c53c978e6dba60fb0dab22f8",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "supported jest-static-v2",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:807515bbba98517f08021ef7110c924d17681e8343e72bd1fce9362a74b1d6bd",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "supported vitest-static-v2",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:c918ed1ce3b6cdf9b0d3e1f483c5b76fda130f71cd2a1192207a36464ab4c43f",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "supported junit5-surefire-v2",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:15cbadbb25575fb9a2849e4ab64627ae47e9927c498fe452ed61192443d4343e",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "supported junit5-gradle-v2",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:f88a7ff0be45040db90a5d6619a368ce64b7cdb2f8342acba3153b709bfe00a5",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "supported playwright-json-v1",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:faa0c7cc7a4d4b56360a0de245ea2302367c33169042c9b0ce3651d00a91a1e0",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "supported pytest-junit-v1",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:88d21dbc2ccd630d381a29758bc5944d79c056df9c3c41584f760999960cb9f0",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "satisfied explicit",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": "reviewed",
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unknown decision",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' has an invalid decision"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unknown mapping decision",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "unknown witness mapping 'sha256:9d4254282c163d29e34f73875fcff9b3ca2a6d236030d27a7766e78f7bc6f258'"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "duplicate decision",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' was decided more than once"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reason e3b0c44298fc",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' requires a reason for not-applicable"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reason 6c179f21e6f6",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' requires a reason for not-applicable"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reason a2e659dacb46",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "not-applicable",
+              "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "expiresAt": null,
+              "adequacy": null,
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reason 3e97197f4b8d",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' reason is not bounded review text"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reason 1240cd885e27",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "not-applicable",
+              "reason": "🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪🧪",
+              "expiresAt": null,
+              "adequacy": null,
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reason b4f86c4515f9",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' reason is not bounded review text"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reason 768ef8cda9fc",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "not-applicable",
+              "reason": "line\nwith\ttab",
+              "expiresAt": null,
+              "adequacy": null,
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "reason a8853f8b988e",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' reason is not bounded review text"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception ca3d163bab05",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' exception must name its inadequate facets from setup, action, assertions, boundaries, implementation"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception 54d9ae2aa352",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' exception must name its inadequate facets from setup, action, assertions, boundaries, implementation"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception 0df54fa25183",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' exception must name its inadequate facets from setup, action, assertions, boundaries, implementation"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception ed139af396ac",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "exception",
+              "reason": "The bounded review accepts the declared inadequate facet.",
+              "expiresAt": "2026-12-01T00:00:00.000Z",
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "inadequate",
+                "implementation": "adequate"
+              },
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception 3374d617137a",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "exception",
+              "reason": "The bounded review accepts the declared inadequate facet.",
+              "expiresAt": "2026-12-01T00:00:00.000Z",
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "inadequate",
+                "implementation": "adequate"
+              },
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception 686064100e8d",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "exception",
+              "reason": "The bounded review accepts the declared inadequate facet.",
+              "expiresAt": "2026-12-01T00:00:00.000Z",
+              "adequacy": {
+                "setup": "inadequate",
+                "action": "inadequate",
+                "assertions": "inadequate",
+                "boundaries": "inadequate",
+                "implementation": "inadequate"
+              },
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception d1d5c725b5d2",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' exception requires a future ISO expiry"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception 1e7b4873395b",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' exception requires a future ISO expiry"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception 36d236dcf602",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": false,
+          "errors": [
+            "witness mapping 'sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b' exception requires a future ISO expiry"
+          ],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "exception 9b1d8c481610",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "exception",
+              "reason": "The bounded review accepts the declared inadequate facet.",
+              "expiresAt": "2026-12-01T06:30:00.000Z",
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "inadequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "carried exception",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "exception",
+              "reason": "Original bounded review.",
+              "expiresAt": "2026-12-01T00:00:00Z",
+              "adequacy": {
+                "boundaries": "inadequate"
+              },
+              "source": "carried-forward"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "expired carry",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "explicit wins",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "explicit"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "first prior wins",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "exception",
+              "reason": "Original bounded review.",
+              "expiresAt": "2026-12-01T00:00:00Z",
+              "adequacy": {
+                "boundaries": "inadequate"
+              },
+              "source": "carried-forward"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "not-applicable carry",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "not-applicable",
+              "reason": "Earlier reviewed exclusion.",
+              "expiresAt": null,
+              "adequacy": null,
+              "source": "carried-forward"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unknown prior ignored",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "valid": true,
+          "errors": [],
+          "decisions": [
+            {
+              "mappingSha256": "sha256:631287f0c7f611ea78beb7ff2ed670fd3bb20bb773aef1228905229abd2a355b",
+              "clauseId": "EXAMPLE:AC-001",
+              "clauseBodySha256": "sha256:d572c93b5d4ddf5727abdf307c0c436fd7045c1c46fdb3fb0e15b849f8ec2dc4",
+              "logicalTestId": "sha256:9036cdf50bb3dd4094a7f87d00d33f9ad5714d154e4359d950af0fdbf4d6539e",
+              "sourcePath": "test/value.test.mjs",
+              "sourceDeclarationSha256": "sha256:a145fd512f7f5857ad1361563813980bd06ca9e50b2d454e3cdf5bb091c7b5bd",
+              "slot": "primary",
+              "decision": "satisfied",
+              "reason": null,
+              "expiresAt": null,
+              "adequacy": {
+                "setup": "adequate",
+                "action": "adequate",
+                "assertions": "adequate",
+                "boundaries": "adequate",
+                "implementation": "adequate"
+              },
+              "source": "batch"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "malformed prior",
+      "observation": {
+        "kind": "throw",
+        "name": "TypeError",
+        "message": "prior is not iterable"
+      }
+    },
+    {
+      "name": "mapping collection invalid",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "Witness mapping review exceeds 1000 entries.",
+        "code": "WEL_WITNESS_MAPPING_UNREVIEWED"
+      }
+    },
+    {
+      "name": "decision collection invalid",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "Witness mapping review exceeds 1000 entries.",
+        "code": "WEL_WITNESS_MAPPING_UNREVIEWED"
+      }
+    },
+    {
+      "name": "mapping limit",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "Witness mapping review exceeds 1000 entries.",
+        "code": "WEL_WITNESS_MAPPING_UNREVIEWED"
+      }
+    },
+    {
+      "name": "decision limit",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "Witness mapping review exceeds 1000 entries.",
+        "code": "WEL_WITNESS_MAPPING_UNREVIEWED"
+      }
+    }
+  ]
+}

@@ -27,6 +27,7 @@ import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 import {STARTER_CHECKLIST} from '../engine-compatibility/node-specification-policy.mjs';
 import {createNamespaceTerminalEvidenceOwner} from './namespace-terminal-evidence.mjs';
+import {namespaceWitnessMappingContext,namespaceWitnessMappingReview} from './namespace-witness-mapping-reader.mjs';
 import {namespaceApprovalValue,namespaceApprovalRecord,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalArtifactSetRecord,namespaceApprovalChecklistAnswers,namespaceApprovalDecision,
   namespaceApprovalReceipt,namespaceApprovalReceipts,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE} from './namespace-approval-contract.mjs';
 export {NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE};
@@ -58,8 +59,11 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
     return plan;
   }
   function checkRetainedChecklist(s,value,publication) {
+    if(s.mappingRequest!==null){if(!value.witnessReview)throw error('This approval retained no explicit test mapping review.','ENGINE_OPERATION_ID_REUSED');
+      if(s.mappingRequest.context!==value.witnessReview.contextSha256||!same(s.mappingRequest.answers,value.witnessReview.answers))throw error('This approval already retained different test mapping answers.','ENGINE_OPERATION_ID_REUSED');}
     if(s.checklistRequest===null||packets.publicationChecklist(publication,value.actor,[])===null)return;
-    const request={workId,phaseId:s.phaseId,confirmation:s.checklistRequest.confirmation??s.reviewBinding,checklist:s.checklistRequest.checklist};
+    const request={workId,phaseId:s.phaseId,confirmation:s.checklistRequest.confirmation??s.reviewBinding,checklist:s.checklistRequest.checklist,
+      ...(value.witnessReview?{witnessReviewContext:value.witnessReview.contextSha256,witnessMappings:value.witnessReview.answers}:{})};
     if(hash(canonicalJson(request))!==value.requestSha256)throw error('This approval already retained different human checklist answers. Review the original receipt; a retry cannot rewrite the decision.',
       'ENGINE_OPERATION_ID_REUSED');
   }
@@ -113,7 +117,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
     const proof=await packets.inspect(snapshot,s.phaseId,{signal});
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The retained approval lost its submitted packet.','ENGINE_STORAGE_CORRUPT');
     let approvalCandidate=null;
-    if(packets.publicationRequiresDisposition(proof.published,{reached:true})||(body.workflow.namespaceObligationRisks??[]).length){
+    if(packets.publicationRequiresDisposition(proof.published,{reached:true})||(body.workflow.namespaceObligationRisks??[]).length||s.mappingRequest
+      ||Object.values(body.workflow.phases).some(row=>row.approvals?.some(vote=>vote.witnessMappings?.length))){
       const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
       approvalCandidate={operationId:s.operationId,snapshot:{workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion}};
     }
@@ -146,6 +151,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
   const approval={
     async load(input,{signal}={}) {
       cancelled(signal);if(input.workId!=null&&input.workId!==workId)throw error('Approval is bound to another Story.','ACTIVE_SUBJECT_MISMATCH');
+      if(input.witnessMappings?.length&&input.witnessReviewContext==null)throw error('This approval needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{
+        operation:'phase.approve',required:['approval-witnessMappings'],actions:[{operation:'test-witness.context',inputs:{workId,...(input.phaseId?{phaseId:input.phaseId}:{})}}]});
       const observed=await observer.inspect({signal}),workflow=observed.snapshot.workflow;
       assertHistoricalReviewPhase(workflow,input.phaseId);const phaseId=input.phaseId??workflow.currentPhase,phase=workflow.phases[phaseId];
       if(!Object.hasOwn(workflow.phases,phaseId))throw error('The selected phase is unavailable.','ENGINE_PHASE_UNAVAILABLE',{phaseId});
@@ -169,6 +176,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
             reviewBinding:{workId,phase:phaseId,generation:value.generation,reviewPacketSha256:value.reviewPacket.sha256}};
           contexts.set(context,{phaseId,reviewer:{actor:identified.reviewer.actor,agentId:value.agentId},reviewBinding:context.reviewBinding,
             operationId:value.operationId,requestSha256:value.requestSha256,replay:true,routed:true,receiptReference:link.record,observed:observed.snapshot,
+            mappingRequest:input.witnessReviewContext==null?null:{context:input.witnessReviewContext,answers:input.witnessMappings??[]},
             checklistRequest:input.checklist==null?null:{confirmation:input.confirmation,checklist:input.checklist}});
           return context;
         }
@@ -190,12 +198,14 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
       // Unsupported features are refused before a candidate can be accepted.
       const hasPolicyChecklist=packets.publicationChecklist(proof.published,reviewer.actor,[])!==null;
       if(hasPolicyChecklist&&input.checklist!=null)namespaceApprovalChecklistAnswers(input.checklist);
-      const request={workId,phaseId,confirmation:input.confirmation??null,...(hasPolicyChecklist?{checklist:input.checklist??[]}:{})},requestSha256=previous?.value.requestSha256??hash(canonicalJson(request));
+      const mappingRequest=input.witnessReviewContext==null?null:{context:input.witnessReviewContext,answers:input.witnessMappings??[]},
+        request={workId,phaseId,confirmation:input.confirmation??null,...(hasPolicyChecklist?{checklist:input.checklist??[]}:{}),
+          ...(mappingRequest?{witnessReviewContext:mappingRequest.context,witnessMappings:mappingRequest.answers}:{})},requestSha256=previous?.value.requestSha256??hash(canonicalJson(request));
       const operationId=previous?.value.operationId??'approve-'+hash(canonicalJson({scope,workId,authority,reviewer,requestSha256,
         reviewPacket:proof.binding.record,basis:{revision:observed.snapshot.revision,authorityVersion:observed.basis.authorityVersion}}));
       const context={subject:{kind:'story',id:workId},workflow,phase,reviewBinding};
       contexts.set(context,{phaseId,reviewer,initialFacts,proof,active,reviewBinding,operationId,requestSha256,replay:!!previous,
-        routed:!!decisionAfter(workflow,phaseId),observed:observed.snapshot,
+        routed:!!decisionAfter(workflow,phaseId),observed:observed.snapshot,mappingRequest,
         checklistRequest:input.checklist==null?null:{confirmation:input.confirmation,checklist:input.checklist}});
       return context;
     },
@@ -238,7 +248,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
         if(phase.approvalPolicy.mode!=='required')required.add('automatic-approval-disposition');
         if(workflow.resolution.presence)required.add('person-presence');
         if(s.routed&&!s.proof.value.routing)required.add('namespace-submission-routing');
-        for(const key of ['selectionReceipt','witnessMappings','bindingDecisions','decisions','confirmEvidence','evidenceReason','fetch']) {
+        for(const key of ['selectionReceipt',...(!s.mappingRequest?['witnessMappings']:[]),'bindingDecisions','decisions','confirmEvidence','evidenceReason','fetch']) {
           if(input[key]!=null&&input[key]!==false&&(!Array.isArray(input[key])||input[key].length))required.add('approval-'+key);
         }
         if(input.agent!=null&&input.agent!==s.reviewer.agentId)throw error('Approval uses the authenticated agent, never the request agent.','ENGINE_ACTOR_CHANGED');
@@ -263,15 +273,18 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
           const recordedAt=projectEnrollmentTimestamp(await now()),set=namespaceApprovalArtifactSetRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
             reviewPacket:s.proof.binding.record,artifact:{sourceKey:s.proof.published.artifact.sourceKey,kind:s.proof.published.artifact.kind,content:s.proof.published.artifact.content}},{policyChecklist});
           namespaceApprovalArtifactSetValue(set,{projectId:scope.projectId,workId,phaseId:s.phaseId});
+          const witnessReview=s.mappingRequest?namespaceWitnessMappingReview(namespaceWitnessMappingContext(snapshot,s.proof.published,
+            await packets.publicationReader.specifications.sourcePlan(snapshot,s.phaseId,{signal}),packets.publicationReader.policies.codeEvidence(s.proof.published)),
+            s.mappingRequest.answers,recordedAt,s.mappingRequest.context,[...s.active.decisions].reverse().flatMap(row=>row.witnessMappings??[])):null;
           const route=s.routed?routing(workflow,phase,policy.reached,recordedAt):null;
           if(policy.reached&&route?.selected.currentPhase===null&&(workflow.forwardAmendments??[]).length)
             await createNamespaceForwardAmendmentOwners({observer,scope,workId}).assertReady(snapshot,phase.id,{signal,terminal:true});
-          const artifactSet=await save(set,signal),terminalSnapshot=(workflow.namespaceObligationRisks??[]).length?{...snapshot,workflow:structuredClone(workflow)}:null;
+          const artifactSet=await save(set,signal),terminalSnapshot=(workflow.namespaceObligationRisks??[]).length||witnessReview?.decisions.length||Object.values(workflow.phases).some(row=>(row.approvals??[]).some(vote=>vote.witnessMappings?.length))?{...snapshot,workflow:structuredClone(workflow)}:null;
           let value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
             generation:phase.generation,operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
             reviewPacket:s.proof.binding.record,artifactSet,actor:s.reviewer.actor,agentId:s.reviewer.agentId,recordedAt,
             authorityGroup:policy.authorityGroup,selfApproval:policy.selfApproval,thresholdReached:policy.reached,currentPhase:s.routed?route.selected.currentPhase:s.phaseId},
-            {routing:route?.value??null});
+            {routing:route?.value??null,witnessReview});
           // Only the checked human threshold can complete this ordinary sequential phase.
           if(!s.routed&&policy.reached) {
             resolvePhaseChangeRequests(workflow,phase,{at:recordedAt,actor:s.reviewer.actor.principalId});
@@ -281,8 +294,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
           if(value.thresholdReached&&value.currentPhase===null&&terminalSnapshot){
             const terminal=await createNamespaceTerminalEvidenceOwner({observer,scope,workId}).candidate(terminalSnapshot,value,{signal,author:s.proof.published.actor});
             await terminal.fresh();const terminalEvidence=await save(terminal.value,signal);
-            value=namespaceApprovalRecord(Object.fromEntries(Object.entries(value).filter(([key])=>!['schemaVersion','format','profile','routing'].includes(key))),
-              {routing:value.routing??null,terminalEvidence});
+            value=namespaceApprovalRecord(Object.fromEntries(Object.entries(value).filter(([key])=>!['schemaVersion','format','profile','routing','witnessReview'].includes(key))),
+              {routing:value.routing??null,terminalEvidence,witnessReview:value.witnessReview??null});
             s.terminal={snapshot:terminalSnapshot,value,readBindings:terminal.readBindings};s.terminalEvidence=[terminalEvidence,...terminal.references];
           }
           namespaceApprovalValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
@@ -320,6 +333,9 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
       return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,s.reviewer);await unchanged(p.snapshot,signal);
         if(s.terminal){const current=await createNamespaceTerminalEvidenceOwner({observer,scope,workId}).candidate(s.terminal.snapshot,s.terminal.value,
           {signal,at:projectEnrollmentTimestamp(await now()),author:s.proof.published.actor});await current.fresh();}
+        if(s.mappingRequest)namespaceWitnessMappingReview(namespaceWitnessMappingContext(p.snapshot,s.proof.published,
+          await packets.publicationReader.specifications.sourcePlan(p.snapshot,s.phaseId,{signal}),packets.publicationReader.policies.codeEvidence(s.proof.published)),
+          s.mappingRequest.answers,projectEnrollmentTimestamp(await now()),s.mappingRequest.context,[...s.active.decisions].reverse().flatMap(row=>row.witnessMappings??[]));
         if(s.proof.published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await packets.publicationReader.policies.freshTestRisk(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.proof.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await packets.publicationReader.policies.freshReuseSources(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.dispositionRequired)await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot:p.snapshot,at:projectEnrollmentTimestamp(await now()),signal});},{signal});

@@ -17,12 +17,30 @@ export interface WitnessExceptionRenewalValues {
 }
 export declare function witnessExceptionRenewalPolicies(values:{readonly renewedWitnessExpiry:(workflow:WitnessExceptionWorkflow,phaseId:string,
   generation:number|string,mappingSha256:string)=>string|null}):Readonly<WitnessExceptionRenewalValues>;
+export declare const ADEQUACY_FACETS:readonly ['setup','action','assertions','boundaries','implementation'];
+export type WitnessAdequacyFacet=typeof ADEQUACY_FACETS[number];
+export interface WitnessMappingProposal {readonly mappingSha256:string;readonly clauseId:string;readonly witnessType:'test';readonly executionProfile:string;
+  readonly logicalTestId:string;readonly sourcePath:string;readonly sourceDeclarationSha256:string;readonly supportSha256?:string|null;
+  readonly clauseBodySha256:string;readonly contractSha256?:string|null;readonly slot?:string|null}
+export interface WitnessMappingAnswer {readonly mappingSha256:string;readonly decision:'satisfied'|'exception'|'not-applicable';readonly reason?:string|null;
+  readonly expiresAt?:string|null;readonly inadequate?:readonly WitnessAdequacyFacet[];readonly adequacy?:Readonly<Partial<Record<WitnessAdequacyFacet,'adequate'|'inadequate'>>>|null}
+export interface ReviewedWitnessMapping {readonly mappingSha256:string;readonly clauseId:string;readonly clauseBodySha256:string;readonly logicalTestId:string;
+  readonly sourcePath:string;readonly sourceDeclarationSha256:string;readonly slot:string|null;readonly decision:WitnessMappingAnswer['decision'];readonly reason:string|null;
+  readonly expiresAt:string|null;readonly adequacy:Readonly<Partial<Record<WitnessAdequacyFacet,'adequate'|'inadequate'>>>|null;
+  readonly source:'explicit'|'carried-forward'|'batch'}
+export interface WitnessMappingReviewValues {
+  evaluateWitnessMappingReview(input:{readonly mappings?:readonly WitnessMappingProposal[];readonly decisions?:readonly WitnessMappingAnswer[];
+    readonly prior?:readonly WitnessMappingAnswer[];readonly now:number}):Readonly<{readonly valid:boolean;readonly errors:readonly string[];readonly decisions:readonly ReviewedWitnessMapping[]}>;
+}
+export declare function witnessMappingReviewPolicies(utf8:Pick<SpecificationTextValues,'byteLengthUtf8'>,digests:SpecificationDigests):Readonly<WitnessMappingReviewValues>;
 export declare const EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v1';
 export interface EvidenceObservationOptions {
   readonly at:string;readonly boundary?:string;readonly mode?:'projection'|'decision';readonly requiredAssurance?:string;
   /** Already admitted records, never a readiness or approval flag. Pure values do not authenticate them. */
   readonly admission?:{readonly reviewApprovals?:Readonly<Record<string,readonly Readonly<Record<string,unknown>>[]>>;
     readonly riskDecisions?:readonly Readonly<Record<string,unknown>>[];
+    /** v3 uses exact authenticated mapping decisions and renewal expiries without rewriting approvals. */
+    readonly witnessMappings?:readonly ReviewedWitnessMapping[];
     /** v2 additionally binds admitted risks to the original owning deliveries. */
     readonly riskBindings?:Readonly<Record<string,'current'|'overtaken'>>;readonly applicability?:readonly Readonly<Record<string,unknown>>[]};
 }
@@ -30,7 +48,7 @@ export interface EvidenceAction {readonly kind:string;readonly operation?:string
   readonly requiredInputs?:readonly string[];readonly dispositions?:readonly string[];readonly subject?:Readonly<Record<string,unknown>>}
 export interface EvidenceRow {readonly id:string;readonly result:string;readonly obligations:readonly Readonly<Record<string,unknown>>[];
   readonly actions:readonly EvidenceAction[];readonly findings:readonly Readonly<Record<string,unknown>>[];readonly [key:string]:unknown}
-export interface EvidenceEvaluation {readonly schemaVersion:1;readonly profile:typeof EVIDENCE_EVALUATION_PROFILE|'sflow-evidence-evaluation/v2';
+export interface EvidenceEvaluation {readonly schemaVersion:1;readonly profile:typeof EVIDENCE_EVALUATION_PROFILE|'sflow-evidence-evaluation/v2'|'sflow-evidence-evaluation/v3';
   readonly workId:string;readonly rows:readonly EvidenceRow[];readonly decision:{readonly gate:'allow'|'allow-with-risk'|'block';readonly boundary:string};
   readonly [key:string]:unknown}
 export interface EvidenceEvaluationValues {

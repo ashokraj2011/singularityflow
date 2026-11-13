@@ -1,7 +1,7 @@
 /** Immutable human votes and primary-document sets; no storage or actor discovery. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {NAMESPACE_APPROVAL_SCHEMAS,admitRecordSchemaVersion,canonicalJson,namespaceApprovalRecordProfile,namespaceApprovalWriterProfile,
-  namespaceApprovalRoutingProfile,namespaceApprovalArtifactSetProfile} from '../foundation/record-schema.mjs';
+  namespaceApprovalRoutingProfile,namespaceApprovalArtifactSetProfile,namespaceWitnessMappingProfile} from '../foundation/record-schema.mjs';
 import {namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE} from './namespace-policy-contract.mjs';
 import {exactObject,namespaceIdentifier,namespaceKey,namespaceRevision,namespaceJson} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
@@ -28,7 +28,7 @@ export function namespaceApprovalBindingValue(value) {return checked(()=>{
 export function namespaceApprovalValue(value,{projectId,workId,phaseId}={}) {return checked(()=>{
   const profile=namespaceApprovalRecordProfile(value);
   exactObject(value,['schemaVersion','format','profile','projectId','workId','phase','generation','operationId','requestSha256',
-    'baseRevision','configuration','reviewPacket','artifactSet','actor','agentId','recordedAt','authorityGroup','selfApproval','thresholdReached','currentPhase',...(profile.routing?['routing']:[]),...(profile.forwardAmendment?['origin']:[]),...(profile.terminalEvidence?['terminalEvidence']:[])]);
+    'baseRevision','configuration','reviewPacket','artifactSet','actor','agentId','recordedAt','authorityGroup','selfApproval','thresholdReached','currentPhase',...(profile.routing?['routing']:[]),...(profile.forwardAmendment?['origin']:[]),...(profile.terminalEvidence?['terminalEvidence']:[]),...(profile.witnessReview?['witnessReview']:[])]);
   if(value.format!==profile.format||value.profile!==profile.profile||value.projectId!==projectId
     ||value.workId!==workId||value.phase!==phaseId||!digest(value.requestSha256)||!Number.isSafeInteger(value.generation)||value.generation<1)throw Error('Another approval binding.');
   for(const field of ['projectId','workId','phase','operationId','authorityGroup'])namespaceIdentifier(value[field]);
@@ -47,6 +47,9 @@ export function namespaceApprovalValue(value,{projectId,workId,phaseId}={}) {ret
     if(namespaceApprovalRoutingProfile(value.routing).generationBound&&value.routing.generation!==value.generation)throw Error('Another question generation.');
   }
   if(profile.forwardAmendment)namespaceForwardOriginValue(value.origin);
+  if(profile.witnessReview){const item=value.witnessReview;exactObject(item,['schemaVersion','profile','contextSha256','answers','decisions']);
+    if(item.profile!==namespaceWitnessMappingProfile('review',item).profile||!/^sha256:[a-f0-9]{64}$/u.test(item.contextSha256)
+      ||!Array.isArray(item.answers)||!Array.isArray(item.decisions)||item.answers.length>1000||item.decisions.length>1000)throw Error('Invalid exact test review.');}
   if(profile.terminalEvidence){evidence(value.terminalEvidence);if(!value.thresholdReached||value.currentPhase!==null)throw Error('Terminal evidence belongs to an actual closing vote.');}
   projectEnrollmentTimestamp(value.recordedAt);return value;
 });}
@@ -87,12 +90,12 @@ export function namespaceApprovalRoutingValue(value) {return checked(()=>{
 });}
 
 /** A routing contract is explicit; ordinary approvals continue writing their original v1 bytes. */
-export function namespaceApprovalRecord(value,{routing=null,terminalEvidence=null}={}) {
+export function namespaceApprovalRecord(value,{routing=null,terminalEvidence=null,witnessReview=null}={}) {
   if(!value||typeof value!=='object'||Array.isArray(value)||['schemaVersion','format','profile','routing'].some(key=>Object.hasOwn(value,key))) {
     throw new SingularityFlowError('Approval wire metadata must use its registered profile.',{code:'ENGINE_INPUT_INVALID'});
   }
-  const profile=namespaceApprovalWriterProfile({routing:routing!==null,terminalEvidence:terminalEvidence!==null});
-  return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,...(profile.routing?{routing}:{}),...(profile.terminalEvidence?{terminalEvidence}:{})};
+  const profile=namespaceApprovalWriterProfile({routing:routing!==null,terminalEvidence:terminalEvidence!==null,witnessReview:witnessReview!==null});
+  return {schemaVersion:profile.version,format:profile.format,profile:profile.profile,...value,...(profile.routing?{routing}:{}),...(profile.terminalEvidence?{terminalEvidence}:{}),...(profile.witnessReview?{witnessReview}:{})};
 }
 
 export function namespaceApprovalReceiptValue(value,{projectId,workId}={}) {return checked(()=>{
@@ -162,5 +165,6 @@ export function namespaceApprovalArtifactSetRecord(value,{policyChecklist=null}=
 export function namespaceApprovalDecision(value,binding) {
   return {decision:'approved',generation:value.generation,at:value.recordedAt,actor:value.actor.identity,principalId:value.actor.principalId,
     agent:value.agentId,approvedBy:value.actor.principalId,authorityGroup:value.authorityGroup,reviewPacketSha256:value.reviewPacket.sha256,
-    artifactSetSha256:value.artifactSet.sha256,selfApproval:value.selfApproval,namespaceVote:binding};
+    artifactSetSha256:value.artifactSet.sha256,selfApproval:value.selfApproval,namespaceVote:binding,
+    ...(namespaceApprovalRecordProfile(value).witnessReview?{witnessMappings:value.witnessReview.decisions}:{} )};
 }

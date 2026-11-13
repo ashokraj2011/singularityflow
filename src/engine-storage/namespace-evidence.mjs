@@ -18,7 +18,7 @@ export function createNamespaceEvidencePort(options){
     phaseTransitionAccess(await access.current({projectId:scope.projectId,workId,operation,signal}),scope.projectId,operation,{expected:state.principal});
     const fresh=await observer.capture({signal});if(fresh.snapshot.revision!==state.captured.snapshot.revision||fresh.basis.authorityVersion!==state.captured.basis.authorityVersion)
       throw new SingularityFlowError('The Story or authority changed during evidence reading.',{code:'ENGINE_CONTEXT_CHANGED'});
-    const version=(state.captured.snapshot.workflow.namespaceObligationRisks??[]).length?2:1;
+    const version=observed.admission?.witnessMappings?3:(state.captured.snapshot.workflow.namespaceObligationRisks??[]).length?2:1;
     return {schemaVersion:version,profile:'sflow-namespace-evidence-context/v'+version,projectId:scope.projectId,workId,revision:state.captured.snapshot.revision,
       configuration:state.captured.snapshot.configuration,observedAt:at,report:observed.report,excluded:observed.excluded,
       references:observed.references,localSourceChecked:false,terminalDecision:false,approvalRecorded:false};

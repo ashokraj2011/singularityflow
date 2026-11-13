@@ -41,6 +41,7 @@ import {createNamespacePhaseInspectionPorts} from './namespace-phase-inspection.
 import {createNamespaceStoryQueryPorts} from './namespace-story-queries.mjs';
 import {createNamespaceWorkflowAssetsPort} from './namespace-workflow-assets.mjs';
 import {createNamespaceWitnessPorts} from './namespace-witness-decisions.mjs';
+import {createNamespaceWitnessRenewalPorts} from './namespace-witness-renewals.mjs';
 import {createNamespaceTestCommandPorts} from './namespace-test-commands.mjs';
 import {createNamespaceEvidenceReusePorts} from './namespace-evidence-reuse.mjs';
 import {createNamespaceTestRiskPorts} from './namespace-test-risks.mjs';
@@ -102,15 +103,16 @@ export function createNamespaceEngine(options={}) {
   const constitutionExceptions=()=>constitutionExceptionPorts??=createNamespaceConstitutionExceptionPorts(common);
   const sourceReviews=()=>sourceReviewPorts??=createNamespaceSourceReviewPorts(common);
   const witnesses=()=>witnessPorts??=createNamespaceWitnessPorts(common),plans=()=>planPorts??=createNamespacePlanDecisionPorts(common);
+  let renewalPorts;const renewals=()=>renewalPorts??=createNamespaceWitnessRenewalPorts(common);
   let commandPorts,reusePorts;const reuse=()=>reusePorts??=createNamespaceEvidenceReusePorts(common);
   let recoveryPorts;const recovery=()=>recoveryPorts??=createNamespaceTestRecoveryPorts(common);
   let obligationRiskPort;
-  const decisionOperations=Object.freeze(['decision.risk','test-recovery.confirm','convergence.adjudicate','decision.constitution-exception','phase.assign','source-review.record','source-review.decide','decision.choose','decision.plan','plan.correction.record','decision.witness',...NAMESPACE_SCOPE_DECISION_OPERATIONS]);
+  const decisionOperations=Object.freeze(['decision.witness-exception','decision.risk','test-recovery.confirm','convergence.adjudicate','decision.constitution-exception','phase.assign','source-review.record','source-review.decide','decision.choose','decision.plan','plan.correction.record','decision.witness',...NAMESPACE_SCOPE_DECISION_OPERATIONS]);
   const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord={operations:decisionOperations,...Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
     const operation=parameters.at(-1)?.operation?.id;
     if(!decisionOperations.includes(operation))throw new SingularityFlowError(
       'This decision needs its declared namespace evidence and authority owner.',{code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:'decisionRecord',required:[operation]}});
-    const port=operation==='decision.risk'?(obligationRiskPort??=createNamespaceObligationRiskPort(common)):operation==='test-recovery.confirm'?recovery().decision:operation==='convergence.adjudicate'?convergence().decision:operation==='decision.constitution-exception'?constitutionExceptions().decision:operation==='source-review.record'?sourceReviews().record:operation==='source-review.decide'?sourceReviews().decide:operation==='phase.assign'?(assignmentPort??=createNamespaceAssignmentPort(common)):operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
+    const port=operation==='decision.witness-exception'?renewals().decision:operation==='decision.risk'?(obligationRiskPort??=createNamespaceObligationRiskPort(common)):operation==='test-recovery.confirm'?recovery().decision:operation==='convergence.adjudicate'?convergence().decision:operation==='decision.constitution-exception'?constitutionExceptions().decision:operation==='source-review.record'?sourceReviews().record:operation==='source-review.decide'?sourceReviews().decide:operation==='phase.assign'?(assignmentPort??=createNamespaceAssignmentPort(common)):operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
       :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
     return port[stage](...parameters);
   }]))};
@@ -126,6 +128,7 @@ export function createNamespaceEngine(options={}) {
     witnessContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>witnesses().witnessContext[stage](...args)])),
     ...lazyPorts(()=>createNamespaceStoryQueryPorts(common,runtime),{storyStatus:['load','read'],storyGuide:['load'],storyNext:['load']}),
     testRiskContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>risks().context[stage](...args)])),
+    testWitnessContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>renewals().context[stage](...args)])),
     evidenceReuseContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>reuse().context[stage](...args)])),
     testRecoveryContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>recovery().context[stage](...args)])),
     ...lazyPorts(()=>({workflowAssets:createNamespaceWorkflowAssetsPort(common)}),{workflowAssets:['load','read']}),

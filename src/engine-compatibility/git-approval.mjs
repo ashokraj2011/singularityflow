@@ -49,6 +49,7 @@ export function createGitApprovalPort({root,interaction=null,onContext=()=>{},no
   const prepare=typeof interaction?.prepare==='function' ? interaction.prepare.bind(interaction) : defaultPreparation;
   return {
     async load(input) {
+      if(input.witnessReviewContext!=null)throw new SingularityFlowError('This exact test review context belongs to the namespace host.',{code:'ENGINE_PORT_UNAVAILABLE',details:{required:['namespace-witness-review']}});
       const native=load ? await load(input) : await loadNativeDecisionContext(root,
         ['approve',...(input.phaseId ? [input.phaseId] : [])],
         {'work-id':input.workId,'selection-receipt':input.selectionReceipt,fetch:input.fetch,agent:input.agent},'approve');

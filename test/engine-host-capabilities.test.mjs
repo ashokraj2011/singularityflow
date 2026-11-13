@@ -29,7 +29,8 @@ test('namespace composition exposes its real operation owners without opening th
   for(const id of ['test-risk.context','decision.test-risk','evidence-reuse.context','decision.evidence-reuse','test-recovery.context','test-recovery.confirm','constitution.exception.context','decision.constitution-exception','source-review.context','source-review.record','phase.assign','decision.scope','decision.plan','plan.correction.record','decision.witness','upstream.raise','test-command.context','test-command.request','test-command.decide','forward-amendment.propose','forward-amendment.decide','forward-amendment.revalidate'])assert.ok(bound.has(id),id);
   assert.ok(bound.has('decisions.record'));
   assert.ok(bound.has('decision.risk'));
-  for(const id of ['decision.witness-exception','phase.checks'])assert.equal(bound.has(id),false,id);
+  for(const id of ['decision.witness-exception','test-witness.context'])assert.ok(bound.has(id),id);
+  assert.equal(bound.has('phase.checks'),false);
   assert.equal(engine.capabilities.boundOperations.length+engine.capabilities.unboundOperations.length,ENGINE_OPERATIONS.length);
 });
 

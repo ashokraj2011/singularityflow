@@ -613,8 +613,10 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     progress = progressSnapshot(workflow);
     report = deriveReport(workflow, {
       pricing: definition.tokens?.pricing ?? null, premiumMultipliers: definition.tokens?.premiumMultipliers ?? null,
-      // Only the records already written for this Story's branch: a snapshot never reads Copilot's file.
-      copilotChat: await (await import('./copilot-chat-usage.mjs')).storyCopilotChat(root, workflow)
+      // Only the records already written for this Story's branch: a snapshot never reads Copilot's
+      // file or its session logs (VS Code records them in the background, and `report` does).
+      copilotChat: await (await import('./copilot-chat-usage.mjs')).storyCopilotChat(root, workflow),
+      copilotSessions: await (await import('./copilot-session-usage.mjs')).storyCopilotSessions(root, workflow)
     });
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
     documents = completeDocumentCatalog.filter(evidenceIsActive);
@@ -887,8 +889,10 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     progress = progressSnapshot(workflow);
     report = deriveReport(workflow, {
       pricing: definition.tokens?.pricing ?? null, premiumMultipliers: definition.tokens?.premiumMultipliers ?? null,
-      // Only the records already written for this Story's branch: a snapshot never reads Copilot's file.
-      copilotChat: await (await import('./copilot-chat-usage.mjs')).storyCopilotChat(root, workflow)
+      // Only the records already written for this Story's branch: a snapshot never reads Copilot's
+      // file or its session logs (VS Code records them in the background, and `report` does).
+      copilotChat: await (await import('./copilot-chat-usage.mjs')).storyCopilotChat(root, workflow),
+      copilotSessions: await (await import('./copilot-session-usage.mjs')).storyCopilotSessions(root, workflow)
     });
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
     documents = completeDocumentCatalog.filter(evidenceIsActive);

@@ -880,7 +880,8 @@ const PAGES = Object.freeze({
       ['singularity-flow telemetry status', 'Show captured, partial, unavailable, conflict, and disabled launch coverage.'],
       ['singularity-flow telemetry probe --json', 'Inspect supported CLI, VS Code, and JetBrains host modes.'],
       ['singularity-flow telemetry enable', 'Review and accept the local collection disclosure.'],
-      ['singularity-flow telemetry disable', 'Disable capture for future SFlow-owned launches without affecting work.']
+      ['singularity-flow telemetry disable', 'Disable capture for future SFlow-owned launches without affecting work.'],
+      ['singularity-flow telemetry sessions sync', 'Record this repository\'s model calls from Copilot\'s own session logs for Story reports; needs no setup.']
     ],
     seeAlso: ['copilot', 'workspace', 'doctor', 'report']
   },

@@ -60,10 +60,13 @@ export async function reportCommand(positionals, options) {
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
   const preferences = await readReportPreferences(root);
-  // A report is not work: it may read what Copilot Chat wrote on this computer since the last sync.
+  // A report is not work: it may read what Copilot Chat, and Copilot's own session logs, recorded on
+  // this computer since the last sync. Work commands never import either reader (owner rule, 2026-10-16).
   const { storyCopilotChat } = await import('../copilot-chat-usage.mjs');
   const copilotChat = await timer.measure('copilot-chat', () => storyCopilotChat(root, workflow, { sync: true }));
-  const report = await timer.measure('derive', async () => deriveReport(workflow, { ...preferences, copilotChat }));
+  const { storyCopilotSessions } = await import('../copilot-session-usage.mjs');
+  const copilotSessions = await timer.measure('copilot-sessions', () => storyCopilotSessions(root, workflow, { sync: true }));
+  const report = await timer.measure('derive', async () => deriveReport(workflow, { ...preferences, copilotChat, copilotSessions }));
   let rendered = await timer.measure('render', async () => format === 'json'
     ? `${JSON.stringify(report, null, 2)}\n`
     : format === 'html' ? renderHtml(report) : renderMarkdown(report));
@@ -117,5 +120,8 @@ export async function reviewCommand(positionals, options) {
 export async function readReport(root, workId = null) {
   const workflow = await readStoryState(root, workId);
   const { storyCopilotChat } = await import('../copilot-chat-usage.mjs');
-  return deriveReport(workflow, { ...await readReportPreferences(root), copilotChat: await storyCopilotChat(root, workflow) });
+  // Only the records already written: this read never reads Copilot's own session logs.
+  const { storyCopilotSessions } = await import('../copilot-session-usage.mjs');
+  return deriveReport(workflow, { ...await readReportPreferences(root), copilotChat: await storyCopilotChat(root, workflow),
+    copilotSessions: await storyCopilotSessions(root, workflow) });
 }

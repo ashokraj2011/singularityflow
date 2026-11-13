@@ -260,6 +260,7 @@ Usage:
   singularity-flow telemetry disable [--json]
   singularity-flow telemetry reconcile [PHASE] [--json]
   singularity-flow telemetry chat [status|sync] [--json]
+  singularity-flow telemetry sessions [status|sync] [--json]
   singularity-flow context xray [WORK-ID] [--work-id WORK-ID] [--phase PHASE] [--packet CTX-ID] [--json]
   singularity-flow context compile [WORK-ID] [--work-id WORK-ID] [--flight-plan CFP-ID] [--profile PROFILE] [--slice SLICE]... [--max-output-bytes N] [--json]
   singularity-flow context expand <SEALED-HANDLE> [--json]

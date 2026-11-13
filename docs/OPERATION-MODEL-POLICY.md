@@ -910,6 +910,7 @@ Every public operation is classified before its implementation module is importe
 | telemetry.enable | mutation | never | — | — |
 | telemetry.probe | read | never | — | — |
 | telemetry.reconcile | mutation | never | — | — |
+| telemetry.sessions | read | never | — | — |
 | telemetry.status | read | never | — | — |
 | tests.base | mutation | never | — | — |
 | tests.node | mutation | never | — | — |

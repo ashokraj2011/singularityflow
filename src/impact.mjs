@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { deriveReport } from './report.mjs';
 import { identity } from './git.mjs';
 import { nowIso, posix, readJson, secureRepositoryPath, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 import {
@@ -732,6 +731,9 @@ export async function createImpactReceipt(root, config, workflow, finalization) 
   if (!plan.classification.confirmed) throw new SingularityFlowError('Impact receipt requires confirmed complexity and risk bands.');
   const study = workflow.resolution.impact.studies.find((item) => item.id === plan.study.id);
   if (!study) throw new SingularityFlowError(`Pinned impact study '${plan.study.id}' is unavailable.`);
+  // Loaded here, not with this module: the work commands that import it never render a report, and
+  // report.mjs grows with what reports show (Copilot's session-log counts, 2026-11-13).
+  const { deriveReport } = await import('./report.mjs');
   const report = deriveReport(workflow, { pricing: config.tokens?.pricing ?? null, premiumMultipliers: config.tokens?.premiumMultipliers ?? null, now: finalization.finalizedAt });
   const native = nativeMetricRecords(workflow, report, finalization);
   const evidenceDirectory = path.join(measurementRoot(root, config, workflow), 'evidence');

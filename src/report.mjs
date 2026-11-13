@@ -181,9 +181,11 @@ function combinePremium(estimates) {
   if (!relevant.length) return { value: null, status: 'none', missingModels };
   const known = relevant.filter((estimate) => estimate.value != null);
   if (!known.length) return { value: null, status: 'unavailable', missingModels };
+  // Copilot's own count (from its session logs) is observed; beside an estimate the sum is an estimate.
+  const complete = known.length === relevant.length && known.every((estimate) => ['estimated', 'observed'].includes(estimate.status));
   return {
     value: Math.round(known.reduce((sum, estimate) => sum + estimate.value, 0) * 100) / 100,
-    status: known.length === relevant.length && known.every((estimate) => estimate.status === 'estimated') ? 'estimated' : 'partial',
+    status: !complete ? 'partial' : known.every((estimate) => estimate.status === 'observed') ? 'observed' : 'estimated',
     missingModels
   };
 }
@@ -231,11 +233,12 @@ function copilotCaptureNotes(uncaptured, { chatCounted = false } = {}) {
 }
 
 /**
- * Which phase each Copilot Chat request was made in: the phase the Story's history says was being
- * worked on at that moment. A completed phase hands work to the next one, and a send-back to the
- * phase it names. Requests before the Story began or after its last phase completed belong to none.
+ * Which phase was being worked on at a moment, from the Story's history: a completed phase hands
+ * work to the next one, and a send-back to the phase it names. Before the Story began, or after its
+ * last phase completed, none was. Copilot Chat requests and the model calls in Copilot's session
+ * logs are both placed with it, so the two never disagree about a phase.
  */
-function copilotChatByPhase(workflow, history, requests) {
+function phaseAtTime(workflow, history) {
   const order = workflow.phaseOrder;
   const timeline = [];
   const begun = timestamp(history[0]?.at);
@@ -248,11 +251,17 @@ function copilotChatByPhase(workflow, history, requests) {
         : event.phase;
     timeline.push({ at, phase });
   }
+  return (value) => {
+    const at = timestamp(value);
+    return at == null ? null : timeline.findLast((entry) => entry.at <= at)?.phase ?? null;
+  };
+}
+
+/** Which phase each Copilot Chat request was made in (see phaseAtTime). */
+function copilotChatByPhase(phaseAt, requests) {
   const phases = new Map();
   for (const request of requests ?? []) {
-    const at = timestamp(request.at);
-    if (at == null) continue;
-    const phase = timeline.findLast((entry) => entry.at <= at)?.phase;
+    const phase = phaseAt(request.at);
     if (!phase) continue;
     const entry = phases.get(phase) ?? {
       requests: 0, failedRequests: 0, modelCalls: 0, inputTokens: null, outputTokens: null,
@@ -272,6 +281,117 @@ function copilotChatByPhase(workflow, history, requests) {
     ...entry, models: undefined,
     requestsByModel: [...entry.models].map(([model, count]) => ({ model, requests: count }))
   }]));
+}
+
+const SESSION_FIELDS = Object.freeze([['inputTokens', 'inputTokens'], ['cacheReadTokens', 'cachedInputTokens'],
+  ['cacheWriteTokens', 'cacheWriteInputTokens'], ['outputTokens', 'outputTokens']]);
+
+/** Model calls from Copilot's session logs, added up: per phase, per model and for the Story. */
+function sessionTally() {
+  return { modelCalls: 0, requests: 0, premiumRequests: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0,
+    outputTokens: 0, nanoAiu: null, intervals: 0, sessions: new Set(), models: new Map() };
+}
+
+function addSessionCall(tally, call, { byModel = true } = {}) {
+  // An interval from an older Copilot carries only premium requests and AIU, never a call or tokens.
+  if (call.kind === 'checkpoint') tally.intervals += 1;
+  else {
+    tally.modelCalls += 1;
+    tally.requests += call.initiator === 'user' ? 1 : 0;
+    for (const [from, to] of SESSION_FIELDS) if (Number.isFinite(call[from])) tally[to] += call[from];
+  }
+  if (Number.isFinite(call.premiumRequests)) tally.premiumRequests += call.premiumRequests;
+  if (Number.isFinite(call.nanoAiu)) tally.nanoAiu = (tally.nanoAiu ?? 0) + call.nanoAiu;
+  if (call.session) tally.sessions.add(call.session);
+  if (!byModel) return;
+  const model = call.model ?? 'unknown';
+  if (!tally.models.has(model)) tally.models.set(model, sessionTally());
+  addSessionCall(tally.models.get(model), call, { byModel: false });
+}
+
+const percent = (part, whole) => (whole ? Math.round((part / whole) * 1000) / 10 : null);
+
+/** What a tally reports: Copilot's own counts, with the cache-hit share of input tokens. */
+function sessionUsage(tally, { byModel = true } = {}) {
+  const usage = {
+    modelCalls: tally.modelCalls,
+    requests: tally.requests,
+    premiumRequests: Math.round(tally.premiumRequests * 100) / 100,
+    inputTokens: tally.inputTokens,
+    cachedInputTokens: tally.cachedInputTokens,
+    uncachedInputTokens: Math.max(0, tally.inputTokens - tally.cachedInputTokens),
+    cacheWriteInputTokens: tally.cacheWriteInputTokens,
+    outputTokens: tally.outputTokens,
+    // Copilot counts cache reads and writes inside the input tokens.
+    cacheHitShare: percent(tally.cachedInputTokens, tally.inputTokens),
+    aiu: aiuMetric(tally.nanoAiu).value,
+    sessions: tally.sessions.size,
+    intervalsWithoutCalls: tally.intervals
+  };
+  if (byModel) {
+    usage.byModel = [...tally.models].map(([model, entry]) => ({ model, ...sessionUsage(entry, { byModel: false }) }))
+      .map(({ sessions, intervalsWithoutCalls, ...entry }) => entry)
+      .sort((left, right) => right.premiumRequests - left.premiumRequests || right.modelCalls - left.modelCalls || left.model.localeCompare(right.model));
+  }
+  return usage;
+}
+
+/** Which phase each model call in Copilot's session logs was made in, and the calls outside the Story. */
+function copilotSessionsByPhase(phaseAt, calls) {
+  const phases = new Map();
+  let outside = 0;
+  for (const call of calls ?? []) {
+    const phase = phaseAt(call.at);
+    if (!phase) { outside += 1; continue; }
+    if (!phases.has(phase)) phases.set(phase, sessionTally());
+    addSessionCall(phases.get(phase), call);
+  }
+  return { phases, outside };
+}
+
+/**
+ * What Copilot's session logs on this computer say about the Story, or why they say nothing. Null
+ * when the caller did not read them (a work command never does).
+ */
+function copilotSessionsSummary(copilotSessions, sessionsByPhase) {
+  if (!copilotSessions) return null;
+  const story = sessionTally();
+  const covered = [...sessionsByPhase.phases.keys()];
+  for (const tally of sessionsByPhase.phases.values()) mergeTally(story, tally);
+  const found = covered.length > 0;
+  const reason = found ? null
+    : copilotSessions.read === false ? copilotSessions.reason ?? 'not-read'
+      : !copilotSessions.repositorySessions ? 'no-repository-session'
+        : !(copilotSessions.calls ?? []).length ? 'no-branch-session' : 'outside-story';
+  const summary = {
+    source: 'copilot-session-logs',
+    found,
+    reason,
+    explanation: null,
+    branch: copilotSessions.branch ?? null,
+    syncedAt: copilotSessions.syncedAt ?? null,
+    since: copilotSessions.since ?? null,
+    pendingSessions: copilotSessions.pending ?? 0,
+    coveredPhases: covered,
+    callsOutsideStory: sessionsByPhase.outside,
+    ...(found ? sessionUsage(story) : {})
+  };
+  // One sentence for every surface that shows why the logs hold nothing for the Story.
+  summary.explanation = found ? null : `Copilot's session logs: ${sessionsReason(summary)}${summary.pendingSessions
+    ? ` ${summary.pendingSessions} session${summary.pendingSessions === 1 ? ' is' : 's are'} still being read; the next report adds what ${summary.pendingSessions === 1 ? 'it holds' : 'they hold'}.` : ''}`;
+  return summary;
+}
+
+function mergeTally(into, from) {
+  for (const field of ['modelCalls', 'requests', 'premiumRequests', 'inputTokens', 'cachedInputTokens', 'cacheWriteInputTokens', 'outputTokens', 'intervals']) {
+    into[field] += from[field];
+  }
+  if (from.nanoAiu != null) into.nanoAiu = (into.nanoAiu ?? 0) + from.nanoAiu;
+  for (const session of from.sessions) into.sessions.add(session);
+  for (const [model, entry] of from.models) {
+    if (!into.models.has(model)) into.models.set(model, sessionTally());
+    mergeTally(into.models.get(model), entry);
+  }
 }
 
 /**
@@ -305,7 +425,20 @@ function aiuMetric(nanoAiu) {
   return nanoAiu == null ? { value: null, status: 'none' } : { value: Math.round(nanoAiu / 1e7) / 100, status: 'observed' };
 }
 
-function phaseCopilot(phase, premiumMultipliers, chat = null) {
+/** Older Copilot versions recorded intervals without calls: a count beside one is partial. */
+function sessionCount(tally, value) {
+  return { value, status: tally.intervals ? 'partial' : 'observed' };
+}
+
+/**
+ * Where Copilot's session logs hold model calls for a phase, they are its source for requests, model
+ * calls, premium requests and AIU, and neither OpenTelemetry feed adds to them: a session started
+ * through `singularity-flow copilot`, and VS Code's Copilot agent, write both, so adding them would
+ * count the same requests twice. [owner, 2026-11-13] Turns, tool calls, quota events and the prompt
+ * size still come from the spans and SFlow's composition, which the logs do not replace.
+ */
+function phaseCopilot(phase, premiumMultipliers, chat = null, sessions = null) {
+  if (sessions) chat = null;
   const generations = (phase.telemetry ?? [])
     .filter((entry) => entry.status !== 'not-invoked')
     .toSorted((left, right) => left.generation - right.generation);
@@ -335,32 +468,33 @@ function phaseCopilot(phase, premiumMultipliers, chat = null) {
   const limits = (latest?.activity?.promptLimits ?? []).map((entry) => entry.maxPromptTokens).filter(Number.isSafeInteger);
   const limitTokens = limits.length ? Math.min(...limits) : null;
   return {
-    status: chat?.requests ? 'observed'
+    status: chat?.requests || sessions ? 'observed'
       : !generations.length ? 'none'
         : generations.every((entry) => entry.activity) ? 'observed'
           : generations.some((entry) => entry.activity) ? 'partial' : 'unavailable',
     generations: generations.length,
     capturedGenerations: generations.filter((entry) => entry.activity).length,
-    uncaptured: chat?.requests ? {} : generations.filter((entry) => !entry.activity).reduce((counts, entry) => {
+    uncaptured: chat?.requests || sessions ? {} : generations.filter((entry) => !entry.activity).reduce((counts, entry) => {
       const reason = uncapturedReason(entry);
       return { ...counts, [reason]: (counts[reason] ?? 0) + 1 };
     }, {}),
-    requests: withChatCount(metric('requests'), chat, 'requests'),
+    requests: sessions ? sessionCount(sessions, sessions.requests) : withChatCount(metric('requests'), chat, 'requests'),
     turns: metric('turns'),
     // Whether any generation counted turns from model calls rather than Copilot's own turn count.
     turnsDerived: generations.some((entry) => entry.activity?.turnsAssurance === 'derived-from-model-calls'),
-    modelCalls: withChatCount(metric('modelCalls'), chat, 'modelCalls'),
+    modelCalls: sessions ? sessionCount(sessions, sessions.modelCalls) : withChatCount(metric('modelCalls'), chat, 'modelCalls'),
     toolCalls: metric('toolCalls'),
     failedRequests: withChatCount(metric('failedRequests'), chat, 'failedRequests'),
     failedModelCalls: metric('failedModelCalls'),
     failedToolCalls: metric('failedToolCalls'),
-    premiumRequests,
-    billedAiu: aiuMetric(chat?.nanoAiu ?? null),
+    premiumRequests: sessions ? { value: Math.round(sessions.premiumRequests * 100) / 100, status: 'observed', missingModels: [] } : premiumRequests,
+    billedAiu: aiuMetric(sessions ? sessions.nanoAiu : chat?.nanoAiu ?? null),
     chat: chat?.requests ? {
       requests: chat.requests, modelCalls: chat.modelCalls, inputTokens: chat.inputTokens,
       outputTokens: chat.outputTokens, cachedInputTokens: chat.cachedInputTokens,
       cacheWriteInputTokens: chat.cacheWriteInputTokens
     } : null,
+    sessions: sessions ? sessionUsage(sessions) : null,
     events: generations.flatMap((entry) => (entry.activity?.events ?? [])
       .map((event) => ({ generation: entry.generation, ...event }))),
     // Occurrences, not groups: two substituted calls are two events listed on one line.
@@ -389,12 +523,19 @@ function rejectionTarget(detail) {
   return /\breturned to ([A-Za-z0-9_.-]+):/.exec(String(detail ?? ''))?.[1] ?? null;
 }
 
+/**
+ * `copilotChat` is this computer's Copilot Chat requests for the Story's branch, and
+ * `copilotSessions` the model calls Copilot's session logs hold for it
+ * (src/copilot-session-usage.mjs). Both are read by the caller; a work command passes neither.
+ */
 export function deriveReport(workflow, {
-  pricing = null, premiumMultipliers = null, now = nowIso(), copilotChat = null
+  pricing = null, premiumMultipliers = null, now = nowIso(), copilotChat = null, copilotSessions = null
 } = {}) {
   const reportTime = timestamp(now);
   const history = [...(workflow.history ?? [])].sort(compareEvents);
-  const chatByPhase = copilotChatByPhase(workflow, history, copilotChat?.requests);
+  const phaseAt = phaseAtTime(workflow, history);
+  const chatByPhase = copilotChatByPhase(phaseAt, copilotChat?.requests);
+  const sessionsByPhase = copilotSessionsByPhase(phaseAt, copilotSessions?.calls);
   const phases = workflow.phaseOrder.map((id) => {
     const phase = workflow.phases[id];
     const events = phaseEvents(history, id);
@@ -462,7 +603,7 @@ export function deriveReport(workflow, {
       costStatus: !pricedRecords ? 'unavailable' : fullyPricedRecords === usage.length ? 'exact' : 'partial',
       checks,
       cycles: wait.cycles,
-      copilot: phaseCopilot(phase, premiumMultipliers, chatByPhase.get(id) ?? null)
+      copilot: phaseCopilot(phase, premiumMultipliers, chatByPhase.get(id) ?? null, sessionsByPhase.phases.get(id) ?? null)
     };
   });
 
@@ -490,6 +631,8 @@ export function deriveReport(workflow, {
     for (const [reason, count] of Object.entries(phase.copilot.uncaptured)) counts[reason] = (counts[reason] ?? 0) + count;
     return counts;
   }, {});
+  // Each phase's billed usage from the one source that counts it there (see phaseCopilot).
+  const billedNanoAiu = workflow.phaseOrder.map((id) => (sessionsByPhase.phases.get(id) ?? chatByPhase.get(id))?.nanoAiu ?? null);
   const copilot = {
     status: !copilotStatuses.length ? 'none'
       : copilotStatuses.every((status) => status === 'observed') ? 'observed'
@@ -499,9 +642,9 @@ export function deriveReport(workflow, {
     turnsDerived: phases.some((phase) => phase.copilot.turnsDerived),
     premiumRequests: combinePremium(phases.map((phase) => phase.copilot.premiumRequests)),
     premiumMultipliersConfigured: Boolean(premiumMultipliers && Object.keys(premiumMultipliers).length),
-    billedAiu: aiuMetric([...chatByPhase.values()].some((chat) => chat.nanoAiu != null)
-      ? [...chatByPhase.values()].reduce((sum, chat) => sum + (chat.nanoAiu ?? 0), 0) : null),
+    billedAiu: aiuMetric(billedNanoAiu.some((value) => value != null) ? billedNanoAiu.reduce((sum, value) => sum + (value ?? 0), 0) : null),
     chat: copilotChatSummary(copilotChat, phases),
+    sessions: copilotSessionsSummary(copilotSessions, sessionsByPhase),
     events: phases.flatMap((phase) => phase.copilot.events.map((event) => ({ phase: phase.id, ...event }))),
     // Quota and model events come from metered sessions only; Copilot Chat's counts carry none.
     eventsObserved: phases.some((phase) => phase.copilot.capturedGenerations > 0),
@@ -624,7 +767,8 @@ function premiumValue(value) {
 function premiumCell(premium) {
   if (!premium || premium.status === 'none') return '—';
   if (premium.value == null) return 'unavailable';
-  return `~${premiumValue(premium.value)}${premium.status === 'partial' ? '*' : ''}`;
+  // Copilot's own count from its session logs is not an estimate.
+  return `${premium.status === 'observed' ? '' : '~'}${premiumValue(premium.value)}${premium.status === 'partial' ? '*' : ''}`;
 }
 
 function sizeLabel(bytes) {
@@ -663,6 +807,85 @@ function copilotChatLine(chat) {
 function hasCopilotSection(report) {
   return Boolean(report.copilot) && (report.copilot.status !== 'none'
     || report.phases.some((phase) => phase.copilot?.prompt || phase.sentBack));
+}
+
+const tokenCount = (value) => (value == null ? '—' : value.toLocaleString('en-US'));
+const shareCell = (value) => (value == null ? '—' : `${value}%`);
+
+/** Why Copilot's session logs hold nothing for the Story, in plain words. */
+function sessionsReason(sessions) {
+  const branch = sessions.branch ? `branch \`${sessions.branch}\`` : 'this Story\'s branch';
+  return ({
+    'no-session-logs': 'Copilot has written no session logs on this computer: no Copilot CLI or VS Code Copilot agent session has run here.',
+    'not-read': 'Copilot\'s session logs have not been read for this repository yet; `singularity-flow report` and `singularity-flow telemetry sessions sync` read them.',
+    unreadable: 'Copilot\'s session logs could not be read on this computer; `singularity-flow telemetry sessions sync` shows what it found.',
+    'no-repository-session': 'no Copilot session on this computer has worked in this repository.',
+    'no-branch-session': `no Copilot session on this computer has worked on ${branch} in this repository.`,
+    'outside-story': `Copilot made ${sessions.callsOutsideStory} model call${sessions.callsOutsideStory === 1 ? '' : 's'} on ${branch}, all before this Story began or after it finished.`
+  })[sessions.reason] ?? 'Copilot\'s session logs hold nothing for this Story.';
+}
+
+/** The headline of the session-log counts: premium requests, calls, cache hits and AIU. */
+function sessionsTotals(sessions) {
+  return [
+    `${premiumValue(sessions.premiumRequests)} premium request${sessions.premiumRequests === 1 ? '' : 's'}`,
+    `${sessions.requests.toLocaleString('en-US')} request${sessions.requests === 1 ? '' : 's'} you sent`,
+    `${sessions.modelCalls.toLocaleString('en-US')} model call${sessions.modelCalls === 1 ? '' : 's'}`,
+    `${tokenCount(sessions.inputTokens)} input tokens${sessions.cacheHitShare != null ? `, ${sessions.cacheHitShare}% read from Copilot's cache` : ''}`,
+    ...(sessions.aiu != null ? [`${aiuCell({ value: sessions.aiu })} AIU`] : [])
+  ].join(' · ');
+}
+
+/** Notes beside the session-log counts: where they come from, and the rule that keeps them single. */
+function sessionsNotes(report) {
+  const sessions = report.copilot.sessions;
+  const labels = sessions.coveredPhases.map((id) => `\`${id}\``).join(', ');
+  const notes = [
+    `From Copilot's own session logs on this computer (Copilot CLI and VS Code's Copilot agent) for branch \`${sessions.branch}\`${sessions.syncedAt ? `, read ${sessions.syncedAt}` : ''}; other people's use is not included. Premium requests are the requests a person sent, as Copilot accounts them: calls the agent made on its own cost none. Cache hit is the share of input tokens Copilot read from its prompt cache; uncached input includes cache writes.`,
+    `Never counted twice: in ${labels} these logs are the only source of requests, model calls, premium requests and AIU. Copilot's OpenTelemetry (sessions started with \`singularity-flow copilot\`, Copilot Chat in VS Code) counts only in phases the logs do not cover.`
+  ];
+  if (sessions.intervalsWithoutCalls) notes.push(`Older Copilot versions recorded only running totals for ${sessions.intervalsWithoutCalls} interval${sessions.intervalsWithoutCalls === 1 ? '' : 's'}: their premium requests and AIU are counted, without model calls or tokens.`);
+  if (sessions.callsOutsideStory) notes.push(`${sessions.callsOutsideStory} model call${sessions.callsOutsideStory === 1 ? '' : 's'} on this branch fell before the Story began or after it finished, and ${sessions.callsOutsideStory === 1 ? 'is' : 'are'} not counted.`);
+  if (sessions.pendingSessions) notes.push(`${sessions.pendingSessions} Copilot session${sessions.pendingSessions === 1 ? ' is' : 's are'} still being read; the next report adds what ${sessions.pendingSessions === 1 ? 'it holds' : 'they hold'}.`);
+  return notes;
+}
+
+const SESSION_PHASE_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Cache writes', 'Output tokens', 'Cache hit', 'AIU'];
+const SESSION_MODEL_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Output tokens', 'Cache hit', 'AIU'];
+
+function sessionCells(usage, { cacheWrites = true } = {}) {
+  if (!usage) return (cacheWrites ? SESSION_PHASE_COLUMNS : SESSION_MODEL_COLUMNS).map(() => '—');
+  return [premiumValue(usage.premiumRequests), tokenCount(usage.requests), tokenCount(usage.modelCalls), tokenCount(usage.inputTokens),
+    tokenCount(usage.cachedInputTokens), tokenCount(usage.uncachedInputTokens), ...(cacheWrites ? [tokenCount(usage.cacheWriteInputTokens)] : []),
+    tokenCount(usage.outputTokens), shareCell(usage.cacheHitShare), usage.aiu == null ? '—' : aiuCell({ value: usage.aiu })];
+}
+
+function sessionsMarkdown(report) {
+  const sessions = report.copilot?.sessions;
+  if (!sessions) return [];
+  const lines = ['## Copilot premium requests and cache use', ''];
+  if (!sessions.found) return [...lines, `_${sessions.explanation}_`, ''];
+  lines.push(sessionsTotals(sessions), '');
+  lines.push(`| Phase | ${SESSION_PHASE_COLUMNS.join(' | ')} |`, `|${['Phase', ...SESSION_PHASE_COLUMNS].map(() => '---').join('|')}|`);
+  for (const phase of report.phases) lines.push(`| ${phase.label} (\`${phase.id}\`) | ${sessionCells(phase.copilot.sessions).join(' | ')} |`);
+  lines.push('', `| Model | ${SESSION_MODEL_COLUMNS.join(' | ')} |`, `|${['Model', ...SESSION_MODEL_COLUMNS].map(() => '---').join('|')}|`);
+  for (const model of sessions.byModel) lines.push(`| ${model.model} | ${sessionCells(model, { cacheWrites: false }).join(' | ')} |`);
+  lines.push('');
+  for (const note of sessionsNotes(report)) lines.push(`_${note}_`, '');
+  return lines;
+}
+
+function sessionsHtml(report) {
+  const sessions = report.copilot?.sessions;
+  if (!sessions) return '';
+  if (!sessions.found) return `<h2>Copilot premium requests and cache use</h2>\n<p class="note">${codeSpans(escapeHtml(sessions.explanation))}</p>`;
+  const head = (first, columns) => `<thead><tr><th>${first}</th>${columns.map((column) => `<th>${column}</th>`).join('')}</tr></thead>`;
+  const row = (label, cells) => `<tr><td>${escapeHtml(label)}</td>${cells.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`;
+  return `<h2>Copilot premium requests and cache use</h2>
+<p>${escapeHtml(sessionsTotals(sessions))}</p>
+<table>${head('Phase', SESSION_PHASE_COLUMNS)}<tbody>${report.phases.map((phase) => row(phase.label, sessionCells(phase.copilot.sessions))).join('')}</tbody></table>
+<table>${head('Model', SESSION_MODEL_COLUMNS)}<tbody>${sessions.byModel.map((model) => row(model.model, sessionCells(model, { cacheWrites: false }))).join('')}</tbody></table>
+${sessionsNotes(report).map((note) => `<p class="note">${codeSpans(escapeHtml(note))}</p>`).join('\n')}`;
 }
 
 /** One sentence per quota, substitution or failure event, for both renderings. */
@@ -704,7 +927,7 @@ export function renderMarkdown(report) {
     lines.push('## Copilot activity by phase', '');
     const totals = [
       copilot.requests.value != null ? `${countCell(copilot.requests)} requests` : null,
-      copilot.premiumRequests.value != null ? `${premiumCell(copilot.premiumRequests)} premium requests (estimated)` : null,
+      copilot.premiumRequests.value != null ? `${premiumCell(copilot.premiumRequests)} premium requests (${copilot.premiumRequests.status === 'observed' ? 'Copilot\'s count' : 'estimated'})` : null,
       copilot.billedAiu?.value != null ? `${aiuCell(copilot.billedAiu)} AIU billed (Copilot-reported)` : null,
       copilot.turns.value != null ? `${countCell(copilot.turns)} turns` : null,
       copilot.eventCount ? `${copilot.eventCount} quota or model event${copilot.eventCount === 1 ? '' : 's'}` : null,
@@ -735,6 +958,7 @@ export function renderMarkdown(report) {
     }
     lines.push(`_${COPILOT_SOURCES} \`*\` marks a count some generations did not report; \`unavailable\` means none did._`, '');
   }
+  lines.push(...sessionsMarkdown(report));
   if (report.selfApprovals) lines.push(`**Sign-off note:** ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.`, '');
   if (report.sequenceOverrides.length) lines.push(`**Sign-off note:** ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}; review the audit details below.`, '');
   if (report.rejections.length) {
@@ -797,7 +1021,7 @@ function barChart(rows, { valueKey, labelKey, formatValue, color, limitKey = nul
     const limit = limitKey && Number.isFinite(row[limitKey])
       ? `<line x1="${labelWidth + Math.round((row[limitKey] / max) * chartWidth)}" x2="${labelWidth + Math.round((row[limitKey] / max) * chartWidth)}" y1="${y - 2}" y2="${y + barHeight + 2}" stroke="#c0392b" stroke-width="2" stroke-dasharray="4 3"></line>` : '';
     const extra = note ? note(row) : '';
-    return `${label}<rect x="${labelWidth}" y="${y}" width="${width}" height="${barHeight}" rx="3" fill="${color}"></rect>${limit}<text x="${labelWidth + width + 6}" y="${y + 15}" font-size="12" fill="#555">${escapeHtml(formatValue(value ?? 0))}${extra ? ` ${escapeHtml(extra)}` : ''}</text>`;
+    return `${label}<rect x="${labelWidth}" y="${y}" width="${width}" height="${barHeight}" rx="3" fill="${color}"></rect>${limit}<text x="${labelWidth + width + 6}" y="${y + 15}" font-size="12" fill="#555">${escapeHtml(formatValue(value ?? 0, row))}${extra ? ` ${escapeHtml(extra)}` : ''}</text>`;
   }).join('');
   return `<svg viewBox="0 0 ${labelWidth + chartWidth + 150} ${height}" width="100%" height="${height}" xmlns="http://www.w3.org/2000/svg" role="img">${bars}</svg>`;
 }
@@ -865,7 +1089,8 @@ function copilotHtml(report) {
   });
   const premiumChart = barChart(rows, {
     valueKey: 'premium', labelKey: 'label', color: '#d35400',
-    formatValue: (value) => `~${premiumValue(value)}`,
+    // Copilot's own count, from its session logs, is not an estimate.
+    formatValue: (value, row) => `${row.copilot.premiumRequests.status === 'observed' ? '' : '~'}${premiumValue(value)}`,
     note: (row) => (row.events ? `⚠ ${row.events} quota/model event${row.events === 1 ? '' : 's'}` : ''),
     missing: (row) => (row.copilot.status === 'none' ? 'no model-assisted generation'
       : row.copilot.requests.value == null ? 'requests not captured' : 'no multiplier configured')
@@ -889,7 +1114,7 @@ function copilotHtml(report) {
 ${chatLine ? `<p class="note">${escapeHtml(chatLine)}</p>` : ''}
 <h3>Requests, turns, model and tool calls</h3>
 ${activityChart}
-<h3>Estimated premium requests</h3>
+<h3>${copilot.premiumRequests.status === 'observed' ? 'Premium requests' : 'Estimated premium requests'}</h3>
 ${premiumChart}
 <h3>Phase prompt size</h3>
 <p class="note">Dashed red line: the phase's prompt budget.</p>
@@ -948,6 +1173,7 @@ ${elapsedChart}
 ${tokenChart}
 ${modelTable}
 ${copilotSection}
+${sessionsHtml(report)}
 ${overrideTable}
 <footer>Durations are wall-clock elapsed time, including nights and weekends. Generated ${escapeHtml(report.generatedAt)} by singularity-flow.</footer>
 </body>

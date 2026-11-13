@@ -378,8 +378,8 @@ const WORKSPACE_BOOTSTRAP_ACTIONS = new Set([
  * reported against. Hand-listing the vocabulary a second time inside the error would be two places
  * that must agree with nothing checking they do — which is how the wrong answer gets confident.
  */
-// `chat` writes only this computer's Copilot Chat usage records beside the Git directory, never Story state.
-const TELEMETRY_READ_SUBCOMMANDS = Object.freeze(['status', 'probe', 'chat']);
+// `chat`, `sessions`: machine-local Copilot usage records by the Git directory, never Story state.
+const TELEMETRY_READ_SUBCOMMANDS = Object.freeze(['status', 'probe', 'chat', 'sessions']);
 const TELEMETRY_MUTATION_SUBCOMMANDS = Object.freeze(['reconcile', 'enable', 'disable']);
 const TELEMETRY_SUBCOMMANDS = Object.freeze([...TELEMETRY_READ_SUBCOMMANDS, ...TELEMETRY_MUTATION_SUBCOMMANDS]);
 const HELP_METRICS_READ_SUBCOMMANDS = Object.freeze(['status']);

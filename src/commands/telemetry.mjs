@@ -55,11 +55,54 @@ async function copilotChatCommand(positionals, options, root) {
   if (status.following) console.log(`This repository has counted it since ${status.since}; last read ${status.syncedAt}.`);
 }
 
+const plural = (count, one, many = `${one}s`) => `${count.toLocaleString('en-US')} ${count === 1 ? one : many}`;
+const UNMATCHED = Object.freeze({
+  'other-repository': 'in another repository', 'no-git-context': 'outside any Git repository', 'no-start-event': 'without a readable start'
+});
+
+/**
+ * Copilot's own session logs (Copilot CLI and VS Code's Copilot agent): what this repository has
+ * found in them and (`sync`) recording its model calls from them. VS Code runs the sync in the
+ * background and `report` runs it too; nothing is committed. [owner, 2026-11-13]
+ */
+async function copilotSessionsCommand(positionals, options, root) {
+  const action = positionals[2] ?? 'status';
+  if (!['status', 'sync'].includes(action)) {
+    throw new SingularityFlowError(`Unknown telemetry sessions action: ${action}. Use status or sync.`);
+  }
+  if (action === 'sync' && !root) {
+    throw new SingularityFlowError('Recording Copilot session usage requires a repository.', { code: 'TELEMETRY_ROOT_REQUIRED' });
+  }
+  // Only a repository that uses Singularity Flow gets records beside its Git directory.
+  const governed = Boolean(root && existsSync(path.join(root, WORKFLOW_PATH)));
+  const { copilotSessionUsageStatus, syncCopilotSessionUsage } = await import('../copilot-session-usage.mjs');
+  const sync = action !== 'sync' ? null : governed ? await syncCopilotSessionUsage(root) : { status: 'not-governed', added: 0 };
+  const status = await copilotSessionUsageStatus(root);
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ schemaVersion: 1, ...status, sync }, null, 2));
+  console.log(`Copilot session logs: ${status.directory} (${status.exists ? 'found' : 'none on this computer yet'})`);
+  if (sync?.status === 'not-governed') console.log('This repository does not use Singularity Flow, so nothing was recorded.');
+  if (sync?.status === 'synced') {
+    console.log(`Recorded ${plural(sync.added, 'new model call')} for this repository${sync.pending ? `; ${plural(sync.pending, 'session')} left to read next time` : ''}.`);
+  }
+  const sessions = status.sessions;
+  if (!sessions) {
+    console.log(status.exists ? 'This repository has not read them yet; `singularity-flow telemetry sessions sync` or `singularity-flow report` does.'
+      : 'Copilot CLI and VS Code\'s Copilot agent write them on their own; nothing needs turning on.');
+    return;
+  }
+  console.log(`This repository: ${plural(sessions.matched, 'session')} of ${sessions.seen.toLocaleString('en-US')}, ${plural(sessions.calls, 'model call')} on ${plural(status.branches, 'branch', 'branches')}; read since ${status.since}, last ${status.syncedAt}.`);
+  const others = Object.entries(sessions.unmatched).map(([reason, count]) => `${count.toLocaleString('en-US')} ${UNMATCHED[reason] ?? reason}`);
+  if (others.length) console.log(`Not this repository: ${others.join(', ')}.`);
+  if (sessions.callsWithoutBranch) console.log(`${plural(sessions.callsWithoutBranch, 'model call')} ran with no branch checked out and count for no Story.`);
+  if (sessions.pending) console.log(`${plural(sessions.pending, 'session')} still to read; the next sync continues.`);
+}
+
 export async function telemetryCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   let root = null;
   try { root = repoRoot(); } catch { /* Machine-local telemetry controls are intentionally rootless. */ }
   if (subcommand === 'chat') return copilotChatCommand(positionals, options, root);
+  if (subcommand === 'sessions') return copilotSessionsCommand(positionals, options, root);
   const status = await copilotTelemetryStatus(root, { countSpans: subcommand === 'status' });
   if (subcommand === 'status') {
     let workflow = null;

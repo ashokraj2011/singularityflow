@@ -19,6 +19,9 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
   SINGULARITY_FLOW_COPILOT_TELEMETRY_SETUP_FILE: 'copilot-otel.sh',
   SINGULARITY_FLOW_TELEMETRY_PREFERENCES: 'telemetry-preferences.json',
   SINGULARITY_FLOW_COPILOT_CHAT_OTEL_FILE: 'copilot-chat-otel.jsonl',
+  // Copilot's own session logs, which reports read (src/copilot-session-usage.mjs). Copilot keeps them
+  // under COPILOT_HOME or ~/.copilot, not ~/.singularity-flow; a test run must never read a person's.
+  SINGULARITY_FLOW_COPILOT_SESSION_STATE: 'copilot-session-state',
   SINGULARITY_FLOW_TEAM_IMPORT_STATE: 'team-imports',
   // Every --for-agent result a test's commands keep (src/agent-result-keeper.mjs).
   SINGULARITY_FLOW_AGENT_RESULTS: 'agent-results',

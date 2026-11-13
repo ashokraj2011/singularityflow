@@ -122,7 +122,9 @@ test('only the offline audit script reaches the session analyzer and the host lo
   const roots = ['src', 'bin', 'plugin', 'templates', 'scripts', 'apps/vscode/src', 'apps/intellij/src'];
   // Fresh-install reset removes SFlow's own `singularity-*` session folders; it never reads a session log.
   // The Copilot extensions page is opened by a person, reads at most 4,000 lines of a chat, and no work command loads it.
-  const hostLogReaders = new Set(['src/fresh-install-reset.mjs', 'apps/vscode/src/views/copilot-extensions-model.ts']);
+  // Story reports read the logs' usage records (src/copilot-session-usage.mjs); only `report`, `telemetry sessions`
+  // and the snapshot load it, which test/copilot-session-usage.test.mjs holds. [owner, 2026-11-13]
+  const hostLogReaders = new Set(['src/fresh-install-reset.mjs', 'apps/vscode/src/views/copilot-extensions-model.ts', 'src/copilot-session-usage.mjs']);
   const files = [];
   const walk = async (directory) => {
     let entries;

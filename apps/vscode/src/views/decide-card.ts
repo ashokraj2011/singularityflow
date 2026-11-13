@@ -20,7 +20,7 @@ import { reviewWitness } from './decision-list.ts';
 import { approvalRows, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
   guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
 
-export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; next?: unknown }
+export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; summaryUpdate?: string; next?: unknown }
 
 /** An absolute file the engine named, opened beside the page for the person to write in. */
 const openBeside = (file: string) => vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file), { viewColumn: vscode.ViewColumn.Beside, preview: false })
@@ -68,12 +68,21 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     // Drafts written here: files, never records [SCS:REQ-020].
     let drafted: string[] = [];
     let route: string | null = null;
+    // A pin or plan amendment recorded here changed the open code step after its summary was written: however the page
+    // closes, the chat's agent and the person are told to update the summary before prepublishing [owner, 2026-11-13].
+    let summaryUpdate: string | undefined;
     const render = (error: string | null = null, notice: string | null = null) => {
       const token = nonce();
       panel.webview.html = page(`Decide · ${workId}`, `<style nonce="${token}">${DECIDE_STYLE}</style>${decideHtml(packet, { error, notice, busy, draft, route })}`,
         contentSecurityPolicy(panel.webview, token), token, DECIDE_SCRIPT);
     };
-    const finish = (result: DecideResult) => { if (settled) return; settled = true; resolve(result); panel.dispose(); };
+    const finish = (result: DecideResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(summaryUpdate && !result.message.includes(summaryUpdate) ? { ...result, summaryUpdate, message: `${result.message} ${summaryUpdate}` }
+        : summaryUpdate ? { ...result, summaryUpdate } : result);
+      panel.dispose();
+    };
     const notNow = () => (recorded.length ? { status: 'recorded', recorded, ...(drafted.length ? { drafted } : {}), message: `${recorded.length} recorded; the rest stay open.${drafted.length ? ` ${drafted.join(' ')}` : ''}` }
       : drafted.length ? { status: 'drafted', recorded, drafted, message: `No decision was recorded. ${drafted.join(' ')}` }
         : { status: 'cancelled', message: 'No decision was recorded.' });
@@ -153,6 +162,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
               summary: 'Each one is recorded with its own reason, under your name.', detail: decideSummary(packet, choices), confirmLabel: 'Record these decisions' });
           if (!confirmed) { busy = false; panel.reveal(); return render(); }
           const outcome = decisionRecordOutcome(await record(client, packet, answers)).outcome;
+          summaryUpdate = outcome.summaryUpdate ?? summaryUpdate;
           await refresh?.();
           const all = [...recorded, ...outcome.recorded];
           const decided = outcome.decided ?? [];

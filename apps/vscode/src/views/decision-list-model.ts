@@ -171,6 +171,8 @@ export interface DecisionListOutcome {
   decided?: string[];
   /** Drafts written, never recorded: where each is and what is next [SCS:REQ-020]. */
   drafted?: string[];
+  /** A recorded pin or plan amendment changed the open code step after its summary was written: what its author does next. */
+  summaryUpdate?: string;
 }
 
 export interface DecisionListView {
@@ -469,13 +471,16 @@ export function decisionRecordOutcome(result: unknown, failure: { message: strin
     // The same convergence answer again records nothing, and says so [SCS:REQ-034].
     const unchanged = (Array.isArray(data.unchanged) ? data.unchanged : []).map((value) => object(value)).filter(Boolean)
       .map((entry) => `${entry!.item}: ${String(entry!.words ?? '')}`.trim());
+    // A pin or plan amendment that changed the open code step after its summary was written: said to the person and to the
+    // chat's agent, as the terminal and the Copilot CLI card say it [owner, 2026-11-13].
+    const summaryUpdate = typeof object(data.summaryUpdate)?.words === 'string' ? String(object(data.summaryUpdate)!.words) : '';
     const recordLine = recorded.length || (!drafted.length && !unchanged.length) ? `Recorded ${recorded.length} record${recorded.length === 1 ? '' : 's'} from your choices.` : '';
     const draftLine = drafted.length ? `Drafted ${drafted.length === 1 ? 'the amendment' : `${drafted.length} amendments`}; a draft is not a record, and nothing is decided until it is proposed and approved.` : '';
     const sameLine = unchanged.length ? `Nothing changed for ${unchanged.join('; ')}.` : '';
     return {
-      outcome: { kind: 'recorded', message: `${[recordLine, draftLine, sameLine].filter(Boolean).join(' ')}${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}`,
+      outcome: { kind: 'recorded', message: `${[recordLine, draftLine, sameLine].filter(Boolean).join(' ')}${refused.length ? ` Not recorded (not yours to decide): ${refused.join('; ')}.` : ''}${summaryUpdate ? ` ${summaryUpdate}` : ''}`,
         recorded, remaining, decided: (Array.isArray(data.decided) ? data.decided : []).map((value) => object(value)?.words).filter((words): words is string => typeof words === 'string'),
-        ...(drafted.length ? { drafted } : {}) },
+        ...(drafted.length ? { drafted } : {}), ...(summaryUpdate ? { summaryUpdate } : {}) },
       packet: null
     };
   }

@@ -117,7 +117,7 @@ export function normalizeSpecPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError('spec must be an object.');
   }
-  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'conformanceDifferences', 'testCommands', 'excludes', 'limits', 'compositionCache']);
+  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'conformanceDifferences', 'testCommands', 'excludes', 'limits', 'compositionCache', 'observedDependencies']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`spec contains unknown field '${key}'.`);
   const mode = value.mode ?? 'off';
   if (!['off', 'record', 'enforce'].includes(mode)) throw new SingularityFlowError('spec.mode must be off, record, or enforce.');
@@ -131,18 +131,14 @@ export function normalizeSpecPolicy(value = {}) {
   if (!['off', 'presence', 'test-first', 'verify'].includes(acceptance)) {
     throw new SingularityFlowError('spec.acceptance must be off, presence, test-first, or verify.');
   }
-  // A pinned legacy Story keeps its historical report interpretation. New starter Stories require
-  // one explicit qualified conformance row per authoritative clause at the terminal gate.
-  // Newly resolved workflows use exact per-clause reports. Historical Story resolutions are
-  // checked through their pinned raw field, so an absent field there remains legacy behavior.
+  // New Stories require one qualified conformance row per clause at the terminal gate; a Story pinned
+  // before the field is read through its pinned raw field, so an absent field stays legacy.
   const conformanceRows = value.conformanceRows ?? 'qualified';
   if (!['legacy', 'qualified'].includes(conformanceRows)) {
     throw new SingularityFlowError('spec.conformanceRows must be legacy or qualified.');
   }
-  // Which conformance verdicts a person decides before approval [SCS:REQ-010]. New Stories pin `decide`:
-  // deviated and unplanned rows are decided like partial and missing ones. A Story pinned before this
-  // field has none, and reads as `legacy` (partial and missing only), so an upgrade never holds a report
-  // approved under the older rule; readers check the pinned raw field, as for conformanceRows.
+  // Which conformance verdicts a person decides before approval [SCS:REQ-010]. New Stories pin `decide`; one
+  // pinned before has none and reads as `legacy` (partial and missing only), from its pinned raw field.
   const conformanceDifferences = value.conformanceDifferences ?? 'decide';
   if (!['legacy', 'decide'].includes(conformanceDifferences)) {
     throw new SingularityFlowError('spec.conformanceDifferences must be legacy or decide.');
@@ -157,8 +153,7 @@ export function normalizeSpecPolicy(value = {}) {
       throw new SingularityFlowError(`spec.testCommands.${id} must be a non-empty argv array.`);
     }
   }
-  // A configured prefix left changed paths out of coverage, so application logic could escape
-  // requirement accounting [E2G-012]. Only the kernel's own governance roots stay outside it.
+  // A configured prefix let application logic escape coverage [E2G-012]; only governance roots stay out.
   const governanceRoots = ['singularity', '.github/agents', '.git', 'node_modules'];
   const configuredExcludes = value.excludes ?? [];
   // A normalized policy carries the governance roots, so normalizing it again stays unchanged.
@@ -184,7 +179,11 @@ export function normalizeSpecPolicy(value = {}) {
   }
   const compositionCache = value.compositionCache ?? 'local';
   if (!['off', 'local'].includes(compositionCache)) throw new SingularityFlowError('spec.compositionCache must be off or local.');
-  return { mode, namespace, coverage, acceptance, conformanceRows, conformanceDifferences, testCommands, excludes, limits, compositionCache };
+  // SPEC-CIC switch 1 [CIC:REQ-018], pinned only when on; readers check the pinned raw field.
+  const observed = value.observedDependencies ?? 'off';
+  if (!['off', 'on'].includes(observed)) throw new SingularityFlowError('spec.observedDependencies must be off or on.');
+  return { mode, namespace, coverage, acceptance, conformanceRows, conformanceDifferences, testCommands, excludes, limits, compositionCache,
+    ...(observed === 'on' ? { observedDependencies: observed } : {}) };
 }
 
 function lineNumber(text, offset) {

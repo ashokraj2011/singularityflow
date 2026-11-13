@@ -4331,6 +4331,11 @@ export async function publishGeneration(root, config, workflow, {
       workDirectory: workDirRelative(config, workflow.workItem.id)
     });
   }
+  // SPEC-CIC switch 1: what this generation depended on, from production facts, committed with it [CIC:REQ-001].
+  if (workflow.resolution?.spec?.observedDependencies === 'on') {
+    await (await import('./dependency-records.mjs')).recordStepDependencies(root, workflow, phase,
+      { itemRelative: workDirRelative(config, workflow.workItem.id), publishedAt });
+  }
   normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
   workflow.history.push({ at: nowIso(), actor: actorKey(session.actor), agent: session.agent, event: 'phase_generated', phase: phase.id, detail: `generation ${phase.generation}` });
   if (persist) await saveWorkflow(root, config, workflow);
@@ -8896,6 +8901,11 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     amendmentPublication
   ].sort((left, right) => Number(left.generation) - Number(right.generation));
   for (const approval of amendmentApprovals) await writeDecision(root, config, workflow, specification, approval);
+  // The amended scope generation is published here, not by publishGeneration: its dependency record too [CIC:REQ-001].
+  if (workflow.resolution?.spec?.observedDependencies === 'on') {
+    await (await import('./dependency-records.mjs')).recordStepDependencies(root, workflow, specification,
+      { itemRelative: workDirRelative(config, workflow.workItem.id), publishedAt: at });
+  }
 
   const nextIndex = workflow.phaseOrder.indexOf(specification.id) + 1;
   const changedClauses = [...(proposal.diff?.changed ?? [])];
@@ -9572,8 +9582,10 @@ export async function acknowledgeIntentAmendment(root, config, workflow, proposa
 async function recordApprovedScopeRevision(root, config, workflow, phase, at, origin = { kind: 'approval' }) {
   if (!phase.specIndex || Number(phase.specIndex.generation) !== Number(phase.generation)) return null;
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  // Under SPEC-CIC switch 1 the revision is v2: with its stale set, each clause's reason and the edges used [CIC:REQ-002].
   return recordScopeRevision(workflow, {
-    clauses: acceptedClauses(records.indexes), origin: { ...origin, phase: phase.id, generation: phase.generation }, at
+    clauses: acceptedClauses(records.indexes), origin: { ...origin, phase: phase.id, generation: phase.generation }, at,
+    ...(workflow.resolution?.spec?.observedDependencies === 'on' ? { dependencies: records.indexes.flatMap((index) => index.clauses ?? []) } : {})
   });
 }
 

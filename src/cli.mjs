@@ -2723,6 +2723,7 @@ async function runAssistedAnalysis(root, config, workflow, phase, { report, item
 async function specCommand(positionals, options) {
   // Drift spans every closed Story, so it needs no active one.
   if (positionals[1] === 'drift') return (await import('./commands/spec-drift.mjs')).specDriftCommand(positionals, options);
+  if (positionals[1] === 'dependencies') return (await import('./commands/spec-dependencies.mjs')).specDependenciesCommand(positionals, options);
   if (['author', 'split'].includes(positionals[1])) return (await import('./commands/spec-author.mjs')).specAuthorCommand(positionals, options);
   // Dropping a sliced clause is a scope decision on its item (src/commands/spec-attach.mjs).
   if (positionals[1] === 'attach') {

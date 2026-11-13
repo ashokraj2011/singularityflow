@@ -688,6 +688,9 @@ Usage:
   singularity-flow spec acceptance [--command ID]... [--phase PHASE] [--dry-run] [--json]
   singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
+  singularity-flow spec dependencies [STEP] [--work-id ID] [--json]
+    what each published generation depended on (input, claim, path, test, witness, binding, citation)
+    and whether its record is complete; on a Story with spec.observedDependencies on. Read-only
   singularity-flow spec drift [--work-id WORK-ID] [--ref REV] [--all] [--json]
   singularity-flow spec drift decide CLAUSE-ID (--accept | --adopt --story WORK-ID | --restore --story WORK-ID) --reason TEXT [--json]
   singularity-flow spec drift decide --revoke DRD-ID --work-id WORK-ID --reason TEXT [--json]

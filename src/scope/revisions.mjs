@@ -17,6 +17,9 @@ import { clauseDiff } from '../amendment.mjs';
 import { recordSha256 } from '../records.mjs';
 
 export const SCOPE_REVISION_VERSION = 'scope-revision/v1';
+// Recorded on a Story whose pinned spec policy turns observed dependencies on [CIC:REQ-002, D3]: the v1
+// fields, plus the stale set it makes with each clause's reason and the dependency edges that reason used.
+export const SCOPE_REVISION_V2 = 'scope-revision/v2';
 
 /** The accepted clauses of the Story's current specification indexes, in a stable order. */
 export function acceptedClauses(indexes = []) {
@@ -41,7 +44,7 @@ export function latestScopeRevision(workflow) {
  * Only steps after the origin step can have consumed the change, so only their generations are
  * recorded as dependents. An intent amendment's effect reads it before approval records it [CIC:CON-007].
  */
-export function nextScopeRevision(workflow, { clauses, origin, at }) {
+export function nextScopeRevision(workflow, { clauses, origin, at, dependencies = null }) {
   const identity = clauses.map(({ id, bodySha256 }) => ({ id, bodySha256 }));
   const clausesSha256 = `sha256:${recordSha256(identity)}`;
   const latest = latestScopeRevision(workflow);
@@ -49,18 +52,45 @@ export function nextScopeRevision(workflow, { clauses, origin, at }) {
   const diff = latest ? clauseDiff(latest.clauses, identity) : null;
   const order = workflow.phaseOrder ?? [];
   const start = order.indexOf(origin.phase);
+  const changes = diff ? { added: [...diff.added], revised: [...diff.revised], removed: [...diff.removed] } : null;
   const core = {
-    schema: SCOPE_REVISION_VERSION,
+    schema: dependencies ? SCOPE_REVISION_V2 : SCOPE_REVISION_VERSION,
     revision: (latest?.revision ?? 0) + 1,
     clauses,
     clausesSha256,
-    changes: diff ? { added: [...diff.added], revised: [...diff.revised], removed: [...diff.removed] } : null,
+    changes,
     origin,
     dependentGenerations: Object.fromEntries(order.slice(start + 1).map((id) => [id, Number(workflow.phases?.[id]?.generation ?? 0)])),
     previousRevisionSha256: latest?.revisionSha256 ?? null,
-    at
+    at,
+    ...(dependencies ? staleReasons(changes, dependencies) : {})
   };
   return { ...core, revisionSha256: `sha256:${recordSha256(core)}` };
+}
+
+/**
+ * A v2 revision's stale set with each clause's reason, and the edges the reasons used: what staleClausesOf
+ * computes, said per clause (`added`, `revised`, or `depends` on the clauses in `via`). `clauses` are the
+ * current clauses with their declared `dependsOn` [CIC:REQ-002].
+ */
+export function staleReasons(changes, clauses = []) {
+  const reasons = new Map([...(changes?.added ?? []).map((id) => [id, { clause: id, reason: 'added' }]),
+    ...(changes?.revised ?? []).map((id) => [id, { clause: id, reason: 'revised' }])]);
+  const edges = [];
+  let grew = reasons.size > 0;
+  while (grew) {
+    grew = false;
+    for (const clause of clauses) {
+      const id = String(clause.id).toUpperCase();
+      const via = reasons.has(id) ? [] : [...new Set((clause.dependsOn ?? []).map((dependency) => String(dependency).toUpperCase()))]
+        .filter((dependency) => reasons.has(dependency)).sort();
+      if (!via.length) continue;
+      reasons.set(id, { clause: id, reason: 'depends', via });
+      edges.push(...via.map((dependency) => ({ kind: 'declared', clause: id, dependsOn: dependency })));
+      grew = true;
+    }
+  }
+  return { stale: [...reasons.values()].sort((left, right) => left.clause.localeCompare(right.clause)), edges };
 }
 
 /** Append the revision nextScopeRevision makes, or return null when the clause set did not change. */

@@ -479,7 +479,7 @@ const ADHOC_SUBCOMMANDS = Object.freeze([
 const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
 const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
 const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
-const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace', 'drift']);
+const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace', 'drift', 'dependencies']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 // The specification library (src/commands/spec-author.mjs): drafts, gaps, check and state-branch revisions.
 const SPEC_AUTHOR_READ_ACTIONS = Object.freeze(['gaps', 'check', 'status', 'show', 'list', 'coverage', 'shared', 'history', 'sources', 'screen']);
@@ -2136,13 +2136,11 @@ export function operationCatalog() {
     never('spec.index', specDefinition, 'mutation'),
     never('spec.index.dry-run', specDefinition, 'read'),
     never('spec.claims', specDefinition, 'mutation'),
-    never('spec.coverage', specDefinition, 'read'),
+    ...SPEC_READ_SUBCOMMANDS.map((name) => never(`spec.${name}`, specDefinition, 'read')),
     never('spec.acceptance', specDefinition, 'mutation'),
     never('spec.acceptance.dry-run', specDefinition, 'read'),
     never('spec.tasks', specDefinition, 'mutation'),
     never('spec.tasks.dry-run', specDefinition, 'read'),
-    never('spec.trace', specDefinition, 'read'),
-    never('spec.drift', specDefinition, 'read'),
     never('spec.drift.decide', specDefinition, 'mutation'),
     ...SPEC_AUTHOR_READ_ACTIONS.map((name) => never(`spec.author.${name}`, specDefinition, 'read')),
     ...SPEC_AUTHOR_MUTATION_ACTIONS.map((name) => never(`spec.author.${name}`, specDefinition, 'mutation')),

@@ -206,6 +206,7 @@
         "conformanceDifferences": { "enum": ["legacy", "decide"], "default": "decide" },
         "acceptance": { "enum": ["off", "presence", "test-first", "verify"], "default": "off" },
         "compositionCache": { "enum": ["off", "local"], "default": "local" },
+        "observedDependencies": { "enum": ["off", "on"], "default": "off", "description": "SPEC-CIC switch 1: each published generation records the clauses it depended on, and new scope revisions are scope-revision/v2. Read from the pinned field; a Story pinned without it records nothing new." },
         "testCommands": {
           "type": "object",
           "additionalProperties": {

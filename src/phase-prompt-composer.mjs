@@ -1206,7 +1206,11 @@ export async function compose(root, options, {
         sha256: clauseCapsule.capsule.capsuleSha256,
         clauses: clauseCapsule.capsule.clauses.length,
         openRisks: clauseCapsule.capsule.openRisks.length,
-        clarifications: clauseCapsule.capsule.clarifications.length
+        clarifications: clauseCapsule.capsule.clarifications.length,
+        // Each clause revision the prompt held, by ID and approved statement hash, for the step's dependency
+        // record (dependency-records.mjs), under SPEC-CIC switch 1 only [CIC:REQ-001].
+        ...(workflow?.resolution?.spec?.observedDependencies === 'on' ? { clauseRevisions: clauseCapsule.capsule.clauses.map((clause) =>
+          ({ id: clause.id, statementSha256: String(clause.sourceBodySha256 ?? clause.bodySha256).replace(/^sha256:/u, '') })) } : {})
       }
     : null;
   remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));

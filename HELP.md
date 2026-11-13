@@ -730,6 +730,7 @@ sflow spec coverage --base origin/main
 sflow spec acceptance --dry-run
 sflow spec acceptance --command node-unit
 sflow spec trace APP:AC-001 --format json
+sflow spec dependencies implementation --json
 sflow evidence matrix --result pending
 ```
 

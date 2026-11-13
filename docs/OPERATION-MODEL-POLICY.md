@@ -810,6 +810,7 @@ Every public operation is classified before its implementation module is importe
 | spec.author.sync | mutation | never | — | — |
 | spec.claims | mutation | never | — | — |
 | spec.coverage | read | never | — | — |
+| spec.dependencies | read | never | — | — |
 | spec.drift | read | never | — | — |
 | spec.drift.decide | mutation | never | — | — |
 | spec.index | mutation | never | — | — |

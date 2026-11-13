@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,7 +15,9 @@ import { slowLane } from './helpers/slow-lane.mjs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
+import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
 import { EQUIVALENCE_RULES } from '../src/evidence/equivalence-rules.mjs';
+import { decideIntentAmendment } from '../src/state.mjs';
 import { currentlyRemovedClauses } from '../src/spec-drift.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 
@@ -89,13 +91,14 @@ async function fixture(t) {
     sflow('approve', 'fix-design', '--yes');
     assert.equal((await workflow(id)).currentPhase, 'implement');
   };
-  const amend = async (id, transform, reason) => {
+  const amend = async (id, transform, reason, { beforeDecision = null } = {}) => {
     const file = path.join(base, `${id}-amended.md`);
     await writeFile(file, transform(await readFile(itemPath(id, 'artifacts/intake/intake.md'), 'utf8')));
     const proposed = JSON.parse(sflow('story', 'intent-amendment', 'propose', '--file', file, '--reason', reason, '--json'));
+    await beforeDecision?.();
     return { proposed, decided: sflow('story', 'intent-amendment', 'decide', proposed.proposal.id, '--decision', 'approve', '--confirm', proposed.proposal.id) };
   };
-  return { root, sflow, run, workflow, designed, amend };
+  return { root, sflow, run, workflow, designed, amend, itemPath };
 }
 
 test('rule E8 is in the closed set and says what it keeps', () => {
@@ -202,4 +205,44 @@ test('a plan amendment recorded after a step\'s approval keeps it under rule E8 
   const refreshed = await f.workflow('QN-5');
   assert.equal(refreshed.phases['fix-design'].status, 'in_progress');
   assert.equal(refreshed.currentPhase, 'fix-design');
+});
+
+test('a step whose artifact is missing or cannot be read when an amendment is approved runs again, never kept unread [CIC:REQ-020]', slowLane({ timeout: 300_000 }), async (t) => {
+  const f = await fixture(t);
+  const amended = (text) => text.replace('The exported value equals 2.', 'The exported value equals 2 and is a number.');
+  const reason = 'Say the value is numeric.';
+  // Without the missing or unreadable document, this amendment (AC-001 only) keeps fix-design by rule E8 (the first test above).
+  const reset = (story, transition) => {
+    assert.equal(story.phases['fix-design'].status, 'in_progress');
+    assert.equal(story.phases['fix-design'].retention ?? null, null);
+    assert.equal(story.currentPhase, 'fix-design');
+    assert.deepEqual(story.intentAmendments[0].retainedPhases, []);
+    assert.ok(transition.affectedPhases.includes('fix-design'), JSON.stringify(transition.affectedPhases));
+    const artifact = story.phases['fix-design'].artifacts.find((entry) => entry.path.endsWith('/fix-design.md'));
+    assert.equal(artifact.intentAmendment.state, 'affected-revalidation-required');
+    assert.equal(story.phases['fix-design'].intentAmendmentRevalidation.state, 'affected');
+  };
+  // QN-6: fix-design's document is gone when the amendment is approved.
+  await f.designed('QN-6');
+  const gone = f.itemPath('QN-6', 'artifacts/fix-design/fix-design.md');
+  const decided = await f.amend('QN-6', amended, reason, { beforeDecision: () => rm(gone) });
+  assert.doesNotMatch(decided.decided, /rule E8/u);
+  const story = await f.workflow('QN-6');
+  reset(story, { affectedPhases: story.intentAmendments[0].affectedPhases });
+
+  // QN-7: it is there, but cannot be read. Through the CLI every governed write already refuses first (its
+  // transaction cannot read the Story to keep a copy); the engine's own decision is the second line, run in process.
+  if (process.getuid?.() === 0) return t.diagnostic('running as root, which reads any file: the unreadable case is not observable');
+  await f.designed('QN-7');
+  const file = path.join(f.root, 'QN-7-amended.md');
+  await writeFile(file, amended(await readFile(f.itemPath('QN-7', 'artifacts/intake/intake.md'), 'utf8')));
+  const { proposal } = JSON.parse(f.sflow('story', 'intent-amendment', 'propose', '--file', file, '--reason', reason, '--json'));
+  const accepted = await loadAcceptedStoryExecution(f.root, 'QN-7');
+  const locked = f.itemPath('QN-7', 'artifacts/fix-design/fix-design.md');
+  await chmod(locked, 0o000);
+  t.after(() => chmod(locked, 0o644).catch(() => {}));
+  const transition = await decideIntentAmendment(f.root, accepted.config, accepted.workflow, proposal,
+    { decision: 'approve', actor: { name: 'E8 Tester', email: 'e8@example.invalid', login: null } });
+  assert.equal(transition.applied, true);
+  reset(accepted.workflow, transition);
 });

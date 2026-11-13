@@ -43,7 +43,9 @@ export function retainableApprovals(workflow, phase, { counts = null } = {}) {
 
 async function artifactsUnchanged(root, phase) {
   for (const artifact of phase.artifacts ?? []) {
-    const current = await snapshot(path.join(root, artifact.path));
+    // An artifact that cannot be read is not shown unchanged: its step runs again [CIC:REQ-020].
+    const current = await snapshot(path.join(root, artifact.path)).catch(() => null);
+    if (!current) return false;
     if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) return false;
   }
   return true;

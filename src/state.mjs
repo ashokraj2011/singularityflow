@@ -8937,10 +8937,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       let affected = evidencePaths.has(posix(artifact.path));
       if (!affected) {
         const artifactFile = path.join(root, artifact.path);
-        if (existsSync(artifactFile)) {
-          const text = await readFile(artifactFile, 'utf8').catch(() => '');
-          affected = clauseReferences(text).some((clauseId) => cited.has(clauseId) && !rowsCarried.has(String(clauseId).toUpperCase()));
-        }
+        const text = await readFile(artifactFile, 'utf8').catch(() => null);
+        // Fail closed [CIC:REQ-020]: evidence that cannot be read cannot be shown unaffected, so a missing or
+        // unreadable artifact resets its step. One recorded as absent and still absent holds no evidence at all.
+        if (text === null && artifact.exists === false && !existsSync(artifactFile)) continue;
+        affected = text === null
+          || clauseReferences(text).some((clauseId) => cited.has(clauseId) && !rowsCarried.has(String(clauseId).toUpperCase()));
       }
       // A step the rows revalidate keeps its records exactly as reviewed: its row is what says it still holds.
       if (!settles) {
@@ -9014,7 +9016,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       acknowledgedAt: null,
       revalidatedAt: null
     };
-    await updateArtifactMetadata(root, config, workflow, phase);
+    // A document that cannot be read keeps its old metadata block until its step writes it again [CIC:REQ-020].
+    await updateArtifactMetadata(root, config, workflow, phase)
+      .catch((error) => { if (!['EACCES', 'EPERM', 'EISDIR'].includes(error?.code)) throw error; });
   }
   if (!settles) {
     workflow.currentPhase = workflow.phaseOrder[firstReset ?? nextIndex];

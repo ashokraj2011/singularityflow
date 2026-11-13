@@ -21,6 +21,10 @@ import { formatCommandRouteLines } from '../model-free-commands.mjs';
  * Update the spec on a deviated or unplanned row writes no record: it drafts the intent amendment beside
  * the checkout's Git data, as `story intent-amendment draft` does, and the result says where (`drafted`)
  * and that writing and proposing it is next [SCS:REQ-020].
+ *
+ * A pending intent amendment is approved, rejected or refreshed here, and an approved one acknowledged,
+ * through `story intent-amendment`'s own functions with every check they make, each alone in its run and
+ * said to come from the card when an answers file carries it [owner, 2026-11-13].
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -161,7 +165,10 @@ async function previewOf(workflow, packet, plan) {
 }
 
 function itemLines(item, index, { numbered = false } = {}) {
-  const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, `   ${item.decidedBy.words}`,
+  // An intent amendment shows what it changes and reaches, so a person decides it from the same words on every host [owner, 2026-11-13].
+  const amendment = [...(item.details?.lines ?? []).map((line) => `     - ${line}`), ...(item.details?.proposedBy ? [`   ${item.details.proposedBy}`] : []),
+    ...(item.details?.reach ? [`   ${item.details.reach}`] : [])];
+  const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, ...amendment, `   ${item.decidedBy.words}`,
     // What it holds back and where it is answered, on every item [decision map, findings 1 and 11].
     ...(item.holdsWords ? [`   ${item.holdsWords}`] : []), ...(item.answer?.words ? [`   ${item.answer.words}`] : [])];
   if (!item.decidedBy.allowed && item.decidedBy.share) lines.push(`   Share this with them: ${item.decidedBy.share}`);
@@ -171,6 +178,8 @@ function itemLines(item, index, { numbered = false } = {}) {
       : option.available === false ? '  (not available)' : '';
     // The label alone: the option's outcome is data for every host, and beside the label it only repeated it in other words.
     lines.push(`   ${numbered ? `${position + 1})` : `${option.id}:`} ${option.label}${option.recommended ? '  [recommended]' : ''}${yours}`);
+    // The option's own command, for a person who decides it in their terminal instead.
+    if (option.terminal && option.available !== false && !numbered) lines.push(`      or in your own terminal: ${option.terminal}`);
   });
   return lines;
 }
@@ -382,8 +391,56 @@ function confirmDecisionAnswers({ input = processInput, output = processOutput }
   };
 }
 
+const phaseWords = (workflow, id) => workflow.phases?.[id]?.label ?? id;
+
+/** What one decision on an intent amendment did, in words a person reads: never a digest or a commit. Exported for its test. */
+export function intentAmendmentOutcome(workflow, transition) {
+  const { proposal } = transition;
+  if (!transition.reached) {
+    const { reached = 0, required = 1, planSignOffsMissing = [] } = proposal.approvals ?? {};
+    return { id: proposal.id, decision: 'approved', reached: false, approvals: proposal.approvals ?? null,
+      words: `Your approval of ${proposal.id} is recorded: ${reached} of ${required} approvals${planSignOffsMissing.length
+        ? `, and an approver of ${planSignOffsMissing.map((id) => phaseWords(workflow, id)).join(', ')} still signs the plan rows it carries by deciding it` : ''}. It waits for the rest before it changes anything` };
+  }
+  if (!transition.applied) return { id: proposal.id, decision: 'rejected', words: `${proposal.id} is rejected: the approved clauses stay as they are, and every submission stays valid` };
+  const application = proposal.application ?? {};
+  return { id: proposal.id, decision: 'approved', applied: true, generation: application.toSpecificationGeneration ?? null,
+    words: `${proposal.id} is approved: the amended scope is in force${application.revalidate?.length
+      ? `, nothing was reset, and ${application.revalidate.map((entry) => phaseWords(workflow, entry.phase)).join(', ')} ${application.revalidate.length === 1 ? 'has a row' : 'each have a row'} on this list for its approvers`
+      : '. Acknowledge it next, on this list or in a terminal'}` };
+}
+
+/**
+ * A decision on an intent amendment from the list [owner, 2026-11-13]: only for the proposal the list showed. The
+ * list's digest binds it already; a proposal decided or replaced since is named here too, before anything is written.
+ */
+function sameProposal(workflow, effect) {
+  const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === effect.amendment);
+  if (summary?.status === 'proposed' && summary.proposalSha256 === effect.proposalSha256) return;
+  refused(`${effect.amendment} is not the pending proposal this list showed any more, so nothing was recorded. Review the current list and choose again.`,
+    'DECISIONS_PACKET_CHANGED', { amendment: effect.amendment, nextAction: { command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide', label: 'Review the current decision list.' } });
+}
+
 /** Write one effect with the function its own command uses; returns the record it wrote. */
-async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent }) {
+async function applyEffect(root, config, workflow, effect, step, produced, { actor, agent, channel = 'terminal' }) {
+  if (effect.kind === 'intent-amendment-decision' || effect.kind === 'intent-amendment-refresh') {
+    // The same functions as `story intent-amendment decide`, with every check they make, said to come from the card.
+    sameProposal(workflow, effect);
+    const story = await import('./story.mjs');
+    if (effect.kind === 'intent-amendment-refresh') {
+      const refreshed = await story.refreshIntentAmendment(root, config, workflow, effect.amendment, { channel });
+      return { id: effect.amendment, refreshedAs: refreshed.proposed,
+        words: `${effect.amendment} is rejected and proposed again as ${refreshed.proposed}, against the step as it is now; the scope's approvers decide ${refreshed.proposed}` };
+    }
+    const { transition } = await story.recordIntentAmendmentDecision(root, config, workflow, effect.amendment,
+      { decision: effect.decision, reason: step.values.reason || null, channel });
+    return intentAmendmentOutcome(workflow, transition);
+  }
+  if (effect.kind === 'intent-amendment-acknowledge') {
+    const { acknowledgeApprovedIntentAmendment } = await import('./story.mjs');
+    const { acknowledgement } = await acknowledgeApprovedIntentAmendment(root, config, workflow, effect.amendment, { channel });
+    return { id: acknowledgement.id, acknowledged: true, words: `${acknowledgement.id} is acknowledged; the steps it reopened can be revalidated` };
+  }
   if (effect.kind === 'intent-amendment-draft') {
     // The draft command's own function, at the Story's own draft path: never one carried in the list.
     const { draftIntentAmendment } = await import('./story.mjs');
@@ -467,6 +524,9 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
 }
 
 function recordId(kind, record) {
+  if (kind === 'intent-amendment-decision') return `${record?.id} ${record?.reached === false ? 'approval recorded' : record?.decision}`;
+  if (kind === 'intent-amendment-refresh') return `${record?.id} refreshed as ${record?.refreshedAs}`;
+  if (kind === 'intent-amendment-acknowledge') return `${record?.id} acknowledged`;
   if (kind === 'amendment-revalidation') return `${record?.phase} ${record?.outcome} after ${record?.amendment}${record?.link ? ` (${record.link})` : ''}`;
   if (kind === 'upstream-issue-decision') return `${record?.issue} ${record?.outcome}`;
   if (kind === 'scope-disposition') return `${record?.item} ${record?.disposition}`;
@@ -548,7 +608,9 @@ async function record(root, options, workId, io) {
     const actor = actionActor(root);
     const session = await loadSession(root, { required: false });
     const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
-    const outcome = await runDecisionPlan(plan, (effect, step, produced) => applyEffect(root, config, workflow, effect, step, produced, { actor, agent }));
+    // An answers file is what VS Code's and Copilot CLI's decisions cards write; the terminal asks or takes flags.
+    const channel = optionString(options, 'answers') ? 'decisions-card' : 'terminal';
+    const outcome = await runDecisionPlan(plan, (effect, step, produced) => applyEffect(root, config, workflow, effect, step, produced, { actor, agent, channel }));
     const isDraft = (entry) => entry.kind === 'intent-amendment-draft';
     // The same convergence answer again records nothing [SCS:REQ-034]: said so, never counted as recorded.
     const stepOf = (item) => plan.steps.find((step) => step.item === item);
@@ -576,8 +638,11 @@ async function record(root, options, workId, io) {
     const after = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
     // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
     const draftedItems = new Set([...drafted, ...unchanged].map((entry) => entry.item));
+    // What an intent amendment's decision did, beside what was chosen: a partial approval waits for the rest.
+    const said = new Map(outcome.recorded.filter((entry) => /^intent-amendment-(?:decision|refresh|acknowledge)$/u.test(entry.kind) && entry.record?.words)
+      .map((entry) => [entry.item, entry.record.words]));
     const decided = plan.steps.filter((step) => !draftedItems.has(step.item))
-      .map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}` }));
+      .map((step) => ({ item: step.item, words: `${step.label}: ${step.effects.map((effect) => effectWords(workflow, effect, step.values)).join('; then ')}${said.has(step.item) ? `. ${said.get(step.item)}` : ''}` }));
     if (!optionBoolean(options, 'json')) {
       for (const entry of plan.refused) console.log(`Not recorded: ${entry.item} (${entry.title}). ${entry.words} Share this with them: ${entry.share}`);
       for (const entry of decided) console.log(`Recorded ${entry.item}, ${entry.words}.`);

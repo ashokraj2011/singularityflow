@@ -50,12 +50,20 @@ test('a row with a form still names each step that stays in the terminal, and a 
   const own = (id, label, command) => ({ id, label, recordable: false, effects: [], needs: {}, decidedBy: allowed, action: { command } });
   const gap = { id: 'd1', kind: 'conformance-gap', title: 'AC-001 deviated', why: 'The report marks it deviated.', decidedBy: allowed,
     options: [own('fix-code', 'Fix the code: return to Code', 'singularity-flow reject conformance --work-id PAY-1 --to implementation --reason <reason>'), choice('accept-risk', 'Accept for now')] };
-  const amendment = { id: 'd2', kind: 'intent-amendment', title: 'Decide intent amendment AMD-001', why: 'It proposes a change.', decidedBy: allowed,
-    options: [own('approve', 'Approve it.', 'singularity-flow story intent-amendment decide AMD-001 --decision approve'), own('reject', 'Reject it', 'singularity-flow story intent-amendment decide AMD-001 --decision reject')] };
+  const amendment = { id: 'd2', kind: 'forward-amendment', title: 'Decide forward amendment FAM-001', why: 'It proposes a corrected plan.', decidedBy: allowed,
+    options: [own('approve', 'Approve it.', 'singularity-flow upstream-issue decide-amendment FAM-001 --decision approve'), own('reject', 'Reject it', 'singularity-flow upstream-issue decide-amendment FAM-001 --decision reject')] };
   const table = decisionsTable(packet({ items: [gap, amendment] }));
   // VS Code shows these beside the choices; a /decide that showed only the forms hid "Fix the code".
   assert.ok(table.includes('Your decision, on the forms below; or in your terminal: `singularity-flow reject conformance --work-id PAY-1 --to implementation --reason <reason>`'), table);
-  assert.ok(table.includes('Stays in your terminal: Approve it: `singularity-flow story intent-amendment decide AMD-001 --decision approve`; Reject it: `singularity-flow story intent-amendment decide AMD-001 --decision reject`'), table);
+  assert.ok(table.includes('Stays in your terminal: Approve it: `singularity-flow upstream-issue decide-amendment FAM-001 --decision approve`; Reject it: `singularity-flow upstream-issue decide-amendment FAM-001 --decision reject`'), table);
+  // An intent amendment is decided on the forms now, each choice with its own terminal command beside it [owner, 2026-11-13].
+  const decide = (decision) => `singularity-flow story intent-amendment decide AMD-001 --decision ${decision} --confirm AMD-001 --work-id PAY-1`;
+  const intent = { id: 'd3', kind: 'intent-amendment', title: 'Decide intent amendment AMD-001', why: 'It proposes a change.', decidedBy: allowed,
+    options: [{ ...choice('reject', 'Reject AMD-001'), terminal: decide('reject') }, { ...choice('approve', 'Approve AMD-001'), terminal: decide('approve') }],
+    details: { lines: ['AC-001 is revised from "1" to "2"'], proposedBy: 'Story Author proposed it.', reach: 'Steps it may reopen: Plan.' } };
+  const decided = decisionsTable(packet({ items: [intent] }));
+  assert.ok(decided.includes(`Your decision, on the forms below; or in your terminal: Reject AMD-001: \`${decide('reject')}\`; Approve AMD-001: \`${decide('approve')}\``), decided);
+  assert.ok(decided.includes('**Decide intent amendment AMD-001.** Story Author proposed it.\n- AC-001 is revised from "1" to "2"\n- Steps it may reopen: Plan.'), decided);
 });
 
 test('nothing is preselected: no default on any field, and a person must choose', () => {

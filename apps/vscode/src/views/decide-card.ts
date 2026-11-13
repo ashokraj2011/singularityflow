@@ -82,7 +82,7 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
     // A row's own step, or a held package's accept command for a person who may accept it [CQF:REQ-052]: always from the list as read.
     const commandOf = (message: InboundMessage) => {
       const hold = stringField(message, 'hold');
-      if (hold === null) return optionOf(message)?.action?.command ?? null;
+      if (hold === null) return optionOf(message)?.action?.command ?? optionOf(message)?.terminal ?? null;
       const entry = /^\d{1,2}$/u.test(hold) ? packet.approvalEvidence?.hold?.entries?.[Number(hold)] : undefined;
       return entry?.allowed === true && typeof entry.command === 'string' ? entry.command : null;
     };

@@ -45,11 +45,13 @@ function howWords(item) {
   // Every step that stays in the person's terminal, as the VS Code card shows them: a row with a form hid
   // "Fix the code", and an amendment's row showed only its first command.
   const own = ownSteps(item);
-  const terminal = own.length === 1 ? `\`${own[0].action.command}\``
-    : own.map((option) => `${option.label.replace(/[.!?]+$/u, '')}: \`${option.action.command}\``).join('; ');
+  // A choice recorded here keeps its exact terminal command beside it: an intent amendment's decide, which SF Guard signs there [owner, 2026-11-13].
+  const steps = [...own.map((option) => [option.label, option.action.command]), ...item.options.filter((option) => choosable(option) && option.terminal).map((option) => [option.label, option.terminal])];
+  const terminal = steps.length === 1 ? `\`${steps[0][1]}\``
+    : steps.map(([label, command]) => `${label.replace(/[.!?]+$/u, '')}: \`${command}\``).join('; ');
   if (changeable(item) && item.options.some(choosable)) return `Yours to change if you disagree: "${CHANGE}" on the first form below`;
-  if (item.options.some(choosable)) return `Your decision, on the forms below${own.length ? `; or in your terminal: ${terminal}` : ''}`;
-  if (reviews(item).length) return `Your sign-off, on the forms below${own.length ? `; or in your terminal: ${terminal}` : ''}`;
+  if (item.options.some(choosable)) return `Your decision, on the forms below${steps.length ? `; or in your terminal: ${terminal}` : ''}`;
+  if (reviews(item).length) return `Your sign-off, on the forms below${steps.length ? `; or in your terminal: ${terminal}` : ''}`;
   return own.length ? `Stays in your terminal: ${terminal}` : (item.options[0]?.words ?? '');
 }
 
@@ -83,11 +85,21 @@ export function evidenceLines(packet) {
     ...(requiredChecks ? [`- **GitHub required checks.** ${line(requiredChecks.words ?? requiredChecks.checks.map((check) => `${check.name} ${check.status}`).join(' · '))}`] : [])];
 }
 
+/**
+ * What each intent amendment on the list changes, who proposed it and what it reaches, under the table: what its
+ * approver decides, in the engine's words, as the VS Code card shows them [owner, 2026-11-13]. [] when none.
+ */
+export function amendmentLines(packet) {
+  return cardRows(packet).filter((item) => item.kind === 'intent-amendment' && (item.details?.lines?.length || item.details?.reach)).flatMap((item) => ['',
+    `**${line(item.title)}.**${item.details.proposedBy ? ` ${line(item.details.proposedBy)}` : ''}`, ...(item.details.lines ?? []).map((entry) => `- ${line(entry)}`),
+    ...(item.details.reach ? [`- ${line(item.details.reach)}`] : [])]);
+}
+
 export function decisionsTable(packet) {
   // What each holds back sits with why it is asked [decision map, finding 1].
   const rows = cardRows(packet).map((item) => `| ${cell(itemName(item))} | ${cell([item.why, item.holdsWords].filter(Boolean).join(' '))} | ${cell(howWords(item))} |`);
   return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${packet.headline} Nothing is recorded until you confirm the list.`, '',
-    '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows, ...evidenceLines(packet)].join('\n');
+    '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows, ...amendmentLines(packet), ...evidenceLines(packet)].join('\n');
 }
 
 /**

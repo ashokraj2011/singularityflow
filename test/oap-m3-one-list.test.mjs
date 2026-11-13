@@ -140,9 +140,12 @@ test('the list holds every pending kind in one order, and the approval last, nam
   const summary = pendingSummary(packet);
   assert.equal(summary.open, packet.open);
   assert.deepEqual(summary.items.map((item) => item.id), packet.items.map((item) => item.id));
-  // Beyond a route, nothing on the new kinds is recordable from the list: each is the person's own step with its command.
-  assert.ok(packet.items.filter((item) => !['conformance-gap', 'upstream-issue', 'test-run-risk', 'visual-profile', 'test-command', 'routing-decision'].includes(item.kind))
+  // Beyond a route and an intent amendment, nothing on the new kinds is recordable from the list: each is the person's own step with its command.
+  assert.ok(packet.items.filter((item) => !['conformance-gap', 'upstream-issue', 'test-run-risk', 'visual-profile', 'test-command', 'routing-decision', 'intent-amendment'].includes(item.kind))
     .every((item) => item.options.every((option) => option.recordable === false && option.action?.command)));
+  // An intent amendment is decided and acknowledged on the decisions card, each choice with its exact terminal command beside it [owner, 2026-11-13].
+  assert.deepEqual(byKind('intent-amendment').map((item) => item.options.map((option) => [option.id, option.recordable !== false, Boolean(option.terminal)])),
+    [[['acknowledge', true, true]], [['reject', true, true], ['approve', true, true]]]);
 });
 
 test('a step that is not awaiting approval has no approval item and holds nothing', () => {
@@ -176,7 +179,9 @@ test('VS Code Decide shows the person\'s own steps as theirs and another group\'
   const approval = html.slice(html.indexOf(`data-item="${row('approval').id}"`));
   assert.match(approval, /data-allowed="true"/u);
   assert.match(approval, new RegExp(`<code>singularity-flow approve planning --work-id ${WORK} --fetch</code>`, 'u'));
-  assert.doesNotMatch(html, /data-action="review"/u, 'nothing here is recorded from the page, so nothing is offered for review');
+  // Acknowledging an approved amendment is anyone's, recorded from the page [owner, 2026-11-13]; the rest here is not this architect's to record.
+  assert.match(html, /data-action="review"/u);
+  assert.deepEqual(view.items.filter((item) => item.allowed && item.options.some((option) => option.choosable)).map((item) => item.kind), ['intent-amendment']);
 });
 
 /** The VS Code views that show the count, loaded the way the extension bundles them. */

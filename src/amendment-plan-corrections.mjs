@@ -61,8 +61,9 @@ const flagsOf = (gaps) => rowFlags(gaps.flatMap((gap) => gap.unplanned), gaps.fl
  * decision plan checks them but against the amended clauses, and the gaps it still leaves. Only for a
  * Story that pinned the owner-step checks; one started before keeps its policy and carries nothing.
  */
-export async function carriedPlanCorrections(root, config, workflow, { afterClauses, diff = null, options, proposalId, reason, file = null }) {
-  const operations = planCorrectionOperations(options);
+export async function carriedPlanCorrections(root, config, workflow, { afterClauses, diff = null, options, operations: given = null, proposalId, reason, file = null }) {
+  // A refreshed proposal carries the rows its stale one carried, as recorded [owner, 2026-11-13]; any other reads them from its flags.
+  const operations = given ?? planCorrectionOperations(options);
   if (!ownerStepChecks(workflow)) {
     if (operations.length) {
       refused('This Story started before an amendment carried its plan rows; propose it without them, and the plan runs again as before.',
@@ -130,6 +131,18 @@ export async function carriedPlanCorrections(root, config, workflow, { afterClau
       { recoveryCommand: proposeCommand(workflow, file, flagsOf(uncovered)) });
   }
   return { corrections, uncovered };
+}
+
+/**
+ * The rows a proposal carried, as the flags that carried them would give them: a refreshed proposal carries the
+ * same rows again, checked against the plans as they are now [owner, 2026-11-13]. A new row's recorded claim
+ * gives back the fields its flags named.
+ */
+export function carriedOperations(planCorrections = []) {
+  return planCorrections.flatMap((entry) => entry.operations ?? []).map(({ claim, ...operation }) => (operation.op === 'add-row'
+    ? { ...operation, expectedPaths: claim?.expectedPaths ?? [], tests: claim?.tests ?? [], ...(claim?.fulfillment ? { fulfillment: claim.fulfillment } : {}),
+      ...(claim?.steps?.length ? { steps: claim.steps } : {}), ...(claim?.observableResult ? { observableResult: claim.observableResult } : {}) }
+    : operation));
 }
 
 /** The reason each carried correction records: the amendment's, under its id. */

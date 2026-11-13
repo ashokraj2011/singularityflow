@@ -8468,6 +8468,50 @@ async function intentAmendmentPath(root, config, workflow, relative, label, { mu
   return secured.absolute;
 }
 
+/**
+ * Why a pending intent amendment no longer matches the Story it was proposed against, or null while it
+ * still does: the step it was proposed in moved (its generation, status or artifact), the application
+ * source changed, or the approved scope did. Approving it is refused for exactly these reasons and
+ * rejecting it never is. The decision list reads the same answer to offer Refresh, which proposes the
+ * same bytes again against the step as it is now [owner, 2026-11-13]. `cause` names which one, for the
+ * words a person reads.
+ */
+export async function intentAmendmentStaleness(root, config, workflow, proposal) {
+  const specification = scopeStepOf(workflow);
+  const source = proposal?.source;
+  if (source != null) {
+    const phase = workflow.phases?.[source.phaseId];
+    if (!intentAmendmentSource(workflow, source.phaseId)
+        || source.kind !== 'phase-feedback'
+        || workflow.currentPhase !== source.phaseId
+        || !phase
+        || phase.generation !== source.generation
+        || phase.status !== source.status
+        || typeof source.artifactPresent !== 'boolean'
+        || (source.artifactPresent && typeof source.artifactSha256 !== 'string')
+        || (!source.artifactPresent && source.artifactSha256 !== null)
+        || typeof source.sourceTreeSha256 !== 'string'
+        || (phase.requiredArtifact?.path ? requiredRepoPath(config, workflow, phase) : null) !== source.artifactPath) {
+      return { code: 'INTENT_AMENDMENT_SOURCE_STALE', cause: 'source-step', phase: source.phaseId,
+        message: `Intent amendment '${proposal.id}' no longer matches its source phase '${source.phaseId}'.` };
+    }
+    const artifact = source.artifactPath ? await repositoryArtifactSnapshot(root, source.artifactPath)
+      : { exists: false, symbolicLink: false, sha256: null };
+    if (artifact.exists !== source.artifactPresent
+        || artifact.symbolicLink
+        || artifact.sha256 !== source.artifactSha256
+        || await sourceTreeHash(root, config, workflow) !== source.sourceTreeSha256) {
+      return { code: 'INTENT_AMENDMENT_SOURCE_STALE', cause: 'source-evidence', phase: source.phaseId,
+        message: `Source-phase evidence changed after intent amendment '${proposal.id}' was proposed. Create a new proposal.` };
+    }
+  }
+  if (specification && specification.generation !== proposal?.specification?.generation) {
+    return { code: 'INTENT_AMENDMENT_STALE', cause: 'scope', phase: specification.id,
+      message: `The approved scope generation changed after intent amendment '${proposal.id}' was proposed. Create a new proposal against the current generation.` };
+  }
+  return null;
+}
+
 /** An approved amendment that this checkout has not yet acknowledged. */
 export { pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
 
@@ -8577,43 +8621,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     workId: workflow.workItem.id, phase: workflow.currentPhase,
     recoveryCommand: `singularity-flow story intent-amendment decide ${proposal.id} --decision reject --confirm ${proposal.id} --work-id ${workflow.workItem.id}`
   };
-  if (decision === 'approve' && proposal.source != null) {
-    const source = proposal.source;
-    const phase = workflow.phases[source.phaseId];
-    if (!intentAmendmentSource(workflow, source.phaseId)
-        || source.kind !== 'phase-feedback'
-        || workflow.currentPhase !== source.phaseId
-        || !phase
-        || phase.generation !== source.generation
-        || phase.status !== source.status
-        || typeof source.artifactPresent !== 'boolean'
-        || (source.artifactPresent && typeof source.artifactSha256 !== 'string')
-        || (!source.artifactPresent && source.artifactSha256 !== null)
-        || typeof source.sourceTreeSha256 !== 'string'
-        || (phase.requiredArtifact?.path ? requiredRepoPath(config, workflow, phase) : null) !== source.artifactPath) {
-      throw new SingularityFlowError(
-        `Intent amendment '${proposal.id}' no longer matches its source phase '${source.phaseId}'.`,
-        { code: 'INTENT_AMENDMENT_SOURCE_STALE', details: staleProposalDetails }
-      );
-    }
-    const artifact = source.artifactPath ? await repositoryArtifactSnapshot(root, source.artifactPath)
-      : { exists: false, symbolicLink: false, sha256: null };
-    if (artifact.exists !== source.artifactPresent
-        || artifact.symbolicLink
-        || artifact.sha256 !== source.artifactSha256
-        || await sourceTreeHash(root, config, workflow) !== source.sourceTreeSha256) {
-      throw new SingularityFlowError(
-        `Source-phase evidence changed after intent amendment '${proposal.id}' was proposed. Create a new proposal.`,
-        { code: 'INTENT_AMENDMENT_SOURCE_STALE', details: staleProposalDetails }
-      );
-    }
-  }
-  if (decision === 'approve' && specification.generation !== proposal.specification?.generation) {
-    throw new SingularityFlowError(
-      `The approved scope generation changed after intent amendment '${proposal.id}' was proposed. Create a new proposal against the current generation.`,
-      { code: 'INTENT_AMENDMENT_STALE', details: staleProposalDetails }
-    );
-  }
+  // Approving is refused for exactly the reasons the decision list offers Refresh [owner, 2026-11-13].
+  const stale = decision === 'approve' ? await intentAmendmentStaleness(root, config, workflow, proposal) : null;
+  if (stale) throw new SingularityFlowError(stale.message, { code: stale.code, details: staleProposalDetails });
   const decisions = [...(proposal.decisions ?? [])];
   const authorities = workflow.resolution.approvalAuthorities ?? config.approvalAuthorities;
   // The rows an amendment carries for a separate plan are signed by an approver of that plan, in their own
@@ -9385,7 +9395,8 @@ export async function revalidateAfterForwardAmendment(root, config, workflow, {
 /** Record the human beat required before an amended Story can be submitted again. */
 export async function acknowledgeIntentAmendment(root, config, workflow, proposalId = null, {
   actor = identity(root),
-  agent = null
+  agent = null,
+  channel = 'terminal'
 } = {}) {
   const summary = proposalId
     ? intentAmendmentSummary(workflow, proposalId)
@@ -9412,7 +9423,9 @@ export async function acknowledgeIntentAmendment(root, config, workflow, proposa
   await persistIntentAmendmentRecord(root, config, workflow, summary, record);
   workflow.history.push({
     at, actor: actorKey(actor), agent, event: 'intent_amendment_acknowledged',
-    phase: workflow.currentPhase, detail: `${summary.id} acknowledged before downstream revalidation`
+    // Where it was acknowledged, in words only: the summary and record gain who and when, and nothing else,
+    // as the review-safe check of an acknowledgement requires (approval-check.mjs verifiedAcknowledgement).
+    phase: workflow.currentPhase, detail: `${summary.id} acknowledged${channel === 'terminal' ? '' : ` on the ${String(channel).replaceAll('-', ' ')}`} before downstream revalidation`
   });
   return { ...summary, acknowledged: true };
 }

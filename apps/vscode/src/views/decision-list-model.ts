@@ -41,6 +41,8 @@ export interface DecisionOptionPacket {
   oneByOne?: boolean;
   /** The words one answer for all uses when each row's own label names its row ("Still holds" for "Code still holds") [SCS:REQ-022]. */
   sharedLabel?: string;
+  /** The same choice's exact command for the person's own terminal, shown beside it (an intent amendment's decide) [owner, 2026-11-13]. */
+  terminal?: string;
   action?: { command: string | null; alternativeCommands?: string[]; humanReview?: { kind: 'witness'; clauseId: string; clauseText?: string | null; slot: string; method: string; files: string[]; owners: string[]; contextBinding: string };
     /** A file the person writes before running the command (an intent-amendment draft), named by the engine. */
     file?: string };
@@ -135,6 +137,8 @@ export interface DecisionItemRow {
   holds: string; answerWhere: string;
   /** Who decides it, in plain words. */
   who: string;
+  /** What an intent amendment changes and reaches, in the engine's words: what its approver decides [owner, 2026-11-13]. */
+  facts?: string[];
   /** False when the person may decide none of its options: no buttons, the share line instead. */
   allowed: boolean;
   share: string | null;
@@ -244,10 +248,12 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
     const options = ordered(item.options).map(optionRow);
     // Theirs when they may choose an option here or take one of its steps themselves (a command to run).
     const allowed = item.decidedBy?.allowed === true && options.some((option) => option.choosable || option.yours !== null);
+    const facts = [...(Array.isArray(item.details?.lines) ? item.details.lines : []), item.details?.proposedBy, item.details?.reach].filter((line): line is string => typeof line === 'string');
     return {
       id: item.id, kind: item.kind, title: item.title, why: item.why,
       holds: typeof item.holdsWords === 'string' ? item.holdsWords : '', answerWhere: typeof item.answer?.words === 'string' ? item.answer.words : '',
       who: item.decidedBy?.words ?? '', allowed,
+      ...(facts.length ? { facts } : {}),
       share: allowed ? null : item.decidedBy?.share ?? packet.record?.share ?? `/sf-decide ${packet.workId}`,
       options, chosen: allowed ? keptChoice(item, draft) : null
     };

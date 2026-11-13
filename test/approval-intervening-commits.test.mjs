@@ -29,6 +29,9 @@ const WORK = 'HEX-2018';
 const APPROVE = ['approve', 'planning', '--work-id', WORK];
 const STATUS = `singularity-flow story intent-amendment status --work-id ${WORK} --json`;
 const DECIDE = `singularity-flow story intent-amendment decide AMD-001 --decision <approve|reject> --confirm AMD-001 --work-id ${WORK}`;
+// The decisions card, which /sf-decide opens and VS Code's Decide shows: where a scope approver decides it [owner, 2026-11-13].
+const CARD = `singularity-flow decisions ${WORK}`;
+const DECIDE_STEPS = ['inspect-intent-amendment', 'decide-intent-amendment-on-card', 'leave-approval-turn', 'decide-intent-amendment'];
 const EXISTING_ROUTES = ['inspect-current-phase', 'leave-approval-turn', 'inspect-current-phase-evidence'];
 const NO_ROUTE = 'no verified equivalent';
 
@@ -49,18 +52,19 @@ test('an undecided amendment after the submission is seen and decided before any
   // SPEC-OAP M2: the proposal holds the approval (APPROVAL_INTENT_AMENDMENT_PENDING) and makes nothing stale.
   const { blockingCommits, blockingCommitCount, ...held } = pendingDetails;
   const plan = refusalRemediationPlan(refusal(held, 'APPROVAL_INTENT_AMENDMENT_PENDING'), APPROVE);
-  assert.deepEqual(plan.steps.map((step) => step.id), ['inspect-intent-amendment', 'decide-intent-amendment', 'leave-approval-turn']);
+  assert.deepEqual(plan.steps.map((step) => step.id), DECIDE_STEPS);
   assert.equal(plan.steps[0].command, STATUS);
   assert.match(plan.steps[0].label, /AMD-001, proposed in 1b3bf2703ebb after planning was submitted; it changes HEX-2018:AC-001, HEX-2018:REQ-002/u);
-  assert.equal(plan.steps[1].command, DECIDE);
-  // A person decides; the outcome of each decision is stated, and neither one makes this approval pass.
-  assert.match(plan.steps[1].label, /A person who approves specification decides AMD-001 in their own terminal; an agent cannot/u);
-  assert.match(plan.steps[1].label, /Approving it changes those clauses, so planning reopens to be revised and submitted again/u);
+  // A person decides, on the card or in their own terminal; the outcome of each decision is stated, and neither one makes this approval pass.
+  assert.deepEqual([plan.steps[1].command, plan.steps[3].command], [CARD, DECIDE]);
+  assert.match(plan.steps[1].label, /A person who approves specification decides AMD-001 on the decisions card, which shows what it changes: \/sf-decide HEX-2018 in Copilot, or Decide in VS Code; an agent cannot decide it/u);
+  assert.match(plan.steps[3].label, /Or they decide AMD-001 in their own terminal, where SF Guard takes its signature when the Story requires one/u);
+  assert.match(plan.steps[3].label, /Approving it changes those clauses, so planning reopens to be revised and submitted again/u);
   // Rejecting keeps the submission valid [SPEC-OAP decision 1]: planning is approved as submitted.
-  assert.match(plan.steps[1].label, /Rejecting it keeps the approved clauses, and planning can then be approved as submitted, with no fresh submission/u);
+  assert.match(plan.steps[3].label, /Rejecting it keeps the approved clauses, and planning can then be approved as submitted, with no fresh submission/u);
   assert.match(plan.retry.label, /this submission as it is once the amendment is rejected/u);
   // Only commits that record more than the amendment still need a fresh submission after a rejection.
-  assert.match(refusalRemediationPlan(refusal(pendingDetails), APPROVE).steps[1].label,
+  assert.match(refusalRemediationPlan(refusal(pendingDetails), APPROVE).steps[3].label,
     /Rejecting it keeps the approved clauses, but these commits record more than its proposal and rejection, so planning still needs a fresh submission/u);
   assert.equal(plan.context.strategy, 'person-decides-intent-amendment');
   assert.equal(plan.context.turn, 'new-turn');
@@ -75,15 +79,17 @@ test('an undecided amendment after the submission is seen and decided before any
  * Seen live (2026-10-24, hex-2018): both commands of this plan printed `Copilot: /sf-reject`. The
  * crosswalk sent the whole `story intent-amendment` family to /sf-reject, which returns the phase:
  * a different decision, and one its approval-only turn may not record for the amendment. Each step
- * now carries its own routes, and neither the read nor the person's decision has a Copilot one.
+ * now carries its own routes: the read and the terminal decision have no Copilot one, and the card
+ * is /sf-decide's [owner, 2026-11-13].
  */
 test('each step of the pending-amendment plan carries its own routes, and none of them is /sf-reject', async () => {
   const plan = refusalRemediationPlan(refusal(pendingDetails), APPROVE);
   const routes = plan.steps.map(({ id, command, skill, copilotCommand, copilotReason = null }) => ({ id, command, skill, copilotCommand, copilotReason }));
   assert.deepEqual(routes, [
     { id: 'inspect-intent-amendment', command: STATUS, skill: null, copilotCommand: null, copilotReason: null },
-    { id: 'decide-intent-amendment', command: DECIDE, skill: null, copilotCommand: null, copilotReason: 'no verified equivalent: decide it in your terminal' },
-    { id: 'leave-approval-turn', command: null, skill: null, copilotCommand: null, copilotReason: null }
+    { id: 'decide-intent-amendment-on-card', command: CARD, skill: '/sf-decide', copilotCommand: `/sf-decide ${WORK}`, copilotReason: null },
+    { id: 'leave-approval-turn', command: null, skill: null, copilotCommand: null, copilotReason: null },
+    { id: 'decide-intent-amendment', command: DECIDE, skill: null, copilotCommand: null, copilotReason: 'no verified equivalent: decide it in your terminal' }
   ]);
   const rendered = renderRefusalPlan(plan).split('\n');
   // Each route is its own bullet, Copilot first (8f25dc4b standardized the three surfaces).
@@ -91,9 +97,10 @@ test('each step of the pending-amendment plan carries its own routes, and none o
   for (const command of [STATUS, DECIDE]) {
     assert.deepEqual(routesOf(command), [`     - Copilot: ${NO_ROUTE}`, `     - Shell: ${command}`, '     - VS Code (model-free): not available for this action']);
   }
-  assert.doesNotMatch(rendered.join('\n'), /Copilot: \/sf-/u);
+  assert.deepEqual(routesOf(CARD), [`     - Copilot: /sf-decide ${WORK}`, `     - Shell: ${CARD}`, '     - VS Code (model-free): not available for this action']);
+  assert.doesNotMatch(rendered.join('\n'), /Copilot: \/sf-reject/u);
   // Returning the phase is named as what it is, and as not deciding the amendment.
-  assert.match(plan.steps[1].label, /Returning planning instead \(a person, with \/sf-reject in a new turn\) does not decide AMD-001/u);
+  assert.match(plan.steps[3].label, /Returning planning instead \(a person, with \/sf-reject in a new turn\) does not decide AMD-001/u);
 
   // VS Code rebuilds every route from the command, so it reaches the same answer.
   const envelope = JSON.parse(JSON.stringify(refusalEnvelope(refusal(pendingDetails), APPROVE)));
@@ -102,10 +109,10 @@ test('each step of the pending-amendment plan carries its own routes, and none o
   const { commandGuidanceText } = await import('../apps/vscode/src/views/command-guidance.ts');
   const { view: card } = refusalFor({ message: 'history changed', result: envelope });
   assert.deepEqual(card.actions.map(({ command, skill, copilotCommand }) => ({ command, skill, copilotCommand })),
-    [{ command: STATUS, skill: null, copilotCommand: null }, { command: DECIDE, skill: null, copilotCommand: null }]);
+    [{ command: STATUS, skill: null, copilotCommand: null }, { command: CARD, skill: '/sf-decide', copilotCommand: `/sf-decide ${WORK}` }, { command: DECIDE, skill: null, copilotCommand: null }]);
   const html = resultCardHtml(card);
   assert.equal(html.split(`Copilot:</strong> ${NO_ROUTE} </li>`).length - 1, 2, html);
-  assert.doesNotMatch(html, /\/sf-reject<\/code>|Copilot: <code>/u);
+  assert.doesNotMatch(html, /\/sf-reject<\/code>/u);
   assert.equal(commandGuidanceText(STATUS), `- Copilot: ${NO_ROUTE}\n- Shell: ${STATUS}\n- VS Code (model-free): not available for this action`);
 });
 
@@ -167,7 +174,8 @@ const advisory = {
     `- 1b3bf2703ebb [${WORK}][intent-amendment:propose] AMD-001 (intent amendment AMD-001, still waiting for a decision).`],
   pendingIntentAmendments: pendingDetails.pendingIntentAmendments,
   actions: [{ label: 'See intent amendment AMD-001.', command: STATUS },
-    { label: 'A person who approves specification decides AMD-001 in their own terminal; an agent cannot.', command: DECIDE },
+    { label: 'A person who approves specification decides AMD-001 on the decisions card; an agent cannot.', command: CARD },
+    { label: 'Or in their own terminal, where SF Guard takes its signature when the Story requires one.', command: DECIDE },
     { label: 'Not a Singularity Flow command.', command: 'rm -rf /' }]
 };
 
@@ -181,7 +189,7 @@ test('the advisory prints as warning lines with every route, and the approval pa
   assert.deepEqual(blockingCommitLines(null), []);
   const { approvalBlockingCommits, approvalBlockingCommitsHtml } = await import('../apps/vscode/src/views/webview.ts');
   const page = approvalBlockingCommits(advisory);
-  assert.deepEqual(page.actions.map((action) => action.command), [STATUS, DECIDE], 'only Singularity Flow commands are shown');
+  assert.deepEqual(page.actions.map((action) => action.command), [STATUS, CARD, DECIDE], 'only Singularity Flow commands are shown');
   const html = approvalBlockingCommitsHtml(page);
   assert.match(html, /<h2>Approval would be refused<\/h2>/u);
   assert.ok(html.includes('1b3bf2703ebb [HEX-2018][intent-amendment:propose] AMD-001'), html);
@@ -237,7 +245,7 @@ test('approving a submitted phase names each later commit, and an undecided amen
   assert.equal(readiness.blockingCommits, undefined, 'no commit is named as stale');
   assert.equal(readiness.approvalCheck.ready, false);
   assert.deepEqual(readiness.approvalCheck.holds.map((hold) => [hold.code, hold.owner, hold.action?.command, hold.summary]),
-    [['APPROVAL_INTENT_AMENDMENT_PENDING', 'someone-decides', STATUS, 'Approving planning waits for intent amendment AMD-001 to be decided.']]);
+    [['APPROVAL_INTENT_AMENDMENT_PENDING', 'someone-decides', CARD, 'Approving planning waits for intent amendment AMD-001 to be decided.']]);
   // Next steps offer the list where they offered the approval: its reject and approve are a choice,
   // so the step sheet's next picks neither [study 6.1].
   const next = JSON.parse(cli('nextsteps', WORK, '--json').stdout);
@@ -251,21 +259,22 @@ test('approving a submitted phase names each later commit, and an undecided amen
   assert.deepEqual(packet.approvalPacket.sheet.holds.map((hold) => hold.code), readiness.approvalCheck.holds.map((hold) => hold.code));
   const shown = cli('phase', 'show', 'planning');
   assert.ok(shown.stderr.includes('An approver of Specification decides: Approving planning waits for intent amendment AMD-001 to be decided.'), shown.stderr);
-  assert.ok(shown.stderr.includes(`Shell: ${STATUS}`), shown.stderr);
+  // Its route is the decisions card [owner, 2026-11-13].
+  assert.ok(shown.stderr.includes(`Shell: ${CARD}`), shown.stderr);
   const pending = refuse('APPROVAL_INTENT_AMENDMENT_PENDING');
   assert.equal(pending.error.message, [
     'Approving planning waits for intent amendment AMD-001 to be decided.',
-    `Intent amendment AMD-001 changes ${WORK}:AC-001 and ${WORK}:REQ-002 and was proposed after planning was submitted; a person who approves specification decides it.`,
+    `Intent amendment AMD-001 changes ${WORK}:AC-001 and ${WORK}:REQ-002 and was proposed after planning was submitted; a person who approves specification decides it on the decisions card, or in their own terminal.`,
     'Rejecting it keeps this submission, and planning can then be approved as it is; approving it changes the approved clauses, so planning reopens to be revised and submitted again.'
   ].join(' '), 'one sentence per line in a terminal; the JSON envelope joins them');
   assert.deepEqual(pending.error.details.pendingIntentAmendments, [{ id: 'AMD-001', commit: proposal, changedClauses: [`${WORK}:AC-001`, `${WORK}:REQ-002`] }]);
-  assert.equal(pending.error.details.nextAction, STATUS);
-  assert.deepEqual(pending.remediationPlan.steps.map((step) => step.id), ['inspect-intent-amendment', 'decide-intent-amendment', 'leave-approval-turn']);
-  assert.deepEqual(pending.remediationPlan.steps.slice(0, 2).map((step) => step.command), [STATUS, DECIDE]);
+  assert.equal(pending.error.details.nextAction, CARD);
+  assert.deepEqual(pending.remediationPlan.steps.map((step) => step.id), DECIDE_STEPS);
+  assert.deepEqual(pending.remediationPlan.steps.map((step) => step.command).filter(Boolean), [STATUS, CARD, DECIDE]);
   // The VS Code card leads with the same route.
   const { refusalFor } = await import('../apps/vscode/src/views/refusal.ts');
   const { view } = refusalFor({ result: pending, message: pending.error.message });
-  assert.deepEqual(view.actions.map((action) => action.command), [STATUS, DECIDE]);
+  assert.deepEqual(view.actions.map((action) => action.command), [STATUS, CARD, DECIDE]);
   assert.equal(view.actions[0].emphasis, 'primary');
   assert.ok(view.warnings.some((warning) => /End this approval-only turn/u.test(warning.label)));
   // Rejecting it is the next test's journey.

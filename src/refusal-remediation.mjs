@@ -738,8 +738,10 @@ function clarificationAuthoritySteps(argv, error) {
  * comes first: approving it changes the clauses the submission cited. Rejecting it keeps the
  * submission when the proposal holds the approval (APPROVAL_INTENT_AMENDMENT_PENDING, SPEC-OAP M2);
  * when its commits record more than the amendment (STORY_REVIEW_INTERVENING_COMMIT), the phase
- * still needs a fresh submission. A person who approves the scope decides it; an agent's decision
- * turn is refused it, so the route shows the command rather than doing it.
+ * still needs a fresh submission. A person who approves the scope decides it, on the decisions card
+ * (`/sf-decide <WORK-ID>`, VS Code Decide) or in their own terminal with the exact decide command,
+ * which SF Guard's signature needs [owner, 2026-11-13]; an agent's turn is refused it, so the routes
+ * show where rather than doing it.
  */
 function pendingAmendmentSteps(_argv, error) {
   const details = error?.details ?? {};
@@ -758,8 +760,12 @@ function pendingAmendmentSteps(_argv, error) {
       `See intent amendment ${amendment.id}, proposed${commit ? ` in ${commit}` : ''} after ${phase} was submitted`
         + `${clauses.length ? `; it changes ${clauses.join(', ')}` : ''}. It is still waiting for a decision, and ${phase} cannot be approved until it has one.`,
       `singularity-flow story intent-amendment status --work-id ${workId} --json`, 'remediation'),
+    // The card shows what it changes and records the person's choice; its shell route lists the same decisions.
+    step('decide-intent-amendment-on-card',
+      `A person who approves ${scope} decides ${amendment.id} on the decisions card, which shows what it changes: /sf-decide ${workId} in Copilot, or Decide in VS Code; an agent cannot decide it.`,
+      `singularity-flow decisions ${workId}`, 'remediation'),
     personTerminalStep(step('decide-intent-amendment',
-      `A person who approves ${scope} decides ${amendment.id} in their own terminal; an agent cannot. `
+      `Or they decide ${amendment.id} in their own terminal, where SF Guard takes its signature when the Story requires one. `
         + `Approving it changes ${clauses.length ? 'those clauses' : 'the approved clauses'}, so ${phase} reopens to be revised and submitted again. `
         + (keepsSubmission ? `Rejecting it keeps the approved clauses, and ${phase} can then be approved as submitted, with no fresh submission. `
           : `Rejecting it keeps the approved clauses, but these commits record more than its proposal and rejection, so ${phase} still needs a fresh submission. `)
@@ -1741,8 +1747,10 @@ function genericSteps(argv) {
  * earlier step's owners. One that falls after the first three is kept after them.
  */
 export const PLAN_STEP_LIMIT = 3;
+// A scope approver's decision on an intent amendment in their own terminal stays beside its card route, which the
+// decision-list rule below keeps: SF Guard takes its signature there [owner, 2026-11-13].
 export const PLAN_RESERVED_STEP_IDS = Object.freeze(['open-decision-list', 'accept-test-run-risk', 'renew-test-run-risk', 'raise-upstream-issue', 'correct-plan-row',
-  'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run']);
+  'decide-conformance-gap', 'return-conformance-gap', 'reuse-recorded-evidence', 'record-fresh-run', 'decide-intent-amendment']);
 
 const CONFORMANCE_GAP_STEP_IDS = Object.freeze({ 'correct-report': 'correct-conformance-report', 'raise-upstream-issue': 'raise-upstream-issue', 'decide-upstream-issue': 'decide-conformance-gap',
   'repair-return': 'return-conformance-gap', 'evidence-reuse': 'reuse-recorded-evidence', 'fresh-recorded-run': 'record-fresh-run' });
@@ -2038,9 +2046,10 @@ function remediationPlanFor(error, argv = []) {
     : softGateBlocked ? [...nonDuplicateExplicit, ...known]
     : repositoryRunnerBlocked || pinnedTestPolicyBlocked || approvalTerminalBlocked || unknownRecoveryPhase || identityBlocked || historyRewritten ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? amendmentPending
-      // The amendment's decision first, then the instruction that ends an approval turn.
-      ? [...known, ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'),
-        ...phaseSteps.filter(entry => entry.id !== 'leave-approval-turn'), ...nonDuplicateExplicit]
+      // The amendment and its card first, then the instruction that ends an approval turn, then the
+      // same decision in a person's own terminal, which the cap keeps [owner, 2026-11-13].
+      ? [...known.filter(entry => entry.id !== 'decide-intent-amendment'), ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'),
+        ...known.filter(entry => entry.id === 'decide-intent-amendment'), ...phaseSteps.filter(entry => entry.id !== 'leave-approval-turn'), ...nonDuplicateExplicit]
     : phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.

@@ -20,7 +20,7 @@ import { ISSUE_ONLY_OPTIONS } from './person-step-catalog.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
-import { matchApprovalAuthority, normalizeApprovalAuthorities } from './approval-authority.mjs';
+import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
 import { recordSha256 } from './records.mjs';
 import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';
@@ -40,9 +40,16 @@ const MAX_RISK_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
 // The order a chosen option's records are written in: an issue exists before it is decided.
 // A draft writes no record, so it goes first: a later record that fails leaves only a file a person may delete.
-const EFFECT_ORDER = Object.freeze(['intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'amendment-revalidation', 'routing', 'upstream-issue-decision']);
+const EFFECT_ORDER = Object.freeze(['intent-amendment-draft', 'upstream-issue', 'evidence-reuse', 'test-run-risk', 'test-narrowing', 'test-command', 'visual-profile', 'plan-amendment', 'departure', 'node-pin', 'obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'convergence-adjudication', 'intent-amendment-acknowledge', 'amendment-revalidation', 'intent-amendment-refresh', 'intent-amendment-decision', 'routing', 'upstream-issue-decision']);
 // Effects that carry the groups their own command checks, read where the list's facts are read.
-const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure']);
+const EFFECTS_NAMING_GROUPS = Object.freeze(['obligation-risk', 'scope-disposition', 'completeness-review', 'applicability', 'routing', 'departure', 'intent-amendment-decision', 'intent-amendment-refresh']);
+/**
+ * Choices recorded alone in their run, each its own commit: a decision on an intent amendment changes the approved
+ * clauses or reopens steps, and a refresh is a rejection and a proposal [owner, 2026-11-13].
+ */
+export const ALONE_EFFECTS = Object.freeze(['intent-amendment-decision', 'intent-amendment-refresh']);
+// A decision on an intent amendment takes a reason only when the person gives one, as its own command does.
+const OPTIONAL_REASON = Object.freeze({ minimum: 0, maximum: 1000 });
 const REASON = Object.freeze({ minimum: 20, maximum: 1000 });
 const CAUSE = Object.freeze({ minimum: 10, maximum: 300 });
 // `decision plan`'s own limits: a supporting change states its reason in at most 500 characters.
@@ -93,7 +100,8 @@ function effectGroups(workflow, effect) {
   // A revalidation is the revalidated step's own approvers' [UIF-M3].
   if (effect.kind === 'amendment-revalidation') return issueGroups(workflow, effect.phase);
   // Drafting an amendment decides nothing, and its own command checks no group; the scope approvers decide the amendment.
-  if (effect.kind === 'upstream-issue' || effect.kind === 'intent-amendment-draft') return null;
+  // Anyone working on the Story acknowledges an approved one [owner, 2026-11-13, D2].
+  if (['upstream-issue', 'intent-amendment-draft', 'intent-amendment-acknowledge'].includes(effect.kind)) return null;
   if (effect.kind === 'upstream-issue-decision') return issueGroups(workflow, effect.issuePhase);
   // `story adjudicate` checks the convergence step's approval authority.
   if (effect.kind === 'convergence-adjudication') return issueGroups(workflow, effect.phase);
@@ -671,41 +679,108 @@ function routingItem(workflow, context, pending) {
   return { ...base, options: [...named, ...others], details };
 }
 
+// A statement as a person reads it: on one line, without its own anchor, and short enough to read on a card.
+const statementWords = (text) => String(text ?? '').replace(/\s*\[[A-Za-z0-9._-]+:[A-Z]+-\d{3,}\]/gu, '').replace(/\s+/gu, ' ').trim().slice(0, 300);
+
 /**
- * An intent amendment: one proposed and still undecided (the scope step's approvers decide it), or
- * one approved whose changed clauses the current step has not acknowledged yet.
+ * What an amendment changes and reaches, in the words every surface shows [owner, 2026-11-13, D1]: one line per
+ * clause it adds, revises or removes with its statement, then who proposed it and what it reaches. From the
+ * amendment's own record (decision-list-reads.mjs reads it for a full list); empty when the record was not read.
+ */
+function amendmentShown(workflow, card) {
+  if (!card) return {};
+  const lines = (card.changes ?? []).map(({ clause, change, before, after }) => {
+    const name = clauseName(workflow, clause);
+    if (change === 'added') return `${name} is added: "${statementWords(after)}"`;
+    if (change === 'removed') return `${name} is removed; it said: "${statementWords(before)}"`;
+    return `${name} is revised from "${statementWords(before)}" to "${statementWords(after)}"`;
+  });
+  const by = card.proposer ? `${card.proposer} proposed it${card.authored === 'governed-agent' ? '; Copilot wrote the wording'
+    : card.authored === 'human' ? '; a person wrote the wording' : ''}${card.reason ? `: "${statementWords(card.reason)}"` : ''}.` : null;
+  const names = (values, more, noun) => (values?.length ? `${noun}: ${listWords([...values, ...(more ? [`${more} more`] : [])])}.` : '');
+  const reach = [card.radius?.summary ?? '', names(card.radius?.artifacts, card.radius?.moreArtifacts, 'Files'), names(card.radius?.tests, card.radius?.moreTests, 'Tests'),
+    card.steps?.length ? `Steps it may reopen: ${listWords(card.steps.map((id) => stepName(workflow, id)))}.` : ''].filter(Boolean).join(' ');
+  return { changes: card.changes ?? [], lines: [...lines, ...(card.moreChanges ? [`And ${card.moreChanges} more changed clauses.`] : [])],
+    ...(by ? { proposedBy: by } : {}), ...(reach ? { reach } : {}) };
+}
+
+/** Why a pending amendment no longer matches the Story, in words; null while it still does. */
+function staleWords(workflow, stale) {
+  if (!stale) return null;
+  const step = stepName(workflow, stale.phase);
+  return stale.cause === 'source-step' ? `${step} moved on after it was proposed`
+    : stale.cause === 'source-evidence' ? `the code or ${step}'s document changed after it was proposed` : `the approved ${step} changed after it was proposed`;
+}
+
+/**
+ * An intent amendment: one proposed and still undecided, or one approved whose changed clauses nobody has
+ * acknowledged yet. A requirements (scope) approver approves or rejects a pending one on the decisions card,
+ * with what it changes and reaches in front of them; the record is the same decision the terminal's
+ * `story intent-amendment decide` writes, with every check it makes [owner, 2026-11-13, D1, reversing SPEC-OAP's
+ * "nothing new is recordable from the list" for this item]. A proposal the Story moved under is refreshed with
+ * one choice (D3), and anyone working on the Story acknowledges an approved one there (D2). Each option keeps
+ * its exact terminal command beside it: SF Guard takes its signature in the person's own terminal.
  */
 function intentAmendmentItem(workflow, context, amendment) {
   const workId = workflow.workItem.id;
+  const id = amendment.id;
   const clauses = listWords((amendment.changedClauses ?? []).map((clause) => clauseName(workflow, clause))) || 'the approved scope';
   const status = `singularity-flow story intent-amendment status --work-id ${workId} --json`;
+  const shown = amendmentShown(workflow, amendment.card ?? null);
   if (amendment.status === 'approved') {
-    return stepItem(workflow, context, {
-      kind: 'intent-amendment', title: `Acknowledge intent amendment ${amendment.id}`,
-      why: `${amendment.id} was approved and changed ${clauses}. The steps it reopened revalidate after someone acknowledges it.`,
-      forAnyone: true,
-      options: [{ id: 'acknowledge', label: `I read ${amendment.id}: acknowledge it`,
-        command: `singularity-flow story intent-amendment acknowledge ${amendment.id} --work-id ${workId}`,
-        words: 'You acknowledge it in your own terminal after reading it; nothing is recorded here.' }],
-      details: { amendment: amendment.id, status: 'approved', statusCommand: status }
-    });
+    const acknowledge = `singularity-flow story intent-amendment acknowledge ${id} --work-id ${workId}`;
+    return {
+      kind: 'intent-amendment', title: `Acknowledge intent amendment ${id}`,
+      why: `${id} was approved and changed ${clauses}. The steps it reopened revalidate after someone acknowledges it.`,
+      options: [{ ...option(workflow, context, { id: 'acknowledge', label: `I read ${id}: acknowledge it`,
+        words: 'Anyone working on this Story may acknowledge it, here or in their own terminal, once they have read what it changed.',
+        effects: [{ kind: 'intent-amendment-acknowledge', amendment: id }], needs: {} }), oneByOne: true, terminal: acknowledge }],
+      details: { amendment: id, status: 'approved', statusCommand: status, ...shown, commands: [acknowledge] }
+    };
   }
   const scope = context.facts.scopePhase ?? null;
-  const decide = (decision) => `singularity-flow story intent-amendment decide ${amendment.id} --decision ${decision} --confirm ${amendment.id} --work-id ${workId}`;
+  const scopeName = scope ? stepName(workflow, scope) : 'the scope';
+  // The step it was proposed in waits while it is pending: the engine refuses its begin, prepare, publish and submit.
+  // Its summary names it; an older one, its proposal's history entry.
+  const sourcePhase = amendment.sourcePhase ?? (workflow.history ?? []).findLast((entry) => entry?.event === 'intent_amendment_proposed'
+    && String(entry.detail ?? '').startsWith(`${id} `))?.phase ?? null;
+  const decide = (decision) => `singularity-flow story intent-amendment decide ${id} --decision ${decision} --confirm ${id} --work-id ${workId}`;
   // The rows it carries for a separate plan: that plan's approvers sign them by deciding it, and the plan keeps its approval [PHR:REQ-008].
   const plans = (amendment.planCorrections ?? []).map((entry) => entry.ownerPhase);
-  const carries = plans.length ? ` It carries the rows ${listWords(plans.map((id) => stepName(workflow, id)))} needs for the clauses it adds, removes or revises: `
-    + `an approver of ${listWords(plans.map((id) => stepName(workflow, id)))} signs them by deciding it, and ${plans.length === 1 ? 'that plan keeps its' : 'those plans keep their'} approval.` : '';
-  return stepItem(workflow, context, {
-    kind: 'intent-amendment', title: `Decide intent amendment ${amendment.id}`,
-    why: `${amendment.id} proposes changing ${clauses}. Rejecting it keeps every submission as it is; approving it changes the approved clauses, so the steps that cite them reopen.${carries}`,
-    groups: [...new Set([...(scope ? approvers(workflow, scope) : []), ...plans.flatMap((id) => approvers(workflow, id))])],
-    options: [
-      { id: 'reject', label: `Reject ${amendment.id}`, command: decide('reject'), words: 'Decided in your own terminal; an agent cannot decide it.' },
-      { id: 'approve', label: `Approve ${amendment.id}`, command: decide('approve'), words: 'Decided in your own terminal; an agent cannot decide it.' }
-    ],
-    details: { amendment: amendment.id, status: 'proposed', scopePhase: scope, statusCommand: status }
-  });
+  const carries = plans.length ? ` It carries the rows ${listWords(plans.map((phaseId) => stepName(workflow, phaseId)))} needs for the clauses it adds, removes or revises: `
+    + `an approver of ${listWords(plans.map((phaseId) => stepName(workflow, phaseId)))} signs them by deciding it, and ${plans.length === 1 ? 'that plan keeps its' : 'those plans keep their'} approval.` : '';
+  const scopeGroups = scope ? approvers(workflow, scope) : [];
+  // Approving takes a scope approver, or an approver of a plan whose rows it carries, as decideIntentAmendment checks; rejecting a scope approver.
+  const approveGroups = [...new Set([...scopeGroups, ...plans.flatMap((phaseId) => approvers(workflow, phaseId))])];
+  const card = amendment.card ?? null;
+  const stale = staleWords(workflow, card?.stale);
+  const counted = amendment.approvals?.reached ? ` ${amendment.approvals.reached} of ${amendment.approvals.required} approvals are recorded`
+    + `${amendment.approvals.planSignOffsMissing?.length ? `; an approver of ${listWords(amendment.approvals.planSignOffsMissing.map((phaseId) => stepName(workflow, phaseId)))} still signs the rows it carries` : ''}.` : '';
+  const effect = (decision, groups) => ({ kind: 'intent-amendment-decision', amendment: id, decision, proposalSha256: amendment.proposalSha256 ?? null, groups });
+  const decision = (decisionId, words, groups) => ({ ...option(workflow, context, { id: decisionId, label: `${decisionId === 'approve' ? 'Approve' : 'Reject'} ${id}`, words,
+    effects: [effect(decisionId, groups)], needs: { reason: textNeed('', OPTIONAL_REASON) } }), oneByOne: true, terminal: decide(decisionId) });
+  // What its own command would refuse is said here, never offered: an approval already given, the proposer's own
+  // where the scope's policy forbids it, and a proposal the Story moved under.
+  const mine = (who) => Boolean(who && context.actor && sameApprover(who, context.actor));
+  const approvedAlready = (card?.decisions ?? []).some((entry) => entry.decision === 'approved' && mine(entry.actor));
+  const ownProposal = mine(amendment.proposedBy) && scope && workflow.phases?.[scope]?.approvalPolicy?.allowSelfApproval === false;
+  const held = stale ? `It cannot be approved as it is: ${stale}. Refresh it, or reject it.`
+    : approvedAlready ? 'You approved it already; another approver decides next.'
+      : ownProposal ? `You proposed it, and ${scopeName}'s policy has someone else approve it.` : null;
+  const approve = decision('approve', held ?? `The approved clauses change as shown, so the steps that cite them reopen.${plans.length ? ' Your decision signs the plan rows it carries if you approve that plan.' : ''}`, approveGroups);
+  const reject = decision('reject', 'The approved clauses stay as they are, and every submission stays valid.', scopeGroups);
+  // One choice refreshes a proposal the step moved under: the same change, proposed again against the step as it is now (D3).
+  const refresh = stale ? [{ ...option(workflow, context, { id: 'refresh', recommended: true, label: `Refresh ${id} against the step as it is now`,
+    words: `Rejects ${id} and proposes the same change again, with its reason and its author, against the step as it is now; ${scopeName}'s approvers then decide that one. If it no longer applies, nothing is recorded and you are told why.`,
+    effects: [{ kind: 'intent-amendment-refresh', amendment: id, proposalSha256: amendment.proposalSha256 ?? null, groups: scopeGroups }], needs: {} }), oneByOne: true }] : [];
+  return {
+    kind: 'intent-amendment', title: `Decide intent amendment ${id}`,
+    why: `${id} proposes changing ${clauses}. Rejecting it keeps every submission as it is; approving it changes the approved clauses, so the steps that cite them reopen.${carries}${counted}`
+      + `${sourcePhase && workflow.phases?.[sourcePhase] ? ` ${stepName(workflow, sourcePhase)} waits until it is decided.` : ''}${stale ? ` It no longer matches the Story: ${stale}.` : ''}`,
+    options: [...refresh, reject, held ? { ...approve, recordable: false, available: false } : approve],
+    details: { amendment: id, status: 'proposed', scopePhase: scope, ...(sourcePhase ? { sourcePhase } : {}), statusCommand: status, ...shown, ...(stale ? { stale } : {}),
+      commands: [decide('approve'), decide('reject')] }
+  };
 }
 
 /** A forward amendment or a revalidation it asked for, as the Story's ending reads them. */
@@ -1332,7 +1407,7 @@ export const PENDING_CONCEPTS = Object.freeze({
 
 /** Approval-check holds another item already carries: the approval names that item instead of repeating it. */
 const HOLD_KINDS = Object.freeze({
-  APPROVAL_INTENT_AMENDMENT_PENDING: 'intent-amendment', INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'intent-amendment',
+  APPROVAL_INTENT_AMENDMENT_PENDING: 'intent-amendment', INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'intent-amendment', INTENT_AMENDMENT_PENDING_PAUSE: 'intent-amendment',
   DECISION_REQUIRED: 'routing-decision', PHASE_APPEAL_REVIEW_REQUIRED: 'appeal', PHASE_APPEAL_INTEGRITY: 'appeal',
   STORY_PUBLICATION_PENDING: 'story-publication', CONFORMANCE_BLOCKING_VERDICTS: 'conformance-gap', STORY_COMPLETION_REFUSED: 'conformance-gap',
   DEPARTURES_UNDECIDED: 'departure', INSTRUCTIONS_UNACCOUNTED: 'asked-for'
@@ -1430,6 +1505,8 @@ export const DECISION_OUTCOMES = Object.freeze({
 export function optionOutcome(item, entry) {
   const id = String(entry.id ?? '');
   if (item.kind === 'routing-decision' || /^(?:choose|to)-/u.test(id) || id === 'route') return 'route';
+  // Approving an intent amendment changes the approved clauses.
+  if (item.kind === 'intent-amendment' && id === 'approve') return 'change-spec';
   if (id === 'accept-risk' || id === 'accept-test-risk' || id.startsWith('accept-obligation-risk-')) return 'accept-risk';
   if (['return', 'return-step', 'return-step-first', 'fix-code', 'rework'].includes(id) || (id === 'reject' && item.kind === 'departure')) return 'return';
   if (['update-spec', 'update-intent'].includes(id)) return 'change-spec';
@@ -1473,6 +1550,8 @@ function itemHolds(workflow, facts, awaiting) {
       if (item.kind === 'intent-amendment' && item.details?.status === 'approved') return 'later-step';
       if (['forward-amendment', 'revalidation', 'upstream-issue', 'evidence-obligation'].includes(item.kind)) return 'story-end';
       if (awaiting) return item.kind === 'owed-decision' ? 'story-end' : 'nothing';
+      // A pending intent amendment pauses the step it was proposed in until a scope approver decides it [owner, 2026-11-13, D3].
+      if (item.kind === 'intent-amendment' && item.details?.status === 'proposed' && item.details.sourcePhase === phaseId) return 'this-step';
       if (item.details?.stage === 'early') return 'nothing-yet';
       if (['departure', 'asked-for', 'appeal', 'intent-amendment'].includes(item.kind)) return 'approval-later';
       if (item.kind !== 'owed-decision') return 'this-step';
@@ -1835,6 +1914,12 @@ export function decisionRecordPlan(packet, answers, { at }) {
     steps.push({ item: item.id, title: item.title, option: chosen, label: selected.label, values,
       effects: selected.effects.map((effect) => ({ ...effect })) });
   }
+  // A decision on an intent amendment is its own run and its own commit [owner, 2026-11-13]: never mixed with another choice.
+  const alone = steps.find((step) => step.effects.some((effect) => ALONE_EFFECTS.includes(effect.kind)));
+  if (alone && answers.choose.size > 1) {
+    refused(`${alone.item} decides intent amendment ${alone.effects[0].amendment}, which is recorded on its own, as its own commit. Choose only ${alone.item} and record it, then decide the rest. Nothing was recorded.`,
+      'DECISIONS_CHOOSE_ALONE', { item: alone.item, chosen: [...answers.choose.keys()] });
+  }
   // A route moves the Story on, so everything else on this list is written first.
   const routes = (step) => step.effects.some((effect) => effect.kind === 'routing' || (effect.kind === 'amendment-revalidation' && effect.outcome === 'return'));
   return { steps: [...steps.filter((step) => !routes(step)), ...steps.filter(routes)], refused: refusedItems };
@@ -1846,6 +1931,14 @@ export function effectWords(workflow, effect, values = {}) {
     return effect.outcome === 'unchanged' ? `record that ${stepName(workflow, effect.phase)} still holds under ${effect.amendment} (amendment revalidation)`
       : `return the Story to ${stepName(workflow, effect.phase)} after ${effect.amendment} (amendment revalidation and return)`;
   }
+  if (effect.kind === 'intent-amendment-decision') {
+    return effect.decision === 'approve' ? `approve ${effect.amendment}: the approved clauses change and the steps that cite them reopen (intent amendment decision)`
+      : `reject ${effect.amendment}: the approved clauses stay as they are (intent amendment decision)`;
+  }
+  if (effect.kind === 'intent-amendment-refresh') {
+    return `reject ${effect.amendment} and propose the same change again against the step as it is now (intent amendment refresh)`;
+  }
+  if (effect.kind === 'intent-amendment-acknowledge') return `acknowledge ${effect.amendment} (intent amendment acknowledgement)`;
   if (effect.kind === 'intent-amendment-draft') {
     return `draft ${stepName(workflow, effect.phase)}'s scope with a slot for ${listWords((effect.clauses ?? []).map((clause) => clauseName(workflow, clause)))}`
       + `${effect.path ? ` at ${effect.path}` : ''}; nothing is recorded or decided (intent-amendment draft)`;

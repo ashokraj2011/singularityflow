@@ -2057,12 +2057,19 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
     next: { command: proposeCommand, detail: 'Replace every sflow-draft slot with the clause wording, then propose; nothing is proposed until then.' } };
 }
 
-async function proposeIntentAmendment(root, config, workflow, options) {
+/**
+ * `given` is a refresh's proposal of a stale one's exact bytes, reason, authorship, proposer and carried
+ * rows, bound to the step as it is now [owner, 2026-11-13]; null reads all of them from the command's
+ * options. `dryRun` checks everything a proposal checks and writes nothing: a refresh rejects the stale
+ * proposal only once its replacement is known to be proposable.
+ */
+async function proposeIntentAmendment(root, config, workflow, options, { given = null, dryRun = false } = {}) {
   // All workflows use the same phase-bound proposal. Existing convergence-backed proposals remain
   // readable/decidable, but a new intent change never needs an artificial convergence finding.
   const source = await phaseIntentAmendmentSource(root, config, workflow,
-    optionString(options, 'source-phase') ?? workflow.currentPhase);
-  const pending = (workflow.intentAmendments ?? []).find((entry) => entry.status === 'proposed');
+    (given ? null : optionString(options, 'source-phase')) ?? workflow.currentPhase);
+  // The stale proposal a refresh replaces is rejected just before its replacement is proposed.
+  const pending = (workflow.intentAmendments ?? []).find((entry) => entry.status === 'proposed' && entry.id !== given?.refreshes);
   if (pending) {
     throw new SingularityFlowError(`Intent amendment '${pending.id}' is already awaiting an authority decision. Review or reject it before proposing another change.`, {
       code: 'INTENT_AMENDMENT_ALREADY_PENDING', details: {
@@ -2070,7 +2077,10 @@ async function proposeIntentAmendment(root, config, workflow, options) {
         actions: [
           { label: 'Inspect the pending amendment without changing intent.',
             command: `singularity-flow story intent-amendment status --work-id ${workflow.workItem.id} --json` },
-          { label: 'An authorized human scope reviewer must approve or reject this exact proposal.',
+          // On the decisions card, or with the exact command in their own terminal [owner, 2026-11-13].
+          { label: `A person who approves the scope approves or rejects ${pending.id} on the decisions card (/sf-decide ${workflow.workItem.id} in Copilot, Decide in VS Code), which shows what it changes.`,
+            command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' },
+          { label: 'Or in their own terminal, where SF Guard takes its signature when the Story requires one.',
             command: `singularity-flow story intent-amendment decide ${pending.id} --decision <approve|reject> --confirm ${pending.id} --work-id ${workflow.workItem.id}` }
         ]
       }
@@ -2082,21 +2092,21 @@ async function proposeIntentAmendment(root, config, workflow, options) {
       code: 'INTENT_AMENDMENT_UNSUPPORTED'
     });
   }
-  const candidate = optionString(options, 'file');
-  if (!candidate) {
+  const candidate = given ? null : optionString(options, 'file');
+  if (!candidate && !given) {
     throw new SingularityFlowError(
       'Provide the proposed specification bytes with --file <MARKDOWN>. The existing specification is not edited until authority approval.',
       { code: 'INTENT_AMENDMENT_FILE_REQUIRED' }
     );
   }
-  const reason = optionString(options, 'reason');
+  const reason = given ? given.reason : optionString(options, 'reason');
   if (!reason?.trim()) {
     throw new SingularityFlowError('An intent-amendment proposal requires --reason.', {
       code: 'INTENT_AMENDMENT_REASON_REQUIRED'
     });
   }
   // A clause departure's amendment names it, so the departure is accepted once this one is approved [CQF:REQ-025].
-  const departure = optionString(options, 'departure') ?? null;
+  const departure = (given ? given.departure : optionString(options, 'departure')) ?? null;
   if (departure && !(workflow.departures ?? []).some((entry) => entry.id === departure && entry.kind === 'clause')) {
     throw new SingularityFlowError(`${departure} is not a clause departure of this Story.`, { code: 'INTENT_AMENDMENT_INVALID' });
   }
@@ -2104,7 +2114,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     path.relative(root, workDir(root, config, workflow.workItem.id)), specification.requiredArtifact.path
   ));
   const currentText = await readFile(path.join(root, specificationPath), 'utf8');
-  const proposedText = await readFile(path.resolve(candidate), 'utf8');
+  const proposedText = given ? given.proposedText : await readFile(path.resolve(candidate), 'utf8');
   if (Buffer.byteLength(proposedText, 'utf8') > 2 * 1024 * 1024) {
     throw new SingularityFlowError('An intent-amendment specification may not exceed 2 MiB.', {
       code: 'INTENT_AMENDMENT_INVALID'
@@ -2131,9 +2141,10 @@ async function proposeIntentAmendment(root, config, workflow, options) {
   const id = `AMD-${String(index).padStart(3, '0')}`;
   const planRows = await import('../amendment-plan-corrections.mjs');
   const { corrections: planCorrections, uncovered } = await planRows.carriedPlanCorrections(root, config, workflow,
-    { afterClauses, diff, options, proposalId: id, reason, file: candidate });
+    { afterClauses, diff, options, operations: given ? planRows.carriedOperations(given.planCorrections) : null, proposalId: id, reason, file: candidate });
   if (uncovered.length) throw planRows.uncorrectedPlanRefusal(workflow, uncovered, { file: candidate });
-  const requiredClauses = intentAmendmentClauses(diff, optionStrings(options, 'clause'));
+  // A refresh discloses the clauses the same bytes change against the scope as it is now.
+  const requiredClauses = intentAmendmentClauses(diff, given ? [] : optionStrings(options, 'clause'));
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
   const radius = intentAmendmentBlastRadius(diff, records);
   // Proposals carry Git identity and exact reviewed bytes. Only the scope's existing authorized
@@ -2146,26 +2157,35 @@ async function proposeIntentAmendment(root, config, workflow, options) {
   const beforeSha256 = createHash('sha256').update(currentText).digest('hex');
   const proposedSha256 = createHash('sha256').update(proposedText).digest('hex');
   const proposedAt = nowIso();
-  const requestedChangeOrigins = optionStrings(options, 'change-origin');
-  // With SF Guard on, a proposal a Copilot shell call runs is the agent's [SPEC-SFG-v1 G2]; otherwise as before.
-  const running = optionString(options, 'authored') || optionString(options, 'channel') ? null
-    : await import('../comprehension/xpl2/sf-guard-recorder.mjs').then((recorder) => recorder.sfGuardRunningAuthorship(root), () => null);
-  // Only where the scope step admits an agent's writing; anywhere else the old default stands.
-  const agentDefault = running && (() => { try { assertProducerAllowed(specification, running.authored); return true; } catch { return false; } })();
-  const authorshipOptions = normalizeAuthorshipOptions({
-    producer: optionString(options, 'authored') ?? (agentDefault ? running.authored : undefined),
-    channel: optionString(options, 'channel'),
-    imported: true,
-    externalAiUse: optionString(options, 'external-ai'),
-    changeOrigins: requestedChangeOrigins.length ? requestedChangeOrigins : null
-  });
-  assertProducerAllowed(specification, authorshipOptions.producer);
-  const authorship = buildGenerationAuthorship({
-    options: authorshipOptions, actor,
-    governedAgentContext: authorshipOptions.producer === 'governed-agent'
-      ? workflow.activeAgent ?? workflow.phases[source.phaseId]?.defaultAgent ?? null : null,
-    source: { kind: 'intent-amendment', id, path: proposedPath, sha256: proposedSha256 }
-  });
+  const amendmentSource = { kind: 'intent-amendment', id, path: proposedPath, sha256: proposedSha256 };
+  // A refresh keeps who wrote the bytes and who proposed them: the person who refreshed it decided nothing
+  // about its wording, and a proposer whose policy forbids approving their own proposal still may not.
+  const authorship = given ? (given.authorship
+    ? { ...structuredClone(given.authorship), source: amendmentSource }
+    : buildGenerationAuthorship({ options: normalizeAuthorshipOptions(), actor: given.proposedBy ?? actor, governedAgentContext: null, source: amendmentSource }))
+    : await (async () => {
+      const requestedChangeOrigins = optionStrings(options, 'change-origin');
+      // With SF Guard on, a proposal a Copilot shell call runs is the agent's [SPEC-SFG-v1 G2]; otherwise as before.
+      const running = optionString(options, 'authored') || optionString(options, 'channel') ? null
+        : await import('../comprehension/xpl2/sf-guard-recorder.mjs').then((recorder) => recorder.sfGuardRunningAuthorship(root), () => null);
+      // Only where the scope step admits an agent's writing; anywhere else the old default stands.
+      const agentDefault = running && (() => { try { assertProducerAllowed(specification, running.authored); return true; } catch { return false; } })();
+      const authorshipOptions = normalizeAuthorshipOptions({
+        producer: optionString(options, 'authored') ?? (agentDefault ? running.authored : undefined),
+        channel: optionString(options, 'channel'),
+        imported: true,
+        externalAiUse: optionString(options, 'external-ai'),
+        changeOrigins: requestedChangeOrigins.length ? requestedChangeOrigins : null
+      });
+      return buildGenerationAuthorship({
+        options: authorshipOptions, actor,
+        governedAgentContext: authorshipOptions.producer === 'governed-agent'
+          ? workflow.activeAgent ?? workflow.phases[source.phaseId]?.defaultAgent ?? null : null,
+        source: amendmentSource
+      });
+    })();
+  assertProducerAllowed(specification, authorship.producer);
+  const proposedBy = structuredClone(given?.proposedBy ?? actor);
   const core = {
     schemaVersion: currentSchemaVersion('intent-amendment-proposal'),
     resultType: 'intent-amendment-proposal',
@@ -2173,9 +2193,10 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     workId: workflow.workItem.id,
     status: 'proposed',
     proposedAt,
-    proposedBy: structuredClone(actor),
+    proposedBy,
     authorship,
     reason: reason.trim(),
+    ...(given ? { refreshes: given.refreshes, refreshedBy: structuredClone(actor) } : {}),
     source,
     specification: {
       artifact: specificationPath,
@@ -2196,8 +2217,11 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     id,
     status: 'proposed',
     proposedAt,
-    proposedBy: structuredClone(actor),
+    proposedBy: structuredClone(proposedBy),
     reason: reason.trim(),
+    // The step it was proposed in, which waits while it is pending; the history entry names it too.
+    sourcePhase: source.phaseId,
+    ...(given ? { refreshes: given.refreshes } : {}),
     proposalSha256: proposal.proposalSha256,
     recordPath,
     changedClauses: diff.changed,
@@ -2210,6 +2234,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
       keepsRows: [...new Set(entry.operations.filter((operation) => !['add-row', 'remove-row'].includes(operation.op)).map((operation) => operation.clauseId))] })) } : {}),
     ...(departure ? { departure } : {})
   };
+  if (dryRun) return { proposal, summary, publication: null };
   const beforeWorkflow = structuredClone(workflow);
   const expectedInputSnapshot = `${source.artifactPresent}:${source.artifactSha256}:${beforeSha256}`;
   const exactInputGuard = async () => {
@@ -2274,7 +2299,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
           agent: null,
           event: 'intent_amendment_proposed',
           phase: source.phaseId,
-          detail: `${id} proposes ${diff.changed.length} clause change(s): ${diff.changed.join(', ')}`
+          detail: `${id} proposes ${diff.changed.length} clause change(s): ${diff.changed.join(', ')}${given ? `, refreshing ${given.refreshes}` : ''}`
         });
       },
       worktreeGuard: exactInputGuard
@@ -2330,9 +2355,7 @@ export function intentAmendmentDecisionEvent(result, {
 }
 
 async function decideProposedIntentAmendment(root, config, workflow, proposalId, options) {
-  const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
-  if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
-  const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
+  if (!(workflow.intentAmendments ?? []).some((entry) => entry.id === proposalId)) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
   const decision = optionString(options, 'decision');
   if (!['approve', 'reject'].includes(decision)) {
     throw new SingularityFlowError("Pass --decision approve or --decision reject.", {
@@ -2346,6 +2369,20 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
       { code: 'INTENT_AMENDMENT_CONFIRMATION_REQUIRED' }
     );
   }
+  return recordIntentAmendmentDecision(root, config, workflow, proposalId, { decision, reason: optionString(options, 'reason'), channel: 'terminal' });
+}
+
+/**
+ * One scope approver's decision on a pending intent amendment, as `story intent-amendment decide` and the
+ * decisions card record it [owner, 2026-11-13]: every check is decideIntentAmendment's (the approver's group,
+ * distinct identities, the self-approval policy, staleness, the plan rows it carries, SF Guard's signature),
+ * one commit with the review-safe subject, and the amended step's session bound again. `channel` says where
+ * the person decided it: `terminal`, or `decisions-card` for VS Code's and Copilot CLI's card.
+ */
+export async function recordIntentAmendmentDecision(root, config, workflow, proposalId, { decision, reason = null, channel = 'terminal' } = {}) {
+  const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
+  if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
+  const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
   const beforeWorkflow = structuredClone(workflow);
   let transition;
   const publication = await commitAndPublish(
@@ -2365,8 +2402,8 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
       beforeStateWrite: async () => {
         transition = await decideIntentAmendment(root, config, workflow, proposal, {
           decision,
-          reason: optionString(options, 'reason'),
-          channel: 'terminal',
+          reason,
+          channel,
           actionContext: activeActionContext(),
           actor: actionActor(root),
           agent: null
@@ -2391,10 +2428,64 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
       }
     }
   );
+  // An approved amendment reopens the first affected authored phase without passing through the
+  // ordinary approve/reject commands. Rebind that exact phase now, for the terminal and the card alike;
+  // on rejection the Story stays where it was and activation keeps the agent session as it is.
+  await postPublicationSessionStep('the amended-phase session activation', workflow.workItem.id, async () => {
+    const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
+    return activateWorkItemSession(root, rebound.config, rebound.workflow);
+  });
   return { transition, publication };
 }
 
-async function acknowledgeApprovedIntentAmendment(root, config, workflow, proposalId) {
+/**
+ * Refresh a stale pending proposal [owner, 2026-11-13, D3]: a scope approver rejects it ("Refreshed as
+ * AMD-00N: the step changed after it was proposed") and the same bytes are proposed again, with the same
+ * reason, authorship, proposer and carried plan rows, bound to the step as it is now. Two ordinary commits
+ * under the review-safe subjects `[W][intent-amendment:reject]` and `[W][intent-amendment:propose]`
+ * (approval-check.mjs reads them). The replacement is checked first, on the Story as it would be once the
+ * stale one is rejected: one that cannot be proposed (its clauses no longer apply, say) leaves the stale
+ * proposal pending, records nothing, and says why.
+ */
+export async function refreshIntentAmendment(root, config, workflow, proposalId, { channel = 'terminal' } = {}) {
+  const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
+  if (summary?.status !== 'proposed') {
+    throw new SingularityFlowError(`Intent amendment '${proposalId}' is not awaiting a decision, so there is nothing to refresh.`, { code: 'INTENT_AMENDMENT_NOT_PENDING' });
+  }
+  const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
+  const { intentAmendmentStaleness } = await import('../state-stores.mjs');
+  if (!await intentAmendmentStaleness(root, config, workflow, proposal)) {
+    throw new SingularityFlowError(`${proposalId} still matches the step it was proposed in: decide it as it is.`, { code: 'INTENT_AMENDMENT_NOT_STALE' });
+  }
+  const proposedText = await readFile(path.join(root, proposal.specification.proposedPath), 'utf8');
+  if (createHash('sha256').update(proposedText).digest('hex') !== proposal.specification.proposedSha256) {
+    throw new SingularityFlowError(`${proposalId}'s proposed bytes changed after it was proposed, so it cannot be proposed again as it was. Reject it, then propose the change again.`,
+      { code: 'INTENT_AMENDMENT_INVALID' });
+  }
+  const next = `AMD-${String((workflow.intentAmendments ?? []).length + 1).padStart(3, '0')}`;
+  const given = { refreshes: proposalId, proposedText, reason: proposal.reason, departure: summary.departure ?? null,
+    authorship: proposal.authorship ?? null, proposedBy: proposal.proposedBy ?? null, planCorrections: proposal.planCorrections ?? [] };
+  try {
+    await proposeIntentAmendment(root, config, workflow, {}, { given, dryRun: true });
+  } catch (error) {
+    if (!(error instanceof SingularityFlowError)) throw error;
+    throw new SingularityFlowError(`${proposalId} could not be refreshed, so it stays pending and nothing was recorded: ${error.message}`,
+      { code: 'INTENT_AMENDMENT_REFRESH_REFUSED', details: { amendment: proposalId, cause: { code: error.code ?? null, message: error.message } } });
+  }
+  const rejected = await recordIntentAmendmentDecision(root, config, workflow, proposalId,
+    { decision: 'reject', reason: `Refreshed as ${next}: the step changed after it was proposed.`, channel });
+  try {
+    const proposed = await proposeIntentAmendment(root, config, workflow, {}, { given });
+    return { rejected: rejected.transition.proposal.id, proposed: proposed.summary.id, summary: proposed.summary, publication: proposed.publication };
+  } catch (error) {
+    if (!(error instanceof SingularityFlowError)) throw error;
+    throw new SingularityFlowError(`${proposalId} was rejected, but ${next} could not be proposed: ${error.message} Propose the change again with singularity-flow story intent-amendment propose.`,
+      { code: 'INTENT_AMENDMENT_REFRESH_INCOMPLETE', details: { rejected: proposalId, cause: { code: error.code ?? null, message: error.message } } });
+  }
+}
+
+/** Acknowledge an approved amendment, in a person's terminal or on the decisions card, which anyone working on the Story may [owner, 2026-11-13, D2]. */
+export async function acknowledgeApprovedIntentAmendment(root, config, workflow, proposalId, { channel = 'terminal' } = {}) {
   const beforeWorkflow = structuredClone(workflow);
   let acknowledgement;
   const publication = await commitAndPublish(
@@ -2414,7 +2505,8 @@ async function acknowledgeApprovedIntentAmendment(root, config, workflow, propos
       beforeStateWrite: async () => {
         acknowledgement = await acknowledgeIntentAmendment(root, config, workflow, proposalId, {
           actor: actionActor(root),
-          agent: null
+          agent: null,
+          channel
         });
       }
     }
@@ -2453,22 +2545,17 @@ export async function storyIntentAmendmentCommand(positionals, options) {
       console.log(`It carries ${carried.ownerPhase}'s rows (${carried.operations.map((operation) => `${operation.op === 'add-row' ? 'adds' : operation.op === 'remove-row' ? 'removes' : operation.op === 'keep-row' ? 'keeps' : 'updates'} ${operation.clauseId}`).join(', ')}): `
         + `an approver of ${carried.ownerPhase} signs them by deciding it, and ${carried.ownerPhase} keeps its approval.`);
     }
+    // A scope approver decides it on the decisions card, or with the exact command in their own terminal [owner, 2026-11-13].
+    printCommandRoutes(`singularity-flow decisions ${workflow.workItem.id}`, { label: 'A scope approver decides it on the decisions card', skill: '/sf-decide' });
     printCommandRoutes(
       `singularity-flow story intent-amendment decide ${result.proposal.id} --decision <approve|reject> --confirm ${result.proposal.id}`,
-      { label: 'Authority decision' }
+      { label: 'Or in their own terminal' }
     );
     return;
   }
   if (action === 'decide') {
     const proposalId = requirePositional(positionals, 3, 'intent amendment ID');
     const result = await decideProposedIntentAmendment(root, config, workflow, proposalId, options);
-    // An approved amendment reopens the first affected authored phase without passing through the
-    // ordinary approve/reject commands. Rebind that exact phase now; on rejection the Story stays
-    // in deterministic convergence and activation correctly keeps the agent session empty.
-    await postPublicationSessionStep('the amended-phase session activation', workflow.workItem.id, async () => {
-      const rebound = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-      return activateWorkItemSession(root, rebound.config, rebound.workflow);
-    });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (!result.transition.reached) {
       const awaiting = result.transition.proposal.approvals.planSignOffsMissing ?? [];

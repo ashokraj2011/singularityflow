@@ -605,10 +605,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,654,700 (measured 9,654,685): every confirmation route a person reads is its short code, which now also stands
     // for a commit or a plan ID (confirm-code.mjs, command-skills.mjs routes, +1,414), and each decision says what it
     // holds (decision-list.mjs, +48) [owner, "fix the remaining hash screens" and the decision map, 2026-11-12]. No new eager file.
-    // 9,654,939 (measured 9,654,939): an accepted document risk binds the document without its template guidance, which
-    // publication strips, so the risk still holds after publishing (phase-artifact-risk.mjs, artifact-review-read.mjs, +254).
-    // No new eager file.
-    assert.ok(closure.bytes <= 9_654_939,`${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,656,000 (measured 9,655,995): an intent amendment is decided on the decisions card, and the card offers Refresh
+    // for a proposal the step moved under, read with the same staleness check its approval makes (state.mjs
+    // intentAmendmentStaleness, +1,258, exported through state-stores.mjs, +52) [owner, 2026-11-13]. No new eager file.
+    assert.ok(closure.bytes <= 9_656_000, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

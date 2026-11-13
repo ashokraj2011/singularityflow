@@ -115,7 +115,9 @@ function amendmentCommits(root, workflow, commits, action) {
  * adds only its own amendment files and its rejection only records the decision in them. The review
  * packet binds none of those files (the Story's work directory is outside the hashed application
  * tree, and the packet's artifacts are the step's own), so the reviewed inputs are identical. Only a
- * person records a rejection: `story intent-amendment decide` is denied in every agent turn.
+ * person records a rejection, in their terminal or on the decisions card, with the same commit either way
+ * [owner, 2026-11-13]: `story intent-amendment decide` is denied in every agent turn. A refresh of a stale
+ * proposal is such a rejection followed by an ordinary proposal of the same bytes.
  */
 export async function rejectedIntentAmendments(root, config, workflow, commits, range) {
   if (!commits.length || !(workflow.intentAmendments ?? []).some((entry) => entry.status === 'rejected')) return [];
@@ -605,9 +607,10 @@ export function interveningCommitRefusal(root, workflow, phase, {
       ...(facts.scopePhase ? { scopePhase: facts.scopePhase } : {}),
       ...(first ? {
         pendingIntentAmendments: facts.pendingIntentAmendments,
+        // Decided on the decisions card (Copilot /sf-decide), or with the exact command in a terminal [owner, 2026-11-13].
         nextAction: {
-          command: amendmentStatusCommand(workflow.workItem.id),
-          label: `See intent amendment ${first.id}, which a person decides before ${phase.id} can be approved.`
+          command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide',
+          label: `A person who approves ${facts.scopePhase ?? 'the scope'} decides intent amendment ${first.id} on the decisions card before ${phase.id} can be approved.`
         }
       } : {})
     }
@@ -632,7 +635,7 @@ export function pendingAmendmentRefusal(workflow, phase, proposals) {
   return new SingularityFlowError([
     `Approving ${phase.id} waits for ${one ? `intent amendment ${first.id}` : `${pending.length} intent amendments`} to be decided.`,
     ...pending.map((entry) => `Intent amendment ${entry.id}${entry.changedClauses.length ? ` changes ${clauseList(entry.changedClauses)} and` : ''} was proposed after ${phase.id} was submitted; `
-      + `a person who approves ${scopePhase ?? 'the scope'} decides it.`),
+      + `a person who approves ${scopePhase ?? 'the scope'} decides it on the decisions card, or in their own terminal.`),
     `Rejecting ${one ? 'it' : 'them'} keeps this submission, and ${phase.id} can then be approved as it is; `
       + `approving ${one ? 'it' : 'one'} changes the approved clauses, so ${phase.id} reopens to be revised and submitted again.`
   ].join('\n'), {
@@ -643,9 +646,10 @@ export function pendingAmendmentRefusal(workflow, phase, proposals) {
       generation: phase.generation,
       ...(scopePhase ? { scopePhase } : {}),
       pendingIntentAmendments: pending,
+      // The decisions card shows what it changes and records the decision (Copilot /sf-decide) [owner, 2026-11-13].
       nextAction: {
-        command: amendmentStatusCommand(workflow.workItem.id),
-        label: `See intent amendment ${first.id}, which a person decides before ${phase.id} can be approved.`
+        command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide',
+        label: `A person who approves ${scopePhase ?? 'the scope'} decides intent amendment ${first.id} on the decisions card before ${phase.id} can be approved.`
       }
     }
   });
@@ -720,6 +724,9 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   WEL_WITNESS_MAPPING_UNREVIEWED: 'you-decide',
   APPROVAL_SELF_APPROVAL_PROHIBITED: 'someone-decides',
   APPROVAL_INTENT_AMENDMENT_PENDING: 'someone-decides',
+  // The step an amendment was proposed from waits while it is pending: a scope approver decides it, on the
+  // decisions card or in their own terminal [owner, 2026-11-13, D3].
+  INTENT_AMENDMENT_PENDING_PAUSE: 'someone-decides',
   SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs',
   // The scope step's approvers disposition each statement of the Story's sources [PHR:REQ-002].
   SCOPE_ITEMS_UNRESOLVED: 'someone-decides',
@@ -842,6 +849,10 @@ function refusalParty(error, workflow, phase) {
       ...(details.anyIdentity ? { anyIdentity: true } : {}), ...(IDENTITY_BARS[code] ? { barred: IDENTITY_BARS[code] } : {}) };
   }
   if (code === 'APPROVAL_INTENT_AMENDMENT_PENDING' || details.pendingIntentAmendments?.length) return details.scopePhase ? { steps: [details.scopePhase] } : null;
+  if (code === 'INTENT_AMENDMENT_PENDING_PAUSE') {
+    const scope = details.scopePhase ?? scopeStepOf(workflow)?.id;
+    return scope ? { steps: [scope] } : null;
+  }
   const renewals = details.testRunRiskRenewals?.map((entry) => entry.phase) ?? (details.testRunRisk ? [details.phase ?? phase.id] : null);
   if (renewals?.length) return { steps: [...new Set(renewals)], testRun: true };
   if (code === 'SPEC_COVERAGE_INCOMPLETE' && details.upstreamDecision?.complete === true) {
@@ -958,7 +969,10 @@ function blockingCommitsAdvisory(error, workflow, phase) {
       pendingIntentAmendments: details.pendingIntentAmendments,
       actions: [
         { label: `See intent amendment ${first.id}.`, command: amendmentStatusCommand(workId) },
-        { label: `A person who approves ${details.scopePhase ?? 'the scope'} decides ${first.id} in their own terminal; an agent cannot.`,
+        // On the decisions card (Copilot /sf-decide, VS Code Decide), or with the exact command in their own terminal [owner, 2026-11-13].
+        { label: `A person who approves ${details.scopePhase ?? 'the scope'} decides ${first.id} on the decisions card; an agent cannot.`,
+          command: `singularity-flow decisions ${workId}` },
+        { label: `Or in their own terminal, where SF Guard takes its signature when the Story requires one.`,
           command: `singularity-flow story intent-amendment decide ${first.id} --decision <approve|reject> --confirm ${first.id} --work-id ${workId}` }
       ]
     } : {})

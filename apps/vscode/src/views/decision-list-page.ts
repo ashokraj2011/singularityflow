@@ -57,7 +57,7 @@ function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
 
 function itemHtml(item: DecisionItemRow): string {
   const heading = `<header class="dl-item-head"><span class="dl-id">${escape(item.id)}</span><h2>${escape(item.title)}</h2></header>
-    <p class="dl-why">${escape(item.why)}</p>
+    <p class="dl-why">${escape(item.why)}</p>${item.facts?.length ? `<ul class="dl-why">${item.facts.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}
     <p class="dl-who">${icon('team')}<span>${escape(item.who)}</span></p>
     ${item.holds || item.answerWhere ? `<p class="dl-holds">${escape([item.holds, item.answerWhere].filter(Boolean).join(' '))}</p>` : ''}`;
   if (!item.allowed) {

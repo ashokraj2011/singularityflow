@@ -15,6 +15,8 @@
  * - Convergence items, at an open convergence step: the table `story adjudications` reads [SCS:REQ-030].
  * - With a deviated or unplanned row, the Story's intent-amendment draft: where Update the spec writes
  *   it, and the clauses a draft already there holds for the scope as it is now [SCS:REQ-020].
+ * - For each intent amendment on the list, what it changes and reaches and whether the Story moved under
+ *   it: what its approver decides on the card [owner, 2026-11-13].
  *
  * Reads only. `decisions` reads all of it; readiness and next steps read it for the list's count
  * and first item, without reusable runs (readPendingList).
@@ -354,6 +356,65 @@ async function intentAmendmentDraftFacts(root, config, workflow) {
   return { path: file, clauses: current ? state.clauses.map(String) : [] };
 }
 
+const CARD_CHANGES = 20;
+const CARD_NAMES = 12;
+
+/** A file of this Story's own, or null: a record never names a file outside the Story to read. */
+function storyFile(root, config, workflow, relative) {
+  if (typeof relative !== 'string' || !relative) return null;
+  const item = path.resolve(workDir(root, config, workflow.workItem.id));
+  const file = path.resolve(root, relative);
+  return file.startsWith(`${item}${path.sep}`) ? readFile(file, 'utf8').catch(() => null) : null;
+}
+
+/**
+ * What the decisions card shows of an intent amendment [owner, 2026-11-13, D1]: a scope approver decides it there,
+ * so the card shows what they decide. From the amendment's own record and its before and proposed files: each
+ * clause it adds, revises or removes with its statement, who proposed it and who wrote the wording, what it reaches
+ * (the blast radius it recorded, and the steps after the scope that have begun), the approvals recorded so far, and
+ * whether the Story moved under a pending one, by the check its approval makes (state.mjs intentAmendmentStaleness),
+ * which is when the card offers Refresh (D3). Facts only: decision-list.mjs words them. Null when the record is unread.
+ * Every module it loads is already in the bundles that read the list.
+ */
+async function intentAmendmentCardFacts(root, config, workflow, amendment) {
+  const record = await storyFile(root, config, workflow, amendment.recordPath);
+  if (record == null) return null;
+  const proposal = JSON.parse(record);
+  const [{ radiusSummary }, { extractClauses }, { scopeStepOf }] = await Promise.all([import('./amendment.mjs'), import('./specifications.mjs'), import('./phase-roles.mjs')]);
+  const sourcePath = proposal.specification?.artifact ?? null;
+  const statements = (text) => {
+    if (text == null) return new Map();
+    try { return new Map(extractClauses(text, { sourcePath }).map((clause) => [String(clause.id).toUpperCase(), String(clause.body ?? '').slice(0, 600)])); }
+    catch { return new Map(); }
+  };
+  const [was, now] = (await Promise.all([proposal.specification?.beforePath, proposal.specification?.proposedPath]
+    .map((relative) => storyFile(root, config, workflow, relative)))).map(statements);
+  const diff = proposal.diff ?? {};
+  const changed = [...(diff.added ?? []).map((clause) => [clause, 'added']), ...(diff.revised ?? []).map((clause) => [clause, 'revised']),
+    ...(diff.removed ?? []).map((clause) => [clause, 'removed'])];
+  const radius = proposal.radius;
+  const scope = scopeStepOf(workflow)?.id ?? null;
+  const order = workflow.phaseOrder ?? [];
+  const pending = amendment.status === 'proposed';
+  const stale = pending ? await (await import('./state.mjs')).intentAmendmentStaleness(root, config, workflow, proposal) : null;
+  const by = proposal.proposedBy ?? amendment.proposedBy ?? null;
+  return {
+    proposer: by?.name ?? by?.login ?? by?.email ?? null,
+    authored: proposal.authorship?.producer ?? null,
+    reason: proposal.reason ?? null,
+    changes: changed.slice(0, CARD_CHANGES).map(([clause, change]) => ({ clause, change,
+      before: change === 'added' ? null : was.get(String(clause).toUpperCase()) ?? null, after: change === 'removed' ? null : now.get(String(clause).toUpperCase()) ?? null })),
+    moreChanges: Math.max(0, changed.length - CARD_CHANGES),
+    radius: radius?.totals ? { summary: radiusSummary(radius),
+      artifacts: (radius.artifacts ?? []).slice(0, CARD_NAMES), moreArtifacts: Math.max(0, (radius.artifacts ?? []).length - CARD_NAMES),
+      tests: (radius.tests ?? []).slice(0, CARD_NAMES), moreTests: Math.max(0, (radius.tests ?? []).length - CARD_NAMES) } : null,
+    // The steps after the scope that have begun: each one that cites a changed clause reopens when it is approved.
+    steps: scope ? order.slice(order.indexOf(scope) + 1).filter((id) => workflow.phases?.[id]?.status !== 'skipped' && Number(workflow.phases?.[id]?.generation ?? 0) > 0) : [],
+    ...(pending ? { decisions: (proposal.decisions ?? []).map((entry) => ({ decision: entry.decision, actor: entry.actor ?? null })) } : {}),
+    stale: stale ? { cause: stale.cause, phase: stale.phase } : null
+  };
+}
+
 /** Everything the decision list of `phaseId` is built from: what blocks it, plus the readers above. */
 export async function decisionListFacts(root, config, workflow, { phaseId = workflow?.currentPhase ?? null, at = new Date().toISOString(),
   reuse: offerReuse = true, ...known } = {}) {
@@ -363,6 +424,13 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
   const state = await pendingStateFacts(root, config, workflow, phase, { ...known, unavailable: blocking.unavailable });
   // Like reusable runs, a count skips these: they change what a person answers, never how many items there are.
   const answering = offerReuse && workflow.status === 'in_progress';
+  // A scope approver decides a pending intent amendment on the card with what it changes and reaches in front of
+  // them, and Refresh is offered once the Story moved under it [owner, 2026-11-13]. A count needs none of it.
+  if (answering && state.pending.intentAmendments.length) {
+    state.pending.intentAmendments = await Promise.all(state.pending.intentAmendments.map(async (amendment) => {
+      try { return { ...amendment, card: await intentAmendmentCardFacts(root, config, workflow, amendment) }; } catch { return amendment; }
+    }));
+  }
   if (answering && state.pending.owed.some((entry) => entry.kind === 'scope')) {
     const clauses = await scopeClauses(root, config, workflow).catch((error) => { if (error instanceof SingularityFlowError) return []; throw error; });
     state.pending.owed = state.pending.owed.map((entry) => (entry.kind === 'scope' ? { ...entry, clauses } : entry));

@@ -72,8 +72,12 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   const file = typeof item.details?.path === 'string' ? item.details.path : null;
   // A departure from an earlier document shows the change itself; its file departures open the file.
   const diff = item.kind === 'departure' && typeof item.details?.diff === 'string' ? item.details.diff : null;
+  // An intent amendment shows each clause it changes, who proposed it and what it reaches: what its approver decides [owner, 2026-11-13].
+  const text = (key: string) => (typeof item.details?.[key] === 'string' ? `<p class="muted dc-why">${escape(item.details[key] as string)}</p>` : '');
+  const lines = Array.isArray(item.details?.lines) ? item.details.lines as string[] : [];
   const what = `${file ? `<button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>` : `<strong>${escape(item.title)}</strong>`}
-    <div class="muted dc-why">${escape(item.why)}</div>${diff ? `<details class="dc-diff"><summary>The change</summary><pre>${escape(diff)}</pre></details>` : ''}`;
+    <div class="muted dc-why">${escape(item.why)}</div>${diff ? `<details class="dc-diff"><summary>The change</summary><pre>${escape(diff)}</pre></details>` : ''}${lines.length
+      ? `<ul class="dc-ev-list">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}${text('proposedBy')}${text('reach')}`;
   if (!item.decidedBy?.allowed) {
     return `<tr data-other="${escape(item.id)}"><td>${what}</td><td colspan="2"><span class="muted">${escape(item.decidedBy?.words ?? '')}</span>${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</td></tr>`;
   }
@@ -90,8 +94,11 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
       <code>${escape(option.action!.command!)}</code>
       <button type="button" class="secondary" data-terminal="${escape(option.id)}">Put it in a terminal</button>
       <button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
+  // A choice recorded here may also be made in the person's own terminal, with its exact command (SF Guard signs it there).
+  const terminal = choices.filter((option) => option.terminal).map((option) => `<div class="dc-own"><span class="muted">Or in your own terminal:</span>
+      <code>${escape(option.terminal!)}</code><button type="button" class="secondary" data-copy="${escape(option.id)}">Copy</button></div>`).join('');
   return `<tr data-item="${escape(item.id)}" data-title="${escape(item.title)}">
-    <td>${what}</td><td>${select}${reviews}${own}</td><td class="dc-fields">${choices.length ? fieldsHtml(item, entered) : ''}</td></tr>`;
+    <td>${what}</td><td>${select}${reviews}${own}${terminal}</td><td class="dc-fields">${choices.length ? fieldsHtml(item, entered) : ''}</td></tr>`;
 }
 
 /** Files the evidence names: the page opens these beside it, as it opens a row's file. */

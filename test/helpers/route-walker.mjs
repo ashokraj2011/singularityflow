@@ -323,7 +323,8 @@ async function walkRoutes(story, scenario, { maxSteps = 24 } = {}, reads = []) {
     const files = scenario.writes?.[key];
     if (!files || written.has(key)) return;
     written.add(key);
-    for (const [relative, contents] of Object.entries(files)) await story.write(relative, contents);
+    // A file's contents, or what the author makes of it as it is then (a summary that names a change).
+    for (const [relative, contents] of Object.entries(files)) await story.write(relative, typeof contents === 'function' ? await contents(story) : contents);
     trail.push({ wrote: Object.keys(files), for: key });
   };
   const runCommand = (command, { person = false } = {}) => {

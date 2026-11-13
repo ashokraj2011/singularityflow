@@ -13,7 +13,7 @@
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +31,10 @@ const MAJOR = process.versions.node.split('.')[0];
 // A Node this machine does not run, as a small script that runs the real one (project-node-version.test.mjs), and a
 // package that asks for it: the run fails on the Node here and passes on that one, on any machine.
 const OTHER_MAJOR = Number(MAJOR) + 100;
+// What a decision changed in the code step, named in its summary written after it: the author's own correction,
+// or prepublish refuses the summary [owner, 2026-11-13].
+const SUMMARY = `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`;
+const namedInSummary = (...files) => async (story) => `${await readFile(path.join(story.root, SUMMARY), 'utf8')}\nChanged for the Node its tests need: ${files.map((file) => `\`${file}\``).join(', ')}.\n`;
 const onTheWrongNode = async (story) => {
   const home = path.join(story.parent, 'other-node');
   const directory = path.join(home, 'versions', 'node', `v${OTHER_MAJOR}.0.0`, 'bin');
@@ -42,6 +46,7 @@ const onTheWrongNode = async (story) => {
   await story.write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => { assert.equal(value,2); assert.equal(process.env.FAKE_NODE, '${OTHER_MAJOR}'); });\n`);
   const why = 'The package now says which Node its tests need.';
   story.cli('decision', 'plan', WORK, '--add-supporting', 'package.json=build-configuration', '--supporting-reason', why, '--reason', why);
+  await story.write(SUMMARY, await namedInSummary('package.json')(story));
 };
 const published = (result) => result?.publishIfReady?.published === true || (result?.resultType === 'sflow-phase-publication' && result?.status === 'published');
 const PREPUBLISH = 'singularity-flow phase prepublish implementation --for-agent --json --publish-if-ready';
@@ -66,13 +71,16 @@ const SCENARIOS = Object.freeze([
     start: `singularity-flow approve release --work-id ${WORK} --yes --json`,
     reasons: { CONFORMANCE_BLOCKING_VERDICTS: { mustNotMatch: /raise one against/u, mustMatch: /reads it satisfied/u, because: 'the record reads these clauses satisfied, so nothing shows the step before it at fault' } } },
   { id: 'node-version', meets: 'CODE_TEST_FAILED', real: 'a real Story: tests fail only on this Node; CODE_TEST_FAILED ranks first',
-    setup: onTheWrongNode, start: PREPUBLISH, reached: published },
+    setup: onTheWrongNode, start: PREPUBLISH, reached: published,
+    // The pin creates .nvmrc after the summary was written: the author says so, as on the real Story [owner, 2026-11-13].
+    writes: { '/sf-code': { [SUMMARY]: namedInSummary('.nvmrc') } } },
   { id: 'nvmrc-names-a-node-not-here', meets: 'CODE_TEST_FAILED', real: 'the .nvmrc is the answer already, and names a Node this machine does not have',
     setup: async (story) => {
       await onTheWrongNode(story);
       await story.write('.nvmrc', `${OTHER_MAJOR + 50}\n`);
       const why = 'The repository says which Node its tests need.';
       story.cli('decision', 'plan', WORK, '--add-supporting', '.nvmrc=build-configuration', '--supporting-reason', why, '--reason', why);
+      await story.write(SUMMARY, await namedInSummary('.nvmrc')(story));
     }, start: PREPUBLISH, reached: published },
   // /sf-appeal with nothing to appeal: it said to go back to /sf-code, which could not change the Node either.
   { id: 'appeal-with-none-open', meets: 'next', real: 'a real Story: the chain /sf-code, /sf-appeal, /sf-code on a Node only a person can pin',

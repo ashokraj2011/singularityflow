@@ -125,6 +125,11 @@ test('a failed run on the wrong Node leads to one choice, and choosing it clears
   const shown = json('decisions', 'QF-1').value.data;
   assert.ok(shown.recorded.some((entry) => /\.nvmrc accounted for/u.test(entry.summary)), JSON.stringify(shown.recorded));
   assert.equal(shown.items.some((entry) => entry.kind === 'node-pin'), false, 'the choice is gone once made');
+  // Asked again once pinned, the answer no longer sends anyone to choose it [owner, 2026-11-13]; this step's summary is
+  // kernel-built, so there is no author's summary to update.
+  const again = json('tests', 'node', '--work-id', 'QF-1', '--phase', 'implement', '--node', '22').value;
+  assert.match(again.next[0].label, /^Node 22 is already pinned in \.nvmrc: prepublish the step again/u, JSON.stringify(again.next));
+  assert.equal(again.summaryUpdate, undefined);
 
   // The same gate now runs on the pinned Node and passes.
   const published = run('phase', 'publish', 'implement');

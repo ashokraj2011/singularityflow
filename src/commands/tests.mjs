@@ -798,9 +798,22 @@ export async function run(_argv, { positionals, options = {} }) {
     const { nodeTryWords } = await import('../node-pin.mjs');
     const told = await nodeTryWords(root, result.workId, result.version);
     // What the answer leads to: a person's choice when it passes there, and the step's own repair when it does not.
-    const next = told?.passed ? [{ command: `singularity-flow decisions ${result.workId}`, skill: '/sf-decide', label: `A person chooses Pin Node ${result.version}.` }]
-      : [{ command: `singularity-flow phase prepublish ${result.phase} --for-agent --json --publish-if-ready`, skill: '/sf-code', label: 'It fails there too, so the Node is not what stops it: repair it in this step.' }];
-    if (json) console.log(JSON.stringify({ ...result, passed: told?.passed === true, words: told?.words ?? null, next }, null, 2));
+    // Once the pin is recorded the choice is made: asked after it, "a person chooses Pin Node 22" sent the agent on
+    // with a summary written before the pin, which published as it was (owner's Story, 2026-11-13). The summary is
+    // then the step's own correction, in this turn.
+    const prepublish = `singularity-flow phase prepublish ${result.phase} --for-agent --json --publish-if-ready`;
+    const { NODE_PIN_FILE } = await import('../node-pin-names.mjs');
+    const pinned = (await readFile(path.join(root, NODE_PIN_FILE), 'utf8').catch(() => '')).trim() === result.version;
+    const summaryUpdate = pinned ? await import('../summary-step-changes.mjs').then(async ({ summaryUpdateAfterDecision }) => {
+      const { config, workflow } = await (await import('../accepted-story-execution.mjs')).loadAcceptedStoryExecution(root, result.workId);
+      return summaryUpdateAfterDecision(root, config, workflow);
+    }).catch(() => null) : null;
+    const next = summaryUpdate ? [{ command: prepublish, skill: '/sf-code', label: summaryUpdate.words }]
+      : told?.passed && pinned ? [{ command: prepublish, skill: '/sf-code', label: `Node ${result.version} is already pinned in ${NODE_PIN_FILE}: prepublish the step again; its tests run on it.` }]
+      : told?.passed ? [{ command: `singularity-flow decisions ${result.workId}`, skill: '/sf-decide', label: `A person chooses Pin Node ${result.version}.` }]
+        : [{ command: prepublish, skill: '/sf-code', label: 'It fails there too, so the Node is not what stops it: repair it in this step.' }];
+    if (json) console.log(JSON.stringify({ ...result, passed: told?.passed === true, words: told?.words ?? null, next,
+      ...(summaryUpdate ? { summaryUpdate, agentInstruction: summaryUpdate.words } : {}) }, null, 2));
     else {
       console.log(`${result.workId} step ${result.phase}, on Node ${result.node}. This is a fact for a person: it is not evidence and refuses nothing.`);
       for (const entry of result.results) console.log(`  ${entry.commandId}: ${entry.status}${entry.tests ? `, ${entry.tests.passed} of ${entry.tests.discovered} passed` : ''}${entry.why ? ` (${entry.why})` : ''}`);

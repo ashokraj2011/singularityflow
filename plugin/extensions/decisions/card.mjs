@@ -414,6 +414,8 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
   const decided = [];
   // Drafts written, never recorded: where each is and what is next [SCS:REQ-020].
   const drafted = [];
+  // A pin or plan amendment that changed the open code step after its summary was written [owner, 2026-11-13].
+  let summaryUpdate = null;
   const asked = decidable(packet).length ? await askRows(packet, ask) : { answers: [] };
   if (asked.cancelled) return { status: 'cancelled', recorded, remaining: [], message: 'No decision was recorded.' };
   if (asked.refused) return { status: 'refused', recorded, remaining: [], message: refusedWords(asked.refused) };
@@ -426,6 +428,7 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
       recorded.push(...(result.recorded ?? []).map((entry) => entry.record ?? entry.item));
       decided.push(...(result.decided ?? []).map((entry) => entry.words));
       drafted.push(...(result.drafted ?? []).map((entry) => `Drafted at ${entry.path}. ${entry.next?.words ?? ''}`.trim()));
+      summaryUpdate = result.summaryUpdate?.words ?? summaryUpdate;
       answers = [];
     } catch (error) {
       // With SF Guard the signature is taken in the person's own terminal: one command, nothing to fill in, the same questions there.
@@ -465,6 +468,7 @@ export async function runCard({ ask, show, read, record, witness, inspect, asked
   }
   const remaining = openRows(packet).map((item) => itemName(item));
   return { status: recorded.length ? 'recorded' : drafted.length ? 'drafted' : 'cancelled', recorded, decided, ...(drafted.length ? { drafted } : {}), remaining,
+    ...(summaryUpdate ? { summaryUpdate } : {}),
     message: `${decided.length ? `${decided.length} decision${decided.length === 1 ? '' : 's'} recorded. ${decided.join('. ')}.` : recorded.length ? `${recorded.length} recorded.` : 'No decision was recorded.'}`
-      + `${drafted.length ? ` ${drafted.join(' ')}` : ''}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}` };
+      + `${drafted.length ? ` ${drafted.join(' ')}` : ''}${remaining.length ? ` ${remaining.length} still open.` : ' All decided.'}${summaryUpdate ? ` ${summaryUpdate}` : ''}` };
 }

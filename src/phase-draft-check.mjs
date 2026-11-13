@@ -6,6 +6,7 @@ import { PACKAGE_ROOT } from './package-root.mjs';
 
 const CORNER_CASE_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/corner-case-obligations.mjs')).href;
 const REMEDIATION_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/verification/governance-remediation.mjs')).href;
+const STEP_CHANGES_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src/summary-step-changes.mjs')).href;
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
 import { assertConvergencePublicationReady } from './convergence-context.mjs';
 import {
@@ -312,6 +313,14 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       withdrawalRoute = withdrawal.after;
       if (withdrawal.lead) codeEvidenceRepair ??= withdrawal.lead;
     }
+  }
+
+  // A decision during the open generation that changed the step's files or plan after its agent wrote the summary
+  // (Pin Node 22 creating .nvmrc and amending the plan): the summary's own correction, before any person is asked
+  // [owner, 2026-11-13]. Loads only for a Story whose plan was amended.
+  if (inspectOwnedDraft() && prospective && editableCode && phaseRequiresCodeDelivery(phase) && configuredProducer === 'governed-agent'
+      && artifact?.exists && workflow.planAmendments?.length) {
+    findings.push(...await (await import(STEP_CHANGES_MODULE)).summaryStepChangeFindings(root, workflow, phase, artifact.path));
   }
 
   // Doc comments on the code this generation changed: advisories only, never findings, so they

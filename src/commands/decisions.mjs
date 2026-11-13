@@ -684,6 +684,11 @@ async function record(root, options, workId, io) {
             cause: error.details ?? null, nextAction: { command: list, skill: '/sf-decide', label: 'List what remains to decide.' } } });
     }
     const after = await readDecisionPacket(root, config, workflow, { phaseId, at: nowIso() }).catch(() => null);
+    // A pin or plan amendment that changed the open code step after its summary was written: its author updates the
+    // summary in this same turn, before prepublish refuses it [owner, 2026-11-13].
+    const summaryUpdate = recorded.some((entry) => ['plan-amendment', 'node-pin'].includes(entry.kind))
+      ? await import('../summary-step-changes.mjs').then(async ({ summaryUpdateAfterDecision }) => summaryUpdateAfterDecision(root, config,
+        (await storyContext(root, workflow.workItem.id, { record: false })).workflow)).catch(() => null) : null;
     // One entry per decision, in its own words: a record's ID says neither how many were made nor what they were.
     const draftedItems = new Set([...drafted, ...unchanged].map((entry) => entry.item));
     // What an intent amendment's decision did, beside what was chosen: a partial approval waits for the rest.
@@ -698,6 +703,7 @@ async function record(root, options, workId, io) {
       for (const entry of drafted) console.log(`Drafted ${entry.item} at ${entry.path}; nothing was recorded. ${entry.next.words}\n  ${entry.next.command}`);
       if (after) console.log(after.items.length ? after.headline : `${after.phaseLabel} has nothing left waiting for a decision.`);
       if (after && !after.items.length && after.next?.command) console.log(`Next: ${after.next.title}\n  ${after.next.copilotCommand ?? after.next.command}`);
+      if (summaryUpdate) console.log(summaryUpdate.words);
     }
     // With nothing left on the list, the Story's own next step: never an answer with nothing to do (owner, 2026-11-10).
     const next = after?.items.length ? [{ id: 'decision-list', label: after.headline, command: `singularity-flow decisions ${workflow.workItem.id}`,
@@ -710,7 +716,7 @@ async function record(root, options, workId, io) {
         refused: String(plan.refused.length), ...(drafted.length ? { drafted: String(drafted.length) } : {}) }),
       effects: effects({ stateChanged: recorded.length > 0, filesChanged: true, publicationCreated: recorded.length > 0 }),
       next: next.map((entry) => action(entry)),
-      data: { recorded, decided, ...(drafted.length ? { drafted } : {}), ...(unchanged.length ? { unchanged } : {}), refused: plan.refused,
+      data: { recorded, decided, ...(drafted.length ? { drafted } : {}), ...(unchanged.length ? { unchanged } : {}), ...(summaryUpdate ? { summaryUpdate, agentInstruction: summaryUpdate.words } : {}), refused: plan.refused,
         remaining: after?.items.map((item) => ({ id: item.id, kind: item.kind, title: item.title })) ?? null, packetSha256: after?.packetSha256 ?? null }
     }), { json: optionBoolean(options, 'json'), postState: workflow });
   } finally {

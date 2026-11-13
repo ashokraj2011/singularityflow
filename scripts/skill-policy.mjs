@@ -295,7 +295,8 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /reportTemplate.*reportSchema/,
       /stagingProtocol/,
       /file-edit tool/,
-      /kernelStage/,
+      // The file is the one write route; JSON in a shell argument broke a real review [owner, 2026-11-13].
+      /never JSON in a shell argument/,
       /review-source check <phase> --report-file/,
       /at most two changed-packet repair attempts/,
       /Never mark a real gap supported merely to pass validation/,

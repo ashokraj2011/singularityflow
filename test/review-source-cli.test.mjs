@@ -514,7 +514,12 @@ test('malformed reviewer packets are diagnosed read-only and cannot be committed
   assert.equal(git(root, 'write-tree'), index);
   assert.equal(git(root, 'status', '--porcelain'), tracked);
   assert.deepEqual(await loadSession(root), authorSession, 'failed retention changed the phase author');
-  assert.equal(completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json')).status, 'missing');
+  // Nothing was retained, and the staged draft is not dropped either: an incomplete review with its reason [owner, 2026-11-13].
+  const status = completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json'));
+  assert.equal(status.status, 'incomplete');
+  assert.equal(status.reportSha256, null);
+  assert.equal(status.incomplete.stagingPath, packet.stagingPath);
+  assert.match(status.incomplete.reason, /findings\[0\]\.(?:severity|message)/u);
 });
 
 test('reviewer cannot prepare or publish a phase under shared authorship, before any Git mutation', async (t) => {

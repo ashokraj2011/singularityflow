@@ -2184,7 +2184,7 @@ export function refusalDetails(details) {
     timedOut: typeof details.execution.timedOut === 'boolean' ? details.execution.timedOut : null,
     exitCode: Number.isInteger(details.execution.exitCode) ? details.execution.exitCode : null
   });
-  for (const key of ['workId', 'phase', 'currentPhase', 'operation', 'repositoryPath', 'preservation']) if (text(details[key])) projected[key] = text(details[key]);
+  for (const key of ['workId', 'phase', 'currentPhase', 'operation', 'repositoryPath', 'preservation', 'stagingPath']) if (text(details[key])) projected[key] = text(details[key]);
   // A lock only a person can end: who holds it and the exact reviewed release (SDA M3), so every
   // surface can show that owner and that command, not only the message.
   if (text(details.releaseCommand)) {
@@ -2351,6 +2351,9 @@ export function refusalDetails(details) {
   const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
   // Stage/retain refuses the same invalid packet that check explains. Do not discard its precise
   // repair fields at the process boundary and send the reviewer back to generic diagnostics.
+  // A review turn's repairs spent: the draft kept, the review recorded incomplete and the way to finish it [owner, 2026-11-13].
+  if (details.incomplete && typeof details.incomplete === 'object') projected.incomplete = compact({ recorded: details.incomplete.recorded === true ? true : null,
+    stagingPath: text(details.incomplete.stagingPath), reason: text(details.incomplete.reason), instruction: text(details.incomplete.instruction) });
   const repair = details.repair;
   if (repair && ['repair-packet', 'reload-context'].includes(repair.status)) projected.repair = compact({
     status: repair.status, instruction: text(repair.instruction), reportSha256: text(repair.reportSha256),
@@ -2359,7 +2362,11 @@ export function refusalDetails(details) {
       instruction: text(entry.instruction), matchCount: Number.isSafeInteger(entry.matchCount) && entry.matchCount >= 0 ? entry.matchCount : null,
       matchingLines: list(entry.matchingLines, position).slice(0, 10),
       proposedEdit: field(entry.proposedEdit?.field) && position(entry.proposedEdit?.value)
-        ? { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } : null
+        ? { field: field(entry.proposedEdit.field), value: entry.proposedEdit.value } : null,
+      // The cited line as it reads, and a quote whose quote marks a shell argument ate: dropped here, the reviewer saw
+      // only "no exact match" four times and cited the same text again [owner, 2026-11-13].
+      suppliedLineText: text(entry.suppliedLineText), lineText: text(entry.lineText), recoveredQuote: text(entry.recoveredQuote),
+      quoteMarksLost: entry.quoteMarksLost === true ? true : null
     }) : null).slice(0, 25),
     // A source written as its path: the exact source ID to copy [Story anu-bin, 2026-11-11].
     sourceIds: ((edits) => (edits.length ? edits : null))(list(repair.sourceIds, entry => entry && typeof entry === 'object' && field(entry.proposedEdit?.field)

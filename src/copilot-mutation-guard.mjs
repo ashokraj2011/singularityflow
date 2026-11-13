@@ -233,6 +233,8 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     ...(previous?.specStaging ? { specStaging: previous.specStaging } : {}),
     ...(previous?.appDraftStaging ? { appDraftStaging: previous.appDraftStaging } : {}),
     ...(samePhase && previous?.reviewOperation ? { reviewOperation: previous.reviewOperation } : {}),
+    // This turn started the step's reviewer: kept while the step and generation are the same (reviewRolloverCall).
+    ...(samePhase && previous?.reviewerStarted ? { reviewerStarted: previous.reviewerStarted } : {}),
     ...(taskOperation ? { taskOperation } : {}),
     ...(draftStaging.length ? { draftStaging } : {}),
     // Which turn rules this conversation already has: a refreshed contract does not take them back.
@@ -814,6 +816,24 @@ async function confirmDigestMismatch(call, value) {
 
 const reviewRetention = (positionals) => positionals[0] === 'review-source' && ['stage', 'submit'].includes(positionals[1]);
 const REVIEW_RETENTION_DENIAL = 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a step\'s review is staged and retained only by its independent read-only reviewer, never by the turn that authored the step. Start that reviewer as a sub-agent in this chat (the publication\'s reviewSubagent), or run /sf-review-source <step> in a new chat; do not retry it here';
+
+/**
+ * `phase rollover` where the review is the reason [owner, 2026-11-13]. A review turn records what the step must
+ * correct as a blocking finding and never opens a generation itself; the author's turn that started the reviewer
+ * opens the next one only from the retained review (`phase rollover` without --reason), which the person confirms.
+ * On a real Story the reviewer's packets were never retained, and the author's turn previewed `phase rollover --reason`
+ * with words of its own (kept as what the person "asked for") and asked the person to open generation 2.
+ */
+function reviewRolloverCall(call, value, mode) {
+  const safe = verifiedShellForm(call, value);
+  const { positionals, options } = safe ? parseCli(safe.argv) : { positionals: [], options: {} };
+  if (positionals[0] !== 'phase' || positionals[1] !== 'rollover') return null;
+  return mode === 'read-only-review' ? 'review' : value.reviewerStarted && Object.hasOwn(options, 'reason') ? 'author' : null;
+}
+const REVIEW_ROLLOVER_DENIALS = Object.freeze({
+  review: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: a review turn never opens a generation. Record what the step must correct as a blocking finding in your report and retain it; the retained correction-required review is the reason its next generation opens, which the person confirms in the author\'s turn. Do not retry it',
+  author: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this turn started the step\'s independent reviewer, so what the published step must correct is the review\'s to record as a blocking finding, never a reason of this turn\'s own. Run singularity-flow review-source status <step> --for-agent --json and follow its route: with a retained correction-required review, `phase rollover <step> --json` (no --reason) opens the next generation for its findings once the person confirms; with none retained yet, start the reviewer again. A change the person asks for themselves is typed after /sf-code <step>'
+});
 
 /** A verified `review-source stage|submit`: the reviewer's own retention, refused in any other turn. */
 function reviewRetentionCall(call, value) {
@@ -2021,7 +2041,14 @@ async function mutationToolDecision(payload, record) {
     if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring' && reviewerDelegation(call)) return mutationDenial(contract,
       `PHASE_MUTATION_DELEGATION_NOT_ALLOWED: this turn cannot start the reviewer as a sub-agent, and never reviews its own step. End with "Run this in a new chat:" and /sf-review-source${contract.phaseId ? ` ${contract.phaseId}` : ''}`);
     if (DELEGATION.has(call.name) && contract.turnMode !== 'authoring') return mutationDenial(contract, 'PHASE_MUTATION_DELEGATION_NOT_ALLOWED: a sub-agent does not run in this turn. Do the work here yourself with the route below; only this turn holds its contract');
+    // The author's turn starts its step's reviewer: from here the review is what the step corrects (reviewRolloverCall).
+    if (DELEGATION.has(call.name) && reviewerDelegation(call) && !value.reviewerStarted) {
+      value.reviewerStarted = { phaseId: contract.phaseId ?? null, generation: contract.generation ?? null };
+      await atomicRecord(recordFile(payload), value).catch(() => {});
+    }
     if (TERMINALS.has(call.name)) {
+      const rollover = reviewRolloverCall(call, value, contract.turnMode);
+      if (rollover) return mutationDenial(contract, REVIEW_ROLLOVER_DENIALS[rollover].replaceAll('<step>', contract.phaseId ?? '<step>'));
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
@@ -2097,7 +2124,7 @@ async function mutationToolDecision(payload, record) {
         // A tool form is corrected in this turn. A review, decision or publish turn's route is its own
         // work; any other turn's (recover, prepare, nextsteps) would send it elsewhere.
         if (contract.turnMode !== 'authoring')
-          return mutationDenial(contract, `PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (source review also supports review-source stage --report-json). Run a permitted SFlow command standalone: from a non-Git folder such as a chat folder it runs as is (SFlow finds the bound checkout); otherwise set the bound cwd${contract.repositoryRoot ? ` (${contract.repositoryRoot})` : ''} with \`cd <it> && …\` or \`env -C <it> …\`. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification`, [],
+          return mutationDenial(contract, `PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (a source review writes its report there too, never as JSON in a shell argument). Run a permitted SFlow command standalone: from a non-Git folder such as a chat folder it runs as is (SFlow finds the bound checkout); otherwise set the bound cwd${contract.repositoryRoot ? ` (${contract.repositoryRoot})` : ''} with \`cd <it> && …\` or \`env -C <it> …\`. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification`, [],
             OWN_ROUTE_TURNS.has(contract.turnMode) ? {} : { routes: [] });
         if (upstreamIssueDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers in their own terminal, not by this turn. Keep working; the Story completes once they decide it');

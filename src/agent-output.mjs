@@ -388,10 +388,14 @@ export function agentAct(result) {
     return withRoute({ state: 'blocked', do: null, read: result.sheet ? ['sheet', 'owedDecisions'] : ['approvalCheck', 'owedDecisions', 'pending'],
       said: 'The phase is submitted, but its known approval holds must be cleared by their named owners. Follow the returned route; do not retry approval or rewrite submitted work. Owed evidence is separate and blocks only where the gate says so.' }, result.approvalContinuation);
   }
+  // A review turn's repairs spent: the draft stays staged and status records it incomplete [owner, 2026-11-13].
+  if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.incomplete?.instruction) return {
+    state: 'blocked', do: null, read: ['error.details.incomplete', 'error.details.findings'], said: oneLine(result.error.details.incomplete.instruction) };
   if (result.error?.code === 'SOURCE_REVIEW_REPORT_INVALID' && result.error.details?.repair?.status === 'repair-packet') return {
     state: 'correct', do: null, read: ['error.details.repair', 'error.details.findings'],
-    // Stage writes the draft and refuses only its retention, so the repair is a fresh stage, not a missing file (anu-bin, 2026-11-11).
-    said: 'Staged, not retained yet. Apply each returned repair exactly (proposedEdit values as given), then stage the repaired JSON again with stagingProtocol within the two-repair budget. Do not restart the phase, run generic diagnostics, or invent coverage.' };
+    // Stage writes the draft and refuses only its retention, so the repair is made in that file, not a missing file (anu-bin, 2026-11-11);
+    // never inline JSON again, whose shell quoting broke the report (2026-11-13).
+    said: 'Staged, not retained yet. Apply each returned repair exactly (proposedEdit values as given) in the staged file with your file-edit tool, then run stagingProtocol.check within the two-repair budget. Never type the JSON into a shell argument. Do not restart the phase, run generic diagnostics, or invent coverage.' };
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
     if (!plan.escalation && plan.repairContinuation?.kind === 'test-command-definition'
@@ -542,6 +546,16 @@ export function agentAct(result) {
       read: ['progress', ...(result.taskResume ? ['taskResume'] : []), 'reviewGuide', 'reviewer', 'citationGuide', 'sources', 'upstreamSpec', 'clarifications', 'clarificationGuidance', 'artifact', 'reportTemplate', 'reportSchema', 'stagingProtocol'],
       said: progress?.instruction ?? 'Perform the independent review now. Read pinned source text files with native file tools; their 1-based lines are citation lines. Stage, check, repair the changed packet within the bounded budget, then retain. Reading and summarising is not the review: end only after the filled report is staged and checked. Do not stop at a repairable packet error or invent coverage.' };
   }
+  // No review retained yet, as the author's turn reads it after its reviewer returned: the review is finished by a review
+  // turn, and what the step must correct is the review's to record. On a real Story the author read "no review exists",
+  // previewed `phase rollover --reason` with words of its own and asked the person to open generation 2 [owner, 2026-11-13].
+  if (result.resultType === 'source-review-status' && !result.reportSha256 && ['missing', 'incomplete'].includes(result.status)
+      && Array.isArray(result.continuation?.actions) && result.continuation.actions.length) {
+    return withRoute({ state: 'review', do: null, read: ['status', 'findings', ...(result.incomplete ? ['incomplete'] : []), 'continuation'],
+      said: oneLine(`No review of ${result.phase} generation ${result.generation} is retained${result.incomplete ? '; its staged draft is incomplete' : ''}. `
+        + 'A correction the step needs is the review\'s blocking finding: never open a generation with your own reason (phase rollover --reason). '
+        + `Start the step's reviewer as a sub-agent, prompt /sf-review-source ${result.phase}${result.incomplete ? ' (a fresh turn, new repair budget)' : ''}; with no sub-agent tool, relay the route in a new chat.`) }, result.continuation.actions[0]);
+  }
   // A retained review, as its submission or its status returns it: what comes after retention, from its own
   // continuation (the author's successor, submission, or a person's disposition); never retain it again.
   if (result.resultType === 'source-review-status' && result.reportSha256 && Array.isArray(result.continuation?.actions) && result.continuation.actions.length) {
@@ -550,6 +564,8 @@ export function agentAct(result) {
       said: oneLine(`The review is retained (${result.status}). ${next.reason ?? ''} Never run review-source submit for it again.`) }, next);
   }
   if (result.resultType === 'source-review-check') {
+    if (!result.retentionReady && result.incomplete?.instruction) return { state: 'blocked', do: null, read: ['incomplete', 'findings'],
+      said: oneLine(result.incomplete.instruction), ...correctionList(result.findings) };
     if (result.repair?.status === 'reload-context') return withRoute({ state: 'next', do: null,
       read: ['repair'], said: result.repair.instruction }, result.continuation?.nextAction);
     if (result.retentionReady && result.repair?.mappingTasks?.length) return {

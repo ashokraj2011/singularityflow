@@ -29,7 +29,7 @@ function git(root, ...args) {
  * source review. With `copied`, the step is the workflow's own copy, made in Workflow Studio under
  * a name of its own.
  */
-export async function publishedSpecificationStory(t, { copied = false, humanAnswers = false } = {}) {
+export async function publishedSpecificationStory(t, { copied = false, humanAnswers = false, notes = 'Export is out of scope.' } = {}) {
   const workType = copied ? 'review-copy' : 'spec-driven-standard';
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-source-cli-'));
   t.after(async () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
@@ -79,7 +79,7 @@ export async function publishedSpecificationStory(t, { copied = false, humanAnsw
     source: { type: 'manual', key: WORK_ID, title: 'Save a draft',
       description: 'Save a draft and show saved status.',
       acceptanceCriteria: ['Saving persists the draft and displays saved status.'],
-      notes: 'Export is out of scope.' },
+      notes },
     baseBranch: 'main', workType, agent: authorAgent, resolved
   }));
   const phase = workflow.phases[phaseId];

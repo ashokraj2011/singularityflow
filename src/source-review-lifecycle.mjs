@@ -809,7 +809,10 @@ async function loadSourceReviewContext(root, config, workflow, phaseId, stagingP
   // the reviewer itself asked for; stage's own read and a host's card never replace it).
   if (!conflict && stagingPath && snapshot && globalThis.__SFLOW_EXTENSION_HOST__ !== true) {
     // Best effort: without it a "from-context" report is read as stale and sent back here, never accepted unbound.
-    await (await import('./source-review-staging.mjs')).writeSourceReviewContextBinding(root, stagingPath, input.binding).catch(() => {});
+    const staging = await import('./source-review-staging.mjs');
+    await staging.writeSourceReviewContextBinding(root, stagingPath, input.binding).catch(() => {});
+    // A fresh review turn: a draft left incomplete keeps its reason and gets a new repair budget [owner, 2026-11-13].
+    await staging.startSourceReviewTurn(root, stagingPath).catch(() => {});
   }
   const hashView = (artifact, binding) => ({ path: artifact.path, sha256: binding.sha256,
     sha256Domain: 'authored-content', authoredContentSha256: binding.sha256,

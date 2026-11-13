@@ -55,8 +55,11 @@ async function preservePreviousDraft(file, gitDirectory, draft) {
   return previous;
 }
 
-/** How a report reaches stagingPath, for a reviewer with a terminal alone or with a file-edit tool too. */
-const STAGE_ROUTE = 'Stage it with stagingProtocol.kernelStage (review-source stage <phase> --report-json \'<REPORT-JSON>\' --json, the whole JSON in one argument): it writes stagingPath even before the report is valid and returns the exact repairs; stage the repaired JSON again the same way. A host with a file-edit tool may instead write stagingPath and run stagingProtocol.check.';
+/**
+ * How a report reaches stagingPath: the file, written with the reviewer's file-edit tool and checked, never JSON in a
+ * shell argument, whose quoting broke a real review six times [owner, 2026-11-13].
+ */
+const STAGE_ROUTE = 'Write it with your file-edit tool at exactly stagingPath (stagingProtocol.path), then run stagingProtocol.check; repair that same file in place and check it again. Never type the JSON into a shell argument: its quotes break it.';
 
 export function sourceReviewCheckProgress(input, stagingPath, checked, protocol) {
   const stale = checked.evaluation?.status === 'stale';
@@ -81,13 +84,12 @@ export async function sourceReviewProgress({ input, retained, stagingPath, gitDi
   try { draft = await readSourceReviewDraft(stagingPath, gitDirectory); }
   catch (error) { return { ...base, state: 'read-error', ...(readRecovery ? { nextAction: readRecovery } : {}), error: { code: error.code ?? 'SOURCE_REVIEW_DRAFT_READ_FAILED', message: error.message, path: stagingPath },
     instruction: 'Preserve the existing draft and report this exact read error. Do not replace or recreate the file.' }; }
-  // Every route here runs with a terminal alone: a reviewer with no file-edit tool stages through the
-  // CLI, which writes stagingPath and checks it. "Author the report at stagingPath" stopped one that had
-  // only execute/read/view (Story anu-bin, 2026-11-11).
+  // Every route here names the file-edit tool the reviewer agent declares: "Author the report at stagingPath" with
+  // no such tool stopped one (Story anu-bin, 2026-11-11), and the terminal route broke on shell quoting (2026-11-13).
   if (!draft) return { ...base, state: 'author-report',
     instruction: `Author the independent report now from reportTemplate and the pinned inputs, with "binding": "from-context". ${STAGE_ROUTE} Then retain it with stagingProtocol.retain. An honest correction-required review can be retained; an unwritten report cannot. Do not relay the context command as the next step.` };
   if (draft.error) return { ...base, state: 'repair-report', error: draft.error, nextAction: protocol.check,
-    instruction: `The JSON at stagingPath does not read. Stage the repaired report: ${STAGE_ROUTE} Retain it when valid.` };
+    instruction: `The JSON at stagingPath does not read. Repair the report: ${STAGE_ROUTE} Retain it when valid.` };
   // A draft that leaves the binding to SFlow: this read is the reviewer's own context, so its binding is current.
   const report = draft.report && typeof draft.report === 'object' && !Array.isArray(draft.report)
     && (!Object.hasOwn(draft.report, 'binding') || draft.report.binding === 'from-context') ? { ...draft.report, binding: input.binding } : draft.report;

@@ -1,7 +1,7 @@
 ---
 name: sflow-source-reviewer
 description: Independently reviews an exact Story step (a specification, plan, other document, or code change) against pinned sources, approved clauses and the approved plan.
-tools: ["execute", "read", "bash", "read_bash", "view"]
+tools: ["execute", "read", "bash", "read_bash", "view", "edit"]
 metadata:
   sflow-mode: "read-only-review"
 ---
@@ -101,11 +101,10 @@ Findings use `id`, `severity` (`blocking`/`advisory`) and `message`, not `explan
 Review the whole artifact every time and report every finding in this one review, so the author fixes
 them together; never hold one back for a later generation. Keep `"binding": "from-context"` from
 `reportTemplate`: SFlow fills the binding your context showed, so never retype its hashes.
-Follow `stagingProtocol`. Its `kernelStage` command needs only a terminal: run
-`singularity-flow review-source stage <phase> --report-json '<REPORT-JSON>' --json` with the whole report as
-one argument. It writes the exact Git-private staging file even before the report is valid and returns
-the exact repairs; stage the repaired JSON again the same way. No file-edit tool is needed; a host that
-has one may instead write that file and check it. Read output with native file-read
+Follow `stagingProtocol`: write the whole report as JSON with your file-edit tool at its exact `path`, the
+Git-private staging file, the only file you may write. Never type the report into a shell argument
+(`--report-json`): its quotes break the JSON and the quotes inside cited lines. Repair that same file in
+place. Read output with native file-read
 tools, not shell parsers. No shell writers, mkdir, pipes or chains. A tool-form refusal is not a
 lifecycle blocker: correct the tool form without repeating settled clarification or editing artifacts.
 Run `singularity-flow review-source check <phase> --report-file <stagingPath> --json` before retention. Apply

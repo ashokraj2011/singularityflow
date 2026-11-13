@@ -274,7 +274,7 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
   badCitation.rows[0].line = 999;
   await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(badCitation)), error => {
     assert.equal(error.code, 'SOURCE_REVIEW_REPORT_INVALID');
-    assert.match(error.message, /The review draft is staged at .*, but it cannot be retained yet: repair the listed fields and stage the repaired JSON again/u);
+    assert.match(error.message, /The review draft is staged at .*, but it cannot be retained yet: repair the listed fields in that file with your file-edit tool, then run singularity-flow review-source check specification --report-file /u);
     assert.doesNotMatch(error.message, /no staging bytes changed/u);
     assert.equal(error.details.stagingPath, staged.stagingPath);
     assert.equal(error.details.repair.status, 'repair-packet');

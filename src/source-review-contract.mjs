@@ -169,6 +169,37 @@ export function sourceReviewCitationGuide(input) {
   };
 }
 
+const QUOTE_MARKS = Object.freeze(["'", '"', '`']);
+
+/**
+ * A quote that matches a source line once the quote marks it lacks are taken out of that line: what a shell does to
+ * JSON in a quoted argument (`toBe('10')` reached the check as `toBe(10)` on a real review, four times) [owner,
+ * 2026-11-13]. Returns the first such line, its exact text, the line's own substring the quote stands for, and the
+ * marks lost; null when no line matches that way. Nothing else is taken out: no whitespace, case or wording.
+ */
+function quoteMarksLost(quote, lines) {
+  const marks = QUOTE_MARKS.filter((mark) => !quote.includes(mark));
+  if (!marks.length) return null;
+  const found = [];
+  let first = null;
+  for (let index = 0; index < lines.length && found.length < 10; index++) {
+    const kept = [];
+    let stripped = '';
+    for (let at = 0; at < lines[index].length; at++) {
+      if (marks.includes(lines[index][at])) continue;
+      kept.push(at); stripped += lines[index][at];
+    }
+    const start = stripped.indexOf(quote);
+    if (start < 0) continue;
+    const text = lines[index];
+    const recovered = text.slice(kept[start], kept[start + quote.length - 1] + 1);
+    if (recovered === quote) continue;
+    found.push(index + 1);
+    first ??= { text, quote: recovered, marks: marks.filter((mark) => recovered.includes(mark)) };
+  }
+  return first && first.marks.length ? { ...first, lines: found } : null;
+}
+
 /** Bounded proposals bound to the already checked input/report; no bytes or assessments change. */
 export function sourceReviewRepairGuide(report, input, checked) {
   if (checked.evaluation?.status === 'stale') return {
@@ -194,13 +225,16 @@ export function sourceReviewRepairGuide(report, input, checked) {
       }
     }
     const current = Number.isSafeInteger(row?.line) ? lines[row.line - 1] : undefined;
+    const lost = validQuote && matchCount === 0 ? quoteMarksLost(quote, lines) : null;
     return { field: entry.field, sourceId: source.id, textSha256: checked.evaluation.binding.sources.find(bound => bound.id === source.id).textSha256,
-      matchCount, matchingLines: matches,
+      matchCount, matchingLines: lost ? lost.lines : matches,
       ...(matchCount === 1 ? { proposedEdit: { field: `${entry.field}.line`, value: matches[0] },
         instruction: 'The unchanged quote occurs on one exact pinned source line. Verify it, change only this line field, then check the changed packet.' }
+        : lost ? { quoteMarksLost: true, lineText: lost.text.slice(0, 1024), recoveredQuote: lost.quote.slice(0, 1024),
+          instruction: `The quote arrived without the quote marks its line holds (${lost.marks.join(' ')}): a shell argument removes them. Copy recoveredQuote, the exact text of line ${lost.lines[0]}, into this quote${lost.lines[0] === row?.line ? '' : ` and set its line to ${lost.lines[0]}`}, writing the file at stagingPath with your file-edit tool, never inline JSON.` }
         : { instruction: matchCount > 1
           ? 'The quote occurs on multiple lines. Independently select the supporting line; no automatic choice is safe.'
-          : 'No exact single-line match. Read the pinned source and independently recite it; no paraphrase or fuzzy replacement is allowed.' }),
+          : `No exact single-line match. Read the pinned source and independently recite it${current !== undefined ? '; suppliedLineText is the cited line as it reads' : ''}; no paraphrase or fuzzy replacement is allowed.` }),
       ...(current !== undefined ? { suppliedLineText: current.slice(0, 1024), suppliedLineTruncated: current.length > 1024 } : {}) };
   });
   // A source written as its path: the exact ID (Story anu-bin, 2026-11-11).
@@ -222,7 +256,7 @@ export function sourceReviewRepairGuide(report, input, checked) {
       ? mappingTasks.length
         ? 'Independently resolve the listed missing mappings now: add genuinely supported rows and recheck changed bytes within the repair budget, or retain already-reviewed genuine gaps with blocking findings. Never invent coverage or require an author successor for a reviewer mapping omission. Retention is not approval.'
         : 'Retain this valid packet, including honest semantic gaps. Correction-required is not a packet failure or approval; the retained review routes real gaps to the author.'
-      : `${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment (or write "binding": "from-context" and SFlow fills it from your context). ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}${repairs.length ? 'Set each repairs field to its proposedEdit value, or to one of its allowed values. ' : ''}Repair this private packet in the same review turn: stage the repaired JSON again with stagingProtocol.kernelStage (or edit stagingPath and check it). At most two changed-packet repair attempts; never retry unchanged bytes. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
+      : `${binding.length ? 'Copy each binding proposedEdit value exactly; the inputs did not change, so keep every judgment (or write "binding": "from-context" and SFlow fills it from your context). ' : ''}${sourceIds.length ? 'Replace each sourceIds field with its proposedEdit value, an ID from sources[].id. ' : ''}${repairs.length ? 'Set each repairs field to its proposedEdit value, or to one of its allowed values. ' : ''}Repair this private packet in the same review turn: edit the file at stagingPath with your file-edit tool, then run stagingProtocol.check. At most two changed-packet repair attempts; never retry unchanged bytes. Preserve ${binding.length ? '' : 'binding, '}sources, judgments and human decisions.`,
     ...(binding.length ? { binding } : {}), ...(sourceIds.length ? { sourceIds } : {}), ...(repairs.length ? { repairs } : {}), citations, omittedCitations: Math.max(0, candidates.length - citations.length),
     mappingTasks: mappingTasks.slice(0, 25), omittedMappingTasks: Math.max(0, mappingTasks.length - 25),
     mappingRule: 'Add a covered row only when the pinned source genuinely supports the scenario/clause, reconciling pinned answers. Otherwise retain a blocking finding; an unmapped scenario alone does not prevent retention. Never mark a gap supported to pass.' };

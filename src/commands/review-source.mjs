@@ -13,7 +13,7 @@ import { sourceReviewContext, readSourceReviewStatus, sourceReviewInput, checkSo
 import { sourceReviewContextText } from '../source-review-context-display.mjs';
 import { sourceReviewStagingProtocol } from '../source-review-staging.mjs';
 import { commandRouteLines, safeCommandGuidance } from '../safe-command-guidance.mjs';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, readFile, rm } from 'node:fs/promises';
 import { loadSession } from '../session.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
@@ -22,6 +22,24 @@ import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withFreshSourceReviewSnapshot } from '../source-review-snapshot.mjs';
 import { measureCommandSpan } from '../dx-timing-context.mjs';
 import { sourceReviewCheckProgress, sourceReviewProgress } from '../source-review-progress.mjs';
+
+/**
+ * No retained review, but a draft staged for this generation: the review is incomplete, not missing, with its reason
+ * and the way to finish it [owner, 2026-11-13]. "No independent source-grounded review report exists" after six staged
+ * packets read as if no review had happened, and the author's turn opened generation 2 with a reason of its own.
+ */
+async function withIncompleteReview(status, stagingPath) {
+  if (status.reportSha256 || status.status !== 'missing' || !await lstat(stagingPath).then((entry) => entry.isFile(), () => false)) return status;
+  const record = await (await import('../source-review-staging.mjs')).readSourceReviewIncomplete(stagingPath);
+  const reason = record?.reason ?? 'its draft has not passed a check yet';
+  const finish = `Finish the staged review in a fresh review turn: it resumes the draft at ${stagingPath} with a new repair budget, then retains it. What the step must correct is the review's to record, as a blocking finding; its retained review is the reason the next generation opens.`;
+  return { ...status, status: 'incomplete',
+    incomplete: { recorded: true, stagingPath, reason, ...(record ? { budgetSpent: record.budgetSpent === true, at: record.at, findings: record.findings } : {}) },
+    findings: [{ code: 'review-incomplete', message: `A review of generation ${status.generation} is staged but not retained: ${reason}.` },
+      ...status.findings.filter((entry) => entry.code !== 'review-missing')],
+    ...(status.continuation ? { continuation: { ...status.continuation, classification: 'source-review-incomplete',
+      actions: (status.continuation.actions ?? []).map((entry, index) => (index ? entry : { ...entry, reason: finish })) } } : {}) };
+}
 
 /** The folder a report is kept in: its file name is its digest, which a person never reads. */
 const reportFolder = (relative) => String(relative ?? '').replace(/[^/\\]*$/u, '') || 'the Story';
@@ -95,7 +113,7 @@ export async function reviewSourceCommand(positionals, options) {
     }), false, packet);
   }
   if (action === 'status') {
-    const status = await readSourceReviewStatus(root, config, workflow, phaseId);
+    const status = await withIncompleteReview(await readSourceReviewStatus(root, config, workflow, phaseId), stagingPath);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
     console.log(`Source review: ${status.status} for ${status.workId} ${phaseId} generation ${status.generation}`);
     // The report's file is named by its digest: a person reads where it is kept (owner, 2026-11-11: no hash shown).
@@ -130,8 +148,8 @@ export async function reviewSourceCommand(positionals, options) {
     }
     const input = await sourceReviewInput(root, config, workflow, phaseId);
     const stagingEntry = await lstat(stagingPath).catch(() => null);
-    // Nothing staged yet: say so, and how, rather than a file-format refusal (a reviewer with no edit tool stages through the CLI).
-    if (!stagingEntry) throw new SingularityFlowError(`Nothing is staged at ${stagingPath} yet. Stage the report first: singularity-flow review-source stage ${phaseId} --report-json '<REPORT-JSON>' --json; nothing was retained.`, {
+    // Nothing staged yet: say so, and how, rather than a file-format refusal: the file, never JSON in a shell argument.
+    if (!stagingEntry) throw new SingularityFlowError(`Nothing is staged at ${stagingPath} yet. Write the whole report with your file-edit tool at that exact path, then run this again; nothing was retained.`, {
       code: 'SOURCE_REVIEW_REPORT_NOT_STAGED', details: { stagingPath }
     });
     if (!stagingEntry.isFile() || stagingEntry.size > 8 * 1024 * 1024) {
@@ -148,6 +166,11 @@ export async function reviewSourceCommand(positionals, options) {
     if (action === 'check') {
       const checked = checkSourceReviewReport(report, input);
       const protocol = sourceReviewStagingProtocol(phaseId, stagingPath);
+      // Each packet that cannot be retained is noted beside the draft, so the review is never silently dropped [owner, 2026-11-13].
+      const staging = await import('../source-review-staging.mjs');
+      const noted = checked.evaluation?.status === 'stale' ? null : await staging.noteSourceReviewAttempt(root, stagingPath, { phaseId, generation: phase.generation,
+        checked, reportSha256: (await import('../records.mjs')).recordSha256(report) }).catch(() => null);
+      const incomplete = staging.sourceReviewBudgetSpent(phaseId, stagingPath, noted);
       const progress = sourceReviewCheckProgress(input, stagingPath, checked, protocol);
       const { observeWorkflowTaskCheck } = await import('../workflow-task-store.mjs');
       await observeWorkflowTaskCheck(root, workflow, phase, { ...checked, generation: phase.generation,
@@ -163,14 +186,14 @@ export async function reviewSourceCommand(positionals, options) {
         workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
         status: checked.format.status !== 'ready' ? checked.format.status : checked.evaluation.status,
         ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])],
-        stagingPath, stagingProtocol: protocol, progress,
+        stagingPath, stagingProtocol: protocol, progress, ...(incomplete ? { incomplete } : {}),
         continuation: { automaticAdvance: false,
           nextAction: { ...guidance, reason: checked.repair.instruction },
           actions: [{ ...guidance, reason: checked.repair.instruction }] } };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(`Source review check: ${result.status}; format ${result.format.status}; retention ${result.retentionReady ? 'ready' : 'blocked'} (no changes).`);
       for (const finding of result.findings) console.log(`- ${finding.field ?? finding.code}: ${finding.message}`);
-      console.log(result.repair.instruction);
+      console.log(incomplete?.instruction ?? result.repair.instruction);
       for (const citation of result.repair.citations) console.log(`- ${citation.field}: ${citation.instruction}${citation.proposedEdit ? ` ${citation.proposedEdit.field} = ${citation.proposedEdit.value}` : ''}`);
       console.log(commandRouteLines(commandGuidance).join('\n'));
       return emitReview('check', noop('source-review.checked', {
@@ -203,6 +226,7 @@ export async function reviewSourceCommand(positionals, options) {
       state: 'complete', checkpoint: 'retained-review', fingerprint: status.reportSha256,
       inputSha256: (await import('../records.mjs')).recordSha256(input.binding)
     }, { role: 'source-reviewer', generation: phase.generation });
+    await rm((await import('../source-review-staging.mjs')).sourceReviewIncompletePath(stagingPath), { force: true }).catch(() => {});
     const progress = await sourceReviewProgress({ input, retained: status, stagingPath });
     await (await import('../copilot-mutation-guard.mjs')).recordSourceReviewProgress(root,
       { workId: workflow.workItem.id, phaseId, generation: phase.generation, ...progress });

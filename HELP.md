@@ -4028,7 +4028,8 @@ singularity-flow decision show [WORK-ID] [--json]
 singularity-flow decision choose [WORK-ID] [--fetch] (--option ID | --to PHASE|end) --reason TEXT [--expected KEY]
 singularity-flow decision applicability [WORK-ID] [--fetch] --responsibility scope|plan|implement|verify|review --reason TEXT
 singularity-flow review-source context|status <specification|planning> [--json]
-singularity-flow review-source stage <phase> --report-json '<completed-report-json>' --json
+# The reviewer writes its report JSON with a file-edit tool at the staging file review-source context returns, then checks it.
+singularity-flow review-source check <phase> --report-file GIT-PRIVATE-FILE --for-agent --json
 singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
 singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
 singularity-flow decisions [WORK-ID] [--phase PHASE] [--json]

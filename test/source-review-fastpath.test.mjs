@@ -56,7 +56,9 @@ test('review readers cannot statically pull in phase authoring or lifecycle publ
   // 271 measured 2026-11-06: plan accounts and the step sheet's reads, all reads. The forbidden writers above stay out.
   // 275: text-lines.mjs (an import-free leaf, already in every bundle that reads reviews) joined: a review's exact
   // repairs for copied IDs and hashes [Story anu-bin, 2026-11-11]; a80820a11 measures 274. The writers above stay out.
-  assert.ok(visited.size < 276, `review read closure grew to ${visited.size} local modules`);
+  // 277: main d64c2a9ef already measured 276 against < 276; intent-amendment-pause.mjs (on phase-roles.mjs only) joins through
+  // the governance routing a review reads, so a review shows that the step waits for its amendment [owner, 2026-11-13].
+  assert.ok(visited.size < 278, `review read closure grew to ${visited.size} local modules`);
 });
 
 test('only exact read forms share a review command scope; writers and override flags never do', () => {

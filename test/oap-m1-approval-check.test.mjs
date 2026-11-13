@@ -102,11 +102,7 @@ const UNCLASSIFIED_STAGE_CODES = Object.freeze([
   'SUBPROCESS_OUTPUT_TOO_LARGE', 'SUBPROCESS_TIMEOUT', 'SUBPROCESS_UNAVAILABLE', 'SYMLINK_DELIVERY_FORBIDDEN', 'TRP_RISK_ADAPTER_UNAVAILABLE',
   'WORKFLOW_CONVERGENCE_MULTIPLE_UNSUPPORTED', 'WORKFLOW_DECISION_INVALID', 'WORKFLOW_TEMPLATE_NOT_INSTALLED', 'WORKING_DIRECTORY_MISSING',
   'WORK_INTERVAL_AMENDMENT_INVALID', 'WORK_PENDING_SUBJECT_KEY_REQUIRED', 'WORK_RECONCILIATION_BINDING_MISMATCH', 'WORK_RECONCILIATION_HASH_MISMATCH',
-  'WORK_RECONCILIATION_INVALID', 'WORK_RECONCILIATION_TARGET_DRIFT',
-  // Raised by the governance stage only for a step in progress, so no approval meets it; its owner (a person
-  // decides the amendment on the card: 'someone-decides') joins APPROVAL_HOLD_OWNERS with the decisions card
-  // work in approval-check.mjs, which then drops it from this pin [owner, 2026-11-13].
-  'INTENT_AMENDMENT_PENDING_PAUSE'
+  'WORK_RECONCILIATION_INVALID', 'WORK_RECONCILIATION_TARGET_DRIFT'
 ]);
 
 test('the transitive guard: a code a stage\'s module can raise has an owner, or is pinned as unknown', async () => {

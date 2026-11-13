@@ -193,7 +193,9 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
   // 66: person-step-catalog.mjs, data with no import, is the one list of a person's steps the guard reads.
   // 67: confirm-code.mjs, on Node built-ins only: the guard admits `confirm <CODE>` only as it admits the command the
   // code stands for, so it reads the code's command where the call is checked [owner, 2026-11-12].
-  assert.ok(closure.size <= 67, `the edit guard loads ${closure.size} static modules; ceiling is 67`);
+  // 68: intent-amendment-pause.mjs, on phase-roles.mjs only (already here): the guard pauses the step an undecided
+  // intent amendment was proposed from, so its proposal stays bound to that step [owner, 2026-11-13].
+  assert.ok(closure.size <= 68, `the edit guard loads ${closure.size} static modules; ceiling is 68`);
 });
 
 test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {

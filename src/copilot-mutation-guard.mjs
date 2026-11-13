@@ -919,7 +919,7 @@ function pausedStepCommand(positionals, options, contract) {
   const named = (step) => !step || step === pause.phaseId;
   if (['prepare', 'submit'].includes(command)) return named(sub) && options['dry-run'] !== true;
   return command === 'phase' && named(third) && (['publish', 'begin'].includes(sub)
-    || (sub === 'prepublish' && options['publish-if-ready'] === true) || (sub === 'rollover' && options.confirm !== undefined));
+    || (sub === 'prepublish' && options['publish-if-ready'] === true) || (sub === 'rollover' && Object.hasOwn(options, 'confirm')));
 }
 function pausedStepCall(call, value) {
   const safe = verifiedShellForm(call, value);

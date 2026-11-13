@@ -283,7 +283,7 @@ P3 MUST deliver the allowlisted acceptance runner, precondition adapters, result
 
 P4 MUST deliver clause selectors, prompt audit records, token measurements, `CR-nnn` clause scopes, and targeted regeneration integrity. [SDS:REQ-143]
 
-P5 MAY deliver dependency-cone invalidation after the earlier phases are stable, but it MUST use a deliberate schema break with factory reset and fresh Stories rather than a migration framework that this development line does not have. [SDS:REQ-144]
+P5 MAY deliver dependency-cone invalidation after the earlier phases are stable, as the additive records of [SPEC-CIC](SPEC-CIC-CHANGE-IMPACT-CONE-v1.1.md): `scope-revision/v2` beside v1 and per-generation dependency records, with no factory reset and no migration that rewrites an earlier record; a Story pinned before it is enabled keeps its behaviour. Amended 2026-11-13 (SPEC-CIC owner decision D3); it previously required a deliberate schema break with factory reset and fresh Stories. [SDS:REQ-144]
 
 P1 is estimated at three to five focused engineering days, P2 at one to two weeks, P3 at one week, P4 at one to two weeks, and P5 at one to two weeks. [SDS:CON-051]
 

@@ -65,6 +65,7 @@ Use these for Story creation, phase generation, approvals, rollback, and landing
 | [Spec Studio S0 inventory](SPEC-STUDIO-S0-INVENTORY.md) | What the library builds on, and the plan corrections it found |
 | [Governed work intervals](GOVERNED-WORK-INTERVALS.md) | Handling developer edits during governed work |
 | [Classic Delivery review and rework](CLASSIC-DELIVERY-REVIEW-AND-REWORK.md) | Using Code test receipts, optional feedback attachments, and explicit reject-to-Code rework without claiming REV execution |
+| [Change impact cone (SPEC-CIC v1.1)](SPEC-CIC-CHANGE-IMPACT-CONE-v1.1.md) | What a clause change reaches: the exact effect of an intent amendment before it is decided, fail-closed staleness, and the step it reopens; owner decisions D1 to D4 |
 | [Spec → Code → Playwright testing review](SPEC-CODE-TEST-LOOP.md) | Running a specification-first, reviewer-directed Code/Test cycle with versioned intent amendments and browser evidence |
 | [Bounded Story workflow rework loops](WORKFLOW-REWORK-LOOPS.md) | Authoring reviewer-directed backward phase edges, attempt budgets, and safe replay of downstream evidence |
 | [Governed execution](GOVERNED-EXECUTION.md) | Action plans, execution receipts, and recoverable mutations |

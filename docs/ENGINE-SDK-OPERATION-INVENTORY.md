@@ -43,3 +43,8 @@ native bindings and 76 namespace bindings before optional check/repair execution
 accepted evidence and original human receipts; it grants no local-source, terminal or approval
 assurance. Separate command-observation and explicit retained-only execution bindings preserve
 the original check profiles. See [the evidence/execution record](ENGINE-SDK-EVIDENCE-AND-COMMANDS.md).
+
+The separate [native entry-point audit](ENGINE-SDK-NATIVE-ENTRY-INVENTORY.md) now covers every
+canonical command, alias and command source module, their bounded literal import closures and
+the reviewed ownership of unresolved dynamic imports. It preserves the distinction between
+source observations, registered bindings and actually executed compatibility qualification.

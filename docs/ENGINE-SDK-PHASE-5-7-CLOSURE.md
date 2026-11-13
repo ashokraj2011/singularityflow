@@ -7,7 +7,7 @@ obsolete-access removal and final distribution remain separate.
 
 ## Phase 5: shared operation and rule owners
 
-- [ ] Audit the public operation inventory against native lifecycle and query entry points.
+- [x] Audit the public operation inventory against native lifecycle and query entry points.
 - [ ] Finish remaining lifecycle queries and native policy extraction with compatibility tests.
 - [ ] Connect human scope, plan, applicability, witness, evidence and test decisions to namespace
   transactions, preserving each domain's real authority and confirmation contract.
@@ -123,6 +123,8 @@ preserving machine rules, immutable publications and independent approval. Three
 custom phases, expiry/renewal, interruption and offline shared-only replay are qualified separately.
 
 - The remaining native query/rule inventory and parity audit.
+  The source inventory is now complete as described in the native entry-point audit below;
+  the remaining runtime query/rule extraction and behavior parity stay separate.
 - Artifact-only/repository-qualified evidence correction,
   late-publication plan revalidation and obligation/evidence/test decisions,
   plus live application-review and witness-exception profiles.
@@ -330,3 +332,14 @@ CLI's fourteen captured evidence cases. The unchanged 34-check package qualifier
 VS Code types, the unchanged Git audit and all thirteen original bundle ceilings pass. The initial
 853-module gateway was rejected and corrected through direct pure-leaf imports; its final count
 is 851/852. No Windows, live provider, installation mutation or main merge ran.
+
+## Native entry-point ownership audit
+
+The bounded development source audit covers all 157 commands, 194 command modules and their
+1,507-module literal dependency graph, while preserving original aliases and source hashes.
+All 27 dynamic import sites have explicitly reviewed component responsibilities and remain
+visible as unresolved expressions. The report joins the real registry binding inventory without
+executing a handler or treating syntax observations as qualification or authority. Seven Mac
+adversarial/real-checkout cases pass. See [the audit record](ENGINE-SDK-NATIVE-ENTRY-INVENTORY.md).
+This closes the inventory item only; remaining policy owners, runtime parity, execution journeys
+and production cutover keep their own open items.

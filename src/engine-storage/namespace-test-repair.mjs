@@ -20,10 +20,13 @@ export function createNamespaceTestRepairPort(options,runtime,executeOperation){
   const {records,content,scope,workId,access,clock,repairs,sources=[]}=options,observer=createNamespaceStoryObserver(options),
     reader=createNamespaceTestRepairReader({observer,scope,workId}),{codec}=reader,contexts=new WeakMap(),
     hash=codec.digest,units=new Map(),sourceUnits=new Map(),transact=records.transact.bind(records),put=content.put.bind(content);
-  if(!repairs||!Array.isArray(repairs.bindings)||repairs.bindings.length>128)throw error('Bind explicit test-repair execution units.','ENGINE_INPUT_INVALID');
+  const retainedOnly=repairs?.mode==='retained-only',bindings=retainedOnly?[]:repairs?.bindings;
+  if(repairs?.mode!==undefined&&(!retainedOnly||Object.keys(repairs).some(key=>key!=='mode')))throw error('Use explicit repair units or an effect-free retained-only binding.','ENGINE_INPUT_INVALID');
+  if(!Array.isArray(bindings)||bindings.length>128)throw error('Bind explicit test-repair execution units.','ENGINE_INPUT_INVALID');
+  if(retainedOnly)runtime=null;
   const history=createNamespaceSgosOperationalStore({records,content,scope,storeId:'test-repair-'+hash(codec.binding).slice(0,48)});
   for(const source of sources){validateSourceUnit(source);sourceUnits.set(source.descriptor.repositoryId,source);}
-  for(const binding of repairs.bindings){if(units.has(binding.phaseId))throw error('Bind one repair executor per phase.','ENGINE_INPUT_INVALID');
+  for(const binding of bindings){if(units.has(binding.phaseId))throw error('Bind one repair executor per phase.','ENGINE_INPUT_INVALID');
     const unit=captureExecutionUnit(binding.unit),manifest=validateExecutionUnitManifest(unit.descriptor());
     if(manifest.toolPolicy.profile!==TEST_REPAIR_EXECUTION_PROFILE||manifest.toolPolicy.projectId!==scope.projectId||manifest.toolPolicy.phaseId!==binding.phaseId
       ||!manifest.capabilities.writeFiles||manifest.sandbox.enforcement!=='task-scope'||manifest.network.mode!=='deny')
@@ -53,6 +56,7 @@ export function createNamespaceTestRepairPort(options,runtime,executeOperation){
     async retained(context,_input,{signal}={}){const s=state(context),found=await reader.accepted(s.input,{signal});if(!found)return null;
       await authorize(signal,found.plan.actor);return {...found,replayed:true};},
     async prepare(context,_input,{signal}={}){
+      if(retainedOnly)throw error('This repair adapter replays retained results only. Bind actual execution for a new repair.','ENGINE_PORT_UNAVAILABLE',{required:['test-repair-executor'],mode:'retained-only'});
       const s=state(context);if(!runtime)throw error('New repair execution needs its preserved local authoring draft.','ENGINE_PORT_UNAVAILABLE',{required:['machine-local-working-store']});
       const token=await runtime.captureDraft(s.input.phaseId,{signal});s.admission=await runtime.admitDraft(token,'phase.repair.run',{signal});
       const facts=runtime.draftFacts(s.admission),current=await observer.capture({signal}),bound=units.get(s.input.phaseId);

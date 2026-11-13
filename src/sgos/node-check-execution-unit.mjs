@@ -13,8 +13,8 @@ import {createFilesystemSourceUnit} from './filesystem-source-unit.mjs';
 import {createExecutionUnitManifest,createExecutionUnitAdapter,executionUnitSha256,
   assertPinnedExecutionExecutable,executePinnedProcess,untilExecutionStopped} from './node-execution-unit.mjs';
 
-import {NODE_CHECK_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
-export {NODE_CHECK_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
+import {NODE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
+export {NODE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
 const MAXIMUM_BYTES=EXECUTION_UNIT_LIMITS.maximumOutputBytes;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fingerprint=info=>[info.dev,info.ino,info.mode,info.size,info.mtimeNs,info.ctimeNs].map(String).join(':');
@@ -39,6 +39,16 @@ async function boundedIO(work,signal,timeoutMs,stage) {
 
 /** The host selects actual command, checkout, environment and report destinations before task admission. */
 export async function createNodeCheckExecutionUnit(options={}) {
+  return localCheckExecutionUnit(options,{profile:NODE_CHECK_EXECUTION_PROFILE});
+}
+/** Compile/lint/security observations retain exit, output and source facts; they never parse tests. */
+export async function createNodeCommandExecutionUnit(options={}){
+  if(!options||typeof options!=='object'||Object.hasOwn(options,'report'))throw error('Command checks do not accept a test report selection.');
+  const {commandKind,...binding}=options,selected=localCheckExecutionProfile({profile:NODE_COMMAND_EXECUTION_PROFILE,commandKind});
+  return localCheckExecutionUnit({...binding,report:{adapter:null,files:[]}},{profile:selected.format,commandKind});
+}
+async function localCheckExecutionUnit(options,execution){
+  const selected=localCheckExecutionProfile(execution);
   const allowed=['id','version','projectId','repositoryId','root','command','report','source','timeoutMs','content','authorizeCommand'];
   if(!options||typeof options!=='object'||Object.keys(options).some(key=>!allowed.includes(key)))throw error('The check binding contains unknown fields.');
   const {id,version='1.0.0',projectId,repositoryId,root,content,authorizeCommand}=options;
@@ -54,7 +64,8 @@ export async function createNodeCheckExecutionUnit(options={}) {
   command.environment=data(command.environment??{},Object.keys(command.environment??{}),'Check environment');
   if(Object.entries(command.environment).some(([key,value])=>!key||key.includes('=')||key.includes('\0')||typeof value!=='string'||value.includes('\0')))
     throw error('The exact check environment must contain string values and valid names.');
-  if(typeof report.adapter!=='string'||!report.adapter||!Array.isArray(report.files)||report.files.length>1000)
+  if((selected.testReport?typeof report.adapter!=='string'||!report.adapter:report.adapter!==null||report.files?.length!==0)
+    ||!Array.isArray(report.files)||report.files.length>1000)
     throw error('Select an explicit report adapter and bounded files, or an empty list for stdout.');
   report.files=report.files.map(sourceRelativePath);
   if(new Set(report.files).size!==report.files.length)throw error('Report paths must be distinct.');
@@ -67,13 +78,13 @@ export async function createNodeCheckExecutionUnit(options={}) {
   const exclusions=[...new Set([...(selection.excludePaths??[]),...report.files])].map(sourceRelativePath);
   const excludePaths=exclusions.filter(file=>!exclusions.some(parent=>parent!==file&&file.startsWith(parent+'/')));
   const source=await createFilesystemSourceUnit({root:physical,id:id+'-source',projectId,repositoryId,excludePaths,limits:selection.limits??{}});
-  const policy={profile:NODE_CHECK_EXECUTION_PROFILE,repository:source.descriptor,timeoutMs,
+  const policy={...execution,repository:source.descriptor,timeoutMs,
     command:{executableSha256:command.executableSha256,argumentsSha256:executionUnitSha256(command.arguments),
       environmentSha256:executionUnitSha256(command.environment),environmentNames:Object.keys(command.environment).sort()},report};
   const manifest=createExecutionUnitManifest({id,version,publisher:'singularity-flow',provider:'authorized-local-check',models:[],
     capabilities:{readFiles:true,writeFiles:true,process:true},sandbox:{kind:'host-local',enforcement:'none'},
     network:{mode:'host-unrestricted'},toolPolicy:policy,risk:{class:'host-authorized-process'},
-    tests:{conformanceReceiptSha256:executionUnitSha256(NODE_CHECK_EXECUTION_PROFILE)}});
+    tests:{conformanceReceiptSha256:executionUnitSha256(execution.profile)}});
   const codec=createNodeTestReportCodec();
   async function retain(bytes,signal,deadline) {
     signal.throwIfAborted();const expected={namespace:'runtime',sha256:hash(bytes),bytes:bytes.byteLength};
@@ -136,12 +147,12 @@ export async function createNodeCheckExecutionUnit(options={}) {
         reports.push({contents:result.bytes});
       }catch(cause){signal.throwIfAborted();diagnostics.push({stage:'report',path:file,...diagnostic(cause)});}
     }
-    if(!diagnostics.some(value=>value.stage==='report'))try{
+    if(selected.testReport&&!diagnostics.some(value=>value.stage==='report'))try{
       await codec.prepareTestReportReader(report.adapter);parsed=codec.replayTestReports(report.adapter,reports);
     }catch(cause){diagnostics.push({stage:'report-parse',...diagnostic(cause)});}
     const beforeContent=await retain(Buffer.from(canonicalJson(before.snapshot)),signal,deadline);
     const afterContent=after?await retain(Buffer.from(canonicalJson(after.snapshot)),signal,deadline):null;
-    return {output:{schemaVersion:1,format:NODE_CHECK_EXECUTION_PROFILE,assurance:'authorized-local-process',
+    return {output:{schemaVersion:1,format:execution.profile,assurance:'authorized-local-process',
       manifestSha256:manifest.manifestSha256,contractSha256:contract.contractSha256,command:policy.command,
       process:{status:processResult.status,signal:processResult.signal,timedOut:processResult.timedOut,overflow:processResult.overflow,closed:true},
       stdout,stderr,source:{before:{revision:before.revision,content:beforeContent},

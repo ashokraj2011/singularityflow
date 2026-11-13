@@ -2,10 +2,10 @@
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,namespacePhaseCheckPlanProfile} from '../foundation/record-schema.mjs';
-import {NODE_CHECK_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
+import {localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
-import {qualityValidationVerdict,observedPhaseCheck} from '../kernel/phase-checks.mjs';
+import {qualityValidationVerdict,observedPhaseCheck,observedCommandCheck} from '../kernel/phase-checks.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {normalizeExternalCommand} from '../engine-compatibility/node-configuration-path.mjs';
 import {createNodeTestReportCodec} from '../verification/test-report-reader.mjs';
@@ -17,7 +17,7 @@ import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceStoryObserver,memoNamespaceObservedEvidence} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
-import {createNamespacePhaseCheckCodec,phaseCheckRecord,phaseCheckRecordValue,phaseCheckEvidenceBinding,NAMESPACE_PHASE_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
+import {createNamespacePhaseCheckCodec,phaseCheckRecord,phaseCheckRecordValue,phaseCheckEvidenceBinding,NAMESPACE_PHASE_CHECK_PROFILE,NAMESPACE_MIXED_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code='ENGINE_INPUT_INVALID',details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -56,6 +56,7 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
       const current=await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(snapshot,{signal});
       if(!same(plan.recovery,{profile:'sflow-namespace-test-recovery-check/v1',agreementSha256:current.agreement.contextSha256,agreements:current.references}))throw error('The check intent changed its confirmed recovery agreement.','ENGINE_STORAGE_CORRUPT');
     }else if(snapshot.workflow.resolution.testRecovery?.enabled)throw error('The check intent needs its original recovery agreement.','ENGINE_STORAGE_CORRUPT');
+    if(Boolean(namespacePhaseCheckPlanProfile(plan).mixed)!==commands.some(command=>command.kind!=='test'))throw error('The check plan changed its command observation profile.','ENGINE_STORAGE_CORRUPT');
     const repositories=basis.state.workflow.sourceBindings?.current?.repositories??[];
     if(commands.length*repositories.length!==plan.steps.length||plan.sources.length!==repositories.length
       ||plan.sources.some((item,index)=>item.id!==repositories[index].id||!same(item.descriptor,repositories[index].descriptor)))
@@ -81,14 +82,16 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
         ||result.quiescence?.handleSha256!==result.handle.handleSha256||result.quiescence.quiescent!==true)throw error('A retained check has another task or quiescence binding.','ENGINE_STORAGE_CORRUPT');
       if(result.failure){if(result.candidate!==null)throw error('A failed check cannot also contain a candidate.','ENGINE_STORAGE_CORRUPT');
         checks.push({id:step.command.id,repositoryId:step.repositoryId,requirement:step.command.requirement,status:'unavailable',tests:null,diagnostics:[result.failure]});continue;}
-      const candidate=result.candidate,out=candidate?.output;
+      const candidate=result.candidate,out=candidate?.output,execution=localCheckExecutionProfile(step.manifest.toolPolicy);
+      if(execution.testReport!==(step.command.kind==='test')||!execution.testReport&&execution.commandKind!==step.command.kind)throw error('The check result changed its pinned command kind.','ENGINE_STORAGE_CORRUPT');
       if(candidate.kind!=='candidate-result'||candidate.contractSha256!==step.contract.contractSha256
         ||candidate.executionUnitManifestSha256!==step.manifest.manifestSha256||candidate.outputSha256!==digest(out)
-        ||candidate.eventHeadSha256!==result.quiescence.eventHeadSha256||out?.format!==NODE_CHECK_EXECUTION_PROFILE
+        ||candidate.eventHeadSha256!==result.quiescence.eventHeadSha256||out?.format!==execution.format
         ||out.contractSha256!==step.contract.contractSha256||out.manifestSha256!==step.manifest.manifestSha256
-        ||!same(out.command,step.manifest.toolPolicy.command)||out.reports?.adapter!==step.command.result.adapter
+        ||!same(out.command,step.manifest.toolPolicy.command)||out.reports?.adapter!==(step.command.result?.adapter??null)
         ||!Array.isArray(out.diagnostics))throw error('A retained candidate differs from its pinned check task.','ENGINE_STORAGE_CORRUPT');
       await observer.bytes(out.stdout,out.stdout.bytes,signal);await observer.bytes(out.stderr,out.stderr.bytes,signal);
+      if(!execution.testReport&&(out.reports.parsed!==null||out.reports.raw?.length!==1||out.reports.raw[0].path!==null||!same(out.reports.raw[0].content,out.stdout)))throw error('A command observation cannot claim parsed test evidence.','ENGINE_STORAGE_CORRUPT');
       let parsed=null;const raw=[];
       for(const report of out.reports.raw)raw.push({contents:await observer.bytes(report.content,report.content.bytes,signal)});
       if(out.reports.parsed!==null){await parser.prepareTestReportReader(out.reports.adapter);parsed=parser.replayTestReports(out.reports.adapter,raw);
@@ -102,7 +105,7 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
         throw error('The check source digest differs from its retained bytes.','ENGINE_STORAGE_CORRUPT');
       const expected=plan.sources.find(item=>item.id===step.repositoryId),original=await snapshot(expected.content,expected.descriptor,signal);
       const sourceMatched=Boolean(after)&&same(sourceValue(before),sourceValue(after))&&same(sourceValue(before),sourceValue(original));
-      checks.push({...observedPhaseCheck(step.command,{process:out.process,tests:parsed?.tests??null,diagnostics:out.diagnostics,sourceMatched}),repositoryId:step.repositoryId});
+      checks.push({...((execution.testReport?observedPhaseCheck:observedCommandCheck)(step.command,{process:out.process,tests:parsed?.tests??null,diagnostics:out.diagnostics,sourceMatched})),repositoryId:step.repositoryId});
     }
     return checks;
   }

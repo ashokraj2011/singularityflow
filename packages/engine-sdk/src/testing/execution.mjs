@@ -1,2 +1,2 @@
 /** Explicit local check execution; callers select a checkout, pinned command and evidence store. */
-export {createNodeCheckExecutionUnit,NODE_CHECK_EXECUTION_PROFILE} from '../../../../src/sgos/node-check-execution-unit.mjs';
+export {createNodeCheckExecutionUnit,createNodeCommandExecutionUnit,NODE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE} from '../../../../src/sgos/node-check-execution-unit.mjs';

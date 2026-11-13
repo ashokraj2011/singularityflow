@@ -9,6 +9,7 @@ import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceLifecycleStoryKey} from './namespace-lifecycle-codec.mjs';
 import {LIFECYCLE_AUTHORITY_KEY} from './namespace-lifecycle-contract.mjs';
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
+export const NAMESPACE_MIXED_CHECK_PROFILE='sflow-namespace-mixed-checks/v1';
 export const NAMESPACE_PHASE_CHECK_PROFILE='sflow-namespace-phase-checks/v1';
 const formats=Object.freeze(Object.fromEntries(Object.keys(NAMESPACE_PHASE_CHECK_SCHEMAS).map(kind=>[kind,'sflow-namespace-phase-check-'+kind+'/v1'])));
 const fields=Object.freeze({
@@ -19,11 +20,12 @@ const fields=Object.freeze({
   intent:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content'],
   manifest:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content','previousIndexVersion']
 });
-export function phaseCheckRecord(kind,fields){const version=kind==='plan'&&fields.recovery?3:kind==='plan'&&fields.testCommands?2:1;return {schemaVersion:version,format:version===1?formats[kind]:'sflow-namespace-phase-check-plan/v'+version,...fields};}
+export function phaseCheckRecord(kind,fields){const version=kind==='plan'&&fields.executionProfile?4:kind==='plan'&&fields.recovery?3:kind==='plan'&&fields.testCommands?2:1;return {schemaVersion:version,format:version===1?formats[kind]:'sflow-namespace-phase-check-plan/v'+version,...fields};}
 export function phaseCheckRecordValue(kind,value) {
   try{admitRecordSchemaVersion(NAMESPACE_PHASE_CHECK_SCHEMAS[kind],value);
     const selected=kind==='plan'?namespacePhaseCheckPlanProfile(value):null,amended=selected?.commands;
-    if(value.format!==(amended?selected.format:formats[kind]))throw Error('Another format.');exactObject(value,['schemaVersion','format',...fields[kind],...(amended?['testCommands']:[]),...(selected?.recovery?['recovery']:[])]);
+    if(value.format!==(amended?selected.format:formats[kind]))throw Error('Another format.');exactObject(value,['schemaVersion','format',...fields[kind],...(amended?['testCommands']:[]),...(selected?.recovery?['recovery']:[]),...(selected?.mixed?['executionProfile']:[])]);
+    if(selected?.mixed&&value.executionProfile!==NAMESPACE_MIXED_CHECK_PROFILE)throw Error('Another mixed-check execution contract.');
   }catch(cause){throw error('The phase-check record has another version or format.',
     ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}
   return value;

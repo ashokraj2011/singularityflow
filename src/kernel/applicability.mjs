@@ -25,6 +25,16 @@ export function omissionAuthorities(workflow, responsibility) {
   return [...groups].sort();
 }
 
+/** An already admitted decision inventory. Presence and signed ordering stay with the reader. */
+export function applicabilityStatusValue(workflow,endpoint=endpointTaken(workflow),entries=workflow?.applicability??[]){
+  return (endpoint?.omits??[]).map(entry=>{
+    const decision=[...entries].reverse().find(row=>row.responsibility===entry.responsibility&&!row.withdrawnAt)??null;
+    return {responsibility:entry.responsibility,authority:entry.authority,declaredReason:entry.reason,
+      decision:decision?{reason:decision.reason,actor:decision.actor,authorityGroup:decision.authorityGroup,at:decision.at}:null,
+      satisfied:Boolean(decision)&&decision.authorityGroup===entry.authority};
+  });
+}
+
 export function recordApplicabilityDecision(workflow, { responsibility, reason, actor, authorityGroup, identityAssurance = null, at }) {
   const groups = omissionAuthorities(workflow, responsibility);
   if (!groups.length) {

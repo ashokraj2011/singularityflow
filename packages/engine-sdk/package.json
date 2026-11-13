@@ -9,6 +9,7 @@
   "files": ["dist/", "README.md"],
   "exports": {
     ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" },
+    "./evidence": { "types": "./dist/evidence.d.mts", "import": "./dist/evidence.mjs" },
     "./errors": { "types": "./dist/errors.d.mts", "import": "./dist/errors.mjs" },
     "./namespace": { "types": "./dist/namespace.d.mts", "import": "./dist/namespace.mjs" },
     "./content": { "types": "./dist/content.d.mts", "import": "./dist/content.mjs" },

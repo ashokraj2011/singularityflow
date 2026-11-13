@@ -6,7 +6,7 @@
  * this Story. Pure: these helpers read and change the aggregate and perform no I/O.
  */
 import { countedRecords, inDecisionOrder, isWithdrawn } from '../presence/counted.mjs';
-import {endpointTaken,omissionAuthorities} from '../kernel/applicability.mjs';
+import {endpointTaken,omissionAuthorities,applicabilityStatusValue} from '../kernel/applicability.mjs';
 export {endpointTaken,omissionAuthorities,recordApplicabilityDecision} from '../kernel/applicability.mjs';
 
 /**
@@ -23,15 +23,7 @@ export function applicabilityDecision(workflow, responsibility) {
  * and whether that decision was made by the group the omission names.
  */
 export function applicabilityStatus(workflow, endpoint = endpointTaken(workflow)) {
-  return (endpoint?.omits ?? []).map((entry) => {
-    const decision = applicabilityDecision(workflow, entry.responsibility);
-    const authorized = Boolean(decision) && decision.authorityGroup === entry.authority;
-    return {
-      responsibility: entry.responsibility,
-      authority: entry.authority,
-      declaredReason: entry.reason,
-      decision: decision ? { reason: decision.reason, actor: decision.actor, authorityGroup: decision.authorityGroup, at: decision.at } : null,
-      satisfied: authorized
-    };
-  });
+  const selected=(endpoint?.omits??[]).map(entry=>applicabilityDecision(workflow,entry.responsibility)).filter(Boolean)
+    .map(({withdrawnAt,...entry})=>entry);
+  return applicabilityStatusValue(workflow,endpoint,selected);
 }

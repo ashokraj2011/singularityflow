@@ -15,7 +15,7 @@ import { WITNESS_CHECKLIST } from '../verification/witness-records.mjs';
 import { RISK_CATEGORIES, riskAuthorities, riskEligibility } from './risk-decisions.mjs';
 import { evidenceGraphFromAggregate } from './graph.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
-import { completionLabel } from './labels.mjs';
+import { completionLabel } from '../kernel/evidence-labels.mjs';
 import { upstreamIssueTerminalBlockers } from '../upstream-issues.mjs';
 import { decidableUpstreamStep, raiseUpstreamIssueRoute } from '../upstream-routes.mjs';
 import { forwardAmendmentTerminalBlockers } from '../forward-amendments.mjs';

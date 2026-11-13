@@ -46,6 +46,15 @@ export function observedPhaseCheck(command,{process,tests,diagnostics,sourceMatc
   const status=passed?'passed':process.status!==0||process.timedOut||process.overflow||!sourceMatched?'failed':'unavailable';
   return {id:command.id,requirement:command.requirement,status,tests:tests??null,diagnostics:[...diagnostics]};
 }
+/** Process checks have an explicit separate meaning. Successful compilation never claims tests ran. */
+export function observedCommandCheck(command,{process,tests=null,diagnostics,sourceMatched}){
+  if(command.kind==='test'||command.result!=null||tests!==null||!process||!Array.isArray(diagnostics)||typeof sourceMatched!=='boolean')
+    fail('A command observation cannot stand in for structured test evidence.','ENGINE_PORT_RESULT_INVALID');
+  const passed=sourceMatched&&process.closed===true&&process.signal===null&&process.overflow===false&&!process.timedOut
+    &&process.status===0&&!diagnostics.length,
+    status=passed?'passed':process.status!==0||process.timedOut||process.overflow||!sourceMatched?'failed':'unavailable';
+  return {id:command.id,requirement:command.requirement,status,tests:null,diagnostics:[...diagnostics]};
+}
 export function phaseChecksResult(input,facts) {
   if(!facts||facts.workId!==input.workId||facts.phase!==input.phaseId||facts.operationId!==input.operationId
     ||!Number.isSafeInteger(facts.generation)||facts.generation<1||typeof facts.replayed!=='boolean'

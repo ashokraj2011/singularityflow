@@ -225,7 +225,7 @@ export function namespaceWitnessContextProfile(value){const {storedVersion}=admi
 export function namespaceGenerationProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PREPARATION_SCHEMAS.generation,value);
   return Object.freeze({version:storedVersion,continuation:storedVersion===2,...(storedVersion===3?{predecessors:true}:{}),format:'sflow-namespace-source-generation/v'+storedVersion});}
 export const NAMESPACE_PHASE_CHECK_SCHEMAS = /* @__PURE__ */ Object.freeze({
-  plan: /* @__PURE__ */ Object.freeze({id:'namespace-phase-check-plan',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  plan: /* @__PURE__ */ Object.freeze({id:'namespace-phase-check-plan',currentVersion:4,minimumReadableVersion:1,maximumReadableVersion:4,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   intent: /* @__PURE__ */ frozenFamily('namespace-phase-check-intent'),
   result: /* @__PURE__ */ frozenFamily('namespace-phase-check-result'),
   manifest: /* @__PURE__ */ frozenFamily('namespace-phase-check-manifest'),
@@ -234,7 +234,7 @@ export const NAMESPACE_PHASE_CHECK_SCHEMAS = /* @__PURE__ */ Object.freeze({
 });
 export function namespacePhaseCheckPlanProfile(value){
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_CHECK_SCHEMAS.plan,value);
-  return Object.freeze({version:storedVersion,format:'sflow-namespace-phase-check-plan/v'+storedVersion,commands:storedVersion>=2,...(storedVersion>=3?{recovery:true}:{})});
+  return Object.freeze({version:storedVersion,format:'sflow-namespace-phase-check-plan/v'+storedVersion,commands:storedVersion>=2,...(storedVersion===3||storedVersion===4&&Object.hasOwn(value,'recovery')?{recovery:true}:{}),...(storedVersion===4?{mixed:true}:{})});
 }
 export const NAMESPACE_STORY_COMMAND_SCHEMAS=Object.freeze({context:frozenFamily('namespace-test-command-context'),replacement:frozenFamily('namespace-command-replacement')});
 export const NAMESPACE_TEST_RECOVERY_SCHEMAS=Object.freeze({
@@ -247,6 +247,11 @@ export function namespaceTestRecoveryRecordProfile(kind,value){
   if(!family)throw new SingularityFlowError('Unknown test-recovery record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
   const {storedVersion}=admitRecordSchemaVersion(family,value);
   return Object.freeze({version:storedVersion,profile:'sflow-'+family.id+'/v'+storedVersion});
+}
+export const NAMESPACE_EVIDENCE_CONTEXT_SCHEMA=frozenFamily('namespace-evidence-context');
+export function namespaceEvidenceContextProfile(value){
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_EVIDENCE_CONTEXT_SCHEMA,value);
+  return {version:storedVersion,profile:'sflow-namespace-evidence-context/v'+storedVersion};
 }
 export function namespaceStoryCommandRecordProfile(kind,value){
   const family=NAMESPACE_STORY_COMMAND_SCHEMAS[kind];

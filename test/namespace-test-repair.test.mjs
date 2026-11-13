@@ -34,7 +34,7 @@ for(const backend of ['filesystem','sqlite','application'])test(backend+' a real
   const repeated=await f.engine.run('phase.repair.run',f.input);assert.equal(repeated.manifest.replayed,true);assert.equal(f.repairs(),1);assert.equal(f.starts(),2);
   assert.equal((await f.engine.run('phase.checks.run',{operationId:'witness-execution',workId:f.inputs.workId,phaseId:'build'})).verdict,'failed');
   await f.engine.run('phase.publish',{phaseId:'build',authored:'governed-agent',channel:'copilot-host'});await f.approve('build');
-  const replay=createNamespaceEngine({...f.common,checks:f.checks,repairs:f.bindings});
+  const replay=createNamespaceEngine({...f.common,checks:{mode:'retained-only'},repairs:{mode:'retained-only'}});
   assert.equal((await replay.run('phase.repair.run',f.input)).manifest.verdict,'repaired');assert.equal(f.repairs(),1);
 });
 test('the automatic budget counts real unsuccessful executions and offers human recovery instead of an endless retry',{timeout:120000},async t=>{

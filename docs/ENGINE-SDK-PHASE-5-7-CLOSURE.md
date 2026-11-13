@@ -304,3 +304,29 @@ offline installed consumers. The unchanged 34-check installed-package qualifier 
 56.8 seconds within its original 120/60-second deadlines. Source validation passes 4,318 checks;
 VS Code types, the unchanged Git audit and all 13 original bundle ceilings pass. Gateway remains
 851/852 modules. No Windows, live model, production installation or main merge ran.
+
+## Shared evidence and command observations
+
+Graph hashing, obligation evaluation, scope staleness, vocabulary and completion labels now have
+pure kernel owners and an installed evidence export. Fourteen original pre-extraction native
+results/hashes remain the independent oracle; native admission and command presentation keep
+their original adapters. The registered retained-only Story evidence view reconstructs real
+publications, original human approvals, source/test proofs and exact criterion allocation across
+multiple Code phases and repositories. Private drafts cannot appear as retained evidence.
+
+Compile/lint and other non-test observations now execute through a distinct SGOS profile and
+check-plan v4. Actual process failure remains failed and no command output can claim parsed tests.
+Explicit retained-only check and repair bindings permit shared-only replay but refuse new effects.
+See [the boundary and qualification record](ENGINE-SDK-EVIDENCE-AND-COMMANDS.md).
+
+The vocabulary is 87 operations, with 42 default native bindings and 76 namespace bindings before
+optional execution. The remaining risk/cohort/reuse ceremonies, required evidence/execution owners,
+native entry-point audit and combined qualification still keep Phases 5 and 7 open.
+
+Mac qualification passes the three-store mixed-command and retained-evidence journeys, native
+compatibility suites, 104 architecture checks, offline SDK/types and the actual staged VS Code
+CLI's fourteen captured evidence cases. The unchanged 34-check package qualifier ran alone in
+82.4 seconds within the original 120/60-second deadlines. Source validation passes 4,331 checks;
+VS Code types, the unchanged Git audit and all thirteen original bundle ceilings pass. The initial
+853-module gateway was rejected and corrected through direct pure-leaf imports; its final count
+is 851/852. No Windows, live provider, installation mutation or main merge ran.

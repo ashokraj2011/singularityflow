@@ -4,7 +4,7 @@ import path from 'node:path';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
-import {captureExecutionUnit,NODE_CHECK_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
+import {captureExecutionUnit,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {qualityValidationVerdict,qualityReportUsesStdout} from '../kernel/phase-checks.mjs';
 import {phaseAccessIdentity} from '../kernel/phase-preparation.mjs';
@@ -17,7 +17,7 @@ import {namespaceScope,namespaceIdentifier,namespaceJson,exactObject} from '../s
 import {contentReference} from '../sda/content/contract.mjs';
 import {createNamespacePreparationRuntime} from './namespace-preparation.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
-import {phaseCheckRecord,NAMESPACE_PHASE_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
+import {phaseCheckRecord,NAMESPACE_PHASE_CHECK_PROFILE,NAMESPACE_MIXED_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
 export {NAMESPACE_PHASE_CHECK_PROFILE};
 import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
@@ -34,6 +34,10 @@ function cancelled(signal){if(signal?.aborted)throw error('Phase checks were can
 export function createNamespacePhaseChecksPort(options={},runtime=null) {
   const {records,content,access,clock,checks={},sources=[]}=options,scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID');
   const reader=createNamespacePhaseCheckReader({...options,scope,workId}),{observer,codec}=reader;
+  if(!checks||typeof checks!=='object'||Array.isArray(checks))throw error('Use an explicit check adapter binding.');
+  const retainedOnly=checks.mode==='retained-only';
+  if(checks.mode!==undefined&&(!retainedOnly||Object.keys(checks).some(key=>key!=='mode')))throw error('Use either explicit executors or an effect-free retained-only check binding.');
+  if(retainedOnly)runtime=null;
   if(typeof access?.current!=='function'||typeof clock?.now!=='function'||!Array.isArray(checks.bindings??[])||(checks.bindings??[]).length>1024)
     throw error('Phase checks need explicit access, clock and execution bindings.');
   const current=access.current.bind(access),now=clock.now.bind(clock),put=content.put.bind(content),transact=records.transact.bind(records);
@@ -73,6 +77,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
       const context=Object.freeze({subject:{kind:'story',id:workId},phase:input.phaseId});contexts.set(context,{input,parameters:parameters(input)});return context;},
     async retained(context,_input,{signal}={}){return acknowledged(select(context),signal);},
     async prepare(context,_input,{signal}={}) {
+      if(retainedOnly)throw error('This check adapter can replay retained observations only. Bind actual execution for a new run.','ENGINE_PORT_UNAVAILABLE',{required:['check-execution-binding'],mode:'retained-only'});
       const s=select(context);if(!runtime)throw error('A new check run requires its machine-local authored draft.','ENGINE_PORT_UNAVAILABLE',{required:['machine-local-working-store']});
       const draft=await runtime.captureDraft(s.input.phaseId,{signal});s.admission=await runtime.admitDraft(draft,'phase.checks.run',{signal});
       const facts=runtime.draftFacts(s.admission),captured=await observer.capture({signal}),phase=captured.snapshot.workflow.phases[s.input.phaseId];
@@ -97,7 +102,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
           commands=commandProof.commands,repositories=captured.snapshot.workflow.sourceBindings?.current?.repositories;
         if(!commands.length)throw error('The pinned phase has no configured checks.','ENGINE_CHECKS_NOT_CONFIGURED');
         const required=[];for(const command of commands){
-          if(!command.argv||command.command)required.push('structured-argv');if(command.kind!=='test'||!command.result)required.push('structured-test-result');
+          if(!command.argv||command.command)required.push('structured-argv');if(command.kind==='test'&&!command.result)required.push('structured-test-result');if(command.kind!=='test'&&command.result)required.push('non-test-report-contract');
           if(command.modelPolicy!=='never')required.push('external-model-policy');if(command.environment)required.push('environment-binding');
           if(command.workingDirectory&&command.workingDirectory!=='.')required.push('working-directory');}
         if(required.length)throw error('These checks require additional execution policy owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.checks.run',required:[...new Set(required)]});
@@ -106,20 +111,20 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
         if(!same(sourceProof.state.workflow.sourceBindings?.current,captured.snapshot.workflow.sourceBindings.current))throw error('The source selection differs from its accepted binding.','ENGINE_STORAGE_CORRUPT');
         const steps=[],seen=new Set();for(const command of commands){if(seen.has(command.id))throw error('Configured check IDs must be unique.','ENGINE_INPUT_INVALID');seen.add(command.id);
           for(const repo of repositories){const selection={phaseId:s.input.phaseId,command,repositoryId:repo.id},bound=binding(selection);
-            const manifest=validateExecutionUnitManifest(bound.unit.descriptor()),policy=manifest.toolPolicy;
-            if(policy.profile!==NODE_CHECK_EXECUTION_PROFILE||manifest.provider!=='authorized-local-check'||policy.repository.projectId!==scope.projectId
+            const manifest=validateExecutionUnitManifest(bound.unit.descriptor()),policy=manifest.toolPolicy,execution=localCheckExecutionProfile(policy);
+            if(execution.testReport!==(command.kind==='test')||!execution.testReport&&execution.commandKind!==command.kind||manifest.provider!=='authorized-local-check'||policy.repository.projectId!==scope.projectId
               ||policy.repository.repositoryId!==repo.id||!same(policy.repository.selection,repo.descriptor.selection)
               ||bound.executable!==command.argv[0]||bound.executableSha256!==policy.command.executableSha256
               ||policy.command.argumentsSha256!==digest(command.argv.slice(1))||policy.command.environmentSha256!==digest(bound.environment)
               ||Object.entries(command.env??{}).some(([key,value])=>bound.environment[key]!==value)
-              ||policy.report.adapter!==command.result.adapter||!same(policy.report.files,qualityReportUsesStdout(command,path.basename)?[]:[command.result.path]))
+              ||policy.report.adapter!==(command.result?.adapter??null)||!same(policy.report.files,command.kind!=='test'||qualityReportUsesStdout(command,path.basename)?[]:[command.result.path]))
               throw error('The selected executor differs from the pinned command, report or source selection.','ENGINE_CHECK_BINDING_CHANGED',{commandId:command.id,repositoryId:repo.id});
             if(command.timeoutMs!==null&&policy.timeoutMs!==command.timeoutMs)throw error('The executor changed the pinned command deadline.','ENGINE_CHECK_BINDING_CHANGED',{commandId:command.id});
             const contract=createAgentTaskContract({taskId:'check-'+hash(canonicalJson({input:s.input,repositoryId:repo.id,commandId:command.id})),
               processId:'phase-'+hash(canonicalJson(codec.binding)),instructionId:command.id,objective:'Execute the exact approved phase check.',
               acceptanceClauses:[],policySnapshotSha256:'sha256:'+captured.snapshot.configuration.content.sha256,programSha256:'sha256:'+s.parameters,
               inputs:['sha256:'+facts.bodySha256],readScope:['repository:'+repo.id],writeScope:['repository:'+repo.id],forbiddenScope:['.git'],allowedDevices:[],
-              environmentManifestSha256:policy.command.environmentSha256,candidatePolicy:'immutable-snapshot',outputSchema:{type:'object'},requiredEvidence:['test-report'],
+              environmentManifestSha256:policy.command.environmentSha256,candidatePolicy:'immutable-snapshot',outputSchema:{type:'object'},requiredEvidence:[execution.testReport?'test-report':'process-result'],
               budgets:{activeMinutes:Math.max(1,Math.ceil((command.timeoutMs??policy.timeoutMs)/60_000)),modelInvocations:0,touchedResources:100_000},stopConditions:[],
               executionUnitManifestSha256:manifest.manifestSha256});steps.push({...selection,manifest,contract});}}
         if(steps.length>1024)throw error('The check set exceeds its bounded execution profile.','ENGINE_STORAGE_LIMIT');
@@ -128,7 +133,8 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
         if(repairSources&&observedSources.some(source=>repairSources.find(row=>row.repository.id===source.id)?.observed.revision!==source.revision))
           throw error('The application changed after its admitted repair scope. Retain the current source and check it again.','ENGINE_SOURCE_CHANGED',{
             operation:'phase.source.retain',workId,phaseId:phase.id});
-        s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,...(commandProof.identity.receipts.length||recoveryProof?{testCommands:commandProof.identity}:{}),...(recoveryProof?{recovery:{profile:'sflow-namespace-test-recovery-check/v1',agreementSha256:recoveryProof.agreement.contextSha256,agreements:recoveryProof.references}}:{}),binding:codec.binding,input:s.input,parametersSha256:s.parameters,
+        const mixed=commands.some(command=>command.kind!=='test');
+        s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,...(mixed?{executionProfile:NAMESPACE_MIXED_CHECK_PROFILE}:{}),...(mixed||commandProof.identity.receipts.length||recoveryProof?{testCommands:commandProof.identity}:{}),...(recoveryProof?{recovery:{profile:'sflow-namespace-test-recovery-check/v1',agreementSha256:recoveryProof.agreement.contextSha256,agreements:recoveryProof.references}}:{}),binding:codec.binding,input:s.input,parametersSha256:s.parameters,
           generation:facts.payload.generation,draft:runtime.draftIdentity(draft),artifact:facts.payload.artifact.current,actor,
           basis:{authorityVersion:captured.basis.authorityVersion,headVersion:captured.basis.headVersion,configurationVersion:captured.basis.configurationVersion,
             configuration:captured.snapshot.configuration,head:captured.basis.head},

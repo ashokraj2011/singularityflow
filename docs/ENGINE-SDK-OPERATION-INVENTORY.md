@@ -37,3 +37,9 @@ The forward-amendment and recovery extension brings the vocabulary to 86 registe
 `test-recovery.context` and `test-recovery.confirm` share the same registry; `phase.repair.run`
 requires an explicitly bound SGOS repair executor. These counts describe binding availability,
 not runtime readiness, authority or completion of the remaining native query/policy migration.
+
+The retained-evidence extension adds `story.evidence`: 87 registered operations, 42 default
+native bindings and 76 namespace bindings before optional check/repair execution. It reads actual
+accepted evidence and original human receipts; it grants no local-source, terminal or approval
+assurance. Separate command-observation and explicit retained-only execution bindings preserve
+the original check profiles. See [the evidence/execution record](ENGINE-SDK-EVIDENCE-AND-COMMANDS.md).

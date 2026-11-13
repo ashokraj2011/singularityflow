@@ -121,3 +121,43 @@ function buildScopeInventoryValue(workflow,{sources,clauses,scopeNotApplicable=f
 
 return Object.freeze({buildScopeInventoryValue});
 }
+
+export function staleClausesOf(revision, clauses = []) {
+  const stale = new Set([...(revision?.changes?.added ?? []), ...(revision?.changes?.revised ?? [])]);
+  let grew = stale.size > 0;
+  while (grew) {
+    grew = false;
+    for (const clause of clauses) {
+      const id = String(clause.id).toUpperCase();
+      if (stale.has(id)) continue;
+      if ((clause.dependsOn ?? []).some((dependency) => stale.has(String(dependency).toUpperCase()))) {
+        stale.add(id);
+        grew = true;
+      }
+    }
+  }
+  return stale;
+}
+
+/**
+ * A reader for one evaluation: `staleBy(clauseId, phaseId, generation)` returns the latest revision
+ * that makes that step's evidence of that clause stale, or null when the evidence is current.
+ */
+export function scopeStaleness(workflow, clauses = []) {
+  const revisions = (workflow?.scopeRevisions ?? []).filter((revision) => revision.changes)
+    .map((revision) => ({ revision, stale: staleClausesOf(revision, clauses) }));
+  return {
+    revisions: revisions.map((entry) => entry.revision),
+    staleBy(clauseId, phaseId, generation) {
+      const id = String(clauseId).toUpperCase();
+      // A step that has not published anything yet has no evidence to be stale.
+      if (!(Number(generation ?? 0) > 0)) return null;
+      for (let index = revisions.length - 1; index >= 0; index -= 1) {
+        const { revision, stale } = revisions[index];
+        if (!stale.has(id) || !Object.hasOwn(revision.dependentGenerations ?? {}, phaseId)) continue;
+        if (Number(generation ?? 0) <= Number(revision.dependentGenerations[phaseId])) return revision;
+      }
+      return null;
+    }
+  };
+}

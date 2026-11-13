@@ -6,7 +6,7 @@
  * evaluation, so the terminal, CSV and JSON can never disagree about a row.
  */
 import { table } from '../util.mjs';
-import { FACETS } from './vocabulary.mjs';
+import { FACETS } from '../kernel/evidence-vocabulary.mjs';
 import { evidenceProvenanceLines } from './provenance.mjs';
 
 export const DEFAULT_PAGE_SIZE = 50;

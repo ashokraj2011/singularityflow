@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -164,6 +164,8 @@ const definitions = [
     stages:Object.freeze(['load']),validate:'storyGuideInput',execute:'inspectStoryNext'},
   {id:'story.status',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyStatus',
     stages:Object.freeze(['load','read']),validate:'storyStatusInput',execute:'inspectStoryStatus'},
+  {id:'story.evidence',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId']),port:'storyEvidence',
+    stages:Object.freeze(['load','read']),validate:'storyStatusInput',execute:'inspectStoryEvidence'},
   {id:'workflow.assets',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workflowIds']),port:'workflowAssets',
     stages:Object.freeze(['load','read']),validate:'workflowAssetsInput',execute:'inspectWorkflowAssets'},
   {id:'phase.review',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'phaseReview',
@@ -584,6 +586,19 @@ async function inspectStoryStatus(port, inputs, signal) {
   return data({ schemaVersion: 1, contract: ENGINE_CONTRACT, operation: 'story.status', status: 'inspected',
     subject: { kind: 'story', id: binding.workId }, manifest: storyStatusManifest(binding, facts),
     effects: { committed: false, pushed: false, testsRun: false, modelInvocations: 0, approvalRecorded: false, storyAdvanced: false } });
+}
+
+async function inspectStoryEvidence(port,input,signal){
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const subject=data(context?.subject),facts=data(await port.read(context,{signal}));notCancelled(signal);
+  namespaceEvidenceContextProfile(facts);
+  if(subject?.kind!=='story'||subject.id!==facts.workId||input.workId!=null&&input.workId!==facts.workId
+    ||facts.profile!=='sflow-namespace-evidence-context/v1'||typeof facts.revision!=='string'||!facts.revision
+    ||facts.report?.profile!=='sflow-evidence-evaluation/v1'||facts.report.workId!==facts.workId||facts.report.mode!=='projection'||facts.report.boundary!=='view'
+    ||facts.localSourceChecked!==false||facts.terminalDecision!==false||facts.approvalRecorded!==false||!Array.isArray(facts.references))
+    throw new SingularityFlowError('The evidence reader returned another Story or an unsupported authority claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'story.evidence',subject,manifest:facts,
+    effects:{committed:false,pushed:false,testsRun:false,modelInvocations:0,approvalRecorded:false,storyAdvanced:false}});
 }
 
 function phaseInputsInput(value, operation) {
@@ -1876,7 +1891,7 @@ export function createEngine(options = {}) {
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectDecisionList, inspectStoryGuide, inspectStoryNext,
-    inspectStoryStatus, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
+    inspectStoryStatus, inspectStoryEvidence, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
     preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
     recordSingleDecision, recordStoryDocument, storyDocumentInput, inspectConformanceContext, inspectScopeContext, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,
     storyStatusInput, submissionInput, submit, upstreamOperation, workflowAssetsInput

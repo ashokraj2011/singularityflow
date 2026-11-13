@@ -15,7 +15,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { recordSha256 } from '../records.mjs';
+import { recordSha256,NODE_TEXT_DIGESTS,NODE_TEXT_VALUE_SYNTAX } from '../records.mjs';
+import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
+import {evidenceEvaluationPolicies} from '../kernel/evidence-evaluation.mjs';
+const evidenceValues=/* @__PURE__ */ evidenceEvaluationPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_VALUE_SYNTAX,NODE_TEXT_DIGESTS);
 import { countedRecords } from '../presence/counted.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { attemptLocalIntegrationLabel } from '../code-delivery-tests.mjs';
@@ -223,44 +226,8 @@ async function loadProjectedSpecRecords(root, directory, workflow, findings) {
 }
 
 /** Build the graph from records already in memory; the loader and the tests both use this. */
-export function evidenceGraph({ workflow, records, deliveries = [], inspections = [], witnessRecords = [], findings = [], untrusted = false, terminal = null, scope = null }) {
-  // A completeness review counts only for the exact inventory it reviewed [E2G-007].
-  const completenessReview = currentCompletenessReview(workflow, scope);
-  const graph = { workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, terminal, scope, completenessReview };
-  // What the evaluation was computed from, so a cache or a stored decision can tell whether its
-  // inputs are still current without re-reading every record.
-  graph.inputSha256 = `sha256:${recordSha256({
-    workId: workflow.workItem.id,
-    status: workflow.status ?? null,
-    currentPhase: workflow.currentPhase ?? null,
-    phases: Object.fromEntries((workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})).map((id) => {
-      const phase = workflow.phases[id] ?? {};
-      return [id, {
-        status: phase.status ?? null, generation: phase.generation ?? 0,
-        approvals: (phase.approvals ?? []).filter((item) => !item.invalidatedAt)
-          .map((item) => ({ decision: item.decision, authorityGroup: item.authorityGroup ?? null, at: item.at ?? null }))
-      }];
-    })),
-    records: {
-      indexes: (records.indexes ?? []).map((index) => index.indexSha256 ?? recordSha256(index)),
-      planned: (records.planned ?? []).map((map) => recordSha256(map)),
-      observed: (records.observed ?? []).map((map) => recordSha256(map))
-    },
-    deliveries,
-    inspections: inspections.map((entry) => ({ phaseId: entry.phaseId, sha256: recordSha256({ text: entry.text }) })),
-    applicability: (workflow.applicability ?? []).filter((entry) => !entry.withdrawnAt)
-      .map((entry) => ({ responsibility: entry.responsibility, authorityGroup: entry.authorityGroup ?? null, at: entry.at ?? null })),
-    findings: findings.map((entry) => entry.code),
-    scope: scope?.inventorySha256 ?? null,
-    completenessReview: completenessReview ? recordSha256(completenessReview) : null,
-    scopeRevision: workflow.scopeRevisions?.at(-1)?.revisionSha256 ?? null,
-    riskDecisions: (workflow.riskDecisions ?? []).map((entry) => recordSha256(entry)),
-    planAmendments: (workflow.planAmendments ?? []).map((entry) => recordSha256(entry)),
-    witnessRecords: witnessRecords.map((entry) => recordSha256(entry))
-  })}`;
-  // A final evaluation counts only for the evidence it was made over.
-  if (terminal == null && workflow.completion?.inputSha256 === graph.inputSha256) graph.terminal = workflow.completion;
-  return graph;
+export function evidenceGraph(parts){
+  return evidenceValues.evidenceGraph(parts,{completenessReview:currentCompletenessReview(parts.workflow,parts.scope??null)});
 }
 
 /**

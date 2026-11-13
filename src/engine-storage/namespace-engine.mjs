@@ -1,6 +1,7 @@
 import {createNamespaceSourceReviewPorts} from './namespace-source-review.mjs';
 import {createNamespaceConvergencePorts} from './namespace-convergence.mjs';
 import {createNamespaceConvergenceAdvancementPort} from './namespace-convergence-advancement.mjs';
+import {createNamespaceEvidencePort} from './namespace-evidence.mjs';
 /** One explicit headless composition. Operations still enter the SDK registry exactly once. */
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
@@ -140,5 +141,5 @@ export function createNamespaceEngine(options={}) {
     ...lazyPorts(()=>createNamespaceRejectionPorts(common),{rejection:['load','prepare','commit','finish']}),
     ...(options.repairs?lazyPorts(()=>({phaseRepair:createNamespaceTestRepairPort(common,runtime,executeOperation)}),{phaseRepair:['load','retained','prepare','execute','commit','finish']}):{}),
     ...(options.checks?{phaseChecks:createNamespacePhaseChecksPort(common,runtime)}:{})};
-  engine=createEngine({ports:{...ports,invocation:{run:readSession.run}}});executeOperation=engine.run.bind(engine);return engine;
+  engine=createEngine({ports:{...ports,...lazyPorts(()=>({storyEvidence:createNamespaceEvidencePort(common)}),{storyEvidence:['load','read']}),invocation:{run:readSession.run}}});executeOperation=engine.run.bind(engine);return engine;
 }

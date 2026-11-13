@@ -171,7 +171,7 @@ import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
-import { obligationId } from './evidence/vocabulary.mjs';
+import { obligationId } from './kernel/evidence-vocabulary.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;

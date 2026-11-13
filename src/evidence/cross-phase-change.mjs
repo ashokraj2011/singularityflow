@@ -18,7 +18,7 @@ import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { completionPhaseOf } from '../kernel/lifecycle-transitions.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords, plannedSupportingFiles } from '../specifications.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
-import { obligationId } from './vocabulary.mjs';
+import { obligationId } from '../kernel/evidence-vocabulary.mjs';
 
 /** Which plan rows name a path: as a planned location (implement and verify) or a planned test (verify). */
 function rowsNaming(planned, accounted, candidate) {

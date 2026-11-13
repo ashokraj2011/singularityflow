@@ -14,7 +14,7 @@ test('Story command context and replacement versions reject unknown future meani
   for(const kind of ['context','replacement']){const profile=namespaceStoryCommandRecordProfile(kind,{schemaVersion:1});assert.ok(Object.isFrozen(profile));
     assert.equal(profile.version,1);assert.match(profile.format,/\/v1$/u);
     assert.throws(()=>namespaceStoryCommandRecordProfile(kind,{schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});}
-  assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
 });
 
 test('recovery records and conditional budgets have central, closed schema meanings',()=>{
@@ -24,4 +24,14 @@ test('recovery records and conditional budgets have central, closed schema meani
     assert.throws(()=>namespaceTestRecoveryRecordProfile(kind,{schemaVersion:0}),{code:'SCHEMA_VERSION_MISSING'});
   }
   assert.throws(()=>namespaceTestRecoveryRecordProfile('invented',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});
+});
+test('mixed commands have their own check plan and cannot alter the old configured/command/recovery meanings',()=>{
+  const base={profile:'sflow-namespace-phase-checks/v1',binding:{},input:{},parametersSha256:'a'.repeat(64),generation:1,draft:{},artifact:{},actor:{},basis:{},sources:[],steps:[],testCommands:{receipts:[]}},
+    mixed=phaseCheckRecord('plan',{...base,executionProfile:'sflow-namespace-mixed-checks/v1'});
+  assert.equal(mixed.schemaVersion,4);assert.equal(namespacePhaseCheckPlanProfile(mixed).mixed,true);assert.equal(namespacePhaseCheckPlanProfile(mixed).recovery,undefined);
+  assert.equal(phaseCheckRecordValue('plan',mixed),mixed);
+  assert.throws(()=>phaseCheckRecordValue('plan',{...mixed,schemaVersion:2,format:'sflow-namespace-phase-check-plan/v2'}),{code:'ENGINE_STORAGE_CORRUPT'});
+  assert.throws(()=>phaseCheckRecordValue('plan',{...mixed,executionProfile:'another-contract'}),{code:'ENGINE_STORAGE_CORRUPT'});
+  const recovery=phaseCheckRecord('plan',{...mixed,recovery:{agreementSha256:'actual-agreement'}});
+  assert.equal(namespacePhaseCheckPlanProfile(recovery).recovery,true);assert.equal(phaseCheckRecordValue('plan',recovery),recovery);
 });

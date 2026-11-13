@@ -110,7 +110,8 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
     if(!snapshot||snapshot.workflow.currentPhase!==phaseId||snapshot.workflow.phases[phaseId]?.status!=='awaiting_approval')return null;
     return (await inspect(snapshot,phaseId,options))?.review??null;
   }
-  return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review,
+  // Related read coordinators may share this genuine verifier and its immutable proofs. No host-supplied verdict is admitted.
+  return Object.freeze({decode,publication,inspect,context,inspectApprovedMany,verifyRouting,review,publicationReader:publications,
     publicationOwners:value=>[...publications.specifications.owners(value),...publications.policies.owners(value)],
     publicationChecklist:publications.policies.checklist,publicationPolicyEvidence:publications.policies.evidence,
     publicationApproval:publications.policies.assertApproval,publicationRequiresDisposition:publications.policies.requiresDisposition,

@@ -155,7 +155,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
           const tested=await checks.inspectDraft(checkInput,{signal});
           if(!tested&&(current.workflow.namespaceEvidenceReuses??[]).some(row=>row.id&&row.phase===s.phaseId))s.reuse=await publicationReader.policies.reuseCandidate(
             {phase:s.phaseId},current,{signal,at:projectEnrollmentTimestamp(await now()),units:sources});
-          if(tested&&tested.found.body.verdict!=='passed'&&(!current.workflow.resolution.testRecovery?.enabled||current.workflow.resolution.testRecovery.enabledRiskCategories.includes('validation-unavailable'))){
+          if(tested&&tested.found.body.verdict!=='passed'&&(!current.workflow.resolution.testRecovery?.enabled||current.workflow.resolution.testRecovery.enabledRiskCategories.includes('validation-unavailable')||(current.workflow.namespaceKnownTestRisks??[]).some(row=>row.id&&row.phase===s.phaseId))){
             s.failedChecks=tested;s.risk=await publicationReader.policies.testRiskCandidate({phase:s.phaseId},current,{signal,at:projectEnrollmentTimestamp(await now()),checked:tested,checkInput});}
           if(!s.reuse&&!s.risk)s.checkEvidence=await checks.forDraft(checkInput,{signal});}
         if(clarificationMode!=='off') {
@@ -271,7 +271,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
                 locality:'project',status:'active',aliases:[],content:member.content});}}
           if(testRisk)snapshot.workflow.namespaceDocuments.push({id:'TEST-RISK-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-test-risk-gen'+generation+'.json',
-            role:'file',name:'Actual failed tests and accepted environment risk',kind:'test-run-risk',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:testRisk.report});
+            role:'file',name:testRisk.binding.kind==='known-test-risk/v1'?'Actual failed tests and exact known-failure review':'Actual failed tests and accepted environment risk',kind:'test-run-risk',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:testRisk.report});
           if(reuse)snapshot.workflow.namespaceDocuments.push({id:'EVIDENCE-REUSE-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-evidence-reuse-gen'+generation+'.json',
             role:'file',name:'Reused tests and original execution attribution',kind:'evidence-reuse',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:reuse.report});

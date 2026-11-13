@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceConformancePolicyProfile,namespacePreparedPayloadProfile,namespaceWitnessContextProfile,namespaceGenerationProfile,namespacePlanCorrectionRecordProfile } from '../src/foundation/record-schema.mjs';
+import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceCodeInputPolicyProfile, namespaceConformancePolicyProfile,namespacePreparedPayloadProfile,namespaceWitnessContextProfile,namespaceGenerationProfile,namespacePlanCorrectionRecordProfile } from '../src/foundation/record-schema.mjs';
 import { NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS,
   admitNamespaceStorageSchema, admitSqliteNamespaceSchema } from '../src/sda/namespace/storage-schemas.mjs';
 import { readRecord, schemaFamily } from '../src/schema-migrations.mjs';
@@ -120,6 +120,19 @@ test('conformance association v2 is separate while v1 remains readable without m
     assert.equal(profile.format,'sflow-namespace-conformance-policy'+(kind==='conformanceReport'?'-report':'')+'/v'+version);
     assert.equal(admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],record).record,record);
   }
-  assert.throws(()=>namespaceConformancePolicyProfile('conformance',{schemaVersion:3}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespaceConformancePolicyProfile('conformance',{schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
   assert.throws(()=>namespaceConformancePolicyProfile('unknown',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});
+});
+
+test('inherited known-failure evidence uses separate Code-input and conformance versions without reinterpreting original reports',()=>{
+  for(const kind of ['codeInputs','codeInputReport']){
+    assert.deepEqual(namespaceCodeInputPolicyProfile(kind,{schemaVersion:1}),{version:1,kind:'approved-code-inputs/v1',
+      format:'sflow-namespace-code-input-policy'+(kind==='codeInputReport'?'-report':'')+'/v1'});
+    assert.equal(namespaceCodeInputPolicyProfile(kind,{schemaVersion:2}).knownFailureInputs,true);
+    assert.throws(()=>namespaceCodeInputPolicyProfile(kind,{schemaVersion:3}),{code:'SCHEMA_VERSION_FUTURE'});
+  }
+  for(const kind of ['conformance','conformanceReport'])for(const version of [1,2,3,4]){
+    const p=namespaceConformancePolicyProfile(kind,{schemaVersion:version});assert.equal(p.issueLinks,[2,4].includes(version));
+    assert.equal(p.knownFailureInputs===true,version>=3);
+  }
 });

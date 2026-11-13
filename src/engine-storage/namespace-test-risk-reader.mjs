@@ -1,6 +1,7 @@
+import {createNamespaceKnownTestRiskOwner} from './namespace-known-test-risk-reader.mjs';
 /** Authentic human risk receipts and actual failed SGOS observations. Never executes or fabricates a pass. */
 import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
-import {isNamespaceTestRiskPolicy,canonicalJson,NAMESPACE_TEST_RISK_SCHEMAS,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
+import {isNamespaceTestRiskPolicy,canonicalJson,NAMESPACE_TEST_RISK_SCHEMAS,NAMESPACE_KNOWN_TEST_RISK_SCHEMAS,namespaceTestRiskRecordProfile,namespaceTestRiskPolicyKind} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {testRunCausePolicies} from '../kernel/test-run-cause.mjs';
@@ -25,10 +26,10 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sh
 export const TEST_RISK_POLICY='test-risk/v1';
 export const isTestRiskPolicy=isNamespaceTestRiskPolicy;
 export const namespaceTestRiskManifest=(value,scope)=>namespaceEvidencePolicyManifest(value,{...scope,
-  family:NAMESPACE_TEST_RISK_SCHEMAS.policy,format:namespaceTestRiskRecordProfile('policy',value).profile});
+  family:namespaceTestRiskRecordProfile('policy',value).knownFailure?NAMESPACE_KNOWN_TEST_RISK_SCHEMAS.policy:NAMESPACE_TEST_RISK_SCHEMAS.policy,format:namespaceTestRiskRecordProfile('policy',value).profile});
 export function createNamespaceTestRiskOwner({observer,scope,workId}){
   const operation='decision.test-risk',commands=createNamespaceTestCommandOwners({observer,scope,workId}),
-    checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),recovery=createNamespaceTestRecoveryOwner({observer,scope,workId});let readers;
+    checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),known=createNamespaceKnownTestRiskOwner({observer,scope,workId}),recovery=createNamespaceTestRecoveryOwner({observer,scope,workId});let readers;
   function phase(workflow,phaseId){const selected=workflow.phases[phaseId];
     if(!selected)fail('Name a phase of this Story.','TEST_RUN_RISK_INVALID');
     if(!phaseRequiresCodeDelivery(selected)&&selected.writeScope!=='artifact-only')fail('Bind the declared phase test-risk owner.','ENGINE_PORT_UNAVAILABLE',{required:['phase-test-risk']});
@@ -87,6 +88,7 @@ export function createNamespaceTestRiskOwner({observer,scope,workId}){
       authorities:testRunRiskAuthorities(snapshot.workflow,phaseId),testsPassed:false,executionObserved:false};
   }
   async function candidate(publication,snapshot,{signal,at,checked,bound=null}={}){
+    if(bound?.profile==='sflow-namespace-known-test-risk-policy/v1'||!bound&&(snapshot.workflow.namespaceKnownTestRisks??[]).some(row=>row.id&&row.phase===publication.phase))return known.candidate(publication,snapshot,{signal,at,checked,bound});
     phase(snapshot.workflow,publication.phase);const agreement=snapshot.workflow.resolution.testRecovery?.enabled?await recovery.current(snapshot,{signal}):null;
     if(agreement&&!snapshot.workflow.resolution.testRecovery.enabledRiskCategories.includes('validation-unavailable'))fail('The pinned recovery policy does not enable environment-risk acceptance.','TEST_RUN_RISK_NOT_ELIGIBLE');
     if(!checked?.binding||!checked.found)fail('An actual retained failed check is required.','ENGINE_CHECK_EVIDENCE_REQUIRED');
@@ -139,7 +141,7 @@ export function createNamespaceTestRiskOwner({observer,scope,workId}){
   async function draftCandidate(value,snapshot,options={}){
     try{return await candidate(value,snapshot,options);}catch(cause){
       // A newly available recovery route does not change the pre-existing failure of an unamended phase.
-      if(options.checkInput&&!(snapshot.workflow.namespaceTestRunRisks??[]).some(row=>row.id&&row.phase===value.phase)
+      if(options.checkInput&&!(snapshot.workflow.namespaceTestRunRisks??[]).some(row=>row.id&&row.phase===value.phase)&&!(snapshot.workflow.namespaceKnownTestRisks??[]).some(row=>row.id&&row.phase===value.phase)
         &&['TEST_RUN_RISK_NOT_COVERED','TEST_RUN_RISK_NOT_ELIGIBLE'].includes(cause.code)){
         try{await checks.forDraft(options.checkInput,{signal:options.signal});}catch(original){
           if(original.code==='PHASE_CHECKS_NOT_PASSED')original.details={...original.details,testRunRisk:{profile:'sflow-namespace-test-risk-handoff/v1',code:cause.code,...cause.details}};
@@ -160,14 +162,15 @@ export function createNamespaceTestRiskOwner({observer,scope,workId}){
         'The retained test-risk evidence is not UTF-8 JSON.',{code:'ENGINE_STORAGE_CORRUPT',cause});}},
       manifest=namespaceTestRiskManifest(await json(binding.record),{scope,workId,phaseId:value.phase}),report=await json(manifest.report),
       version=namespaceTestRiskRecordProfile('report',report).version;
-    if(binding.kind!=='test-risk/v'+version||version!==manifest.schemaVersion||value.checks
+    if(binding.kind!==namespaceTestRiskPolicyKind(report)||version!==manifest.schemaVersion||value.checks
       ||manifest.recordedAt!==value.publishedAt||!same(manifest.artifact,{key:value.artifact.sourceKey,content:value.artifact.content})
       ||!same(namespaceSpecificationIdentity(value),Object.fromEntries(Object.keys(namespaceSpecificationIdentity(value)).map(key=>[key,manifest[key]]))))fail('The failed test evidence has another publication binding.');
     const original=await observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
       basis={revision:manifest.basis.revision,configuration:manifest.basis.head.configuration,workflow:original.workflow},
-      proof=await publication({...value,riskChecks:report.checks},basis,{signal,at:value.publishedAt});
+      proof=await publication({...value,riskChecks:report.checks},basis,{signal,at:value.publishedAt,...(namespaceTestRiskRecordProfile('report',report).knownFailure?{bound:report}:{})});
     if(!same(report,proof.report))fail('The failed test evidence differs from its actual execution and original human decisions.');
-    return {found:await checks.publicationObservation({...value,checks:report.checks},{signal}),report,binding:report.checks};
+    return {found:await checks.publicationObservation({...value,checks:report.checks},{signal}),report,binding:report.checks,
+      policyBinding:binding,manifest,references:proof.references};
   }
   async function fresh(value,snapshot,units,{signal,at,bound=null}={}){
     await checks.freshObservedSources(value.riskChecks,value.phase,units,{signal});

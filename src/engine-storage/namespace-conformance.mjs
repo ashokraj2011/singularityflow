@@ -35,22 +35,26 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
       }
       const observations=code.report.inputs.flatMap(input=>input.repositories.flatMap(repository=>Object.entries(repository.observed.claims).map(([clauseId,claim])=>({
         clauseId,phase:input.phase,generation:input.generation,repositoryId:repository.id,verdict:claim.verdict,sourceRevision:repository.sourceRevision,
-        checks:input.checks,witnesses:repository.witnesses.filter(row=>row.witness.clauseId===clauseId).map(row=>({id:row.witness.logicalTestId??null,status:row.result.status}))})))),
+        checks:input.executionRisk?.checks??input.checks,witnesses:repository.witnesses.filter(row=>row.witness.clauseId===clauseId).map(row=>({id:row.witness.logicalTestId??null,status:row.result.status}))})))),
         data=await namespaceCandidateContent(observer,publication.artifact.content,{signal,artifactBytes});
       let markdown;try{markdown=new TextDecoder('utf-8',{fatal:true}).decode(data);}catch(cause){throw error('Conformance requires UTF-8 report content.','ARTIFACT_AUTHORING_INCOMPLETE',null,cause);}
-      const linked=version===2||version===null&&((snapshot.workflow.upstreamIssues??[]).length>0||/\bUPI-\d{3,}\b/u.test(markdown)),
+      const originalProfile=version===null?null:namespaceConformancePolicyProfile('conformanceReport',{schemaVersion:version}),
+        linked=originalProfile?.issueLinks||version===null&&((snapshot.workflow.upstreamIssues??[]).length>0||/\bUPI-\d{3,}\b/u.test(markdown)),
         selected={workflow:snapshot.workflow,phaseId:publication.phase,clauseIds:[...new Set(clauseIds)],observations},
         result=linked?linkedConformanceEvidence(markdown,selected)
           :evaluateConformanceEvidence(markdown,selected),issueIds=[...new Set(result.gaps.flatMap(row=>row.issueRefs??[]))],
-        v2=version===2||version===null&&issueIds.length>0,
+        v2=originalProfile?.issueLinks||version===null&&issueIds.length>0,
         upstream=v2?(snapshot.workflow.upstreamIssues??[]).filter(row=>issueIds.includes(row.id)):[],
         issueEvidence=v2?await createNamespaceUpstreamOwners({observer:scoped,scope,workId}).admitted(snapshot,{signal,policyTraversal}):[];
       for(const issue of upstream)if(snapshot.workflow.phases[issue.phase]?.generation!==issue.producerGeneration)result.findings.push({
         code:'conformance.upstream-producer-stale',clauseId:null,line:null,message:issue.id+' names another producer generation.'});
       if(result.findings.length)throw error('Repair the conformance rows against their exact approved evidence.','ARTIFACT_AUTHORING_INCOMPLETE',{
         phase:publication.phase,findings:result.findings,operation:'phase.draft.write'});
-      const profile=namespaceConformancePolicyProfile('conformanceReport',{schemaVersion:v2?2:1});
-      const value={code,policy:code.policy,report:{schemaVersion:profile.version,format:profile.format,inputs:code.report,definitions,rows:result.rows,gaps:result.gaps,...(v2?{upstream,issueEvidence}:{})}};
+      const known=code.report.inputs.filter(row=>row.executionRisk),
+        profile=namespaceConformancePolicyProfile('conformanceReport',{schemaVersion:known.length?(v2?4:3):(v2?2:1)});
+      const value={code,policy:code.policy,report:{schemaVersion:profile.version,format:profile.format,inputs:code.report,definitions,rows:result.rows,gaps:result.gaps,...(v2?{upstream,issueEvidence}:{}),
+        ...(profile.knownFailureInputs?{executionExceptions:known.map(row=>({phase:row.phase,generation:row.generation,checks:row.executionRisk.checks,
+          policy:row.executionRisk.policy,testsPassed:false,failedAcceptanceWaived:false,receiverExecuted:false}))}:{})}};
       candidates.set(value,hash(value));return value;
     });
   }
@@ -61,7 +65,7 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
     const report=await json(manifest.report,signal),profile=namespaceConformancePolicyProfile('conformance',manifest);let reportProfile;
     try{reportProfile=namespaceConformancePolicyProfile('conformanceReport',report);
       if(reportProfile.version!==profile.version)throw error('Conformance manifest and report need the same supported version.','ENGINE_STORAGE_UNSUPPORTED');
-      exactObject(report,['schemaVersion','format','inputs','definitions','rows','gaps',...(profile.issueLinks?['upstream','issueEvidence']:[])]);
+      exactObject(report,['schemaVersion','format','inputs','definitions','rows','gaps',...(profile.issueLinks?['upstream','issueEvidence']:[]),...(profile.knownFailureInputs?['executionExceptions']:[])]);
       if(report.format!==reportProfile.format||binding.kind!==profile.kind)throw Error('Another conformance format.');
     }catch(cause){throw error('The conformance report has an invalid or unsupported contract.',
       ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED','ENGINE_STORAGE_UNSUPPORTED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}

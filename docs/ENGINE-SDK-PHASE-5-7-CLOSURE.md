@@ -5,6 +5,11 @@ remain historical evidence. Neither phase is complete until its remaining owners
 cross-agent journeys are qualified. Phase 8 authority migration and Phase 9 production cutover,
 obsolete-access removal and final distribution remain separate.
 
+The latest slice adds [independently inventoried known-failure recovery](ENGINE-SDK-KNOWN-FAILURES.md),
+including original-owner renewal, planned new passing tests and honest downstream Verification
+and Release evidence. The supported full-command owner is delivered; selective execution,
+environment-sensitive reuse, live application review and the other owners below remain open.
+
 ## Phase 5: shared operation and rule owners
 
 - [x] Audit the public operation inventory against native lifecycle and query entry points.
@@ -27,10 +32,12 @@ obsolete-access removal and final distribution remain separate.
 - [x] Finish mixed test/inspection/visual-slot witnesses and fresh generation-bound output retention.
 - [ ] Finish live application review/comparison and document/test risk decisions.
 - [x] Finish confirmed full-command recovery, command amendments and bounded repeated execution.
+- [x] Add independently inventoried native Node known-failure decisions and their downstream
+  Code/Verification/Release evidence, keeping failed tests and human permission distinct.
 - [x] Add source-bound, human-authorized artifact-phase reuse without claiming a receiving execution.
 - [x] Add retained environment-risk publication, independent approval and shared-only replay for artifact phases.
 - [x] Add observed-suite baseline/cohort selection, Code environment risks and explicit recovery-risk ceremonies.
-- [ ] Finish independently inventoried selective recovery/known-failure decisions and environment-sensitive cross-execution reuse.
+- [ ] Finish independent selective recovery and environment-sensitive cross-execution reuse.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through explicit
   execution and evidence ports. Configured requirements cannot become successful flags.
@@ -79,6 +86,14 @@ offline installed consumers. The unchanged original 34-check package qualifier p
 types, the unchanged 2,011-site Git audit and all 13 original bundle ceilings pass. The gateway is
 852/852 modules (6,939,111 bytes). The registry has 93 operations, with 42 native and 86 namespace
 bindings before optional execution. No Windows, provider, production installation or main merge ran.
+
+The known-failure follow-up passes 419 distinct affected Mac tests, including the unchanged
+34-test package qualifier, all three storage backends, the installed compatibility profiles and
+an offline Code-to-Release consumer. Native baseline-risk values reproduce 24 independently
+captured original outcomes. The registry now has 95 operations, with 42 native and 88 namespace
+bindings before optional execution. All original deadlines and thirteen bundle ceilings remain
+unchanged; gateway remains 852/852. See the known-failure record for the exact supported adapter
+and limitations. Neither phase is marked complete.
 
 Exact clause-obligation risks now have a [registered namespace owner and final evidence evaluation](ENGINE-SDK-OBLIGATION-RISKS.md).
 Human decisions bind their actual observations and owning publications; replacement generations,
@@ -188,18 +203,17 @@ have their own [registered context/decision profile](ENGINE-SDK-CONSTITUTION-EXC
 preserving machine rules, immutable publications and independent approval. Three actual stores,
 custom phases, expiry/renewal, interruption and offline shared-only replay are qualified separately.
 
-- The remaining native query/rule inventory and parity audit.
-  The source inventory is now complete as described in the native entry-point audit below;
-  the remaining runtime query/rule extraction and behavior parity stay separate.
-- Artifact-only/repository-qualified evidence correction,
-  late-publication plan revalidation and obligation/evidence/test decisions,
-  plus live application-review and witness-exception profiles.
-- Forward amendment and upstream-amend owners are delivered below; unsupported combined policy profiles remain explicit.
-- The remaining combined evidence-correction and application-revalidation variants; exact artifact
-  members, document-only returns, Code clause targeting and multiple Code predecessors have
-  authenticated profiles described below.
-- Comparison/live application acceptance and document/test risk owners.
-- Runtime test-recovery agreements, command amendments and bounded repair execution.
+- Remaining native runtime query/rule extraction and behavior parity. The source entry-point
+  inventory is complete; its audit does not execute or qualify every native handler.
+- Reviewed source adoption and rollover with original source authority and retained history.
+- Unsupported combined evidence-correction and application-revalidation variants. Exact member,
+  document-only return, targeted Code, multiple-Code, witness and forward-amendment profiles
+  retain their delivered qualification records.
+- Namespace live application review/comparison and Story-wide document/evidence risk owners.
+  Exact clause-obligation and supported test-risk decisions are already delivered.
+- Independently inventoried selective recovery and environment-sensitive cross-execution reuse.
+  The full-command agreement, command amendment, bounded repair and supported native Node
+  known-failure owner are delivered; further adapter meanings need their own qualification.
 - Required grounding, external design, skill/MCP host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through actual evidence ports.
 - Final qualification of those profiles and their cross-agent application journeys. Phases 8 and

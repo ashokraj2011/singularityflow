@@ -1,0 +1,1375 @@
+{
+  "baseline": "b1a77c07845ebcb7fa75c5ace22b4bdfeb6eb493",
+  "source": "src/test-recovery-admission.mjs",
+  "sha256": "ecee87b42c8693897823e13592d6b3c32101bc3a76904c4d3ec38bd4ee1c636f",
+  "cases": [
+    {
+      "name": "exact original baseline",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:f9940cc506e54afa13cd42fccb53a3224aef149723b0f8ba34a4cf6aeb09f469"
+        }
+      }
+    },
+    {
+      "name": "explicit compatible baseline",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "baseline-compatibility",
+                "sha256": "sha256:a43a8bd25eeee1f7f693ed1841ee016669cd20248aea363e78a3961b13e9c5cb"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:b0f5258437a9615eb6a5df87b776ab05c553d01fd6f59162e9fc681d0ae2f338"
+        }
+      }
+    },
+    {
+      "name": "only compatible baseline",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "baseline-compatibility",
+                "sha256": "sha256:a43a8bd25eeee1f7f693ed1841ee016669cd20248aea363e78a3961b13e9c5cb"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:b0f5258437a9615eb6a5df87b776ab05c553d01fd6f59162e9fc681d0ae2f338"
+        }
+      }
+    },
+    {
+      "name": "empty dependency inventory",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:f7959d3223468912518122efb3d75c811ec30f381b70d2c131cb35f0cfb446a0"
+        }
+      }
+    },
+    {
+      "name": "explicit transitions",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "approve",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:73187bef755460128c4d0414047e8ccd4f49233e130ad464c9580b0ed8ff978c"
+        }
+      }
+    },
+    {
+      "name": "empty transitions",
+      "observation": {
+        "error": {
+          "name": "Error",
+          "message": "$.transitions: invalid array",
+          "code": "TRP_RECORD_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "explicit validation epoch",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 7
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:2db5a8abdd970d0b7e7e43f7e762154dca2154012c270cf76161c872acc7eb62"
+        }
+      }
+    },
+    {
+      "name": "distinct original principal",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-a3887b1c186391ef15a81327d5d8a958",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "second-reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-a3887b1c186391ef15a81327d5d8a958",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:cce47143d306f0077213e0d496ba727e98fcbac8b531e3954f348fec9b1f6415"
+        }
+      }
+    },
+    {
+      "name": "distinct exact review digest",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c91da8bf021dd42566e0f4021ae437db001363dc63fae53a6b79b1d91f51229d",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:6025ea720775a7f5452ec4347b3e8d9a466617416bb068cc98d85fda1055b2bc"
+        }
+      }
+    },
+    {
+      "name": "another phase and repository",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "library",
+            "phaseId": "custom-check",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-7e338de47129d9975b459e53",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "custom-check"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:ee181fdca678f7d25bdbfa50d069fae3f10bcea32d5b8482b5ff8a91e35dc00c"
+        }
+      }
+    },
+    {
+      "name": "retained source generation",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:f9940cc506e54afa13cd42fccb53a3224aef149723b0f8ba34a4cf6aeb09f469"
+        }
+      }
+    },
+    {
+      "name": "multiple failed cases",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-d99f7a8c272e23d0137b7f5d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:B",
+                "semanticsSha256": "sha256:b11d618d9f448d7198da96e811310b7bada63dd7667d6912d388e7c7cb8e089e",
+                "causeSha256": "sha256:05f3cfd4cda3da4a17b936ba38c2951ad0f6e88c847c9e651d26a3293c9bd6b9"
+              },
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 2,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:cf7523a0913383a11d433564d2582c7dcf6103c4d4162ed1fd4e073eac0e3e28"
+        }
+      }
+    },
+    {
+      "name": "failed case order preserved",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:f9940cc506e54afa13cd42fccb53a3224aef149723b0f8ba34a4cf6aeb09f469"
+        }
+      }
+    },
+    {
+      "name": "all original failures repaired",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-2627928f3146111d1da0ddb8",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 0,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:d5e6f3d150e7e315293c316262220f5421f4a9c591c655954fef02949746db93"
+        }
+      }
+    },
+    {
+      "name": "bounded evidence age",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-44aa0a395e7d818df43aafb4f806cf22",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00.000Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-44aa0a395e7d818df43aafb4f806cf22",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 60
+          },
+          "recordSha256": "sha256:55fe4ec54f2fb76a7983b5f50e99c93d23364fc28c53a95c19594dc17371e79c"
+        }
+      }
+    },
+    {
+      "name": "exact timestamp representation",
+      "observation": {
+        "value": {
+          "schemaVersion": 1,
+          "kind": "phase-risk-decision",
+          "id": "baseline-risk-3466b4d6bd2c6ff2c140227e4604a76e",
+          "subject": {
+            "workId": "story-1",
+            "repositoryId": "service",
+            "phaseId": "code",
+            "generation": 0,
+            "validationEpoch": 1
+          },
+          "createdAt": "2026-10-02T11:00:00Z",
+          "issuer": {
+            "principal": "reviewer@example.test",
+            "channel": "terminal-intake"
+          },
+          "provenance": {
+            "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+            "evidenceRefs": [
+              "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+              "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d"
+            ]
+          },
+          "agreementSha256": "sha256:a0ce1945d50579a377e7c6af32f5658ddd48bf13f1e1f771efd01fb5527fa44d",
+          "policyAuthoritySha256": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "issueId": "issue-89813f37a28a15e98388124d",
+          "category": "known-test-failure",
+          "severity": "noncritical",
+          "anchorObservationDigest": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+          "obligationId": "unit-tests",
+          "transitions": [
+            "generation-admission",
+            "downstream",
+            "approve",
+            "replay",
+            "publish",
+            "submit"
+          ],
+          "authorityRef": "sha256:ac76dbaf0d5b3c156cfa650f8a73e4613f35ad68996fb29c268b3d40f276c252",
+          "authorizationRef": "baseline-review-3466b4d6bd2c6ff2c140227e4604a76e",
+          "confirmationSha256": "sha256:c5044fd05a8af0ef575fd66a610aa92e7bac14598cbf75badd7d4c5593d17c8f",
+          "reason": "Keep the existing legacy failure visible.",
+          "expiresAt": "2026-10-20T10:00:00Z",
+          "followUpOwner": "legacy-team",
+          "remediationRef": "issue-legacy-1",
+          "applicability": {
+            "carryForward": true,
+            "phaseIds": [
+              "code"
+            ],
+            "dependencies": [
+              {
+                "id": "test:A",
+                "sha256": "sha256:dcde34e555c90e2acf5b3a3e4f4a8256bf594ba5dbf8f4dc73a228373e4e9417"
+              },
+              {
+                "id": "source:legacy-module",
+                "sha256": "sha256:175b431e1252648efc5fde41619c10757bd881a0814cc21af97e343416196982"
+              }
+            ],
+            "environmentSha256": "sha256:2dc94b5ed08e18574de2fd101a5d6b7f8da4d5e905e5213e8b9449f498fb6ab3",
+            "baselineSha256": "sha256:9ab15a0469daa053eab30467ec99d425330255d23dfaac970c659d2a32dd4bf0",
+            "acceptedFailures": [
+              {
+                "testId": "test:A",
+                "semanticsSha256": "sha256:11292f9da181bd3ab325969a96ff07e7c9a28c01dcbb3b27b580b2be16c395dc",
+                "causeSha256": "sha256:24caa1df8e264467c99c5f9707b398f14945a392fc072e54b5b5dfb5d640e90f"
+              }
+            ],
+            "allowedTestIds": [
+              "test:A",
+              "test:B"
+            ],
+            "excludedTestIds": [],
+            "maxFailed": 1,
+            "commandSha256": "sha256:3d7963b073dc5e4c87e113ba9caa3495ec56d4c95fd72c2f970ae038d0eb91c8",
+            "selectorSha256": "sha256:c50a7f8578611c5fb0a8be5c1f5ba0e5a4989ef4520af6d368951484924598f1",
+            "maxObservationAgeSeconds": 86400
+          },
+          "recordSha256": "sha256:d351f766b2f207df9a5c3ebbe263b1c25d9cc7d5135c99519e02ce16f4039957"
+        }
+      }
+    },
+    {
+      "name": "explicit reason whitespace",
+      "observation": {
+        "error": {
+          "name": "Error",
+          "message": "$.reason: invalid string",
+          "code": "TRP_RECORD_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "missing baseline dependencies",
+      "observation": {
+        "error": {
+          "name": "TypeError",
+          "message": "Cannot read properties of undefined (reading 'find')",
+          "code": null,
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "missing policy",
+      "observation": {
+        "error": {
+          "name": "TypeError",
+          "message": "Cannot read properties of undefined (reading 'authoritySha256')",
+          "code": null,
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "non-string reason",
+      "observation": {
+        "error": {
+          "name": "TypeError",
+          "message": "choices.reason.trim is not a function",
+          "code": null,
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "non-string follow-up",
+      "observation": {
+        "error": {
+          "name": "TypeError",
+          "message": "Cannot read properties of null (reading 'trim')",
+          "code": null,
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "invalid principal",
+      "observation": {
+        "error": {
+          "name": "Error",
+          "message": "$.issuer.principal: invalid string",
+          "code": "TRP_RECORD_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "invalid validation epoch",
+      "observation": {
+        "error": {
+          "name": "Error",
+          "message": "$.subject.validationEpoch: invalid integer",
+          "code": "TRP_RECORD_INVALID",
+          "details": null
+        }
+      }
+    },
+    {
+      "name": "invalid review digest",
+      "observation": {
+        "error": {
+          "name": "Error",
+          "message": "$.confirmationSha256: invalid string",
+          "code": "TRP_RECORD_INVALID",
+          "details": null
+        }
+      }
+    }
+  ]
+}

@@ -103,6 +103,7 @@ export function standaloneDecisionAdmission(operation, workflow) {
     'plan.correction.record':['PLAN_AMENDMENT_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its plan is amended while it is in progress.`],
     'decision.witness':['WITNESS_STORY_CLOSED', `Story ${workId} is ${workflow.status}; witnesses are recorded while it is in progress.`],
     'decision.witness-exception':['WITNESS_EXCEPTION_STORY_CLOSED', `Story ${workId} is ${workflow.status}; reopen it at its final step to renew a witness exception.`],
+    'test-risk.confirm-known':['RISK_STORY_CLOSED', 'Review known failures while the Story is in progress.'],
     'decision.test-risk':['RISK_STORY_CLOSED', `Story ${workId} is ${workflow.status}; risks are decided while it is in progress.`],
     'decision.test-narrowing':['TEST_NARROWING_CLOSED', `Story ${workId} is ${workflow.status}; narrowed runs are decided while it is in progress.`],
     'decision.evidence-reuse':['EVIDENCE_REUSE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; evidence reuse is decided while it is in progress.`],
@@ -118,6 +119,15 @@ export function standaloneDecisionAdmission(operation, workflow) {
 /** Normalize domain values only; identity, policy and publication are never request fields. */
 export function standaloneDecisionRequest(operation, input) {
   const reason = input.reason ?? '';
+  if(operation==='test-risk.confirm-known'){
+    if(typeof reason!=='string'||reason.trim().length<20||reason.length>1000)refused('Explain the exact independently inventoried known failures in 20 to 1000 characters.','TEST_RUN_RISK_INVALID');
+    if(['phaseId','baselineOperationId','observedOperationId','expectedContext','revoke','expires','followUpOwner','remediationRef'].some(key=>input[key]!=null
+      &&(typeof input[key]!=='string'||!input[key]||input[key].length>512)))refused('Use exact textual known-failure bindings and review values.','TEST_RUN_RISK_INVALID');
+    if(!input.revoke&&[input.followUpOwner,input.remediationRef].some(value=>typeof value!=='string'||!value.trim()||value.length>512))refused('Name the follow-up owner and actual remediation reference.','TEST_RUN_RISK_INVALID');
+    return {phaseId:input.phaseId??null,baselineOperationId:input.baselineOperationId??null,observedOperationId:input.observedOperationId??null,
+      expectedContext:input.expectedContext??null,revoke:input.revoke??null,expires:input.expires??null,reason:reason.trim(),
+      followUpOwner:input.followUpOwner?.trim()??null,remediationRef:input.remediationRef?.trim()??null};
+  }
   if(operation==='test-risk.confirm-recovery'){const {revoke,...request}=standaloneDecisionRequest('decision.test-risk',input);if(revoke)refused('Use the ordinary risk revocation owner for an original decision.','TEST_RUN_RISK_INVALID');return {...request,expectedRecovery:input.expectedRecovery??null};}
   if(operation==='test-cohort.confirm'){
     if(typeof reason!=='string'||reason.trim().length<20||reason.length>1000)refused('Explain the reviewed test cohort in 20 to 1000 characters.','TEST_COHORT_INVALID');

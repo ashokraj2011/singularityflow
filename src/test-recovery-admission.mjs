@@ -6,7 +6,7 @@ import { lifecycleAuthority } from './sda/story-branch-authority.mjs';
 import path from 'node:path';
 import { canonicalJson } from './foundation/record-schema.mjs';
 import { storyTestRiskAuthorityContext } from './story-test-risk.mjs';
-import { sealTrpRecord, trpDigest, trpEnvironmentDigest, trpIssueIdentity } from './test-recovery-policy.mjs';
+import { buildBaselineRiskDecisionValue, trpDigest, trpEnvironmentDigest } from './test-recovery-policy.mjs';
 import { appendTrpAuthorityReceipt, appendTrpRecord, consumeTrpAuthority, loadTrpAuthorityVerifier,
   loadTrpRecords, trpAuthorityReview, trpWitnessReceipt } from './test-recovery-store.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
@@ -17,29 +17,7 @@ const TRANSITIONS = ['generation-admission', 'publish', 'submit', 'approve', 'do
 /** Pure record construction grants no authority; the caller must separately consume a live review. */
 export function buildBaselineRiskDecision(agreement, baseline, { authority, choices, principal, planDigest,
   createdAt = nowIso(), transitions = TRANSITIONS, validationEpoch = 1 } = {}) {
-  const suffix = trpDigest({ baseline: baseline.recordSha256, agreement: agreement.recordSha256, principal, createdAt }).slice(7, 39);
-  const compatible = baseline.dependencies.find(entry => entry.id === 'baseline-compatibility');
-  return sealTrpRecord({ schemaVersion: 1, kind: 'phase-risk-decision', id: `baseline-risk-${suffix}`,
-    subject: { ...baseline.subject, generation: 0, validationEpoch }, createdAt,
-    issuer: { principal, channel: 'terminal-intake' },
-    provenance: { authorityRef: authority.policy.authoritySha256, evidenceRefs: [agreement.recordSha256, baseline.recordSha256] },
-    agreementSha256: agreement.recordSha256, policyAuthoritySha256: authority.policy.authoritySha256,
-    issueId: trpIssueIdentity({ category: 'known-test-failure', obligationId: baseline.obligationId,
-      message: 'Required check failed', observation: baseline }).id,
-    category: 'known-test-failure', severity: 'noncritical', anchorObservationDigest: baseline.recordSha256,
-    obligationId: baseline.obligationId, transitions,
-    authorityRef: authority.policy.authoritySha256, authorizationRef: `baseline-review-${suffix}`,
-    confirmationSha256: planDigest, reason: choices.reason.trim(), expiresAt: choices.expiresAt,
-    followUpOwner: choices.followUpOwner.trim(), remediationRef: choices.remediationRef.trim(),
-    applicability: { carryForward: true, phaseIds: [baseline.subject.phaseId],
-      dependencies: compatible ? [compatible] : baseline.dependencies,
-      environmentSha256: trpEnvironmentDigest(baseline.environment), baselineSha256: baseline.recordSha256,
-      acceptedFailures: baseline.cases.filter(entry => entry.outcome === 'failed').map(entry => ({
-        testId: entry.id, semanticsSha256: entry.semanticsSha256, causeSha256: entry.causeSha256 })),
-      allowedTestIds: baseline.expectedTestIds, excludedTestIds: [], maxFailed: baseline.counts.failed,
-      commandSha256: baseline.commandSha256, selectorSha256: baseline.selectorSha256,
-      maxObservationAgeSeconds: authority.policy.maxEvidenceAgeSeconds }
-  });
+  return buildBaselineRiskDecisionValue(agreement, baseline, {authority,choices,principal,planDigest,createdAt,transitions,validationEpoch});
 }
 
 /** Review occurs before creation writes; opaque witnesses are consumed only by the append-only store. */

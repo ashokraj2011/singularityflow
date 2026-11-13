@@ -1,0 +1,23 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {writeFile} from 'node:fs/promises';import path from 'node:path';
+import {namespaceKnownTestRiskFixture} from './helpers/namespace-known-test-risk-fixture.mjs';
+import {actualWitnessTest} from './helpers/namespace-test-witness-fixture.mjs';
+test('new planned passing acceptance tests have an exact human-reviewed input binding without weakening a legacy assertion',{timeout:120000},async t=>{
+  const f=await namespaceKnownTestRiskFixture(t,{newTests:true}),inputs=f.view.manifest.additionalTestInputs;
+  assert.equal(inputs.length,1);assert.equal(inputs[0].path,'test/converter.test.js');assert.equal(inputs[0].permission,'new-planned-passing-test-input');
+  assert.equal(inputs[0].cases.count,1);assert.ok(inputs[0].plan.reviewPacket);
+  f.human();const first=await f.engine.run('test-risk.confirm-known',f.request);
+  assert.ok(first.record.context.reference);assert.equal(first.record.context.rows,undefined,'large review packets belong to content storage, not every workflow snapshot');
+  f.author();await f.rebase('continue-known-new-tests');
+  await writeFile(path.join(f.root,'test/converter.test.js'),actualWitnessTest+"test('a new passing boundary',()=>assert.equal(convert(0),'0'));\n");
+  await f.retain('new-boundary-source');await f.run('new-boundary-tests');
+  await assert.rejects(f.engine.run('phase.publish',{phaseId:'build',authored:'governed-agent',channel:'copilot-host'}),{code:'TEST_RUN_RISK_NOT_COVERED'});
+  const query={phaseId:'build',baselineOperationId:'original-pre-feature-checks',observedOperationId:'new-boundary-tests'},view=await f.engine.run('test-risk.known-context',query);
+  assert.equal(view.manifest.additionalTestInputs[0].cases.count,2);f.human();
+  await f.engine.run('test-risk.confirm-known',{...f.request,...query,operationId:'review-new-boundary-inputs',expectedContext:view.manifest.expectedContext});
+  f.author();await f.rebase('continue-new-boundary-review');await f.retain('reviewed-new-boundary-source');await f.run('fresh-reviewed-new-boundary-tests');
+  assert.equal((await f.engine.run('phase.prepublish',{phaseId:'build'})).manifest.qualityDisposition,'ready');
+  await f.engine.run('phase.publish',{phaseId:'build',authored:'governed-agent',channel:'copilot-host'});await f.engine.run('phase.submit',{phaseId:'build'});f.human();
+  const b=(await f.engine.run('phase.review',{phaseId:'build'})).manifest.reviewBinding;
+  await f.engine.run('phase.approve',{phaseId:'build',confirmation:{workId:f.inputs.workId,phase:'build',generation:b.generation,reviewPacketSha256:b.packetSha256}});
+  assert.equal((await f.engine.run('story.evidence',{})).manifest.report.completion.kind,'complete-with-exceptions');
+});

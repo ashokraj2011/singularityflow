@@ -23,6 +23,7 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespaceSourceControlReader} from './namespace-source-control-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
+import {createNamespaceKnownTestRiskOwner} from './namespace-known-test-risk-reader.mjs';
 import {createNamespaceOutputRetentionReader} from './namespace-output-retention-reader.mjs';
 import {repositoryCoverageProjection} from '../kernel/repository-plan.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=data=>createHash('sha256').update(data).digest('hex');
@@ -38,6 +39,7 @@ function codePreflightReader(options,requireCurrentIndices){
     plans=createNamespaceSpecificationReader({observer,scope,workId,checks}),controlReader=createNamespaceSourceControlReader({...options,observer}),
     clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changes,baseline,checks,controlReader}),
     files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices}),outputsReader=createNamespaceOutputRetentionReader({...options,observer,sourceReader:changes});
+  let knownRiskOwner;const knownRisks=()=>knownRiskOwner??=createNamespaceKnownTestRiskOwner({observer,scope,workId});
   async function inspect(snapshot,phaseId,identity,{signal,binding=null,policyTraversal}={}){
     const workflow=snapshot.workflow,commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(snapshot,phaseId,{signal,policyTraversal}),
       phase={...workflow.phases[phaseId],qualityCommands:commandProof.commands},definition=(await observer.approved(snapshot,{signal})).compiled.definition;
@@ -134,7 +136,8 @@ function codePreflightReader(options,requireCurrentIndices){
           case 'unreconciled-candidates':return scope?[...new Set(nativeEntries.flatMap(entry=>[entry.oldPath,entry.newPath].filter(path=>path&&!scope.allows(path)&&!earlier.paths.has(path))))].sort():[];
           case 'executable-test-path':return files.facts(context,request.candidate,{signal}).regular&&isExecutableTestSourceCandidate(request.candidate,{sourceExtensions:request.sourceExtensions});
           case 'reusable-paths':if(request.candidates.length)required('namespace-code-history');return [];
-          case 'reviewed-baseline-tests':return [];
+          case 'reviewed-baseline-tests':return (workflow.namespaceKnownTestRisks??[]).length
+            ?knownRisks().baselineTestPaths(snapshot,phaseId,id,{signal}):[];
           case 'allocated-obligations':return obligations;
           case 'working-path-facts':return pathFacts(request.candidate);
           case 'working-path-bytes':return readBytes(request.candidate);

@@ -1,3 +1,4 @@
+import {createNamespaceKnownTestRiskOwner} from './namespace-known-test-risk-reader.mjs';
 import {createNamespaceTestCohortOwner} from './namespace-test-cohort-reader.mjs';
 /** Actual decision observations only. No transactions, command rendering or execution. */
 import {canonicalJson,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
@@ -132,6 +133,18 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
           choice=state==='active'?option('revoke-test-risk','decision.test-risk',{revoke:row.id},groups):option('review-test-risk','test-risk.context',{phaseId:row.phase},groups,{},false);
         if(state!=='active')choice.action={operation:'test-risk.context',inputs:{workId,phaseId:row.phase},requiredInputs:[],prerequisites:['inspect-original-command-and-current-risk']};
         observations.push({kind:'test-run-risk',key:row.id+':'+state,offered:true,options:[choice]});
+      }
+    }
+    if((workflow.namespaceKnownTestRisks??[]).length){
+      const owner=createNamespaceKnownTestRiskOwner({observer,scope,workId}),proofs=await owner.admitted(snapshot,{signal}),rows=proofs.map(row=>row.value.outcome.record),latest=new Map();
+      source.knownTestRisks=proofs.map(row=>row.reference);references.push(...source.knownTestRisks);
+      for(const row of rows)if(row.id)latest.set(row.scopeSha256,row);
+      for(const row of latest.values()){
+        const state=owner.rules.state(rows,row,at);if(phaseId!==null&&phaseId!==row.phase&&state==='active')continue;
+        const inputs={workId,phaseId:row.phase,baselineOperationId:row.context.baseline.operationId,observedOperationId:row.context.observed.operationId},
+          choice=option('review-known-test-risk','test-risk.known-context',inputs,testRunRiskAuthorities(workflow,row.phase),{},false);
+        choice.action={operation:'test-risk.known-context',inputs,requiredInputs:[],prerequisites:['review-original-baseline-independent-inventory-and-current-execution']};
+        observations.push({kind:'test-run-risk',key:row.id+':'+state,offered:state==='active',options:[choice]});
       }
     }
     if((workflow.namespaceTestCohorts??[]).length){

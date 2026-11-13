@@ -87,7 +87,7 @@ export async function namespaceCodeInputCase(t,backend){
       save=async value=>(await f.content.put(f.scope,'evidence',Buffer.from(canonicalJson(value)))).reference,
       changes=[value=>{value.inputs[0].tests[0].tests.passed=100;},value=>{value.inputs[0].generation++;},value=>{value.inputs[0].approvals=[];},value=>{value.currentSources[0].id='another-repository';}];
     for(const [changed,code]of [...changes.map(change=>{const value=structuredClone(report);change(value);return [value,'ENGINE_STORAGE_CORRUPT'];}),
-      [{...report,schemaVersion:2},'ENGINE_STORAGE_UNSUPPORTED'],[{...report,ready:true},'ENGINE_STORAGE_CORRUPT']]){
+      [{...report,schemaVersion:3},'ENGINE_STORAGE_UNSUPPORTED'],[{...report,ready:true},'ENGINE_STORAGE_CORRUPT']]){
       const candidate={...manifest,report:await save(changed)},value={...publication,policyEvidence:[{...binding,record:await save(candidate)}]},reference={...phase.publicationBindings[0],record:await save(value)};
       await assert.rejects(reader.read(reference,phaseId),{code});
     }

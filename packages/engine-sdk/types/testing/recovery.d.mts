@@ -22,7 +22,13 @@ export interface TestRecoveryValues {
   sealTrpRecord(value:JsonValue):TrpRecord;validateTrpRecord(value:JsonValue,options?:{readonly kind?:string}):TrpRecord;
   trpIssueIdentity(value:{readonly category:string;readonly obligationId:string;readonly message:string;readonly observation?:TrpRecord|null;
     readonly subject?:Readonly<Record<string,JsonValue>>|null}):Readonly<Record<string,string>>;
+  /** Original intake wire only; construction does not collect consent, read evidence or grant authority. */
+  buildBaselineRiskDecision(agreement:TrpRecord,baseline:TrpRecord,options:{readonly authority:{readonly policy:Readonly<Record<string,JsonValue>>};
+    readonly choices:{readonly reason:string;readonly expiresAt:string;readonly followUpOwner:string;readonly remediationRef:string};
+    readonly principal:string;readonly planDigest:string;readonly createdAt:string;readonly transitions?:readonly string[];readonly validationEpoch?:number}):TrpRecord;
   evaluateTestRecoveryGate(input:TrpGateInput):TrpRecord;
+  /** Value comparison only; a matching baseline does not grant human authority. */
+  knownFailureMatches(current:TrpRecord,baseline:TrpRecord,decision:JsonValue,selection:TrpRecord):boolean;
 }
 /** These rules require actual verifier callbacks; deserialized labels cannot authorize a risk. */
 export declare function testRecoveryPolicies(digests:SpecificationDigests):Readonly<TestRecoveryValues>;
@@ -90,3 +96,19 @@ export declare function namespaceCodeEnvironmentRiskCoverage(matches:readonly Co
   readonly observations:readonly {readonly repositoryId:string;readonly commandId:string;readonly decision:{readonly record:{readonly id:string}}|null;
     readonly cause?:{readonly category:string}}[]}|null,options?:{readonly enforceAssertionAdequacy?:boolean}):
   {readonly profile:'sflow-namespace-code-execution-exception/v1';readonly decisions:readonly string[];readonly testsPassed:false}|null;
+export interface NamespaceKnownTestRecoveryValues {
+  hash(value:JsonValue):string;
+  testInputCases(occurrences:readonly {readonly file:string;readonly name:string;readonly ancestorTitles?:readonly string[];readonly line?:number|null}[]):
+    {readonly count:number;readonly sha256:string;readonly names:readonly string[]};
+  observed(facts:Readonly<Record<string,JsonValue>>):Readonly<Record<string,JsonValue>>;
+  project(facts:Readonly<Record<string,JsonValue>>):{readonly policy:JsonValue;readonly agreement:TrpRecord;readonly baseline:TrpRecord;readonly selection:TrpRecord;readonly observation:TrpRecord};
+  risk(projection:ReturnType<NamespaceKnownTestRecoveryValues['project']>,record:Readonly<Record<string,JsonValue>>,
+    authority:{readonly principal:string;readonly authorizationRef:string}):TrpRecord;
+  eligible(projection:ReturnType<NamespaceKnownTestRecoveryValues['project']>):boolean;
+  comparison(projection:ReturnType<NamespaceKnownTestRecoveryValues['project']>):Readonly<Record<string,JsonValue>>;
+  state(rows:readonly Readonly<Record<string,JsonValue>>[],record:Readonly<Record<string,JsonValue>>,at:string):'active'|'revoked'|'expired';
+  confirm(workflow:Readonly<Record<string,JsonValue>>,request:Readonly<Record<string,JsonValue>>,facts:Readonly<Record<string,JsonValue>>,
+    source:Readonly<Record<string,JsonValue>>):{readonly workflow:Readonly<Record<string,JsonValue>>;readonly outcome:Readonly<Record<string,JsonValue>>};
+}
+/** These values compare inventories only; original execution and human receipts remain mandatory. */
+export declare function namespaceKnownTestRecoveryPolicies(digests:SpecificationDigests):Readonly<NamespaceKnownTestRecoveryValues>;

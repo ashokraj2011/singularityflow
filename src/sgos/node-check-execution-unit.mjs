@@ -3,6 +3,7 @@ import {constants} from 'node:fs';
 import {lstat,realpath,open} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
+import {platform,arch} from 'node:os';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,EXECUTION_UNIT_LIMITS,cloneSgosRecordValue} from '../foundation/record-schema.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
@@ -13,8 +14,8 @@ import {createFilesystemSourceUnit} from './filesystem-source-unit.mjs';
 import {createExecutionUnitManifest,createExecutionUnitAdapter,executionUnitSha256,
   assertPinnedExecutionExecutable,executePinnedProcess,untilExecutionStopped} from './node-execution-unit.mjs';
 
-import {NODE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
-export {NODE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
+import {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
+export {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
 const MAXIMUM_BYTES=EXECUTION_UNIT_LIMITS.maximumOutputBytes;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fingerprint=info=>[info.dev,info.ino,info.mode,info.size,info.mtimeNs,info.ctimeNs].map(String).join(':');
@@ -40,6 +41,14 @@ async function boundedIO(work,signal,timeoutMs,stage) {
 /** The host selects actual command, checkout, environment and report destinations before task admission. */
 export async function createNodeCheckExecutionUnit(options={}) {
   return localCheckExecutionUnit(options,{profile:NODE_CHECK_EXECUTION_PROFILE});
+}
+/** Opt-in environment evidence is captured by SGOS, never asserted by a lifecycle request. */
+export async function createEnvironmentQualifiedNodeCheckExecutionUnit(options={}){
+  if(!options||typeof options!=='object'||![Object.prototype,null].includes(Object.getPrototypeOf(options))||Reflect.ownKeys(options).some(key=>typeof key!=='string'
+    ||!Object.hasOwn(Object.getOwnPropertyDescriptor(options,key),'value')))throw error('Supply a plain explicit environment-qualified check binding.');
+  const {hostId,...binding}=options;
+  if(typeof hostId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(hostId))throw error('Supply the authenticated executor host identity.');
+  return localCheckExecutionUnit(binding,{profile:NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,hostId});
 }
 /** Compile/lint/security observations retain exit, output and source facts; they never parse tests. */
 export async function createNodeCommandExecutionUnit(options={}){
@@ -71,6 +80,8 @@ async function localCheckExecutionUnit(options,execution){
   if(new Set(report.files).size!==report.files.length)throw error('Report paths must be distinct.');
   if(report.files.some(file=>['.git','.singularity-flow'].some(prefix=>file===prefix||file.startsWith(prefix+'/'))))
     throw error('Repository and SFlow metadata cannot be selected as test reports.','SGOS_CHECK_SCOPE_INVALID');
+  if(selected.qualifiedEnvironment&&await realpath(command.executable)!==await realpath(process.execPath))throw error(
+    'Environment-qualified Node checks must use this executor\'s actual native Node runtime.');
   const scope=namespaceScope({projectId}),blobs=validateContentStore(content);
   if(blobs.descriptor.binding.kind!=='shared'||blobs.descriptor.maximumBytes<MAXIMUM_BYTES)
     throw error('Check observations require an explicit shared content store with sufficient byte capacity.');
@@ -81,6 +92,12 @@ async function localCheckExecutionUnit(options,execution){
   const policy={...execution,repository:source.descriptor,timeoutMs,
     command:{executableSha256:command.executableSha256,argumentsSha256:executionUnitSha256(command.arguments),
       environmentSha256:executionUnitSha256(command.environment),environmentNames:Object.keys(command.environment).sort()},report};
+  if(selected.qualifiedEnvironment){
+    delete policy.hostId;
+    policy.environmentQualification={profile:'sflow-node-check-environment/v1',hostId:execution.hostId,platform:platform(),arch:arch(),
+      runtimeSha256:command.executableSha256,environmentSha256:policy.command.environmentSha256,
+      reportRoot:{grammar:path.sep==='\\'?'win32':'posix',absolute:physical}};
+  }
   const manifest=createExecutionUnitManifest({id,version,publisher:'singularity-flow',provider:'authorized-local-check',models:[],
     capabilities:{readFiles:true,writeFiles:true,process:true},sandbox:{kind:'host-local',enforcement:'none'},
     network:{mode:'host-unrestricted'},toolPolicy:policy,risk:{class:'host-authorized-process'},

@@ -20,7 +20,7 @@ import {primaryDocumentPublicationRequirements,publicationAuthorshipIntent,codeP
   codeInputPublicationPolicy,CODE_INPUT_PUBLICATION_OWNERS,conformancePublicationPolicy,CONFORMANCE_PUBLICATION_OWNERS,convergencePublicationPolicy,CONVERGENCE_PUBLICATION_OWNERS} from '../kernel/publication-intent.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex'),same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
-const repairable=new Set(['TEST_RUN_RISK_NOT_COVERED','TEST_RUN_RISK_NOT_ELIGIBLE','ENGINE_EVIDENCE_REUSE_INCOMPLETE','TEST_RECOVERY_AGREEMENT_REQUIRED','ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
+const repairable=new Set(['KNOWN_TEST_RISK_NOT_ELIGIBLE','KNOWN_TEST_ENVIRONMENT_REQUIRED','TEST_RUN_RISK_NOT_COVERED','TEST_RUN_RISK_NOT_ELIGIBLE','ENGINE_EVIDENCE_REUSE_INCOMPLETE','TEST_RECOVERY_AGREEMENT_REQUIRED','ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
   'ENGINE_SOURCE_EVIDENCE_REQUIRED','ENGINE_SOURCE_BASELINE_REQUIRED','CODE_DELIVERY_TEST_COVERAGE_INCOMPLETE',
   'CODE_TEST_WITNESS_INCOMPLETE','SPEC_PLANNED_TEST_BINDING_REQUIRED','SPEC_PLANNED_ALLOCATION_INVALID',
   'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE','ENGINE_ASSIGNMENT_REQUIRED','CONSTITUTION_POLICY_REQUIRED',
@@ -65,7 +65,7 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
       const published=await publications.accepted(bound,phase.id,{signal});fingerprint=published.artifact.fingerprint;producer=published.authorship.producer;
       if(published.checks)requiredTests='retained-passing';
       if(prepublish&&published.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))fresh.push(async()=>publications.policies.freshCohort(published,snapshot,{signal,at:await clock.now()}));
-      if(published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind))){requiredTests='accepted-environment-failure';
+      if(published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind))){requiredTests=testRisk.report.profile==='sflow-namespace-known-test-risk-policy/v1'?'accepted-known-failures':'accepted-environment-failure';
         if(prepublish)fresh.push(async()=>publications.policies.freshTestRisk(published,snapshot,sources,{signal,at:await clock.now()}));}
       if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1')){requiredTests='reused-not-executed';
         if(prepublish)fresh.push(async()=>publications.policies.freshReuseSources(published,snapshot,sources,{signal,at:await clock.now()}));}
@@ -126,14 +126,14 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             const current=await checks.inspectDraft(checkInput,{signal});
             if(!current&&(workflow.namespaceEvidenceReuses??[]).some(row=>row.id&&row.phase===phase.id))reused=await attempt(async()=>publications.policies.reuseCandidate(
               candidate,snapshot,{signal,at:await clock.now(),units:sources}));
-            if(current&&current.found.body.verdict!=='passed'&&(!workflow.resolution.testRecovery?.enabled||workflow.resolution.testRecovery.enabledRiskCategories.includes('validation-unavailable')))testRisk=await attempt(async()=>publications.policies.testRiskCandidate(
+            if(current&&current.found.body.verdict!=='passed'&&(!workflow.resolution.testRecovery?.enabled||workflow.resolution.testRecovery.enabledRiskCategories.includes('validation-unavailable')||(workflow.namespaceKnownTestRisks??[]).some(row=>row.id&&row.phase===phase.id)))testRisk=await attempt(async()=>publications.policies.testRiskCandidate(
               candidate,snapshot,{signal,at:await clock.now(),checked:current,checkInput}));
             if(!reused&&!testRisk)tested=await attempt(()=>checks.forDraft(checkInput,{signal}));}
           candidate.checks=tested;
           if((workflow.namespaceTestCohorts??[]).some(row=>row.phase===phase.id))await publications.policies.cohortCandidate(candidate,snapshot,{signal,at:await clock.now(),...(testRisk?{riskChecks:testRisk.report.checks}:{})});
           if(tested){requiredTests='retained-passing';fresh.push(()=>checks.freshSources(tested,phase.id,sources,{signal}));}
           else if(reused)requiredTests='reused-not-executed';
-          else if(testRisk){requiredTests='accepted-environment-failure';
+          else if(testRisk){requiredTests=testRisk.report.profile==='sflow-namespace-known-test-risk-policy/v1'?'accepted-known-failures':'accepted-environment-failure';
             fresh.push(()=>checks.freshObservedSources(testRisk.report.checks,phase.id,sources,{signal}));}
           else if(commandProof.commands.length)requiredTests='evidence-required';
           if(code){const result=await attempt(()=>publications.policies.codeCandidate(candidate,snapshot,{signal,...(testRisk?{riskChecks:testRisk.report.checks}:{})}));

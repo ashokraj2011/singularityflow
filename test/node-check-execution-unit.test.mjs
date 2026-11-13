@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdir,readFile,writeFile,access,symlink} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,access,symlink,realpath} from 'node:fs/promises';
+import {platform,arch} from 'node:os';
 import path from 'node:path';
 import {setTimeout as pause} from 'node:timers/promises';
-import {createNodeCheckExecutionUnit,NODE_CHECK_EXECUTION_PROFILE} from '../src/sgos/node-check-execution-unit.mjs';
+import {createNodeCheckExecutionUnit,createEnvironmentQualifiedNodeCheckExecutionUnit,NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE} from '../src/sgos/node-check-execution-unit.mjs';
 import {createAgentTaskContract,createExecutionUnitAdapter,executionUnitSha256 as digest,executePinnedProcess} from '../src/sgos/node-execution-unit.mjs';
 import {createDurableExecutionUnit} from '../src/sgos/durable-execution-unit.mjs';
 import {createNamespaceSgosOperationalStore} from '../src/sgos/namespace-operational-store.mjs';
@@ -30,6 +31,33 @@ async function fixture(t,{backend='filesystem',script=null,report={adapter:'node
   return {...f,root,options,unit,task,contract:task(),bytes};
 }
 async function output(f){const handle=await f.unit.start(f.contract);return (await f.unit.collect(handle)).output;}
+
+test('environment-qualified bindings reject inherited or accessor options before evaluating command data',async()=>{
+  let reads=0;const poison=()=>{reads++;throw Error('Options cannot run a getter.');},
+    inherited=Object.create(Object.defineProperty({},'hostId',{get:poison})),own=Object.defineProperty({},'hostId',{enumerable:true,get:poison}),
+    command=Object.defineProperty({},'executable',{enumerable:true,get:poison});
+  for(const options of [inherited,own,{hostId:'actual-check-owner',command},{hostId:'actual-check-owner'},{hostId:'actual-check-owner',environmentQualification:{platform:'claimed'}}])
+    await assert.rejects(createEnvironmentQualifiedNodeCheckExecutionUnit(options),{code:'SGOS_CHECK_INPUT_INVALID'});
+  assert.equal(reads,0);
+});
+test('an environment-qualified native execution retains real runtime and reporter identity while the original profile stays unchanged',async t=>{
+  const f=await fixture(t,{backend:'sqlite'}),original=f.unit.descriptor();
+  f.unit=await createEnvironmentQualifiedNodeCheckExecutionUnit({...f.options,hostId:'actual-check-owner'});
+  f.contract=f.task({executionUnitManifestSha256:f.unit.descriptor().manifestSha256});
+  const qualification=f.unit.descriptor().toolPolicy.environmentQualification,result=await output(f);
+  assert.equal(result.format,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE);assert.equal(result.process.status,0);assert.equal(result.reports.parsed.tests.passed,1);
+  assert.equal(qualification.platform,platform());assert.equal(qualification.arch,arch());assert.equal(qualification.hostId,'actual-check-owner');
+  assert.equal(qualification.runtimeSha256,executableSha256);assert.equal(qualification.environmentSha256,digest({}));
+  assert.equal(qualification.reportRoot.absolute,await realpath(f.root));assert.equal(qualification.reportRoot.grammar,path.sep==='\\'?'win32':'posix');
+  assert.equal(original.toolPolicy.profile,NODE_CHECK_EXECUTION_PROFILE);assert.equal(original.toolPolicy.environmentQualification,undefined);
+});
+test('qualified runtime selection refuses a substitute executable and preserves a missing executable error',async t=>{
+  const f=await fixture(t,{backend:'sqlite'}),substitute=path.join(f.root,'substitute-node'),missing=path.join(f.root,'missing-node');
+  await writeFile(substitute,'Not the running Node executable.');
+  const options=executable=>({...f.options,hostId:'actual-check-owner',command:{...f.options.command,executable}});
+  await assert.rejects(createEnvironmentQualifiedNodeCheckExecutionUnit(options(substitute)),{code:'SGOS_CHECK_INPUT_INVALID'});
+  await assert.rejects(createEnvironmentQualifiedNodeCheckExecutionUnit(options(missing)),error=>error.code==='ENOENT'&&error.path===missing);
+});
 
 test('a genuine pinned Node check retains actual output, source observations and candidate-only counts',async t=>{
   const f=await fixture(t),result=await output(f);

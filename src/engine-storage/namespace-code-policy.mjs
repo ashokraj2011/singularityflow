@@ -1,5 +1,5 @@
 /** Recompute Code publication from original source, approved claims and actual check receipts. */
-import {isNamespaceTestRiskPolicy,canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch,namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
+import {namespaceCodeExecutionRiskProfile,isNamespaceTestRiskPolicy,canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch,namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
 import {createNamespaceTestRiskOwner} from './namespace-test-risk-reader.mjs';
 import {namespaceCodeEnvironmentRiskCoverage} from '../kernel/test-recovery.mjs';
 import {createHash} from 'node:crypto';
@@ -54,7 +54,7 @@ export async function verifyCodePolicyInTraversal(reader,observer,publication,bi
 function reportValue(value){
   try{const wire=namespaceCodePolicyProfile('codeReport',value),profile=wire.executionRisk?namespaceCodePolicyProfile('codeReport',{schemaVersion:value.evidenceVersion}):wire;
     if(wire.executionRisk&&(!Number.isInteger(value.evidenceVersion)||value.evidenceVersion<1||value.evidenceVersion>31||value.checks!==null
-      ||value.executionException?.profile!=='sflow-namespace-code-execution-risk/v1'||value.executionException.testsPassed!==false))throw Error('Another execution exception.');
+      ||value.executionException?.profile!==(wire.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1')||wire.knownFailureRisk&&value.executionException.failedAcceptanceWaived!==false||value.executionException.testsPassed!==false))throw Error('Another execution exception.');
     exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance',...(wire.executionRisk?['evidenceVersion','executionException']:[])]);
     if(value.format!==wire.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
     const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[]),
@@ -178,8 +178,8 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
       }
     }
     const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31}[preflightVersion]??7):preflightVersion;
-    const report=reportValue({schemaVersion:risk?32:version,format:'sflow-namespace-code-policy-report/v'+(risk?32:version),preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
-      ...(risk?{evidenceVersion:version,executionException:{profile:'sflow-namespace-code-execution-risk/v1',checks:risk.binding,testsPassed:false,policy:publication.policyEvidence?.find(row=>isNamespaceTestRiskPolicy(row.kind)&&row.kind!=='test-risk/v1')??null}}:{})});
+    const riskProfile=risk?namespaceCodeExecutionRiskProfile(risk.report):null,report=reportValue({schemaVersion:riskProfile?.version??version,format:riskProfile?.format??'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
+      ...(risk?{evidenceVersion:version,executionException:{profile:riskProfile.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1',...(riskProfile.knownFailureRisk?{failedAcceptanceWaived:false}:{}),checks:risk.binding,testsPassed:false,policy:publication.policyEvidence?.find(row=>isNamespaceTestRiskPolicy(row.kind)&&row.kind!=='test-risk/v1')??null}}:{})});
     return {report,source,policy};
   }
   async function candidate(publication,snapshot,options){const value=await withReaders(readers=>candidateFor(publication,snapshot,options,readers));

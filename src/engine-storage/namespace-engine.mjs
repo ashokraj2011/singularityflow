@@ -1,3 +1,4 @@
+import {createNamespaceKnownTestRiskPorts} from './namespace-known-test-risks.mjs';
 import {createNamespaceTestCohortPorts} from './namespace-test-cohorts.mjs';
 import {createNamespaceSourceReviewPorts} from './namespace-source-review.mjs';
 import {createNamespaceConvergencePorts} from './namespace-convergence.mjs';
@@ -108,19 +109,20 @@ export function createNamespaceEngine(options={}) {
   let commandPorts,reusePorts;const reuse=()=>reusePorts??=createNamespaceEvidenceReusePorts(common);
   let recoveryPorts;const recovery=()=>recoveryPorts??=createNamespaceTestRecoveryPorts(common);
   let obligationRiskPort;
+  let knownRiskPorts;const knownRisks=()=>knownRiskPorts??=createNamespaceKnownTestRiskPorts(common);
   let cohortPorts;const cohorts=()=>cohortPorts??=createNamespaceTestCohortPorts(common);
-  const decisionOperations=Object.freeze(['test-risk.confirm-recovery','test-cohort.confirm','decision.witness-exception','decision.risk','test-recovery.confirm','convergence.adjudicate','decision.constitution-exception','phase.assign','source-review.record','source-review.decide','decision.choose','decision.plan','plan.correction.record','decision.witness',...NAMESPACE_SCOPE_DECISION_OPERATIONS]);
+  const decisionOperations=Object.freeze(['test-risk.confirm-known','test-risk.confirm-recovery','test-cohort.confirm','decision.witness-exception','decision.risk','test-recovery.confirm','convergence.adjudicate','decision.constitution-exception','phase.assign','source-review.record','source-review.decide','decision.choose','decision.plan','plan.correction.record','decision.witness',...NAMESPACE_SCOPE_DECISION_OPERATIONS]);
   const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord={operations:decisionOperations,...Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
     const operation=parameters.at(-1)?.operation?.id;
     if(!decisionOperations.includes(operation))throw new SingularityFlowError(
       'This decision needs its declared namespace evidence and authority owner.',{code:'ENGINE_PORT_UNAVAILABLE',details:{operation,port:'decisionRecord',required:[operation]}});
-    const port=operation==='test-risk.confirm-recovery'?risks().recoveryDecision:operation==='test-cohort.confirm'?cohorts().decision:operation==='decision.witness-exception'?renewals().decision:operation==='decision.risk'?(obligationRiskPort??=createNamespaceObligationRiskPort(common)):operation==='test-recovery.confirm'?recovery().decision:operation==='convergence.adjudicate'?convergence().decision:operation==='decision.constitution-exception'?constitutionExceptions().decision:operation==='source-review.record'?sourceReviews().record:operation==='source-review.decide'?sourceReviews().decide:operation==='phase.assign'?(assignmentPort??=createNamespaceAssignmentPort(common)):operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
+    const port=operation==='test-risk.confirm-known'?knownRisks().decision:operation==='test-risk.confirm-recovery'?risks().recoveryDecision:operation==='test-cohort.confirm'?cohorts().decision:operation==='decision.witness-exception'?renewals().decision:operation==='decision.risk'?(obligationRiskPort??=createNamespaceObligationRiskPort(common)):operation==='test-recovery.confirm'?recovery().decision:operation==='convergence.adjudicate'?convergence().decision:operation==='decision.constitution-exception'?constitutionExceptions().decision:operation==='source-review.record'?sourceReviews().record:operation==='source-review.decide'?sourceReviews().decide:operation==='phase.assign'?(assignmentPort??=createNamespaceAssignmentPort(common)):operation==='decision.witness'?witnesses().decision:operation==='decision.plan'?plans().decision:operation==='plan.correction.record'?plans().correctionRecord
       :NAMESPACE_SCOPE_DECISION_OPERATIONS.includes(operation)?scoped().ports.get(operation):routing.decisionRecord;
     return port[stage](...parameters);
   }]))};
   let engine,executeOperation;
   let riskPorts;const risks=()=>riskPorts??=createNamespaceTestRiskPorts(common);
-  const ports={...lazyPorts(()=>sourceReviews(),{sourceReviewContext:['load','read']}),...createNamespaceReadPorts(common,{authority}),
+  const ports={...lazyPorts(()=>({knownTestRiskContext:knownRisks().context}),{knownTestRiskContext:['load','read']}),...lazyPorts(()=>sourceReviews(),{sourceReviewContext:['load','read']}),...createNamespaceReadPorts(common,{authority}),
     ...lazyPorts(()=>createNamespaceDecisionListPorts(common,runtime),{decisionList:['load','read']}),
     ...lazyPorts(()=>({decisions:createNamespaceDecisionBatchPort(common,runtime,executeOperation)}),{decisions:['load','prepare','apply','finish']}),
     convergenceContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>convergence().convergenceContext[stage](...args)])),

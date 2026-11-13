@@ -259,8 +259,16 @@ export const NAMESPACE_EVIDENCE_REUSE_SCHEMAS=Object.freeze({
 const testRiskFamily=id=>Object.freeze({id,currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'});
 export const NAMESPACE_TEST_RISK_SCHEMAS=Object.freeze({record:testRiskFamily('namespace-test-run-risk'),
   context:testRiskFamily('namespace-test-risk-context'),policy:testRiskFamily('namespace-test-risk-policy-manifest'),report:testRiskFamily('namespace-test-risk-policy')});
-export const isNamespaceTestRiskPolicy=kind=>['test-risk/v1','test-risk/v2','test-risk/v3'].includes(kind);
+export const NAMESPACE_KNOWN_TEST_RISK_SCHEMAS=Object.freeze({record:frozenFamily('namespace-known-test-run-risk'),context:frozenFamily('namespace-known-test-risk-context'),
+  policy:frozenFamily('namespace-known-test-risk-policy-manifest'),report:frozenFamily('namespace-known-test-risk-policy')});
+export const isNamespaceTestRiskPolicy=kind=>['test-risk/v1','test-risk/v2','test-risk/v3','known-test-risk/v1'].includes(kind);
+export const namespaceTestRiskPolicyKind=report=>namespaceTestRiskRecordProfile('report',report).knownFailure?'known-test-risk/v1':'test-risk/v'+namespaceTestRiskRecordProfile('report',report).version;
 export function namespaceTestRiskRecordProfile(kind,value){
+  if(String(value?.profile??value?.format??'').startsWith('sflow-namespace-known-test-')){
+    const family=NAMESPACE_KNOWN_TEST_RISK_SCHEMAS[kind];if(!family)throw new SingularityFlowError('Unknown known-test-risk family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+    const {storedVersion}=admitRecordSchemaVersion(family,value);return Object.freeze({version:storedVersion,profile:'sflow-'+family.id+'/v'+storedVersion,
+      executionRisk:true,recoveryRisk:true,knownFailure:true});
+  }
   const family=NAMESPACE_TEST_RISK_SCHEMAS[kind];
   if(!family)throw new SingularityFlowError('Unknown test-risk record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
   const {storedVersion}=admitRecordSchemaVersion(family,value);
@@ -377,27 +385,36 @@ export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily(
   constitution:frozenFamily('namespace-constitution-policy'),constitutionReport:frozenFamily('namespace-constitution-policy-report'),
   assignment:frozenFamily('namespace-phase-assignment-policy'),assignmentReport:frozenFamily('namespace-phase-assignment-report'),
   analysis:frozenFamily('namespace-specification-analysis'),
-  code:Object.freeze({id:'namespace-code-policy',currentVersion:32,minimumReadableVersion:1,maximumReadableVersion:32,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
-  codeReport:Object.freeze({id:'namespace-code-policy-report',currentVersion:32,minimumReadableVersion:1,maximumReadableVersion:32,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
-  codeInputs:frozenFamily('namespace-code-input-policy'),codeInputReport:frozenFamily('namespace-code-input-policy-report'),
-  conformance:Object.freeze({id:'namespace-conformance-policy',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
-  conformanceReport:Object.freeze({id:'namespace-conformance-policy-report',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})});
+  code:Object.freeze({id:'namespace-code-policy',currentVersion:33,minimumReadableVersion:1,maximumReadableVersion:33,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  codeReport:Object.freeze({id:'namespace-code-policy-report',currentVersion:33,minimumReadableVersion:1,maximumReadableVersion:33,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  codeInputs:Object.freeze({id:'namespace-code-input-policy',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  codeInputReport:Object.freeze({id:'namespace-code-input-policy-report',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  conformance:Object.freeze({id:'namespace-conformance-policy',currentVersion:4,minimumReadableVersion:1,maximumReadableVersion:4,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  conformanceReport:Object.freeze({id:'namespace-conformance-policy-report',currentVersion:4,minimumReadableVersion:1,maximumReadableVersion:4,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})});
 export function namespaceDocumentReviewRecordProfile(kind,value){const family=NAMESPACE_PHASE_POLICY_SCHEMAS[kind==='report'?'documentReviewReport':'documentReview'],
   {storedVersion}=admitRecordSchemaVersion(family,value);return Object.freeze({version:storedVersion,format:'sflow-'+family.id+'/v'+storedVersion,kind:'document-review/v'+storedVersion});}
 /** Schema selection stays here; evidence location and acceptance remain persistence concerns. */
 export function namespacePhasePolicyBindingProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.binding,value);
   return Object.freeze({version:storedVersion,format:'sflow-namespace-phase-policy-evidence-binding/v'+storedVersion});}
+/** Producer failures stay failed; v2 carries only separately authenticated known-failure permission. */
+export function namespaceCodeInputPolicyProfile(kind,value){
+  if(!['codeInputs','codeInputReport'].includes(kind))throw new SingularityFlowError('Unknown Code input record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],value);
+  return Object.freeze({version:storedVersion,kind:'approved-code-inputs/v'+storedVersion,
+    format:'sflow-namespace-code-input-policy'+(kind==='codeInputReport'?'-report':'')+'/v'+storedVersion,...(storedVersion===2?{knownFailureInputs:true}:{})});
+}
 /** Frozen opt-in conformance meanings; installed migration families remain unchanged. */
 export function namespaceConformancePolicyProfile(kind,value){
   if(!['conformance','conformanceReport'].includes(kind))throw new SingularityFlowError('Unknown conformance policy record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],value);
-  return Object.freeze({version:storedVersion,issueLinks:storedVersion===2,kind:'conformance/v'+storedVersion,
+  return Object.freeze({version:storedVersion,issueLinks:[2,4].includes(storedVersion),kind:'conformance/v'+storedVersion,...(storedVersion>=3?{knownFailureInputs:true}:{}),
     format:'sflow-namespace-conformance-policy'+(kind==='conformanceReport'?'-report':'')+'/v'+storedVersion});
 }
 export function namespaceCodePolicyProfile(kind,value){
   if(!['code','codeReport'].includes(kind))throw new SingularityFlowError('Unknown Code policy record family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS[kind],value);
   if(storedVersion===32)return {version:32,executionRisk:true,kind:'code-delivery/v32',format:'sflow-namespace-code-policy'+(kind==='codeReport'?'-report':'')+'/v32'};
+  if(storedVersion===33)return {version:33,executionRisk:true,knownFailureRisk:true,kind:'code-delivery/v33',format:'sflow-namespace-code-policy'+(kind==='codeReport'?'-report':'')+'/v33'};
   return {version:storedVersion,rework:storedVersion>=2,...(storedVersion>=6?{optionalHistory:true}:{}),...([7,9,11,13,15,17,19,21,23,25,27,29,31].includes(storedVersion)?{humanAcceptance:true}:{}),
     ...([10,11].includes(storedVersion)?{predecessors:true}:{}),...(storedVersion>=12?{outputs:true,optionalPredecessors:true}:{}),
     ...(storedVersion>=14?{optionalOutputs:true}:{}),...([14,15,18,19,24,25,26,27,28,29,30,31].includes(storedVersion)?{targeted:true}:{}),
@@ -405,6 +422,7 @@ export function namespaceCodePolicyProfile(kind,value){
     kind:'code-delivery/v'+storedVersion,format:'sflow-namespace-code-policy'+(kind==='codeReport'?'-report':'')+'/v'+storedVersion};
 }
 export function namespaceCodeReportEvidenceProfile(report){const outer=namespaceCodePolicyProfile('codeReport',report);return outer.executionRisk?namespaceCodePolicyProfile('codeReport',{schemaVersion:report.evidenceVersion}):outer;}
+export function namespaceCodeExecutionRiskProfile(report){return namespaceCodePolicyProfile('codeReport',{schemaVersion:namespaceTestRiskRecordProfile('report',report).knownFailure?33:32});}
 /** Authenticated configured loops retain v2 bytes; explicit reviewer returns use a new v3 proof. */
 export function namespaceCodePreflightVersion(preflight){
   if(['sflow-namespace-code-history/v11','sflow-namespace-code-history/v12'].includes(preflight.history?.profile))return preflight.repositoryScope?.profile==='sflow-namespace-repository-coverage/v1'?30:28;

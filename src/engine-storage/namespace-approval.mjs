@@ -118,7 +118,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The retained approval lost its submitted packet.','ENGINE_STORAGE_CORRUPT');
     let approvalCandidate=null;
     if(packets.publicationRequiresDisposition(proof.published,{reached:true})||(body.workflow.namespaceObligationRisks??[]).length||s.mappingRequest
-      ||(body.workflow.namespaceTestCohorts??[]).length||(body.workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)
+      ||(body.workflow.namespaceTestCohorts??[]).length||(body.workflow.namespaceKnownTestRisks??[]).length||(body.workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)
       ||Object.values(body.workflow.phases).some(row=>row.approvals?.some(vote=>vote.witnessMappings?.length))){
       const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
       approvalCandidate={operationId:s.operationId,snapshot:{workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion}};
@@ -282,7 +282,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
           if(policy.reached&&route?.selected.currentPhase===null&&(workflow.forwardAmendments??[]).length)
             await createNamespaceForwardAmendmentOwners({observer,scope,workId}).assertReady(snapshot,phase.id,{signal,terminal:true});
           const artifactSet=await save(set,signal),terminalSnapshot=(workflow.namespaceObligationRisks??[]).length||witnessReview?.decisions.length
-            ||(workflow.namespaceTestCohorts??[]).length||(workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)
+            ||(workflow.namespaceTestCohorts??[]).length||(workflow.namespaceKnownTestRisks??[]).length||(workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)
             ||Object.values(workflow.phases).some(row=>(row.approvals??[]).some(vote=>vote.witnessMappings?.length))?{...snapshot,workflow:structuredClone(workflow)}:null;
           let value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
             generation:phase.generation,operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,

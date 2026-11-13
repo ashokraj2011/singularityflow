@@ -15,4 +15,5 @@ export const trpRecordDigest=policy.trpRecordDigest;
 export const sealTrpRecord=policy.sealTrpRecord;
 export const validateTrpRecord=policy.validateTrpRecord;
 export const trpIssueIdentity=policy.trpIssueIdentity;
+export const buildBaselineRiskDecisionValue=policy.buildBaselineRiskDecision;
 export const evaluateTestRecoveryGate=policy.evaluateTestRecoveryGate;

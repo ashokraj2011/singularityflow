@@ -1,11 +1,11 @@
 /** Concrete immutable-content retention. Lifecycle acceptance remains the publication writer's duty. */
 import {namespaceTestCohortManifest} from './namespace-test-cohort-reader.mjs';
 import {createHash} from 'node:crypto';
-import {canonicalJson,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceConformancePolicyProfile,namespaceArtifactSetRecordProfile,NAMESPACE_CONVERGENCE_SCHEMAS} from '../foundation/record-schema.mjs';
+import {canonicalJson,namespaceCodeInputPolicyProfile,namespaceTestRiskPolicyKind,namespaceTestRiskRecordProfile,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceConformancePolicyProfile,namespaceArtifactSetRecordProfile,NAMESPACE_CONVERGENCE_SCHEMAS} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
-import {namespaceAnalysisManifest,namespaceConstitutionManifest,namespaceAssignmentManifest,PHASE_ASSIGNMENT_EVIDENCE,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE,CODE_INPUT_EVIDENCE} from './namespace-policy-contract.mjs';
+import {namespaceAnalysisManifest,namespaceConstitutionManifest,namespaceAssignmentManifest,PHASE_ASSIGNMENT_EVIDENCE,namespaceCodeManifest,namespaceCodeInputManifest,namespaceConformanceManifest,namespacePolicyEvidenceBinding,SPECIFICATION_ANALYSIS_EVIDENCE} from './namespace-policy-contract.mjs';
 import {clarificationRecord,CLARIFICATION_EVIDENCE} from './namespace-clarification-reader.mjs';
 import {namespaceArtifactSetManifest,ARTIFACT_SET_EVIDENCE} from './namespace-artifact-set-reader.mjs';
 import {CONSTITUTION_POLICY_EVIDENCE} from './namespace-constitution-reader.mjs';
@@ -54,10 +54,10 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
   async function retainTestRisk(publication,{snapshot,head,signal,checked,expected}={}){
     const value=await reader.testRiskCandidate(publication,snapshot,{signal,at:publication.publishedAt,checked});
     if(!same(value.report,expected))throw new SingularityFlowError('The exact risk or check changed before retention.',{code:'ENGINE_CONTEXT_CHANGED'});
-    const report=await save(value.report,signal),version=value.report.schemaVersion,manifest={schemaVersion:version,format:'sflow-namespace-test-risk-policy-manifest/v'+version,
+    const report=await save(value.report,signal),version=value.report.schemaVersion,manifest={schemaVersion:version,format:namespaceTestRiskRecordProfile('policy',value.report).profile,
       ...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},
       basis:{revision:snapshot.revision,head},report};namespaceTestRiskManifest(manifest,{scope,workId,phaseId:publication.phase});
-    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:'test-risk/v'+version,record:await save(manifest,signal)}),report};
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:namespaceTestRiskPolicyKind(value.report),record:await save(manifest,signal)}),report};
   }
   async function retainReuse(publication,{snapshot,head,signal,sources,expected}={}){
     const value=await reader.reuseCandidate(publication,snapshot,{signal,at:publication.publishedAt,units:sources});
@@ -94,11 +94,11 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
       sourceBinding:{source:value.report.preflight.source,baseline:value.report.preflight.baseline,...(value.report.preflight.outputs?{outputs:value.report.preflight.outputs}:{})}};
   }
   async function retainCodeInputs(publication,{snapshot,head,signal}={}){
-    const value=await reader.codeInputCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),
-      manifest={schemaVersion:1,format:'sflow-namespace-code-input-policy/v1',...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+    const value=await reader.codeInputCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),profile=namespaceCodeInputPolicyProfile('codeInputs',value.report),
+      manifest={schemaVersion:profile.version,format:profile.format,...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
         artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
     namespaceCodeInputManifest(manifest,{scope,workId,phaseId:publication.phase});
-    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CODE_INPUT_EVIDENCE,record:await save(manifest,signal)}),report};
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:profile.kind,record:await save(manifest,signal)}),report};
   }
   async function retainConformance(publication,{snapshot,head,signal}={}){
     const value=await reader.conformanceCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),

@@ -5,7 +5,7 @@ Run `node scripts/engine-native-entry-inventory.mjs` for the compact summary. Us
 development report. It parses selected checkout sources without importing handlers, discovering
 Git history, reading a Story, starting a provider or executing an application command.
 
-The Mac audit covers 157 canonical commands with their original aliases, all 194 command modules,
+The audit at `29a9e6f11` covers 157 canonical commands with their original aliases, all 194 command modules,
 and 1,507 reachable modules containing 28,318,081 source bytes. Ninety-two command entry graphs
 reach the legacy dispatcher. These are syntax/reachability observations: each entry still needs
 its original behavior qualification, and an entry can already call the SDK through a compatibility

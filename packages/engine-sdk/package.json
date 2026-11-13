@@ -10,6 +10,7 @@
   "exports": {
     ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" },
     "./evidence": { "types": "./dist/evidence.d.mts", "import": "./dist/evidence.mjs" },
+    "./application-review": { "types": "./dist/application-review.d.mts", "import": "./dist/application-review.mjs" },
     "./errors": { "types": "./dist/errors.d.mts", "import": "./dist/errors.mjs" },
     "./namespace": { "types": "./dist/namespace.d.mts", "import": "./dist/namespace.mjs" },
     "./content": { "types": "./dist/content.d.mts", "import": "./dist/content.mjs" },

@@ -2290,3 +2290,13 @@ test('the namespace evidence view cannot stage records, execute tests or discove
   const native=await readFile(path.join(packageRoot,'src/evidence/graph.mjs'),'utf8');
   assert.match(native,/evidenceValues\.evidenceGraph/u);assert.match(native,/currentCompletenessReview/u);
 });
+
+test('application-review values share event and capture rules without importing native storage, human authority or execution',async()=>{
+  const entry='src/kernel/application-review.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[entry],
+    allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});assert.deepEqual(pure.problems,[]);
+  const body=await readFile(path.join(packageRoot,entry),'utf8');
+  assert.doesNotMatch(body,/schema-migrations\.mjs|application-review-(?:human|host|preview|read)\.mjs|Date\.now|new Date|node:|captureApplicationReview/u);
+  const native=await readFile(path.join(packageRoot,'src/application-review-contract.mjs'),'utf8');
+  assert.match(native,/applicationReviewPolicies\(NODE_RECORD_BYTES,NODE_TEXT_DIGESTS\)/u);
+  assert.doesNotMatch(native,/function (?:appendReviewEvent|projectReview|validateReviewCaptureSet)|readRecord\(/u);
+});

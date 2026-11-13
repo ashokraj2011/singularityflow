@@ -11,7 +11,7 @@ import {CONSTITUTION_RECORD_SCHEMA,SOURCE_GROUNDED_REVIEW_SCHEMA} from './founda
 import { recordSha256, NODE_RECORD_BYTES } from './records.mjs';
 import { SingularityFlowError } from './foundation/failures.mjs';
 import { admitRecordSchemaVersion, NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, COMMAND_TIMING_SCHEMA,
-  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, EXECUTION_UNIT_ABI_SCHEMA, recordJsonSyntax,
+  WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION, APPLICATION_REVIEW_POLICY_SCHEMA, APPLICATION_REVIEW_SESSION_SCHEMA, REPOSITORY_COMMIT_POLICY_SCHEMAS, EXECUTION_UNIT_ABI_SCHEMA, recordJsonSyntax,
   recordReadTargetVersion,assertRecordRestampAllowed,REPOSITORY_CHANGE_SET_SCHEMA,SPECIFICATION_INDEX_SCHEMA,SPECIFICATION_CLAIM_MAP_SCHEMA } from './foundation/record-schema.mjs';
 
 const recordSyntax = /* @__PURE__ */ recordJsonSyntax(NODE_RECORD_BYTES);
@@ -3274,7 +3274,7 @@ const families = [
   family(APPLICATION_REVIEW_POLICY_SCHEMA),
   family({ id: 'application-review-event', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/context\/application-reviews\/[a-f0-9]{64}\.json$/] }),
-  family({ id: 'application-review-session', currentVersion: 1 }),
+  family(APPLICATION_REVIEW_SESSION_SCHEMA),
   family({ id: 'application-review-snapshot', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/context\/application-reviews\/snapshots\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'application-review-capture', currentVersion: 1, immutable: true }),

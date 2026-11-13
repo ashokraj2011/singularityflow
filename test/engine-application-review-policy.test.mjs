@@ -8,7 +8,7 @@ import os from 'node:os';
 import ts from 'typescript';
 import * as policy from '../src/kernel/configuration-policy.mjs';
 import * as phases from '../src/kernel/phase-policy.mjs';
-import { APPLICATION_REVIEW_POLICY_SCHEMA, admitRecordSchemaVersion, recordJsonSyntax, RECORD_BYTES_PROFILE } from '../src/foundation/record-schema.mjs';
+import { APPLICATION_REVIEW_POLICY_SCHEMA, admitRecordSchemaVersion, recordJsonSyntax, RECORD_BYTES_PROFILE, recordReadTargetVersion } from '../src/foundation/record-schema.mjs';
 import { NODE_RECORD_BYTES } from '../src/records.mjs';
 import { schemaFamily, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { createWorkflowConfigurationCompiler } from '../src/kernel/workflow-configuration.mjs';
@@ -78,7 +78,14 @@ test('native version migration still executes its original deterministic reader 
   const file = 'src/schema-migrations.mjs';
   const ast = ts.createSourceFile(file, await readFile(new URL('../' + file, import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true);
   const reader = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'readRecord');
-  assert.equal(digest(printer.printNode(ts.EmitHint.Unspecified, reader.body, ast)), baseline.nativeRecordReader.readRecord.sha256);
+  // The earlier preservation-profile extraction delegates this one target expression to foundation.
+  // Keep the original reader fingerprint, with that exact, separately checked substitution only.
+  const body=printer.printNode(ts.EmitHint.Unspecified,reader.body,ast),target='recordReadTargetVersion(entry, storedVersion)';
+  assert.equal(body.split(target).length,2);
+  assert.equal(digest(body.replace(target,'entry.currentVersion')),baseline.nativeRecordReader.readRecord.sha256);
+  assert.equal(recordReadTargetVersion({currentVersion:2,migrationPolicy:'migrate-on-read'},1),2);
+  assert.equal(recordReadTargetVersion({currentVersion:2,migrationPolicy:'preserve-versions'},1),1);
+  assert.equal(recordReadTargetVersion({currentVersion:2,migrationPolicy:'preserve-versions'},2),2);
   const parser = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'parsedRecord');
   assert.equal(parser.body.statements.length, 1);
   assert.equal(parser.body.statements[0].expression.getText(ast), 'recordSyntax.parseObject(rawBytes)');

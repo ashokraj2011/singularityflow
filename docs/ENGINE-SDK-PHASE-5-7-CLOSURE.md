@@ -9,8 +9,9 @@ obsolete-access removal and final distribution remain separate.
 
 - [x] Audit the public operation inventory against native lifecycle and query entry points.
 - [ ] Finish remaining lifecycle queries and native policy extraction with compatibility tests.
-- [ ] Connect human scope, plan, applicability, witness, evidence and test decisions to namespace
-  transactions, preserving each domain's real authority and confirmation contract.
+- [x] Connect human scope/completeness/applicability, exact plan corrections and witness decisions
+  to namespace transactions, preserving their real authority and confirmation contracts.
+- [ ] Finish witness-exception renewal and the remaining evidence/test risk and reuse ceremonies.
 - [x] Connect upstream issues, forward amendments, their list query and recorded decision batches.
 - [ ] Qualify final decisions, approval, rejection and continuation through the single registry.
 
@@ -18,8 +19,11 @@ obsolete-access removal and final distribution remain separate.
 
 - [x] Finish Code repair history: unchanged revalidation, human route-choice returns, initial
   returns and targeted repair, preserving original source/test/approval evidence.
-- [ ] Finish artifact sets, constitution, comparison, visual acceptance and document/test risks.
-- [ ] Finish actual test recovery, command amendments and bounded repeated execution.
+- [x] Finish typed artifact sets, exact member returns, constitution and judged-article exceptions.
+- [x] Finish mixed test/inspection/visual-slot witnesses and fresh generation-bound output retention.
+- [ ] Finish live application review/comparison and document/test risk decisions.
+- [x] Finish confirmed full-command recovery, command amendments and bounded repeated execution.
+- [ ] Add baseline/cohort selection, evidence reuse and test-risk ceremony owners.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through explicit
   execution and evidence ports. Configured requirements cannot become successful flags.
@@ -343,3 +347,20 @@ executing a handler or treating syntax observations as qualification or authorit
 adversarial/real-checkout cases pass. See [the audit record](ENGINE-SDK-NATIVE-ENTRY-INVENTORY.md).
 This closes the inventory item only; remaining policy owners, runtime parity, execution journeys
 and production cutover keep their own open items.
+
+## Application-review shared values
+
+Application-review event identity, finding/repair lineage, confirmation, report and capture-set
+rules now have one pure owner and an installed value export. Native sessions and human/browser
+execution retain their existing contracts. Both owners reproduce 85 pre-extraction outcomes;
+native browser capture, two actual native Story journeys, offline SDK/types, staged CLI, migration
+and all 105 architecture checks pass on this Mac. See
+[the compatibility record](ENGINE-SDK-APPLICATION-REVIEW-VALUES.md).
+
+The adopted ARA profile still requires its separate namespace live-review/execution owner;
+the value API grants no acceptance. Remaining risk, reuse, live review, required external evidence
+and execution owners and final combined qualification keep Phases 5 and 7 open.
+
+The unchanged 34-check installed-package qualifier ran alone in 34.1 seconds within the original
+120/60-second deadlines. Source validation passes 4,339 checks; VS Code types, the unchanged
+Git audit and all thirteen original bundle ceilings pass. Gateway remains 851/852 modules.

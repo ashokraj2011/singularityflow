@@ -4,10 +4,12 @@ import os from 'node:os';import path from 'node:path';import {fileURLToPath,path
 import {stageCli} from '../scripts/vscode-dev.mjs';
 import {isolatedTestEnvironment} from '../scripts/test-machine-state.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-test('the actual staged VS Code CLI retains the complete native evidence closure and original oracle',async t=>{
+test('the actual staged VS Code CLI retains complete native evidence and application-review closures and original oracles',async t=>{
   const directory=await mkdtemp(path.join(os.tmpdir(),'sflow-native-evidence-package-'));
   t.after(()=>rm(directory,{recursive:true,force:true,maxRetries:5}));
   const staged=await stageCli({rootDir:root,extensionDir:directory}),capture=await readFile(new URL('./fixtures/native-evidence-evaluation-v1.json',import.meta.url),'utf8'),
+    reviewCapture=await readFile(new URL('./fixtures/engine-application-review-values/native-v1.json',import.meta.url),'utf8'),
+    reviewCases=await readFile(new URL('./helpers/application-review-values-fixture.mjs',import.meta.url),'utf8'),
     script=path.join(directory,'check-native-evidence.mjs');
   await writeFile(script,[
     "import assert from 'node:assert/strict';",
@@ -15,10 +17,14 @@ test('the actual staged VS Code CLI retains the complete native evidence closure
     'const {evidenceGraph}=await import('+JSON.stringify(pathToFileURL(path.join(staged,'src/evidence/graph.mjs')).href)+');',
     'const captured='+capture+';',
     'for(const row of captured.cases){assert.deepEqual(evaluateEvidence(row.graph,row.options),row.result);assert.equal(evidenceGraph(row.graph).inputSha256,row.graphSha256);}',
-    'console.log(JSON.stringify({cases:captured.cases.length}));'
+    reviewCases,
+    'const review=await import('+JSON.stringify(pathToFileURL(path.join(staged,'src/application-review-contract.mjs')).href)+');',
+    'const reviewCapture='+reviewCapture+';assert.deepEqual(applicationReviewValueCapture(review),reviewCapture.cases);',
+    'console.log(JSON.stringify({cases:captured.cases.length,reviewCases:reviewCapture.cases.length}));'
   ].join('\n'));
   const result=spawnSync(process.execPath,[script],{cwd:directory,encoding:'utf8',timeout:60000,
     env:{...isolatedTestEnvironment(path.join(directory,'machine')),PATH:''}});
   assert.equal(result.status,0,result.error?.message||result.stderr||result.stdout);
   assert.equal(JSON.parse(result.stdout).cases,14);
+  assert.equal(JSON.parse(result.stdout).reviewCases,85);
 });

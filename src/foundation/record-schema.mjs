@@ -102,6 +102,9 @@ export function recordJsonSyntax(port) {
 export const APPLICATION_REVIEW_POLICY_SCHEMA = Object.freeze({ id: 'application-review-policy',
   currentVersion: 1, minimumReadableVersion: 1, maximumReadableVersion: 1, unversionedAs: 1,
   immutable: true, migrationPolicy: 'migrate-on-read' });
+export const APPLICATION_REVIEW_SESSION_SCHEMA = Object.freeze({ id: 'application-review-session',
+  currentVersion: 1, minimumReadableVersion: 1, maximumReadableVersion: 1, unversionedAs: null,
+  immutable: false, migrationPolicy: 'migrate-on-read' });
 
 export const REPOSITORY_COMMIT_POLICY_SCHEMAS = Object.freeze({
   policy: Object.freeze({ id: 'repository-commit-policy', currentVersion: 1, minimumReadableVersion: 1,

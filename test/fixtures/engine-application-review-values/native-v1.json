@@ -1,0 +1,2056 @@
+{
+  "profile": "native-application-review-values-capture/v1",
+  "serialization": "undefined-fields/v1",
+  "capturedFrom": "29a9e6f11",
+  "contractSha256": "20ddee9768a7a7c2561194071b3d14822acb9f5038442d83fc462a42563f8ab3",
+  "cases": [
+    {
+      "id": "applicability:auto:",
+      "value": {
+        "resolved": false,
+        "surface": "auto",
+        "reason": "Change surface requires an explicit review profile",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:auto:src/server.java",
+      "value": {
+        "resolved": false,
+        "surface": "auto",
+        "reason": "Change surface requires an explicit review profile",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:auto:src/View.tsx",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Observed user-facing source changes",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:auto:src/View.test.jsx",
+      "value": {
+        "resolved": false,
+        "surface": "auto",
+        "reason": "Change surface requires an explicit review profile",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:web:",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:web:src/server.java",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:web:src/View.tsx",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Observed user-facing source changes",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:web:src/View.test.jsx",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:backend:",
+      "value": {
+        "resolved": true,
+        "surface": "backend",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:backend:src/server.java",
+      "value": {
+        "resolved": true,
+        "surface": "backend",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:backend:src/View.tsx",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Observed user-facing source changes",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:backend:src/View.test.jsx",
+      "value": {
+        "resolved": true,
+        "surface": "backend",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:cli:",
+      "value": {
+        "resolved": true,
+        "surface": "cli",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:cli:src/server.java",
+      "value": {
+        "resolved": true,
+        "surface": "cli",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:cli:src/View.tsx",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Observed user-facing source changes",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:cli:src/View.test.jsx",
+      "value": {
+        "resolved": true,
+        "surface": "cli",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:library:",
+      "value": {
+        "resolved": true,
+        "surface": "library",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:library:src/server.java",
+      "value": {
+        "resolved": true,
+        "surface": "library",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:library:src/View.tsx",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Observed user-facing source changes",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:library:src/View.test.jsx",
+      "value": {
+        "resolved": true,
+        "surface": "library",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:artifact:",
+      "value": {
+        "resolved": true,
+        "surface": "artifact",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:artifact:src/server.java",
+      "value": {
+        "resolved": true,
+        "surface": "artifact",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:artifact:src/View.tsx",
+      "value": {
+        "resolved": true,
+        "surface": "web",
+        "reason": "Observed user-facing source changes",
+        "dimensions": {
+          "visual": "pending",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "applicability:artifact:src/View.test.jsx",
+      "value": {
+        "resolved": true,
+        "surface": "artifact",
+        "reason": "Explicit adopted review profile",
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "new-session",
+      "value": {
+        "schemaVersion": 1,
+        "kind": "application-review-session",
+        "id": "review",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "policy": {
+          "schemaVersion": 1,
+          "mode": "optional",
+          "surface": "backend",
+          "preview": null,
+          "repairAttempts": 2,
+          "totalRepairAttempts": 10,
+          "quality": [],
+          "capture": {
+            "maximumPages": 100,
+            "casesPerPage": 20,
+            "maximumBytes": 67108864,
+            "timeoutMs": 120000,
+            "viewport": {
+              "width": 1280,
+              "height": 800
+            }
+          }
+        },
+        "revision": 0,
+        "events": []
+      }
+    },
+    {
+      "id": "policy-read:null",
+      "value": null
+    },
+    {
+      "id": "policy-read:{\"mode\":\"off\"}",
+      "value": {
+        "mode": "off",
+        "schemaVersion": 1
+      }
+    },
+    {
+      "id": "policy-read:{\"mode\":\"required\"}",
+      "value": {
+        "mode": "required",
+        "schemaVersion": 1
+      }
+    },
+    {
+      "id": "policy-read:{\"schemaVersion\":2,\"mode\":\"required\"}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SCHEMA_VERSION_FUTURE",
+        "message": "Durable record 'application-review-policy' is stored at schema version 2 (v2), above this build's readable range v1–v1; it was written by a newer sflow — upgrade to read it.",
+        "details": {
+          "family": "application-review-policy",
+          "storedVersion": 2,
+          "readable": {
+            "minimum": 1,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "required-presence-owner",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_AUTHORITY_ADAPTER_UNAVAILABLE",
+        "message": "This Story requires signed person-presence records. The local application-review adapter does not implement that signing boundary; no unsigned acceptance can substitute for it. Use a qualified signed-review adapter.",
+        "details": {}
+      }
+    },
+    {
+      "id": "execution-run-refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_SUBJECT_UNSUPPORTED",
+        "message": "Execution-run review needs an installed EXR subject adapter; no Story was synthesized.",
+        "details": {}
+      }
+    },
+    {
+      "id": "missing-subject-refused",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_SUBJECT_UNAVAILABLE",
+        "message": "Select a Story and its existing code-bearing phase.",
+        "details": {}
+      }
+    },
+    {
+      "id": "exact-subject",
+      "value": {
+        "kind": "story-phase",
+        "workId": "review-example",
+        "phaseId": "delivery",
+        "generation": 2
+      }
+    },
+    {
+      "id": "initial-projection",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 1,
+        "state": "inspecting",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": null,
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "event-replay",
+      "value": {
+        "first": {
+          "event": {
+            "schemaVersion": 1,
+            "kind": "application-review-event",
+            "sessionId": "ARA-0123456789abcdef01234567",
+            "subject": {
+              "kind": "story-phase",
+              "workId": "review-example",
+              "phaseId": "delivery",
+              "generation": 1
+            },
+            "revision": 2,
+            "previous": "sha256:cd1fc316dded16604341a31f3221830c32c19964466ee819a81cb5d71061cc5b",
+            "actionId": "feedback-action",
+            "requestSha256": "sha256:5a17b95ccc7529a81d1fea241a049b859b720da0bfc6a703e717c3e6ccdb284f",
+            "type": "feedback-recorded",
+            "payload": {
+              "finding": {
+                "id": "f1",
+                "observed": "Result disappeared"
+              }
+            },
+            "actor": {
+              "name": "Example reviewer",
+              "email": "review@example.test"
+            },
+            "at": "2026-11-03T10:00:00.000Z",
+            "digest": "sha256:c12619a03833eaa5424f5fc85b5780ae01754abb80c9af45a089fef9b68e6a03"
+          },
+          "replay": false
+        },
+        "second": {
+          "event": {
+            "schemaVersion": 1,
+            "kind": "application-review-event",
+            "sessionId": "ARA-0123456789abcdef01234567",
+            "subject": {
+              "kind": "story-phase",
+              "workId": "review-example",
+              "phaseId": "delivery",
+              "generation": 1
+            },
+            "revision": 2,
+            "previous": "sha256:cd1fc316dded16604341a31f3221830c32c19964466ee819a81cb5d71061cc5b",
+            "actionId": "feedback-action",
+            "requestSha256": "sha256:5a17b95ccc7529a81d1fea241a049b859b720da0bfc6a703e717c3e6ccdb284f",
+            "type": "feedback-recorded",
+            "payload": {
+              "finding": {
+                "id": "f1",
+                "observed": "Result disappeared"
+              }
+            },
+            "actor": {
+              "name": "Example reviewer",
+              "email": "review@example.test"
+            },
+            "at": "2026-11-03T10:00:00.000Z",
+            "digest": "sha256:c12619a03833eaa5424f5fc85b5780ae01754abb80c9af45a089fef9b68e6a03"
+          },
+          "replay": true
+        },
+        "revision": 2
+      }
+    },
+    {
+      "id": "same-action-different-intent",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_IDEMPOTENCY_CONFLICT",
+        "message": "This action ID already refers to a different review action.",
+        "details": {}
+      }
+    },
+    {
+      "id": "stale-event-revision",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_REVISION_CONFLICT",
+        "message": "The review changed. Refresh it and preserve your unsaved feedback.",
+        "details": {
+          "actualRevision": 1
+        }
+      }
+    },
+    {
+      "id": "invalid-action-identity",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_ACTION_REQUIRED",
+        "message": "Use the original host action ID when retrying this operation.",
+        "details": {}
+      }
+    },
+    {
+      "id": "missing-actor",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_EVENT_INVALID",
+        "message": "A review event needs its host-resolved actor and time.",
+        "details": {}
+      }
+    },
+    {
+      "id": "invalid-event-time",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_EVENT_INVALID",
+        "message": "A review event needs its host-resolved actor and time.",
+        "details": {}
+      }
+    },
+    {
+      "id": "event-limit",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_EVENT_LIMIT",
+        "message": "This review reached its 2,000-event limit. Preserve it and ask its owner to resolve the outstanding work; no budget or evidence was reset.",
+        "details": {}
+      }
+    },
+    {
+      "id": "tampered-event",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_RECORD_INVALID",
+        "message": "The application review event chain could not be verified.",
+        "details": {}
+      }
+    },
+    {
+      "id": "changed-policy",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_RECORD_INVALID",
+        "message": "The immutable review policy or repair budget differs from the recorded target.",
+        "details": {}
+      }
+    },
+    {
+      "id": "future-session",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SCHEMA_VERSION_FUTURE",
+        "message": "Durable record 'application-review-session' is stored at schema version 2 (v2), above this build's readable range v1–v1; it was written by a newer sflow — upgrade to read it.",
+        "details": {
+          "family": "application-review-session",
+          "storedVersion": 2,
+          "readable": {
+            "minimum": 1,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "unversioned-session",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SCHEMA_VERSION_MISSING",
+        "message": "Durable record 'application-review-session' has no valid schemaVersion.",
+        "details": {
+          "family": "application-review-session",
+          "received": null
+        }
+      }
+    },
+    {
+      "id": "invalid-session-version",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SCHEMA_VERSION_MISSING",
+        "message": "Durable record 'application-review-session' has no valid schemaVersion.",
+        "details": {
+          "family": "application-review-session",
+          "received": null
+        }
+      }
+    },
+    {
+      "id": "null-session",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "SCHEMA_RECORD_INVALID",
+        "message": "Durable record bytes must be UTF-8 JSON.",
+        "details": null
+      }
+    },
+    {
+      "id": "text-session",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_RECORD_INVALID",
+        "message": "The application review session has an invalid version or event sequence.",
+        "details": {}
+      }
+    },
+    {
+      "id": "uncloneable-session",
+      "error": {
+        "name": "DataCloneError",
+        "code": 25,
+        "message": "()=>{} could not be cloned.",
+        "details": null
+      }
+    },
+    {
+      "id": "repair-and-actual-recheck-projection",
+      "value": {
+        "before": {
+          "id": "ARA-0123456789abcdef01234567",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "revision": 4,
+          "state": "awaiting-recheck",
+          "target": {
+            "id": "target-1",
+            "subject": {
+              "kind": "story-phase",
+              "workId": "review-example",
+              "phaseId": "delivery",
+              "generation": 1
+            },
+            "assurance": "host-bound",
+            "applicability": {
+              "resolved": true,
+              "surface": "backend",
+              "reason": "Explicit adopted review profile",
+              "dimensions": {
+                "visual": "not-applicable",
+                "functional": "pending"
+              }
+            },
+            "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+            "plan": {
+              "digest": "plan-1",
+              "items": [
+                {
+                  "id": "criterion-1",
+                  "dimension": "functional",
+                  "text": "The accepted result remains observable."
+                }
+              ]
+            },
+            "snapshot": {
+              "digest": "snapshot-1"
+            },
+            "results": {
+              "digest": "results-1",
+              "packet": "packet-1",
+              "ready": true,
+              "attempts": []
+            }
+          },
+          "findings": [
+            {
+              "id": "f1",
+              "observed": "Result disappeared",
+              "repairRequested": true,
+              "reportedBy": {
+                "name": "Example reviewer",
+                "email": "review@example.test"
+              },
+              "reportedAt": "2026-11-03T10:00:00.000Z",
+              "state": "ready-for-recheck",
+              "obligationRefs": {
+                "$undefined": true
+              },
+              "classification": "proposed-covered-defect",
+              "scopeStatus": "admitted-current-grant",
+              "mappingProvenance": {
+                "actionId": "action-3",
+                "actor": {
+                  "name": "Example reviewer",
+                  "email": "review@example.test"
+                },
+                "at": "2026-11-03T10:00:00.000Z"
+              }
+            }
+          ],
+          "coverage": [
+            {
+              "id": "criterion-1",
+              "dimension": "functional",
+              "text": "The accepted result remains observable.",
+              "status": "pending"
+            }
+          ],
+          "confirmation": null,
+          "captures": [],
+          "decisions": [],
+          "repairAttempts": [
+            {
+              "id": "attempt-1",
+              "findingId": "f1",
+              "rootFindingId": "f1",
+              "event": "sha256:59e2a2c8b4ce33dc54683d2cffc3be77b9a7053dd25a8d9df989fc415edcf3cf",
+              "actionId": "action-3",
+              "admissionRevision": 2,
+              "result": {
+                "testsPassed": true,
+                "targetId": "target-2"
+              }
+            }
+          ],
+          "error": null,
+          "dimensions": {
+            "visual": "not-applicable",
+            "functional": "pending"
+          }
+        },
+        "after": {
+          "id": "ARA-0123456789abcdef01234567",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "revision": 5,
+          "state": "inspecting",
+          "target": {
+            "id": "target-1",
+            "subject": {
+              "kind": "story-phase",
+              "workId": "review-example",
+              "phaseId": "delivery",
+              "generation": 1
+            },
+            "assurance": "host-bound",
+            "applicability": {
+              "resolved": true,
+              "surface": "backend",
+              "reason": "Explicit adopted review profile",
+              "dimensions": {
+                "visual": "not-applicable",
+                "functional": "pending"
+              }
+            },
+            "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+            "plan": {
+              "digest": "plan-1",
+              "items": [
+                {
+                  "id": "criterion-1",
+                  "dimension": "functional",
+                  "text": "The accepted result remains observable."
+                }
+              ]
+            },
+            "snapshot": {
+              "digest": "snapshot-1"
+            },
+            "results": {
+              "digest": "results-1",
+              "packet": "packet-1",
+              "ready": true,
+              "attempts": []
+            }
+          },
+          "findings": [
+            {
+              "id": "f1",
+              "observed": "Result disappeared",
+              "repairRequested": true,
+              "reportedBy": {
+                "name": "Example reviewer",
+                "email": "review@example.test"
+              },
+              "reportedAt": "2026-11-03T10:00:00.000Z",
+              "state": "resolved",
+              "obligationRefs": {
+                "$undefined": true
+              },
+              "classification": "proposed-covered-defect",
+              "scopeStatus": "admitted-current-grant",
+              "mappingProvenance": {
+                "actionId": "action-3",
+                "actor": {
+                  "name": "Example reviewer",
+                  "email": "review@example.test"
+                },
+                "at": "2026-11-03T10:00:00.000Z"
+              },
+              "recheck": {
+                "findingId": "f1",
+                "result": "fixed",
+                "targetId": "target-2",
+                "actor": {
+                  "name": "Example reviewer",
+                  "email": "review@example.test"
+                },
+                "at": "2026-11-03T10:00:00.000Z"
+              }
+            }
+          ],
+          "coverage": [
+            {
+              "id": "criterion-1",
+              "dimension": "functional",
+              "text": "The accepted result remains observable.",
+              "status": "pending"
+            }
+          ],
+          "confirmation": null,
+          "captures": [],
+          "decisions": [],
+          "repairAttempts": [
+            {
+              "id": "attempt-1",
+              "findingId": "f1",
+              "rootFindingId": "f1",
+              "event": "sha256:59e2a2c8b4ce33dc54683d2cffc3be77b9a7053dd25a8d9df989fc415edcf3cf",
+              "actionId": "action-3",
+              "admissionRevision": 2,
+              "result": {
+                "testsPassed": true,
+                "targetId": "target-2"
+              }
+            }
+          ],
+          "error": null,
+          "dimensions": {
+            "visual": "not-applicable",
+            "functional": "pending"
+          }
+        }
+      }
+    },
+    {
+      "id": "state:target-preparing",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 2,
+        "state": "preparing",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": null,
+        "pendingOperation": {
+          "code": "observed",
+          "message": "The retained observation remains visible."
+        },
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "state:target-blocked",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 2,
+        "state": "blocked",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": {
+          "code": "observed",
+          "message": "The retained observation remains visible."
+        },
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "state:capture-started",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 2,
+        "state": "capturing-evidence",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": null,
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "state:capture-blocked",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 2,
+        "state": "capture-blocked",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": {
+          "code": "observed",
+          "message": "The retained observation remains visible."
+        },
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "state:acceptance-blocked",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 2,
+        "state": "blocked",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": {
+          "code": "observed",
+          "message": "The retained observation remains visible."
+        },
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "state:review-stale",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 2,
+        "state": "stale",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": {
+          "code": "observed",
+          "message": "The retained observation remains visible."
+        },
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "state:review-deferred",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 2,
+        "state": "deferred",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": null,
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "state:review-cancelled",
+      "value": {
+        "id": "ARA-0123456789abcdef01234567",
+        "subject": {
+          "kind": "story-phase",
+          "workId": "review-example",
+          "phaseId": "delivery",
+          "generation": 1
+        },
+        "revision": 2,
+        "state": "cancelled",
+        "target": {
+          "id": "target-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "assurance": "host-bound",
+          "applicability": {
+            "resolved": true,
+            "surface": "backend",
+            "reason": "Explicit adopted review profile",
+            "dimensions": {
+              "visual": "not-applicable",
+              "functional": "pending"
+            }
+          },
+          "policyDigest": "sha256:fdf05f32ee53c4a45f2c30b9a65cc640a252297619e4b9ecf04ce8ada5da0fdd",
+          "plan": {
+            "digest": "plan-1",
+            "items": [
+              {
+                "id": "criterion-1",
+                "dimension": "functional",
+                "text": "The accepted result remains observable."
+              }
+            ]
+          },
+          "snapshot": {
+            "digest": "snapshot-1"
+          },
+          "results": {
+            "digest": "results-1",
+            "packet": "packet-1",
+            "ready": true,
+            "attempts": []
+          }
+        },
+        "findings": [],
+        "coverage": [
+          {
+            "id": "criterion-1",
+            "dimension": "functional",
+            "text": "The accepted result remains observable.",
+            "status": "pending"
+          }
+        ],
+        "confirmation": null,
+        "captures": [],
+        "decisions": [],
+        "repairAttempts": [],
+        "error": null,
+        "dimensions": {
+          "visual": "not-applicable",
+          "functional": "pending"
+        }
+      }
+    },
+    {
+      "id": "unknown-event",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_RECORD_INVALID",
+        "message": "Unsupported review event 'invented-success'.",
+        "details": {}
+      }
+    },
+    {
+      "id": "lineage-cycle",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_FINDING_LINEAGE_INVALID",
+        "message": "Finding duplicate references contain a cycle.",
+        "details": {}
+      }
+    },
+    {
+      "id": "lineage-missing",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_FINDING_LINEAGE_INVALID",
+        "message": "The authoritative finding is missing.",
+        "details": {}
+      }
+    },
+    {
+      "id": "shared-repair-budget",
+      "value": [
+        {
+          "id": "one",
+          "rootFindingId": "a"
+        },
+        {
+          "id": "two",
+          "rootFindingId": "b"
+        }
+      ]
+    },
+    {
+      "id": "confirmation:{}",
+      "value": null
+    },
+    {
+      "id": "confirmation:{\"targetCurrent\":false}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_REVIEW_STALE",
+        "message": "Inspect a current, verified review target before saying All good.",
+        "details": {}
+      }
+    },
+    {
+      "id": "confirmation:{\"testsReady\":false}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_CHECKS_NOT_READY",
+        "message": "Review the authoritative submitted test results first. All good cannot waive failed, missing or incomplete checks.",
+        "details": {}
+      }
+    },
+    {
+      "id": "confirmation:{\"dimensions\":[\"visual\"]}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_DIMENSION_INVALID",
+        "message": "Confirm only the applicable review dimensions.",
+        "details": {}
+      }
+    },
+    {
+      "id": "confirmation:{\"coverage\":[]}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_COVERAGE_PENDING",
+        "message": "Inspect every required journey and state for the selected dimensions.",
+        "details": {}
+      }
+    },
+    {
+      "id": "open-finding-blocks-confirmation",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_FINDINGS_OPEN",
+        "message": "Recheck or explicitly dispose the open findings before acceptance.",
+        "details": {}
+      }
+    },
+    {
+      "id": "report:0:1",
+      "value": {
+        "pages": [
+          {
+            "kind": "test-results",
+            "id": "summary",
+            "cases": [],
+            "summary": [
+              {
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "status": "passed",
+                "tests": {
+                  "discovered": 0,
+                  "passed": 0,
+                  "failed": 0,
+                  "skipped": 0
+                },
+                "startedAt": null,
+                "completedAt": null,
+                "reportedCases": 2
+              }
+            ]
+          }
+        ],
+        "complete": false,
+        "requiredPages": 4,
+        "omittedPages": 3,
+        "missingCases": 0,
+        "cases": 2
+      }
+    },
+    {
+      "id": "report:0:10",
+      "value": {
+        "pages": [
+          {
+            "kind": "test-results",
+            "id": "summary",
+            "cases": [],
+            "summary": [
+              {
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "status": "passed",
+                "tests": {
+                  "discovered": 0,
+                  "passed": 0,
+                  "failed": 0,
+                  "skipped": 0
+                },
+                "startedAt": null,
+                "completedAt": null,
+                "reportedCases": 2
+              }
+            ]
+          },
+          {
+            "kind": "test-results",
+            "id": "cases-0",
+            "cases": [
+              {
+                "id": "attempt-1:0",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "actual case",
+                "suite": null,
+                "outcome": "passed",
+                "durationMs": 3,
+                "detail": null
+              }
+            ]
+          },
+          {
+            "kind": "test-results",
+            "id": "cases-1",
+            "cases": [
+              {
+                "id": "attempt-1:1",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "failed case",
+                "suite": null,
+                "outcome": "failed",
+                "durationMs": 4,
+                "detail": "Observed failure."
+              }
+            ]
+          },
+          {
+            "kind": "test-case-detail",
+            "id": "detail-attempt-1:1",
+            "cases": [
+              {
+                "id": "attempt-1:1",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "failed case",
+                "suite": null,
+                "outcome": "failed",
+                "durationMs": 4,
+                "detail": "Observed failure."
+              }
+            ]
+          }
+        ],
+        "complete": true,
+        "requiredPages": 4,
+        "omittedPages": 0,
+        "missingCases": 0,
+        "cases": 2
+      }
+    },
+    {
+      "id": "report:1:1",
+      "value": {
+        "pages": [
+          {
+            "kind": "test-results",
+            "id": "summary",
+            "cases": [],
+            "summary": [
+              {
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "status": "passed",
+                "tests": {
+                  "discovered": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "skipped": 0
+                },
+                "startedAt": null,
+                "completedAt": null,
+                "reportedCases": 2
+              }
+            ]
+          }
+        ],
+        "complete": false,
+        "requiredPages": 4,
+        "omittedPages": 3,
+        "missingCases": 0,
+        "cases": 2
+      }
+    },
+    {
+      "id": "report:1:10",
+      "value": {
+        "pages": [
+          {
+            "kind": "test-results",
+            "id": "summary",
+            "cases": [],
+            "summary": [
+              {
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "status": "passed",
+                "tests": {
+                  "discovered": 1,
+                  "passed": 1,
+                  "failed": 0,
+                  "skipped": 0
+                },
+                "startedAt": null,
+                "completedAt": null,
+                "reportedCases": 2
+              }
+            ]
+          },
+          {
+            "kind": "test-results",
+            "id": "cases-0",
+            "cases": [
+              {
+                "id": "attempt-1:0",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "actual case",
+                "suite": null,
+                "outcome": "passed",
+                "durationMs": 3,
+                "detail": null
+              }
+            ]
+          },
+          {
+            "kind": "test-results",
+            "id": "cases-1",
+            "cases": [
+              {
+                "id": "attempt-1:1",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "failed case",
+                "suite": null,
+                "outcome": "failed",
+                "durationMs": 4,
+                "detail": "Observed failure."
+              }
+            ]
+          },
+          {
+            "kind": "test-case-detail",
+            "id": "detail-attempt-1:1",
+            "cases": [
+              {
+                "id": "attempt-1:1",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "failed case",
+                "suite": null,
+                "outcome": "failed",
+                "durationMs": 4,
+                "detail": "Observed failure."
+              }
+            ]
+          }
+        ],
+        "complete": true,
+        "requiredPages": 4,
+        "omittedPages": 0,
+        "missingCases": 0,
+        "cases": 2
+      }
+    },
+    {
+      "id": "report:4:1",
+      "value": {
+        "pages": [
+          {
+            "kind": "test-results",
+            "id": "summary",
+            "cases": [],
+            "summary": [
+              {
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "status": "passed",
+                "tests": {
+                  "discovered": 4,
+                  "passed": 4,
+                  "failed": 0,
+                  "skipped": 0
+                },
+                "startedAt": null,
+                "completedAt": null,
+                "reportedCases": 2
+              }
+            ]
+          }
+        ],
+        "complete": false,
+        "requiredPages": 4,
+        "omittedPages": 3,
+        "missingCases": 2,
+        "cases": 2
+      }
+    },
+    {
+      "id": "report:4:10",
+      "value": {
+        "pages": [
+          {
+            "kind": "test-results",
+            "id": "summary",
+            "cases": [],
+            "summary": [
+              {
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "status": "passed",
+                "tests": {
+                  "discovered": 4,
+                  "passed": 4,
+                  "failed": 0,
+                  "skipped": 0
+                },
+                "startedAt": null,
+                "completedAt": null,
+                "reportedCases": 2
+              }
+            ]
+          },
+          {
+            "kind": "test-results",
+            "id": "cases-0",
+            "cases": [
+              {
+                "id": "attempt-1:0",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "actual case",
+                "suite": null,
+                "outcome": "passed",
+                "durationMs": 3,
+                "detail": null
+              }
+            ]
+          },
+          {
+            "kind": "test-results",
+            "id": "cases-1",
+            "cases": [
+              {
+                "id": "attempt-1:1",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "failed case",
+                "suite": null,
+                "outcome": "failed",
+                "durationMs": 4,
+                "detail": "Observed failure."
+              }
+            ]
+          },
+          {
+            "kind": "test-case-detail",
+            "id": "detail-attempt-1:1",
+            "cases": [
+              {
+                "id": "attempt-1:1",
+                "attemptId": "attempt-1",
+                "commandId": "unit",
+                "name": "failed case",
+                "suite": null,
+                "outcome": "failed",
+                "durationMs": 4,
+                "detail": "Observed failure."
+              }
+            ]
+          }
+        ],
+        "complete": false,
+        "requiredPages": 4,
+        "omittedPages": 0,
+        "missingCases": 2,
+        "cases": 2
+      }
+    },
+    {
+      "id": "capture-set-shape",
+      "value": [
+        {
+          "id": "sha256:c260cfd58fe8e6e42091213e30ab02aef8ded3187ee08e3a5b8bcfa2eb2c931f",
+          "captureItem": "summary",
+          "confirmation": "sha256:2ace71464fd6661d6c30837cade83ba2c8a0514a8abde05fb7c83d9a60f7d10c",
+          "trigger": "human-action",
+          "targetId": "target-1",
+          "captureKind": "test-results",
+          "cases": [],
+          "sourceSnapshot": "snapshot-1",
+          "resultsDigest": "results-1",
+          "subject": {
+            "kind": "story-phase",
+            "workId": "review-example",
+            "phaseId": "delivery",
+            "generation": 1
+          },
+          "status": "captured",
+          "capturedAt": "2026-11-03T10:00:01.000Z",
+          "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "artifactRef": {
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "bytes": 128,
+          "image": {
+            "format": "png",
+            "width": 1280,
+            "height": 800
+          }
+        }
+      ]
+    },
+    {
+      "id": "capture-set-missing",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_CAPTURE_INCOMPLETE",
+        "message": "Required confirmed capture items are missing; no acceptance was finalized.",
+        "details": {}
+      }
+    },
+    {
+      "id": "capture-set-invalid:{\"targetId\":\"other\"}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_CAPTURE_INVALID",
+        "message": "A capture receipt does not bind the confirmed target, report cases and actual post-confirmation image.",
+        "details": {}
+      }
+    },
+    {
+      "id": "capture-set-invalid:{\"capturedAt\":\"2026-11-03T09:00:00.000Z\"}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_CAPTURE_INVALID",
+        "message": "A capture receipt does not bind the confirmed target, report cases and actual post-confirmation image.",
+        "details": {}
+      }
+    },
+    {
+      "id": "capture-set-invalid:{\"cases\":[\"unrelated\"]}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_CAPTURE_INVALID",
+        "message": "A capture receipt does not bind the confirmed target, report cases and actual post-confirmation image.",
+        "details": {}
+      }
+    },
+    {
+      "id": "capture-set-invalid:{\"captureKind\":\"application-ui\"}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_CAPTURE_INVALID",
+        "message": "A capture receipt does not bind the confirmed target, report cases and actual post-confirmation image.",
+        "details": {}
+      }
+    },
+    {
+      "id": "capture-set-invalid:{\"image\":{\"format\":\"jpeg\",\"width\":1280,\"height\":800}}",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_CAPTURE_INVALID",
+        "message": "A capture receipt does not bind the confirmed target, report cases and actual post-confirmation image.",
+        "details": {}
+      }
+    },
+    {
+      "id": "capture-set-byte-limit",
+      "error": {
+        "name": "SingularityFlowError",
+        "code": "ARA_CAPTURE_INCOMPLETE",
+        "message": "The complete image set exceeds its adopted byte bound.",
+        "details": {}
+      }
+    },
+    {
+      "id": "completion:{\"targetCurrent\":false,\"evidenceAvailable\":true}",
+      "value": {
+        "applicabilityResolved": true,
+        "targetCurrent": false,
+        "coverageSatisfied": true,
+        "findingsDisposed": true,
+        "requiredDecisionsSatisfied": true,
+        "evidenceAdmitted": true,
+        "reviewSatisfied": false
+      }
+    },
+    {
+      "id": "completion:{\"targetCurrent\":true,\"evidenceAvailable\":false}",
+      "value": {
+        "applicabilityResolved": true,
+        "targetCurrent": true,
+        "coverageSatisfied": true,
+        "findingsDisposed": true,
+        "requiredDecisionsSatisfied": true,
+        "evidenceAdmitted": false,
+        "reviewSatisfied": false
+      }
+    },
+    {
+      "id": "completion:{\"targetCurrent\":true,\"evidenceAvailable\":true}",
+      "value": {
+        "applicabilityResolved": true,
+        "targetCurrent": true,
+        "coverageSatisfied": true,
+        "findingsDisposed": true,
+        "requiredDecisionsSatisfied": true,
+        "evidenceAdmitted": true,
+        "reviewSatisfied": true
+      }
+    }
+  ]
+}

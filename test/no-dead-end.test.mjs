@@ -35,15 +35,19 @@ const OTHER_MAJOR = Number(MAJOR) + 100;
 // or prepublish refuses the summary [owner, 2026-11-13].
 const SUMMARY = `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`;
 const namedInSummary = (...files) => async (story) => `${await readFile(path.join(story.root, SUMMARY), 'utf8')}\nChanged for the Node its tests need: ${files.map((file) => `\`${file}\``).join(', ')}.\n`;
-const onTheWrongNode = async (story) => {
+// Two installed Nodes the package accepts: which one is a person's choice, so these walks still meet the refusal a
+// person answers. With only one, SFlow settles the pin itself before the tests run [owner, 2026-11-13]: a walk of its own.
+const onTheWrongNode = async (story, { majors = [OTHER_MAJOR, OTHER_MAJOR + 1] } = {}) => {
   const home = path.join(story.parent, 'other-node');
-  const directory = path.join(home, 'versions', 'node', `v${OTHER_MAJOR}.0.0`, 'bin');
-  await mkdir(directory, { recursive: true });
-  await writeFile(path.join(directory, 'node'), `#!/bin/sh\nif [ "$1" = --version ]; then echo v${OTHER_MAJOR}.0.0; exit 0; fi\nFAKE_NODE=${OTHER_MAJOR} exec '${process.execPath}' "$@"\n`);
-  await chmod(path.join(directory, 'node'), 0o755);
+  for (const major of majors) {
+    const directory = path.join(home, 'versions', 'node', `v${major}.0.0`, 'bin');
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, 'node'), `#!/bin/sh\nif [ "$1" = --version ]; then echo v${major}.0.0; exit 0; fi\nFAKE_NODE=${major} exec '${process.execPath}' "$@"\n`);
+    await chmod(path.join(directory, 'node'), 0o755);
+  }
   story.env = { NVM_DIR: home };
   await story.write('package.json', JSON.stringify({ type: 'module', private: true, engines: { node: `>=${OTHER_MAJOR}` }, scripts: { test: 'node --test' } }));
-  await story.write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => { assert.equal(value,2); assert.equal(process.env.FAKE_NODE, '${OTHER_MAJOR}'); });\n`);
+  await story.write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => { assert.equal(value,2); assert.ok(Number(process.env.FAKE_NODE) >= ${OTHER_MAJOR}); });\n`);
   const why = 'The package now says which Node its tests need.';
   story.cli('decision', 'plan', WORK, '--add-supporting', 'package.json=build-configuration', '--supporting-reason', why, '--reason', why);
   await story.write(SUMMARY, await namedInSummary('package.json')(story));
@@ -73,6 +77,10 @@ const SCENARIOS = Object.freeze([
   { id: 'node-version', meets: 'CODE_TEST_FAILED', real: 'a real Story: tests fail only on this Node; CODE_TEST_FAILED ranks first',
     setup: onTheWrongNode, start: PREPUBLISH, reached: published,
     // The pin creates .nvmrc after the summary was written: the author says so, as on the real Story [owner, 2026-11-13].
+    writes: { '/sf-code': { [SUMMARY]: namedInSummary('.nvmrc') } } },
+  { id: 'node-named-by-the-repository', meets: null, real: 'the package asks for a Node exactly one installed major accepts: SFlow pins it, settled with an undo',
+    setup: (story) => onTheWrongNode(story, { majors: [OTHER_MAJOR] }), start: PREPUBLISH, reached: published,
+    // The settled pin writes .nvmrc after the summary was written: the author names it, as for a person's pin.
     writes: { '/sf-code': { [SUMMARY]: namedInSummary('.nvmrc') } } },
   { id: 'nvmrc-names-a-node-not-here', meets: 'CODE_TEST_FAILED', real: 'the .nvmrc is the answer already, and names a Node this machine does not have',
     setup: async (story) => {

@@ -7,8 +7,10 @@
  * reads and writes, the premium-request cost and the AI units Copilot accounted for it. This module
  * follows those files for one repository and keeps, beside its Git directory, one content-free
  * record per model call: when, on which branch, which model, the token counts, premium requests and
- * AIU. Nothing is committed, so a report shows this computer's Copilot use only. No prompt,
- * response, tool argument or path is kept; a session is kept only as a short hash of its id.
+ * AIU. Beside them it keeps one record per agent turn, tool call, sub-agent start, model change,
+ * Auto model pick and error (see activityRecord). Nothing is committed, so a report shows this
+ * computer's Copilot use only. No prompt, response, tool name, argument, result, error message or
+ * path is kept; a session is kept only as a short hash of its id.
  *
  * Work never reads Copilot's logs (owner rule, 2026-10-16). Only `report`, `telemetry sessions`
  * (VS Code runs `telemetry sessions sync` in the background) and the snapshot behind Story Analytics
@@ -20,6 +22,7 @@ import { realpathSync } from 'node:fs';
 import { lstat, open, readdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { sameCopilotModel } from './copilot-activity.mjs';
 import { gitCommonDir } from './git-execution.mjs';
 import { worktreeInventory } from './story-worktree.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
@@ -33,8 +36,13 @@ const MAXIMUM_LINE_BYTES = 16 * 1024 * 1024;
 // One sync reads at most this much of Copilot's logs; what is left is read by the next one. A first
 // sync in a repository Copilot has worked in for months reads a few hundred megabytes once.
 export const DEFAULT_SYNC_BYTES = 512 * 1024 * 1024;
+// What a sync reads. Version 2 added the activity records: a cursor written by an earlier reader is
+// read again from each session's start, so turns and tool calls before the upgrade are recorded too;
+// the calls it finds again are already recorded and are not added twice. [owner, 2026-11-13]
+const READER = 2;
 // Only these events are parsed; every other line is skipped from the bytes of its type.
-const EVENTS = new Set(['session.start', 'session.resume', 'session.context_changed', 'session.usage_record', 'session.usage_checkpoint']);
+const ACTIVITY = new Set(['assistant.turn_start', 'tool.execution_complete', 'subagent.started', 'session.model_change', 'session.auto_mode_resolved', 'session.error']);
+const EVENTS = new Set(['session.start', 'session.resume', 'session.context_changed', 'session.usage_record', 'session.usage_checkpoint', ...ACTIVITY]);
 const TYPE_PREFIX = Buffer.from('{"type":"');
 const INITIATORS = new Set(['user', 'agent', 'sub-agent']);
 // A model id as Copilot writes them (`model-alpha-1.5`); anything else is kept as `unknown`.
@@ -95,7 +103,7 @@ export function repositoryMatcher(root) {
 }
 
 /** A new session's state before any of its events. */
-const freshSession = () => ({ ours: false, matched: false, branch: null, reason: 'no-start-event', perCall: false, checkpoint: null, calls: 0, unattributed: 0 });
+const freshSession = () => ({ ours: false, matched: false, branch: null, reason: 'no-start-event', perCall: false, checkpoint: null, calls: 0, events: 0, unattributed: 0 });
 
 /**
  * Where the session works from now on. A context event still resolving its Git root
@@ -122,24 +130,92 @@ function applyContext(state, context, belongs) {
  * summed to the checkpoint's `totalNanoAiu` in 215 of 217 (the 2 others are higher by auxiliary model
  * calls that have no per-call record). So premium requests count person calls only, AIU every call.
  */
+const modelName = (value) => (typeof value === 'string' && MODEL.test(value) ? value : 'unknown');
+
 function callRecord(usage, event, sessionKey, offset) {
   const initiator = INITIATORS.has(usage.initiator) ? usage.initiator : 'other';
   const usageId = bounded(usage.accounting?.usageId, 256);
   const sequence = Number.isSafeInteger(usage.accounting?.sequence) ? usage.accounting.sequence : null;
+  const model = modelName(usage.model);
+  // The model that answered, kept only when it is not the one asked for (a dated build of it is the
+  // same model): the session-log form of the substitution Copilot's spans show. [owner, 2026-11-13]
+  const answered = typeof usage.responseModel === 'string' && MODEL.test(usage.responseModel) ? usage.responseModel : null;
   return {
     // Opaque: Copilot's accounting id, else the session and its sequence, else where the line sits.
     key: hashed(usageId ?? (sequence != null ? `${sessionKey}:${sequence}` : `${sessionKey}@${offset}`), 16),
     at: timestamp(event.timestamp),
     session: sessionKey,
-    model: typeof usage.model === 'string' && MODEL.test(usage.model) ? usage.model : 'unknown',
+    model,
     initiator,
     inputTokens: count(usage.inputTokens),
     cacheReadTokens: count(usage.cacheReadTokens),
     cacheWriteTokens: count(usage.cacheWriteTokens),
     outputTokens: count(usage.outputTokens),
     premiumRequests: initiator === 'user' ? count(usage.cost) ?? 0 : 0,
-    nanoAiu: count(usage.copilotUsage?.totalNanoAiu)
+    nanoAiu: count(usage.copilotUsage?.totalNanoAiu),
+    ...(answered && model !== 'unknown' && !sameCopilotModel(model, answered) ? { resolvedModel: answered } : {})
   };
+}
+
+// Closed classes: anything else Copilot writes is kept as `other`, never as its own text.
+const TOOL_FAILURES = new Set(['denied', 'rejected', 'failure']);
+const ERROR_CLASSES = new Set(['quota', 'rate_limit', 'authentication', 'authorization', 'model', 'query']);
+const MODEL_SOURCES = Object.freeze({ model_picker: 'person', sdk: 'host', startup: 'host', agent: 'agent', automatic: 'automatic' });
+
+/** Copilot's class for an error: its `errorType` when known, else what its code or status says. */
+function errorClass(data) {
+  if (ERROR_CLASSES.has(data.errorType)) return data.errorType;
+  const code = typeof data.errorCode === 'string' ? data.errorCode : '';
+  if (/quota/iu.test(code) || data.statusCode === 402) return 'quota';
+  if (/rate[_-]?limit/iu.test(code) || data.statusCode === 429) return 'rate_limit';
+  return 'other';
+}
+
+/**
+ * One content-free record for an activity event, or null for one that is not counted.
+ * [owner, 2026-11-13] Shapes checked read-only, counts only, on one developer computer's 1,070
+ * sessions: one `assistant.turn_start` per model round trip (7,173 beside 7,170 per-call records in
+ * the sessions that write both); one `tool.execution_complete` per tool call, `success: false` with a
+ * code (denied, rejected, failure) when it did not run or failed; errors carry a class (quota with
+ * status 402, authentication, authorization, model, query) and a message, which is never kept.
+ * - turn: one agent turn (sub-agents' turns included);
+ * - tool: one tool call that finished, with the model that asked for it and its failure code;
+ * - subagent: one sub-agent started, with its model;
+ * - model-change: the session's model changed (`from` → `model`) by the person (model picker), the
+ *   host (VS Code, start-up), the agent, or Copilot on its own. Setting the first model, Auto
+ *   resolving its first pick (`initial_resolution`, counted by its auto-pick) and a change of
+ *   reasoning effort alone are not changes;
+ * - auto-pick: Auto chose `model` for a request; `fallback` when it fell back;
+ * - error: Copilot reported an error to the session, by class and HTTP status.
+ */
+function activityRecord(event, sessionKey, offset) {
+  const data = event.data ?? {};
+  const id = bounded(event.id, 256);
+  const base = (kind, identity = id) => ({
+    key: hashed(identity ? `${kind}:${identity}` : `${sessionKey}@${offset}`, 16), at: timestamp(event.timestamp), session: sessionKey, kind
+  });
+  switch (event.type) {
+    case 'assistant.turn_start': return base('turn');
+    case 'tool.execution_complete': {
+      // Copilot's tool call id is the call's own: a log read twice, or copied into another session, counts it once.
+      const record = { ...base('tool', bounded(data.toolCallId, 256) ?? id), model: modelName(data.model) };
+      if (data.success === false) record.failure = TOOL_FAILURES.has(data.error?.code) ? data.error.code : 'other';
+      return record;
+    }
+    case 'subagent.started': return { ...base('subagent'), model: modelName(data.model) };
+    case 'session.model_change': {
+      if (typeof data.previousModel !== 'string' || typeof data.newModel !== 'string' || data.previousModel === data.newModel) return null;
+      if (data.cause === 'initial_resolution') return null;
+      return { ...base('model-change'), model: modelName(data.newModel), from: modelName(data.previousModel), source: MODEL_SOURCES[data.source] ?? 'other' };
+    }
+    case 'session.auto_mode_resolved':
+      return { ...base('auto-pick'), model: modelName(data.chosenModel), ...(data.fallback === true ? { fallback: true } : {}) };
+    case 'session.error': {
+      const status = Number.isSafeInteger(data.statusCode) && data.statusCode >= 100 && data.statusCode <= 599 ? data.statusCode : null;
+      return { ...base('error'), error: errorClass(data), ...(status ? { status } : {}) };
+    }
+    default: return null;
+  }
 }
 
 /**
@@ -166,7 +242,8 @@ function checkpointRecord(state, data, event, sessionKey, offset) {
 
 /**
  * One session's events in log order, as a state machine. `push` takes a parsed event and the byte
- * offset of its line, and returns the record to keep for it, if any.
+ * offset of its line, and returns the record to keep for it, if any: `list` says whether it is a
+ * model call (`calls`) or an activity record (`events`).
  */
 export function createSessionUsageReader(state, { belongs, sessionKey }) {
   return (event, offset) => {
@@ -175,6 +252,12 @@ export function createSessionUsageReader(state, { belongs, sessionKey }) {
     if (event?.type === 'session.context_changed') {
       if (data.pendingGitContext !== true) applyContext(state, data, belongs);
       return null;
+    }
+    if (ACTIVITY.has(event?.type)) {
+      const record = state.ours && state.branch ? activityRecord(event, sessionKey, offset) : null;
+      if (!record) return null;
+      state.events = (state.events ?? 0) + 1;
+      return { branch: state.branch, record, list: 'events' };
     }
     let record = null;
     if (event?.type === 'session.usage_record' && data.usage && typeof data.usage === 'object') {
@@ -186,7 +269,7 @@ export function createSessionUsageReader(state, { belongs, sessionKey }) {
     if (!record || !state.ours) return null;
     if (!state.branch) { state.unattributed += 1; return null; }
     state.calls += record.kind ? 0 : 1;
-    return { branch: state.branch, record };
+    return { branch: state.branch, record, list: 'calls' };
   };
 }
 
@@ -275,9 +358,10 @@ async function withUsageLock(root, operation) {
 
 /**
  * Read what Copilot added to its session logs since the last sync and record this repository's
- * model calls by branch. A session is skipped from its first line when it started somewhere else;
- * one that grows is read from where the last sync stopped, so a branch or folder change mid-session
- * moves the calls after it. Each call is recorded once, however often its log is read.
+ * model calls and activity by branch. A session is skipped from its first line when it started
+ * somewhere else; one that grows is read from where the last sync stopped, so a branch or folder
+ * change mid-session moves the calls after it. Each call and each activity record is kept once,
+ * however often its log is read.
  */
 export async function syncCopilotSessionUsage(root, {
   directory = copilotSessionStateDirectory(), now = Date.now(), maxBytes = DEFAULT_SYNC_BYTES
@@ -286,6 +370,8 @@ export async function syncCopilotSessionUsage(root, {
   if (!names) return { status: 'no-directory', directory, added: 0, bytesRead: 0, pending: 0 };
   return withUsageLock(root, async () => {
     const previous = await readCache(cursorFile(root));
+    // An earlier reader's positions are not reused: what it skipped is read again (see READER).
+    const known = previous?.reader === READER ? previous.sessions ?? {} : {};
     const belongs = repositoryMatcher(root);
     const found = [];
     let withoutLog = 0;
@@ -303,7 +389,7 @@ export async function syncCopilotSessionUsage(root, {
     let pending = 0;
     for (const { name, key, info } of found) {
       const file = path.join(directory, name, 'events.jsonl');
-      const before = previous?.sessions?.[key];
+      const before = known[key];
       const continuing = before && before.ino === info.ino && before.offset <= info.size;
       if (continuing && before.size === info.size && before.mtimeMs === info.mtimeMs) { sessions[key] = before; continue; }
       let state = continuing ? { ...before } : null;
@@ -325,8 +411,8 @@ export async function syncCopilotSessionUsage(root, {
       const end = await readSessionEvents(file, state.offset, maxBytes - bytesRead, (event, offset) => {
         const kept = push(event, offset);
         if (!kept) return;
-        if (!fresh.has(kept.branch)) fresh.set(kept.branch, []);
-        fresh.get(kept.branch).push(kept.record);
+        if (!fresh.has(kept.branch)) fresh.set(kept.branch, { calls: [], events: [] });
+        fresh.get(kept.branch)[kept.list].push(kept.record);
       });
       bytesRead += end - state.offset;
       const complete = end >= info.size || bytesRead < maxBytes;
@@ -335,21 +421,26 @@ export async function syncCopilotSessionUsage(root, {
       sessions[key] = state;
     }
     let added = 0;
+    let addedEvents = 0;
+    const byTime = (left, right) => String(left.at ?? '').localeCompare(String(right.at ?? ''));
     for (const [branch, records] of fresh) {
       const target = branchFile(root, branch);
-      const existing = (await readCache(target))?.calls ?? [];
-      const seen = new Set(existing.map((record) => record.key));
-      const unseen = records.filter((record) => !seen.has(record.key) && seen.add(record.key));
-      if (!unseen.length) continue;
-      added += unseen.length;
-      await writeCache(target, {
-        branch,
-        calls: [...existing, ...unseen].sort((left, right) => String(left.at ?? '').localeCompare(String(right.at ?? '')))
-      });
+      const existing = await readCache(target);
+      const merged = {};
+      let changed = false;
+      for (const list of ['calls', 'events']) {
+        const before = existing?.[list] ?? [];
+        const seen = new Set(before.map((record) => record.key));
+        const unseen = records[list].filter((record) => !seen.has(record.key) && seen.add(record.key));
+        if (list === 'calls') added += unseen.length; else addedEvents += unseen.length;
+        changed ||= unseen.length > 0;
+        merged[list] = unseen.length ? [...before, ...unseen].sort(byTime) : before;
+      }
+      if (changed) await writeCache(target, { branch, ...merged });
     }
     const syncedAt = new Date(now).toISOString();
-    await writeCache(cursorFile(root), { since: previous?.since ?? syncedAt, syncedAt, withoutLog, pending, sessions });
-    return { status: 'synced', directory, added, bytesRead, pending, sessionsRead: found.length };
+    await writeCache(cursorFile(root), { reader: READER, since: previous?.since ?? syncedAt, syncedAt, withoutLog, pending, sessions });
+    return { status: 'synced', directory, added, addedEvents, bytesRead, pending, sessionsRead: found.length };
   });
 }
 
@@ -364,13 +455,14 @@ function summary(cursor) {
     withoutLog: cursor?.withoutLog ?? 0,
     pending: cursor?.pending ?? 0,
     calls: states.reduce((sum, state) => sum + (state.calls ?? 0), 0),
+    events: states.reduce((sum, state) => sum + (state.events ?? 0), 0),
     callsWithoutBranch: states.reduce((sum, state) => sum + (state.unattributed ?? 0), 0)
   };
 }
 
 /**
- * The recorded model calls made on `branch` in this repository, without reading Copilot's logs.
- * Null when this repository has never read them.
+ * The recorded model calls and activity on `branch` in this repository, without reading Copilot's
+ * logs. Null when this repository has never read them.
  */
 export async function copilotSessionCalls(root, branch) {
   if (!root || !branch) return null;
@@ -379,9 +471,10 @@ export async function copilotSessionCalls(root, branch) {
   if (!cursor) return null;
   const record = await readCache(branchFile(root, branch));
   const calls = record?.branch === branch ? record.calls ?? [] : [];
+  const events = record?.branch === branch ? record.events ?? [] : [];
   const { matched, pending } = summary(cursor);
   return { since: cursor.since ?? null, syncedAt: cursor.syncedAt ?? null, repositorySessions: matched,
-    branchSessions: new Set(calls.map((call) => call.session)).size, pending, calls };
+    branchSessions: new Set([...calls, ...events].map((entry) => entry.session)).size, pending, calls, events };
 }
 
 /** What Copilot's session folder holds and how far this repository has read it; reads no log. */
@@ -417,5 +510,5 @@ export async function storyCopilotSessions(root, workflow, { sync = false, direc
   try { calls = await copilotSessionCalls(root, branch); } catch { calls = null; }
   if (calls) return { branch, read: true, ...calls };
   const exists = synced ? synced.status !== 'no-directory' : Boolean((await stat(directory).catch(() => null))?.isDirectory());
-  return { branch, read: false, reason: !exists ? 'no-session-logs' : synced?.status === 'failed' ? 'unreadable' : 'not-read', calls: [] };
+  return { branch, read: false, reason: !exists ? 'no-session-logs' : synced?.status === 'failed' ? 'unreadable' : 'not-read', calls: [], events: [] };
 }

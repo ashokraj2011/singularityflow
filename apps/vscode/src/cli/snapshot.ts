@@ -531,11 +531,12 @@ export interface CopilotPremiumEstimate {
   missingModels: string[];
 }
 
-/** A quota, model-substitution or failure event counted from Copilot's spans. */
+/** A quota, model-substitution or failure event counted from Copilot's spans or its session logs. */
 export interface CopilotEvent {
   phase?: string;
-  generation: number;
-  kind: 'model-substituted' | 'quota-exceeded' | 'rate-limited' | 'failed' | (string & {});
+  /** Null for an event from Copilot's session logs, which belongs to a phase, not one generation. */
+  generation: number | null;
+  kind: 'model-substituted' | 'model-switched' | 'auto-fallback' | 'quota-exceeded' | 'rate-limited' | 'failed' | (string & {});
   operation: string;
   requestedModel: string | null;
   resolvedModel: string | null;
@@ -581,6 +582,8 @@ export interface StoryPhaseCopilot {
   billedAiu?: CopilotCount;
   /** Copilot's own counts from its session logs on this computer, where they cover the phase. Absent from older CLIs. */
   sessions?: CopilotSessionUsage | null;
+  /** True when turns, tool calls and quota and model events come from Copilot's session logs. Absent from older CLIs. */
+  sessionActivity?: boolean;
   events: CopilotEvent[];
   /** Event occurrences: a line listing two substituted calls counts two. */
   eventCount: number;
@@ -602,9 +605,25 @@ export interface CopilotSessionUsage {
   /** Percent of input tokens read from Copilot's prompt cache. */
   cacheHitShare: number | null;
   aiu: number | null;
-  byModel?: Array<Omit<CopilotSessionUsage, 'byModel' | 'sessions' | 'intervalsWithoutCalls'> & { model: string }>;
+  byModel?: Array<Pick<CopilotSessionUsage, 'modelCalls' | 'requests' | 'premiumRequests' | 'inputTokens' | 'cachedInputTokens'
+    | 'uncachedInputTokens' | 'cacheWriteInputTokens' | 'outputTokens' | 'cacheHitShare' | 'aiu' | 'toolCalls' | 'failedToolCalls' | 'subagents' | 'autoPicks'> & { model: string }>;
   sessions?: number;
   intervalsWithoutCalls?: number;
+  /** Activity from the logs; absent from older CLIs. */
+  turns?: number;
+  toolCalls?: number;
+  failedToolCalls?: number;
+  /** Tool calls that did not succeed, by Copilot's code (denied, rejected, failure, other). */
+  toolFailures?: Record<string, number>;
+  subagents?: number;
+  modelChanges?: number;
+  /** By who changed it: person, host, agent, automatic, other. */
+  modelChangesBySource?: Record<string, number>;
+  autoPicks?: number;
+  autoFallbacks?: number;
+  /** Errors Copilot recorded, by class. */
+  errors?: Record<string, number>;
+  quotaAndModelEvents?: number;
 }
 
 /** What Copilot's session logs on this computer hold for the Story, or why nothing. */
@@ -618,6 +637,8 @@ export interface StoryCopilotSessions extends Partial<CopilotSessionUsage> {
   branch: string | null;
   syncedAt: string | null;
   coveredPhases: string[];
+  /** Phases whose turns, tool calls and quota and model events come from the logs. Absent from older CLIs. */
+  activityPhases?: string[];
   callsOutsideStory: number;
   pendingSessions: number;
 }

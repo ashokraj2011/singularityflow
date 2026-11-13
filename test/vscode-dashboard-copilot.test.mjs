@@ -76,7 +76,8 @@ test('the dashboard lays out the engine\'s Copilot activity, premium estimate, q
   assert.match(html, /\(1 failed\)/);
   assert.match(html, /Design &lt;b&gt;/);
   assert.doesNotMatch(html, /<script>|<b>/, 'labels and model names are escaped');
-  assert.match(html, /GitHub's billing is authoritative/);
+  assert.match(html, /Counted from the OpenTelemetry feeds Copilot writes for launches through <code>singularity-flow copilot<\/code>, and Copilot Chat in VS Code where counting is on\. Premium requests are estimated as requests × <code>tokens\.premiumMultipliers<\/code>, and GitHub's billing is authoritative\./,
+    'without Copilot\'s session logs the section says the counts are the spans\' and the premium requests estimated');
 });
 
 test('labels never show a missing count as zero, and an older CLI\'s report shows no Copilot section', () => {
@@ -130,7 +131,10 @@ test('Story Analytics shows the premium requests and cache hits Copilot\'s sessi
   assert.match(html, /<th>Premium<\/th><th>Billed \(AIU\)<\/th><th>Cache hit<\/th>/);
   assert.match(html, /<td>80%<\/td>/);
   assert.match(html, /<td>40%<\/td>/);
-  assert.match(html, /Copilot's session logs on this computer \(Copilot CLI and VS Code's Copilot agent\): 4 premium requests and 3 model calls for this Story/);
+  assert.match(html, /Copilot's session logs on this computer: 4 premium requests and 3 model calls for this Story, read /);
+  assert.match(html, /Counted from Copilot's own session logs on this computer, which Copilot CLI and VS Code's Copilot agent write with no setup\. A phase they do not cover is counted from the older OpenTelemetry feeds/);
+  assert.match(html, /Premium requests are Copilot's own count\. The prompt is what sflow composed/, 'no estimate is mentioned when nothing is estimated');
+  assert.doesNotMatch(html, /premiumMultipliers|Counted from the spans/);
   assert.match(html, /Billed usage \(AIU\) · reported by Copilot</);
   assert.equal(premiumLabel({ value: 4, status: 'observed', missingModels: [] }), '4', 'Copilot\'s own count is not an estimate');
 
@@ -142,4 +146,43 @@ test('Story Analytics shows the premium requests and cache hits Copilot\'s sessi
     copilotSessions: { branch: 'ENG-9', read: true, repositorySessions: 0, pending: 0, calls: [] } }))),
   /<section><h2>.*Copilot activity<\/h2><p class="muted">Copilot&#39;s session logs: no Copilot session on this computer has worked in this repository\.<\/p><\/section>/s,
   'with nothing counted anywhere, the reason still shows');
+});
+
+// [owner, 2026-11-13] The three cards that still said "Unavailable" with session logs read: agent
+// turns, tool calls and quota and model events now come from the same logs, per step.
+test('Story Analytics fills agent turns, tool calls and quota and model events from Copilot\'s session logs', () => {
+  const metered = { ...workflow(), history: [
+    { at: at(0), event: 'phase_generated', phase: 'requirements' }, { at: at(30), event: 'phase_approved', phase: 'requirements' }] };
+  const call = (minutes, fields) => ({ key: `k${minutes}`, at: at(minutes), session: 's', model: 'model-alpha-1.5', initiator: 'user',
+    inputTokens: 1000, cacheReadTokens: 800, cacheWriteTokens: 0, outputTokens: 10, premiumRequests: 1, nanoAiu: 500_000_000, ...fields });
+  let key = 0;
+  const record = (minutes, kind, fields = {}) => ({ key: `e${++key}`, at: at(minutes), session: 's', kind, ...fields });
+  const events = [
+    record(12, 'turn'), record(12, 'tool', { model: 'model-alpha-1.5' }), record(12, 'tool', { model: 'model-alpha-1.5', failure: 'denied' }),
+    record(13, 'subagent', { model: 'model-mini' }), record(13, 'model-change', { model: 'model-premium-2', from: 'model-alpha-1.5', source: 'person' }),
+    record(14, 'auto-pick', { model: 'model-alpha-1.5' }), record(14, 'auto-pick', { model: 'model-mini', fallback: true }),
+    record(15, 'error', { error: 'quota', status: 402 }),
+    record(36, 'turn'), record(37, 'turn'), record(37, 'tool', { model: 'model-alpha-1.5' })
+  ];
+  const copilotSessions = { branch: 'ENG-9', read: true, since: at(0), syncedAt: at(60), repositorySessions: 1, pending: 0,
+    calls: [call(10, {}), call(35, {})], events };
+  const report = deriveReport(metered, { now: at(60), copilotSessions });
+  const analytics = buildLifecycleAnalytics(report);
+  const html = copilotActivityHtml(analytics);
+
+  assert.match(html, /<strong>3<\/strong><span>Agent turns · 1 sub-agent<\/span>/, 'not the spans\' 9, and not derived');
+  assert.match(html, /<strong>3<\/strong><span>Tool calls · 1 failed<\/span>/);
+  assert.match(html, /<div class="summary-card governance-warning"><strong>2<\/strong><span>Quota and model events · 1 model change, 2 Auto picks<\/span>/);
+  assert.doesNotMatch(html, /<strong>Unavailable<\/strong><span>(Agent turns|Tool calls|Quota and model events)/);
+  assert.match(html, /<h3>Quota and model events<\/h3>/);
+  assert.match(html, /requirements, from 2026-07-01T09:14:00\.000Z: Auto fell back to model-mini instead of the model it picked, 1 time\./);
+  assert.match(html, /requirements, from 2026-07-01T09:15:00\.000Z: 1 request failed because the allowance was exhausted \(quota\)\./);
+  assert.doesNotMatch(html, /gpt-4\.1/, 'design\'s span events are replaced by the logs\' (none), not added');
+  assert.match(html, /Copilot's session logs on this computer: 2 premium requests, 2 model calls, 3 agent turns and 3 tool calls for this Story/);
+  // Per step: requirements 1 turn and 2 tool calls (1 failed) with 2 events; design 2 turns and 1 tool call.
+  assert.match(html, /<td><strong>Requirements<\/strong><small>1 generation<\/small><\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>2 <span class="warning-text">\(1 failed\)<\/span><\/td>\s*<td>1 <span class="warning-text" title="Quota or model events">⚠ 2<\/span><\/td>/);
+  assert.match(html, /<td><strong>Design &lt;b&gt;<\/strong><small>1 generation<\/small><\/td>\s*<td>1<\/td>\s*<td>2<\/td>\s*<td>1<\/td>\s*<td>1<\/td>\s*<td>1<\/td>/);
+  assert.equal(copilotEventSentence({ phase: 'design', generation: null, kind: 'model-switched', operation: 'invoke_agent', count: 2,
+    requestedModel: 'model-premium-2', resolvedModel: 'model-alpha-1.5', errorType: null, firstAt: null, lastAt: null }),
+  'design: Copilot changed the model from model-premium-2 to model-alpha-1.5 on its own, 2 times.');
 });

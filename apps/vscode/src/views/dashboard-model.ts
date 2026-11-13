@@ -265,10 +265,14 @@ export function promptSizeNote(prompt: CopilotPromptSize | null | undefined): st
   return notes.length ? notes.join(', ') : null;
 }
 
+/** The report's sentence for an event; one from Copilot's session logs names its phase, not a generation. */
 export function copilotEventSentence(event: CopilotEvent): string {
-  const where = `${event.phase ?? 'phase'} generation ${event.generation}${event.firstAt ? `, from ${event.firstAt}` : ''}`;
+  const where = `${event.phase ?? 'phase'}${event.generation != null ? ` generation ${event.generation}` : ''}${event.firstAt ? `, from ${event.firstAt}` : ''}`;
   const calls = `${event.count} ${event.operation === 'invoke_agent' ? 'request' : 'model call'}${event.count === 1 ? '' : 's'}`;
+  const times = `${event.count} time${event.count === 1 ? '' : 's'}`;
   if (event.kind === 'model-substituted') return `${where}: Copilot answered ${calls} for ${event.requestedModel} with ${event.resolvedModel}. The premium allowance may have run out.`;
+  if (event.kind === 'model-switched') return `${where}: Copilot changed the model from ${event.requestedModel} to ${event.resolvedModel} on its own, ${times}.`;
+  if (event.kind === 'auto-fallback') return `${where}: Auto fell back to ${event.resolvedModel} instead of the model it picked, ${times}.`;
   if (event.kind === 'quota-exceeded') return `${where}: ${calls} failed because the allowance was exhausted (${event.errorType}).`;
   if (event.kind === 'rate-limited') return `${where}: ${calls} ${event.count === 1 ? 'was' : 'were'} rate limited (${event.errorType}).`;
   return `${where}: ${calls} failed (${event.errorType ?? 'error'}).`;

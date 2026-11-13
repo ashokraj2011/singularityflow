@@ -225,10 +225,14 @@ const CAPTURE_NOTES = [
 ];
 
 const CHAT_NOT_COUNTED = 'Copilot Chat in VS Code is not counted on this computer. Turn it on with "Singularity Flow: Count Copilot Chat Usage"; requests made before then cannot be recovered.';
+// When Copilot's session logs were read, a phase they hold nothing for was not worked in Copilot CLI
+// or VS Code's Copilot agent on this computer: no launch setting would have counted it. [owner, 2026-11-13]
+const NOT_IN_SESSION_LOGS = (count) => `${count} ${plural(count, 'generation')} ${plural(count, 'has', 'have')} no Copilot activity on this computer: Copilot's session logs (Copilot CLI and VS Code's Copilot agent) hold none for ${plural(count, 'its phase', 'their phases')}. Work done on another computer, or in a tool that writes no session log, is not counted here.`;
 
 /** One sentence per reason, with what to do about it, for every surface that shows the counts. */
-function copilotCaptureNotes(uncaptured, { chatCounted = false } = {}) {
-  const notes = CAPTURE_NOTES.filter(([reason]) => uncaptured[reason]).map(([reason, note]) => note(uncaptured[reason]));
+function copilotCaptureNotes(uncaptured, { chatCounted = false, sessionsRead = false } = {}) {
+  const notes = CAPTURE_NOTES.filter(([reason]) => uncaptured[reason])
+    .map(([reason, note]) => (reason === 'not-metered' && sessionsRead ? NOT_IN_SESSION_LOGS : note)(uncaptured[reason]));
   return !chatCounted && (uncaptured['not-metered'] || uncaptured.unconfirmed) ? [...notes, CHAT_NOT_COUNTED] : notes;
 }
 
@@ -286,10 +290,32 @@ function copilotChatByPhase(phaseAt, requests) {
 const SESSION_FIELDS = Object.freeze([['inputTokens', 'inputTokens'], ['cacheReadTokens', 'cachedInputTokens'],
   ['cacheWriteTokens', 'cacheWriteInputTokens'], ['outputTokens', 'outputTokens']]);
 
-/** Model calls from Copilot's session logs, added up: per phase, per model and for the Story. */
+const TALLY_COUNTS = Object.freeze(['modelCalls', 'requests', 'premiumRequests', 'inputTokens', 'cachedInputTokens', 'cacheWriteInputTokens',
+  'outputTokens', 'intervals', 'activity', 'turns', 'toolCalls', 'failedToolCalls', 'subagents', 'autoPicks', 'autoFallbacks']);
+const TALLY_CLASSES = Object.freeze(['toolFailures', 'modelChanges', 'errors']);
+const SESSION_EVENT_LIMIT = 20;
+
+/** Model calls and activity from Copilot's session logs, added up: per phase, per model and for the Story. */
 function sessionTally() {
-  return { modelCalls: 0, requests: 0, premiumRequests: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0,
-    outputTokens: 0, nanoAiu: null, intervals: 0, sessions: new Set(), models: new Map() };
+  return { ...Object.fromEntries(TALLY_COUNTS.map((field) => [field, 0])), ...Object.fromEntries(TALLY_CLASSES.map((field) => [field, {}])),
+    nanoAiu: null, sessions: new Set(), models: new Map(), notable: new Map() };
+}
+
+const modelTally = (tally, model) => {
+  const key = model ?? 'unknown';
+  if (!tally.models.has(key)) tally.models.set(key, sessionTally());
+  return tally.models.get(key);
+};
+
+/** One quota or model event, grouped like the ones Copilot's spans give (see copilotEventLine). */
+function noteSessionEvent(tally, at, kind, { operation = 'invoke_agent', requestedModel = null, resolvedModel = null, errorType = null } = {}) {
+  const key = JSON.stringify([kind, requestedModel, resolvedModel, errorType]);
+  const event = tally.notable.get(key) ?? { generation: null, source: 'copilot-session-logs', kind, operation, requestedModel, resolvedModel,
+    errorType, count: 0, firstAt: null, lastAt: null };
+  event.count += 1;
+  if (at && (!event.firstAt || at < event.firstAt)) event.firstAt = at;
+  if (at && (!event.lastAt || at > event.lastAt)) event.lastAt = at;
+  tally.notable.set(key, event);
 }
 
 function addSessionCall(tally, call, { byModel = true } = {}) {
@@ -304,16 +330,65 @@ function addSessionCall(tally, call, { byModel = true } = {}) {
   if (Number.isFinite(call.nanoAiu)) tally.nanoAiu = (tally.nanoAiu ?? 0) + call.nanoAiu;
   if (call.session) tally.sessions.add(call.session);
   if (!byModel) return;
-  const model = call.model ?? 'unknown';
-  if (!tally.models.has(model)) tally.models.set(model, sessionTally());
-  addSessionCall(tally.models.get(model), call, { byModel: false });
+  if (call.resolvedModel) noteSessionEvent(tally, call.at, 'model-substituted', { operation: 'chat', requestedModel: call.model, resolvedModel: call.resolvedModel });
+  addSessionCall(modelTally(tally, call.model), call, { byModel: false });
 }
+
+const bump = (counts, key) => { counts[key] = (counts[key] ?? 0) + 1; };
+
+/**
+ * One activity record from Copilot's session logs (src/copilot-session-usage.mjs activityRecord).
+ * Quota and model events are what Copilot's spans call them: a request refused over quota or rate
+ * limited, or failed; a model call answered by another model; and, only the logs can say, Auto
+ * falling back from its pick and Copilot changing the model on its own. A person's or VS Code's
+ * model change and Auto's ordinary picks are counted beside them, not as events. [owner, 2026-11-13]
+ */
+function addSessionEvent(tally, event, { byModel = true } = {}) {
+  tally.activity += 1;
+  if (event.session) tally.sessions.add(event.session);
+  const perModel = byModel && ['tool', 'subagent', 'auto-pick'].includes(event.kind) ? modelTally(tally, event.model) : null;
+  if (event.kind === 'turn') tally.turns += 1;
+  else if (event.kind === 'tool') {
+    tally.toolCalls += 1;
+    if (event.failure) { tally.failedToolCalls += 1; bump(tally.toolFailures, event.failure); }
+  } else if (event.kind === 'subagent') tally.subagents += 1;
+  else if (event.kind === 'auto-pick') {
+    tally.autoPicks += 1;
+    if (event.fallback) {
+      tally.autoFallbacks += 1;
+      if (byModel) noteSessionEvent(tally, event.at, 'auto-fallback', { resolvedModel: event.model ?? null });
+    }
+  } else if (event.kind === 'model-change') {
+    bump(tally.modelChanges, event.source ?? 'other');
+    if (byModel && event.source === 'automatic') noteSessionEvent(tally, event.at, 'model-switched', { requestedModel: event.from ?? null, resolvedModel: event.model ?? null });
+  } else if (event.kind === 'error') {
+    const errorType = event.error ?? 'other';
+    bump(tally.errors, errorType);
+    const kind = errorType === 'quota' ? 'quota-exceeded' : errorType === 'rate_limit' ? 'rate-limited' : 'failed';
+    if (byModel) noteSessionEvent(tally, event.at, kind, { errorType });
+  }
+  if (perModel) addSessionEvent(perModel, event, { byModel: false });
+}
+
+/** The quota and model events a tally holds, oldest first, and how many groups were left out. */
+function sessionEvents(tally) {
+  const ordered = [...tally.notable.values()].sort((left, right) => String(left.firstAt ?? '').localeCompare(String(right.firstAt ?? ''))
+    || left.kind.localeCompare(right.kind) || right.count - left.count);
+  return { events: ordered.slice(0, SESSION_EVENT_LIMIT), omitted: Math.max(0, ordered.length - SESSION_EVENT_LIMIT),
+    count: ordered.reduce((sum, event) => sum + event.count, 0) };
+}
+
+const sumOf = (counts) => Object.values(counts).reduce((sum, value) => sum + value, 0);
+/** Where the logs hold model calls (or an older Copilot's intervals) for a phase: its usage source. */
+const usageTally = (tally) => (tally && (tally.modelCalls || tally.intervals) ? tally : null);
+/** Where the logs hold turns, tool calls or other activity for a phase: its activity source. */
+const activityTally = (tally) => (tally?.activity ? tally : null);
 
 const percent = (part, whole) => (whole ? Math.round((part / whole) * 1000) / 10 : null);
 
-/** What a tally reports: Copilot's own counts, with the cache-hit share of input tokens. */
-function sessionUsage(tally, { byModel = true } = {}) {
-  const usage = {
+/** A tally's usage: Copilot's own counts, with the cache-hit share of input tokens. */
+function usageCounts(tally) {
+  return {
     modelCalls: tally.modelCalls,
     requests: tally.requests,
     premiumRequests: Math.round(tally.premiumRequests * 100) / 100,
@@ -324,27 +399,57 @@ function sessionUsage(tally, { byModel = true } = {}) {
     outputTokens: tally.outputTokens,
     // Copilot counts cache reads and writes inside the input tokens.
     cacheHitShare: percent(tally.cachedInputTokens, tally.inputTokens),
-    aiu: aiuMetric(tally.nanoAiu).value,
-    sessions: tally.sessions.size,
-    intervalsWithoutCalls: tally.intervals
+    aiu: aiuMetric(tally.nanoAiu).value
   };
-  if (byModel) {
-    usage.byModel = [...tally.models].map(([model, entry]) => ({ model, ...sessionUsage(entry, { byModel: false }) }))
-      .map(({ sessions, intervalsWithoutCalls, ...entry }) => entry)
-      .sort((left, right) => right.premiumRequests - left.premiumRequests || right.modelCalls - left.modelCalls || left.model.localeCompare(right.model));
-  }
-  return usage;
 }
 
-/** Which phase each model call in Copilot's session logs was made in, and the calls outside the Story. */
-function copilotSessionsByPhase(phaseAt, calls) {
+/**
+ * What a tally reports: the usage, the activity (agent turns, tool calls with failures by Copilot's
+ * code, sub-agents, model changes by who made them, Auto's picks, errors by class, and the quota and
+ * model events among them), and per model the usage with the activity that names a model.
+ */
+function sessionUsage(tally) {
+  return {
+    ...usageCounts(tally),
+    sessions: tally.sessions.size,
+    intervalsWithoutCalls: tally.intervals,
+    turns: tally.turns,
+    toolCalls: tally.toolCalls,
+    failedToolCalls: tally.failedToolCalls,
+    toolFailures: { ...tally.toolFailures },
+    subagents: tally.subagents,
+    modelChanges: sumOf(tally.modelChanges),
+    modelChangesBySource: { ...tally.modelChanges },
+    autoPicks: tally.autoPicks,
+    autoFallbacks: tally.autoFallbacks,
+    errors: { ...tally.errors },
+    quotaAndModelEvents: sessionEvents(tally).count,
+    byModel: [...tally.models].map(([model, entry]) => ({ model, ...usageCounts(entry), toolCalls: entry.toolCalls,
+      failedToolCalls: entry.failedToolCalls, subagents: entry.subagents, autoPicks: entry.autoPicks }))
+      .sort((left, right) => right.premiumRequests - left.premiumRequests || right.modelCalls - left.modelCalls
+        || right.toolCalls - left.toolCalls || left.model.localeCompare(right.model))
+  };
+}
+
+/**
+ * Which phase each model call and activity record in Copilot's session logs was made in, by its
+ * time, and the calls outside the Story.
+ */
+function copilotSessionsByPhase(phaseAt, calls, events) {
   const phases = new Map();
+  const tallyAt = (at) => {
+    const phase = phaseAt(at);
+    if (phase && !phases.has(phase)) phases.set(phase, sessionTally());
+    return phase ? phases.get(phase) : null;
+  };
   let outside = 0;
   for (const call of calls ?? []) {
-    const phase = phaseAt(call.at);
-    if (!phase) { outside += 1; continue; }
-    if (!phases.has(phase)) phases.set(phase, sessionTally());
-    addSessionCall(phases.get(phase), call);
+    const tally = tallyAt(call.at);
+    if (tally) addSessionCall(tally, call); else outside += 1;
+  }
+  for (const event of events ?? []) {
+    const tally = tallyAt(event.at);
+    if (tally) addSessionEvent(tally, event);
   }
   return { phases, outside };
 }
@@ -356,13 +461,13 @@ function copilotSessionsByPhase(phaseAt, calls) {
 function copilotSessionsSummary(copilotSessions, sessionsByPhase) {
   if (!copilotSessions) return null;
   const story = sessionTally();
-  const covered = [...sessionsByPhase.phases.keys()];
-  for (const tally of sessionsByPhase.phases.values()) mergeTally(story, tally);
-  const found = covered.length > 0;
+  const entries = [...sessionsByPhase.phases];
+  for (const [, tally] of entries) mergeTally(story, tally);
+  const found = entries.length > 0;
   const reason = found ? null
     : copilotSessions.read === false ? copilotSessions.reason ?? 'not-read'
       : !copilotSessions.repositorySessions ? 'no-repository-session'
-        : !(copilotSessions.calls ?? []).length ? 'no-branch-session' : 'outside-story';
+        : !(copilotSessions.calls ?? []).length && !(copilotSessions.events ?? []).length ? 'no-branch-session' : 'outside-story';
   const summary = {
     source: 'copilot-session-logs',
     found,
@@ -372,7 +477,10 @@ function copilotSessionsSummary(copilotSessions, sessionsByPhase) {
     syncedAt: copilotSessions.syncedAt ?? null,
     since: copilotSessions.since ?? null,
     pendingSessions: copilotSessions.pending ?? 0,
-    coveredPhases: covered,
+    // Where the logs are the only source of requests, model calls, premium requests and AIU, and
+    // where of turns, tool calls and quota and model events (see phaseCopilot).
+    coveredPhases: entries.filter(([, tally]) => usageTally(tally)).map(([id]) => id),
+    activityPhases: entries.filter(([, tally]) => activityTally(tally)).map(([id]) => id),
     callsOutsideStory: sessionsByPhase.outside,
     ...(found ? sessionUsage(story) : {})
   };
@@ -383,14 +491,17 @@ function copilotSessionsSummary(copilotSessions, sessionsByPhase) {
 }
 
 function mergeTally(into, from) {
-  for (const field of ['modelCalls', 'requests', 'premiumRequests', 'inputTokens', 'cachedInputTokens', 'cacheWriteInputTokens', 'outputTokens', 'intervals']) {
-    into[field] += from[field];
-  }
+  for (const field of TALLY_COUNTS) into[field] += from[field];
+  for (const field of TALLY_CLASSES) for (const [key, value] of Object.entries(from[field])) into[field][key] = (into[field][key] ?? 0) + value;
   if (from.nanoAiu != null) into.nanoAiu = (into.nanoAiu ?? 0) + from.nanoAiu;
   for (const session of from.sessions) into.sessions.add(session);
-  for (const [model, entry] of from.models) {
-    if (!into.models.has(model)) into.models.set(model, sessionTally());
-    mergeTally(into.models.get(model), entry);
+  for (const [model, entry] of from.models) mergeTally(modelTally(into, model), entry);
+  for (const [key, event] of from.notable) {
+    const known = into.notable.get(key);
+    if (!known) { into.notable.set(key, { ...event }); continue; }
+    known.count += event.count;
+    if (event.firstAt && (!known.firstAt || event.firstAt < known.firstAt)) known.firstAt = event.firstAt;
+    if (event.lastAt && (!known.lastAt || event.lastAt > known.lastAt)) known.lastAt = event.lastAt;
   }
 }
 
@@ -434,11 +545,17 @@ function sessionCount(tally, value) {
  * Where Copilot's session logs hold model calls for a phase, they are its source for requests, model
  * calls, premium requests and AIU, and neither OpenTelemetry feed adds to them: a session started
  * through `singularity-flow copilot`, and VS Code's Copilot agent, write both, so adding them would
- * count the same requests twice. [owner, 2026-11-13] Turns, tool calls, quota events and the prompt
- * size still come from the spans and SFlow's composition, which the logs do not replace.
+ * count the same requests twice. [owner, 2026-11-13] The same holds for activity: where the logs
+ * hold turns or tool calls for a phase, they are its only source of turns, tool calls, failed
+ * requests and quota and model events. Failed model calls (the logs keep none) and the prompt size
+ * (SFlow's composition) still come from the spans.
  */
 function phaseCopilot(phase, premiumMultipliers, chat = null, sessions = null) {
-  if (sessions) chat = null;
+  const logUsage = usageTally(sessions);
+  const activity = activityTally(sessions);
+  if (logUsage) chat = null;
+  const logEvents = activity ? sessionEvents(activity) : null;
+  const observed = (value) => ({ value, status: 'observed' });
   const generations = (phase.telemetry ?? [])
     .filter((entry) => entry.status !== 'not-invoked')
     .toSorted((left, right) => left.generation - right.generation);
@@ -478,29 +595,31 @@ function phaseCopilot(phase, premiumMultipliers, chat = null, sessions = null) {
       const reason = uncapturedReason(entry);
       return { ...counts, [reason]: (counts[reason] ?? 0) + 1 };
     }, {}),
-    requests: sessions ? sessionCount(sessions, sessions.requests) : withChatCount(metric('requests'), chat, 'requests'),
-    turns: metric('turns'),
+    requests: logUsage ? sessionCount(logUsage, logUsage.requests) : withChatCount(metric('requests'), chat, 'requests'),
+    turns: activity ? observed(activity.turns) : metric('turns'),
     // Whether any generation counted turns from model calls rather than Copilot's own turn count.
-    turnsDerived: generations.some((entry) => entry.activity?.turnsAssurance === 'derived-from-model-calls'),
-    modelCalls: sessions ? sessionCount(sessions, sessions.modelCalls) : withChatCount(metric('modelCalls'), chat, 'modelCalls'),
-    toolCalls: metric('toolCalls'),
-    failedRequests: withChatCount(metric('failedRequests'), chat, 'failedRequests'),
+    turnsDerived: !activity && generations.some((entry) => entry.activity?.turnsAssurance === 'derived-from-model-calls'),
+    modelCalls: logUsage ? sessionCount(logUsage, logUsage.modelCalls) : withChatCount(metric('modelCalls'), chat, 'modelCalls'),
+    toolCalls: activity ? observed(activity.toolCalls) : metric('toolCalls'),
+    failedRequests: activity ? observed(sumOf(activity.errors)) : withChatCount(metric('failedRequests'), chat, 'failedRequests'),
     failedModelCalls: metric('failedModelCalls'),
-    failedToolCalls: metric('failedToolCalls'),
-    premiumRequests: sessions ? { value: Math.round(sessions.premiumRequests * 100) / 100, status: 'observed', missingModels: [] } : premiumRequests,
-    billedAiu: aiuMetric(sessions ? sessions.nanoAiu : chat?.nanoAiu ?? null),
+    failedToolCalls: activity ? observed(activity.failedToolCalls) : metric('failedToolCalls'),
+    premiumRequests: logUsage ? { value: Math.round(logUsage.premiumRequests * 100) / 100, status: 'observed', missingModels: [] } : premiumRequests,
+    billedAiu: aiuMetric(logUsage ? logUsage.nanoAiu : chat?.nanoAiu ?? null),
     chat: chat?.requests ? {
       requests: chat.requests, modelCalls: chat.modelCalls, inputTokens: chat.inputTokens,
       outputTokens: chat.outputTokens, cachedInputTokens: chat.cachedInputTokens,
       cacheWriteInputTokens: chat.cacheWriteInputTokens
     } : null,
     sessions: sessions ? sessionUsage(sessions) : null,
-    events: generations.flatMap((entry) => (entry.activity?.events ?? [])
+    // Whether the turns, tool calls and quota and model events come from Copilot's session logs.
+    sessionActivity: Boolean(activity),
+    events: logEvents ? logEvents.events : generations.flatMap((entry) => (entry.activity?.events ?? [])
       .map((event) => ({ generation: entry.generation, ...event }))),
     // Occurrences, not groups: two substituted calls are two events listed on one line.
-    eventCount: generations.reduce((sum, entry) => sum + (entry.activity?.events ?? [])
+    eventCount: logEvents ? logEvents.count : generations.reduce((sum, entry) => sum + (entry.activity?.events ?? [])
       .reduce((count, event) => count + event.count, 0), 0),
-    omittedEvents: generations.reduce((sum, entry) => sum + (entry.activity?.omittedEvents ?? 0), 0),
+    omittedEvents: logEvents ? logEvents.omitted : generations.reduce((sum, entry) => sum + (entry.activity?.omittedEvents ?? 0), 0),
     prompt: latest ? {
       generation: latest.generation,
       bytes: latest.prompt.bytes,
@@ -535,7 +654,7 @@ export function deriveReport(workflow, {
   const history = [...(workflow.history ?? [])].sort(compareEvents);
   const phaseAt = phaseAtTime(workflow, history);
   const chatByPhase = copilotChatByPhase(phaseAt, copilotChat?.requests);
-  const sessionsByPhase = copilotSessionsByPhase(phaseAt, copilotSessions?.calls);
+  const sessionsByPhase = copilotSessionsByPhase(phaseAt, copilotSessions?.calls, copilotSessions?.events);
   const phases = workflow.phaseOrder.map((id) => {
     const phase = workflow.phases[id];
     const events = phaseEvents(history, id);
@@ -632,7 +751,7 @@ export function deriveReport(workflow, {
     return counts;
   }, {});
   // Each phase's billed usage from the one source that counts it there (see phaseCopilot).
-  const billedNanoAiu = workflow.phaseOrder.map((id) => (sessionsByPhase.phases.get(id) ?? chatByPhase.get(id))?.nanoAiu ?? null);
+  const billedNanoAiu = workflow.phaseOrder.map((id) => (usageTally(sessionsByPhase.phases.get(id)) ?? chatByPhase.get(id))?.nanoAiu ?? null);
   const copilot = {
     status: !copilotStatuses.length ? 'none'
       : copilotStatuses.every((status) => status === 'observed') ? 'observed'
@@ -646,8 +765,8 @@ export function deriveReport(workflow, {
     chat: copilotChatSummary(copilotChat, phases),
     sessions: copilotSessionsSummary(copilotSessions, sessionsByPhase),
     events: phases.flatMap((phase) => phase.copilot.events.map((event) => ({ phase: phase.id, ...event }))),
-    // Quota and model events come from metered sessions only; Copilot Chat's counts carry none.
-    eventsObserved: phases.some((phase) => phase.copilot.capturedGenerations > 0),
+    // Quota and model events come from Copilot's session logs and metered sessions; Copilot Chat's counts carry none.
+    eventsObserved: phases.some((phase) => phase.copilot.capturedGenerations > 0 || phase.copilot.sessionActivity),
     eventCount: phases.reduce((sum, phase) => sum + phase.copilot.eventCount, 0),
     omittedEvents: phases.reduce((sum, phase) => sum + phase.copilot.omittedEvents, 0),
     largestPrompt: largestPrompt ? {
@@ -657,7 +776,7 @@ export function deriveReport(workflow, {
     } : null,
     promptsOverBudget: prompted.filter((phase) => phase.copilot.prompt.overBudget).map((phase) => phase.id),
     uncaptured,
-    captureNotes: copilotCaptureNotes(uncaptured, { chatCounted: Boolean(copilotChat?.since) })
+    captureNotes: copilotCaptureNotes(uncaptured, { chatCounted: Boolean(copilotChat?.since), sessionsRead: Boolean(copilotSessions?.read) })
   };
   const bottleneck = phases
     .filter((phase) => phase.waitingMs != null && phase.waitingMs > 0)
@@ -825,25 +944,57 @@ function sessionsReason(sessions) {
   })[sessions.reason] ?? 'Copilot\'s session logs hold nothing for this Story.';
 }
 
-/** The headline of the session-log counts: premium requests, calls, cache hits and AIU. */
+const counted = (value, one, many = `${one}s`) => `${value.toLocaleString('en-US')} ${value === 1 ? one : many}`;
+
+/** The headline of the session-log counts: premium requests, calls, cache hits, AIU, turns and tool calls. */
 function sessionsTotals(sessions) {
   return [
     `${premiumValue(sessions.premiumRequests)} premium request${sessions.premiumRequests === 1 ? '' : 's'}`,
     `${sessions.requests.toLocaleString('en-US')} request${sessions.requests === 1 ? '' : 's'} you sent`,
     `${sessions.modelCalls.toLocaleString('en-US')} model call${sessions.modelCalls === 1 ? '' : 's'}`,
     `${tokenCount(sessions.inputTokens)} input tokens${sessions.cacheHitShare != null ? `, ${sessions.cacheHitShare}% read from Copilot's cache` : ''}`,
-    ...(sessions.aiu != null ? [`${aiuCell({ value: sessions.aiu })} AIU`] : [])
+    ...(sessions.aiu != null ? [`${aiuCell({ value: sessions.aiu })} AIU`] : []),
+    ...(sessions.activityPhases?.length ? [counted(sessions.turns, 'agent turn'),
+      `${counted(sessions.toolCalls, 'tool call')}${sessions.failedToolCalls ? ` (${sessions.failedToolCalls.toLocaleString('en-US')} failed)` : ''}`,
+      counted(sessions.quotaAndModelEvents, 'quota or model event')] : [])
   ].join(' · ');
+}
+
+const MODEL_CHANGE_SOURCES = Object.freeze({ person: 'by a person', host: 'by VS Code or at start-up', agent: 'by the agent', automatic: 'by Copilot on its own', other: 'for another reason' });
+
+/** What the activity counts hold beyond the tables: failures by code, sub-agents, model changes, Auto. */
+function sessionsActivityNote(sessions) {
+  const parts = [];
+  const failures = Object.entries(sessions.toolFailures ?? {}).map(([code, count]) => `${count.toLocaleString('en-US')} ${code}`);
+  if (failures.length) parts.push(`tool calls that did not succeed, by Copilot's code: ${failures.join(', ')}`);
+  if (sessions.subagents) parts.push(`${counted(sessions.subagents, 'sub-agent')} started`);
+  const changes = Object.entries(sessions.modelChangesBySource ?? {}).map(([source, count]) => `${count.toLocaleString('en-US')} ${MODEL_CHANGE_SOURCES[source] ?? source}`);
+  if (changes.length) parts.push(`the model changed ${counted(sessions.modelChanges, 'time')} (${changes.join(', ')})`);
+  if (sessions.autoPicks) parts.push(`Auto picked a model ${counted(sessions.autoPicks, 'time')}${sessions.autoFallbacks ? `, falling back ${counted(sessions.autoFallbacks, 'time')}` : ''}`);
+  const errors = Object.entries(sessions.errors ?? {}).map(([type, count]) => `${count.toLocaleString('en-US')} ${type}`);
+  if (errors.length) parts.push(`errors Copilot recorded, by class: ${errors.join(', ')}`);
+  return parts.length ? `${parts.join('; ')}.`.replace(/^./u, (first) => first.toUpperCase()) : null;
 }
 
 /** Notes beside the session-log counts: where they come from, and the rule that keeps them single. */
 function sessionsNotes(report) {
   const sessions = report.copilot.sessions;
-  const labels = sessions.coveredPhases.map((id) => `\`${id}\``).join(', ');
+  const labels = (ids) => ids.map((id) => `\`${id}\``).join(', ');
+  const activity = sessions.activityPhases ?? [];
+  const same = activity.length === sessions.coveredPhases.length && activity.every((id) => sessions.coveredPhases.includes(id));
+  const usageSources = 'requests, model calls, premium requests and AIU';
+  const activitySources = 'turns, tool calls and quota and model events';
+  const sources = same ? `in ${labels(activity)} these logs are the only source of requests, turns, model and tool calls, premium requests, AIU and quota and model events`
+    : [sessions.coveredPhases.length ? `in ${labels(sessions.coveredPhases)} these logs are the only source of ${usageSources}` : null,
+      activity.length ? `in ${labels(activity)} ${sessions.coveredPhases.length ? 'they are' : 'these logs are'} the only source of ${activitySources}` : null]
+      .filter(Boolean).join(', and ');
   const notes = [
     `From Copilot's own session logs on this computer (Copilot CLI and VS Code's Copilot agent) for branch \`${sessions.branch}\`${sessions.syncedAt ? `, read ${sessions.syncedAt}` : ''}; other people's use is not included. Premium requests are the requests a person sent, as Copilot accounts them: calls the agent made on its own cost none. Cache hit is the share of input tokens Copilot read from its prompt cache; uncached input includes cache writes.`,
-    `Never counted twice: in ${labels} these logs are the only source of requests, model calls, premium requests and AIU. Copilot's OpenTelemetry (sessions started with \`singularity-flow copilot\`, Copilot Chat in VS Code) counts only in phases the logs do not cover.`
+    `Never counted twice: ${sources}. Copilot's OpenTelemetry (sessions started with \`singularity-flow copilot\`, Copilot Chat in VS Code) counts only in phases the logs do not cover.`
   ];
+  if (activity.length) notes.push(`An agent turn is one model round trip, a sub-agent's included. Quota and model events are the requests Copilot refused over quota or as rate limited, or that failed, calls another model answered, Auto falling back from its pick and Copilot changing the model on its own. How much of the premium allowance is left is not counted: only some Copilot versions write it, for the whole account.`);
+  const activityNote = activity.length ? sessionsActivityNote(sessions) : null;
+  if (activityNote) notes.push(activityNote);
   if (sessions.intervalsWithoutCalls) notes.push(`Older Copilot versions recorded only running totals for ${sessions.intervalsWithoutCalls} interval${sessions.intervalsWithoutCalls === 1 ? '' : 's'}: their premium requests and AIU are counted, without model calls or tokens.`);
   if (sessions.callsOutsideStory) notes.push(`${sessions.callsOutsideStory} model call${sessions.callsOutsideStory === 1 ? '' : 's'} on this branch fell before the Story began or after it finished, and ${sessions.callsOutsideStory === 1 ? 'is' : 'are'} not counted.`);
   if (sessions.pendingSessions) notes.push(`${sessions.pendingSessions} Copilot session${sessions.pendingSessions === 1 ? ' is' : 's are'} still being read; the next report adds what ${sessions.pendingSessions === 1 ? 'it holds' : 'they hold'}.`);
@@ -851,13 +1002,16 @@ function sessionsNotes(report) {
 }
 
 const SESSION_PHASE_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Cache writes', 'Output tokens', 'Cache hit', 'AIU'];
-const SESSION_MODEL_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Output tokens', 'Cache hit', 'AIU'];
+const SESSION_MODEL_COLUMNS = ['Premium requests', 'Requests', 'Model calls', 'Input tokens', 'Cached', 'Uncached', 'Output tokens', 'Cache hit', 'AIU',
+  'Tool calls', 'Sub-agents', 'Auto picks'];
 
 function sessionCells(usage, { cacheWrites = true } = {}) {
   if (!usage) return (cacheWrites ? SESSION_PHASE_COLUMNS : SESSION_MODEL_COLUMNS).map(() => '—');
   return [premiumValue(usage.premiumRequests), tokenCount(usage.requests), tokenCount(usage.modelCalls), tokenCount(usage.inputTokens),
     tokenCount(usage.cachedInputTokens), tokenCount(usage.uncachedInputTokens), ...(cacheWrites ? [tokenCount(usage.cacheWriteInputTokens)] : []),
-    tokenCount(usage.outputTokens), shareCell(usage.cacheHitShare), usage.aiu == null ? '—' : aiuCell({ value: usage.aiu })];
+    tokenCount(usage.outputTokens), shareCell(usage.cacheHitShare), usage.aiu == null ? '—' : aiuCell({ value: usage.aiu }),
+    // Per model: the activity that names a model (a turn names none).
+    ...(cacheWrites ? [] : [`${tokenCount(usage.toolCalls)}${usage.failedToolCalls ? ` (${usage.failedToolCalls} failed)` : ''}`, tokenCount(usage.subagents), tokenCount(usage.autoPicks)])];
 }
 
 function sessionsMarkdown(report) {
@@ -888,17 +1042,43 @@ function sessionsHtml(report) {
 ${sessionsNotes(report).map((note) => `<p class="note">${codeSpans(escapeHtml(note))}</p>`).join('\n')}`;
 }
 
-/** One sentence per quota, substitution or failure event, for both renderings. */
+/**
+ * One sentence per quota, substitution or failure event, for both renderings. An event from
+ * Copilot's session logs belongs to a phase, not to one generation.
+ */
 function copilotEventLine(event) {
-  const where = `${event.phase} generation ${event.generation}${event.firstAt ? `, from ${event.firstAt}` : ''}`;
+  const where = `${event.phase}${event.generation != null ? ` generation ${event.generation}` : ''}${event.firstAt ? `, from ${event.firstAt}` : ''}`;
   const calls = `${event.count} ${event.operation === 'invoke_agent' ? 'request' : 'model call'}${event.count === 1 ? '' : 's'}`;
+  const times = `${event.count} time${event.count === 1 ? '' : 's'}`;
   if (event.kind === 'model-substituted') return `${where}: Copilot answered ${calls} for ${event.requestedModel} with ${event.resolvedModel}. The premium allowance may have run out.`;
+  if (event.kind === 'model-switched') return `${where}: Copilot changed the model from ${event.requestedModel} to ${event.resolvedModel} on its own, ${times}.`;
+  if (event.kind === 'auto-fallback') return `${where}: Auto fell back to ${event.resolvedModel} instead of the model it picked, ${times}.`;
   if (event.kind === 'quota-exceeded') return `${where}: ${calls} failed because the allowance was exhausted (${event.errorType}).`;
   if (event.kind === 'rate-limited') return `${where}: ${calls} ${event.count === 1 ? 'was' : 'were'} rate limited (${event.errorType}).`;
   return `${where}: ${calls} failed (${event.errorType ?? 'error'}).`;
 }
 
-const COPILOT_SOURCES = 'Requests, turns, model calls and tool calls are counted from the spans Copilot exports for launches through `singularity-flow copilot`, and for Copilot Chat in VS Code from the local file it writes on a computer where counting is on. A turn is one model round trip; where Copilot does not report the count, it is the model calls under the request. Premium requests are estimated as requests times `tokens.premiumMultipliers`; GitHub\'s billing is authoritative. Billed (AIU) is the usage Copilot Chat reports for its model calls. The phase prompt is the prompt sflow composed for the latest generation: exact bytes, tokens estimated as bytes ÷ 4. Copilot adds its own instructions, tools and history to it.';
+const OTEL_FEEDS = 'the spans Copilot exports for launches through `singularity-flow copilot`, and the local file Copilot Chat in VS Code writes on a computer where counting is on';
+
+/**
+ * Where the section's counts come from, as true for this report: Copilot's own session logs where
+ * they cover a phase, the older OpenTelemetry feeds elsewhere, and the multiplier estimate only
+ * where a premium-request count is still estimated. [owner, 2026-11-13]
+ */
+function copilotSources(report) {
+  const logs = Boolean(report.copilot.sessions?.found);
+  const estimated = report.phases.some((phase) => !['none', 'observed'].includes(phase.copilot.premiumRequests.status));
+  const estimate = 'estimated as requests times `tokens.premiumMultipliers`; GitHub\'s billing is authoritative';
+  return [
+    logs ? `Counts come from Copilot's own session logs on this computer, which Copilot CLI and VS Code's Copilot agent write with no setup. A phase the logs do not cover is counted from ${OTEL_FEEDS}; no phase is counted from both.`
+      : `Counts come from ${OTEL_FEEDS}. Copilot's own session logs on this computer hold nothing for this Story.`,
+    'A turn is one model round trip; where Copilot\'s spans do not report the count, it is the model calls under the request.',
+    logs && !estimated ? 'Premium requests are Copilot\'s own count.'
+      : logs ? `Premium requests are Copilot's own count where the logs cover a phase, and elsewhere ${estimate}.` : `Premium requests are ${estimate}.`,
+    'Billed (AIU) is the usage Copilot reports for its model calls.',
+    'The phase prompt is the prompt sflow composed for the latest generation: exact bytes, tokens estimated as bytes ÷ 4. Copilot adds its own instructions, tools and history to it.'
+  ].join(' ');
+}
 
 export function renderMarkdown(report) {
   const item = report.workItem;
@@ -956,7 +1136,7 @@ export function renderMarkdown(report) {
     if (copilot.premiumRequests.missingModels.length) {
       lines.push(`_Premium requests are ${copilot.premiumRequests.value == null ? 'unavailable' : 'partial'}: no \`tokens.premiumMultipliers\` entry for ${copilot.premiumRequests.missingModels.join(', ')}._`, '');
     }
-    lines.push(`_${COPILOT_SOURCES} \`*\` marks a count some generations did not report; \`unavailable\` means none did._`, '');
+    lines.push(`_${copilotSources(report)} \`*\` marks a count some generations did not report; \`unavailable\` means none did._`, '');
   }
   lines.push(...sessionsMarkdown(report));
   if (report.selfApprovals) lines.push(`**Sign-off note:** ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.`, '');
@@ -1122,7 +1302,7 @@ ${promptChart}
 ${captureNotes}
 ${events}
 ${missing}
-<p class="note">${codeSpans(escapeHtml(COPILOT_SOURCES))} * marks a count some generations did not report; "unavailable" means none did.</p>`;
+<p class="note">${codeSpans(escapeHtml(copilotSources(report)))} * marks a count some generations did not report; "unavailable" means none did.</p>`;
 }
 
 export function renderHtml(report) {

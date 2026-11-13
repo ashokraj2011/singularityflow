@@ -49,9 +49,9 @@ const start = (minutes, context) => event('session.start', {
   sessionId: 'kept-only-as-a-hash', version: 1, producer: 'copilot-agent', copilotVersion: '1.0.109', startTime: at(minutes),
   selectedModel: 'model-alpha-1.5', context: { cwd: context.gitRoot ?? context.cwd, hostType: 'github', repository: 'acme/payments', headCommit: 'f'.repeat(40), ...context }
 }, minutes);
-const call = (minutes, { session = 's', sequence, initiator = 'agent', model = 'model-alpha-1.5', input = 1000, cached = 900, written = 50, output = 40, cost = 1, nano = 100_000_000 } = {}) =>
+const call = (minutes, { session = 's', sequence, initiator = 'agent', model = 'model-alpha-1.5', answered = null, input = 1000, cached = 900, written = 50, output = 40, cost = 1, nano = 100_000_000 } = {}) =>
   event('session.usage_record', { usage: {
-    model, responseModel: `${model}-2026`, inputTokens: input, outputTokens: output, cacheReadTokens: cached, cacheWriteTokens: written,
+    model, responseModel: answered ?? `${model}-2026`, inputTokens: input, outputTokens: output, cacheReadTokens: cached, cacheWriteTokens: written,
     reasoningTokens: 0, cost, initiator, interactionType: initiator === 'sub-agent' ? 'conversation-subagent' : 'conversation-agent',
     isByok: false, isAuto: false, aiCreditsStatus: 'complete', copilotUsage: { totalNanoAiu: nano, tokenDetails: [] },
     accounting: { sourceSessionId: session, sequence, usageId: `${session}-usage-${sequence}` }
@@ -113,8 +113,8 @@ test('a sync records this repository\'s model calls by branch, content-free and 
   assert.equal((await syncCopilotSessionUsage(root, { directory: sessions })).added, 0, 'a repeated sync adds nothing');
   const status = await copilotSessionUsageStatus(root, { directory: sessions });
   assert.deepEqual(status.sessions, {
-    seen: 3, matched: 1, unmatched: { 'other-repository': 1, 'no-git-context': 1 }, withoutLog: 1, pending: 0, calls: 3, callsWithoutBranch: 0
-  });
+    seen: 3, matched: 1, unmatched: { 'other-repository': 1, 'no-git-context': 1 }, withoutLog: 1, pending: 0, calls: 3, events: 0, callsWithoutBranch: 0
+  }, 'a tool call that only started is not counted');
   assert.equal(status.branches, 1);
 });
 
@@ -203,6 +203,89 @@ test('a sync reads at most its byte budget, and the next one continues where it 
   assert.equal(calls.calls.reduce((sum, entry) => sum + entry.premiumRequests, 0), 2);
 });
 
+// [owner, 2026-11-13] Agent turns, tool calls and quota and model events, from the same logs.
+const turn = (minutes, turnId = '0') => event('assistant.turn_start', { turnId, interactionId: 'interaction-1' }, minutes);
+const tool = (minutes, toolCallId, { success = true, code = null, model = 'model-alpha-1.5' } = {}) => event('tool.execution_complete', {
+  toolCallId, model, interactionId: 'interaction-1', turnId: '0', success,
+  ...(success ? { result: { content: 'secret tool output' }, shellExecution: { exitCode: 0 } } : { error: { code, message: 'secret refusal text' } })
+}, minutes);
+const subagent = (minutes, model) => event('subagent.started', {
+  toolCallId: 'task-1', agentName: 'private-helper', agentDisplayName: 'Private Helper', agentDescription: 'secret description', model
+}, minutes);
+const modelChange = (minutes, previousModel, newModel, fields = {}) => event('session.model_change', { previousModel, newModel, reasoningEffort: 'low', ...fields }, minutes);
+const autoPick = (minutes, chosenModel, fallback = false) => event('session.auto_mode_resolved', {
+  chosenModel, fallback, routingMethod: 'auto_v2', candidateModels: [chosenModel, 'model-mini'], categoryScores: { reasoning: 0.4 }
+}, minutes);
+const failure = (minutes, fields) => event('session.error', { message: 'secret error message with a path /private/notes.txt', ...fields }, minutes);
+
+/** Every kind of activity, in a session on the Story branch; `offset` moves it in time. */
+const activity = (offset = 0) => [
+  turn(offset + 1, '0'), tool(offset + 1, `call-a${offset}`), tool(offset + 1, `call-b${offset}`, { success: false, code: 'denied' }), turn(offset + 2, '1'),
+  tool(offset + 2, `call-c${offset}`, { success: false, code: 'a code nobody listed', model: 'model-premium-2' }),
+  subagent(offset + 3, 'model-mini'),
+  modelChange(offset + 3, undefined, 'model-alpha-1.5'), // the first model is not a change
+  modelChange(offset + 3, 'model-alpha-1.5', 'model-alpha-1.5', { source: 'sdk' }), // effort only
+  modelChange(offset + 3, 'auto', 'model-alpha-1.5', { source: 'automatic', cause: 'initial_resolution' }), // Auto's first pick
+  modelChange(offset + 4, 'model-alpha-1.5', 'model-premium-2', { source: 'model_picker' }),
+  modelChange(offset + 4, 'model-premium-2', 'model-alpha-1.5', { source: 'automatic', cause: 'premium allowance' }),
+  autoPick(offset + 5, 'model-alpha-1.5'), autoPick(offset + 5, 'model-mini', true),
+  failure(offset + 6, { errorType: 'quota', statusCode: 402, errorCode: 'quota_exceeded' }),
+  failure(offset + 6, { errorType: 'free text that is not a class', statusCode: 429 }),
+  failure(offset + 7, { errorType: 'authentication', statusCode: 401 })
+];
+
+test('a sync records agent turns, tool calls, sub-agents, model changes, Auto picks and errors, content-free and once each', async () => {
+  const { root, other, story, sessions } = await fixture();
+  await session(sessions, 'busy', [start(0, { gitRoot: story, branch: 'ENG-7' }), ...noise(0), ...activity(),
+    call(8, { session: 'busy', sequence: 1, initiator: 'user', answered: 'model-other-9' })]);
+  await session(sessions, 'elsewhere', [start(0, { gitRoot: other, branch: 'ENG-7' }), ...activity()]);
+
+  const first = await syncCopilotSessionUsage(root, { directory: sessions, now: Date.parse(at(10)) });
+  assert.equal(first.added, 1);
+  assert.equal(first.addedEvents, 13, 'the other repository\'s activity, a started tool call and four non-changes are not counted');
+  const recorded = await copilotSessionCalls(root, 'ENG-7');
+  assert.deepEqual(recorded.events.map(({ key, session: id, ...rest }) => rest), [
+    { at: at(1), kind: 'turn' },
+    { at: at(1), kind: 'tool', model: 'model-alpha-1.5' },
+    { at: at(1), kind: 'tool', model: 'model-alpha-1.5', failure: 'denied' },
+    { at: at(2), kind: 'turn' },
+    { at: at(2), kind: 'tool', model: 'model-premium-2', failure: 'other' },
+    { at: at(3), kind: 'subagent', model: 'model-mini' },
+    { at: at(4), kind: 'model-change', model: 'model-premium-2', from: 'model-alpha-1.5', source: 'person' },
+    { at: at(4), kind: 'model-change', model: 'model-alpha-1.5', from: 'model-premium-2', source: 'automatic' },
+    { at: at(5), kind: 'auto-pick', model: 'model-alpha-1.5' },
+    { at: at(5), kind: 'auto-pick', model: 'model-mini', fallback: true },
+    { at: at(6), kind: 'error', error: 'quota', status: 402 },
+    { at: at(6), kind: 'error', error: 'rate_limit', status: 429 },
+    { at: at(7), kind: 'error', error: 'authentication', status: 401 }
+  ]);
+  assert.ok(recorded.events.every((entry) => /^[0-9a-f]{16}$/u.test(entry.key) && /^[0-9a-f]{16}$/u.test(entry.session)));
+  assert.equal(recorded.calls[0].resolvedModel, 'model-other-9', 'a call another model answered keeps that model');
+  assert.equal(recorded.branchSessions, 1);
+
+  const directory = path.join(root, '.git', 'singularity-flow', 'copilot-sessions');
+  const files = [path.join(directory, 'cursor.json'), ...(await readdir(path.join(directory, 'branches'))).map((name) => path.join(directory, 'branches', name))];
+  const stored = (await Promise.all(files.map((file) => readFile(file, 'utf8')))).join('\n');
+  assert.doesNotMatch(stored, /secret|private|Private|nobody listed|free text|call-a|interaction-1|task-1|premium allowance|auto_v2|quota_exceeded/u,
+    'no message, tool output, agent name, free text or raw id is kept');
+
+  assert.equal((await syncCopilotSessionUsage(root, { directory: sessions })).addedEvents, 0, 'a repeated sync adds nothing');
+  assert.equal((await copilotSessionUsageStatus(root, { directory: sessions })).sessions.events, 13);
+
+  // A cursor an earlier reader wrote (calls only): the logs are read again from their start, the
+  // activity before the upgrade is recorded, and the calls found again are not added twice.
+  const cursor = JSON.parse(await readFile(files[0], 'utf8'));
+  delete cursor.reader;
+  await writeFile(files[0], `${JSON.stringify(cursor)}\n`);
+  const branch = JSON.parse(await readFile(files[1], 'utf8'));
+  delete branch.events;
+  await writeFile(files[1], `${JSON.stringify(branch)}\n`);
+  const upgraded = await syncCopilotSessionUsage(root, { directory: sessions });
+  assert.deepEqual([upgraded.added, upgraded.addedEvents], [0, 13]);
+  assert.equal((await copilotSessionCalls(root, 'ENG-7')).calls.length, 1);
+  assert.equal((await copilotSessionCalls(root, 'ENG-7')).since, at(10), 'when this repository started reading stays');
+});
+
 function storyWorkflow() {
   const phase = (id, label, fields = {}) => ({ id, label, status: 'approved', generation: 1, usage: [], approvals: [], checks: [],
     telemetry: [{ generation: 1, status: 'pending', captureGap: 'no-metered-session', models: [] }], ...fields });
@@ -256,16 +339,20 @@ test('a report places each call in the phase worked on then, shows premium reque
   assert.deepEqual(design.copilot.premiumRequests, { value: 4, status: 'observed', missingModels: [] });
   assert.deepEqual(design.copilot.billedAiu, { value: 1.1, status: 'observed' });
   assert.deepEqual(design.copilot.uncaptured, {}, 'a covered phase is not told to reconcile');
+  const noActivity = { turns: 0, toolCalls: 0, failedToolCalls: 0, toolFailures: {}, subagents: 0, modelChanges: 0, modelChangesBySource: {},
+    autoPicks: 0, autoFallbacks: 0, errors: {}, quotaAndModelEvents: 0 };
+  const noModelActivity = { toolCalls: 0, failedToolCalls: 0, subagents: 0, autoPicks: 0 };
   assert.deepEqual(design.copilot.sessions, {
     modelCalls: 3, requests: 2, premiumRequests: 4, inputTokens: 4000, cachedInputTokens: 3300, uncachedInputTokens: 700,
-    cacheWriteInputTokens: 500, outputTokens: 120, cacheHitShare: 82.5, aiu: 1.1, sessions: 1, intervalsWithoutCalls: 0,
+    cacheWriteInputTokens: 500, outputTokens: 120, cacheHitShare: 82.5, aiu: 1.1, sessions: 1, intervalsWithoutCalls: 0, ...noActivity,
     byModel: [
       { model: 'model-premium-2', modelCalls: 1, requests: 1, premiumRequests: 3, inputTokens: 2000, cachedInputTokens: 1500, uncachedInputTokens: 500,
-        cacheWriteInputTokens: 400, outputTokens: 40, cacheHitShare: 75, aiu: 0.9 },
+        cacheWriteInputTokens: 400, outputTokens: 40, cacheHitShare: 75, aiu: 0.9, ...noModelActivity },
       { model: 'model-alpha-1.5', modelCalls: 2, requests: 1, premiumRequests: 1, inputTokens: 2000, cachedInputTokens: 1800, uncachedInputTokens: 200,
-        cacheWriteInputTokens: 100, outputTokens: 80, cacheHitShare: 90, aiu: 0.2 }
+        cacheWriteInputTokens: 100, outputTokens: 80, cacheHitShare: 90, aiu: 0.2, ...noModelActivity }
     ]
   });
+  assert.equal(design.copilot.sessionActivity, false, 'calls without turns or tool calls leave those to the spans');
   assert.deepEqual(implementation.copilot.premiumRequests, { value: 1, status: 'observed', missingModels: [] });
   assert.equal(implementation.copilot.sessions.modelCalls, 2);
 
@@ -295,13 +382,106 @@ test('a report places each call in the phase worked on then, shows premium reque
   assert.equal(JSON.parse(JSON.stringify(report)).copilot.sessions.byModel.length, 2, 'the JSON carries the by-model breakdown');
 });
 
+test('a report fills turns, tool calls and quota and model events from the logs per step, and never counts them twice', async () => {
+  const { root, story, sessions } = await fixture();
+  // Design (60-120) and implementation (from 120): activity in each; requirements only through Copilot's spans.
+  await session(sessions, 'work', [start(0, { gitRoot: story, branch: 'ENG-7' }), ...activity(80), ...activity(130).slice(0, 5),
+    call(81, { session: 'work', sequence: 1, initiator: 'user', answered: 'model-other-9' }), call(82, { session: 'work', sequence: 2 }),
+    call(131, { session: 'work', sequence: 3, initiator: 'user' })]);
+  const copilotSessions = await storyCopilotSessions(root, storyWorkflow(), { sync: true, directory: sessions });
+  const workflow = storyWorkflow();
+  const spans = (fields) => [{ generation: 1, status: 'unavailable', models: [], activity: {
+    source: 'copilot-otel', requests: 1, turns: 40, turnsCounted: 1, turnsAssurance: 'derived-from-model-calls', modelCalls: 40, toolCalls: 30,
+    failedRequests: 0, failedModelCalls: 0, failedToolCalls: 5, requestsByModel: [{ model: 'model-alpha-1.5', requests: 1 }], promptLimits: [],
+    events: [{ kind: 'rate-limited', operation: 'chat', requestedModel: null, resolvedModel: null, errorType: '429', count: 2, firstAt: at(20), lastAt: at(21) }],
+    omittedEvents: 0, ...fields } }];
+  // The same design work Copilot's spans also counted: the logs replace it, they do not add to it.
+  workflow.phases.requirements.telemetry = spans({ turns: 4, toolCalls: 6, failedToolCalls: 1, turnsAssurance: 'provider-reported' });
+  workflow.phases.design.telemetry = spans({});
+  const report = deriveReport(workflow, { now: at(500), copilotSessions });
+  const [requirements, design, implementation] = report.phases;
+
+  assert.equal(requirements.copilot.sessionActivity, false);
+  assert.deepEqual([requirements.copilot.turns, requirements.copilot.toolCalls], [{ value: 4, status: 'observed' }, { value: 6, status: 'observed' }]);
+  assert.equal(requirements.copilot.eventCount, 2, 'the spans\' events where the logs have nothing');
+
+  assert.equal(design.copilot.sessionActivity, true);
+  assert.deepEqual(design.copilot.turns, { value: 2, status: 'observed' }, 'the logs\' two turns, not the spans\' 40 and not both');
+  assert.equal(design.copilot.turnsDerived, false);
+  assert.deepEqual(design.copilot.toolCalls, { value: 3, status: 'observed' });
+  assert.deepEqual(design.copilot.failedToolCalls, { value: 2, status: 'observed' });
+  assert.deepEqual(design.copilot.failedRequests, { value: 3, status: 'observed' }, 'each error Copilot recorded ended a request');
+  assert.deepEqual(design.copilot.events.map(({ kind, requestedModel, resolvedModel, errorType, count, generation }) =>
+    ({ kind, requestedModel, resolvedModel, errorType, count, generation })), [
+    { kind: 'model-substituted', requestedModel: 'model-alpha-1.5', resolvedModel: 'model-other-9', errorType: null, count: 1, generation: null },
+    { kind: 'model-switched', requestedModel: 'model-premium-2', resolvedModel: 'model-alpha-1.5', errorType: null, count: 1, generation: null },
+    { kind: 'auto-fallback', requestedModel: null, resolvedModel: 'model-mini', errorType: null, count: 1, generation: null },
+    { kind: 'quota-exceeded', requestedModel: null, resolvedModel: null, errorType: 'quota', count: 1, generation: null },
+    { kind: 'rate-limited', requestedModel: null, resolvedModel: null, errorType: 'rate_limit', count: 1, generation: null },
+    { kind: 'failed', requestedModel: null, resolvedModel: null, errorType: 'authentication', count: 1, generation: null }
+  ], 'oldest first');
+  assert.equal(design.copilot.eventCount, 6, 'the spans\' rate-limited calls in design are not added');
+  const { byModel, ...designActivity } = design.copilot.sessions;
+  assert.deepEqual(Object.fromEntries(['turns', 'toolCalls', 'failedToolCalls', 'toolFailures', 'subagents', 'modelChanges', 'modelChangesBySource',
+    'autoPicks', 'autoFallbacks', 'errors', 'quotaAndModelEvents'].map((field) => [field, designActivity[field]])), {
+    turns: 2, toolCalls: 3, failedToolCalls: 2, toolFailures: { denied: 1, other: 1 }, subagents: 1, modelChanges: 2,
+    modelChangesBySource: { person: 1, automatic: 1 }, autoPicks: 2, autoFallbacks: 1, errors: { quota: 1, rate_limit: 1, authentication: 1 },
+    quotaAndModelEvents: 6
+  });
+  assert.deepEqual(byModel.map(({ model, modelCalls, toolCalls, failedToolCalls, subagents, autoPicks }) => ({ model, modelCalls, toolCalls, failedToolCalls, subagents, autoPicks })), [
+    { model: 'model-alpha-1.5', modelCalls: 2, toolCalls: 2, failedToolCalls: 1, subagents: 0, autoPicks: 1 },
+    { model: 'model-premium-2', modelCalls: 0, toolCalls: 1, failedToolCalls: 1, subagents: 0, autoPicks: 0 },
+    { model: 'model-mini', modelCalls: 0, toolCalls: 0, failedToolCalls: 0, subagents: 1, autoPicks: 1 }
+  ]);
+  assert.deepEqual([implementation.copilot.turns, implementation.copilot.toolCalls, implementation.copilot.eventCount],
+    [{ value: 2, status: 'observed' }, { value: 3, status: 'observed' }, 0]);
+
+  assert.deepEqual(report.copilot.turns, { value: 8, status: 'observed' });
+  assert.deepEqual(report.copilot.toolCalls, { value: 12, status: 'observed' });
+  assert.deepEqual(report.copilot.failedToolCalls, { value: 5, status: 'observed' });
+  assert.equal(report.copilot.eventCount, 8);
+  assert.equal(report.copilot.eventsObserved, true);
+  assert.equal(report.copilot.turnsDerived, false, 'design\'s spans derived their turns; the logs replaced them');
+  assert.deepEqual(report.copilot.sessions.activityPhases, ['design', 'implementation']);
+  assert.deepEqual([report.copilot.sessions.turns, report.copilot.sessions.toolCalls, report.copilot.sessions.quotaAndModelEvents], [4, 6, 6]);
+
+  const markdown = renderMarkdown(report);
+  assert.match(markdown, /\| Design \(`design`\) \| 2 \| 1 \| 1 \| 2 \| 2 \| 3 \(2 failed\) \| 1 \| 0\.2 \|/);
+  assert.match(markdown, /8 turns · 8 quota or model events/);
+  assert.match(markdown, /- design, from 2026-11-01T10:24:00\.000Z: Copilot changed the model from model-premium-2 to model-alpha-1\.5 on its own, 1 time\./);
+  assert.match(markdown, /- design, from 2026-11-01T10:25:00\.000Z: Auto fell back to model-mini instead of the model it picked, 1 time\./);
+  assert.match(markdown, /- design, from 2026-11-01T10:26:00\.000Z: 1 request failed because the allowance was exhausted \(quota\)\./);
+  assert.match(markdown, /- design, from 2026-11-01T10:26:00\.000Z: 1 request was rate limited \(rate_limit\)\./);
+  assert.match(markdown, /- design, from 2026-11-01T10:27:00\.000Z: 1 request failed \(authentication\)\./);
+  assert.match(markdown, /- design, from 2026-11-01T10:21:00\.000Z: Copilot answered 1 model call for model-alpha-1\.5 with model-other-9\./);
+  assert.match(markdown, /- requirements generation 1, from 2026-11-01T09:20:00\.000Z: 2 model calls were rate limited \(429\)\./);
+  assert.match(markdown, /· 4 agent turns · 6 tool calls \(4 failed\) · 6 quota or model events/);
+  assert.match(markdown, /Never counted twice: in `design`, `implementation` these logs are the only source of requests, turns, model and tool calls, premium requests, AIU and quota and model events\./);
+  assert.match(markdown, /Tool calls that did not succeed, by Copilot's code: 2 denied, 2 other; 1 sub-agent started; the model changed 2 times \(1 by a person, 1 by Copilot on its own\); Auto picked a model 2 times, falling back 1 time; errors Copilot recorded, by class: 1 quota, 1 rate_limit, 1 authentication\./);
+  assert.match(markdown, /How much of the premium allowance is left is not counted: only some Copilot versions write it, for the whole account\./);
+  assert.match(markdown, /\| Model \| Premium requests \| Requests \| Model calls \| Input tokens \| Cached \| Uncached \| Output tokens \| Cache hit \| AIU \| Tool calls \| Sub-agents \| Auto picks \|/);
+  assert.match(markdown, /\| model-alpha-1\.5 \| 2 \| 2 \| 3 \|[^\n]*\| 4 \(2 failed\) \| 0 \| 1 \|/);
+  assert.match(markdown, /_Counts come from Copilot's own session logs on this computer, which Copilot CLI and VS Code's Copilot agent write with no setup\. A phase the logs do not cover is counted from the spans Copilot exports for launches through `singularity-flow copilot`, and the local file Copilot Chat in VS Code writes on a computer where counting is on; no phase is counted from both\./);
+  assert.match(markdown, /Premium requests are Copilot's own count where the logs cover a phase, and elsewhere estimated as requests times `tokens\.premiumMultipliers`; GitHub's billing is authoritative\./);
+  assert.doesNotMatch(markdown, /Counted from the spans|spans Copilot exports for launches through `singularity-flow copilot`, and for Copilot Chat/u, 'the old explanation is gone');
+  const html = renderHtml(report);
+  assert.match(html, /<li>design, from 2026-11-01T10:26:00\.000Z: 1 request failed because the allowance was exhausted \(quota\)\.<\/li>/);
+  assert.match(html, /<th>Tool calls<\/th><th>Sub-agents<\/th><th>Auto picks<\/th>/);
+  assert.equal(JSON.parse(JSON.stringify(report)).copilot.sessions.byModel[0].toolCalls, 4, 'the JSON carries the activity');
+
+  // All premium requests from the logs: no estimate is mentioned.
+  const covered = deriveReport({ ...storyWorkflow(), phaseOrder: ['design', 'implementation'] }, { now: at(500), copilotSessions });
+  assert.match(renderMarkdown(covered), /Premium requests are Copilot's own count\. Billed/);
+  assert.doesNotMatch(renderMarkdown(covered), /premiumMultipliers/);
+});
+
 test('when Copilot\'s session logs hold nothing for a Story, the report says why in plain words', async () => {
   const { root, other, story, sessions } = await fixture();
   const workflow = storyWorkflow();
   const reason = async (options) => {
     const copilotSessions = await storyCopilotSessions(root, workflow, options);
     const report = deriveReport(workflow, { now: at(500), copilotSessions });
-    return [report.copilot.sessions.reason, report.copilot.sessions.explanation, renderMarkdown(report)];
+    return [report.copilot.sessions.reason, report.copilot.sessions.explanation, renderMarkdown(report), report.copilot.captureNotes];
   };
   let [code, text, markdown] = await reason({ sync: true, directory: path.join(sessions, 'missing') });
   assert.equal(code, 'no-session-logs');
@@ -314,8 +494,12 @@ test('when Copilot\'s session logs hold nothing for a Story, the report says why
   [code] = await reason({ sync: true, directory: sessions });
   assert.equal(code, 'no-repository-session');
   await session(sessions, 'main-work', [start(0, { gitRoot: root, branch: 'main' }), call(30, { session: 'main-work', sequence: 1, initiator: 'user' })]);
-  [code, text] = await reason({ sync: true, directory: sessions });
+  let notes;
+  [code, text, markdown, notes] = await reason({ sync: true, directory: sessions });
   assert.equal(code, 'no-branch-session');
+  assert.equal(notes[0], '3 generations have no Copilot activity on this computer: Copilot\'s session logs (Copilot CLI and VS Code\'s Copilot agent) hold none for their phases. Work done on another computer, or in a tool that writes no session log, is not counted here.',
+    'with the logs read, a phase they hold nothing for is not blamed on a launch setting');
+  assert.doesNotMatch(markdown, /ran without a metered Copilot session/);
   assert.equal(text, 'Copilot\'s session logs: no Copilot session on this computer has worked on branch `ENG-7` in this repository.');
   await session(sessions, 'too-late', [start(0, { gitRoot: story, branch: 'ENG-7' }), call(450, { session: 'too-late', sequence: 1, initiator: 'user' })]);
   [code, text] = await reason({ sync: true, directory: sessions });
@@ -326,7 +510,8 @@ test('when Copilot\'s session logs hold nothing for a Story, the report says why
 
 test('telemetry sessions shows what was found and sync records it, only in a repository that uses SFlow', async () => {
   const { root, story, sessions } = await fixture();
-  await session(sessions, 'cli', [start(0, { gitRoot: story, branch: 'ENG-7' }), call(1, { session: 'cli', sequence: 1, initiator: 'user' }), call(2, { session: 'cli', sequence: 2 })]);
+  await session(sessions, 'cli', [start(0, { gitRoot: story, branch: 'ENG-7' }), turn(1), call(1, { session: 'cli', sequence: 1, initiator: 'user' }),
+    tool(1, 'cli-tool'), call(2, { session: 'cli', sequence: 2 })]);
   const env = { ...process.env, SINGULARITY_FLOW_COPILOT_SESSION_STATE: sessions };
   const run = (...args) => spawnSync(process.execPath, [cli, 'telemetry', 'sessions', ...args], { cwd: root, env, encoding: 'utf8' });
 
@@ -341,12 +526,14 @@ test('telemetry sessions shows what was found and sync records it, only in a rep
   assert.equal(result.status, 0, result.stderr);
   const synced = JSON.parse(result.stdout);
   assert.equal(synced.sync.added, 2);
+  assert.equal(synced.sync.addedEvents, 2);
   assert.equal(synced.sessions.matched, 1);
   assert.equal(synced.sessions.calls, 2);
+  assert.equal(synced.sessions.events, 2);
 
   result = run();
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /This repository: 1 session of 1, 2 model calls on 1 branch; read since /);
+  assert.match(result.stdout, /This repository: 1 session of 1, 2 model calls and 2 agent turns, tool calls and other events on 1 branch; read since /);
   result = run('tidy');
   assert.notEqual(result.status, 0);
   assert.match(result.stderr + result.stdout, /Unknown telemetry sessions action: tidy/);

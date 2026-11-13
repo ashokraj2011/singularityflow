@@ -82,7 +82,7 @@ async function copilotSessionsCommand(positionals, options, root) {
   console.log(`Copilot session logs: ${status.directory} (${status.exists ? 'found' : 'none on this computer yet'})`);
   if (sync?.status === 'not-governed') console.log('This repository does not use Singularity Flow, so nothing was recorded.');
   if (sync?.status === 'synced') {
-    console.log(`Recorded ${plural(sync.added, 'new model call')} for this repository${sync.pending ? `; ${plural(sync.pending, 'session')} left to read next time` : ''}.`);
+    console.log(`Recorded ${plural(sync.added, 'new model call')}${sync.addedEvents ? ` and ${plural(sync.addedEvents, 'agent turn, tool call or other event', 'agent turns, tool calls and other events')}` : ''} for this repository${sync.pending ? `; ${plural(sync.pending, 'session')} left to read next time` : ''}.`);
   }
   const sessions = status.sessions;
   if (!sessions) {
@@ -90,7 +90,8 @@ async function copilotSessionsCommand(positionals, options, root) {
       : 'Copilot CLI and VS Code\'s Copilot agent write them on their own; nothing needs turning on.');
     return;
   }
-  console.log(`This repository: ${plural(sessions.matched, 'session')} of ${sessions.seen.toLocaleString('en-US')}, ${plural(sessions.calls, 'model call')} on ${plural(status.branches, 'branch', 'branches')}; read since ${status.since}, last ${status.syncedAt}.`);
+  const activity = sessions.events ? ` and ${plural(sessions.events, 'agent turn, tool call or other event', 'agent turns, tool calls and other events')}` : '';
+  console.log(`This repository: ${plural(sessions.matched, 'session')} of ${sessions.seen.toLocaleString('en-US')}, ${plural(sessions.calls, 'model call')}${activity} on ${plural(status.branches, 'branch', 'branches')}; read since ${status.since}, last ${status.syncedAt}.`);
   const others = Object.entries(sessions.unmatched).map(([reason, count]) => `${count.toLocaleString('en-US')} ${UNMATCHED[reason] ?? reason}`);
   if (others.length) console.log(`Not this repository: ${others.join(', ')}.`);
   if (sessions.callsWithoutBranch) console.log(`${plural(sessions.callsWithoutBranch, 'model call')} ran with no branch checked out and count for no Story.`);

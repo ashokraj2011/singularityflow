@@ -4,17 +4,17 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "92c7d042e88968a099b002284c54a3dd8603d55a",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-12-READABLE-TERMINAL-CARD.md",
+    "reviewedAtCommit": "5f89b2478ea8ab6aec0e55b9161824a28b0d3b25",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-13-TEST-RUN-WORKFLOW.md",
     "companionIds": [
-      "action-authorization"
+      "workflow-configuration"
     ]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:d6aa8fcd6e918cd2d015f92bd5c3982bc5ef04e3bbdffcd794e593f0360832ee"
+      "sha256": "sha256:bfa39c3fb714d62999b11b107b8b8393eba6e8f24770e2bb4123ba2979371816"
     },
     {
       "id": "sgos-portable-schema",

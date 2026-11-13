@@ -16,6 +16,8 @@ import {createNamespaceScopeDecisionOwners} from './namespace-scope-reader.mjs';
 import {createNamespaceUpstreamOwners} from './namespace-upstream-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceTestRiskOwner} from './namespace-test-risk-reader.mjs';
+import {createNamespaceObligationRiskOwner} from './namespace-obligation-risk-reader.mjs';
+import {qualifiedClauseIds} from '../foundation/traceability-ids.mjs';
 import {namespaceTestRiskState} from '../kernel/test-recovery.mjs';
 import {createNamespaceConformanceDecisionOwner} from './namespace-conformance-decision-reader.mjs';
 import {createNamespaceRoutingReceiptReader} from './namespace-routing-receipt-reader.mjs';
@@ -33,7 +35,7 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
     routes=createNamespaceRoutingReceiptReader({observer,scope,workId}),checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),
     publications=createNamespacePublicationReader({observer,scope,workId,checks}),witnesses=createNamespaceWitnessOwners({observer,scope,workId});
   async function read(snapshot,{principal,permissions,at,phaseId=snapshot.workflow.currentPhase,bound=null,signal}={}){
-    const workflow=snapshot.workflow,observations=[],references=[],source={},pendingEvidence=[],fresh=[];
+    const workflow=snapshot.workflow,observations=[],references=[],source={},pendingEvidence=[],fresh=[];let obligationRisks=null;
     const allowed=(operation,groups)=>workflow.status==='in_progress'&&phaseId===workflow.currentPhase&&principal.actor.actorKind==='human'&&permissions.includes(operation)&&groups.length>0
       &&matchApprovalAuthority(workflow.resolution.approvalAuthorities,{mode:'required',authorities:groups,requiredAuthorities:[],minimum:1},principal.actor.identity).authorized;
     const option=(id,operation,inputs,groups,needs=reason,recordable=true)=>({id,operation,inputs,groups,needs,recordable,allowed:allowed(operation,groups)});
@@ -72,6 +74,23 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
     }
     const latest=new Date(Date.parse(at)+90*86400000).toISOString().slice(0,10),defaultExpiry=new Date(Date.parse(at)+30*86400000).toISOString().slice(0,10),
       riskNeeds={...reason,expires:{default:defaultExpiry,latest}};
+    if((permissions.includes('decision.risk')||(workflow.namespaceObligationRisks??[]).length)&&workflow.resolution.spec?.mode==='enforce'){
+      const owner=createNamespaceObligationRiskOwner({observer,scope,workId});obligationRisks={...await owner.observations(snapshot,{signal,at}),rules:owner.rules};
+      const {observed,proofs,bindings}=obligationRisks,records=proofs.map(row=>row.value.outcome.record);
+      source.obligationRisks={profile:'sflow-namespace-obligation-risk-list/v1',input:observed.graph.inputSha256,receipts:proofs.map(row=>row.reference),bindings};
+      references.push(...observed.references.filter(row=>row.namespace==='evidence'),...proofs.map(row=>row.reference));fresh.push(observed.fresh);
+      for(const obligation of observed.report.rows.flatMap(row=>row.obligations)){
+        if(obligation.subject==='story'||!owner.rules.riskEligibility(obligation).eligible)continue;
+        const groups=owner.rules.riskAuthorities(workflow,obligation),state=owner.rules.riskDecisionState(workflow,obligation,{at},records),
+          owners=obligation.owningSteps.length?obligation.owningSteps:(workflow.resolution.obligationGraph?.nodes??[]).filter(row=>row.responsibilities.includes(obligation.responsibility)).map(row=>row.id);
+        if((workflow.upstreamIssues??[]).some(row=>owners.includes(row.phase)&&qualifiedClauseIds(row.about).has(obligation.subject)))continue;
+        if(state?.state==='active'&&bindings[state.decision.id]==='current'){
+          observations.push({kind:'obligation-risk',key:state.decision.id,offered:true,options:[option('revoke-risk','decision.risk',{revoke:state.decision.id},groups)]});continue;
+        }
+        observations.push({kind:'obligation-risk',key:obligation.id,offered:true,options:owner.rules.RISK_CATEGORIES.map(category=>option('accept-'+category,'decision.risk',
+          {obligationId:obligation.id,category},groups,riskNeeds))});
+      }
+    }
     for(const row of upstreamIssueStates(workflow,at).filter(row=>['open','expired'].includes(row.status))){const issue=row.issue,groups=upstreamIssueAuthorities(workflow,issue.phase);
       observations.push({kind:'upstream-issue',key:issue.id,options:['accept-risk','dismiss'].map(outcome=>option(outcome,'upstream.decide',
         {issueId:issue.id,outcome},groups,outcome==='accept-risk'?riskNeeds:reason))});}
@@ -132,6 +151,11 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
         for(const gap of original.gaps)for(const owner of gap.owners){
           if((gap.issueRefs??[]).some(id=>original.proof.report.upstream?.some(issue=>issue.id===id&&issue.phase===owner)))continue;
           if(retained.some(row=>row.active&&row.value.request.clauseId===gap.clauseId&&row.value.request.ownerPhase===owner))continue;
+          if(obligationRisks&&obligationRisks.proofs.some(proof=>{const record=proof.value.outcome.record;
+            return record.id&&obligationRisks.bindings[record.id]==='current'&&proof.value.source.owners.some(row=>row.phase===owner)
+              &&obligationRisks.observed.report.rows.find(row=>row.id===gap.clauseId)?.obligations.some(obligation=>{
+                const state=obligationRisks.rules.riskDecisionState(workflow,obligation,{at},obligationRisks.proofs.map(row=>row.value.outcome.record));
+                return state?.state==='active'&&state.decision.id===record.id;});}))continue;
           observations.push({kind:'conformance-gap',key:'conformance:'+gap.clauseId+':'+owner,
             options:['accept-risk','dismiss'].map(outcome=>option(outcome,'conformance.decide',
               {phaseId,expected:original.expected,clauseId:gap.clauseId,ownerPhase:owner,outcome},[...(workflow.phases[owner]?.approvalPolicy.authorities??[])],outcome==='accept-risk'?riskNeeds:reason))});

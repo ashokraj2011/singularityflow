@@ -225,11 +225,15 @@ function evidenceGraph({ workflow, records, deliveries = [], inspections = [], w
 }
 
 function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requiredAssurance = DEFAULT_REQUIRED_ASSURANCE, at, admission = {} } = {}) {
+  if(admission.riskBindings!==undefined&&(!admission.riskBindings||typeof admission.riskBindings!=='object'||Array.isArray(admission.riskBindings)
+    ||Object.keys(admission.riskBindings).length>128||Object.values(admission.riskBindings).some(value=>!['current','overtaken'].includes(value))))
+    throw new SingularityFlowError('Risk binding observations must name current or overtaken original deliveries.',{code:'ENGINE_INPUT_INVALID'});
   if(at===undefined)throw new SingularityFlowError('Evidence rules require an explicit observation timestamp.',{code:'ENGINE_INPUT_INVALID'});
   const workflow = graph.workflow;
   const reviewFacet=(phase,workflow)=>reviewFacetValue(phase,workflow,admission.reviewApprovals?.[phase?.id]??phase?.approvals??[]),
     applicabilityStatus=(workflow,endpoint)=>admission.applicability??applicabilityStatusValue(workflow,endpoint),
-    riskDecisionState=(workflow,obligation,options)=>risks.riskDecisionState(workflow,obligation,options,admission.riskDecisions??workflow?.riskDecisions??[]);
+    riskDecisionState=(workflow,obligation,options)=>{const state=risks.riskDecisionState(workflow,obligation,options,admission.riskDecisions??workflow?.riskDecisions??[]);
+      return state?.state==='active'&&admission.riskBindings?.[state.decision.id]==='overtaken'?{decision:state.decision,state:'overtaken'}:state;};
   const workId = workflow.workItem.id;
   const phases = workflow.phases ?? {};
   const phaseOrder = workflow.phaseOrder ?? Object.keys(phases);
@@ -742,7 +746,7 @@ function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requi
   })));
   return {
     schemaVersion: 1, // schema-transient: computed evaluation, never persisted by this version
-    profile:EVIDENCE_EVALUATION_PROFILE,
+    profile:admission.riskBindings===undefined?EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v2',
     workId,
     ...(localIntegrationRuns.length ? { localIntegrationRuns } : {}),
     title: workflow.workItem.title ?? null,

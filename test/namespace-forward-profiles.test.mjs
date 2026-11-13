@@ -10,7 +10,8 @@ test('forward projections have explicit new profiles and do not silently read fu
   assert.equal(namespacePublicationRecordProfile({schemaVersion:5}).forwardAmendment,true);
   assert.equal(namespaceSubmissionRecordProfile({schemaVersion:6}).forwardAmendment,true);
   assert.equal(namespaceApprovalRecordProfile({schemaVersion:3}).forwardAmendment,true);
-  for(const [fn,version]of [[namespacePublicationRecordProfile,6],[namespaceSubmissionRecordProfile,7],[namespaceApprovalRecordProfile,4]])
+  for(const version of [4,5])assert.equal(namespaceApprovalRecordProfile({schemaVersion:version}).terminalEvidence,true);
+  for(const [fn,version]of [[namespacePublicationRecordProfile,6],[namespaceSubmissionRecordProfile,7],[namespaceApprovalRecordProfile,6]])
     assert.throws(()=>fn({schemaVersion:version}),{code:'SCHEMA_VERSION_FUTURE'});
 });
 const code=JSON.parse(await readFile(new URL('./fixtures/forward-amendment-values/code-profiles-v27.json',import.meta.url),'utf8'));

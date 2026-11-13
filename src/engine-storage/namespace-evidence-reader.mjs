@@ -1,5 +1,6 @@
 /** Reconstruct an evidence view from actual accepted publications, checks and human receipts. No effects. */
 import {canonicalJson} from '../foundation/record-schema.mjs';
+import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {NODE_TEXT_DIGESTS,NODE_TEXT_VALUE_SYNTAX} from '../records.mjs';
 import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
@@ -13,6 +14,7 @@ import {createNamespaceScopeDecisionOwners} from './namespace-scope-reader.mjs';
 import {createNamespacePlanDecisionOwners} from './namespace-plan-decisions-reader.mjs';
 import {createNamespaceWitnessOwners} from './namespace-witness-reader.mjs';
 import {namespaceWitnessAttempt} from './namespace-check-witnesses.mjs';
+import {createNamespaceObligationRiskOwner} from './namespace-obligation-risk-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),rules=evidenceEvaluationPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_VALUE_SYNTAX,NODE_TEXT_DIGESTS),
   corrections=planCorrectionPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS),fail=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>{
     throw new SingularityFlowError(message,{code,details});};
@@ -23,8 +25,8 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
   async function json(reference,signal){const bytes=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch(cause){throw new SingularityFlowError(
       'The accepted evidence observation is not UTF-8 JSON.',{code:'ENGINE_STORAGE_CORRUPT',cause});}}
-  async function inspect(snapshot,{signal,at}={}){
-    const workflow=snapshot.workflow,required=[];
+  async function unexcepted(snapshot,{signal,at}={}){
+    const workflow=snapshot.workflow,required=[];let terminal=null;
     // These old collections need their actual ceremony owners. No raw array can become an exception.
     for(const key of ['riskDecisions','qualityRiskDecisions','documentRiskDecisions','documentRisks'])if(workflow[key]!=null&&(!Array.isArray(workflow[key])||workflow[key].length))required.push(key);
     if(workflow.resolution.presence)required.push('person-presence');
@@ -37,6 +39,13 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
     for(const [index,id]of approved.entries()){
       const proof=votes[index];if(!proof)fail('An approved phase has no actual submitted and approved delivery.');
       references.push(proof.binding.record,...(workflow.phases[id].approvals??[]).filter(row=>row.namespaceVote).map(row=>row.namespaceVote.record));
+      if((workflow.namespaceObligationRisks??[]).length&&workflow.status==='closed'&&workflow.currentPhase===null){
+        for(const row of workflow.phases[id].approvals.filter(row=>row.namespaceVote&&!row.invalidatedAt)){
+          const vote=await json(row.namespaceVote.record,signal);if(!vote.terminalEvidence)continue;
+          // inspectApprovedMany already authenticated this vote and recomputed its original terminal proposal.
+          const retained=await json(vote.terminalEvidence,signal);terminal=retained.report;references.push(vote.terminalEvidence);
+        }
+      }
     }
     for(const id of workflow.phaseOrder){
       if(signal?.aborted)fail('Evidence reading was cancelled.','ENGINE_OPERATION_CANCELLED');
@@ -100,13 +109,25 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       }
     }
     const review=(workflow.completenessReviews??[]).findLast(row=>!row.withdrawnAt&&row.inventorySha256===source.inventory.inventorySha256)??null,
-      graph=rules.evidenceGraph({workflow,records,deliveries,inspections,witnessRecords,scope:source.inventory},{completenessReview:review}),
+      graph=rules.evidenceGraph({workflow,records,deliveries,inspections,witnessRecords,scope:source.inventory,terminal},{completenessReview:review}),
       report=rules.evaluateEvidence(graph,{at,boundary:'view',mode:'projection'});
     if(!same(graph.workflow,workflow))fail('The evidence projection changed its source workflow.');
-    return {report,graph,excluded,source:source.identity,references:[...new Map(references.map(ref=>[canonicalJson(ref),ref])).values()],fresh:async()=>{await source.fresh();for(const binding of source.readBindings){
+    return {report,graph,excluded,source:source.identity,readBindings:source.readBindings,references:[...new Map(references.map(ref=>[canonicalJson(ref),ref])).values()],fresh:async()=>{await source.fresh();for(const binding of source.readBindings){
         const current=await observer.record(binding.namespace,binding.key,false,signal,true);
         if((current?.version??null)!==binding.version)fail('The clarification evidence changed while the view was being read.','ENGINE_CONTEXT_CHANGED');
       }}};
   }
-  return Object.freeze({inspect});
+  async function inspect(snapshot,options={}){
+    const value=await unexcepted(snapshot,options);
+    if(!(snapshot.workflow.namespaceObligationRisks??[]).length)return value;
+    const owned=createNamespaceObligationRiskOwner({observer,scope,workId}),proofs=await owned.admitted(snapshot,options);
+    value.graph={...value.graph,inputSha256:'sha256:'+createHash('sha256').update(canonicalJson({profile:'sflow-namespace-evidence-input/v2',
+      source:value.graph.inputSha256,risks:proofs.map(row=>row.reference)})).digest('hex')};
+    value.report=rules.evaluateEvidence(value.graph,{at:options.at,boundary:'view',mode:'projection',admission:{riskDecisions:proofs.map(row=>row.value.outcome.record),
+      riskBindings:owned.bindings(snapshot,value.report,proofs)}});
+    for(const row of value.report.rows)for(const action of row.actions??[])if(action.operation==='decision.risk')
+      action.requiredInputs=[...new Set(['operationId',...(action.requiredInputs??[])])];
+    value.references=[...new Map([...value.references,...proofs.map(row=>row.reference)].map(ref=>[canonicalJson(ref),ref])).values()];return value;
+  }
+  return Object.freeze({inspect,unexcepted});
 }

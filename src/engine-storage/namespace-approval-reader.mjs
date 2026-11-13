@@ -10,6 +10,7 @@ import {namespaceApprovalValue,namespaceApprovalBindingValue,namespaceApprovalAr
 import {namespaceAcceptedEvidence} from './namespace-lifecycle-receipt-reader.mjs';
 import {createNamespacePublicationPolicyReader} from './namespace-policy-reader.mjs';
 import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
+import {createNamespaceTerminalEvidenceOwner} from './namespace-terminal-evidence.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const corrupt=(message,cause)=>new SingularityFlowError(message,{code:'ENGINE_STORAGE_CORRUPT',cause});
 /** V1 hashes its native payload. V2 also binds generation, so coarse clocks cannot reuse a question. */
@@ -50,6 +51,13 @@ export function createNamespaceApprovalReader({observer,scope,workId,checks=null
         accepted=original?null:await observer.accepted(value.operationId,{signal}),
         snapshot=original??{workflow:accepted.basisState.workflow,configuration:accepted.plan.basis.head.configuration,revision:accepted.plan.basis.headVersion};
       dispositionEvidence=await policies.assertApproval(proof.published,{...disposition,snapshot,at:value.recordedAt,signal,policyTraversal});
+    }
+    if(value.terminalEvidence){const original=approvalCandidate?.operationId===value.operationId?approvalCandidate.snapshot:null,
+      accepted=original?null:await observer.accepted(value.operationId,{signal}),
+      snapshot=original??{workflow:accepted.basisState.workflow,configuration:accepted.plan.basis.head.configuration,revision:accepted.plan.basis.headVersion},
+      terminal=await createNamespaceTerminalEvidenceOwner({observer,scope,workId}).verify(snapshot,value,{signal,author:proof.published.actor});
+      dispositionEvidence.push(...terminal.references);
+      if(accepted&&!terminal.readBindings.every(binding=>accepted.plan.readBindings?.some(row=>same(row,binding))))throw corrupt('The terminal evaluation lost its conditional evidence reads.');
     }
     const checklist=policies.checklist(proof.published,value.actor,set.policyChecklist?.result.decisions??[]);
     if(!same(checklist,set.policyChecklist??null))throw corrupt('The human checklist differs from its pinned policy, actor or retained publication.');

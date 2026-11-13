@@ -22,13 +22,15 @@ export interface EvidenceObservationOptions {
   readonly at:string;readonly boundary?:string;readonly mode?:'projection'|'decision';readonly requiredAssurance?:string;
   /** Already admitted records, never a readiness or approval flag. Pure values do not authenticate them. */
   readonly admission?:{readonly reviewApprovals?:Readonly<Record<string,readonly Readonly<Record<string,unknown>>[]>>;
-    readonly riskDecisions?:readonly Readonly<Record<string,unknown>>[];readonly applicability?:readonly Readonly<Record<string,unknown>>[]};
+    readonly riskDecisions?:readonly Readonly<Record<string,unknown>>[];
+    /** v2 additionally binds admitted risks to the original owning deliveries. */
+    readonly riskBindings?:Readonly<Record<string,'current'|'overtaken'>>;readonly applicability?:readonly Readonly<Record<string,unknown>>[]};
 }
 export interface EvidenceAction {readonly kind:string;readonly operation?:string;readonly inputs?:Readonly<Record<string,unknown>>;
   readonly requiredInputs?:readonly string[];readonly dispositions?:readonly string[];readonly subject?:Readonly<Record<string,unknown>>}
 export interface EvidenceRow {readonly id:string;readonly result:string;readonly obligations:readonly Readonly<Record<string,unknown>>[];
   readonly actions:readonly EvidenceAction[];readonly findings:readonly Readonly<Record<string,unknown>>[];readonly [key:string]:unknown}
-export interface EvidenceEvaluation {readonly schemaVersion:1;readonly profile:typeof EVIDENCE_EVALUATION_PROFILE;
+export interface EvidenceEvaluation {readonly schemaVersion:1;readonly profile:typeof EVIDENCE_EVALUATION_PROFILE|'sflow-evidence-evaluation/v2';
   readonly workId:string;readonly rows:readonly EvidenceRow[];readonly decision:{readonly gate:'allow'|'allow-with-risk'|'block';readonly boundary:string};
   readonly [key:string]:unknown}
 export interface EvidenceEvaluationValues {

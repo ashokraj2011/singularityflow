@@ -268,7 +268,11 @@ export function namespaceEvidenceReuseRecordProfile(kind,value){
   const {storedVersion}=admitRecordSchemaVersion(family,value);
   return Object.freeze({version:storedVersion,profile:'sflow-'+family.id+'/v'+storedVersion});
 }
-export const NAMESPACE_EVIDENCE_CONTEXT_SCHEMA=frozenFamily('namespace-evidence-context');
+export const NAMESPACE_EVIDENCE_CONTEXT_SCHEMA=Object.freeze({id:'namespace-evidence-context',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+  unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'});
+export const NAMESPACE_OBLIGATION_RISK_SCHEMA=frozenFamily('namespace-obligation-risk');
+export function namespaceObligationRiskRecordProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_OBLIGATION_RISK_SCHEMA,value);
+  return {version:storedVersion,profile:'sflow-namespace-obligation-risk/v'+storedVersion};}
 export function namespaceEvidenceContextProfile(value){
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_EVIDENCE_CONTEXT_SCHEMA,value);
   return {version:storedVersion,profile:'sflow-namespace-evidence-context/v'+storedVersion};
@@ -361,7 +365,10 @@ export function namespacePlanCorrectionRecordProfile(kind,value){const family=NA
   const {storedVersion}=admitRecordSchemaVersion(family,value);return Object.freeze({version:storedVersion,format:'sflow-'+family.id+'/v'+storedVersion,
     ...(kind==='record'&&storedVersion>1?{evidenceClassification:true}:{})});}
 export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily('namespace-phase-policy-evidence-binding'),
-  documentReview:frozenFamily('namespace-document-review'),documentReviewReport:frozenFamily('namespace-document-review-report'),
+  documentReview:Object.freeze({id:'namespace-document-review',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
+  documentReviewReport:Object.freeze({id:'namespace-document-review-report',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
+    unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   constitution:frozenFamily('namespace-constitution-policy'),constitutionReport:frozenFamily('namespace-constitution-policy-report'),
   assignment:frozenFamily('namespace-phase-assignment-policy'),assignmentReport:frozenFamily('namespace-phase-assignment-report'),
   analysis:frozenFamily('namespace-specification-analysis'),
@@ -370,6 +377,8 @@ export const NAMESPACE_PHASE_POLICY_SCHEMAS=Object.freeze({binding:frozenFamily(
   codeInputs:frozenFamily('namespace-code-input-policy'),codeInputReport:frozenFamily('namespace-code-input-policy-report'),
   conformance:Object.freeze({id:'namespace-conformance-policy',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
   conformanceReport:Object.freeze({id:'namespace-conformance-policy-report',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'})});
+export function namespaceDocumentReviewRecordProfile(kind,value){const family=NAMESPACE_PHASE_POLICY_SCHEMAS[kind==='report'?'documentReviewReport':'documentReview'],
+  {storedVersion}=admitRecordSchemaVersion(family,value);return Object.freeze({version:storedVersion,format:'sflow-'+family.id+'/v'+storedVersion,kind:'document-review/v'+storedVersion});}
 /** Schema selection stays here; evidence location and acceptance remain persistence concerns. */
 export function namespacePhasePolicyBindingProfile(value){const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.binding,value);
   return Object.freeze({version:storedVersion,format:'sflow-namespace-phase-policy-evidence-binding/v'+storedVersion});}
@@ -447,7 +456,7 @@ export function namespaceSubmissionWriterProfile({routing=false,checks=false,sou
   return namespaceSubmissionRecordProfile({schemaVersion:convergence?5:sourceReview?4:checks?3:routing?2:1});
 }
 export const NAMESPACE_APPROVAL_SCHEMAS = Object.freeze({
-  vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:3,minimumReadableVersion:1,maximumReadableVersion:3,
+  vote:Object.freeze({id:'namespace-phase-approval-vote',currentVersion:5,minimumReadableVersion:1,maximumReadableVersion:5,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),binding:frozenFamily('namespace-phase-approval-binding'),
   artifactSet:Object.freeze({id:'namespace-primary-approval-artifact-set',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,
     unversionedAs:null,immutable:true,migrationPolicy:'preserve-versions'}),
@@ -473,10 +482,11 @@ export const NAMESPACE_ROUTING_CHOICE_SCHEMAS=Object.freeze({
 export function namespaceApprovalRecordProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.vote,input);
   return Object.freeze({version:storedVersion,format:`sflow-namespace-phase-approval-vote/v${storedVersion}`,
-    profile:storedVersion===3?'sflow-forward-amendment-approval/v1':`sflow-primary-document-approval/v${storedVersion}`,routing:storedVersion===2,...(storedVersion===3?{forwardAmendment:true}:{})});
+    profile:storedVersion===3?'sflow-forward-amendment-approval/v1':storedVersion>=4?`sflow-terminal-evidence-approval/v${storedVersion-3}`:`sflow-primary-document-approval/v${storedVersion}`,
+    routing:storedVersion===2||storedVersion===5,...(storedVersion===3?{forwardAmendment:true}:{}),...(storedVersion>=4?{terminalEvidence:true}:{})});
 }
-export function namespaceApprovalWriterProfile({routing=false}={}) {
-  return namespaceApprovalRecordProfile({schemaVersion:routing?2:1});
+export function namespaceApprovalWriterProfile({routing=false,terminalEvidence=false}={}) {
+  return namespaceApprovalRecordProfile({schemaVersion:terminalEvidence?routing?5:4:routing?2:1});
 }
 export function namespaceApprovalRoutingProfile(input) {
   const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_APPROVAL_SCHEMAS.routing,input);

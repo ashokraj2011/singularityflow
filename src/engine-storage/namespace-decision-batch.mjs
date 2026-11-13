@@ -13,7 +13,7 @@ import {namespaceHumanDecisionReceipts} from './namespace-human-decision-contrac
 import {namespaceRoutingChoiceReceipts} from './namespace-routing-choice-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex'),
   fail=(message,code,details=null)=>{throw new SingularityFlowError(message,{code,details});},
-  operations=new Set(['decision.scope','decision.completeness','decision.applicability','upstream.decide','test-command.decide','decision.test-risk','conformance.decide','decision.choose']);
+  operations=new Set(['decision.risk','decision.scope','decision.completeness','decision.applicability','upstream.decide','test-command.decide','decision.test-risk','conformance.decide','decision.choose']);
 export function createNamespaceDecisionBatchPort(options,runtime,executeOperation){
   const {scope,workId,authority,access,clock}=options,observer=createNamespaceStoryObserver(options),
     reader=createNamespaceDecisionListReader({observer,scope,workId,runtime}),journal=createNamespaceDecisionBatchJournal({...options,observer}),states=new WeakMap();
@@ -31,7 +31,7 @@ export function createNamespaceDecisionBatchPort(options,runtime,executeOperatio
     if(index<0||!same(expected,step)||!expected.effects.some(row=>same(row,effect)))fail('Use the original ordered decision plan.','ENGINE_INPUT_INVALID');
     const inputs={workId,...effect.inputs,reason:step.values.reason??'',...(step.values.clause?{clauseIds:step.values.clause}:{}),
       ...(step.values.expires?{expires:step.values.expires}:{}),...(step.values.article?{checklist:step.values.article}:{})};
-    if(['decision.scope','decision.completeness','decision.applicability','upstream.decide'].includes(effect.operation))inputs.operationId='batch-'+s.id.slice(0,48)+'-'+index;
+    if(['decision.risk','decision.scope','decision.completeness','decision.applicability','upstream.decide'].includes(effect.operation))inputs.operationId='batch-'+s.id.slice(0,48)+'-'+index;
     return inputs;
   }
   function acknowledged(workflow,s,operation,inputs){

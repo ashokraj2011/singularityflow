@@ -12,7 +12,7 @@ import {artifactBytesAreText} from '../kernel/artifact-content.mjs';
 import {NAMESPACE_CONVERGENCE_SCHEMAS} from '../foundation/record-schema.mjs';
 import {namespaceConvergenceManifest} from './namespace-convergence-policy.mjs';
 import {CONVERGENCE_POLICY_EVIDENCE} from './namespace-convergence-contract.mjs';
-import {DOCUMENT_REVIEW_EVIDENCE,namespaceDocumentReviewManifest} from './namespace-document-review.mjs';
+import {namespaceDocumentReviewManifest} from './namespace-document-review.mjs';
 import {EVIDENCE_REUSE_POLICY,namespaceEvidenceReuseManifest} from './namespace-evidence-reuse-reader.mjs';
 import {TEST_RISK_POLICY,namespaceTestRiskManifest} from './namespace-test-risk-reader.mjs';
 import {TEST_RECOVERY_EVIDENCE,namespaceTestRecoveryManifest} from './namespace-test-recovery-reader.mjs';
@@ -38,11 +38,11 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     return {binding,report};
   }
   async function retainDocumentReview(publication,{snapshot,head,signal}={}){
-    const value=await reader.documentReviewCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),manifest={schemaVersion:1,
-      format:'sflow-namespace-document-review/v1',...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+    const value=await reader.documentReviewCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),version=value.report.schemaVersion,manifest={schemaVersion:version,
+      format:'sflow-namespace-document-review/v'+version,...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
       artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
     namespaceDocumentReviewManifest(manifest,{scope,workId,phaseId:publication.phase});
-    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:DOCUMENT_REVIEW_EVIDENCE,record:await save(manifest,signal)}),report};
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:'document-review/v'+version,record:await save(manifest,signal)}),report};
   }
   async function retainTestRisk(publication,{snapshot,head,signal,checked,expected}={}){
     const value=await reader.testRiskCandidate(publication,snapshot,{signal,at:publication.publishedAt,checked});

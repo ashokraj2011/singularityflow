@@ -45,6 +45,19 @@ Native SDK/CLI renewals and person-presence counting retain their original behav
 mapping/exception ceremonies still require their actual approved-mapping owner. The new value
 exports do not establish or approve a namespace exception.
 
+Exact clause-obligation risks now have a [registered namespace owner and final evidence evaluation](ENGINE-SDK-OBLIGATION-RISKS.md).
+Human decisions bind their actual observations and owning publications; replacement generations,
+expiry, revocation and lost acknowledgements preserve their original records. Document-only
+inspection has a separate retained profile. New sequential/routed closing votes retain the real
+final evaluation without claiming an uncommitted vote is an accepted receipt. Story-wide risks,
+approved witness exceptions and the other unchecked evidence/execution owners remain required.
+
+The obligation-risk checkpoint passes 311 distinct affected Mac checks, including all three stores,
+native decision/approval compatibility, configured routes, conformance, forward profiles and actual
+bounded repair. The original package qualifier passes alone in 90.4 seconds with its unchanged
+deadlines. Source validation, VS Code types, Git ownership and every original bundle ceiling pass;
+gateway remains 852/852. Neither phase is marked complete.
+
 ## Execution constraints
 
 Use pure kernel rules, SDK coordination, SDA persistence and SGOS execution. Preserve native Git

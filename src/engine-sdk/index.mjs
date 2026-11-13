@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
+import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -595,10 +595,10 @@ async function inspectStoryStatus(port, inputs, signal) {
 async function inspectStoryEvidence(port,input,signal){
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   const subject=data(context?.subject),facts=data(await port.read(context,{signal}));notCancelled(signal);
-  namespaceEvidenceContextProfile(facts);
+  const evidenceProfile=namespaceEvidenceContextProfile(facts);
   if(subject?.kind!=='story'||subject.id!==facts.workId||input.workId!=null&&input.workId!==facts.workId
-    ||facts.profile!=='sflow-namespace-evidence-context/v1'||typeof facts.revision!=='string'||!facts.revision
-    ||facts.report?.profile!=='sflow-evidence-evaluation/v1'||facts.report.workId!==facts.workId||facts.report.mode!=='projection'||facts.report.boundary!=='view'
+    ||facts.profile!==evidenceProfile.profile||typeof facts.revision!=='string'||!facts.revision
+    ||facts.report?.profile!==(evidenceProfile.version===2?'sflow-evidence-evaluation/v2':'sflow-evidence-evaluation/v1')||facts.report.workId!==facts.workId||facts.report.mode!=='projection'||facts.report.boundary!=='view'
     ||facts.localSourceChecked!==false||facts.terminalDecision!==false||facts.approvalRecorded!==false||!Array.isArray(facts.references))
     throw new SingularityFlowError('The evidence reader returned another Story or an unsupported authority claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'story.evidence',subject,manifest:facts,
@@ -1557,16 +1557,21 @@ function singleDecisionResult(binding, facts, operation) {
   let result;
   try {result=data(facts);}
   catch(cause) {throw new SingularityFlowError('The decision writer returned non-JSON facts.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  let namespaceRisk=false;
+  if(operation.id==='decision.risk'&&result?.profile==='sflow-namespace-obligation-risk-outcome/v1'){
+    try{namespaceRisk=result.record?.profile===namespaceObligationRiskRecordProfile(result.record).profile;}catch{ /* Refuse another port wire below. */ }
+  }
+  const canAcknowledge=operation.allowRetained===true||namespaceRisk;
   const fields=['workId','phase','recordKind','record','revision','pushed','actorId','authorityGroup','currentPhase',
-    ...(operation.allowRetained?['retained']:[])];
+    ...(namespaceRisk?['profile']:[]),...(canAcknowledge?['retained']:[])];
   const text=value=>typeof value==='string'&&value.length>0&&value.length<=512;
-  const retained=operation.allowRetained===true&&result?.retained===true;
+  const retained=canAcknowledge&&result?.retained===true;
   if(!result || Object.keys(result).some(key=>!fields.includes(key))
     || result.workId!==binding.workId || result.phase!==binding.phase || result.recordKind!==operation.recordKind
     || !result.record || typeof result.record!=='object' || Array.isArray(result.record)
     || ['resolved-target','requested-target'].includes(operation.phaseBinding)&&result.record.phase!==binding.phase
     || (retained?result.revision!==null:!text(result.revision)) || typeof result.pushed!=='boolean'
-    || retained&&result.pushed || operation.allowRetained&&typeof result.retained!=='boolean'
+    || retained&&result.pushed || canAcknowledge&&typeof result.retained!=='boolean'
     || !text(result.actorId) || (operation.authority==='requester' ? result.authorityGroup!==null : !text(result.authorityGroup))
     || result.currentPhase!==null && !text(result.currentPhase)
     || operation.phaseBinding==='resolved-target'&&result.currentPhase!==binding.currentPhase
@@ -1574,6 +1579,7 @@ function singleDecisionResult(binding, facts, operation) {
     throw new SingularityFlowError('The decision writer returned invalid or differently bound facts.',{code:'ENGINE_PORT_RESULT_INVALID'});
   }
   return Object.freeze({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,status:retained?'retained':'recorded',
+    ...(namespaceRisk?{profile:result.profile}:{}),
     subject:Object.freeze({kind:'story',id:binding.workId}),phase:binding.phase,revision:result.revision,
     effects:Object.freeze({committed:!retained,pushed:result.pushed}),recordKind:result.recordKind,record:result.record,
     actorId:result.actorId,authorityGroup:result.authorityGroup,currentPhase:result.currentPhase});

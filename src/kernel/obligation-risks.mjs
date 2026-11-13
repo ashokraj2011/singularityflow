@@ -3,6 +3,20 @@ import {canonicalJson,textDigestCapability} from '../foundation/record-schema.mj
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {fallbackAuthorities,stepGroups} from './approval-fallback.mjs';
 export {fallbackAuthorities};
+/** Namespace records have their own wire; the native risk collection and IDs keep their meaning. */
+export function planNamespaceObligationRisk(workflow,request,facts,source,rules){
+  const proposed=structuredClone(workflow),rows=structuredClone(workflow.namespaceObligationRisks??[]),native={riskDecisions:structuredClone(rows)};
+  let record;
+  if(request.revoke)record=rules.recordRiskRevocation(native,{riskId:request.revoke,reason:request.reason,
+    actor:facts.actorId,authorityGroup:facts.authorityGroup,at:facts.at},rows);
+  else record=rules.recordRiskDecision(native,{obligation:source.obligation,category:request.category,transitions:request.transitions,
+    expires:request.expires,reason:request.reason,actor:facts.actorId,authorityGroup:facts.authorityGroup,at:facts.at});
+  record={schemaVersion:1,profile:'sflow-namespace-obligation-risk/v1',...record};
+  proposed.namespaceObligationRisks=[...rows,record];
+  proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:request.revoke?'obligation_risk_revoked':'obligation_risk_accepted',
+    phase:request.phaseId,detail:record.id??record.revokes});
+  return {workflow:proposed,outcome:{currentPhase:workflow.currentPhase,record}};
+}
 export function obligationRiskPolicies(digests) {
   const hashing=textDigestCapability(digests),recordSha256=value=>hashing.sha256Utf8(canonicalJson(value));
 const RISK_CATEGORIES = Object.freeze(['external-dependency', 'known-failure', 'assurance-shortfall', 'deferred-verification', 'accepted-deviation']);

@@ -26,6 +26,7 @@ import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
 import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 import {STARTER_CHECKLIST} from '../engine-compatibility/node-specification-policy.mjs';
+import {createNamespaceTerminalEvidenceOwner} from './namespace-terminal-evidence.mjs';
 import {namespaceApprovalValue,namespaceApprovalRecord,namespaceApprovalBindingValue,namespaceApprovalArtifactSetValue,namespaceApprovalArtifactSetRecord,namespaceApprovalChecklistAnswers,namespaceApprovalDecision,
   namespaceApprovalReceipt,namespaceApprovalReceipts,NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE} from './namespace-approval-contract.mjs';
 export {NAMESPACE_APPROVAL_PROFILE,NAMESPACE_ROUTED_APPROVAL_PROFILE};
@@ -112,7 +113,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
     const proof=await packets.inspect(snapshot,s.phaseId,{signal});
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The retained approval lost its submitted packet.','ENGINE_STORAGE_CORRUPT');
     let approvalCandidate=null;
-    if(packets.publicationRequiresDisposition(proof.published,{reached:true})){
+    if(packets.publicationRequiresDisposition(proof.published,{reached:true})||(body.workflow.namespaceObligationRisks??[]).length){
       const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
       approvalCandidate={operationId:s.operationId,snapshot:{workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion}};
     }
@@ -256,6 +257,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
           if(original.value.authorityGroup!==policy.authorityGroup||original.value.selfApproval!==policy.selfApproval||original.value.thresholdReached!==policy.reached) {
             throw error('The retained approval no longer matches its policy basis.','ENGINE_CONTEXT_CHANGED');
           }
+          if(original.value.terminalEvidence)s.terminal={snapshot:{...snapshot,workflow:structuredClone(workflow)},value:original.value};
           s.plan=plan;
         }else {
           const recordedAt=projectEnrollmentTimestamp(await now()),set=namespaceApprovalArtifactSetRecord({projectId:scope.projectId,workId,phase:s.phaseId,generation:phase.generation,
@@ -264,7 +266,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
           const route=s.routed?routing(workflow,phase,policy.reached,recordedAt):null;
           if(policy.reached&&route?.selected.currentPhase===null&&(workflow.forwardAmendments??[]).length)
             await createNamespaceForwardAmendmentOwners({observer,scope,workId}).assertReady(snapshot,phase.id,{signal,terminal:true});
-          const artifactSet=await save(set,signal),value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
+          const artifactSet=await save(set,signal),terminalSnapshot=(workflow.namespaceObligationRisks??[]).length?{...snapshot,workflow:structuredClone(workflow)}:null;
+          let value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
             generation:phase.generation,operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
             reviewPacket:s.proof.binding.record,artifactSet,actor:s.reviewer.actor,agentId:s.reviewer.agentId,recordedAt,
             authorityGroup:policy.authorityGroup,selfApproval:policy.selfApproval,thresholdReached:policy.reached,currentPhase:s.routed?route.selected.currentPhase:s.phaseId},
@@ -275,6 +278,13 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
             advanceCompletedPhase(workflow,phase,recordedAt);
           }
           if(!s.routed)value.currentPhase=workflow.currentPhase;
+          if(value.thresholdReached&&value.currentPhase===null&&terminalSnapshot){
+            const terminal=await createNamespaceTerminalEvidenceOwner({observer,scope,workId}).candidate(terminalSnapshot,value,{signal,author:s.proof.published.actor});
+            await terminal.fresh();const terminalEvidence=await save(terminal.value,signal);
+            value=namespaceApprovalRecord(Object.fromEntries(Object.entries(value).filter(([key])=>!['schemaVersion','format','profile','routing'].includes(key))),
+              {routing:value.routing??null,terminalEvidence});
+            s.terminal={snapshot:terminalSnapshot,value,readBindings:terminal.readBindings};s.terminalEvidence=[terminalEvidence,...terminal.references];
+          }
           namespaceApprovalValue(value,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const reference=await save(value,signal),binding=namespaceApprovalBindingValue({schemaVersion:NAMESPACE_APPROVAL_SCHEMAS.binding.currentVersion,
             format:'sflow-namespace-phase-approval-binding/v1',generation:phase.generation,record:reference});
@@ -288,9 +298,9 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
           const body=lifecycleRecord('state',{projectId:scope.projectId,workId,authorityId:authority.id,epoch:authority.epoch,configuration:snapshot.configuration.content,workflow:proposed});
           await authorize(signal,s.reviewer);await unchanged(snapshot,signal);
           const evidence=[...new Map([reference,artifactSet,value.reviewPacket,s.proof.value.publication.record,s.proof.published.artifact.content,
-            ...packets.publicationPolicyEvidence(s.proof.published),...s.dispositionEvidence].map(ref=>[canonicalJson(ref),ref])).values()];
+            ...packets.publicationPolicyEvidence(s.proof.published),...s.dispositionEvidence,...(s.terminalEvidence??[])].map(ref=>[canonicalJson(ref),ref])).values()];
           try {await committer.prepare(snapshot,{operationId:s.operationId,operation:'phase.approve',inputsSha256:s.requestSha256,
-            state:Buffer.from(canonicalJson(body)),evidence},{signal});}
+            state:Buffer.from(canonicalJson(body)),evidence,...(s.terminal?.readBindings?.length?{readBindings:s.terminal.readBindings}:{})},{signal});}
           catch(cause){if(!['ENGINE_OPERATION_ID_REUSED','SDA_NAMESPACE_REVISION_CONFLICT','SDA_NAMESPACE_OPERATION_ID_REUSED'].includes(cause.code))throw cause;
             const competing=checkedPlan(await committer.intent(s.operationId,{signal}),s);if(!competing)throw cause;await retained(competing,s,signal);}
           s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
@@ -308,6 +318,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this approval preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
       return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,s.reviewer);await unchanged(p.snapshot,signal);
+        if(s.terminal){const current=await createNamespaceTerminalEvidenceOwner({observer,scope,workId}).candidate(s.terminal.snapshot,s.terminal.value,
+          {signal,at:projectEnrollmentTimestamp(await now()),author:s.proof.published.actor});await current.fresh();}
         if(s.proof.published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await packets.publicationReader.policies.freshTestRisk(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.proof.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await packets.publicationReader.policies.freshReuseSources(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.dispositionRequired)await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot:p.snapshot,at:projectEnrollmentTimestamp(await now()),signal});},{signal});

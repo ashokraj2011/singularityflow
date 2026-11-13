@@ -36,6 +36,10 @@ The `evidence` export also includes witness-exception renewal values with explic
 and time inputs. They preserve native record meanings and do not authenticate or persist a review.
 Namespace exception recording remains separately gated; see `docs/ENGINE-SDK-WITNESS-RENEWAL-VALUES.md`.
 
+Namespace `decision.risk` uses an explicit operation ID, retained clause observations and original
+human authority. Read `story.evidence` first. Risk-bearing final approvals retain a separate final
+evaluation; failed tests stay failed. See `docs/ENGINE-SDK-OBLIGATION-RISKS.md` for the exact profiles.
+
 For the implemented namespace lifecycle, use one explicitly bound host:
 
 ```js

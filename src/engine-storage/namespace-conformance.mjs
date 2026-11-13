@@ -14,6 +14,7 @@ import {createNamespaceConformanceDecisionOwner} from './namespace-conformance-d
 import {createNamespaceUpstreamOwners} from './namespace-upstream-reader.mjs';
 import {namespaceConformanceManifest} from './namespace-policy-contract.mjs';
 import {namespaceCandidateContent} from './namespace-candidate-content.mjs';
+import {createNamespaceObligationRiskOwner} from './namespace-obligation-risk-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code='ENGINE_STORAGE_CORRUPT',details=null,cause)=>new SingularityFlowError(message,{code,details,cause});
 export function createNamespaceConformanceReader({observer,scope,workId}){
@@ -85,15 +86,17 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
     if(!snapshot||!at)throw error('A conformance approval needs its original human decision basis.','ENGINE_INPUT_INVALID');
     const owned=createNamespaceConformanceDecisionOwner({observer,scope,workId}),source=await owned.owner.read(snapshot,{phaseId:publication.phase},{signal,policyTraversal}),
       decisions=await owned.retained(snapshot,source,{signal,at,policyTraversal}),linked=await owned.linked(snapshot,source,{signal,at,policyTraversal}),
+      risks=(snapshot.workflow.namespaceObligationRisks??[]).length?await createNamespaceObligationRiskOwner({observer,scope,workId}).conformance(snapshot,value.report.gaps,{signal,at,policyTraversal}):{covered:[],references:[]},
       open=value.report.gaps.filter(gap=>!gap.owners.length||gap.owners.some(owner=>{
         const issues=(gap.issueRefs??[]).filter(id=>value.report.upstream?.some(row=>row.id===id&&row.phase===owner));
         if(issues.length)return issues.some(id=>!linked.some(row=>row.issueId===id&&row.clauseId===gap.clauseId&&row.ownerPhase===owner&&row.active));
-        return !decisions.some(row=>row.active&&row.value.request.clauseId===gap.clauseId&&row.value.request.ownerPhase===owner);
+        return !decisions.some(row=>row.active&&row.value.request.clauseId===gap.clauseId&&row.value.request.ownerPhase===owner)
+          &&!risks.covered.some(row=>row.clauseId===gap.clauseId&&row.ownerPhase===owner);
       }));
     if(open.length)throw error('Keep the honest verdict. Its upstream owners need an explicit decision or a reviewed return for repair.','ENGINE_CONFORMANCE_DECISION_REQUIRED',{
       phase:publication.phase,gaps:open,required:['upstream-gap-human-disposition'],actions:[{operation:'conformance.context',inputs:{workId,phaseId:publication.phase}},
         {operation:'phase.review',inputs:{workId,phaseId:publication.phase}}]});
-    return [...decisions.filter(row=>row.active).flatMap(row=>[row.reference,...row.source.references]),...linked.filter(row=>row.active).flatMap(row=>row.references)];
+    return [...decisions.filter(row=>row.active).flatMap(row=>[row.reference,...row.source.references]),...linked.filter(row=>row.active).flatMap(row=>row.references),...risks.references];
   }
   return Object.freeze({candidate,verify,proof,evidence,freshSources,freshCandidate,assertApproval,requiresDisposition});
 }

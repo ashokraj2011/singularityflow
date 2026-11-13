@@ -1,5 +1,5 @@
 /** Authenticate a document review's actual upstream definitions and plans without inventing Code acceptance. */
-import {canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS} from '../foundation/record-schema.mjs';
+import {canonicalJson,namespaceDocumentReviewRecordProfile,NAMESPACE_PHASE_POLICY_SCHEMAS} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {documentReviewPublicationPolicy,documentReviewSources} from '../kernel/document-review.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
@@ -8,8 +8,9 @@ import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),fail=(message,code='ENGINE_STORAGE_CORRUPT')=>{throw new SingularityFlowError(message,{code});};
 export const DOCUMENT_REVIEW_EVIDENCE='document-review/v1';
+export const isDocumentReviewEvidence=kind=>[DOCUMENT_REVIEW_EVIDENCE,'document-review/v2'].includes(kind);
 export function namespaceDocumentReviewManifest(value,bindings){
-  return namespaceEvidencePolicyManifest(value,{...bindings,family:NAMESPACE_PHASE_POLICY_SCHEMAS.documentReview,format:'sflow-namespace-document-review/v1'});
+  return namespaceEvidencePolicyManifest(value,{...bindings,family:NAMESPACE_PHASE_POLICY_SCHEMAS.documentReview,format:'sflow-namespace-document-review/v'+value.schemaVersion});
 }
 export function createNamespaceDocumentReviewReader({observer,scope,workId}){
   async function json(ref,signal){const bytes=await observer.bytes(ref,ref.bytes,signal);
@@ -25,8 +26,10 @@ export function createNamespaceDocumentReviewReader({observer,scope,workId}){
       sources.push({phase:id,generation:proof.value.generation,publication:proof.value.publication,submission:proof.binding,specifications:proof.published.specifications});
     }
     const source=snapshot.workflow.workItem.source.content;await observer.bytes(source,source.bytes,signal);
-    return {policy,report:{schemaVersion:1,format:'sflow-namespace-document-review-report/v1',profile:policy.profile,
-      responsibility:'review',definitionsAndPlans:sources,source}};
+    const version=policy.version??1;
+    return {policy,report:{schemaVersion:version,format:'sflow-namespace-document-review-report/v'+version,profile:policy.profile,
+      responsibility:version===2?'verify':'review',definitionsAndPlans:sources,source,
+      ...(version===2?{inspectionOnly:true,testsExecuted:false,criterionAcceptance:false}:{})}};
   }
   async function verify(publication,binding,{signal,policyTraversal}={}){
     const manifest=namespaceDocumentReviewManifest(await json(binding.record,signal),{scope,workId,phaseId:publication.phase}),identity=namespaceSpecificationIdentity(publication);
@@ -34,7 +37,8 @@ export function createNamespaceDocumentReviewReader({observer,scope,workId}){
       ||!same(manifest.artifact,{key:publication.artifact.sourceKey,content:publication.artifact.content})||!same(manifest.configuration,manifest.basis.head.configuration))fail('The review context has another publication identity.');
     const state=await observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
       actual=await candidate(publication,{revision:manifest.basis.revision,configuration:manifest.configuration,workflow:state.workflow},{signal,policyTraversal}),report=await json(manifest.report,signal);
-    admitRecordSchemaVersion(NAMESPACE_PHASE_POLICY_SCHEMAS.documentReviewReport,report);
+    const profile=namespaceDocumentReviewRecordProfile('report',report);
+    if(namespaceDocumentReviewRecordProfile('manifest',manifest).version!==profile.version||binding.kind!==profile.kind)fail('The inspection context has another report profile.');
     if(!same(report,actual.report))fail('The document review differs from its actual approved intent context.');
     return {binding,manifest,...actual};
   }

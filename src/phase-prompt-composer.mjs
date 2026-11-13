@@ -418,14 +418,19 @@ function readWorkflowChangedPaths(root, definition, workflow) {
  * the agent runs (the product owner writes `REQ-nnn` in both intake and requirements), so an intake
  * before the scope step wrote bare `REQ-001` labels: they look like clauses, bind nothing, and the
  * scope step may number the same ID differently. A step that defines clauses has its anchored template.
+ * A workflow with no step that defines clauses (a test run, or one that leaves its requirements out)
+ * has none to cite: its steps write plain statements, where agent text would number and map them.
  */
 function clauseIdentityLines(definition, workflow, phase) {
   const order = workflow?.phaseOrder ?? [];
   const scopeIds = order.filter((id) => phaseOwnsScope(workflow, workflow.phases?.[id]));
-  if (!scopeIds.length || scopeIds.includes(phase.id)) return [];
+  const override = 'this overrides agent or skill guidance that numbers them.';
+  if (!scopeIds.length) {
+    return order.includes(phase.id) ? ['- Clause IDs: this workflow defines no requirement clauses, so there are none to cite. Write needs, success criteria and findings as plain statements, with no `REQ-`/`AC-` numbers and no `[ID:REQ-001]` anchors; this overrides agent or skill guidance that numbers or maps them.'] : [];
+  }
+  if (scopeIds.includes(phase.id)) return [];
   const namespace = (workflow.resolution?.spec ?? definition.spec)?.namespace
     ?? String(workflow.workItem?.id ?? '').toUpperCase();
-  const override = 'this overrides agent or skill guidance that numbers them.';
   if (scopeIds.some((id) => order.indexOf(id) < order.indexOf(phase.id))) {
     return [`- Clause IDs: this step defines no new clauses. Cite an approved clause by its full ID, such as \`${namespace}:REQ-001\`, never a bare \`REQ-001\`, and number no new \`REQ-\`/\`AC-\` items; ${override}`];
   }

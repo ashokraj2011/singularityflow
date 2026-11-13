@@ -69,7 +69,6 @@ test('across seeded workflows only authored steps outside the clause steps get t
   for (const name of Object.keys(definition.workTypes)) {
     const workflow = storyOf(definition, name, 'cover-1');
     const before = structuredClone(workflow);
-    const anyScope = workflow.phaseOrder.some((id) => owns(workflow, id));
     for (const id of workflow.phaseOrder) {
       const contract = phasePromptExecutionContract(definition, workflow, workflow.phases[id]);
       const lines = contract.lines.filter((line) => line.startsWith('- Clause IDs:'));
@@ -78,7 +77,8 @@ test('across seeded workflows only authored steps outside the clause steps get t
         assert.match(lines[0], DEFINES, `${name}/${id}: a clause step defines its clauses with brackets`);
         continue;
       }
-      const expected = anyScope && !contract.deterministicOnly ? 1 : 0;
+      // Every authored step that defines no clauses is told so, in a workflow with no clause step as well.
+      const expected = contract.deterministicOnly ? 0 : 1;
       assert.equal(lines.length, expected, `${name}/${id}`);
       for (const line of lines) assert.match(line, NUMBERS_NONE, `${name}/${id}`);
       told += lines.length;
@@ -87,6 +87,20 @@ test('across seeded workflows only authored steps outside the clause steps get t
   }
   assert.ok(told > 20);
   t.diagnostic(`${told} steps across ${Object.keys(definition.workTypes).length} seeded workflows carry the line.`);
+});
+
+test('a workflow with no step that defines clauses tells each step there are none to cite', async () => {
+  // Office, 2026-11-13: an intake, testing and test-report workflow that writes no code numbered bare
+  // REQ-001 and AC-001 in its intake (agent text) and asked testing to map clauses nobody defined.
+  const definition = await seededDefinition();
+  const workflow = storyOf(definition, 'test-run', 'tr-1');
+  assert.equal(workflow.phaseOrder.some((id) => owns(workflow, id)), false);
+  const [line, ...more] = clauseLines(definition, workflow, 'test-run');
+  assert.equal(more.length, 0);
+  assert.match(line, /^- Clause IDs: this workflow defines no requirement clauses, so there are none to cite\. Write needs, success criteria and findings as plain statements, with no `REQ-`\/`AC-` numbers/u);
+  assert.match(line, /this overrides agent or skill guidance that numbers or maps them\.$/u);
+  assert.doesNotMatch(line, DEFINES);
+  assert.doesNotMatch(line, /TR-1:/u, 'no namespace is shown where no clause exists');
 });
 
 test('a quick fix whose intake defines the clauses gets only the bracket definition there', async () => {

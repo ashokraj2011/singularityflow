@@ -568,7 +568,7 @@ async function factoryResetCommand(options) {
     throw new SingularityFlowError(
       'Factory reset requires the exact --expect-scope-sha256 value from a current --dry-run --json preview with --confirm. Nothing was removed. '
       + 'In your own terminal, run singularity-flow factory-reset: it shows the preview and asks you to type its confirmation.',
-      { code: 'FACTORY_RESET_CONFIRMATION_REQUIRED' }
+      { code: 'FACTORY_RESET_CONFIRMATION_REQUIRED', details: { recoveryCommand: 'singularity-flow factory-reset' } }
     );
   }
   const result = dryRun

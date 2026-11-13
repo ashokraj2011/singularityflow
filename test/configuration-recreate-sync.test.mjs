@@ -468,7 +468,9 @@ test('a terminal apply without a digest shows the exact list and applies only th
       question: async text => { asked.push(text); return answer; }, print: text => printed.push(text),
       recreate: async (root, options) => { calls.push(options); return options.apply ? { status: 'synced' } : preview; } });
     assert.deepEqual(calls[0], { apply: false });
-    assert.ok(printed.some(text => text.includes('sflow/config-change/workflow/demo @ bbbbbbbbbbbb by Teammate — add demo')), printed.join('\n'));
+    // A person reads the proposal by its branch, author and summary, never its commit (owner, 2026-11-11).
+    assert.ok(printed.some(text => text.includes('sflow/config-change/workflow/demo by Teammate — add demo')), printed.join('\n'));
+    assert.ok(!printed.some(text => text.includes('bbbbbbbbbbbb')), printed.join('\n'));
     assert.ok(printed.includes('      singularity/workflow.yml'));
     assert.equal(asked.length, 1);
     if (answer === 'y') {

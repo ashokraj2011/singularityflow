@@ -1149,7 +1149,8 @@ async function factoryResetRepositoryLocked(root, {
   if (confirmation !== plan.confirmation) {
     throw new SingularityFlowError(
       `Factory reset requires exact confirmation '${plan.confirmation}'. Nothing was removed. Preview it first (singularity-flow factory-reset --dry-run), `
-      + 'or run singularity-flow factory-reset in your own terminal, which shows the preview and asks you to type it.', { code: 'FACTORY_RESET_CONFIRMATION_REQUIRED' }
+      + 'or run singularity-flow factory-reset in your own terminal, which shows the preview and asks you to type it.',
+      { code: 'FACTORY_RESET_CONFIRMATION_REQUIRED', details: { recoveryCommand: 'singularity-flow factory-reset' } }
     );
   }
   // Refused rather than warned about. These paths were computed, printed after the reset had

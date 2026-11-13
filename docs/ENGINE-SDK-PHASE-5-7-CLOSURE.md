@@ -40,6 +40,11 @@ real failed SGOS observations, renewal, revocation, mixed compiler checks and sh
 All 307 affected Mac checks and the original package, deadline and bundle limits pass. Code/recovery
 risk combinations and the other unchecked owners remain required; neither phase is complete.
 
+Witness-exception selection and renewal now have one [shared value owner](ENGINE-SDK-WITNESS-RENEWAL-VALUES.md).
+Native SDK/CLI renewals and person-presence counting retain their original behavior; namespace
+mapping/exception ceremonies still require their actual approved-mapping owner. The new value
+exports do not establish or approve a namespace exception.
+
 ## Execution constraints
 
 Use pure kernel rules, SDK coordination, SDA persistence and SGOS execution. Preserve native Git

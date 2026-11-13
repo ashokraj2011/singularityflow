@@ -103,3 +103,55 @@ function witnessRecordResults(records = [], currentSha256 = new Map(), { context
 
   return Object.freeze({witnessContextBinding,witnessContextBindings,assertWitnessReviewBinding,recordWitnessWithEvidence,witnessRecordResults});
 }
+
+/** Latest expiry over already admitted records. Presence and receipt checks belong to the caller. */
+export function witnessRenewalExpiryValue(rows,phaseId,generation,mappingSha256){
+  const renewal=[...(rows??[])].reverse().find(entry=>entry?.phase===phaseId&&Number(entry.generation)===Number(generation)&&entry.mappingSha256===mappingSha256);
+  return renewal?.expiresAt??null;
+}
+/** Native-compatible renewal values over explicit prior expiry and review data. No authentication or I/O. */
+export function witnessExceptionRenewalPolicies(values){
+  const renewedWitnessExpiry=values?.renewedWitnessExpiry;
+  if(typeof renewedWitnessExpiry!=='function')throw new SingularityFlowError('Bind the admitted previous-expiry value before constructing witness renewal rules.',{code:'ENGINE_INPUT_INVALID'});
+  const MAX_REASON=1000;
+
+
+/** The exception this step's current approval recorded for `mappingSha256`, or null. */
+function witnessException(workflow, phaseId, mappingSha256) {
+  const phase = workflow?.phases?.[phaseId];
+  for (const approval of [...(phase?.approvals ?? [])].reverse()) {
+    if (approval?.invalidatedAt || approval.decision !== 'approved' || Number(approval.generation) !== Number(phase.generation)) continue;
+    const mapping = (approval.witnessMappings ?? []).find((entry) => entry?.mappingSha256 === mappingSha256 && entry.decision === 'exception');
+    if (mapping) return { phase, approval, mapping };
+  }
+  return null;
+}
+
+
+/** Record one renewal on the aggregate; the caller checked authority. */
+function recordWitnessExceptionRenewal(workflow, { phaseId, mappingSha256, expires, reason, actor, authorityGroup, identityAssurance = null, at }) {
+  const found = witnessException(workflow, phaseId, mappingSha256);
+  if (!found) {
+    throw new SingularityFlowError(`${phaseId}'s current approval recorded no witness exception for ${mappingSha256}.`,
+      { code: 'WITNESS_EXCEPTION_UNKNOWN', details: { phase: phaseId, mappingSha256 } });
+  }
+  const expiry = Date.parse(/^\d{4}-\d{2}-\d{2}$/u.test(String(expires ?? '')) ? `${expires}T23:59:59.999Z` : String(expires ?? ''));
+  if (!Number.isFinite(expiry) || expiry <= Date.parse(at)) {
+    throw new SingularityFlowError('A renewed witness exception needs a future expiry: --expires YYYY-MM-DD.', { code: 'WITNESS_EXCEPTION_RENEWAL_INVALID' });
+  }
+  const text = String(reason ?? '').trim();
+  if (text.length < 10 || text.length > MAX_REASON) {
+    throw new SingularityFlowError(`Say why the exception still stands in 10 to ${MAX_REASON} characters with --reason.`, { code: 'WITNESS_EXCEPTION_RENEWAL_INVALID' });
+  }
+  workflow.witnessExceptionRenewals ??= [];
+  const record = {
+    id: `WXR-${String(workflow.witnessExceptionRenewals.length + 1).padStart(3, '0')}`,
+    phase: phaseId, generation: Number(found.phase.generation), mappingSha256, clauseId: found.mapping.clauseId ?? null,
+    previousExpiresAt: renewedWitnessExpiry(workflow, phaseId, found.phase.generation, mappingSha256) ?? found.mapping.expiresAt ?? null,
+    expiresAt: new Date(expiry).toISOString(), reason: text, actor, authorityGroup, identityAssurance, at
+  };
+  workflow.witnessExceptionRenewals.push(record);
+  return record;
+}
+  return Object.freeze({witnessException,recordWitnessExceptionRenewal});
+}

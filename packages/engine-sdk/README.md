@@ -32,6 +32,10 @@ hosts use `test-risk.context` and `decision.test-risk` for actual human decision
 See `docs/ENGINE-SDK-TEST-RISKS.md` in the source repository for authority, renewal, replay and the
 explicitly unsupported Code/recovery combinations.
 
+The `evidence` export also includes witness-exception renewal values with explicit prior-expiry
+and time inputs. They preserve native record meanings and do not authenticate or persist a review.
+Namespace exception recording remains separately gated; see `docs/ENGINE-SDK-WITNESS-RENEWAL-VALUES.md`.
+
 For the implemented namespace lifecycle, use one explicitly bound host:
 
 ```js

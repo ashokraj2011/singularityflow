@@ -1,3 +1,4 @@
+import {witnessRenewalExpiryValue} from './kernel/human-witnesses.mjs';
 import { conformancePhasesOf } from './kernel/phase-policy.mjs';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -150,9 +151,7 @@ async function publicationBaseBranch(root, config, workflow) {
  */
 /** The expiry the latest `decision witness-exception` renewal gives an exception, or null [witness-exception-renewals.mjs]. */
 export function renewedWitnessExpiry(workflow, phaseId, generation, mappingSha256) {
-  const renewal = [...countedRecords(workflow, workflow?.witnessExceptionRenewals)].reverse()
-    .find((entry) => entry?.phase === phaseId && Number(entry.generation) === Number(generation) && entry.mappingSha256 === mappingSha256);
-  return renewal?.expiresAt ?? null;
+  return witnessRenewalExpiryValue(countedRecords(workflow,workflow?.witnessExceptionRenewals),phaseId,generation,mappingSha256);
 }
 
 /** The command a person who approves `phaseId` runs to renew the exception for `mappingSha256`. */

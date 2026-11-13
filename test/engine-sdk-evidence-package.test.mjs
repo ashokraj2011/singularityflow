@@ -18,7 +18,24 @@ test('an offline consumer evaluates the native evidence capture with infrastruct
   await writeFile(path.join(consumer,'values.mjs'),source);child(process.execPath,['values.mjs'],{cwd:consumer,env:{...env,PATH:''}});
   await writeFile(path.join(consumer,'compile.mjs'),(await readFile(new URL('./helpers/installed-command-observation.mjs',import.meta.url),'utf8')).replaceAll('@sdk-name@',packageName));
   child(process.execPath,['compile.mjs'],{cwd:consumer,env:{...env,PATH:''}});
+  const renewals=JSON.parse(await readFile(new URL('./fixtures/witness-renewal-values/native-v1.json',import.meta.url),'utf8')),
+    renewalHelper=(await readFile(new URL('./helpers/witness-renewal-values-fixture.mjs',import.meta.url),'utf8')).replace('export function','function');
+  await writeFile(path.join(consumer,'renewals.mjs'),[
+    'import assert from "node:assert/strict";import {registerHooks} from "node:module";',
+    'const hook=registerHooks({resolve(specifier,context,next){if(specifier.startsWith("node:"))throw Error("No renewal infrastructure: "+specifier);return next(specifier,context);}});',
+    'Date.now=()=>{throw Error("No ambient renewal clock");};',
+    'const {witnessExceptionRenewalPolicies,witnessRenewalExpiryValue}=await import("'+packageName+'/evidence");',
+    'const renewedWitnessExpiry=(workflow,phase,generation,mapping)=>witnessRenewalExpiryValue(workflow.witnessExceptionRenewals,phase,generation,mapping);',
+    'const api={...witnessExceptionRenewalPolicies({renewedWitnessExpiry}),renewedWitnessExpiry};',renewalHelper,
+    'const expected='+JSON.stringify(renewals.cases)+';for(const[index,row]of witnessRenewalValueCases(api).entries())assert.deepEqual(row,expected[index],row.name);hook.deregister();'
+  ].join('\n'));child(process.execPath,['renewals.mjs'],{cwd:consumer,env:{...env,PATH:''}});
   const types=path.join(consumer,'types.mts');await writeFile(types,[
+    'import {witnessExceptionRenewalPolicies,witnessRenewalExpiryValue} from "'+packageName+'/evidence";',
+    'const renewal=witnessExceptionRenewalPolicies({renewedWitnessExpiry:(workflow,phase,generation,mapping)=>witnessRenewalExpiryValue(workflow.witnessExceptionRenewals??[],phase,generation,mapping)});',
+    '// @ts-expect-error Renewal value rules cannot approve evidence or authenticate a human.',
+    'renewal.approve();',
+    '// @ts-expect-error Renewal records require explicit time and original reviewer metadata.',
+    'renewal.recordWitnessExceptionRenewal({phases:{}},{phaseId:"code",mappingSha256:"sha256:"+"a".repeat(64)});',
     'import {evidenceEvaluationPolicies, type EvidenceEvaluationValues} from "'+packageName+'/evidence";',
     'declare const values:EvidenceEvaluationValues;declare const graph:Readonly<Record<string,unknown>>;',
     'const report=values.evaluateEvidence(graph,{at:"2026-10-02T12:00:00.000Z"});const gate:"allow"|"allow-with-risk"|"block"=report.decision.gate;',

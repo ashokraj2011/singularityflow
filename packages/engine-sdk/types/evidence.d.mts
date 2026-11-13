@@ -1,4 +1,22 @@
 import type {SpecificationDigests,VerificationPathSyntax,SpecificationTextValues} from './specifications.mjs';
+export interface WitnessExceptionMapping {readonly mappingSha256:string;readonly decision:string;readonly expiresAt?:string|null;readonly clauseId?:string|null}
+export interface WitnessExceptionPhase {readonly generation:number|string;readonly approvals?:readonly {readonly decision:string;readonly generation:number|string;
+  readonly invalidatedAt?:string|null;readonly witnessMappings?:readonly WitnessExceptionMapping[]}[]}
+export interface WitnessExceptionWorkflow {readonly phases:Readonly<Record<string,WitnessExceptionPhase>>;witnessExceptionRenewals?:WitnessExceptionRenewal[]}
+export interface WitnessExceptionRenewal {readonly id:string;readonly phase:string;readonly generation:number;readonly mappingSha256:string;readonly clauseId:string|null;
+  readonly previousExpiresAt:string|null;readonly expiresAt:string;readonly reason:string;readonly actor:string;readonly authorityGroup:string;readonly identityAssurance:unknown;readonly at:string}
+export interface WitnessRenewalExpiryRow {readonly phase?:string|null;readonly generation?:number|string|null;readonly mappingSha256?:string|null;readonly expiresAt?:string|null}
+export declare function witnessRenewalExpiryValue(rows:readonly WitnessRenewalExpiryRow[]|null,
+  phaseId:string,generation:number|string,mappingSha256:string):string|null;
+export interface WitnessExceptionRenewalValues {
+  witnessException(workflow:WitnessExceptionWorkflow,phaseId:string,mappingSha256:string):{readonly phase:WitnessExceptionPhase;
+    readonly approval:NonNullable<WitnessExceptionPhase['approvals']>[number];readonly mapping:WitnessExceptionMapping}|null;
+  /** Mutates only the supplied aggregate. The caller must verify the original approval and current human authority. */
+  recordWitnessExceptionRenewal(workflow:WitnessExceptionWorkflow,input:{readonly phaseId:string;readonly mappingSha256:string;readonly expires:string;
+    readonly reason:string;readonly actor:string;readonly authorityGroup:string;readonly identityAssurance?:unknown;readonly at:string}):WitnessExceptionRenewal;
+}
+export declare function witnessExceptionRenewalPolicies(values:{readonly renewedWitnessExpiry:(workflow:WitnessExceptionWorkflow,phaseId:string,
+  generation:number|string,mappingSha256:string)=>string|null}):Readonly<WitnessExceptionRenewalValues>;
 export declare const EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v1';
 export interface EvidenceObservationOptions {
   readonly at:string;readonly boundary?:string;readonly mode?:'projection'|'decision';readonly requiredAssurance?:string;

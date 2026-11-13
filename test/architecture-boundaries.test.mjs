@@ -2350,3 +2350,13 @@ test('test risk values and retained failure proofs cannot authenticate, run chec
   assert.match(codec,/assertPassing\(selected\.found,input\.phaseId\)/u);assert.match(codec,/assertPassing\(found,value\.phase\)/u);
   assert.match(codec,/async function publicationObservation/u);assert.match(codec,/async function freshObservedSources/u);
 });
+
+test('witness exception renewal values cannot import Git, presence, rendering or implicit time',async()=>{
+  const owner='src/kernel/human-witnesses.mjs',graph=await inspectPureModuleGraph({root:packageRoot,entries:[owner],
+    allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});assert.deepEqual(graph.problems,[]);
+  const pure=await readFile(path.join(packageRoot,owner),'utf8');assert.doesNotMatch(pure,/Date\.now|readFile|singularity-flow decision|countedRecords/u);
+  const native=await readFile(path.join(packageRoot,'src/witness-exception-renewals.mjs'),'utf8');
+  assert.match(native,/witnessExceptionRenewalPolicies\(\{renewedWitnessExpiry\}\)/u);assert.doesNotMatch(native,/function witnessException|MAX_REASON|Date\.parse/u);
+  const query=await readFile(path.join(packageRoot,'src/governance.mjs'),'utf8');
+  assert.match(query,/witnessRenewalExpiryValue\(countedRecords\(workflow,workflow\?\.witnessExceptionRenewals\)/u);
+});

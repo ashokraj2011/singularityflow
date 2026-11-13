@@ -42,6 +42,7 @@ import {createNamespaceStoryQueryPorts} from './namespace-story-queries.mjs';
 import {createNamespaceWorkflowAssetsPort} from './namespace-workflow-assets.mjs';
 import {createNamespaceWitnessPorts} from './namespace-witness-decisions.mjs';
 import {createNamespaceTestCommandPorts} from './namespace-test-commands.mjs';
+import {createNamespaceEvidenceReusePorts} from './namespace-evidence-reuse.mjs';
 import {createNamespaceTestRecoveryPorts} from './namespace-test-recovery.mjs';
 import {createNamespaceTestRepairPort} from './namespace-test-repair.mjs';
 import {createNamespaceDecisionListPorts} from './namespace-decision-list.mjs';
@@ -99,6 +100,7 @@ export function createNamespaceEngine(options={}) {
   const constitutionExceptions=()=>constitutionExceptionPorts??=createNamespaceConstitutionExceptionPorts(common);
   const sourceReviews=()=>sourceReviewPorts??=createNamespaceSourceReviewPorts(common);
   const witnesses=()=>witnessPorts??=createNamespaceWitnessPorts(common),plans=()=>planPorts??=createNamespacePlanDecisionPorts(common);
+  let commandPorts,reusePorts;const reuse=()=>reusePorts??=createNamespaceEvidenceReusePorts(common);
   let recoveryPorts;const recovery=()=>recoveryPorts??=createNamespaceTestRecoveryPorts(common);
   const decisionOperations=Object.freeze(['test-recovery.confirm','convergence.adjudicate','decision.constitution-exception','phase.assign','source-review.record','source-review.decide','decision.choose','decision.plan','plan.correction.record','decision.witness',...NAMESPACE_SCOPE_DECISION_OPERATIONS]);
   const scoped=()=>scopeDecisions??=createNamespaceScopeDecisionPorts(common,runtime),decisionRecord={operations:decisionOperations,...Object.fromEntries(['load','prepare','commit','finish'].map(stage=>[stage,(...parameters)=>{
@@ -119,6 +121,7 @@ export function createNamespaceEngine(options={}) {
     planCorrectionContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>plans().correctionContext[stage](...args)])),
     witnessContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>witnesses().witnessContext[stage](...args)])),
     ...lazyPorts(()=>createNamespaceStoryQueryPorts(common,runtime),{storyStatus:['load','read'],storyGuide:['load'],storyNext:['load']}),
+    evidenceReuseContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>reuse().context[stage](...args)])),
     testRecoveryContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>recovery().context[stage](...args)])),
     ...lazyPorts(()=>({workflowAssets:createNamespaceWorkflowAssetsPort(common)}),{workflowAssets:['load','read']}),
     ...lazyPorts(()=>createNamespacePhaseInspectionPorts(common,runtime),{phasePrepublish:['load','inspect'],phaseDraftCheck:['load','inspect']}),
@@ -132,7 +135,7 @@ export function createNamespaceEngine(options={}) {
     sourceBaselineRetention:createNamespaceSourceBaselinePort(common),
     phaseDeliveryInspection:createNamespaceDeliveryInspectionPort(common,runtime),
     phaseTestWitnessInspection:createNamespaceTestWitnessInspectionPort(common,runtime),
-    ...lazyPorts(()=>createNamespaceTestCommandPorts(common),{testCommandContext:['load','read']}),testDecisionRecord:{operations:['test-command.request','test-command.decide'],...lazyPorts(()=>createNamespaceTestCommandPorts(common),{testDecisionRecord:['load','prepare','resolve','commit','finish']}).testDecisionRecord},publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
+    ...lazyPorts(()=>createNamespaceTestCommandPorts(common),{testCommandContext:['load','read']}),testDecisionRecord:{operations:['decision.evidence-reuse','test-command.request','test-command.decide'],...Object.fromEntries(['load','prepare','resolve','commit','finish'].map(stage=>[stage,(...args)=>{const operation=args.at(-1)?.operation?.id;return (operation==='decision.evidence-reuse'?reuse().decision:(commandPorts??=createNamespaceTestCommandPorts(common)).testDecisionRecord)[stage](...args);}]))},publication:createNamespacePublicationPort(common,runtime),...createNamespaceSubmissionPorts(common),
     ...createNamespaceApprovalPorts(common),...routing,decisionRecord,
     ...lazyPorts(()=>scoped(),{scopeContext:['load','read']}),
     ...Object.fromEntries(Object.entries(lazyPorts(()=>({upstream:createNamespaceUpstreamPort(common,runtime)}),{upstream:['load','resolve','commit','finish']})).map(([name,port])=>[name,{...port,operations:['upstream.list','upstream.raise','upstream.decide','forward-amendment.propose','forward-amendment.decide','forward-amendment.revalidate']}])),

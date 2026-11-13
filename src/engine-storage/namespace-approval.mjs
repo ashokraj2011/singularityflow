@@ -34,7 +34,7 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function cancelled(signal){if(signal?.aborted)throw error('Approval was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');}
 
-export function createNamespaceApprovalPorts({records,content,localContent=null,scope,workId,authority,access,clock}={}) {
+export function createNamespaceApprovalPorts({records,content,localContent=null,scope,workId,authority,access,clock,sources=[]}={}) {
   scope=namespaceScope(scope);workId=namespaceIdentifier(workId,'Story ID');authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceStoryObserver({records,content,localContent,scope,workId,authority});
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority});
@@ -246,6 +246,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
         const policy=checklistAuthority??principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
         const outcome=policy.reached&&s.routed?decisionOutcomeFacts(workflow,phase):null;
         s.approvalPolicy={reached:policy.reached,reworkTarget:outcome?.kind==='loop'?outcome.target:null};
+        if(s.proof.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await packets.publicationReader.policies.freshReuseSources(s.proof.published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         s.dispositionRequired=packets.publicationRequiresDisposition(s.proof.published,s.approvalPolicy);
         s.dispositionEvidence=await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot,
           at:s.dispositionRequired?projectEnrollmentTimestamp(await now()):null,signal});
@@ -306,6 +307,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this approval preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
       return commitNamespaceOperation(committer,s.operationId,async()=>{await authorize(signal,s.reviewer);await unchanged(p.snapshot,signal);
+        if(s.proof.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await packets.publicationReader.policies.freshReuseSources(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.dispositionRequired)await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot:p.snapshot,at:projectEnrollmentTimestamp(await now()),signal});},{signal});
     },
     async finish(context,_prepared,accepted) {
@@ -317,9 +319,9 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
   return {approval};
 }
 
-export function createNamespaceApprovalEngine({records,content,scope,workId,authority,access,clock,localContent=null}={}) {
+export function createNamespaceApprovalEngine({records,content,scope,workId,authority,access,clock,localContent=null,sources=[]}={}) {
   const readSession=createNamespaceReadSession({records,content});({records,content}=readSession);
-  scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent};
+  scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent,sources};
   const ports=createNamespaceApprovalPorts(options);
   return createEngine({ports:{invocation:{run:readSession.run},...createNamespaceReadPorts(options),...ports}});
 }

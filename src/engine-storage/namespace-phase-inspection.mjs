@@ -20,7 +20,7 @@ import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-confi
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex'),same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
-const repairable=new Set(['TEST_RECOVERY_AGREEMENT_REQUIRED','ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
+const repairable=new Set(['ENGINE_EVIDENCE_REUSE_INCOMPLETE','TEST_RECOVERY_AGREEMENT_REQUIRED','ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
   'ENGINE_SOURCE_EVIDENCE_REQUIRED','ENGINE_SOURCE_BASELINE_REQUIRED','CODE_DELIVERY_TEST_COVERAGE_INCOMPLETE',
   'CODE_TEST_WITNESS_INCOMPLETE','SPEC_PLANNED_TEST_BINDING_REQUIRED','SPEC_PLANNED_ALLOCATION_INVALID',
   'SPEC_PLANNED_CLAIM_MAP_REQUIRED','SPEC_COVERAGE_INCOMPLETE','PLAN_AMENDMENT_CONTENT_CHANGED','TEST_CAPABILITY_UNSUPPORTED','PHASE_ARTIFACT_SET_INCOMPLETE','ENGINE_ASSIGNMENT_REQUIRED','CONSTITUTION_POLICY_REQUIRED',
@@ -30,7 +30,7 @@ const finding=(row,phase)=>({code:row.code??'artifact.authoring.incomplete',sour
   upstreamDecisionComplete:false,coverageReviewRequired:false,riskEligible:false});
 
 export function createNamespacePhaseInspectionPorts(options,runtime=null){
-  const {scope,workId,access,sources=[],modelEnabled=true}=options,observer=createNamespaceStoryObserver(options),contexts=new WeakMap();
+  const {scope,workId,access,clock,sources=[],modelEnabled=true}=options,observer=createNamespaceStoryObserver(options),contexts=new WeakMap();
   const checks=createNamespacePhaseCheckReader({...options,observer}),publications=createNamespacePublicationReader({observer,scope,workId,checks});
   const artifactSets=namespaceArtifactSetPolicies(NODE_CONFIGURATION_PATH_SYNTAX,NODE_TEXT_DIGESTS);
   async function authorize(operation,signal,expected=null){return phaseTransitionAccess(await access.current({projectId:scope.projectId,workId,operation,signal}),
@@ -64,6 +64,8 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
       if(!bound)throw error('The retained phase has no original publication binding.','ENGINE_STORAGE_CORRUPT');
       const published=await publications.accepted(bound,phase.id,{signal});fingerprint=published.artifact.fingerprint;producer=published.authorship.producer;
       if(published.checks)requiredTests='retained-passing';
+      if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1')){requiredTests='reused-not-executed';
+        if(prepublish)fresh.push(async()=>publications.policies.freshReuseSources(published,snapshot,sources,{signal,at:await clock.now()}));}
       if(prepublish){
         if(published.checks)fresh.push(()=>checks.freshSources(published.checks,phase.id,sources,{signal}));
         if(codePublicationPolicy(workflow,phase))fresh.push(()=>publications.policies.freshCodeSources(published,sources,{signal}));
@@ -114,10 +116,16 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             category:'specification-analysis',message:typeof row==='string'?row:row.message??'',requiredBefore:null,ownerPhase:phase.id,clauseId:null,issueRefs:[],status:'advisory'})));}
         if(prepublish){
           let tested=null;
-          if(commandProof.commands.length)tested=await attempt(()=>checks.forDraft({phaseId:phase.id,generation:p.generation,baseRevision:snapshot.revision,
-            draft:{workId,phase:phase.id,revision:draft.revision,bodySha256:draft.bodySha256},artifact:p.artifact.current,configuration:snapshot.configuration},{signal}));
+          let reused=null;
+          if(commandProof.commands.length){const checkInput={phaseId:phase.id,generation:p.generation,baseRevision:snapshot.revision,
+            draft:{workId,phase:phase.id,revision:draft.revision,bodySha256:draft.bodySha256},artifact:p.artifact.current,configuration:snapshot.configuration};
+            const current=await checks.inspectDraft(checkInput,{signal});
+            if(!current&&(workflow.namespaceEvidenceReuses??[]).some(row=>row.id&&row.phase===phase.id))reused=await attempt(async()=>publications.policies.reuseCandidate(
+              candidate,snapshot,{signal,at:await clock.now(),units:sources}));
+            if(!reused)tested=await attempt(()=>checks.forDraft(checkInput,{signal}));}
           candidate.checks=tested;
           if(tested){requiredTests='retained-passing';fresh.push(()=>checks.freshSources(tested,phase.id,sources,{signal}));}
+          else if(reused)requiredTests='reused-not-executed';
           else if(commandProof.commands.length)requiredTests='evidence-required';
           if(code){const result=await attempt(()=>publications.policies.codeCandidate(candidate,snapshot,{signal}));
             if(result)fresh.push(()=>publications.policies.freshCodeCandidate(result,candidate,sources,{signal}));}

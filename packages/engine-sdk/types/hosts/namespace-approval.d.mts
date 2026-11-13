@@ -1,5 +1,6 @@
 import type {Engine} from '../index.mjs';
 import type {NamespaceStore,NamespaceScope} from '../namespace.mjs';
+import type {SourceUnit} from '../source.mjs';
 import type {ContentStore} from '../content.mjs';
 import type {NamespaceStoryAccessFacts} from './namespace-story.mjs';
 export declare const NAMESPACE_APPROVAL_PROFILE:'sflow-primary-document-approval/v1';
@@ -9,4 +10,4 @@ export interface NamespaceApprovalAccess {current(request:{readonly projectId:st
   (NamespaceStoryAccessFacts&{readonly agentId:string|null})|Promise<NamespaceStoryAccessFacts&{readonly agentId:string|null}>}
 export declare function createNamespaceApprovalEngine(options:{readonly records:NamespaceStore;readonly content:ContentStore;readonly localContent?:ContentStore|null;
   readonly scope:NamespaceScope;readonly workId:string;readonly authority:{readonly id:string;readonly epoch:number};
-  readonly access:NamespaceApprovalAccess;readonly clock:{now():string|Promise<string>}}):Engine;
+  readonly sources?:readonly SourceUnit[];readonly access:NamespaceApprovalAccess;readonly clock:{now():string|Promise<string>}}):Engine;

@@ -22,7 +22,7 @@ const DECIDING_MODULES = Object.freeze([
   'configuration-read-worker.mjs', 'configuration-read-worker-client.mjs', 'config.mjs',
   'read-worker.mjs', 'read-worker-client.mjs', 'read-worker-protocol.mjs', 'read-worker-service.mjs',
   'command-observability.mjs', 'command-confirmation.mjs', 'phase-generation.mjs', 'cli-steps.mjs',
-  'kernel/decision-plan.mjs',
+  'kernel/decision-plan.mjs', 'kernel/evidence-reuse.mjs',
   'kernel/decision-limits.mjs',
   'engine-sdk/decision-execution.mjs',
   'engine-compatibility/git-decisions.mjs',

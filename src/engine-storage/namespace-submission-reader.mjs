@@ -60,7 +60,7 @@ export function createNamespaceSubmissionReader({observer,scope,workId,checks=nu
       if(!review||!same(review.binding,value.sourceReview)||!review.references.every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error('The submitted review differs from its actual accepted review and human dispositions.','ENGINE_STORAGE_CORRUPT');
     }
     publications.assertArtifacts(published,phase);
-    if(publications.policies.owners(published).some(owner=>['artifact-set','convergence-projection'].includes(owner))&&!publications.policies.evidence(published).every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error(
+    if(publications.policies.owners(published).some(owner=>['artifact-set','convergence-projection','check-execution'].includes(owner))&&!publications.policies.evidence(published).every(ref=>accepted.plan.evidence.some(row=>same(row,ref))))throw error(
       'The typed output bundle was not retained by its exact submission.','ENGINE_STORAGE_CORRUPT');
     await routingProof(snapshot,phaseId,value,signal,cache);
     return {binding,value,published,review:{workId,phase:phaseId,generation:phase.generation,packetSha256:binding.record.sha256,

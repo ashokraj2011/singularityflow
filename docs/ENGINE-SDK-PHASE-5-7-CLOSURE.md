@@ -11,7 +11,8 @@ obsolete-access removal and final distribution remain separate.
 - [ ] Finish remaining lifecycle queries and native policy extraction with compatibility tests.
 - [x] Connect human scope/completeness/applicability, exact plan corrections and witness decisions
   to namespace transactions, preserving their real authority and confirmation contracts.
-- [ ] Finish witness-exception renewal and the remaining evidence/test risk and reuse ceremonies.
+- [x] Connect exact artifact-phase execution reuse to original approved executions and human receipts.
+- [ ] Finish witness-exception renewal and the remaining evidence/test risk and cohort-reuse ceremonies.
 - [x] Connect upstream issues, forward amendments, their list query and recorded decision batches.
 - [ ] Qualify final decisions, approval, rejection and continuation through the single registry.
 
@@ -23,7 +24,8 @@ obsolete-access removal and final distribution remain separate.
 - [x] Finish mixed test/inspection/visual-slot witnesses and fresh generation-bound output retention.
 - [ ] Finish live application review/comparison and document/test risk decisions.
 - [x] Finish confirmed full-command recovery, command amendments and bounded repeated execution.
-- [ ] Add baseline/cohort selection, evidence reuse and test-risk ceremony owners.
+- [x] Add source-bound, human-authorized artifact-phase reuse without claiming a receiving execution.
+- [ ] Add baseline/cohort selection, Code/environment-sensitive reuse and test-risk ceremony owners.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through explicit
   execution and evidence ports. Configured requirements cannot become successful flags.
@@ -364,3 +366,25 @@ and execution owners and final combined qualification keep Phases 5 and 7 open.
 The unchanged 34-check installed-package qualifier ran alone in 34.1 seconds within the original
 120/60-second deadlines. Source validation passes 4,339 checks; VS Code types, the unchanged
 Git audit and all thirteen original bundle ceilings pass. Gateway remains 851/852 modules.
+
+
+## Original execution reuse
+
+The registered reuse context and human decision now verify the actual earlier approved task,
+command/repository inventory, source and structured results. Typed publication reports retain
+producer attribution and explicitly state that the receiver ran no tests. Source, expiry and
+revocation are checked again at publication, submission and independent approval; original
+receipts and approved packets replay without the old checkout. See
+[the reuse record](ENGINE-SDK-EVIDENCE-REUSE.md).
+
+This profile closes source-bound artifact-phase reuse, including additive Story commands, not
+Code execution or recovery agreements that forbid reuse. Risk/cohort/live-review and required
+external evidence/execution owners, native policy parity and final combined qualification keep
+Phases 5 and 7 open. Phases 8/9 and main remain unchanged.
+
+Mac qualification passes 236 distinct affected checks, including 106 architecture guards, native
+compatibility, all-three-store journeys and an offline installed consumer. The unchanged
+34-check package qualifier ran alone in 52.4 seconds with its original 120/60-second deadlines.
+VS Code types, the unchanged 2,011-site Git audit and all thirteen original bundle ceilings pass;
+gateway is 852/852. The vocabulary has 88 operations, 42 default native bindings and 78 namespace
+bindings before optional execution. No Windows, live provider or production installation ran.

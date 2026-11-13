@@ -149,8 +149,13 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         s.snapshot=current;
         s.admission=await runtime.admitDraft(s.draft,'phase.publish',{signal});
         const observed=runtime.draftFacts(s.admission);
-        if(commandProof.commands.length)s.checkEvidence=await checks.forDraft({phaseId:s.phaseId,generation:observed.payload.generation,baseRevision:observed.revision,
-          draft:s.identity,artifact:observed.payload.artifact.current,configuration:s.snapshot.configuration},{signal});
+        if(commandProof.commands.length){const checkInput={phaseId:s.phaseId,generation:observed.payload.generation,baseRevision:observed.revision,
+          draft:s.identity,artifact:observed.payload.artifact.current,configuration:s.snapshot.configuration};
+          // A real current run takes precedence. Missing local execution may use only original human-authorized reuse.
+          const tested=await checks.inspectDraft(checkInput,{signal});
+          if(!tested&&(current.workflow.namespaceEvidenceReuses??[]).some(row=>row.id&&row.phase===s.phaseId))s.reuse=await publicationReader.policies.reuseCandidate(
+            {phase:s.phaseId},current,{signal,at:projectEnrollmentTimestamp(await now()),units:sources});
+          if(!s.reuse)s.checkEvidence=await checks.forDraft(checkInput,{signal});}
         if(clarificationMode!=='off') {
           const candidate=await publicationReader.policies.clarificationCandidate({phase:s.phaseId,generation:observed.payload.generation,
             agentId:observed.agentId,inputs:observed.resources,authorship:intent.authorship},s.snapshot,{signal});
@@ -161,7 +166,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
           artifact:observed.payload.artifact.current,configuration:current.configuration},{signal});
         // A repaired run gets its own candidate; an earlier conditional publication stays immutable.
         s.operationId='publish-'+hash(namespaceIdentityJson({scope,authority,workId,phaseId:s.phaseId,draft:s.identity.bodySha256,
-          requestSha256:s.requestSha256,...(s.checkEvidence?{checks:s.checkEvidence}:{}),
+          requestSha256:s.requestSha256,...(s.checkEvidence?{checks:s.checkEvidence}:{}),...(s.reuse?{reuse:s.reuse.report}:{}),
           ...(s.clarificationObservation?{clarification:s.clarificationObservation}:{}),...(s.codeSource?{source:s.codeSource}:{})}));
         s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
       }
@@ -181,7 +186,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         const recoveryRequired=snapshot.workflow.resolution.testRecovery?.enabled===true;
         const assignmentRequired=phaseAssignmentRequired(snapshot.workflow,observed.definition),constitutionRequired=snapshot.workflow.resolution.constitution?.mode!=='off';
         const artifactSet=artifactSets.declaration(observed.definition,snapshot.workflow,phase);
-        const available=[...(recoveryRequired?['test-recovery']:[]),...(documentReviewPolicy?DOCUMENT_REVIEW_OWNERS:[]),...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
+        const available=[...(s.reuse?['check-execution']:[]),...(recoveryRequired?['test-recovery']:[]),...(documentReviewPolicy?DOCUMENT_REVIEW_OWNERS:[]),...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
           ...(clarificationPolicy.mode!=='off'?['clarification-record']:[]),...(codePolicy?CODE_PUBLICATION_OWNERS:[]),...(convergencePolicy?CONVERGENCE_PUBLICATION_OWNERS:[]),...(codeInputsPolicy?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformancePolicy?CONFORMANCE_PUBLICATION_OWNERS:[]),...(artifactSet?['artifact-set']:[]),...(assignmentRequired?['assignment-record']:[]),...(constitutionRequired?['constitution-policy']:[])];
         const pending=required.filter(item=>!available.includes(item));
         if(pending.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
@@ -207,10 +212,11 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
             actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
             artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
-          let recovery=null,documentReview=null,specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null,convergence=null;
-          if(recoveryRequired||documentReviewPolicy||convergencePolicy||specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
+          let reuse=null,recovery=null,documentReview=null,specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null,convergence=null;
+          if(s.reuse||recoveryRequired||documentReviewPolicy||convergencePolicy||specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
             const head=await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal);
             if(head.version!==snapshot.revision)throw error('The Story changed before specification retention.','ENGINE_CONTEXT_CHANGED');
+            if(s.reuse)reuse=await policyWriter.retainReuse(base,{snapshot,head:head.value,signal,sources,expected:s.reuse.report});
             if(recoveryRequired)recovery=await policyWriter.retainRecovery(base,{snapshot,head:head.value,signal});
             if(documentReviewPolicy)documentReview=await policyWriter.retainDocumentReview(base,{snapshot,head:head.value,signal});
             if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
@@ -227,12 +233,13 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             if(artifactSet){const members=[];for(const member of observed.payload.members??[])members.push({path:member.path,data:await runtime.artifactMemberBytes(admission,member.path,{signal})});
               bundle=await policyWriter.retainArtifactSet(base,{snapshot,head:head.value,signal,members});}
           }
-          const policyEvidence=[...(recovery?[recovery.binding]:[]),...(documentReview?[documentReview.binding]:[]),...(convergence?[convergence.binding]:[]),...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
+          const policyEvidence=[...(reuse?[reuse.binding]:[]),...(recovery?[recovery.binding]:[]),...(documentReview?[documentReview.binding]:[]),...(convergence?[convergence.binding]:[]),...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
           const record=namespacePublicationRecord(base,{checks:s.checkEvidence??null,specifications,policyEvidence:policyEvidence.length?policyEvidence:null});
           namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,
             format:'sflow-phase-publication-binding/v1',generation,record:reference};phasePublicationBindingValue(binding);
           const verified=specifications||policyEvidence.length?await publicationReader.read(binding,s.phaseId,{signal}):record;
+          if(reuse)await publicationReader.policies.freshReuseSources(verified,snapshot,sources,{signal,at:publishedAt});
           if(codePolicy&&!s.checkEvidence)await publicationReader.policies.freshCodeSources(verified,sources,{signal});
           if(convergencePolicy||codeInputsPolicy||conformancePolicy)await publicationReader.policies.freshInputSources(verified,sources,{signal});
           const fulfilled=[...publicationReader.specifications.owners(verified),...publicationReader.policies.owners(verified)];
@@ -256,6 +263,9 @@ export function createNamespacePublicationPort(options={},runtime=null) {
               snapshot.workflow.namespaceDocuments.push({id:'MEMBER-'+s.phaseId+'-GEN-'+generation+'-'+hash(member.path).slice(0,24),phase:s.phaseId,generation,
                 sourceKey:memberKey,role:'file',name:member.path,kind:'artifact-set-member',mimeType:member.encoding==='utf8'?'text/plain':'application/octet-stream',encoding:member.encoding,
                 locality:'project',status:'active',aliases:[],content:member.content});}}
+          if(reuse)snapshot.workflow.namespaceDocuments.push({id:'EVIDENCE-REUSE-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
+            sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-evidence-reuse-gen'+generation+'.json',
+            role:'file',name:'Reused tests and original execution attribution',kind:'evidence-reuse',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:reuse.report});
           if(recovery)snapshot.workflow.namespaceDocuments.push({id:'TEST-RECOVERY-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-test-recovery-gen'+generation+'.json',
             role:'file',name:'Confirmed test recovery agreement',kind:'test-recovery',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:recovery.report});
@@ -324,6 +334,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         await runtime.revalidateDraft(p.admission,{signal});
         if(s.checkEvidence)await checks.freshSources(s.checkEvidence,s.phaseId,sources,{signal});
         const retained=(await retainedPublication(s.plan,s,signal)).publication,owners=publicationReader.policies.owners(retained);
+        if(retained.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publicationReader.policies.freshReuseSources(retained,s.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(!s.checkEvidence&&owners.includes('code-delivery'))await publicationReader.policies.freshCodeSources(retained,sources,{signal});
         if(owners.includes('code-delivery-inputs'))await publicationReader.policies.freshInputSources(retained,sources,{signal});
       },{signal});

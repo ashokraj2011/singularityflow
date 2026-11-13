@@ -11,8 +11,8 @@ files. The inventory test fails if that mapping is missing or a named qualifier 
 Results are detached from the immutable registry. This command does not run those qualifiers;
 their successful execution must be recorded separately.
 
-The current vocabulary has 83 operations. `createGitEngine` binds 42 of them. A namespace host
-with explicit private working stores binds 70 before optional execution is supplied. These are
+The current vocabulary has 88 operations. `createGitEngine` binds 42 of them. A namespace host
+with explicit private working stores binds 78 before optional execution is supplied. These are
 composition-specific counts: a separate narrow factory may connect another operation, and a
 configured publication may still require additional policy/evidence owners. In particular,
 `phase.checks.run` needs the actual execution capability. A bound `phase.publish` is never proof
@@ -48,3 +48,10 @@ The separate [native entry-point audit](ENGINE-SDK-NATIVE-ENTRY-INVENTORY.md) no
 canonical command, alias and command source module, their bounded literal import closures and
 the reviewed ownership of unresolved dynamic imports. It preserves the distinction between
 source observations, registered bindings and actually executed compatibility qualification.
+
+
+The [execution-reuse extension](ENGINE-SDK-EVIDENCE-REUSE.md) adds `evidence-reuse.context` and
+connects namespace `decision.evidence-reuse`. The actual vocabulary now has 88 operations, 42
+default native bindings and 78 namespace bindings before optional check/repair execution.
+An available decision owner grants neither human authority nor passing evidence; its current
+source and original execution still require verification.

@@ -170,6 +170,7 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
           await publications.policies.freshConvergenceSources(published,sources,{signal});
         }
         for(const owner of [...publications.specifications.owners(published),...publications.policies.owners(published)])required.delete(owner);
+        if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publications.policies.freshReuseSources(published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(published.checks){await checks.assertCurrent(published.checks,s.phaseId,{signal});required.delete('check-execution');}
         if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
         const sourceReview=await sourceReviews.acceptance(snapshot,s.phaseId,{signal});
@@ -212,7 +213,7 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
           s.plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
         }
         if(!s.plan)throw error('Submission preparation has no retained candidate.','ENGINE_STORAGE_CORRUPT');
-        const token=Object.freeze({});preparations.set(token,{context,agent,snapshot,...(convergence?{published,convergence}:{})});return token;
+        const token=Object.freeze({});preparations.set(token,{context,agent,snapshot,published,...(convergence?{convergence}:{})});return token;
       },async accepted=>{
         const plan=checkedPlan(await committer.intent(s.operationId,{signal}),s);
         if(!plan)throw error('The accepted submission lost its retained candidate.','ENGINE_STORAGE_CORRUPT');
@@ -224,6 +225,7 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this submission preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
       return commitNamespaceOperation(committer,s.operationId,async()=>{
+        if(p.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publications.policies.freshReuseSources(p.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(p.convergence)await publications.policies.freshConvergenceSources(p.published,sources,{signal});
         await authorize(signal,p.agent);await unchanged(p.snapshot,signal);},{signal});
     },
@@ -236,9 +238,9 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
   return {submission};
 }
 
-export function createNamespaceSubmissionEngine({records,content,scope,workId,authority,access,clock,localContent=null,notice=()=>{}}={}) {
+export function createNamespaceSubmissionEngine({records,content,scope,workId,authority,access,clock,localContent=null,sources=[],notice=()=>{}}={}) {
   const readSession=createNamespaceReadSession({records,content});({records,content}=readSession);
-  scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent,notice};
+  scope=namespaceScope(scope);const options={records,content,scope,workId,authority,access,clock,localContent,sources,notice};
   const ports=createNamespaceSubmissionPorts(options);
   return createEngine({ports:{invocation:{run:readSession.run},...createNamespaceReadPorts(options),...ports}});
 }

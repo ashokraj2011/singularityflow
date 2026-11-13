@@ -39,8 +39,8 @@ import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { SingularityFlowError } from './util.mjs';
 
-export const MAX_EVIDENCE_REUSE_DAYS = 90;
-const DAY = 24 * 60 * 60 * 1000;
+import {evidenceReuseReason,evidenceReuseExpiry} from './kernel/evidence-reuse.mjs';
+export {MAX_EVIDENCE_REUSE_DAYS} from './kernel/evidence-reuse.mjs';
 const ATTEMPT_ID = /^TA-[a-f0-9]{20}$/u;
 const REUSE_ID = /^ERU-\d{3,}$/u;
 const DIGEST = /^[a-f0-9]{64}$/u;
@@ -52,16 +52,6 @@ const MAX_RECEIPT_BYTES = 16 * 1024 * 1024;
 
 const bare = (value) => String(value ?? '').replace(/^sha256:/u, '');
 const shortCommit = (commit) => String(commit ?? '').slice(0, 12);
-
-function textBetween(value, minimum, maximum, option, what) {
-  const text = String(value ?? '').trim();
-  if (text.length < minimum || text.length > maximum) {
-    throw new SingularityFlowError(`Say ${what} in ${minimum} to ${maximum} characters with ${option}.`, {
-      code: 'EVIDENCE_REUSE_INVALID'
-    });
-  }
-  return text;
-}
 
 /** The digest a gate or record binds a decision by. */
 export function evidenceReuseSha256(decision) {
@@ -185,18 +175,8 @@ export function recordEvidenceReuse(workflow, { phaseId, candidate, reason, expi
       || !workflow?.phases?.[phaseId] || !workflow.phases[attempt.phase]) {
     throw new SingularityFlowError('The evidence to reuse was not verified.', { code: 'EVIDENCE_REUSE_INVALID' });
   }
-  const text = textBetween(reason, 20, 1000, '--reason', 'why the recorded run stands for this step');
-  let expiresAt = null;
-  if (expires != null) {
-    const expiry = /^\d{4}-\d{2}-\d{2}$/u.test(String(expires)) ? new Date(`${expires}T23:59:59.999Z`) : null;
-    const now = new Date(at);
-    if (!expiry || Number.isNaN(expiry.getTime()) || expiry <= now || expiry - now > MAX_EVIDENCE_REUSE_DAYS * DAY) {
-      throw new SingularityFlowError(`--expires must be a date after today and at most ${MAX_EVIDENCE_REUSE_DAYS} days ahead (YYYY-MM-DD).`, {
-        code: 'EVIDENCE_REUSE_INVALID'
-      });
-    }
-    expiresAt = expiry.toISOString();
-  }
+  const text = evidenceReuseReason(reason);
+  const expiresAt = evidenceReuseExpiry(expires,at);
   // The same attempt on the same tree for the same step is already decided while that decision stands.
   const standing = governingDecisions(workflow, new Set([phaseId])).find((entry) => entry.attempt?.id === attempt.id);
   if (standing && !['revoked', 'expired', 'superseded'].includes(evidenceReuseState(workflow, standing, { at, observed: { status: 'available',
@@ -229,7 +209,7 @@ export function recordEvidenceReuseRevocation(workflow, { reuseId, reason, actor
   if (countedRecords(workflow, workflow.evidenceReuses).some((entry) => entry.revokes === reuseId)) {
     throw new SingularityFlowError(`${reuseId} is already revoked.`, { code: 'EVIDENCE_REUSE_REVOKED' });
   }
-  const text = textBetween(reason, 20, 1000, '--reason', 'why the decision is revoked');
+  const text = evidenceReuseReason(reason,{revoking:true});
   const revocation = { revokes: reuseId, phase: target.phase, attemptId: target.attempt.id, reason: text,
     actor, authorityGroup, identityAssurance, at };
   workflow.evidenceReuses.push(revocation);

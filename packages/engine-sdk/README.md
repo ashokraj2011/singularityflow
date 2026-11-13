@@ -443,8 +443,9 @@ is `1.0.0-alpha.0`, not a product 1.0 release or a stable storage-contract annou
 `private` flag prevents accidental registry publication while local packing/installing remains
 supported. A versioned engine name, shape or outcome change needs an explicit contract version.
 
-This delivery makes the existing explicit-port engine and namespace stores installable. It does
-not yet provide portable lifecycle ports for a complete Story. Existing Git lifecycle/configuration
+This delivery makes the existing explicit-port engine and namespace stores installable. It provides
+portable lifecycle ports for the explicitly qualified profiles; additional configured policy and
+execution owners remain required. Existing Git lifecycle/configuration
 authority is unchanged; this package neither migrates an installed project nor automatically
 selects a namespace store. Full cross-agent Story execution, verified authority cutover and final
 distribution/performance qualification remain migration gates.
@@ -462,3 +463,12 @@ packets v1–v4 keep their meanings. The optional `convergence` export provides 
 and types, without source access, evidence acceptance or approval authority. The
 [convergence contracts](../../docs/ENGINE-SDK-NAMESPACE-CONVERGENCE.md) describe these boundaries
 and the remaining Phase 5/7 owners.
+
+
+The namespace host provides `evidence-reuse.context` and `decision.evidence-reuse` for exact
+artifact-phase reuse of an earlier approved execution. It verifies real source, task, command,
+repository, submission and human decision proofs. The receiving phase has no execution of its
+own; publication reports preserve the producer and explicitly disclose that distinction.
+Configured Code checks and recovery agreements that prohibit reuse retain their own contracts.
+The `testing/reuse` export exposes pure bounded helpers, not evidence acceptance or authority.
+See [the reuse profile and qualification](../../docs/ENGINE-SDK-EVIDENCE-REUSE.md).

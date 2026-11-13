@@ -1,0 +1,469 @@
+{
+  "capturedFrom": "70876ea3c:src/evidence-reuse.mjs",
+  "sourceSha256": "02ab032c0f993fe4fac6bd25b77e999e8159afc5e2111b114856c5e809e6a38c",
+  "cases": [
+    {
+      "name": "reason-empty",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "Say why the recorded run stands for this step in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "reason-short",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "Say why the recorded run stands for this step in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "reason-lower-bound",
+      "ok": true,
+      "value": {
+        "id": "ERU-001",
+        "phase": "assess",
+        "attempt": {
+          "id": "TA-aaaaaaaaaaaaaaaaaaaa",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "attempt.json",
+          "phase": "build",
+          "generation": 1,
+          "commandId": "unit",
+          "status": "passed",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "completedAt": "2026-10-01T12:00:00.000Z"
+        },
+        "source": {
+          "commit": "cccccccccccccccccccccccccccccccccccccccc",
+          "treeSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "testInputSha256": null
+        },
+        "clauses": [
+          "EXAMPLE:AC-001"
+        ],
+        "reason": "aaaaaaaaaaaaaaaaaaaa",
+        "expiresAt": null,
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "reason-upper-bound",
+      "ok": true,
+      "value": {
+        "id": "ERU-001",
+        "phase": "assess",
+        "attempt": {
+          "id": "TA-aaaaaaaaaaaaaaaaaaaa",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "attempt.json",
+          "phase": "build",
+          "generation": 1,
+          "commandId": "unit",
+          "status": "passed",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "completedAt": "2026-10-01T12:00:00.000Z"
+        },
+        "source": {
+          "commit": "cccccccccccccccccccccccccccccccccccccccc",
+          "treeSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "testInputSha256": null
+        },
+        "clauses": [
+          "EXAMPLE:AC-001"
+        ],
+        "reason": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expiresAt": null,
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "reason-too-long",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "Say why the recorded run stands for this step in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "reason-trimmed",
+      "ok": true,
+      "value": {
+        "id": "ERU-001",
+        "phase": "assess",
+        "attempt": {
+          "id": "TA-aaaaaaaaaaaaaaaaaaaa",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "attempt.json",
+          "phase": "build",
+          "generation": 1,
+          "commandId": "unit",
+          "status": "passed",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "completedAt": "2026-10-01T12:00:00.000Z"
+        },
+        "source": {
+          "commit": "cccccccccccccccccccccccccccccccccccccccc",
+          "treeSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "testInputSha256": null
+        },
+        "clauses": [
+          "EXAMPLE:AC-001"
+        ],
+        "reason": "The original passing result applies to the unchanged source.",
+        "expiresAt": null,
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "reason-number",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "Say why the recorded run stands for this step in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-null",
+      "ok": true,
+      "value": {
+        "id": "ERU-001",
+        "phase": "assess",
+        "attempt": {
+          "id": "TA-aaaaaaaaaaaaaaaaaaaa",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "attempt.json",
+          "phase": "build",
+          "generation": 1,
+          "commandId": "unit",
+          "status": "passed",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "completedAt": "2026-10-01T12:00:00.000Z"
+        },
+        "source": {
+          "commit": "cccccccccccccccccccccccccccccccccccccccc",
+          "treeSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "testInputSha256": null
+        },
+        "clauses": [
+          "EXAMPLE:AC-001"
+        ],
+        "reason": "The original passing result applies to the unchanged source.",
+        "expiresAt": null,
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "expiry-2026-10-01",
+      "ok": true,
+      "value": {
+        "id": "ERU-001",
+        "phase": "assess",
+        "attempt": {
+          "id": "TA-aaaaaaaaaaaaaaaaaaaa",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "attempt.json",
+          "phase": "build",
+          "generation": 1,
+          "commandId": "unit",
+          "status": "passed",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "completedAt": "2026-10-01T12:00:00.000Z"
+        },
+        "source": {
+          "commit": "cccccccccccccccccccccccccccccccccccccccc",
+          "treeSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "testInputSha256": null
+        },
+        "clauses": [
+          "EXAMPLE:AC-001"
+        ],
+        "reason": "The original passing result applies to the unchanged source.",
+        "expiresAt": "2026-10-01T23:59:59.999Z",
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "expiry-2026-10-02",
+      "ok": true,
+      "value": {
+        "id": "ERU-001",
+        "phase": "assess",
+        "attempt": {
+          "id": "TA-aaaaaaaaaaaaaaaaaaaa",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "attempt.json",
+          "phase": "build",
+          "generation": 1,
+          "commandId": "unit",
+          "status": "passed",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "completedAt": "2026-10-01T12:00:00.000Z"
+        },
+        "source": {
+          "commit": "cccccccccccccccccccccccccccccccccccccccc",
+          "treeSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "testInputSha256": null
+        },
+        "clauses": [
+          "EXAMPLE:AC-001"
+        ],
+        "reason": "The original passing result applies to the unchanged source.",
+        "expiresAt": "2026-10-02T23:59:59.999Z",
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "expiry-2026-12-29",
+      "ok": true,
+      "value": {
+        "id": "ERU-001",
+        "phase": "assess",
+        "attempt": {
+          "id": "TA-aaaaaaaaaaaaaaaaaaaa",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "attempt.json",
+          "phase": "build",
+          "generation": 1,
+          "commandId": "unit",
+          "status": "passed",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "completedAt": "2026-10-01T12:00:00.000Z"
+        },
+        "source": {
+          "commit": "cccccccccccccccccccccccccccccccccccccccc",
+          "treeSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "testInputSha256": null
+        },
+        "clauses": [
+          "EXAMPLE:AC-001"
+        ],
+        "reason": "The original passing result applies to the unchanged source.",
+        "expiresAt": "2026-12-29T23:59:59.999Z",
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "expiry-2026-12-30",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-2026-12-31",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-2026-01-01",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-invalid",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-2026-10-02T00:00:00Z",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "--expires must be a date after today and at most 90 days ahead (YYYY-MM-DD).",
+        "details": null
+      }
+    },
+    {
+      "name": "expiry-2026-11-31",
+      "ok": true,
+      "value": {
+        "id": "ERU-001",
+        "phase": "assess",
+        "attempt": {
+          "id": "TA-aaaaaaaaaaaaaaaaaaaa",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "attempt.json",
+          "phase": "build",
+          "generation": 1,
+          "commandId": "unit",
+          "status": "passed",
+          "tests": {
+            "discovered": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0
+          },
+          "completedAt": "2026-10-01T12:00:00.000Z"
+        },
+        "source": {
+          "commit": "cccccccccccccccccccccccccccccccccccccccc",
+          "treeSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "testInputSha256": null
+        },
+        "clauses": [
+          "EXAMPLE:AC-001"
+        ],
+        "reason": "The original passing result applies to the unchanged source.",
+        "expiresAt": "2026-12-01T23:59:59.999Z",
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "revoke-empty",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "Say why the decision is revoked in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "revoke-short",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "Say why the decision is revoked in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "revoke-lower-bound",
+      "ok": true,
+      "value": {
+        "revokes": "ERU-001",
+        "phase": "assess",
+        "attemptId": "TA-aaaaaaaaaaaaaaaaaaaa",
+        "reason": "aaaaaaaaaaaaaaaaaaaa",
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "revoke-upper-bound",
+      "ok": true,
+      "value": {
+        "revokes": "ERU-001",
+        "phase": "assess",
+        "attemptId": "TA-aaaaaaaaaaaaaaaaaaaa",
+        "reason": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "revoke-too-long",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_INVALID",
+        "message": "Say why the decision is revoked in 20 to 1000 characters with --reason.",
+        "details": null
+      }
+    },
+    {
+      "name": "revoke-trimmed",
+      "ok": true,
+      "value": {
+        "revokes": "ERU-001",
+        "phase": "assess",
+        "attemptId": "TA-aaaaaaaaaaaaaaaaaaaa",
+        "reason": "The original passing result applies to the unchanged source.",
+        "actor": "reviewer",
+        "authorityGroup": "reviewers",
+        "identityAssurance": null,
+        "at": "2026-10-01T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "unknown-revoke",
+      "ok": false,
+      "error": {
+        "code": "EVIDENCE_REUSE_UNKNOWN",
+        "message": "This Story has no evidence-reuse decision ERU-999.",
+        "details": null
+      }
+    }
+  ]
+}

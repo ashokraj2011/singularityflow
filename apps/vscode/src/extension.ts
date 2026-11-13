@@ -151,7 +151,7 @@ import { formatCommandRouteLines } from '../../../src/model-free-commands.mjs';
 import { vscodeVersionLimits, vscodeVersionWarning } from '../../../src/vscode-host-version.mjs';
 import { createTerminalIn } from './terminal-start.ts';
 import {
-  offerCopilotChatCounting, startCopilotChatCounting, turnOffCopilotChatCounting, turnOnCopilotChatCounting
+  offerCopilotChatCounting, startCopilotChatCounting, startCopilotSessionSync, turnOffCopilotChatCounting, turnOnCopilotChatCounting
 } from './copilot-chat-counting.ts';
 import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli/git-observations.ts';
 import {
@@ -5095,6 +5095,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (!copilotChatCountingStarted && vscode.env?.appHost) {
     copilotChatCountingStarted = true;
     startCopilotChatCounting(context, client, (line) => output.appendLine(line));
+    startCopilotSessionSync(context, client, (line) => output.appendLine(line));
     context.subscriptions.push({ dispose: () => { copilotChatCountingStarted = false; } });
   }
   handlers.set('singularityFlow.checkRepository', async () => {

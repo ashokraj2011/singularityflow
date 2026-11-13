@@ -114,3 +114,32 @@ test('a Story Copilot sent nothing for shows why, not zero events, and blames th
   assert.match(html, /started with <code>singularity-flow copilot<\/code>/, 'commands read as code');
   assert.match(html, /20\.0 KB of 64\.0 KB budget/, 'the prompt sflow composed is still measured');
 });
+
+// [owner, 2026-11-13] Copilot's own session logs: premium requests and cache hits, from the report as it is.
+test('Story Analytics shows the premium requests and cache hits Copilot\'s session logs hold, or why they hold none', () => {
+  const metered = { ...workflow(), history: [
+    { at: at(0), event: 'phase_generated', phase: 'requirements' }, { at: at(30), event: 'phase_approved', phase: 'requirements' }] };
+  const call = (minutes, fields) => ({ key: `k${minutes}`, at: at(minutes), session: 's', model: 'model-alpha-1.5', initiator: 'agent',
+    inputTokens: 1000, cacheReadTokens: 800, cacheWriteTokens: 0, outputTokens: 10, premiumRequests: 0, nanoAiu: 500_000_000, ...fields });
+  const copilotSessions = { branch: 'ENG-9', read: true, since: at(0), syncedAt: at(60), repositorySessions: 1, pending: 0,
+    calls: [call(10, { initiator: 'user', premiumRequests: 3 }), call(11, {}), call(35, { initiator: 'user', premiumRequests: 1, cacheReadTokens: 400 })] };
+  const report = deriveReport(metered, { now: at(60), copilotSessions });
+  const html = copilotActivityHtml(buildLifecycleAnalytics(report));
+  assert.match(html, /<strong>4<\/strong><span>Premium requests · Copilot&#39;s count, from its session logs<\/span>/);
+  assert.match(html, /<strong>66\.7%<\/strong><span>Cache hit · input tokens read from Copilot's cache<\/span>/);
+  assert.match(html, /<th>Premium<\/th><th>Billed \(AIU\)<\/th><th>Cache hit<\/th>/);
+  assert.match(html, /<td>80%<\/td>/);
+  assert.match(html, /<td>40%<\/td>/);
+  assert.match(html, /Copilot's session logs on this computer \(Copilot CLI and VS Code's Copilot agent\): 4 premium requests and 3 model calls for this Story/);
+  assert.match(html, /Billed usage \(AIU\) · reported by Copilot</);
+  assert.equal(premiumLabel({ value: 4, status: 'observed', missingModels: [] }), '4', 'Copilot\'s own count is not an estimate');
+
+  const none = deriveReport(metered, { now: at(60), copilotSessions: { branch: 'ENG-9', read: false, reason: 'no-session-logs', calls: [] } });
+  assert.match(copilotActivityHtml(buildLifecycleAnalytics(none)),
+    /Copilot&#39;s session logs: Copilot has written no session logs on this computer/);
+  const quiet = { ...workflow(), phases: Object.fromEntries(Object.entries(workflow().phases).map(([id, phase]) => [id, { ...phase, telemetry: [] }])) };
+  assert.match(copilotActivityHtml(buildLifecycleAnalytics(deriveReport(quiet, { now: at(60),
+    copilotSessions: { branch: 'ENG-9', read: true, repositorySessions: 0, pending: 0, calls: [] } }))),
+  /<section><h2>.*Copilot activity<\/h2><p class="muted">Copilot&#39;s session logs: no Copilot session on this computer has worked in this repository\.<\/p><\/section>/s,
+  'with nothing counted anywhere, the reason still shows');
+});

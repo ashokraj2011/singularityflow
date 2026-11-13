@@ -93,6 +93,35 @@ export async function turnOffCopilotChatCounting(client: SingularityFlowClient):
   void showCompactInformationMessage('Copilot Chat usage is no longer counted. Requests already recorded stay in this computer\'s reports.');
 }
 
+const SESSION_SYNC_DELAY_MS = 45_000;
+
+/**
+ * Copilot's own session logs, recorded for this repository's Story reports. [owner, 2026-11-13]
+ * Copilot CLI and VS Code's Copilot agent write every session's model calls, premium requests and
+ * cache use there on their own, so this needs no consent or setting: once the window has settled,
+ * and every few minutes after, the CLI records what they added (`telemetry sessions sync`), and Story
+ * Analytics shows it without anyone running `report`. Kept in this module so the extension bundle
+ * gains no file for it; it shares nothing with Copilot Chat's counting.
+ */
+export function startCopilotSessionSync(context: vscode.ExtensionContext, client: SingularityFlowClient,
+  log: (line: string) => void): void {
+  let running = false;
+  const sync = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      await client.run(['telemetry', 'sessions', 'sync', '--json'], undefined, { priority: 'background' });
+    } catch (error) {
+      log(`Copilot's session logs could not be read: ${(error as Error).message}`);
+    } finally {
+      running = false;
+    }
+  };
+  const first = setTimeout(() => { void sync(); }, SESSION_SYNC_DELAY_MS);
+  const timer = setInterval(() => { void sync(); }, SYNC_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => { clearTimeout(first); clearInterval(timer); } });
+}
+
 /**
  * Ask once per computer, and only when it can work: Copilot Chat is installed and nobody has
  * configured its OpenTelemetry. Any answer, including closing the message, is final; the commands

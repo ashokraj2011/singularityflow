@@ -579,11 +579,47 @@ export interface StoryPhaseCopilot {
   premiumRequests: CopilotPremiumEstimate;
   /** The usage Copilot Chat reports for its model calls, in AI units. Absent from older CLIs. */
   billedAiu?: CopilotCount;
+  /** Copilot's own counts from its session logs on this computer, where they cover the phase. Absent from older CLIs. */
+  sessions?: CopilotSessionUsage | null;
   events: CopilotEvent[];
   /** Event occurrences: a line listing two substituted calls counts two. */
   eventCount: number;
   omittedEvents: number;
   prompt: CopilotPromptSize | null;
+}
+
+/** Model calls counted from Copilot's own session logs (Copilot CLI and VS Code's Copilot agent). */
+export interface CopilotSessionUsage {
+  modelCalls: number;
+  /** Requests a person sent. */
+  requests: number;
+  premiumRequests: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  uncachedInputTokens: number;
+  cacheWriteInputTokens: number;
+  outputTokens: number;
+  /** Percent of input tokens read from Copilot's prompt cache. */
+  cacheHitShare: number | null;
+  aiu: number | null;
+  byModel?: Array<Omit<CopilotSessionUsage, 'byModel' | 'sessions' | 'intervalsWithoutCalls'> & { model: string }>;
+  sessions?: number;
+  intervalsWithoutCalls?: number;
+}
+
+/** What Copilot's session logs on this computer hold for the Story, or why nothing. */
+export interface StoryCopilotSessions extends Partial<CopilotSessionUsage> {
+  source: 'copilot-session-logs';
+  found: boolean;
+  /** Why nothing was found: no-session-logs, not-read, unreadable, no-repository-session, no-branch-session, outside-story. */
+  reason: string | null;
+  /** The reason as one plain sentence; null when something was found. */
+  explanation: string | null;
+  branch: string | null;
+  syncedAt: string | null;
+  coveredPhases: string[];
+  callsOutsideStory: number;
+  pendingSessions: number;
 }
 
 /** What this computer counted of Copilot Chat in VS Code for the Story. */
@@ -615,6 +651,8 @@ export interface StoryCopilotSummary {
   billedAiu?: CopilotCount;
   /** Absent from older CLIs. */
   chat?: StoryCopilotChat;
+  /** Absent from older CLIs, and null when the session logs were not read. */
+  sessions?: StoryCopilotSessions | null;
   events: CopilotEvent[];
   /** Event occurrences: a line listing two substituted calls counts two. */
   eventCount: number;

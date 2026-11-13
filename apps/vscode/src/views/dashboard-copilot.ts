@@ -44,13 +44,21 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
   const copilot = analytics.copilot;
   if (!copilot) return '';
   const prompted = analytics.phases.filter((phase) => phase.copilot?.prompt);
-  if (copilot.status === 'none' && !prompted.length) return '';
+  if (copilot.status === 'none' && !prompted.length) {
+    // Nothing counted anywhere: still say why Copilot's own session logs hold nothing for the Story.
+    return copilot.sessions?.explanation
+      ? `<section><h2>${icon('impact')}Copilot activity</h2><p class="muted">${codeSpans(escape(copilot.sessions.explanation))}</p></section>` : '';
+  }
   const scale = Math.max(1, ...prompted.flatMap((phase) => [phase.copilot?.prompt?.bytes ?? 0, phase.copilot?.prompt?.maximumBytes ?? 0]));
-  // Requests come first: without them no multiplier can produce an estimate.
-  const premiumNote = copilot.requests.value == null ? 'Requests were not captured'
-    : copilot.premiumRequests.value == null
-      ? (copilot.premiumMultipliersConfigured ? 'No multiplier for the models used' : 'Set tokens.premiumMultipliers to estimate')
-      : copilot.premiumRequests.status === 'partial' ? 'Estimated; some models have no multiplier' : 'Estimated from configured multipliers';
+  const sessions = copilot.sessions;
+  // Copilot's own count, from its session logs, needs no multiplier. Otherwise requests come first:
+  // without them no multiplier can produce an estimate.
+  const premiumNote = copilot.premiumRequests.status === 'observed' ? 'Copilot\'s count, from its session logs'
+    : copilot.requests.value == null ? 'Requests were not captured'
+      : copilot.premiumRequests.value == null
+        ? (copilot.premiumMultipliersConfigured ? 'No multiplier for the models used' : 'Set tokens.premiumMultipliers to estimate')
+        : copilot.premiumRequests.status === 'partial' ? 'Estimated; some models have no multiplier'
+          : sessions?.found ? 'Copilot\'s session logs plus an estimate' : 'Estimated from configured multipliers';
   // A count of events is only as good as the capture behind it: nothing captured is not zero events.
   const eventValue = copilot.status === 'none' ? '—'
     : copilot.status === 'unavailable' || copilot.eventsObserved === false ? 'Unavailable'
@@ -68,6 +76,7 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
     <td>${escape(copilotCountLabel(phase.copilot?.toolCalls))}${failed ? ` <span class="warning-text">(${failed} failed)</span>` : ''}</td>
     <td>${escape(premiumLabel(phase.copilot?.premiumRequests))}${phase.copilot?.eventCount ? ` <span class="warning-text" title="Quota or model events">⚠ ${phase.copilot.eventCount}</span>` : ''}</td>
     <td>${escape(aiuLabel(phase.copilot?.billedAiu))}</td>
+    ${sessions?.found ? `<td>${phase.copilot?.sessions?.cacheHitShare != null ? `${phase.copilot.sessions.cacheHitShare}%` : '—'}</td>` : ''}
     <td class="duration-cell">${promptBarHtml(phase, scale)}</td>
   </tr>`;
   }).join('');
@@ -77,22 +86,29 @@ export function copilotActivityHtml(analytics: LifecycleAnalytics): string {
   const chat = copilot.chat?.counted
     ? `<p class="muted">Copilot Chat on this computer: ${copilot.chat.requests} request${copilot.chat.requests === 1 ? '' : 's'} for this Story, counted since ${escape(copilot.chat.since ?? '')}${copilot.chat.cachedShare != null ? `; ${copilot.chat.cachedShare}% of their input tokens read from Copilot's cache` : ''}. Other people's Copilot Chat use is not included.</p>`
     : '';
+  // From Copilot's own session logs: what they counted for the Story, or why nothing. [owner, 2026-11-13]
+  const sessionLine = !sessions ? ''
+    : sessions.found
+      ? `<p class="muted">Copilot's session logs on this computer (Copilot CLI and VS Code's Copilot agent): ${escape(String(sessions.premiumRequests ?? 0))} premium request${sessions.premiumRequests === 1 ? '' : 's'} and ${escape(String(sessions.modelCalls ?? 0))} model call${sessions.modelCalls === 1 ? '' : 's'} for this Story${sessions.syncedAt ? `, read ${escape(sessions.syncedAt)}` : ''}. Where they cover a phase they are its only source, so nothing is counted twice. Other people's use is not included.</p>`
+      : `<p class="muted">${codeSpans(escape(sessions.explanation ?? ''))}</p>`;
   return `<section>
     <h2>${icon('impact')}Copilot activity</h2>
     <p class="muted">Counted from the spans Copilot exports for launches through <code>singularity-flow copilot</code>, and for Copilot Chat in VS Code from the local file it writes on a computer where counting is on. Premium requests are estimated as requests × <code>tokens.premiumMultipliers</code>, and GitHub's billing is authoritative. The prompt is what sflow composed for the latest generation (bytes exact, tokens ≈ bytes ÷ 4); Copilot adds its own instructions, tools and history.</p>
     <div class="summary-grid lifecycle-kpis">
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.requests))}</strong><span>Requests you sent</span></div>
       <div class="summary-card${copilot.events.some((event) => event.kind !== 'failed') ? ' governance-warning' : ''}"><strong>${escape(premiumLabel(copilot.premiumRequests))}</strong><span>Premium requests · ${escape(premiumNote)}</span></div>
-      ${copilot.billedAiu?.value != null ? `<div class="summary-card"><strong>${escape(aiuLabel(copilot.billedAiu))}</strong><span>Billed usage (AIU) · reported by Copilot Chat</span></div>` : ''}
+      ${copilot.billedAiu?.value != null ? `<div class="summary-card"><strong>${escape(aiuLabel(copilot.billedAiu))}</strong><span>Billed usage (AIU) · reported by ${sessions?.found ? 'Copilot' : 'Copilot Chat'}</span></div>` : ''}
+      ${sessions?.found && sessions.cacheHitShare != null ? `<div class="summary-card"><strong>${sessions.cacheHitShare}%</strong><span>Cache hit · input tokens read from Copilot's cache</span></div>` : ''}
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.turns))}</strong><span>Agent turns${copilot.turnsDerived ? ' · some counted from model calls' : ''}</span></div>
       <div class="summary-card"><strong>${escape(copilotCountLabel(copilot.toolCalls))}</strong><span>Tool calls</span></div>
       <div class="summary-card${copilot.eventCount ? ' governance-warning' : ''}"><strong>${escape(eventValue)}</strong><span>Quota and model events</span></div>
       <div class="summary-card${copilot.promptsOverBudget.length ? ' governance-warning' : ''}"><strong>${copilot.largestPrompt ? escape(sizeLabel(copilot.largestPrompt.bytes)) : '—'}</strong><span>Largest governed prompt${copilot.largestPrompt ? ` · ${escape(copilot.largestPrompt.phase)}` : ''}${copilot.promptsOverBudget.length ? ` · ${copilot.promptsOverBudget.length} over budget` : ''}</span></div>
     </div>
+    ${sessionLine}
     ${chat}
     ${captureNotes}
     <div class="table-wrap"><table class="analytics-table">
-      <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>Premium (est.)</th><th>Billed (AIU)</th><th>Prompt</th></tr></thead>
+      <thead><tr><th>Phase</th><th>Requests</th><th>Turns</th><th>Model calls</th><th>Tool calls</th><th>${sessions?.found ? 'Premium' : 'Premium (est.)'}</th><th>Billed (AIU)</th>${sessions?.found ? '<th>Cache hit</th>' : ''}<th>Prompt</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     ${events}

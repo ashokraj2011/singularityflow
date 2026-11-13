@@ -239,7 +239,8 @@ export function premiumLabel(estimate: CopilotPremiumEstimate | null | undefined
   if (!estimate || estimate.status === 'none') return '—';
   if (estimate.value == null) return 'Unavailable';
   const value = Number.isInteger(estimate.value) ? estimate.value.toLocaleString('en-US') : estimate.value.toFixed(2);
-  return `~${value}${estimate.status === 'partial' ? ' (partial)' : ''}`;
+  // Copilot's own count (from its session logs) is not an estimate.
+  return `${estimate.status === 'observed' ? '' : '~'}${value}${estimate.status === 'partial' ? ' (partial)' : ''}`;
 }
 
 export function sizeLabel(bytes: number): string {

@@ -1,7 +1,7 @@
 ---
 id: telemetry-and-cost
 title: Telemetry, tokens, and cost
-version: 12
+version: 13
 aliases:
   - tokens
   - cost
@@ -16,7 +16,7 @@ related:
   - model-independence
   - reference-previews
 ---
-Token accounting is exact where the provider supplies it and labeled `unavailable` where it does not—never converted to zero. `sflow copilot` and `sflow workspace copilot` provision a separate metadata-only file stream for each SFlow-owned Copilot CLI process after one machine-local disclosure. Manual Copilot and native IDE chat remain usable but are not attributed to that launch; Copilot Chat in VS Code is counted separately, on a computer where counting is on (below). `sflow telemetry status` shows captured, partial, unavailable, conflict, and disabled coverage; `sflow telemetry reconcile` compares completed provider events against a phase. `sflow context xray` and `sflow tokens status|report|compare` read the resulting content-free observations without reconciling or mutating them. `sflow context compile|expand` use the same deterministic kernel and write only sealed handles and content-free accounting under the Git common directory.
+Token accounting is exact where the provider supplies it and labeled `unavailable` where it does not—never converted to zero. Story reports also read Copilot's own session logs on this computer, with no setup, for premium requests and cache hits per Story and phase (below). `sflow copilot` and `sflow workspace copilot` provision a separate metadata-only file stream for each SFlow-owned Copilot CLI process after one machine-local disclosure. Manual Copilot and native IDE chat remain usable but are not attributed to that launch; Copilot Chat in VS Code is counted separately, on a computer where counting is on (below). `sflow telemetry status` shows captured, partial, unavailable, conflict, and disabled coverage; `sflow telemetry reconcile` compares completed provider events against a phase. `sflow context xray` and `sflow tokens status|report|compare` read the resulting content-free observations without reconciling or mutating them. `sflow context compile|expand` use the same deterministic kernel and write only sealed handles and content-free accounting under the Git common directory.
 
 ## Purpose and prerequisites
 
@@ -26,7 +26,7 @@ Use this topic when the current goal matches **telemetry and cost**. Start in a 
 
 - **Shell:** launch with `sflow copilot`; inspect or control capture with `sflow telemetry`. Read the current phase with `sflow context xray`, or the whole-Story ledger with `sflow tokens report`. Run `singularity-flow telemetry --help` for exact forms.
 - **Copilot:** `/sf-telemetry`. The skill must preserve the CLI result and ask before it changes anything.
-- **VS Code:** **Continue with Copilot CLI** opens the metered SFlow launcher in an integrated terminal. **Count Copilot Chat Usage** turns on counting for Copilot Chat in VS Code (see below); **Stop Counting Copilot Chat Usage** turns it off.
+- **VS Code:** **Continue with Copilot CLI** opens the metered SFlow launcher in an integrated terminal. **Count Copilot Chat Usage** turns on counting for Copilot Chat in VS Code (see below); **Stop Counting Copilot Chat Usage** turns it off. Copilot's own session logs are recorded in the background with nothing to turn on.
 
 ## Guided workflow
 
@@ -82,6 +82,42 @@ the usage Copilot Chat reports for its model calls, which needs no multipliers. 
 computer's only: another person's Copilot Chat use appears in their report, not yours, and requests
 made before counting was turned on cannot be recovered. `sflow telemetry chat` shows where the
 file is and how far this repository has read it.
+
+## Copilot's own session logs: premium requests and cache hits
+
+Copilot CLI and VS Code's Copilot agent (it runs on the same Copilot runtime) write every session to
+`session-state` under the Copilot home (`COPILOT_HOME`, or `~/.copilot`), with no setup: where the
+session ran (its Git root and branch) and, for each model call, the model, input and output tokens,
+cache reads and writes, its premium-request cost and the AI units (AIU) Copilot accounted for it.
+`sflow report` reads what they added since the last read, and VS Code does so every few minutes in
+the background (`sflow telemetry sessions sync`). A session counts for this repository when its Git
+root is the main checkout or one of its worktrees, Story worktrees included; a session that started
+in another repository is skipped from its first line. Each model call is recorded once, beside this
+repository's Git directory, as counts only: when, on which branch, which model, the tokens, premium
+requests and AIU. No prompt, response, tool argument or path is kept, and nothing is committed.
+
+A report attaches each call on the Story's branch to the phase being worked on at that moment, the
+same way it places Copilot Chat requests (a completion moves work to the next phase, a send-back to
+the phase it names); calls before the Story began or after it finished count for none. A change of
+branch or folder in the middle of a session moves the calls after it. The report's **Copilot premium
+requests and cache use** section, and Story Analytics, show per phase and per model:
+
+- **premium requests**: the `cost` of the requests a person sent, which is how Copilot itself totals
+  them; calls the agent makes on its own carry a cost but are not billed;
+- **requests**, **model calls**, **input**, **cached**, **uncached** and **cache-write** input tokens,
+  **output tokens**, and the **cache hit** share (cached ÷ input; Copilot counts cache reads and writes
+  inside input);
+- **AIU**: Copilot's usage for every call.
+
+Nothing is counted twice. Where the session logs hold calls for a phase, they are that phase's only
+source of requests, model calls, premium requests and AIU; the OpenTelemetry counts (sessions through
+`sflow copilot`, Copilot Chat in VS Code) count only in phases the logs do not cover. Turns, tool calls,
+quota events and prompt size still come from those spans and from SFlow's composition. When the logs
+hold nothing for a Story the report says why: no Copilot session ran on this computer, none ran in this
+repository, none worked on the Story's branch, or all of them fell outside the Story's life. Counts are
+this computer's only. Copilot versions before 1.0.94 kept only running totals; those intervals count
+premium requests and AIU without model calls or tokens. `sflow telemetry sessions` shows the sessions
+found, the calls recorded, the last read, and why other sessions were not this repository's.
 
 IntelliJ's native chat still exports no spans to SFlow, so its phases show generations and prompt size but no requests, turns or quota events.
 

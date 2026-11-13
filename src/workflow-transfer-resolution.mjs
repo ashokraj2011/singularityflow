@@ -249,14 +249,36 @@ function planKindNoun(kind) {
   return catalog ? subjectNoun(catalog) : PLAN_KIND_NOUNS[kind] ?? kind;
 }
 
+/**
+ * Steps and agents an import adds to an agent or MCP server it reuses, as "testing-report, test-gaps
+ * to agent qa": the plan's `agent-phase-additions` and `mcp-server-additions` entries.
+ */
+const ADDITION_OWNERS = Object.freeze({ 'agent-phase-additions': 'agent', 'mcp-server-additions': 'MCP server' });
+function additionsWhat(entry) {
+  const steps = [...new Set([...(entry.phases ?? []), ...(entry.defaultFor ?? [])])];
+  const agents = entry.agents ?? [];
+  return [steps.join(', '), agents.length ? `${agents.length === 1 ? 'agent' : 'agents'} ${agents.join(', ')}` : '']
+    .filter(Boolean).join(' and ');
+}
+
+/** "Reuses agent qa and adds testing-report, test-gaps to it" for such an entry; null for any other. */
+export function planAdditionSentence(entry) {
+  const owner = ADDITION_OWNERS[entry?.kind];
+  return owner ? `Reuses ${owner} ${entry.id} and adds ${additionsWhat(entry)} to it` : null;
+}
+
 /** Plan entries grouped as "agent qa-x · skills review-x, check-y · …". */
 export function planEntriesText(entries = []) {
   const groups = new Map();
   for (const entry of entries) {
+    if (ADDITION_OWNERS[entry.kind]) {
+      groups.set(`\0${entry.kind}:${entry.id}`, `${additionsWhat(entry)} to ${ADDITION_OWNERS[entry.kind]} ${entry.id}`);
+      continue;
+    }
     const noun = planKindNoun(entry.kind);
     groups.set(noun, [...(groups.get(noun) ?? []), planEntryName(entry)]);
   }
-  return [...groups].map(([noun, ids]) => `${ids.length === 1 ? noun : noun.endsWith('y') && !noun.endsWith('ey') ? `${noun.slice(0, -1)}ies` : noun.endsWith('s') ? noun : `${noun}s`} ${ids.join(', ')}`).join(' · ');
+  return [...groups].map(([noun, ids]) => typeof ids === 'string' ? ids : `${ids.length === 1 ? noun : noun.endsWith('y') && !noun.endsWith('ey') ? `${noun.slice(0, -1)}ies` : noun.endsWith('s') ? noun : `${noun}s`} ${ids.join(', ')}`).join(' · ');
 }
 
 /**
@@ -277,8 +299,11 @@ export function importPlanText(plan, file, { propose = false } = {}) {
   lines.push(`  Add: ${counts.add ?? 0} · Reuse exact: ${counts.reuse ?? 0}`
     + `${counts.replace ? ` · Replace yours: ${counts.replace}` : ''}${counts.keep ? ` · Keep yours: ${counts.keep}` : ''}`
     + ` · Conflicts: ${counts.conflicts ?? 0}`);
-  if (plan.added?.length) lines.push(`  Adds: ${planEntriesText(plan.added)}`);
+  const additions = (plan.added ?? []).filter((item) => planAdditionSentence(item));
+  const added = (plan.added ?? []).filter((item) => !planAdditionSentence(item));
+  if (added.length) lines.push(`  Adds: ${planEntriesText(added)}`);
   if (plan.reused?.length) lines.push(`  Already here: ${planEntriesText(plan.reused)}`);
+  for (const item of additions) lines.push(`  ${planAdditionSentence(item)}.`);
   if (plan.removesText) lines.push(`  Removes: ${plan.removesText} (the replaced folder no longer has ${plan.removed.length === 1 ? 'it' : 'them'})`);
   for (const item of plan.renamed ?? []) {
     const { kind, id } = parseSubject(item.subject);

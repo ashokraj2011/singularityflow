@@ -11,7 +11,7 @@ The review screen shows:
 
 Existing identities receive unused suggestions. Edit the destination IDs, then choose **Validate names and preview**. Collisions and invalid names prevent applying the plan. Editing a name invalidates the previous preview. Confirmation applies only the exact reviewed plan; a changed destination requires another preview.
 
-Import does not automatically overwrite existing objects. Workflow references, agent attachments, native Copilot names, dependency locks and import provenance follow the renamed identities. Selected integration target declarations travel in the bundle; credentials do not.
+Import does not automatically overwrite existing objects. An agent or MCP server that differs from this repository's own only by steps the import adds (for a server, also agents it adds) is reused, and those are added to it, as Workflow Studio does when a new step is assigned to it: the preview says "Reuses agent qa and adds testing-report, test-gaps to it". The agent keeps every step it has here, so a shipped agent can draft a new step imported from another repository. Workflow references, agent attachments, native Copilot names, dependency locks and import provenance follow the renamed identities. Selected integration target declarations travel in the bundle; credentials do not.
 
 **New workflow** starts a blank workflow. It does not select or customize an existing one. Framework-seeded workflows and their shared dependencies are read-only in the authoring UI and APIs. Use **Duplicate** to customize a copy; people in approval groups remain configurable.
 

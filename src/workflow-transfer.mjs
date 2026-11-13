@@ -2037,19 +2037,22 @@ async function targetSnapshot(root, bundle) {
 
 function entry(kind, id, extra = {}) { return { kind, id, ...extra }; }
 
-function mergedConfigurationValue(existing, bundle, governs, replaced = new Set()) {
+/** `extendedServers` maps a reused MCP server to the step and agent lists the import gives it. */
+function mergedConfigurationValue(existing, bundle, governs, replaced = new Set(), extendedServers = new Map()) {
   const merged = clone(existing);
   for (const { section, values } of configSections(bundle).filter((item) => item.governs === governs)) {
     const catalog = transferCatalog(merged, section);
     for (const [id, value] of Object.entries(values)) {
       if (!Object.hasOwn(catalog, id) || replaced.has(`${governs}.${section}:${id}`)) catalog[id] = clone(value);
+      else if (section === 'mcpServers' && extendedServers.has(id)) Object.assign(catalog[id], clone(extendedServers.get(id)));
     }
     if (Object.keys(catalog).length) setTransferCatalog(merged, section, catalog);
   }
   return merged;
 }
 
-async function mergedImportAgentCatalog(root, bundle, kept = new Set()) {
+/** `extended` maps a reused agent to its file with the steps the import adds to it. */
+async function mergedImportAgentCatalog(root, bundle, kept = new Set(), extended = new Map()) {
   const catalog = new Map((await discoverAgents(root)).map((agent) => [agent.id, agent]));
   for (const asset of bundle.assets.filter((candidate) => candidate.kind === 'agent' && !kept.has(candidate.id))) {
     const parsed = parseAgentDependencies(asset.content, { source: asset.path, agentId: asset.id });
@@ -2057,6 +2060,12 @@ async function mergedImportAgentCatalog(root, bundle, kept = new Set()) {
       ...parsed, scope: 'repository', file: path.join(root, asset.path), text: asset.content,
       sha256: asset.sha256.replace(/^sha256:/, '')
     });
+  }
+  for (const [id, text] of extended) {
+    const agent = catalog.get(id);
+    if (!agent) continue;
+    catalog.set(id, { ...agent, ...parseAgentDependencies(text, { source: agent.source ?? `.github/agents/${id}.agent.md`, agentId: id }),
+      text, sha256: digest(text).replace(/^sha256:/, '') });
   }
   return catalog;
 }
@@ -2527,6 +2536,13 @@ async function importPlan(root, destination, original, chosen) {
   }) : original;
   const bundleSteps = new Set([...Object.keys(bundle.objects.story.phases ?? {}), ...Object.keys(bundle.objects.initiative?.initiativePhases ?? {})]);
   const scopedAgents = readRecord(WORKFLOW_BUNDLE_FAMILY, original).storedVersion >= 9;
+  // The steps and agents this import brings that the repository does not have, under the names they
+  // arrive with: a shared agent or server that differs only by these gets them added [owner, 2026-11-13].
+  const targetSteps = new Set([...targetPhases, ...Object.keys(values.initiative.initiativePhases ?? {})]);
+  const addedSteps = new Set([...bundleSteps].filter((id) => !targetSteps.has(id)));
+  const targetAgentIds = new Set(targetAgents.map((agent) => agent.id));
+  const addedAgents = new Set(bundle.assets.filter((asset) => asset.kind === 'agent' && !targetAgentIds.has(asset.id)).map((asset) => asset.id));
+  const extendedAgents = new Map(); const extendedServers = new Map();
   const add = []; const reuse = []; const conflicts = [];
   const subjects = new Map();
   const noted = (item, subject) => { if (subject) subjects.set(item, subject); return item; };
@@ -2542,9 +2558,16 @@ async function importPlan(root, destination, original, chosen) {
     const kind = catalogSubjectKind(`${governs}.${section}`);
     for (const [id, value] of Object.entries(incoming)) {
       const subject = subjectRef(kind, id);
+      const listed = governs === 'story' && section === 'mcpServers' && Object.hasOwn(existing, id)
+        ? serverListAdditions(existing[id], value, { phases: addedSteps, agents: addedAgents }) : null;
       if (!Object.hasOwn(existing, id)) add.push(noted(entry(`${governs}.${section}`, id), subject));
       else if (canonicalJson(existing[id]) === canonicalJson(value)) reuse.push(noted(entry(`${governs}.${section}`, id), subject));
-      else conflicts.push(noted(entry(`${governs}.${section}`, id, { reason: 'same ID has different content' }), subject));
+      else if (listed) {
+        // The repository's server with the added steps and agents, where the bundle's lists have them.
+        reuse.push(noted(entry(`${governs}.${section}`, id), subject));
+        add.push(entry('mcp-server-additions', id, { phases: listed.phases ?? [], agents: listed.agents ?? [] }));
+        extendedServers.set(id, Object.fromEntries(Object.keys(listed).map((key) => [key, clone(value[key])])));
+      } else conflicts.push(noted(entry(`${governs}.${section}`, id, { reason: 'same ID has different content' }), subject));
     }
   }
   const currentAttachments = await readSkillAttachments(target.root);
@@ -2624,12 +2647,24 @@ async function importPlan(root, destination, original, chosen) {
       const comparison = importedAssetReuse(asset, portableContent);
       const attachmentsOnly = !comparison.reusable && targetAgent
         ? attachmentOnlyAdditions(asset, portableContent.toString('utf8')) : null;
+      // Only an agent file this repository owns has its steps written there: an APM agent's steps
+      // are its package's, and a packaged agent outside the repository is not edited.
+      const stepsOnly = !comparison.reusable && !attachmentsOnly && targetAgent?.scope === 'repository' && !targetAgent.apm
+        ? agentStepsExtension(asset, content, portableContent.toString('utf8'), addedSteps, relative) : null;
       if (comparison.reusable) reuse.push(noted(entry(asset.kind, relative, { sha256: asset.sha256 }), subject));
       else if (attachmentsOnly) {
         // The same agent with skills attached to it in the source: keep this repository's agent
         // (a packaged one is read-only) and attach the skills here, in the attachments file.
         reuse.push(noted(entry(asset.kind, relative, { sha256: asset.sha256 }), subject));
         add.push(entry('agent-skill-attachments', asset.id, { attachments: attachmentsOnly }));
+      } else if (stepsOnly) {
+        // The same agent drafting the steps this import adds: keep this repository's agent, with
+        // every step it has, and add those steps to its lists, as Studio does for a new step.
+        reuse.push(noted(entry(asset.kind, relative, { sha256: asset.sha256 }), subject));
+        if (stepsOnly.text !== content.toString('utf8')) {
+          add.push(entry('agent-phase-additions', asset.id, { path: relative, phases: stepsOnly.phases, defaultFor: stepsOnly.defaultFor }));
+          extendedAgents.set(asset.id, { relative, before: content, text: stepsOnly.text });
+        }
       } else conflicts.push(noted(entry(asset.kind, relative, { reason: comparison.reason }), subject));
     }
     assetTargets.push({ asset, relative });
@@ -2656,6 +2691,9 @@ async function importPlan(root, destination, original, chosen) {
     agentLock: digest(target.agentLock.text), importsLedger: digest(target.importsLedger.text),
     skillAttachments: digest(skillAttachmentsText(currentAttachments) ?? ''),
     skillGitAttributes: attributes?.previousSha256 ?? null,
+    // The exact bytes of each agent file the plan adds steps to.
+    ...(extendedAgents.size ? { extendedAgents: [...extendedAgents.values()]
+      .map(({ relative, before }) => ({ path: relative, sha256: digest(before) })).sort((a, b) => a.path.localeCompare(b.path)) } : {}),
     assets: [...targetPaths.values()].map(({ targetPath: relative }) => relative).sort().map((relative) => {
       const operation = [...add, ...reuse, ...conflicts].find((item) => item.id === relative);
       return { path: relative, state: operation?.reason ?? operation?.sha256 ?? operation?.kind ?? 'unknown' };
@@ -2693,14 +2731,16 @@ async function importPlan(root, destination, original, chosen) {
     const asset = assetTargets.find(({ relative }) => relative === item.id)?.asset;
     if (asset) keptAgents.add(asset.id);
   }
-  const agentCatalog = await mergedImportAgentCatalog(target.root, bundle, keptAgents);
+  const extendedAgentTexts = new Map([...extendedAgents].map(([id, { text }]) => [id, text]));
+  const agentCatalog = await mergedImportAgentCatalog(target.root, bundle, keptAgents, extendedAgentTexts);
   const incomingConfiguration = Object.fromEntries(['story', 'initiative'].map((governs) => [
     governs,
     configSections(bundle).filter((item) => item.governs === governs)
       .some((item) => Object.keys(item.values).length)
   ]));
   const candidates = Object.fromEntries(['story', 'initiative'].map((governs) => [
-    governs, mergedConfigurationValue(values[governs], bundle, governs, replacedObjects)
+    governs, mergedConfigurationValue(values[governs], bundle, governs, replacedObjects,
+      governs === 'story' ? extendedServers : new Map())
   ]));
   const removals = await droppedUserDefinedFiles(target.root, assetTargets,
     new Set([...additions, ...replaced].map((item) => item.id)));
@@ -2714,6 +2754,7 @@ async function importPlan(root, destination, original, chosen) {
       return { path: relative, before, after: assetBytes(asset) };
     }));
     for (const item of removals) files.push({ path: item.id, before: await readFile(path.join(target.root, item.id)), after: null });
+    for (const { relative, before, text } of extendedAgents.values()) files.push({ path: relative, before, after: Buffer.from(text) });
     assertSeededWorkflowsUnchanged(await seededWorkflowProtection(values.story, values.initiative, targetAgents), values, candidates, {
       beforeAgents: targetAgents, afterAgents: [...agentCatalog.values()],
       files
@@ -2759,6 +2800,8 @@ async function importPlan(root, destination, original, chosen) {
   if (writes.some((item) => item.kind === 'agent-lock')) changedPaths.add(AGENT_LOCK_PATH);
   if (writes.some((item) => item.kind === 'import-record')) changedPaths.add(IMPORTS_LOCK_PATH);
   if (writes.some((item) => ['workflow-skill-attachments', 'agent-skill-attachments'].includes(item.kind))) changedPaths.add(SKILL_ATTACHMENTS_PATH);
+  if (writes.some((item) => item.kind === 'mcp-server-additions')) changedPaths.add(WORKFLOW_PATH);
+  for (const item of writes) if (item.kind === 'agent-phase-additions') changedPaths.add(item.path);
   for (const item of writes) {
     if (['agent', 'template', 'vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
   }
@@ -2883,7 +2926,7 @@ async function importPlan(root, destination, original, chosen) {
   // paths in JSON or binding the plan digest to a temporary approved-configuration mount.
   Object.defineProperty(result, '_internal', {
     value: {
-      bundle, target, assetTargets, unused, replacedObjects, keptAgents,
+      bundle, target, assetTargets, unused, replacedObjects, keptAgents, extendedAgents, extendedServers,
       importRecords: importRecords.filter(([key]) => writeKeys.has(`import-record\0${key}`))
     },
     enumerable: false, configurable: false, writable: false
@@ -2985,7 +3028,7 @@ export async function applyWorkflowImport(root, bundleOrPath, {
       + 'Preview it with --dry-run to choose keep, replace or rename for each.',
     'WORKFLOW_IMPORT_CONFLICT', { conflicts: plan.conflicts });
   }
-  const { bundle, target, assetTargets, importRecords, replacedObjects, keptAgents } = plan._internal;
+  const { bundle, target, assetTargets, importRecords, replacedObjects, keptAgents, extendedAgents, extendedServers } = plan._internal;
   const writes = new Set([...plan.operations.add, ...(plan.operations.replace ?? [])]
     .map((item) => `${item.kind}\0${item.id}`));
   const outputs = [];
@@ -3019,6 +3062,13 @@ export async function applyWorkflowImport(root, bundleOrPath, {
         document.setIn([...keys, id], document.createNode(value)); changed = true;
       }
     }
+    // A reused server's step and agent lists take the added ones, written in the list's own style.
+    if (governs === 'story') for (const [id, lists] of extendedServers) {
+      for (const [key, list] of Object.entries(lists)) {
+        const keys = ['mcpServers', id, key];
+        document.setIn(keys, document.createNode(list, { flow: Boolean(document.getIn(keys, true)?.flow) })); changed = true;
+      }
+    }
     candidateDocuments[governs] = { current, document, changed };
   }
   // Repeat schema and cross-document validation immediately before constructing the write set.
@@ -3027,7 +3077,8 @@ export async function applyWorkflowImport(root, bundleOrPath, {
     story: candidateDocuments.story?.document.toJS() ?? target.story?.value ?? {},
     initiative: candidateDocuments.initiative?.document.toJS() ?? target.initiative?.value ?? {}
   };
-  const agentCatalog = await mergedImportAgentCatalog(target.root, bundle, keptAgents);
+  const agentCatalog = await mergedImportAgentCatalog(target.root, bundle, keptAgents,
+    new Map([...extendedAgents].map(([id, { text }]) => [id, text])));
   validateSkillTargetPolicy(bundle, target.story?.value ?? {}, await discoverAgents(target.root));
   if (incomingConfiguration.story) validateStoryImportCandidate(candidateValues.story, agentCatalog, target.story?.value);
   if (incomingConfiguration.initiative) {
@@ -3058,6 +3109,8 @@ export async function applyWorkflowImport(root, bundleOrPath, {
     if (!writes.has(`${asset.kind}\0${relative}`)) continue;
     outputs.push({ file: await assertSafeTarget(target.root, relative), content: assetBytes(asset) });
   }
+  // A reused agent's own file, with only the added steps written into its lists.
+  for (const { relative, text } of extendedAgents.values()) outputs.push({ file: await assertSafeTarget(target.root, relative), content: text });
   for (const item of plan.operations.remove ?? []) outputs.push({ file: await assertSafeTarget(target.root, item.id), remove: true });
   await applyFiles(outputs);
   return {
@@ -3301,6 +3354,137 @@ function phaseScopedAgentText(text, steps) {
     }
   }
   return changed ? `${open}${scopedFront}${close}${lines.join('\n')}` : text;
+}
+
+/**
+ * A shared agent or MCP server that differs from the repository's only by steps this import adds is
+ * reused, and those steps are added to it, exactly as Workflow Studio adds a new step to an existing
+ * agent or server [owner, 2026-11-13]. Without this a workflow whose new steps a shipped agent drafts
+ * could not be imported anywhere: replacing the shipped agent would drop its shipped steps.
+ */
+const AGENT_STEP_LIST = /^(\s+)sflow-(phases|default-for):([ \t]*)(["']?)([^"'\r\n]*)\4([ \t]*\r?)$/u;
+const AGENT_STEP_KEYS = Object.freeze({ phases: 'phases', 'default-for': 'defaultFor' });
+
+/** The IDs a step list names; empty, `*` and `-` name none. Null when it is not a plain ID list. */
+function stepListIds(value) {
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed === '*' || trimmed === '-') return [];
+  const ids = trimmed.split(',').map((id) => id.trim()).filter(Boolean);
+  return ids.every((id) => ID.test(id)) ? ids : null;
+}
+
+function agentFrontmatter(text) {
+  const match = /^(---\r?\n)([\s\S]*?)(\r?\n---(?:\r?\n|$))([\s\S]*)$/u.exec(text);
+  return match ? { open: match[1], lines: match[2].split('\n'), close: match[3], body: match[4] } : null;
+}
+
+/**
+ * The steps the carried agent lists in `sflow-phases` and `sflow-default-for` beyond the target's
+ * same agent, when that is the only difference: each list compared as IDs (`,` or `, `, quoted or
+ * not), every other byte exactly, line endings normalized as importedAssetReuse does. Null when
+ * anything else differs, or a list names a step the target has that the carried one does not.
+ */
+function agentStepAdditions(incomingText, targetText, added) {
+  const incoming = agentFrontmatter(incomingText.replaceAll('\r\n', '\n'));
+  const target = agentFrontmatter(targetText.replaceAll('\r\n', '\n'));
+  if (!incoming || !target || incoming.body !== target.body || incoming.lines.length !== target.lines.length) return null;
+  const additions = { phases: [], defaultFor: [] };
+  for (const [index, line] of incoming.lines.entries()) {
+    const other = target.lines[index];
+    if (line === other) continue;
+    const carried = AGENT_STEP_LIST.exec(line); const present = AGENT_STEP_LIST.exec(other);
+    if (!carried || !present || carried[1] !== present[1] || carried[2] !== present[2]) return null;
+    const ids = stepListIds(carried[5]); const current = stepListIds(present[5]);
+    if (!ids || !current) return null;
+    const extra = ids.filter((id) => added.has(id) && !current.includes(id));
+    if (canonicalJson(ids.filter((id) => !extra.includes(id))) !== canonicalJson(current)) return null;
+    additions[AGENT_STEP_KEYS[carried[2]]].push(...extra);
+  }
+  return additions;
+}
+
+/**
+ * `current` with each of `extra` placed where `incoming` has it: before the next step `incoming`
+ * lists after it, or last, as Studio appends a step it assigns. The result read in `incoming`'s
+ * steps is `incoming`, so importing the same bundle again finds the same list.
+ */
+function withAddedIds(current, incoming, extra) {
+  const result = [...current];
+  for (const [index, id] of incoming.entries()) {
+    if (!extra.has(id) || result.includes(id)) continue;
+    const next = incoming.slice(index + 1).find((other) => !extra.has(other) && result.includes(other));
+    if (next == null) result.push(id); else result.splice(result.indexOf(next), 0, id);
+  }
+  return result;
+}
+
+/**
+ * The target agent's own file with `additions` written into its step lists, and what was added.
+ * Only those values change: their separator, quotes and every other byte stay. An empty
+ * `sflow-phases` lets the agent draft any step, so it is left as it is: a list would narrow it.
+ */
+function withAgentStepAdditions(text, additions, incomingText) {
+  const file = agentFrontmatter(text);
+  const carried = agentFrontmatter(incomingText.replaceAll('\r\n', '\n'));
+  if (!file || !carried) return null;
+  const order = {};
+  for (const line of carried.lines) {
+    const declared = AGENT_STEP_LIST.exec(line);
+    if (declared) order[AGENT_STEP_KEYS[declared[2]]] ??= stepListIds(declared[5]) ?? [];
+  }
+  const separator = file.lines.map((line) => /\s*,\s*/u.exec(AGENT_STEP_LIST.exec(line)?.[5] ?? '')?.[0]).find(Boolean) ?? ',';
+  const added = { phases: [], defaultFor: [] };
+  const lines = file.lines.map((line) => {
+    const declared = AGENT_STEP_LIST.exec(line);
+    const key = declared ? AGENT_STEP_KEYS[declared[2]] : null;
+    if (!key || !additions[key]?.length) return line;
+    const current = stepListIds(declared[5]);
+    if (current == null || (key === 'phases' && !current.length)) return line;
+    const next = withAddedIds(current, order[key] ?? [], new Set(additions[key]));
+    added[key].push(...next.filter((id) => !current.includes(id)));
+    if (next.length === current.length) return line;
+    const value = declared[5];
+    const own = current.length ? /\s*,\s*/u.exec(value)?.[0] ?? separator : separator;
+    const written = current.length ? value : '';
+    const lead = /^\s*/u.exec(written)[0]; const trail = /\s*$/u.exec(written)[0];
+    return `${declared[1]}sflow-${declared[2]}:${declared[3]}${declared[4]}${lead}${next.join(own)}${trail}${declared[4]}${declared[6]}`;
+  });
+  return { text: `${file.open}${lines.join('\n')}${file.close}${file.body}`, ...added };
+}
+
+/**
+ * The target agent file with the steps this import adds, when they are all the carried agent adds
+ * to `portableTarget` (the target's agent as the bundle's was scoped); null otherwise. An edit that
+ * no longer reads as an agent is no reuse either.
+ */
+function agentStepsExtension(asset, content, portableTarget, added, relative) {
+  const incoming = textAssetFormat(assetBytes(asset));
+  if (!incoming.valid || !textAssetFormat(content).valid) return null;
+  const additions = agentStepAdditions(incoming.normalized, portableTarget, added);
+  const edited = additions && withAgentStepAdditions(content.toString('utf8'), additions, incoming.normalized);
+  if (!edited) return null;
+  try { parseAgentDependencies(edited.text, { source: relative, agentId: asset.id }); } catch { return null; }
+  return edited;
+}
+
+/**
+ * The step and agent lists of a carried MCP server that name steps or agents this import adds,
+ * beyond the target's same server, when that is the only difference. An empty or missing list
+ * lets every step or agent use the server, so it is never narrowed to the added ones.
+ */
+function serverListAdditions(existing, incoming, added) {
+  if (!plainObject(existing) || !plainObject(incoming)) return null;
+  const reduced = clone(incoming);
+  const additions = {};
+  for (const [key, ids] of Object.entries(added)) {
+    const current = existing[key]; const carried = incoming[key];
+    if (!Array.isArray(current) || !current.length || !Array.isArray(carried)) continue;
+    const extra = carried.filter((id) => ids.has(id) && !current.includes(id));
+    if (!extra.length) continue;
+    reduced[key] = carried.filter((id) => !extra.includes(id));
+    additions[key] = extra;
+  }
+  return Object.keys(additions).length && canonicalJson(reduced) === canonicalJson(existing) ? additions : null;
 }
 
 /** Exact portable representation shared by export and collision comparison. */

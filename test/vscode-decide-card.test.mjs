@@ -25,13 +25,15 @@ const packet = (fields = {}) => ({
 });
 const answer = (item, title, option, reason = '', extra = {}) => ({ item, title, option, reason, cause: '', expires: '', ...extra });
 
-test('the page preselects nothing, suggests no answer, and the approval is not a row', () => {
+test('the page preselects nothing, suggests no answer, and the approval starts here: its row opens its own page', () => {
   const html = decideHtml(packet());
   assert.doesNotMatch(html, /<option[^>]* selected/u, 'an answer was chosen for the person');
   assert.doesNotMatch(html, /value="(?:A suggested|2026-12-01)/u, 'a suggestion was filled in for the person');
   assert.match(html, /placeholder="A suggested reason\."/u);
-  assert.doesNotMatch(html, /Approve Code/u, 'the approval has its own page');
-  assert.equal(decideRows(packet()).some((item) => item.kind === 'approval'), false);
+  // One place [owner, 2026-11-13]: the approval is on the card, and its button opens the approval page with its documents.
+  assert.match(html, /<section class="dc-approval"[^>]*><h2>Approve Code<\/h2>[\s\S]*data-approval="d7">Review and approve<\/button>/u);
+  assert.match(DECIDE_SCRIPT, /data-approval[\s\S]*decide\.approval/u);
+  assert.equal(decideRows(packet()).some((item) => item.kind === 'approval'), false, 'it is never recorded from the table');
 });
 
 test('each kind of row offers what it really is: a choice, the sign-off, a step that stays in a terminal, or who decides', () => {

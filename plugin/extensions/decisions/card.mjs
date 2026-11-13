@@ -33,15 +33,30 @@ const reviews = (item) => item.options.filter((option) => option.action?.humanRe
 const ownSteps = (item) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const itemName = (item) => item.details?.path ?? item.title;
 
-/** Every open decision: the approval itself stays with /sf-approve. */
+/** Every open decision: the approval is a row of its own, opened with /sf-approve. */
 export const openRows = (packet) => packet.items.filter((item) => item.kind !== 'approval');
-/** What this card shows: the open decisions, then anything offered that nothing waits on. */
-export const cardRows = (packet) => [...openRows(packet), ...(packet.offered ?? [])];
+/**
+ * What this card shows: the open decisions, then anything offered that nothing waits on, then what SFlow settled for
+ * the person and carries beside the list, each with its Undo [owner, 2026-11-13].
+ */
+export const cardRows = (packet) => {
+  const rows = [...openRows(packet), ...(packet.offered ?? [])];
+  return [...rows, ...(packet.settled ?? []).filter((item) => item?.settled === true && !rows.some((row) => row.id === item.id))];
+};
+/** What SFlow settled for the person: under "Settled for you", never among what waits. */
+export const settledRows = (packet) => cardRows(packet).filter((item) => item.settled === true);
+/** The step's approval: it starts from this card too, and /sf-approve shows its documents [owner, 2026-11-13]. */
+export const approvalRows = (packet) => packet.items.filter((item) => item.kind === 'approval');
 const decidable = (packet) => cardRows(packet).filter((item) => item.decidedBy?.allowed && item.options.some(choosable));
 const changeable = (item) => CHANGEABLE_KINDS.includes(item.kind);
 
-function howWords(item) {
+function howWords(item, packet) {
   if (!item.decidedBy?.allowed) return `${item.decidedBy?.words ?? ''}${item.decidedBy?.share ? ` Share: ${item.decidedBy.share}` : ''}`;
+  if (item.kind === 'approval') {
+    const command = item.options[0]?.action?.command;
+    const phase = item.details?.phase ?? packet?.phase;
+    return `Review its documents and approve with /sf-approve${phase ? ` ${phase}` : ''} --work-id ${packet?.workId}${command ? `; or in your terminal: \`${command}\`` : ''}`;
+  }
   // Every step that stays in the person's terminal, as the VS Code card shows them: a row with a form hid
   // "Fix the code", and an amendment's row showed only its first command.
   const own = ownSteps(item);
@@ -95,11 +110,32 @@ export function amendmentLines(packet) {
     ...(item.details.reach ? [`- ${line(item.details.reach)}`] : [])]);
 }
 
+/**
+ * Each item's recommended answer, and what each of its choices does to the Story, in the engine's words
+ * [owner, 2026-11-13]: the forms below ask only for the choice, so every word a person weighs is here first.
+ */
+export function adviceLines(packet) {
+  return [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)].flatMap((item) => {
+    const choices = item.options.filter((option) => option.available !== false && option.does);
+    return item.recommended?.words || choices.length ? ['', `**${line(itemName(item))}.** ${line(item.recommended?.words ?? '')}`.trimEnd(),
+      ...choices.map((option) => `- ${line(option.label)}${item.recommended?.option === option.id ? ' (recommended)' : ''}: ${line(option.does)}`)] : [];
+  });
+}
+
+/** What SFlow settled for the person, with what each rests on; each one's Undo is on the forms below. [] when none. */
+export function settledLines(packet) {
+  const rows = settledRows(packet);
+  return rows.length ? ['', '**Settled for you.** SFlow settled these from its records; undo any of them on the forms below.',
+    ...rows.flatMap((item) => [`- ${line(itemName(item))}: ${line(item.why)}`,
+      ...[item.evidence ?? item.details?.evidence].flat().filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => `  - ${line(entry)}`)])] : [];
+}
+
 export function decisionsTable(packet) {
-  // What each holds back sits with why it is asked [decision map, finding 1].
-  const rows = cardRows(packet).map((item) => `| ${cell(itemName(item))} | ${cell([item.why, item.holdsWords].filter(Boolean).join(' '))} | ${cell(howWords(item))} |`);
+  // What each holds back sits with why it is asked [decision map, finding 1], and its recommended answer beside it [owner, 2026-11-13].
+  const rows = [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)]
+    .map((item) => `| ${cell(itemName(item))} | ${cell([item.why, item.holdsWords, item.recommended?.words].filter(Boolean).join(' '))} | ${cell(howWords(item, packet))} |`);
   return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${packet.headline} Nothing is recorded until you confirm the list.`, '',
-    '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows, ...amendmentLines(packet), ...evidenceLines(packet)].join('\n');
+    '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows, ...adviceLines(packet), ...settledLines(packet), ...amendmentLines(packet), ...evidenceLines(packet)].join('\n');
 }
 
 /**
@@ -152,6 +188,9 @@ export function sharedReasonForm(entry) {
     requestedSchema: { type: 'object', required: ['reason'], properties: { reason: textField('One reason for all of them', { minimum, maximum }) } } };
 }
 
+/** A choice as a form lists it: its label, marked when SFlow recommends it. Never preselected. */
+const choiceWord = (item, option) => (item.recommended?.option === option.id ? `${option.label} (recommended)` : option.label);
+
 /** Each row's choice, and nothing else: what a choice needs is asked once it is chosen, so a date is asked only of a risk. */
 export function rowForms(items) {
   const pages = [];
@@ -159,7 +198,8 @@ export function rowForms(items) {
   return pages.map((page, index) => ({ items: page, form: {
     message: `Decide each one (${index + 1} of ${pages.length}). What a choice needs is asked next.`,
     requestedSchema: { type: 'object', required: page.map((_, row) => `decision${row}`), properties: Object.fromEntries(page.map((item, row) =>
-      [`decision${row}`, { type: 'string', title: clipSentences(`${itemName(item)}: ${item.why}`), enum: [LEAVE, ...item.options.filter(choosable).map((option) => option.label)] }])) } } }));
+      // The recommended choice says so in the list itself; the table above has why and what each choice does [owner, 2026-11-13].
+      [`decision${row}`, { type: 'string', title: clipSentences(`${itemName(item)}: ${item.why}`), enum: [LEAVE, ...item.options.filter(choosable).map((option) => choiceWord(item, option))] }])) } } }));
 }
 
 /** What one choice needs, and only that; empty when it needs nothing. */
@@ -179,7 +219,9 @@ function neededFields(item, option) {
 /** The second form of a choice: what it does, and what it needs. */
 export function detailForm(item, option) {
   const properties = neededFields(item, option);
-  return { message: `${itemName(item)}: ${option.label}. ${option.words ?? ''}`.trim(), requestedSchema: { type: 'object',
+  // What it does to the Story first, then its own words on when to choose it [owner, 2026-11-13].
+  const words = [option.does, option.words].filter((text, at, all) => text && all.indexOf(text) === at).join(' ');
+  return { message: `${itemName(item)}: ${option.label}. ${words}`.trim(), requestedSchema: { type: 'object',
     // A reason that may be left empty (sending back to fix) is not required: the form must not demand what the record does not.
     required: Object.keys(properties).filter((name) => !name.startsWith('why-') && properties[name].minLength !== 0), properties } };
 }
@@ -190,7 +232,7 @@ export function choicesFromRows(items, content) {
   for (const [row, item] of items.entries()) {
     const word = content?.[`decision${row}`];
     if (!word || word === LEAVE) continue;
-    const option = item.options.filter(choosable).find((entry) => entry.label === word);
+    const option = item.options.filter(choosable).find((entry) => entry.label === word || choiceWord(item, entry) === word);
     if (!option) return { picks: [], problem: `That is not a decision SFlow knows for ${itemName(item)}.` };
     picks.push({ item, option });
   }

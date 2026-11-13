@@ -341,7 +341,8 @@ test('refusals lead with one sentence and the decision list, keeping the exact c
   const workflow = story();
   const lead = decisionRefusalLead(workflow, 'release', { gaps: [gap('BIN-501:REQ-001')], issues: upstreamIssueStates(workflow, AT), includeAllIssues: true });
   assert.equal(lead.headline, 'Release can\'t be approved yet: 1 decision needed.');
-  assert.equal(lead.route, 'Decide them in one place.\n- Copilot: /sf-decide BIN-501\n- Shell: singularity-flow decisions BIN-501\n- VS Code (model-free): not available for this action');
+  // A decision's VS Code route is the Decide card [owner, 2026-11-13].
+  assert.equal(lead.route, 'Decide them in one place.\n- Copilot: /sf-decide BIN-501\n- Shell: singularity-flow decisions BIN-501\n- VS Code (model-free): Command Palette: Singularity Flow: Decide Everything This Step Waits On');
   const error = Object.assign(new Error(`${lead.headline} ${lead.route}`), { code: 'CONFORMANCE_BLOCKING_VERDICTS', details: {
     workId: 'BIN-501', phase: 'release', nextAction: lead.nextAction,
     conformanceGaps: [{ clauseId: 'BIN-501:REQ-001', choices: [{ kind: 'decide-upstream-issue', command: 'singularity-flow upstream-issue decide UPI-002 --work-id BIN-501 --outcome accept-risk --expires <YYYY-MM-DD> --reason <why>', skill: '/sf-decide', detail: 'Decide it.' }] }] } });

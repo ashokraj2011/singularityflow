@@ -189,7 +189,8 @@ test('the release-approval incident is one decision: recorded once, then approva
   assert.notEqual(refusedApproval.status, 0);
   const refusal = json(refusedApproval);
   assert.equal(refusal.error.code, 'CONFORMANCE_BLOCKING_VERDICTS');
-  assert.match(refusal.error.message, /^Code checking can't be approved yet: 1 decision needed\. Decide them in one place\. - Copilot: \/sf-decide DECIDE-1 - Shell: singularity-flow decisions DECIDE-1 - VS Code \(model-free\): not available for this action\s/u);
+  // A decision's VS Code route is the Decide card, never "not available" [owner, 2026-11-13].
+  assert.match(refusal.error.message, /^Code checking can't be approved yet: 1 decision needed\. Decide them in one place\. - Copilot: \/sf-decide DECIDE-1 - Shell: singularity-flow decisions DECIDE-1 - VS Code \(model-free\): Command Palette: Singularity Flow: Decide Everything This Step Waits On\s/u);
   assert.equal(refusal.remediationPlan.steps[0].command, `singularity-flow decisions ${W}`);
   assert.equal(refusal.remediationPlan.steps[0].copilotCommand, `/sf-decide ${W}`);
   assert.equal(refusal.error.details.nextAction, `singularity-flow decisions ${W}`);

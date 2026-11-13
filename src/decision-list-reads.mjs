@@ -17,6 +17,8 @@
  *   it, and the clauses a draft already there holds for the scope as it is now [SCS:REQ-020].
  * - For each intent amendment on the list, what it changes and reaches and whether the Story moved under
  *   it: what its approver decides on the card [owner, 2026-11-13].
+ * - A published step whose files changed after publication, or whose person asked for a change since: the
+ *   next generation it needs, once only asked in chat, on the card too [owner, 2026-11-13].
  *
  * Reads only. `decisions` reads all of it; readiness and next steps read it for the list's count
  * and first item, without reusable runs (readPendingList).
@@ -275,6 +277,36 @@ async function askedForFacts(workflow, phase) {
 }
 
 /**
+ * The next generation a published step needs [owner, 2026-11-13]: its files changed after publication (a code
+ * step's changes-after-publication), or the person asked for a change since (requested-successor.mjs). Before, only
+ * the step's own skill asked it, in chat. Null when neither, when the step is not published and open, or when Git or
+ * the asked-for record cannot say: the gates themselves still check. Both readers load from the CLI source, out of
+ * the VS Code bundles that read this list.
+ */
+async function rolloverFacts(root, config, workflow, phase) {
+  if (phase.status !== 'in_progress' || phase.id !== workflow.currentPhase || !(Number(phase.generation ?? 0) > 0)) return null;
+  try {
+    const source = (name) => import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', name)).href);
+    const [changed, requested, { phaseRequiresCodeDelivery }] = await Promise.all([source('changes-after-publication.mjs'), source('requested-successor.mjs'),
+      import('./code-delivery-policy.mjs')]);
+    if (!requested.requestedSuccessorEligible(workflow, phase)) return null;
+    const after = await changed.changesAfterPublication(root, config, workflow, phase).catch(() => null);
+    const requests = await requested.requestedChanges(root, workflow, phase).catch(() => []);
+    // Never the author's own correction [owner, 2026-11-13]: that is of a published generation whose bytes are unchanged
+    // and that nobody asked to change, which this item never covers (neither files nor a request); `phase rollover
+    // --correction` refuses changed files, and once a review or an approval exists it routes to the preview, whose
+    // request this item then asks about (own-correction-rollover.mjs).
+    if (!after && !requests.length) return null;
+    const action = requested.requestedSuccessorAction(workflow, phase, { requested: requests.length > 0, changedPaths: after?.paths ?? [] });
+    const chatRoute = phaseRequiresCodeDelivery(phase) ? `/sf-code ${phase.id}` : action?.copilotCommand?.replace(/ <what to change>$/u, '') ?? null;
+    return { phase: phase.id, generation: Number(phase.generation), next: Math.max(Number(phase.generation), Number(phase.generationHighWatermark ?? 0)) + 1,
+      paths: after?.paths ?? [], uncommitted: after?.uncommitted ?? [], requests: requests.map((text) => String(text).replace(/\s+/gu, ' ').trim().slice(0, 200)),
+      command: `singularity-flow phase rollover ${phase.id}`, keepOut: after?.uncommitted?.length ? `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json` : null,
+      chatRoute, code: phaseRequiresCodeDelivery(phase) };
+  } catch { return null; }
+}
+
+/**
  * What else waits for a person on this Story [SPEC-OAP M3], each from the reader its own command
  * uses. A source that cannot be read is named in `unavailable`, never read as nothing pending.
  * `approvalCheck`, `owed` and `publication` may arrive already read (readiness has them).
@@ -469,6 +501,7 @@ export async function decisionListFacts(root, config, workflow, { phaseId = work
     visual: await visualProfiles(root, config, workflow, phase),
     completeness: answering ? await completenessFacts(root, config, workflow) : null,
     excludedChanges: answering ? await excludedChangeFacts(root, config, workflow, phase) : null,
+    rollover: answering ? await rolloverFacts(root, config, workflow, phase) : null,
     departures: workflow.status === 'in_progress' ? await departureFacts(root, config, workflow, phase) : null,
     convergence,
     askedFor: workflow.status === 'in_progress' ? await askedForFacts(workflow, phase) : null,

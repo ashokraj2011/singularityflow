@@ -91,11 +91,12 @@ export const NO_CHAT_MODEL_NOTE = 'VS Code chat has no language model now, so it
 /** The value after a "VS Code (model-free):" label. */
 export function modelFreeRouteText(command: string | null | undefined): string {
   if (!command) return 'not available for this action';
-  return chatModelsMissing() ? `${command} (${NO_CHAT_MODEL_NOTE})` : command;
+  // A Command Palette route (the Decide card) needs no chat model.
+  return chatModelsMissing() && command.startsWith('@sflow') ? `${command} (${NO_CHAT_MODEL_NOTE})` : command;
 }
 
 /** HTML form of `modelFreeRouteText`; `escape` is the page's own escaper. */
 export function modelFreeRouteHtml(command: string | null | undefined, escape: (value: string) => string): string {
   if (!command) return 'not available for this action';
-  return `<code>${escape(command)}</code>${chatModelsMissing() ? ` <span class="muted">(${escape(NO_CHAT_MODEL_NOTE)})</span>` : ''}`;
+  return `<code>${escape(command)}</code>${chatModelsMissing() && command.startsWith('@sflow') ? ` <span class="muted">(${escape(NO_CHAT_MODEL_NOTE)})</span>` : ''}`;
 }

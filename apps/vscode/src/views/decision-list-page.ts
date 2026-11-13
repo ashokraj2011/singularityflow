@@ -36,9 +36,13 @@ function needsHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
 
 function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
   const recommended = option.recommended ? '<span class="pill ok">Recommended</span>' : '';
+  // What it does to the Story, then its own words on when to choose it [owner, 2026-11-13].
+  const does = option.does ? `<small class="dl-does">${escape(option.does)}</small>` : '';
+  const when = option.words && option.words !== option.does ? option.words : '';
   if (option.yours) {
     return `<div class="dl-option yours" data-yours="${escape(option.id)}">
-      <strong>${escape(option.label)}</strong>${recommended}<small>${escape(option.notChoosable ?? '')} ${escape(option.words)}</small>
+      <strong>${escape(option.label)}</strong>${recommended}${does}<small>${escape(option.notChoosable ?? '')} ${escape(when)}</small>
+      ${item.kind === 'approval' ? `<button type="button" class="compact-action" data-approval-open="${escape(item.id)}">Review and approve</button>` : ''}
       ${option.yours.humanReview ? `<button type="button" class="compact-action" data-witness-item="${escape(item.id)}" data-witness-option="${escape(option.id)}">Review evidence and sign off</button>` : ''}
       ${option.yours.file ? `<button type="button" class="compact-action" data-open-item="${escape(item.id)}" data-open-option="${escape(option.id)}">Open the draft</button>` : ''}
       <code>${escape(option.yours.command)}</code>
@@ -47,17 +51,19 @@ function optionHtml(item: DecisionItemRow, option: DecisionOptionRow): string {
   }
   if (!option.choosable) {
     return `<button type="button" class="dl-option" disabled aria-disabled="true">
-      <strong>${escape(option.label)}</strong>${recommended}<small>${escape(option.notChoosable ?? '')}</small></button>`;
+      <strong>${escape(option.label)}</strong>${recommended}${does}<small>${escape(option.notChoosable ?? '')}</small></button>`;
   }
   const pressed = item.chosen?.option === option.id;
   // The answer's outcome, the same word set on every item [decision map, recommendation 3].
   return `<button type="button" class="dl-option" data-option="${escape(option.id)}" aria-pressed="${pressed}">
-    ${option.outcome ? `<span class="dl-outcome">${escape(option.outcome)}</span>` : ''}<strong>${escape(option.label)}</strong>${recommended}<small>${escape(option.words)}</small></button>`;
+    ${option.outcome ? `<span class="dl-outcome">${escape(option.outcome)}</span>` : ''}<strong>${escape(option.label)}</strong>${recommended}${does}${when ? `<small>${escape(when)}</small>` : ''}</button>`;
 }
 
 function itemHtml(item: DecisionItemRow): string {
   const heading = `<header class="dl-item-head"><span class="dl-id">${escape(item.id)}</span><h2>${escape(item.title)}</h2></header>
     <p class="dl-why">${escape(item.why)}</p>${item.facts?.length ? `<ul class="dl-why">${item.facts.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}
+    ${item.evidence.length ? `<ul class="dl-why dl-evidence">${item.evidence.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}
+    ${item.recommended ? `<p class="dl-rec">${icon('ok')}<span>${escape(item.recommended)}</span></p>` : ''}
     <p class="dl-who">${icon('team')}<span>${escape(item.who)}</span></p>
     ${item.holds || item.answerWhere ? `<p class="dl-holds">${escape([item.holds, item.answerWhere].filter(Boolean).join(' '))}</p>` : ''}`;
   if (!item.allowed) {
@@ -65,7 +71,7 @@ function itemHtml(item: DecisionItemRow): string {
       <div class="dl-share"><span>Share this with them:</span> <code>${escape(item.share ?? '')}</code>
         <button type="button" class="secondary compact-action" data-copy-item="${escape(item.id)}">Copy</button></div>
       <details class="dl-their-options"><summary>Their choices (${item.options.length})</summary><ul>${item.options
-        .map((option) => `<li>${escape(option.label)}${option.recommended ? ' (recommended)' : ''}</li>`).join('')}</ul></details>
+        .map((option) => `<li>${escape(option.label)}${option.recommended ? ' (recommended)' : ''}${option.does ? `: ${escape(option.does)}` : ''}</li>`).join('')}</ul></details>
     </article>`;
   }
   return `<article class="dl-item" data-item="${escape(item.id)}" data-allowed="true">${heading}
@@ -92,9 +98,11 @@ export function decisionListHtml(view: DecisionListView): string {
       ${view.error ? `<div class="notice error" role="alert">${icon('blocked')}${escape(view.error)}</div>` : ''}
       <div class="empty"><p>${view.busy ? 'Reading the decision list…' : 'Select a Story to see what its step is waiting on.'}</p></div>`;
   }
+  // What SFlow settled for the person sits under its own heading, each with what it rests on and its Undo [owner, 2026-11-13].
+  const settled = view.items.filter((item) => item.settled);
   const items = view.nothingToDecide
     ? `<div class="empty-state dl-empty">${icon('ok')}<strong>Nothing is waiting for a decision.</strong><p>Refresh after someone records a choice, or continue with the step.</p></div>`
-    : view.items.map(itemHtml).join('');
+    : view.items.filter((item) => !item.settled).map(itemHtml).join('');
   // Review is offered when something here can be recorded; a person's own steps are copied, not reviewed.
   const yours = view.items.some((item) => item.allowed && item.options.some((option) => option.choosable));
   return `<form class="dl-list" data-digest="${escape(view.digest ?? '')}">
@@ -108,6 +116,8 @@ export function decisionListHtml(view: DecisionListView): string {
     ${view.unavailable.map((line) => `<div class="notice warning">${icon('warning')}${escape(line)}</div>`).join('')}
     ${view.recorded?.length ? `<details class="notice"><summary>Recorded plan accounting (${view.recorded.length})</summary><ul>${view.recorded.map(line => `<li>${escape(line)}</li>`).join('')}</ul><p>This accounting does not record visual sign-off. Pending reviews appear below.</p></details>` : ''}
     <div class="dl-items">${items}</div>
+    ${settled.length ? `<section class="dl-settled" aria-label="Settled for you"><h2>Settled for you</h2><p class="muted">SFlow settled these from its records. Undo any of them here.</p>
+      <div class="dl-items">${settled.map(itemHtml).join('')}</div></section>` : ''}
     ${view.rule ? `<p class="muted dl-rule">${escape(view.rule)}</p>` : ''}
     ${yours ? `<div class="dl-actions"><p class="muted" data-progress aria-live="polite"></p>
       <button type="submit" data-action="review" disabled>${icon('approval')}Review choices</button></div>` : ''}
@@ -124,6 +134,9 @@ export const DECISION_LIST_STYLE = `
 .dl-why, .dl-who { margin:0; }
 .dl-who { display:flex; gap:.4rem; align-items:center; color:var(--sf-dim); }
 .dl-holds { margin:0; color:var(--sf-dim); font-size:.92em; }
+.dl-rec { display:flex; gap:.4rem; align-items:flex-start; margin:0; font-weight:600; overflow-wrap:anywhere; }
+.dl-option small.dl-does { color:var(--vscode-foreground); }
+.dl-settled h2 { margin:1rem 0 .25rem; font-size:1.05rem; }
 .dl-outcome { display:block; font-size:.78em; letter-spacing:.04em; text-transform:uppercase; color:var(--sf-dim); }
 .dl-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(16rem,100%),1fr)); gap:.6rem; }
 .dl-option { display:grid; grid-template-columns:minmax(0,1fr); justify-content:stretch; gap:.3rem; text-align:left; padding:.7rem .8rem; min-width:0; border:var(--sf-border); border-radius:var(--sf-radius);
@@ -201,6 +214,8 @@ export const DECISION_LIST_SCRIPT = `
     if (witness) { api.postMessage({ type: 'decisions.witness', item: witness.dataset.witnessItem, option: witness.dataset.witnessOption }); return; }
     const open = event.target.closest('[data-open-item]');
     if (open) { api.postMessage({ type: 'decisions.open', item: open.dataset.openItem, option: open.dataset.openOption }); return; }
+    const approval = event.target.closest('[data-approval-open]');
+    if (approval) { api.postMessage({ type: 'decisions.approval', item: approval.dataset.approvalOpen }); return; }
     const copy = event.target.closest('[data-copy-item]');
     if (copy) { api.postMessage({ type: 'decisions.copy', item: copy.dataset.copyItem, option: copy.dataset.copyOption || '' }); return; }
     const action = event.target.closest('[data-action="refresh"]');

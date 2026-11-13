@@ -17,8 +17,8 @@ import { cliRefusalCode } from '../cli/runner.ts';
 import { decisionAnswersDocument, decisionAnswersFromChoices, decisionListArgv, decisionPacketFrom, decisionRecordArgv, decisionRecordOutcome,
   type DecisionAnswers, type DecisionPacket } from './decision-list-model.ts';
 import { reviewWitness } from './decision-list.ts';
-import { DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS, guardRoute, openRows,
-  type DecideDraft } from './decide-card-page.ts';
+import { approvalRows, DECIDE_SCRIPT, DECIDE_STYLE, decideChoicesFrom, decideDraftFrom, decideHtml, decideRows, decideSummary, draftFileOf, draftsOnly, evidencePaths, GUARD_WORDS,
+  guardRoute, openRows, type DecideDraft } from './decide-card-page.ts';
 
 export interface DecideResult { status: string; message: string; recorded?: string[]; decided?: string[]; drafted?: string[]; remaining?: string[]; next?: unknown }
 
@@ -54,8 +54,9 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
   const workId = target.workId;
   if (open) { open.reveal(); return { status: 'busy', message: 'The decisions page is already open. Finish it there.' }; }
   let packet = await readList(client, workId);
-  // A chat that asked carries on when nothing waits: only a person who opened this page sees a review nothing waits on.
-  if (!(askedInChat ? openRows(packet) : decideRows(packet)).length) return { status: 'nothing-to-decide', message: packet.headline, next: packet.next ?? null };
+  // A chat that asked carries on when nothing waits: only a person who opened this page sees a review nothing waits on,
+  // or the approval, whose row opens its page [owner, 2026-11-13].
+  if (!(askedInChat ? openRows(packet) : [...decideRows(packet), ...approvalRows(packet)]).length) return { status: 'nothing-to-decide', message: packet.headline, next: packet.next ?? null };
   const panel = vscode.window.createWebviewPanel('singularityFlow.decide', `Decide · ${workId}`, vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
   open = panel;
@@ -112,6 +113,8 @@ export async function reviewDecisions(client: SingularityFlowClient, target: { w
         terminal.show(false);
         terminal.sendText(command, false);
       },
+      // The approval starts from this card: its row opens the approval page with the documents [owner, 2026-11-13].
+      'decide.approval': () => { void vscode.commands.executeCommand('singularityFlow.openApprovals'); },
       'decide.route': () => {
         if (!route) return;
         const terminal = createTerminalIn({ name: `Singularity Flow · ${workId}` }, packet.repositoryPath ?? client.repository);

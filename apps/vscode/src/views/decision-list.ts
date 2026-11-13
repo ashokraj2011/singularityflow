@@ -84,7 +84,9 @@ export class DecisionListPanel implements vscode.Disposable {
     'decisions.review': (message) => this.guard(() => this.review(message.choices, stringField(message, 'digest'))),
     'decisions.witness': (message) => this.guard(() => this.witness(stringField(message, 'item'), stringField(message, 'option'))),
     'decisions.copy': (message) => this.copy(stringField(message, 'item'), stringField(message, 'option')),
-    'decisions.open': (message) => this.open(stringField(message, 'item'), stringField(message, 'option'))
+    'decisions.open': (message) => this.open(stringField(message, 'item'), stringField(message, 'option')),
+    // The approval starts here too: its row opens the approval page with its documents [owner, 2026-11-13].
+    'decisions.approval': () => { void vscode.commands.executeCommand('singularityFlow.openApprovals'); }
   });
 
   /** One operation at a time: a second click while one runs does nothing. */

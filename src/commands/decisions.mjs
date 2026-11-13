@@ -1,4 +1,4 @@
-import { formatCommandRouteLines } from '../model-free-commands.mjs';
+import { formatCommandRouteLines, modelFreeCommandForCommand, VSCODE_DECIDE_CARD } from '../model-free-commands.mjs';
 /**
  * `decisions [WORK-ID]` and `decisions record [WORK-ID]`: everything people must decide before a
  * step can move, in plain words, as choices, recorded with one confirmation. [decision list]
@@ -176,39 +176,60 @@ function itemLines(item, index, { numbered = false } = {}) {
   // An intent amendment shows what it changes and reaches, so a person decides it from the same words on every host [owner, 2026-11-13].
   const amendment = [...(item.details?.lines ?? []).map((line) => `     - ${line}`), ...(item.details?.proposedBy ? [`   ${item.details.proposedBy}`] : []),
     ...(item.details?.reach ? [`   ${item.details.reach}`] : [])];
-  const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, ...amendment, `   ${item.decidedBy.words}`,
+  // What was settled for the person is no question: its evidence and where it is undone, not who decides or what it holds.
+  const lines = [`${numbered ? `${index + 1}. ` : `${item.id}. `}${item.title}`, `   ${item.why}`, ...amendment,
+    ...(item.settled ? settledEvidenceLines(item) : []),
+    // Its recommended answer, from the facts SFlow has, or what to weigh when it has none [owner, 2026-11-13].
+    ...(item.recommended?.words ? [`   ${item.recommended.words}`] : []), ...(item.settled ? [] : [`   ${item.decidedBy.words}`]),
     // What it holds back and where it is answered, on every item [decision map, findings 1 and 11].
-    ...(item.holdsWords ? [`   ${item.holdsWords}`] : []), ...(item.answer?.words ? [`   ${item.answer.words}`] : [])];
+    ...(item.holdsWords && !item.settled ? [`   ${item.holdsWords}`] : []), ...(item.answer?.words ? [`   ${item.answer.words}`] : [])];
   if (!item.decidedBy.allowed && item.decidedBy.share) lines.push(`   Share this with them: ${item.decidedBy.share}`);
   item.options.forEach((option, position) => {
     // An author's own step (accounting for what the person typed) is never the reader's to do.
     const yours = option.action ? (option.decidedBy?.author ? '  (its author\'s step; never recorded here)' : '  (yours to do; never recorded here)')
       : option.available === false ? '  (not available)' : '';
     // The label alone: the option's outcome is data for every host, and beside the label it only repeated it in other words.
-    lines.push(`   ${numbered ? `${position + 1})` : `${option.id}:`} ${option.label}${option.recommended ? '  [recommended]' : ''}${yours}`);
+    const recommended = option.recommended || item.recommended?.option === option.id;
+    lines.push(`   ${numbered ? `${position + 1})` : `${option.id}:`} ${option.label}${recommended ? '  [recommended]' : ''}${yours}`);
+    // What the choice does to the Story, in one line [owner, 2026-11-13].
+    if (option.does) lines.push(`      ${option.does}`);
     // The option's own command, for a person who decides it in their terminal instead.
     if (option.terminal && option.available !== false && !numbered) lines.push(`      or in your own terminal: ${option.terminal}`);
   });
   return lines;
 }
 
-/** The VS Code command that opens the decisions card, as its Command Palette shows it. */
-const VSCODE_DECISIONS_CARD = 'Command Palette: Singularity Flow: Decide Everything This Step Waits On';
-
-/** What was settled for the person, each with its evidence and its undo [owner, 2026-11-13]. */
-function settledLines(packet) {
-  if (!packet.settled?.length) return [];
-  return ['', 'Settled for you (nobody was asked; undo one to make it your question again):', ...packet.settled.flatMap((item) => [
-    `${item.id}. ${item.answerWords}`, `   ${item.why}`, `   Undo: ${item.details.commands[0]}`])];
+/**
+ * What a settled item rests on, one line per fact: shown under "Settled for you", each with its Undo [owner,
+ * 2026-11-13]. The records and the settling are the settled-decisions reader's; this only shows them.
+ */
+function settledEvidenceLines(item) {
+  const evidence = [item.evidence ?? item.details?.evidence].flat().filter((line) => typeof line === 'string' && line.trim());
+  return evidence.map((line) => `   - ${line}`);
 }
 
-function packetText(packet) {
+/** Every item SFlow settled for the person, from the list and anything it carries beside it. */
+export function settledItems(packet) {
+  const all = [...packet.items, ...(packet.offered ?? []), ...(packet.settled ?? [])];
+  return all.filter((item, at) => item?.settled === true && all.findIndex((other) => other.id === item.id) === at);
+}
+
+/** The VS Code command that opens the decisions card, as its Command Palette shows it. */
+const VSCODE_DECISIONS_CARD = VSCODE_DECIDE_CARD;
+
+/** The list as a terminal prints it. Exported for its test. */
+export function packetText(packet) {
   const lines = [packet.headline, ...(packet.recorded?.length ? ['', 'Recorded plan accounting (separate from visual sign-off):',
-    ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : []), ...settledLines(packet)];
-  if (!packet.items.length && !packet.offered?.length) return `${lines.join('\n')}\n`;
+    ...packet.recorded.map(entry => `  ${entry.id}: ${entry.summary}`)] : [])];
+  if (!packet.items.length && !packet.offered?.length && !packet.settled?.length) return `${lines.join('\n')}\n`;
   lines.push('');
-  for (const [index, item] of packet.items.entries()) lines.push(...itemLines(item, index), '');
-  for (const [index, item] of (packet.offered ?? []).entries()) lines.push(...itemLines(item, index), '');
+  const settled = settledItems(packet);
+  for (const [index, item] of packet.items.entries()) if (!settled.includes(item)) lines.push(...itemLines(item, index), '');
+  for (const [index, item] of (packet.offered ?? []).entries()) if (!settled.includes(item)) lines.push(...itemLines(item, index), '');
+  if (settled.length) {
+    lines.push('Settled for you (undo any of them below):', '');
+    for (const [index, item] of settled.entries()) lines.push(...itemLines(item, index), '');
+  }
   if (packet.items.some((item) => ['conformance-gap', 'upstream-issue'].includes(item.kind))) lines.push(packet.rule);
   if ([...packet.items, ...(packet.offered ?? [])].some((item) => item.options.some((option) => option.recordable !== false))) {
     // VS Code's decisions card records the same choices with no model (paid run, 8 November: the
@@ -217,7 +238,8 @@ function packetText(packet) {
       modelFreeCommand: VSCODE_DECISIONS_CARD }));
     if (packet.record.recommended) lines.push('Or record the recommended choices:', ...formatCommandRouteLines({ command: packet.record.recommended, copilotCommand: packet.record.copilotCommand }));
     if (packet.inApproval) lines.push('Or answer them in the approval, in one commit:', ...formatCommandRouteLines(packet.inApproval));
-  } else if (packet.next) lines.push('Next:', ...formatCommandRouteLines(packet.next));
+  // The next step's own model-free route when it has one (@sflow /approve for the approval), never "not available" beside it.
+  } else if (packet.next) lines.push('Next:', ...formatCommandRouteLines({ ...packet.next, modelFreeCommand: packet.next.modelFreeCommand ?? modelFreeCommandForCommand(packet.next.command) }));
   else lines.push(...formatCommandRouteLines({ copilotCommand: packet.record.share }));
   return `${lines.join('\n')}\n`;
 }

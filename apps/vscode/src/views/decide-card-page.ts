@@ -14,10 +14,32 @@ const decidable = (option: DecisionOptionPacket) => optionRow(option).choosable;
 const ownSteps = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.command && !option.action.humanReview && option.decidedBy?.allowed && option.available !== false);
 const witnesses = (item: DecisionItemPacket) => item.options.filter((option) => option.action?.humanReview && option.decidedBy?.allowed && option.available !== false);
 
-/** Every open decision: the approval itself is reviewed on its own page, last. */
+/** Every open decision: the approval is reviewed on its own page, which its row here opens. */
 export const openRows = (packet: DecisionPacket): DecisionItemPacket[] => packet.items.filter((item) => item.kind !== 'approval');
-/** What this page shows: the open decisions, then anything offered that nothing waits on. */
-export const decideRows = (packet: DecisionPacket): DecisionItemPacket[] => [...openRows(packet), ...(packet.offered ?? [])];
+/**
+ * What this page decides: the open decisions, then anything offered that nothing waits on, then what SFlow settled for
+ * the person and carries beside the list, each with its Undo [owner, 2026-11-13].
+ */
+export const decideRows = (packet: DecisionPacket): DecisionItemPacket[] => {
+  const rows = [...openRows(packet), ...(packet.offered ?? [])];
+  return [...rows, ...(packet.settled ?? []).filter((item) => item?.settled === true && !rows.some((row) => row.id === item.id))];
+};
+/** What SFlow settled for the person: under "Settled for you", never among what waits. */
+export const settledRows = (packet: DecisionPacket): DecisionItemPacket[] => decideRows(packet).filter((item) => item.settled === true);
+/** The step's approval: it starts from this card, whose row opens the approval page [owner, 2026-11-13]. */
+export const approvalRows = (packet: DecisionPacket): DecisionItemPacket[] => packet.items.filter((item) => item.kind === 'approval');
+
+/**
+ * The recommended answer and what each choice does to the Story, in the engine's words [owner, 2026-11-13]: under why
+ * it waits, on every row, whether the person decides it or not. Shown, never preselected.
+ */
+function adviceHtml(item: DecisionItemPacket): string {
+  const choices = item.options.filter((option) => option.available !== false && option.does);
+  const evidence = [item.evidence ?? item.details?.evidence].flat().filter((line): line is string => typeof line === 'string' && line.trim().length > 0);
+  return `${evidence.length ? `<ul class="dc-ev-list">${evidence.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}${item.recommended?.words
+    ? `<p class="dc-rec">${escape(item.recommended.words)}</p>` : ''}${choices.length ? `<ul class="dc-does">${choices.map((option) => `<li><strong>${escape(option.label.replace(/[.!?]+$/u, ''))}</strong>${
+    item.recommended?.option === option.id ? ' <span class="dc-tag">recommended</span>' : ''}: ${escape(option.does!)}</li>`).join('')}</ul>` : ''}`;
+}
 
 /**
  * The answers one reason may cover: offered by two or more rows this person decides, needing nothing but a
@@ -77,14 +99,14 @@ function rowHtml(item: DecisionItemPacket, draft?: DecideDraft): string {
   const lines = Array.isArray(item.details?.lines) ? item.details.lines as string[] : [];
   const what = `${file ? `<button type="button" class="dc-link" data-open="${escape(file)}">${escape(file)}</button>` : `<strong>${escape(item.title)}</strong>`}
     <div class="muted dc-why">${escape(item.why)}</div>${diff ? `<details class="dc-diff"><summary>The change</summary><pre>${escape(diff)}</pre></details>` : ''}${lines.length
-      ? `<ul class="dc-ev-list">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}${text('proposedBy')}${text('reach')}`;
+      ? `<ul class="dc-ev-list">${lines.map((line) => `<li>${escape(line)}</li>`).join('')}</ul>` : ''}${text('proposedBy')}${text('reach')}${adviceHtml(item)}`;
   if (!item.decidedBy?.allowed) {
     return `<tr data-other="${escape(item.id)}"><td>${what}</td><td colspan="2"><span class="muted">${escape(item.decidedBy?.words ?? '')}</span>${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</td></tr>`;
   }
   const choices = item.options.filter(decidable);
   const select = choices.length ? `<select data-choice aria-label="Decision for ${escape(item.title)}"><option value="">Choose…</option>${choices.map((option) => {
     const needs = Object.keys(option.needs ?? {}).join(' ');
-    return `<option value="${escape(option.id)}" data-needs="${escape(needs)}"${option.oneByOne ? ' data-one="1"' : ''}${entered?.option === option.id ? ' selected' : ''}>${escape(option.label)}</option>`;
+    return `<option value="${escape(option.id)}" data-needs="${escape(needs)}"${option.oneByOne ? ' data-one="1"' : ''}${entered?.option === option.id ? ' selected' : ''}>${escape(option.label)}${item.recommended?.option === option.id ? ' (recommended)' : ''}</option>`;
   }).join('')}</select>` : '';
   const reviews = witnesses(item).map((option) => `<button type="button" class="secondary" data-witness="${escape(option.id)}">${escape(option.label)}</button>`).join('');
   // A label that already ends a sentence (a hold's route often does) gets no second full stop.
@@ -158,8 +180,18 @@ export function evidenceHtml(packet: DecisionPacket): string {
     <p class="muted">${escape(evidence.words)}</p>${parts}</section>`;
 }
 
+/** The approval's row: what holds it, its recommendation, and a button that opens the approval page with its documents. */
+function approvalHtml(packet: DecisionPacket): string {
+  return approvalRows(packet).map((item) => `<section class="dc-approval" aria-label="${escape(item.title)}"><h2>${escape(item.title)}</h2>
+    <p class="muted dc-why">${escape(item.why)}</p>${item.recommended?.words ? `<p class="dc-rec">${escape(item.recommended.words)}</p>` : ''}
+    ${item.decidedBy?.allowed ? `<div class="dc-own"><button type="button" data-approval="${escape(item.id)}">Review and approve</button>
+      <span class="muted">Opens the approval page with the documents to review; nothing is approved until you confirm there.</span></div>`
+    : `<p class="muted">${escape(item.decidedBy?.words ?? '')}${item.decidedBy?.share ? ` Share this with them: <code>${escape(item.decidedBy.share)}</code>` : ''}</p>`}</section>`).join('');
+}
+
 export function decideHtml(packet: DecisionPacket, { error = null as string | null, notice = null as string | null, busy = false, draft = undefined as DecideDraft | undefined, route = null as string | null } = {}): string {
-  const rows = decideRows(packet);
+  const rows = decideRows(packet).filter((item) => !item.settled);
+  const settled = settledRows(packet);
   const shared = sharedAnswers(packet);
   const yours = rows.some((item) => item.decidedBy?.allowed && item.options.some(decidable));
   return `<main class="dc" data-digest="${escape(packet.packetSha256)}">
@@ -176,6 +208,11 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
       <thead><tr><th>What it is</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${rows.map((item) => rowHtml(item, draft)).join('')}</tbody>
     </table></div>
+    ${settled.length ? `<section class="dc-settled" aria-label="Settled for you"><h2>Settled for you</h2>
+      <p class="muted">SFlow settled these from its records. Choose Undo on any of them to decide it yourself.</p>
+      <div class="dc-table"><table><thead><tr><th>What it is</th><th>Your decision</th><th>Your reason</th></tr></thead>
+      <tbody>${settled.map((item) => rowHtml(item, draft)).join('')}</tbody></table></div></section>` : ''}
+    ${approvalHtml(packet)}
     ${evidenceHtml(packet)}
     <footer><button type="button" class="secondary" data-cancel>Not now</button>
       <button type="button" data-review${yours && !busy ? '' : ' disabled'}>Review and record</button></footer>
@@ -284,6 +321,12 @@ export const DECIDE_STYLE = `
 .dc-check-passed { color:var(--sf-ok, var(--vscode-testing-iconPassed)); }
 .dc-check-failed { color:var(--sf-bad, var(--vscode-errorForeground)); }
 .dc-error { color:var(--vscode-errorForeground); margin:0; }
+.dc-rec { margin:.35rem 0 0; font-weight:600; overflow-wrap:anywhere; }
+.dc-does { margin:.25rem 0 0; padding-left:1.1rem; font-size:.9em; }
+.dc-does li { margin:.1rem 0; overflow-wrap:anywhere; }
+.dc-tag { display:inline-block; padding:0 .3rem; border-radius:3px; font-size:.8em; background:var(--vscode-badge-background); color:var(--vscode-badge-foreground); }
+.dc-settled h2, .dc-approval h2 { margin:0 0 .25rem; font-size:1.05em; }
+.dc-approval { border-left:3px solid var(--sf-border-color, var(--vscode-panel-border)); padding:.1rem 0 .1rem .75rem; }
 .dc-notice { margin:0; }
 `;
 
@@ -327,6 +370,7 @@ document.addEventListener('click', (event) => {
     return vscode.postMessage({ type, item: row.dataset.item, option: step.dataset.terminal ?? step.dataset.copy ?? step.dataset.witness, rows: answers() });
   }
   if (event.target.closest('[data-route]')) return vscode.postMessage({ type: 'decide.route' });
+  if (event.target.closest('[data-approval]')) return vscode.postMessage({ type: 'decide.approval' });
   if (event.target.closest('[data-cancel]')) return vscode.postMessage({ type: 'decide.cancel' });
   if (event.target.closest('[data-apply-all]')) {
     const chosen = document.getElementById('dc-all-choice');

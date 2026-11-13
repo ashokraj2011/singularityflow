@@ -14,9 +14,15 @@ export function parseModelFreeTarget(text = '') {
   return { phase, workId };
 }
 
+/** A decision's VS Code route is the Decide card, never "not available" [owner, 2026-11-13]. */
+export const VSCODE_DECIDE_CARD = 'Command Palette: Singularity Flow: Decide Everything This Step Waits On';
+const decideCard = (t) => t[0] === 'decisions' && /^(?: --work-id)? [A-Za-z0-9][\w.-]*$|^$/u.test(t.slice(t[1] === 'record' ? 2 : 1)
+  .filter((v) => !['--fetch', '--for-agent'].includes(v)).map((v) => ` ${v}`).join(''));
+
 export function modelFreeCommandForArgv(argv) {
   if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) return null;
   const tokens = argv.filter((value) => value !== '--json');
+  if (decideCard(tokens)) return VSCODE_DECIDE_CARD;
   const [top, operation] = tokens;
   const exact = (expected) => tokens.length === expected.length && tokens.every((value, i) => value === expected[i]);
   for (const [route, expected] of [
@@ -70,7 +76,9 @@ export function commandRouteRows(guidance = {}) {
   return [
     { label: 'Copilot', command: guidance.copilotCommand, unavailable: 'no verified equivalent' },
     { label: 'Shell', command: code && guidance.command ? `singularity-flow confirm ${code}` : guidance.command, unavailable: 'not available for this action' },
-    { label: 'VS Code (model-free)', command: guidance.modelFreeCommand, unavailable: 'not available for this action' }
+    // A decisions route given without its model-free field still names the Decide card.
+    { label: 'VS Code (model-free)', command: guidance.modelFreeCommand ?? (modelFreeCommandForCommand(guidance.command) === VSCODE_DECIDE_CARD ? VSCODE_DECIDE_CARD : null),
+      unavailable: 'not available for this action' }
   ];
 }
 

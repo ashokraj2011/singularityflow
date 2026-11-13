@@ -223,7 +223,8 @@ export function renderStoryRoster(result, {
   add('');
   add('- Copilot: `/sf-session`');
   add(`- Shell: \`singularity-flow session attach <EXACT-STORY-ID>${selectorPlaceholders}\``);
-  add('- VS Code (model-free): not available for this action');
+  // Choosing the Story is the person's: in VS Code, on its Stories page [owner, 2026-11-13].
+  add('- VS Code (model-free): Command Palette: Singularity Flow: Stories');
   add('');
   if (scoped) add('Replace the selector placeholders with the exact captured workspace and repository; do not switch to an old host checkout.');
   if (text(scope?.repositoryUrl)) add('URL-only discovery is read-only: choose a matching registered workspace/repository before attaching; session attach does not accept --repository-url.');

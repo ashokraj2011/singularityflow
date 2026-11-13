@@ -97,7 +97,8 @@ test('each step of the pending-amendment plan carries its own routes, and none o
   for (const command of [STATUS, DECIDE]) {
     assert.deepEqual(routesOf(command), [`     - Copilot: ${NO_ROUTE}`, `     - Shell: ${command}`, '     - VS Code (model-free): not available for this action']);
   }
-  assert.deepEqual(routesOf(CARD), [`     - Copilot: /sf-decide ${WORK}`, `     - Shell: ${CARD}`, '     - VS Code (model-free): not available for this action']);
+  // The decisions card's VS Code route is the Decide card itself [owner, 2026-11-13].
+  assert.deepEqual(routesOf(CARD), [`     - Copilot: /sf-decide ${WORK}`, `     - Shell: ${CARD}`, '     - VS Code (model-free): Command Palette: Singularity Flow: Decide Everything This Step Waits On']);
   assert.doesNotMatch(rendered.join('\n'), /Copilot: \/sf-reject/u);
   // Returning the phase is named as what it is, and as not deciding the amendment.
   assert.match(plan.steps[3].label, /Returning planning instead \(a person, with \/sf-reject in a new turn\) does not decide AMD-001/u);

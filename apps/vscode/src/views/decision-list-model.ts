@@ -26,6 +26,8 @@ export interface DecisionDecidedBy { groups?: string[]; labels?: string[]; allow
 
 export interface DecisionOptionPacket {
   id: string; label: string; recommended: boolean; words?: string;
+  /** What choosing it does to the Story, in one plain line [owner, 2026-11-13]. */
+  does?: string;
   /** Which of the one set of answers this is (Accept, Accept as a risk until a date, Return to a step, …). */
   outcomeWords?: string;
   effects?: Array<Record<string, unknown>>;
@@ -55,6 +57,12 @@ export interface DecisionItemPacket {
   options: DecisionOptionPacket[];
   decidedBy: DecisionDecidedBy;
   details?: Record<string, unknown>;
+  /** The answer SFlow recommends from its facts, or what to weigh when it has none [owner, 2026-11-13]. */
+  recommended?: { option: string | null; why: string; words: string };
+  /** A chat may ask it as a plain yes or no, bound to the person's own typed answer. */
+  chatYesNo?: boolean; yesNo?: { question: string; yes: string; no: string | null; route: string };
+  /** SFlow settled it for the person: shown under "Settled for you", with its evidence and an Undo. */
+  settled?: boolean; evidence?: string | string[];
 }
 
 /**
@@ -92,6 +100,8 @@ export interface DecisionPacket {
   items: DecisionItemPacket[];
   /** Offered beside what waits: on the list's digest and record, in nobody's count. */
   offered?: DecisionItemPacket[];
+  /** What SFlow settled for the person, when it is carried beside the list. */
+  settled?: DecisionItemPacket[];
   packetSha256: string;
   next?: { item: string; kind: string; title: string; command: string; copilotCommand: string | null } | null;
   record?: { form?: string; recommended?: string | null; interactive?: string; share?: string };
@@ -122,6 +132,8 @@ export interface DecisionPreview {
 
 export interface DecisionOptionRow {
   id: string; label: string; recommended: boolean; words: string; outcome: string;
+  /** What it does to the Story. */
+  does: string;
   /** A button the person may press: recorded here, available, and theirs to decide. */
   choosable: boolean;
   /** Why it is not a button, in the engine's words, when it is not. */
@@ -135,6 +147,10 @@ export interface DecisionItemRow {
   id: string; kind: string; title: string; why: string;
   /** What it holds back, and where it can be answered. */
   holds: string; answerWhere: string;
+  /** Its recommended answer, in the engine's words; '' when the engine gave none. */
+  recommended: string;
+  /** Settled for the person by SFlow, with what it rests on. */
+  settled: boolean; evidence: string[];
   /** Who decides it, in plain words. */
   who: string;
   /** What an intent amendment changes and reaches, in the engine's words: what its approver decides [owner, 2026-11-13]. */
@@ -214,7 +230,7 @@ export function optionRow(option: DecisionOptionPacket): DecisionOptionRow {
   const allowed = option.decidedBy?.allowed === true;
   const choosable = recorded && available && allowed;
   return {
-    id: option.id, label: option.label, recommended: option.recommended === true, words: option.words ?? '',
+    id: option.id, label: option.label, recommended: option.recommended === true, words: option.words ?? '', does: option.does ?? '',
     outcome: typeof option.outcomeWords === 'string' ? option.outcomeWords : '',
     choosable,
     notChoosable: choosable ? null : yours ? 'Yours to do; nothing is recorded here.'
@@ -244,14 +260,17 @@ export function buildDecisionListView(packet: DecisionPacket | null, {
     return { available: false, workId: null, phase: null, phaseLabel: null, headline: '', rule: null, digest: null,
       nothingToDecide: false, items: [], unavailable: [], chosen: 0, notice, error, outcome, busy };
   }
-  const items = packet.items.map((item): DecisionItemRow => {
-    const options = ordered(item.options).map(optionRow);
+  const extra = (packet.settled ?? []).filter((item) => item?.settled === true && !packet.items.some((listed) => listed.id === item.id));
+  const items = [...packet.items, ...extra].map((item): DecisionItemRow => {
+    const options = ordered(item.options).map((option) => ({ ...optionRow(option), recommended: option.recommended === true || item.recommended?.option === option.id }));
     // Theirs when they may choose an option here or take one of its steps themselves (a command to run).
     const allowed = item.decidedBy?.allowed === true && options.some((option) => option.choosable || option.yours !== null);
     const facts = [...(Array.isArray(item.details?.lines) ? item.details.lines : []), item.details?.proposedBy, item.details?.reach].filter((line): line is string => typeof line === 'string');
     return {
       id: item.id, kind: item.kind, title: item.title, why: item.why,
       holds: typeof item.holdsWords === 'string' ? item.holdsWords : '', answerWhere: typeof item.answer?.words === 'string' ? item.answer.words : '',
+      recommended: typeof item.recommended?.words === 'string' ? item.recommended.words : '',
+      settled: item.settled === true, evidence: [item.evidence ?? item.details?.evidence].flat().filter((line): line is string => typeof line === 'string' && line.trim().length > 0),
       who: item.decidedBy?.words ?? '', allowed,
       ...(facts.length ? { facts } : {}),
       share: allowed ? null : item.decidedBy?.share ?? packet.record?.share ?? `/sf-decide ${packet.workId}`,
@@ -295,7 +314,8 @@ export function decisionAnswersFromChoices(packet: DecisionPacket, raw: unknown,
     if (!ITEM.test(itemId) || !OPTION.test(optionId)) { errors.push('A choice did not name an item and an option of this list.'); continue; }
     if (seen.has(itemId)) { errors.push(`${itemId} was chosen twice.`); continue; }
     seen.add(itemId);
-    const item = [...packet.items, ...(packet.offered ?? [])].find((candidate) => candidate.id === itemId);
+    // An Undo of what SFlow settled for the person is chosen like any answer: the engine records it from the same answers file.
+    const item = [...packet.items, ...(packet.offered ?? []), ...(packet.settled ?? [])].find((candidate) => candidate.id === itemId);
     const option = item?.options.find((candidate) => candidate.id === optionId);
     if (!item || !option) { errors.push(`${itemId} has no option '${optionId}' in this list. Refresh it and choose again.`); continue; }
     const row = optionRow(option);

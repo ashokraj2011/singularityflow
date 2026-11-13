@@ -32,6 +32,7 @@ import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
 import { finalScopeStep, isConformancePhase, ownerStepChecks } from './phase-roles.mjs';
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, DIFFERENCE_VERDICTS, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { advisedItem, reopenWords } from './decision-advice.mjs';
 
 export { decisionGroups, decisionHeadline, decisionRefusalLead, stepName };
 export const DECISION_LIST_REVISION = 'decision-list-v1';
@@ -226,7 +227,8 @@ function differenceItem(workflow, context, group) {
   const options = [];
   if (fix) {
     options.push({ ...personalStep({ id: 'fix-code', label: `Fix the code: return to ${stepName(workflow, fix.owner)}`, command: fix.command,
-      words: `The code is changed to do what ${names} ${clauses.length === 1 ? 'says' : 'say'}; the steps after it run again and the report is written again.` }),
+      words: `The code is changed to do what ${names} ${clauses.length === 1 ? 'says' : 'say'}; the steps after it run again and the report is written again.`,
+      does: `Returns the Story to ${stepName(workflow, fix.owner)}: ${reopenWords(workflow, fix.owner)}; the code changes to do what ${names} ${clauses.length === 1 ? 'says' : 'say'}.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: reports[0] }], context) });
   }
   if (update && drafted) {
@@ -236,6 +238,7 @@ function differenceItem(workflow, context, group) {
     const words = `The draft is at ${draft.path}. Write ${clauses.length === 1 ? 'the clause' : 'each clause'} in place of its sflow-draft slot and delete the closing line, `
       + `or ask the Story's agent (/sf-reject intent-amendment propose); then propose it. ${scopeName}'s approvers decide it.`;
     const step = personalStep({ id: 'update-spec', label: 'Update the spec: write the draft and propose it', command: propose, words,
+      does: `Proposes the drafted change to ${scopeName}'s spec once you write it; ${scopeName}'s approvers decide it, and nothing is rewound until they do.`,
       decidedBy: anyone(`Anyone working on this Story may write and propose it; ${scopeName}'s approvers decide it.`) });
     // The file a host may open for the person: the engine's own path, never one a page sends back.
     options.push({ ...step, action: { ...step.action, file: draft.path } });
@@ -319,7 +322,8 @@ function gapItem(workflow, context, group) {
   const corrected = reportOnly ? gaps.flatMap((gap) => gap.choices ?? []).find((choice) => choice.kind === 'correct-report' && choice.command) : null;
   if (corrected) {
     options.push({ ...personalStep({ id: 'correct-report', label: `Return ${reports.map((id) => stepName(workflow, id)).join(' and ')} to correct the report`,
-      command: corrected.command, words: 'Its author checks the verdict against the recorded evidence and publishes it again; nothing before it changes.' }),
+      command: corrected.command, words: 'Its author checks the verdict against the recorded evidence and publishes it again; nothing before it changes.',
+      does: `Returns ${stepName(workflow, reports[0])} to its author: ${reopenWords(workflow, reports[0])}; nothing before it changes.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: reports[0] }], context) });
   }
   if (candidate) {
@@ -411,7 +415,7 @@ function issueItem(workflow, context, state) {
     title: `${aboutName}: a problem reported in ${ownerName}`,
     why: why.join(' '),
     options,
-    details: { issue: issue.id, phase: issue.phase, about: issue.about, status: state.status,
+    details: { issue: issue.id, phase: issue.phase, about: issue.about, status: state.status, proposed: issue.proposed ?? null,
       supersedes: (context.facts.issues ?? []).filter((entry) => entry.supersededBy === issue.id).map((entry) => entry.issue.id),
       coveredBy: covering.map((entry) => entry.id),
       commands: [`singularity-flow upstream-issue decide ${issue.id} --work-id ${workflow.workItem.id} --outcome ${upstreamIssueOutcomes(workflow, issue.phase)} --reason "<why>"`] }
@@ -454,8 +458,8 @@ const nobodyNamed = (words) => ({ groups: [], labels: [], allowed: false, words:
  * A choice that is the person's own step. `recordable: false` says only that `decisions record` does
  * not write it; whether a chat turn may run its command is the guard's (command-skills.mjs).
  */
-function personalStep({ id, label, command, words, decidedBy = nobodyNamed(words) }) {
-  return { id, label, recommended: false, words, effects: [], needs: {}, recordable: false,
+function personalStep({ id, label, command, words, decidedBy = nobodyNamed(words), does = null }) {
+  return { id, label, recommended: false, words, ...(does ? { does } : {}), effects: [], needs: {}, recordable: false,
     action: { command, alternativeCommands: [] }, decidedBy };
 }
 
@@ -556,6 +560,7 @@ function nodePinItem(workflow, context, pin) {
       needs: { reason: textNeed('', SUPPORTING_REASON) }
     })],
     details: { phase: pin.phase, file: pin.file, version: pin.version, node: pin.node, running: pin.running ?? null, stage: pin.stage, commandId: pin.commandId ?? null, ...(replaces ? { replaces } : {}),
+      ...(pin.tried ? { tried: pin.tried.passed === true } : {}),
       commands: [`singularity-flow decisions record ${workId}`, tryIt] }
   };
 }
@@ -604,6 +609,7 @@ function testCommandItem(workflow, context, request) {
         + `covering ${listWords(command.affectedRoots)}: ${request.reason} Once accepted it runs at every publication and submission of ${name}, and its tests must pass.`,
     // Accepting it while the step awaits approval would make that review stale: return the step first.
     options: [hold ? personalStep({ id: 'return-step-first', label: `Return ${name} for changes first`, command: hold.command, words: hold.words,
+      does: `Returns ${name} for changes: ${reopenWords(workflow, request.phase)}; the command is decided after that.`,
       decidedBy: stepDecidedBy(workflow, context, approvers(workflow, request.phase), hold.words) })
       : option(workflow, context, {
         id: 'accept-test-command', label: removed ? 'Accept that this suite no longer runs' : request.repin ? 'Accept the changed command as its pin' : 'Accept this command for this Story',
@@ -659,7 +665,7 @@ function routingItem(workflow, context, pending) {
     why: `${pending.reason === 'limit' ? `All ${pending.maxRounds} rounds are used. ` : ''}The workflow waits for this choice before it moves on.` };
   // A route's `to` may be a word, not a step.
   const routeLabel = (choice) => `${choice.label ?? choice.id}${!choice.to || choice.to === 'next' ? '' : choice.to === 'end' ? ' (finishes the Story)' : ` (goes to ${stepName(workflow, choice.to)})`}`;
-  const details = { key: pending.key, decision: pending.decision, after: pending.after };
+  const details = { key: pending.key, decision: pending.decision, after: pending.after, reason: pending.reason ?? null };
   if (!pending.by?.length) {
     return stepItem(workflow, context, { ...base, groups: [], details,
       options: (pending.options ?? []).map((choice) => ({ id: `choose-${choice.id}`, label: routeLabel(choice),
@@ -881,7 +887,7 @@ function applicabilityItem(workflow, context, entry) {
       words: 'Recorded with your reason; the Story can then end without it.',
       effects: [{ kind: 'applicability', responsibility: entry.responsibility, groups: [entry.authority] }], needs: { reason: textNeed('', REASON) } }),
     chat: { command: `singularity-flow decision applicability ${workId} --fetch --responsibility ${entry.responsibility} --reason "<REASON>"` } }],
-    details: { responsibility: entry.responsibility, authority: entry.authority }, subject: `responsibility:${entry.responsibility}`
+    details: { responsibility: entry.responsibility, authority: entry.authority, declaredReason: entry.declaredReason ?? null }, subject: `responsibility:${entry.responsibility}`
   };
 }
 
@@ -1277,7 +1283,8 @@ function askedForItem(workflow, context, entry, facts) {
   if (workflow.phases?.[facts.phase]?.status === 'awaiting_approval') {
     const words = `${name} is submitted, so it is accounted for in a new generation: its approvers return it to ${name}, then its author accounts for it in a /sf-code turn, within the plan, with the clauses it implements, or as the departure recorded for it.`;
     return item({ ...personalStep({ id: 'return', label: `Return it to ${name} to account for it`,
-      command: `singularity-flow reject ${facts.phase} --work-id ${workId} --to ${facts.phase} --reason <reason>`, words }),
+      command: `singularity-flow reject ${facts.phase} --work-id ${workId} --to ${facts.phase} --reason <reason>`, words,
+      does: `Returns ${name} to its author: ${reopenWords(workflow, facts.phase)}; its author accounts for it there.` }),
     decidedBy: decidedBy(workflow, [{ kind: 'upstream-issue-decision', issuePhase: facts.phase }], context) }, '/sf-reject');
   }
   const words = `Its author accounts for it in a /sf-code turn of ${name}${facts.open ? '' : ', in a new generation now that this one is published'}: within the plan, with the clauses it implements, or as the departure recorded for it.`;
@@ -1363,7 +1370,8 @@ const SETTLED_SHOWN = 20;
 /**
  * What the agent or SFlow settled for the person and that still stands, newest first [owner, 2026-11-13]: never a
  * question, so it holds nothing and is not counted; each shows its answer and evidence, and one option, Undo,
- * which makes it the person's question again on its own route (settled-decisions.mjs).
+ * which makes it the person's question again on its own route (settled-decisions.mjs). Every host shows these under
+ * its own "Settled for you" heading, so the title is the answer itself, and `evidence` is one line per fact it rests on.
  */
 function settledItems(workflow, context) {
   const workId = workflow.workItem.id;
@@ -1373,15 +1381,47 @@ function settledItems(workflow, context) {
     const evidence = evidenceWords(entry);
     const undo = `singularity-flow decisions undo ${workId} --settled ${entry.id}`;
     return {
-      kind: 'settled', settled: true, title: `Settled for you: ${entry.answer}`.slice(0, 200), subject: entry.subject,
-      answerWords: entry.answer, evidenceWords: evidence, by: entry.by, at: entry.at,
-      why: `${by.replace(/^./u, (first) => first.toUpperCase())} settled this because ${evidence}. Nobody was asked; undo it if it is wrong.`,
+      kind: 'settled', settled: true, title: String(entry.answer).slice(0, 200), subject: entry.subject,
+      answerWords: entry.answer, evidenceWords: evidence, evidence: (entry.evidence ?? []).map((fact) => `${fact.what} (${fact.where})`), by: entry.by, at: entry.at,
+      why: `${by.replace(/^./u, (first) => first.toUpperCase())} settled this because ${evidence}. Nobody was asked; undo it only if it is wrong.`,
       options: [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
         effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo }],
       details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence,
         reraised: route, commands: [undo] }
     };
   });
+}
+
+/**
+ * The next generation a published step needs [owner, 2026-11-13]: its files changed after publication, or the person
+ * asked for a change since, and the published generation holds neither, so it is not submitted with them. Once only
+ * the step's own skill asked it, in chat ("Would you like me to open generation 2?"); it is on the card now, each
+ * choice with what it does. Both stay the person's own steps: their terminal previews the rollover and asks them to
+ * confirm, and the step's skill still asks it yes or no in chat. Nothing is recorded from the list.
+ */
+function rolloverItem(workflow, context, entry) {
+  const name = stepName(workflow, entry.phase);
+  const shown = entry.paths.length ? `${listWords(entry.paths.slice(0, 5))}${entry.paths.length > 5 ? ` and ${entry.paths.length - 5} more` : ''}` : null;
+  const asked = entry.requests.length ? `The person asked for a change after it was published: ${entry.requests.map((text) => `"${text}"`).join('; ')}.` : '';
+  const kept = `generation ${entry.generation} and its ${entry.code ? 'evidence and test results' : 'review'} stay as published`;
+  const anyoneHere = (words) => anyone(`Whoever works on ${name} takes this step. ${words}`.trim());
+  const options = [personalStep({ id: 'start-next-generation', label: `Start generation ${entry.next} of ${name}${shown ? ` with ${shown}` : ' for the change'}`,
+    command: entry.command, words: `Your terminal previews generation ${entry.next} and asks you to confirm it; ${kept}.`,
+    does: `Opens generation ${entry.next} of ${name} with the change; ${kept}.`, decidedBy: anyoneHere('') })];
+  if (entry.keepOut) {
+    options.push(personalStep({ id: 'set-aside', label: `Leave the change out: set ${shown} aside`, command: entry.keepOut,
+      words: `Recovery shows the set-aside route; a private copy is kept, and generation ${entry.generation} is submitted as it is.`,
+      does: `Sets the changed files aside with a private copy; generation ${entry.generation} goes ahead as published, without them.`,
+      decidedBy: anyoneHere('') }));
+  }
+  return {
+    kind: 'generation-rollover', title: `Start generation ${entry.next} of ${name}, or leave the change out`,
+    why: [shown ? `${shown} changed after generation ${entry.generation} of ${name} was published, and that generation does not hold ${entry.paths.length === 1 ? 'it' : 'them'}, so it is not submitted with ${entry.paths.length === 1 ? 'it' : 'them'}.` : '',
+      asked, `Start generation ${entry.next} with the change, or leave it out.`].filter(Boolean).join(' '),
+    options,
+    details: { phase: entry.phase, generation: entry.generation, next: entry.next, paths: entry.paths, requested: entry.requests.length > 0,
+      ...(entry.chatRoute ? { chatRoute: entry.chatRoute } : {}), commands: options.map((option) => option.action.command) }
+  };
 }
 
 /** The step's approval itself: always the list's last item. */
@@ -1395,7 +1435,8 @@ function approvalItem(workflow, context, phase, { heldBy, youDecide, ownTerminal
     kind: 'approval', title: `Approve ${name}`,
     why: `${approvals} of ${minimum} approval${minimum === 1 ? '' : 's'} recorded. ${waiting}${youDecide.length ? ` You answer ${youDecide.length === 1 ? 'one question' : `${youDecide.length} questions`} in the approval itself.` : ''}${ownTerminal ? ' It takes your signature, in your own terminal.' : ''}`,
     options: [{ ...personalStep({ id: 'approve', label: heldBy.length ? `Approve ${name} once ${listWords(heldBy)} ${heldBy.length === 1 ? 'is' : 'are'} done` : `Review and approve ${name}`,
-      command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, words: 'You review it and confirm once in your own terminal, in VS Code or with /sf-approve.' }),
+      command: `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, words: 'You review it and confirm once in your own terminal, in VS Code or with /sf-approve.',
+      does: `Records your approval of ${name} generation ${Number(phase.generation ?? 0)} once you reviewed its documents; the Story moves on when ${minimum} approval${minimum === 1 ? ' is' : 's are'} recorded.` }),
     decidedBy: stepDecidedBy(workflow, context, approvers(workflow, phase.id), 'You review it and confirm once.') }],
     details: { phase: phase.id, generation: Number(phase.generation ?? 0), approvals, minimum, heldBy, youDecide, ready: !heldBy.length,
       commands: [`singularity-flow approve ${phase.id} --work-id ${workId} --fetch`] }
@@ -1422,7 +1463,8 @@ export const PENDING_CONCEPTS = Object.freeze({
   // A code step's departures are decided on the list too [CQF:REQ-024].
   // Convergence items too: the Adjudicate page shows only these, for one release [SCS:REQ-030, REQ-033].
   // And what the person typed that a code step has not accounted for yet [SCS:REQ-042].
-  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'asked-for'] }),
+  // And the next generation a published step needs, once asked only in chat [owner, 2026-11-13].
+  'decision-list': Object.freeze({ kinds: ['conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover'] }),
   'routing-decision': Object.freeze({ kinds: ['routing-decision'] }),
   'owed-witnesses-and-scope-items': Object.freeze({ kinds: ['owed-decision', 'evidence-obligation'] }),
   'intent-amendments': Object.freeze({ kinds: ['intent-amendment'] }),
@@ -1462,7 +1504,7 @@ export const LATER_KINDS = Object.freeze(['owed-decision', 'departure', 'asked-f
 /** Every item kind this list builds. */
 export const PENDING_ITEM_KINDS = Object.freeze(['story-publication', 'routing-decision', 'intent-amendment', 'forward-amendment', 'revalidation', 'appeal',
   'conformance-gap', 'upstream-issue', 'visual-profile', 'node-pin', 'test-run-risk', 'test-narrowing', 'test-command', 'evidence-obligation', 'owed-decision',
-  'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'approval-hold', 'transport-intent', 'approval']);
+  'plan-accounting', 'departure', 'convergence-item', 'asked-for', 'generation-rollover', 'approval-hold', 'transport-intent', 'approval']);
 
 /**
  * The command that records choices. Only choices a /sf-decide turn records after the person's yes carry
@@ -1622,13 +1664,15 @@ function itemAnswer(item, workId) {
   const live = item.options.filter((entry) => entry.available !== false);
   if (!live.length) return { where: 'later', words: 'Nothing can be answered yet.' };
   if (live.every((entry) => entry.decidedBy?.author)) return { where: 'author', words: 'Its author answers it while writing the step.' };
-  if (live.some((entry) => DECISION_LIST_CHAT_OPTIONS.includes(entry.id) || entry.chat)) {
-    return { where: 'chat', words: `Answer it in chat with /sf-decide ${workId}, on the Decide card, or in your terminal.` };
-  }
+  // One place: the Decide card holds every person decision, and /sf-decide opens it [owner, 2026-11-13]. A yes-or-no
+  // item may still be answered in chat, bound to the person's own typed answer; a step SF Guard signs, in their terminal.
+  const card = `Answer it on the Decide card: /sf-decide ${workId} opens it`;
+  const yesNo = item.yesNo ? `, or answer yes or no in chat (${item.yesNo.route})` : '';
+  if (live.some((entry) => DECISION_LIST_CHAT_OPTIONS.includes(entry.id) || entry.chat)) return { where: 'chat', words: `${card}${yesNo}.` };
   if (live.some((entry) => (entry.recordable !== false && !entry.action) || entry.action?.humanReview)) {
-    return { where: 'card', words: 'Answer it on the Decide card (VS Code or Copilot CLI) or in your own terminal; a chat turn cannot record it.' };
+    return { where: 'card', words: `${card}. A chat turn cannot record it; when SF Guard signs it, the card opens your own terminal.` };
   }
-  return { where: 'terminal', words: 'Answer it in your own terminal; a chat turn cannot record it.' };
+  return { where: 'terminal', words: `Start it from the Decide card (/sf-decide ${workId}): it runs in your own terminal${yesNo}.` };
 }
 
 /**
@@ -1662,6 +1706,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(pending.applicability ?? []).map((entry) => applicabilityItem(workflow, context, entry)),
     // Publication would refuse these before the step could ever await approval.
     ...(facts.excludedChanges ? planPathItems(workflow, context, facts.excludedChanges) : []),
+    ...(facts.rollover ? [rolloverItem(workflow, context, facts.rollover)] : []),
     ...(facts.departures?.entries ?? []).map((entry) => departureItem(workflow, context, entry, facts.departures)),
     ...(facts.askedFor?.entries ?? []).map((entry) => askedForItem(workflow, context, entry, facts.askedFor))
   ];
@@ -1702,7 +1747,8 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     // Recommended first, then in the order built.
     const options = [...item.options].sort((left, right) => Number(right.recommended) - Number(left.recommended));
     const withOutcomes = options.map((entry) => { const outcome = optionOutcome(item, entry); return { ...entry, outcome, outcomeWords: DECISION_OUTCOMES[outcome] }; });
-    const numbered = { id: `d${index + 1}`, ...item, options: withOutcomes, decidedBy: itemDecidedBy(workflow, options), holdsApproval: held(item) };
+    // Its recommended answer and what each choice does, on every item and every host [owner, 2026-11-13].
+    const numbered = advisedItem(workflow, { id: `d${index + 1}`, ...item, options: withOutcomes, decidedBy: itemDecidedBy(workflow, options), holdsApproval: held(item) });
     return { ...numbered, ...holdsOf(numbered), answer: itemAnswer(numbered, workflow.workItem.id) };
   });
   const heldHere = items.filter((item) => item.holdsApproval).map((item) => item.id);
@@ -1711,22 +1757,27 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     const approval = approvalItem(workflow, context, phase, { heldBy: [...(door ? ['d0'] : []), ...heldHere],
       youDecide: holds.filter((hold) => hold.owner === 'you-decide' && hold.clearedBy?.kind !== 'viewer-terminal').map((hold) => hold.summary),
       ownTerminal: holds.some((hold) => hold.clearedBy?.kind === 'viewer-terminal' && hold.owner === 'you-decide') });
-    items.push({ id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
+    // The approval starts from the card too: its row opens the review page [owner, 2026-11-13].
+    const advised = advisedItem(workflow, { id: `d${items.length + 1}`, ...approval, decidedBy: itemDecidedBy(workflow, approval.options), holdsApproval: false });
+    items.push({ ...advised, answer: { where: 'card', words: `Open it from the Decide card (/sf-decide ${workflow.workItem.id}), which opens its documents to review and approve; or /sf-approve ${phase.id}.` } });
   }
   const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));
   // Nothing waits on these: a review of the scope, and each convergence answer its approvers may change [SCS:REQ-034].
   const offered = [...(facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : []),
-    ...(facts.convergence ? convergenceAnswerItems(workflow, context, facts.convergence) : [])].map((item, index) => ({ id: `d${items.length + index + 1}`, ...item,
+    ...(facts.convergence ? convergenceAnswerItems(workflow, context, facts.convergence) : [])].map((item, index) => advisedItem(workflow, { id: `d${items.length + index + 1}`, ...item,
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
-    decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing,
-    answer: itemAnswer({ ...item, options: item.options }, workflow.workItem.id) }));
-  // Settled for you: numbered after everything else, so no item's number changes when one is settled or undone.
-  const settled = settledItems(workflow, context).map((item, index) => ({ id: `d${items.length + offered.length + index + 1}`, ...item,
+    decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
+    .map((item) => ({ ...item, answer: itemAnswer(item, workflow.workItem.id) }));
+  // Settled for you: numbered after everything else, so no item's number changes when one is settled or undone. No
+  // recommendation: each says to undo it only if it is wrong, and its Undo says what undoing does (decision-advice.mjs).
+  const settled = settledItems(workflow, context).map((item, index) => advisedItem(workflow, { id: `d${items.length + offered.length + index + 1}`, ...item,
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
-    decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing,
-    answer: itemAnswer(item, workflow.workItem.id) }));
-  if (door) items.unshift({ id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true, holds: 'approval', holdsWords: HOLDS_WORDS.approval,
-    answer: itemAnswer(door, workflow.workItem.id) });
+    decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
+    .map((item) => ({ ...item, answer: { where: 'card', words: `Nothing to answer. Undo it on the Decide card (/sf-decide ${workflow.workItem.id} opens it) only if it is wrong; a chat turn cannot undo it.` } }));
+  if (door) {
+    const advised = advisedItem(workflow, { id: 'd0', ...door, decidedBy: itemDecidedBy(workflow, door.options), holdsApproval: true, holds: 'approval', holdsWords: HOLDS_WORDS.approval });
+    items.unshift({ ...advised, answer: itemAnswer(advised, workflow.workItem.id) });
+  }
   // What holds the approval: the approval item's heldBy, counted the one way. `open` counts every
   // item, the approval included: what every surface shows.
   const holding = items.filter((item) => item.holdsApproval).length;

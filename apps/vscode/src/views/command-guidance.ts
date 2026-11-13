@@ -25,7 +25,8 @@ export function commandGuidanceHtml(value: unknown, options: {
     ? `<button type="button" class="secondary" data-copy-command="${escape(shellCopy)}">Copy Shell</button>` : '';
   const copilotButton = guidance.copyable && guidance.copilotCommand
     ? `<button type="button" class="secondary" data-copy-command="${escape(guidance.copilotCommand)}">Copy Copilot</button>` : '';
-  const modelFreeButton = guidance.modelFreeCommand && !chatModelsMissing()
+  // Only an @sflow route is copied for chat; a Command Palette route (the Decide card) is opened there.
+  const modelFreeButton = guidance.modelFreeCommand?.startsWith('@sflow') && !chatModelsMissing()
     ? `<button type="button" class="secondary" data-copy-command="${escape(guidance.modelFreeCommand)}">Copy @sflow</button>` : '';
   const buttons = [copilotButton, shellButton, modelFreeButton];
   return `<div class="command-guidance">${commandRouteListHtml(guidance, buttons)}

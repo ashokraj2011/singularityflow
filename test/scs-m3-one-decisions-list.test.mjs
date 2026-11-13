@@ -243,7 +243,8 @@ test('the terminal asks the same, with the same words, and confirms before anyth
   output.on('data', (chunk) => { shown += chunk; });
   const prompt = await promptDecisionAnswers(packet, { input, output });
   assert.deepEqual(Object.fromEntries(prompt.answers.choose), { d1: 'update-intent' });
-  assert.match(shown, / {3}1\) Send back to fix\n {3}2\) Accept as is\n {3}3\) Not a real finding\n {3}4\) Decide later\n {3}5\) The spec should change\n {3}6\) Not now/u);
+  // Each choice is followed by what it does to the Story, on its own line [owner, 2026-11-13].
+  assert.match(shown, / {3}1\) Send back to fix\n {6}Sends it back to fix[^\n]*\n {3}2\) Accept as is\n {6}Accepts it as is[^\n]*\n {3}3\) Not a real finding\n {6}[^\n]+\n {3}4\) Decide later\n {6}[^\n]+\n {3}5\) The spec should change\n {6}Changes the spec[^\n]*\n {3}6\) Not now/u);
   assert.match(shown, /The clauses the specification should change, separated by commas \(SDS-1:REQ-002, SDS-1:REQ-001\): /u);
   const plan = decisionRecordPlan(packet, prompt.answers, { at: AT });
   assert.deepEqual(plan.steps[0].values, { reason: 'The specification is wrong about retries.', clause: ['SDS-1:REQ-002'] });

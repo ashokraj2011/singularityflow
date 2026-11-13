@@ -37,12 +37,13 @@ function person(replies, lists = [packet()]) {
 const accept = (content) => ({ action: 'accept', content });
 const mine = [{ item: 'd1', title: 'Say where a.js belongs', option: 'row-2', reason: 'Its own reason, long enough.' }];
 
-test('the table shows every open decision and who answers it; the approval is not a row', () => {
+test('the table shows every open decision and who answers it, and the approval as its own row that /sf-approve opens', () => {
   const table = decisionsTable(packet());
   assert.match(table, /a\.js \| a\.js changed \\\| and no row names it\./u);
   assert.match(table, /Stays in your terminal: `singularity-flow recover PAY-1 --json`/u);
   assert.match(table, /The Leads decide this\. Share: \/sf-decide PAY-1/u);
-  assert.doesNotMatch(table, /Approve Code/u);
+  // One place [owner, 2026-11-13]: the approval is a row of the card, reviewed with its documents, never on a form.
+  assert.match(table, /\| Approve Code \| Waits\. \| Review its documents and approve with \/sf-approve --work-id PAY-1; or in your terminal: `singularity-flow approve implementation` \|/u);
   assert.equal(cardRows(packet()).length, 5);
 });
 

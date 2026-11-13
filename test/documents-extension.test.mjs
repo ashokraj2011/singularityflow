@@ -135,3 +135,28 @@ test('Documents and Decisions share no canvas, command or tool, so they never re
   assert.ok(decisions.has('sflow_decide') && decisions.has('adjudicate') && !decisions.has('canvas'));
   assert.deepEqual([...documents].filter((name) => decisions.has(name)), []);
 });
+
+test('no Singularity Flow extension registers Copilot hooks, so no session waits for a permission nobody sees', async () => {
+  // Copilot's runtime (1.0.108, also inside VS Code's chat) asks the person before an extension may register
+  // hooks; VS Code shows no such request, so /sf-session right after a Story start sat on "Working" for 47 s to
+  // 7 min until cancelled, every session [owner, 2026-11-13]. The plugin's own hooks (hooks.json) are unaffected.
+  const { readdir } = await import('node:fs/promises');
+  const names = (await readdir(path.join(root, 'plugin', 'extensions'), { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+  assert.ok(names.includes('documents') && names.includes('decisions'));
+  for (const name of names) {
+    const source = await readFile(path.join(root, 'plugin', 'extensions', name, 'extension.mjs'), 'utf8');
+    assert.ok(source.includes('joinSession({'), `${name} joins the session`);
+    assert.doesNotMatch(joinSessionOptions(source), /^\s*hooks\s*:/mu, `${name} registers hooks`);
+  }
+});
+
+/** The source of the object passed to joinSession({ … }), by brace matching (strings and comments are not read specially; the options hold none with braces). */
+function joinSessionOptions(source) {
+  const start = source.indexOf('joinSession({') + 'joinSession('.length;
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    else if (source[index] === '}' && --depth === 0) return source.slice(start, index + 1);
+  }
+  return source.slice(start);
+}

@@ -17,19 +17,20 @@ const executeFile = promisify(execFile);
 const MAX_CANVAS_PREVIEW_BYTES = 256 * 1024;
 const MAX_CANVAS_TOTAL_PREVIEW_BYTES = 4 * 1024 * 1024;
 const instances = new Map();
-let currentWorkingDirectory;
 let session;
 
-function updateWorkingDirectory(value) {
-  if (typeof value === 'string' && value.trim()) currentWorkingDirectory = value.trim();
-}
-
-async function activeWorkingDirectory() {
-  if (currentWorkingDirectory) return currentWorkingDirectory;
+/**
+ * The session's working directory as it is now, read from the session, as the Decisions extension does.
+ * It once came from hooks the extension registered (sessionStart, userPromptSubmitted, preToolUse), but
+ * Copilot's runtime asks the person to let an extension register hooks, and VS Code's chat never shows
+ * that request: every session waited 47 s to 7 min until the person cancelled it [owner, 2026-11-13].
+ */
+async function activeWorkingDirectory(given = null) {
+  if (typeof given === 'string' && given.trim()) return given.trim();
   const snapshot = await session.rpc.metadata.snapshot();
-  updateWorkingDirectory(snapshot?.workingDirectory);
-  if (!currentWorkingDirectory) throw new Error('No repository working directory is attached to this Copilot session.');
-  return currentWorkingDirectory;
+  const directory = typeof snapshot?.workingDirectory === 'string' ? snapshot.workingDirectory.trim() : '';
+  if (!directory) throw new Error('No repository working directory is attached to this Copilot session.');
+  return directory;
 }
 
 async function runFlow(args, { json = false, cwd } = {}) {
@@ -125,12 +126,8 @@ async function documentsCommand(context) {
   }
 }
 
+// No hooks: registering one makes the session wait for a permission VS Code never shows (see above).
 session = await joinSession({
-  hooks: {
-    onSessionStart: async (input) => updateWorkingDirectory(input?.workingDirectory),
-    onUserPromptSubmitted: async (input) => updateWorkingDirectory(input?.workingDirectory),
-    onPreToolUse: async (input) => updateWorkingDirectory(input?.workingDirectory)
-  },
   commands: [{ name: 'documents', description: 'Browse Singularity Flow generated artifacts and supporting documents.', handler: documentsCommand }],
   canvases: [
     createCanvas({
@@ -150,8 +147,7 @@ session = await joinSession({
         }
       ],
       open: async (ctx) => {
-        updateWorkingDirectory(ctx.session?.workingDirectory);
-        const cwd = await activeWorkingDirectory();
+        const cwd = await activeWorkingDirectory(ctx.session?.workingDirectory);
         let entry = instances.get(ctx.instanceId);
         if (!entry) {
           entry = await startServer(ctx.instanceId);

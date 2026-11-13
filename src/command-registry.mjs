@@ -501,9 +501,9 @@ const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status', 'return', 'prep
 const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance', 'prepare-worktree', 'discard-worktree']);
 const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate', 'acknowledge']);
 const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);
-const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'draft', 'propose', 'decide', 'acknowledge']);
-// A draft is written beside the checkout's Git data, never into the Story; reading what to amend changes nothing governed.
-const STORY_INTENT_AMENDMENT_READS = Object.freeze(['status', 'draft']);
+// A draft is written beside the checkout's Git data, never into the Story; a preview records nothing.
+const STORY_INTENT_AMENDMENT_READS = Object.freeze(['status', 'draft', 'preview']);
+const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze([...STORY_INTENT_AMENDMENT_READS, 'propose', 'decide', 'acknowledge']);
 const STORY_SKILL_VERSION_ACTIONS = Object.freeze(['status', 'preview', 'propose', 'decide']);
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
 const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 'inspect']);

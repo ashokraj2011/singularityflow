@@ -687,6 +687,60 @@ function routingItem(workflow, context, pending) {
   return { ...base, options: [...named, ...others], details };
 }
 
+// Why rule E8 could not keep a step (phase-retention.mjs amendmentRetentionCandidates), as a person reads it.
+const NOT_KEPT_WORDS = Object.freeze({ 'not-approved': 'it is not approved yet', code: 'it writes code', decision: 'it feeds or follows a decision',
+  skill: 'it runs a skill', 'plans-new-clause': 'it plans, and the amendment adds a clause to plan', approvals: 'its approval is not complete',
+  changed: 'something it decided over changed since its approval' });
+
+function effectReason(workflow, reason) {
+  const clauses = (ids) => listWords(ids.map((id) => clauseName(workflow, id)));
+  if (reason.kind === 'cites') return `it cites ${clauses(reason.clauses)}`;
+  if (reason.kind === 'radius') return `${reason.path} is in the change's reach`;
+  if (reason.kind === 'unreadable') return `${reason.path} is missing or cannot be read`;
+  if (reason.kind === 'code-step') return `it writes code, and the change affects ${reason.claims} ${reason.claims === 1 ? 'claim' : 'claims'}`;
+  if (reason.kind === 'convergence') return 'it compares the code with the scope';
+  if (reason.kind === 'after-reset') return `it comes after ${stepName(workflow, reason.phase)}`;
+  if (reason.kind === 'not-kept') return NOT_KEPT_WORDS[reason.why] ?? NOT_KEPT_WORDS.changed;
+  return null;
+}
+
+/**
+ * What approving an intent amendment does, one sentence per step after the scope, from its effect (state.mjs
+ * intentAmendmentEffect, the computation approval applies) [CIC:REQ-012]: the step it reopens and why, those that
+ * run again after it, those rule E8 keeps (with the changed clauses their prompt held, D1), and those whose
+ * approvers say whether they still hold. A step that never ran reads the amended scope when it starts, so it is
+ * named only when the Story returns to it. The preview and every card say it in these words.
+ */
+export function amendmentEffectWords(workflow, effect, { steps: most = 8 } = {}) {
+  const lines = [];
+  for (const step of effect?.steps ?? []) {
+    if (step.outcome === 'unchanged' || (step.outcome === 'reset' && !(step.generation > 0))) continue;
+    const name = stepName(workflow, step.phase);
+    const why = [...new Set((step.reasons ?? []).map((reason) => effectReason(workflow, reason)).filter(Boolean))].slice(0, 3).join('; ');
+    const held = step.inPrompt?.length ? `, though ${listWords(step.inPrompt.map((id) => clauseName(workflow, id)))} ${step.inPrompt.length === 1 ? 'was' : 'were'} in its prompt` : '';
+    lines.push(step.outcome === 'kept' ? `${name} keeps its approval (rule E8): it cites none of the changed clauses${held}.`
+      : step.outcome === 'still-holds' ? `${name}'s approvers say whether it still holds, or return the Story to it.`
+        : `${name} ${step.outcome === 'reopened' ? 'is reopened' : 'runs again'}${why ? `: ${why}` : ''}.`);
+  }
+  return lines.length > most ? [...lines.slice(0, most), `And ${lines.length - most} more steps.`] : lines;
+}
+
+/** The clauses an amendment changes again, and those it puts back as an earlier revision held them [CIC:REQ-016, D4]. */
+export function amendmentRepeatWords(workflow, repeats) {
+  const clause = (id) => clauseName(workflow, id);
+  return [...(repeats?.repeated ?? []).map((entry) => `${clause(entry.clause)} has now been changed ${entry.times} times on this Story.`),
+    ...((repeats?.reversed ?? []).length ? [`${listWords(repeats.reversed.map(clause))} ${repeats.reversed.length === 1 ? 'goes' : 'go'} back to a statement an earlier scope revision held.`] : [])];
+}
+
+/** What an approved amendment did, from its own record. */
+function appliedWords(workflow, applied) {
+  const names = (ids) => listWords(ids.map((id) => stepName(workflow, id)));
+  return [applied.kept?.length ? `It kept the approval of ${names(applied.kept)} (rule E8).` : '',
+    applied.reopened ? `It reopened ${stepName(workflow, applied.reopened)}${applied.reset?.length ? `; ${names(applied.reset)} ${applied.reset.length === 1 ? 'runs' : 'run'} again after it` : ''}.` : '',
+    applied.asked?.length ? `${names(applied.asked)} ${applied.asked.length === 1 ? 'has' : 'have'} a row for ${applied.asked.length === 1 ? 'its' : 'their'} approvers to say whether ${applied.asked.length === 1 ? 'it still holds' : 'they still hold'}.` : '']
+    .filter(Boolean);
+}
+
 // A statement as a person reads it: on one line, without its own anchor, and short enough to read on a card.
 const statementWords = (text) => String(text ?? '').replace(/\s*\[[A-Za-z0-9._-]+:[A-Z]+-\d{3,}\]/gu, '').replace(/\s+/gu, ' ').trim().slice(0, 300);
 
@@ -706,8 +760,12 @@ function amendmentShown(workflow, card) {
   const by = card.proposer ? `${card.proposer} proposed it${card.authored === 'governed-agent' ? '; Copilot wrote the wording'
     : card.authored === 'human' ? '; a person wrote the wording' : ''}${card.reason ? `: "${statementWords(card.reason)}"` : ''}.` : null;
   const names = (values, more, noun) => (values?.length ? `${noun}: ${listWords([...values, ...(more ? [`${more} more`] : [])])}.` : '');
+  // Exactly what approving it does, step by step, or what an approved one did [CIC:REQ-012].
+  const dependents = card.effect?.dependents?.length ? [`${listWords(card.effect.dependents.map((id) => clauseName(workflow, id)))} ${card.effect.dependents.length === 1 ? 'depends' : 'depend'} on a changed clause.`] : [];
+  const effect = card.effect ? [...dependents, ...amendmentEffectWords(workflow, card.effect), ...amendmentRepeatWords(workflow, card.effect.repeats)]
+    : card.applied ? appliedWords(workflow, card.applied) : [];
   const reach = [card.radius?.summary ?? '', names(card.radius?.artifacts, card.radius?.moreArtifacts, 'Files'), names(card.radius?.tests, card.radius?.moreTests, 'Tests'),
-    card.steps?.length ? `Steps it may reopen: ${listWords(card.steps.map((id) => stepName(workflow, id)))}.` : ''].filter(Boolean).join(' ');
+    effect.length ? `${card.effect ? 'If it is approved: ' : ''}${effect.join(' ')}` : ''].filter(Boolean).join(' ');
   return { changes: card.changes ?? [], lines: [...lines, ...(card.moreChanges ? [`And ${card.moreChanges} more changed clauses.`] : [])],
     ...(by ? { proposedBy: by } : {}), ...(reach ? { reach } : {}) };
 }

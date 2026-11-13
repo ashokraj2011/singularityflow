@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 13 November 2026
-**Status:** Owner decisions recorded 2026-11-13 (section 9). Stage 1 is this document; stages 2 to 7 are built in the order of section 7, each behind its own switch where it changes an outcome.
+**Status:** Owner decisions recorded 2026-11-13 (section 9). Stages 1 and 2 are built (section 7.1); stages 3 to 7 follow in the order of section 7, each behind its own switch where it changes an outcome.
 **Namespace:** CIC. Specification documents declare their own namespace in their header (see [DOCUMENTATION-MAP.md](DOCUMENTATION-MAP.md)); no other document uses CIC.
 **Source baseline:** commit 4aabac18a (main 15d6137d3 with the decisions-card work)
 **Replaces:** SPEC-CIC v1.0 (draft of the same day), corrected against the source baseline
@@ -162,6 +162,15 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 | 7 | Counts (REQ-017), then one real Story with a change mid-flight | Report of cone size, widened share, churn and rework |
 
 Stages 2 and 3 change no outcome except REQ-020, which only resets a step whose evidence cannot be read.
+
+### 7.1 What stage 2 built, and what building it found
+
+- `intentAmendmentEffect` (`src/state.mjs`) computes the effect from the Story as it is and the proposed bytes, before anything changes; `decideIntentAmendment` computes it at the same point and applies it, and `story intent-amendment preview`, the decisions card (terminal, VS Code Decide card, Copilot CLI card) and `/sf-reject` show it. The card's "Steps it may reopen" (every later started step) is replaced by the effect, step by step.
+- The stale set is read from the scope revision the approval would record (`nextScopeRevision`, `src/scope/revisions.mjs`), built from the amended scope's clauses as its index will read them; the approval still records the revision after the index is refreshed, and the acceptance test pins the two equal.
+- One case resets more than the preview shows, never less: a plan whose rows the amendment carries is kept only if it can read the amended scope once it exists (`carriedPlanBinding`, after the bytes are written). The preview shows it kept; if it cannot read it, approval runs it again with every step after it.
+- REQ-020's unreadable case cannot be reached through the CLI for a file in the Story: every governed write first copies the Story directory to roll back from (`src/publication-recovery.mjs`), and an unreadable file there refuses the write. The engine's own check is the second line, and the test runs it in process.
+- A step that never ran is reset in the effect's record but not named in its words: it reads the amended scope when it starts.
+- Churn and reversals (D4) are read from the Story's approved amendments and its scope revisions' statement hashes.
 
 ## 8. Acceptance
 

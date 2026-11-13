@@ -208,7 +208,8 @@ import {
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
 import { addMissingSections, artifactTokens, requiredArtifactSections } from './artifact-required-sections.mjs';
-import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
+import { acceptedClauses, nextScopeRevision, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
+import { amendmentChurn } from './amendment.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { candidateIsolationNeed, importIsolatedReport, materializeCandidate } from './candidate-isolation.mjs';
@@ -922,6 +923,17 @@ export function artifactMetadataBlock(metadata) {
   return `<!-- singularity-flow:metadata\n${JSON.stringify(metadata, null, 2)}\n-->`;
 }
 
+/**
+ * Freeze the same governed text that Git will retain, before its registration/review hashes are captured.
+ * Otherwise a mixed editor draft can publish, yet its submission packet names bytes that no commit ever
+ * contained. No user filter or alternate encoding is executed here. An amendment's effect reads the
+ * amended scope's clauses through it too, as its index will read them.
+ */
+function governedArtifactText(root, relativePath, text) {
+  const lf = text.replaceAll('\r\n', '\n');
+  return text !== lf && !/[\r\0\uFFFD]/u.test(lf) && !lf.startsWith('\uFEFF') && artifactGitNormalizesText(root, relativePath) ? lf : text;
+}
+
 async function updateArtifactMetadata(root, config, workflow, phase) {
   const file = path.join(workDir(root, config, workflow.workItem.id), phase.requiredArtifact.path);
   if (!(await exists(file))) return;
@@ -931,13 +943,8 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   const text = bytes.toString('utf8');
   const block = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
   const pattern = /^<!-- singularity-flow:metadata\r?\n[\s\S]*?\r?\n-->/;
-  let updated = pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`;
-  const lf = updated.replaceAll('\r\n', '\n');
-  // Freeze the same governed text that Git will retain, before its registration/review hashes
-  // are captured. Otherwise a mixed editor draft can publish, yet its submission packet names
-  // bytes that no commit ever contained. No user filter or alternate encoding is executed here.
-  if (updated !== lf && !/[\r\0\uFFFD]/u.test(lf) && !lf.startsWith('\uFEFF')
-      && artifactGitNormalizesText(root, requiredRepoPath(config, workflow, phase))) updated = lf;
+  const updated = governedArtifactText(root, requiredRepoPath(config, workflow, phase),
+    pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
   await writeText(file, updated);
   // Managed metadata is part of the durable artifact bytes. Any lifecycle transition that rewrites
   // it must keep an existing registration in lockstep, otherwise a later submit compares the new
@@ -8726,20 +8733,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     };
   }
 
-  // Updating the spec to what the code already does [SCS:REQ-022] resets nothing: each step that read the
-  // scope is revalidated instead, read before anything below changes the Story.
-  const settles = await differenceAmendmentReport(root, config, workflow, proposal);
-  // Rule E8: the approved steps after the scope step whose approvals this amendment cannot touch,
-  // checked against everything they decided over before anything below changes it.
+  // Everything approving does, read before anything below changes the Story, by the one computation the preview
+  // and the decisions card show, so what a person previewed is what approving does [CIC:CON-007]: the "settles"
+  // path [SCS:REQ-022], rule E8's kept steps, the stale clauses and each later step's evidence.
+  const effect = await intentAmendmentEffect(root, config, workflow, proposal, { proposedText: amendmentCandidate.proposedText });
+  const settles = effect.settles;
   const planBindings = [];
-  const carriedRows = new Map((proposal.planCorrections ?? []).map((entry) =>
-    [entry.ownerPhase, new Set(entry.operations.map((operation) => String(operation.clauseId).toUpperCase()))]));
-  // Read as the plans' approvals decided over it: the rows this amendment carries are their approvers' own
-  // decision on it, not a change behind their approval (a list this amendment started was not there then).
-  const decidedOver = (workflow.planAmendments ?? []).filter((entry) => entry?.intentAmendment !== proposal.id);
-  const retentionCandidates = settles ? new Set() : await amendmentRetentionCandidates(root, config,
-    { ...workflow, planAmendments: decidedOver.length ? decidedOver : undefined }, specification,
-    { addsClauses: (proposal.diff?.added ?? []).length > 0, correctedPlans: new Set(carriedRows.keys()) });
   const { specificationPath, specificationFile, proposedText, proposedSnapshot, amendmentAuthorship } = amendmentCandidate;
   await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
   const priorGeneration = Number(specification.generation ?? 0);
@@ -8898,84 +8897,50 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   ].sort((left, right) => Number(left.generation) - Number(right.generation));
   for (const approval of amendmentApprovals) await writeDecision(root, config, workflow, specification, approval);
 
-  const specificationIndex = workflow.phaseOrder.indexOf(specification.id);
-  const nextIndex = specificationIndex + 1;
-  if (specificationIndex < 0 || nextIndex >= workflow.phaseOrder.length) {
-    throw new SingularityFlowError('An intent amendment requires a downstream phase to revalidate.', {
-      code: 'INTENT_AMENDMENT_UNSUPPORTED'
-    });
-  }
+  const nextIndex = workflow.phaseOrder.indexOf(specification.id) + 1;
   const changedClauses = [...(proposal.diff?.changed ?? [])];
-  // What the revision makes stale: the clauses it added or revised and every clause depending on
-  // one. An artifact is affected when it cites one of those, or a removed clause, by exact ID.
-  const currentClauses = (await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow)).indexes
-    .flatMap((index) => index.clauses ?? []);
-  const staleClauses = scopeRevision
-    ? staleClausesOf(scopeRevision, currentClauses)
-    : new Set([...(proposal.diff?.added ?? []), ...(proposal.diff?.revised ?? [])]);
-  const cited = new Set([...staleClauses, ...(proposal.diff?.removed ?? [])]);
-  const standingClauses = currentClauses.map((clause) => String(clause.id).toUpperCase()).filter((id) => !staleClauses.has(id)).sort();
-  const evidencePaths = new Set([
-    ...(proposal.radius?.artifacts ?? []),
-    ...(proposal.radius?.tests ?? [])
-  ].map(posix));
-  const affectedPhases = [];
-  const preservedEvidence = [];
+  const staleClauses = new Set(effect.staleClauses);
+  const standingClauses = effect.standingClauses;
+  const affectedPhases = effect.steps.filter((step) => step.affected).map((step) => step.phase);
+  const preservedEvidence = effect.steps.flatMap((step) => step.artifacts.filter((artifact) => !artifact.affected).map((artifact) => artifact.path));
   const retainedPhases = [];
   const revalidate = [];
-  const currentIndex = workflow.phaseOrder.indexOf(workflow.currentPhase);
   let retaining = true;
   let firstReset = null;
-  for (let index = nextIndex; index < workflow.phaseOrder.length; index += 1) {
-    const phase = workflow.phases[workflow.phaseOrder[index]];
-    let directlyAffected = isConvergencePhase(phase)
-      || (phaseRequiresCodeDelivery(phase) && Number(proposal.radius?.totals?.affected ?? 0) > 0);
-    // A plan cites a clause the amendment adds or removes only through the row the amendment carries for it,
-    // signed by the plan's approvers: the plan keeps its approval [PHR:REQ-008].
-    const rowsCarried = carriedRows.get(phase.id) ?? new Set();
-    for (const artifact of phase.artifacts ?? []) {
-      let affected = evidencePaths.has(posix(artifact.path));
-      if (!affected) {
-        const artifactFile = path.join(root, artifact.path);
-        const text = await readFile(artifactFile, 'utf8').catch(() => null);
-        // Fail closed [CIC:REQ-020]: evidence that cannot be read cannot be shown unaffected, so a missing or
-        // unreadable artifact resets its step. One recorded as absent and still absent holds no evidence at all.
-        if (text === null && artifact.exists === false && !existsSync(artifactFile)) continue;
-        affected = text === null
-          || clauseReferences(text).some((clauseId) => cited.has(clauseId) && !rowsCarried.has(String(clauseId).toUpperCase()));
-      }
-      // A step the rows revalidate keeps its records exactly as reviewed: its row is what says it still holds.
-      if (!settles) {
+  for (const step of effect.steps) {
+    const index = workflow.phaseOrder.indexOf(step.phase);
+    const phase = workflow.phases[step.phase];
+    // A step the rows revalidate keeps its records exactly as reviewed: its row is what says it still holds.
+    if (!settles) {
+      const verdicts = new Map(step.artifacts.map((artifact) => [artifact.path, artifact.affected]));
+      for (const artifact of phase.artifacts ?? []) {
+        if (!verdicts.has(artifact.path)) continue;
         artifact.intentAmendment = {
           id: proposal.id,
-          state: affected ? 'affected-revalidation-required' : 'preserved-unaffected',
+          state: verdicts.get(artifact.path) ? 'affected-revalidation-required' : 'preserved-unaffected',
           fromSpecificationGeneration: priorGeneration,
           toSpecificationGeneration: specification.generation
         };
       }
-      if (affected) directlyAffected = true;
-      else preservedEvidence.push(artifact.path);
     }
-    if (directlyAffected) affectedPhases.push(phase.id);
     if (settles) {
       // Each approved step up to the report's that read the scope, and the report's own step, keeps its approval
       // until its approvers say it still holds or return the Story to it; a step not run yet reads the new scope.
-      if (index <= currentIndex && (phase.id === settles.phase || (phase.status === 'approved'
-          && resolvedPhaseInputs(workflow, phase).some((input) => inputProducerId(input) === specification.id)))) {
-        revalidate.push({ phase: phase.id, generation: Number(phase.generation) });
-      }
+      if (step.outcome === 'still-holds') revalidate.push({ phase: phase.id, generation: Number(phase.generation) });
       continue;
     }
     // Rule E8: an approved step the amendment cites nothing of keeps its approval, as long as every
     // step before it did too; the first one that does not runs again, and so does all after it.
     // A plan whose rows this amendment carries reads the amended scope as its approvers signed it, the way a
-    // "still holds" answer binds a step to an amended input [PHR:REQ-008]; one that cannot read it runs again.
-    const planBinding = retaining && !directlyAffected && retentionCandidates.has(phase.id) && carriedRows.has(phase.id)
+    // "still holds" answer binds a step to an amended input [PHR:REQ-008]; one that cannot read it runs again,
+    // the one way approving resets more than the effect showed (never less).
+    const kept = retaining && step.outcome === 'kept';
+    const planBinding = kept && step.carriesRows
       ? await (await import('./amendment-plan-corrections.mjs')).carriedPlanBinding(root, config, workflow, phase, specification.id) : null;
-    if (retaining && !directlyAffected && retentionCandidates.has(phase.id) && (!carriedRows.has(phase.id) || planBinding)) {
+    if (kept && (!step.carriesRows || planBinding)) {
       if (planBinding) planBindings.push(planBinding);
       // Decisions recorded after its approval that name nothing it cites or the step itself (phase-retention.mjs).
-      const later = retentionCandidates.laterDecisions?.get(phase.id) ?? [];
+      const later = step.laterDecisions ?? [];
       phase.retention = { rule: 'E8', at, generation: phase.generation, amendment: proposal.id,
         ...retainedByRule('E8', { amendment: proposal.id, approvalAt: phase.approvedAt }),
         ...(later.length ? { laterDecisions: later } : {}) };
@@ -8989,6 +8954,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     }
     retaining = false;
     firstReset ??= index;
+    const directlyAffected = step.affected;
     phase.approvals.forEach((approval) => {
       if (!approval.invalidatedAt) approval.invalidatedAt = at;
     });
@@ -9076,6 +9042,166 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     affectedPhases,
     preservedEvidence: proposal.application.preservedEvidence,
     revalidate
+  };
+}
+
+/**
+ * The amended scope's clauses as its new index will hold them, and the stale set the scope revision approving it
+ * records: what refreshPhaseSpecificationIndex and recordApprovedScopeRevision do after the bytes are written,
+ * read before. With no index for the scope there is no revision, and the stale set is the clauses it adds or
+ * revises, as it always was.
+ */
+async function amendedScopeClauses(root, config, workflow, specification, proposal, proposedText) {
+  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  let indexes = (records.indexes ?? []).filter((index) => index.phase !== specification.id);
+  let revision = null;
+  const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off' };
+  if (specPolicy.mode !== 'off' && phaseDefinesSpecificationClaims(workflow, specification)) {
+    const normalized = normalizeSpecPolicy(specPolicy);
+    const artifactPath = requiredRepoPath(config, workflow, specification);
+    const generation = nextPhaseGeneration(specification);
+    const clauses = extractClauses(governedArtifactText(root, artifactPath, proposedText), { sourcePath: artifactPath,
+      namespace: normalized.namespace, limits: normalized.limits, externalClauses: predecessorSpecClauses(records, workflow, specification.id) });
+    indexes = [...indexes, { phase: specification.id, generation, clauses }];
+    revision = nextScopeRevision(workflow, { clauses: acceptedClauses(indexes),
+      origin: { kind: 'intent-amendment', id: proposal.id, phase: specification.id, generation }, at: null });
+  }
+  const currentClauses = indexes.flatMap((index) => index.clauses ?? []);
+  return { currentClauses, revision, staleClauses: revision ? staleClausesOf(revision, currentClauses)
+    : new Set([...(proposal.diff?.added ?? []), ...(proposal.diff?.revised ?? [])]) };
+}
+
+/**
+ * The clauses this amendment changes that the Story changed before [CIC:REQ-016, owner decision D4]: each clause
+ * changed by an earlier approved amendment too, with how many times, and each it puts back to a statement an
+ * earlier scope revision held (or adds again after a revision removed it). Shown, never limited.
+ */
+function amendmentRepeats(workflow, changed, revision) {
+  const earlier = (workflow.intentAmendments ?? []).filter((entry) => ['approved', 'revalidated'].includes(entry?.status))
+    .map((entry) => ({ clauses: entry.changedClauses ?? [] }));
+  const repeated = amendmentChurn([...earlier, { clauses: changed }], { floor: 2 }).unsettled
+    .filter((entry) => changed.some((id) => String(id).toUpperCase() === entry.clauseId)).map((entry) => ({ clause: entry.clauseId, times: entry.revisions }));
+  const held = new Map();
+  for (const past of workflow.scopeRevisions ?? []) {
+    for (const clause of past.clauses ?? []) held.set(clause.id, [...(held.get(clause.id) ?? []), clause.bodySha256]);
+  }
+  const latest = new Map((workflow.scopeRevisions?.at(-1)?.clauses ?? []).map((clause) => [clause.id, clause.bodySha256]));
+  const reversed = (revision?.clauses ?? []).filter((clause) => changed.some((id) => String(id).toUpperCase() === clause.id)
+    && latest.get(clause.id) !== clause.bodySha256 && (held.get(clause.id) ?? []).includes(clause.bodySha256)).map((clause) => clause.id).sort();
+  return { amendments: earlier.length + 1, repeated, reversed };
+}
+
+/** Why the first step rule E8 cannot keep runs again, from phase-retention.mjs's own reason. */
+const NOT_KEPT = Object.freeze(['not-approved', 'code', 'decision', 'skill', 'plans-new-clause', 'approvals', 'changed']);
+
+/**
+ * What approving `proposal` does to the Story, computed once from the Story as it is and the proposed bytes,
+ * before anything changes [CIC:REQ-012, CON-007]. decideIntentAmendment applies exactly this, and `story
+ * intent-amendment preview` and the decisions card show it, so what a person previews is what approving does.
+ *
+ * `staleClauses` is what the scope revision approving it records (the clauses it adds or revises and every one
+ * depending on one, scope/revisions.mjs); `dependents` the ones only depending. Each step after the scope gets an
+ * `outcome` with the `reasons` it is affected: `reopened` (the first to run again, where the Story goes) and
+ * `reset` (the rest after it); `kept` by rule E8, with `inPrompt`, the changed clauses it cites none of though
+ * its prompt held them (information until owner decision D1 asks its approvers); or, when the amendment only
+ * updates the scope to what a conformance report found [SCS:REQ-022], `still-holds` for its approvers' `groups`
+ * and `unchanged` for a step not run yet. A reason is `cites` (its artifact cites a stale or removed clause),
+ * `radius` (a path in the claim-map radius), `unreadable` (fail closed, CIC:REQ-020), `code-step` (the radius
+ * affects claims), `convergence`, or, for a step not affected itself, `after-reset` or `not-kept` with
+ * phase-retention.mjs's reason. `repeats` says which changed clauses the Story changed before (D4). Reads only.
+ */
+export async function intentAmendmentEffect(root, config, workflow, proposal, { proposedText }) {
+  const specification = scopeStepOf(workflow);
+  const order = workflow.phaseOrder ?? [];
+  const nextIndex = order.indexOf(specification?.id) + 1;
+  if (!specification || nextIndex <= 0 || nextIndex >= order.length) {
+    throw new SingularityFlowError('An intent amendment requires a downstream phase to revalidate.', {
+      code: 'INTENT_AMENDMENT_UNSUPPORTED'
+    });
+  }
+  const diff = proposal.diff ?? {};
+  const upper = (id) => String(id).toUpperCase();
+  // Updating the spec to what the code already does [SCS:REQ-022] resets nothing: each step that read the
+  // scope is revalidated instead.
+  const settles = await differenceAmendmentReport(root, config, workflow, proposal);
+  // Rule E8: the approved steps after the scope step whose approvals this amendment cannot touch,
+  // checked against everything they decided over.
+  const carriedRows = new Map((proposal.planCorrections ?? []).map((entry) =>
+    [entry.ownerPhase, new Set(entry.operations.map((operation) => upper(operation.clauseId)))]));
+  // Read as the plans' approvals decided over it: the rows this amendment carries are their approvers' own
+  // decision on it, not a change behind their approval (a list this amendment started was not there then).
+  const decidedOver = (workflow.planAmendments ?? []).filter((entry) => entry?.intentAmendment !== proposal.id);
+  const candidates = settles ? new Map() : await amendmentRetentionCandidates(root, config,
+    { ...workflow, planAmendments: decidedOver.length ? decidedOver : undefined }, specification,
+    { addsClauses: (diff.added ?? []).length > 0, correctedPlans: new Set(carriedRows.keys()) });
+  const { staleClauses, currentClauses, revision } = await amendedScopeClauses(root, config, workflow, specification, proposal, proposedText);
+  // An artifact is affected when it cites a stale clause, or a removed one, by exact ID.
+  const cited = new Set([...staleClauses, ...(diff.removed ?? [])]);
+  const changed = new Set([...(diff.added ?? []), ...(diff.revised ?? [])].map(upper));
+  const added = new Set((diff.added ?? []).map(upper));
+  const evidencePaths = new Set([...(proposal.radius?.artifacts ?? []), ...(proposal.radius?.tests ?? [])].map(posix));
+  const reached = Number(proposal.radius?.totals?.affected ?? 0);
+  const currentIndex = order.indexOf(workflow.currentPhase);
+  const steps = [];
+  let retaining = true;
+  let firstReset = null;
+  for (let index = nextIndex; index < order.length; index += 1) {
+    const phase = workflow.phases[order[index]];
+    const reasons = [];
+    if (isConvergencePhase(phase)) reasons.push({ kind: 'convergence' });
+    if (phaseRequiresCodeDelivery(phase) && reached > 0) reasons.push({ kind: 'code-step', claims: reached });
+    // A plan cites a clause the amendment adds or removes only through the row the amendment carries for it,
+    // signed by the plan's approvers: the plan keeps its approval [PHR:REQ-008].
+    const rowsCarried = carriedRows.get(phase.id) ?? new Set();
+    const artifacts = [];
+    for (const artifact of phase.artifacts ?? []) {
+      let reason = evidencePaths.has(posix(artifact.path)) ? { kind: 'radius', path: artifact.path } : null;
+      if (!reason) {
+        const artifactFile = path.join(root, artifact.path);
+        const text = await readFile(artifactFile, 'utf8').catch(() => null);
+        // Fail closed [CIC:REQ-020]: evidence that cannot be read cannot be shown unaffected, so a missing or
+        // unreadable artifact resets its step. One recorded as absent and still absent holds no evidence at all.
+        if (text === null && artifact.exists === false && !existsSync(artifactFile)) continue;
+        const cites = text === null ? [] : [...new Set(clauseReferences(text).filter((clauseId) => cited.has(clauseId) && !rowsCarried.has(upper(clauseId))))].sort();
+        reason = text === null ? { kind: 'unreadable', path: artifact.path } : cites.length ? { kind: 'cites', path: artifact.path, clauses: cites } : null;
+      }
+      artifacts.push({ path: artifact.path, affected: reason !== null });
+      if (reason) reasons.push(reason);
+    }
+    const step = { phase: phase.id, status: phase.status, generation: Number(phase.generation ?? 0), affected: reasons.length > 0, reasons, artifacts };
+    if (settles) {
+      const asked = index <= currentIndex && (phase.id === settles.phase || (phase.status === 'approved'
+        && resolvedPhaseInputs(workflow, phase).some((input) => inputProducerId(input) === specification.id)));
+      const policy = phase.approvalPolicy ?? {};
+      steps.push({ ...step, outcome: asked ? 'still-holds' : 'unchanged',
+        ...(asked ? { groups: [...new Set([...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])])].sort() } : {}) });
+      continue;
+    }
+    if (retaining && !step.affected && candidates.has(phase.id)) {
+      const later = candidates.laterDecisions?.get(phase.id) ?? [];
+      // Its prompt held every clause of the steps before it (predecessorSpecClauses), so every changed one that
+      // existed then; shown until owner decision D1 asks its approvers whether it still holds.
+      steps.push({ ...step, outcome: 'kept', rule: 'E8', inPrompt: [...cited].filter((id) => !added.has(upper(id))).sort(),
+        ...(carriedRows.has(phase.id) ? { carriesRows: true } : {}), ...(later.length ? { laterDecisions: later } : {}) });
+      continue;
+    }
+    const why = step.affected ? null : !retaining ? { kind: 'after-reset', phase: order[firstReset] }
+      : { kind: 'not-kept', why: candidates.stopped?.phase === phase.id && NOT_KEPT.includes(candidates.stopped.why) ? candidates.stopped.why : 'changed' };
+    retaining = false;
+    firstReset ??= index;
+    steps.push({ ...step, ...(why ? { reasons: [why] } : {}), outcome: index === firstReset ? 'reopened' : 'reset' });
+  }
+  return {
+    amendment: proposal.id ?? null,
+    scope: { phase: specification.id, generation: Number(specification.generation ?? 0), amendedGeneration: nextPhaseGeneration(specification) },
+    settles: settles ?? null,
+    changes: Object.fromEntries(['added', 'revised', 'removed'].map((kind) => [kind, [...(diff[kind] ?? [])].sort()])),
+    staleClauses: [...staleClauses].sort(),
+    dependents: [...staleClauses].filter((id) => !changed.has(upper(id))).sort(),
+    standingClauses: currentClauses.map((clause) => upper(clause.id)).filter((id) => !staleClauses.has(id)).sort(),
+    firstReset: firstReset == null ? null : order[firstReset],
+    steps,
+    repeats: amendmentRepeats(workflow, diff.changed ?? [], revision)
   };
 }
 

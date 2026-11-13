@@ -60,8 +60,9 @@ test('every public skill has a bounded class and output contract', async () => {
   // 2026-10-31 (sweep batch 5): /sf-capability-map names a value conflict's discard and remap instead of a
   // rebase (C4), and /sf-configuration runs the draft read, discard and propose its refusals route to (E7).
   // 2026-11-08 (CQF M2): /sf-appeal leaves them: `appeal prepare` records a departure, so its submit and hash sentence went.
+  // 2026-11-13 (CIC:REQ-015): /sf-reject joins them — it shows the amendment's preview before it proposes.
   const overridden = ['sflow-approve', 'sflow-build-workflow', 'sflow-capability-map', 'sflow-code', 'sflow-configuration', 'sflow-converge', 'sflow-decide', 'sflow-design', 'sflow-document-intake', 'sflow-documents',
-    'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall',
+    'sflow-home', 'sflow-mcp', 'sflow-phase', 'sflow-plan', 'sflow-ready', 'sflow-recover', 'sflow-reinstall', 'sflow-reject',
     'sflow-release', 'sflow-requirements', 'sflow-review', 'sflow-review-source', 'sflow-run-app', 'sflow-scenario-check', 'sflow-session', 'sflow-specify', 'sflow-start',
     'sflow-story-start', 'sflow-submit', 'sflow-test-setup', 'sflow-verify', 'sflow-workflows'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.pathContractTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - (row.storyCwdTokens ?? 0) - row.pauseGuardTokens - (row.gatewayToolsTokens ?? 0) - (row.questionToolTokens ?? 0) > 800).map((row) => row.name), overridden);

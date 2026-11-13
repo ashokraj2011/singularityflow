@@ -36,12 +36,12 @@ export function latestScopeRevision(workflow) {
 }
 
 /**
- * Append a revision when the accepted clause set differs from the latest one; otherwise return
- * null. `origin` names what changed it: `{ kind: 'approval' | 'intent-amendment', phase, generation, id? }`.
+ * The revision the accepted clause set would make, or null when it matches the latest one; nothing is
+ * appended. `origin` names what changed it: `{ kind: 'approval' | 'intent-amendment', phase, generation, id? }`.
  * Only steps after the origin step can have consumed the change, so only their generations are
- * recorded as dependents.
+ * recorded as dependents. An intent amendment's effect reads it before approval records it [CIC:CON-007].
  */
-export function recordScopeRevision(workflow, { clauses, origin, at }) {
+export function nextScopeRevision(workflow, { clauses, origin, at }) {
   const identity = clauses.map(({ id, bodySha256 }) => ({ id, bodySha256 }));
   const clausesSha256 = `sha256:${recordSha256(identity)}`;
   const latest = latestScopeRevision(workflow);
@@ -60,7 +60,13 @@ export function recordScopeRevision(workflow, { clauses, origin, at }) {
     previousRevisionSha256: latest?.revisionSha256 ?? null,
     at
   };
-  const revision = { ...core, revisionSha256: `sha256:${recordSha256(core)}` };
+  return { ...core, revisionSha256: `sha256:${recordSha256(core)}` };
+}
+
+/** Append the revision nextScopeRevision makes, or return null when the clause set did not change. */
+export function recordScopeRevision(workflow, change) {
+  const revision = nextScopeRevision(workflow, change);
+  if (!revision) return null;
   workflow.scopeRevisions ??= [];
   workflow.scopeRevisions.push(revision);
   return revision;

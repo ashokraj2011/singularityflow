@@ -61,7 +61,12 @@ const card = (fields = {}) => ({
   changes: [{ clause: `${WORK}:AC-001`, change: 'revised', before: `The user sees the value 1. [${WORK}:AC-001]`, after: `The user sees the value 2. [${WORK}:AC-001]` }],
   moreChanges: 0,
   radius: { summary: '1 of your 2 claims affected; the other 1 stand. 1 artifact path(s) and 1 bound test(s) are in scope.', artifacts: ['src/value.mjs'], moreArtifacts: 0, tests: ['test/value.test.mjs'], moreTests: 0 },
-  steps: ['planning'], decisions: [], stale: null, ...fields
+  // What approving it does (state.mjs intentAmendmentEffect), the computation approval applies [CIC:REQ-012].
+  effect: { firstReset: 'planning', dependents: [], repeats: { amendments: 1, repeated: [], reversed: [] }, steps: [
+    { phase: 'planning', outcome: 'reopened', status: 'in_progress', generation: 1,
+      reasons: [{ kind: 'cites', path: `singularity/work-items/${WORK}/artifacts/planning/plan.md`, clauses: [`${WORK}:AC-001`] }] },
+    { phase: 'implementation', outcome: 'reset', status: 'pending', generation: 0, reasons: [{ kind: 'after-reset', phase: 'planning' }] }] },
+  decisions: [], stale: null, ...fields
 });
 const proposed = (fields = {}) => ({ id: 'AMD-001', status: 'proposed', changedClauses: [`${WORK}:AC-001`], proposalSha256: PROPOSAL,
   proposedBy: { name: 'Story Author', email: 'author@example.test' }, recordPath: `singularity/work-items/${WORK}/context/intent-amendments/AMD-001.json`, card: card(), ...fields });
@@ -89,7 +94,8 @@ test('a scope approver decides a pending amendment on the card, with what it cha
   assert.equal(item.answer.where, 'card', 'answered on the card or in a terminal, never recorded by a chat turn');
   assert.deepEqual(item.details.lines, ['AC-001 is revised from "The user sees the value 1." to "The user sees the value 2."']);
   assert.equal(item.details.proposedBy, 'Story Author proposed it; Copilot wrote the wording: "Review showed that value 2 is required.".');
-  assert.equal(item.details.reach, '1 of your 2 claims affected; the other 1 stand. 1 artifact path(s) and 1 bound test(s) are in scope. Files: src/value.mjs. Tests: test/value.test.mjs. Steps it may reopen: Planning.');
+  assert.equal(item.details.reach, '1 of your 2 claims affected; the other 1 stand. 1 artifact path(s) and 1 bound test(s) are in scope. Files: src/value.mjs. Tests: test/value.test.mjs. '
+    + 'If it is approved: Planning is reopened: it cites AC-001.', 'exactly what approving does, not every later step [CIC:REQ-012]');
   assert.deepEqual(item.details.commands, [decide('approve'), decide('reject')]);
   assert.doesNotMatch(personText(item), HEX_RUN, 'a person never reads a hash');
   const plan = decisionRecordPlan(packet, choose(item.id, 'approve'), { at: AT });
@@ -103,7 +109,7 @@ test('a scope approver decides a pending amendment on the card, with what it cha
   const html = decideHtml({ ...packet, packetSha256: 'sha256:x', repositoryPath: '/repo' });
   assert.match(html, /<li>AC-001 is revised from &quot;The user sees the value 1\.&quot; to &quot;The user sees the value 2\.&quot;<\/li>/u);
   assert.match(html, /Story Author proposed it; Copilot wrote the wording/u);
-  assert.match(html, /Steps it may reopen: Planning\./u);
+  assert.match(html, /If it is approved: Planning is reopened: it cites AC-001\./u);
   assert.match(html, /<option value="approve" data-needs="reason" data-one="1">Approve AMD-001<\/option>/u);
   assert.match(html, new RegExp(`Or in your own terminal:</span>\\s*<code>${decide('approve')}</code><button type="button" class="secondary" data-copy="approve">`, 'u'));
   const table = decisionsTable(packet);
@@ -213,7 +219,7 @@ test('approved on the card: the amendment is installed and attributed to the car
   assert.deepEqual(decision.details.lines, ['AC-001 is revised from "The user sees the value 1." to "The user sees the value 2."',
     'REQ-002 is revised from "The application returns the value 1." to "The application returns the value 2."']);
   assert.match(decision.details.proposedBy, /^History Tester proposed it; a person wrote the wording: "Review showed that value 2 is required\."\.$/u);
-  assert.match(decision.details.reach, /Files: src\/value\.mjs\. Tests: test\/value\.test\.mjs\. Steps it may reopen: Planning\./u);
+  assert.match(decision.details.reach, /Files: src\/value\.mjs\. Tests: test\/value\.test\.mjs\. If it is approved: Planning is reopened: /u);
   // Another proposal waits for this one, and its refusal names the card first.
   const again = story.run(process.execPath, [CLI, '--no-model', 'story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Another change.', '--json'], { allowFailure: true });
   assert.equal(refusal(again).code, 'INTENT_AMENDMENT_ALREADY_PENDING');

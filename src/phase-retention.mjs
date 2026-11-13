@@ -111,16 +111,19 @@ export async function amendmentRetentionCandidates(root, config, workflow, speci
   const order = workflow.phaseOrder ?? [];
   const candidates = new Map();
   candidates.laterDecisions = new Map();
+  // The first step that does not qualify and why, which the amendment's effect names (state.mjs intentAmendmentEffect).
+  const stop = (phase, why) => { candidates.stopped = { phase: phase?.id ?? null, why }; };
   for (let index = order.indexOf(specification?.id) + 1; index > 0 && index < order.length; index += 1) {
     const phase = workflow.phases[order[index]];
-    if (phase?.status !== 'approved' || phaseRequiresCodeDelivery(phase)
-        || decisionAfter(workflow, phase.id) || decisionFedBy(workflow, phase.id)
-        || workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.kind === 'skill'
-        || (addsClauses && stepResponsibilities(workflow, phase.id).includes('plan') && !correctedPlans.has(phase.id))) break;
+    const why = phase?.status !== 'approved' ? 'not-approved' : phaseRequiresCodeDelivery(phase) ? 'code'
+      : decisionAfter(workflow, phase.id) || decisionFedBy(workflow, phase.id) ? 'decision'
+        : workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.kind === 'skill' ? 'skill'
+          : addsClauses && stepResponsibilities(workflow, phase.id).includes('plan') && !correctedPlans.has(phase.id) ? 'plans-new-clause' : null;
+    if (why) { stop(phase, why); break; }
     const approvals = (phase.approvals ?? []).filter((entry) => entry?.decision === 'approved' && !entry.invalidatedAt
       && Number(entry.generation) === Number(phase.generation) && (!counts || counts(entry)));
     if (!approvals.length || approvals.some((entry) => !entry.upstream?.sha256)
-        || !approvalRequirementsMet(phase.approvalPolicy, approvals)) break;
+        || !approvalRequirementsMet(phase.approvalPolicy, approvals)) { stop(phase, 'approvals'); break; }
     // A plan whose rows the amendment carries is read as its approval decided over it: the plan corrections its
     // approvers recorded since are their own decisions on the plan, not a change behind its approval [PHR:REQ-008].
     const decidedOver = correctedPlans.has(phase.id) ? asApproved(workflow, phase) : workflow;
@@ -128,9 +131,9 @@ export async function amendmentRetentionCandidates(root, config, workflow, speci
     let later = [];
     if (!upstream || approvals.some((entry) => entry.upstream.sha256 !== upstream.sha256)) {
       later = await unrelatedLaterDecisions(root, config, decidedOver, phase, approvals);
-      if (!later) break;
+      if (!later) { stop(phase, 'changed'); break; }
     }
-    if (!(await artifactsUnchanged(root, phase))) break;
+    if (!(await artifactsUnchanged(root, phase))) { stop(phase, 'changed'); break; }
     candidates.set(phase.id, approvals);
     if (later.length) candidates.laterDecisions.set(phase.id, later);
   }

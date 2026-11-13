@@ -419,8 +419,9 @@ async function intentAmendmentCardFacts(root, config, workflow, amendment) {
     try { return new Map(extractClauses(text, { sourcePath }).map((clause) => [String(clause.id).toUpperCase(), String(clause.body ?? '').slice(0, 600)])); }
     catch { return new Map(); }
   };
-  const [was, now] = (await Promise.all([proposal.specification?.beforePath, proposal.specification?.proposedPath]
-    .map((relative) => storyFile(root, config, workflow, relative)))).map(statements);
+  const [beforeText, proposedText] = await Promise.all([proposal.specification?.beforePath, proposal.specification?.proposedPath]
+    .map((relative) => storyFile(root, config, workflow, relative)));
+  const [was, now] = [beforeText, proposedText].map(statements);
   const diff = proposal.diff ?? {};
   const changed = [...(diff.added ?? []).map((clause) => [clause, 'added']), ...(diff.revised ?? []).map((clause) => [clause, 'revised']),
     ...(diff.removed ?? []).map((clause) => [clause, 'removed'])];
@@ -428,7 +429,17 @@ async function intentAmendmentCardFacts(root, config, workflow, amendment) {
   const scope = scopeStepOf(workflow)?.id ?? null;
   const order = workflow.phaseOrder ?? [];
   const pending = amendment.status === 'proposed';
-  const stale = pending ? await (await import('./state.mjs')).intentAmendmentStaleness(root, config, workflow, proposal) : null;
+  const state = await import('./state.mjs');
+  const stale = pending ? await state.intentAmendmentStaleness(root, config, workflow, proposal) : null;
+  // What approving it does, by the computation approval applies [CIC:REQ-012, CON-007]; one it cannot be
+  // approved as is has none, and an unreadable Story says nothing rather than guessing.
+  const effect = pending && !stale && proposedText != null
+    ? await state.intentAmendmentEffect(root, config, workflow, proposal, { proposedText }).catch(() => null) : null;
+  // What an approved one did, from its own record: the steps it kept, reopened and asked.
+  const application = amendment.status === 'approved' ? proposal.application ?? null : null;
+  const later = scope ? order.slice(order.indexOf(scope) + 1).filter((id) => workflow.phases?.[id]?.status !== 'skipped') : [];
+  const kept = application?.retainedPhases ?? [];
+  const reopened = application && !application.settles ? later.find((id) => !kept.includes(id)) ?? null : null;
   const by = proposal.proposedBy ?? amendment.proposedBy ?? null;
   return {
     proposer: by?.name ?? by?.login ?? by?.email ?? null,
@@ -440,8 +451,11 @@ async function intentAmendmentCardFacts(root, config, workflow, amendment) {
     radius: radius?.totals ? { summary: radiusSummary(radius),
       artifacts: (radius.artifacts ?? []).slice(0, CARD_NAMES), moreArtifacts: Math.max(0, (radius.artifacts ?? []).length - CARD_NAMES),
       tests: (radius.tests ?? []).slice(0, CARD_NAMES), moreTests: Math.max(0, (radius.tests ?? []).length - CARD_NAMES) } : null,
-    // The steps after the scope that have begun: each one that cites a changed clause reopens when it is approved.
-    steps: scope ? order.slice(order.indexOf(scope) + 1).filter((id) => workflow.phases?.[id]?.status !== 'skipped' && Number(workflow.phases?.[id]?.generation ?? 0) > 0) : [],
+    effect: effect ? { firstReset: effect.firstReset, dependents: effect.dependents, repeats: effect.repeats,
+      steps: effect.steps.map(({ phase, outcome, status, generation, reasons, inPrompt, groups }) => ({ phase, outcome, status, generation, reasons,
+        ...(inPrompt ? { inPrompt } : {}), ...(groups ? { groups } : {}) })) } : null,
+    applied: application ? { kept, reopened, asked: (application.revalidate ?? []).map((entry) => entry.phase),
+      reset: reopened ? later.slice(later.indexOf(reopened) + 1).filter((id) => Number(workflow.phases?.[id]?.generation ?? 0) > 0) : [] } : null,
     ...(pending ? { decisions: (proposal.decisions ?? []).map((entry) => ({ decision: entry.decision, actor: entry.actor ?? null })) } : {}),
     stale: stale ? { cause: stale.cause, phase: stale.phase } : null
   };

@@ -1147,6 +1147,9 @@ Usage:
   singularity-flow story adjudications [--work-id ID] [--json]  (what changed, what the plan says, what is decided)
   singularity-flow story intent-amendment status [--work-id ID] [--json]
   singularity-flow story intent-amendment draft [--clause ID]... [--adopt CLAUSE-ID]... [--out FILE] [--work-id ID] [--json]
+  singularity-flow story intent-amendment preview [AMD-ID | --file AMENDED-SPEC.md] [--work-id ID] [--json]
+    What approving it does, by the computation approval applies: each later step reset, kept (rule E8) or asked
+    whether it still holds, and why; the stale clauses and the earlier changes it repeats. Records nothing.
   singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]
     [--authored human|governed-agent|external-tool] [--channel CHANNEL]
     [--external-ai none|assisted] [--change-origin ORIGIN...]

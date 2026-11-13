@@ -3,7 +3,7 @@ name: sflow-reject
 description: Propose or review an intent amendment in any workflow, request changes to a submitted or closed Story, or safely return/abandon rework. Records authority and invalidation without rewriting Git history.
 disable-model-invocation: true
 agent: agent
-argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | intent-amendment [status|draft|propose] | roll-forward [CR-ID]"
+argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair] | intent-amendment [status|draft|preview|propose] | roll-forward [CR-ID]"
 
 ---
 # Request governed changes
@@ -26,7 +26,8 @@ For `singularity-flow story intent-amendment`, use this route, not phase rejecti
 1. Inspect `singularity-flow status --for-agent --json`. Confirm the human's changed intent and reason.
    Write only the changed clauses in the file `singularity-flow story intent-amendment draft` issues;
    never edit approved intent in place.
-2. Run `singularity-flow story intent-amendment propose --work-id <WORK-ID> --file <FILE> --reason "<REASON>" --authored governed-agent --channel copilot-host --json`;
+2. Show the `summary` of `singularity-flow story intent-amendment preview --work-id <WORK-ID> --file <FILE> --for-agent --json`, then run
+   `singularity-flow story intent-amendment propose --work-id <WORK-ID> --file <FILE> --reason "<REASON>" --authored governed-agent --channel copilot-host --json`;
    do not invent an `update-intent` convergence finding or change YAML. Propose only when nextsteps returns the
    `singularity-flow story intent-amendment propose` action; otherwise record the change in clarification and revise the scope draft.
 3. Show amendment ID, diff and blast radius. Only a human scope authority decides with exact confirmation,

@@ -21,7 +21,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import YAML from 'yaml';
 
-import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
+import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff, radiusSummary } from '../amendment.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
@@ -2061,9 +2061,10 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
  * `given` is a refresh's proposal of a stale one's exact bytes, reason, authorship, proposer and carried
  * rows, bound to the step as it is now [owner, 2026-11-13]; null reads all of them from the command's
  * options. `dryRun` checks everything a proposal checks and writes nothing: a refresh rejects the stale
- * proposal only once its replacement is known to be proposable.
+ * proposal only once its replacement is known to be proposable, and a preview shows what proposing it
+ * records, which needs no reason yet (`preview`).
  */
-async function proposeIntentAmendment(root, config, workflow, options, { given = null, dryRun = false } = {}) {
+async function proposeIntentAmendment(root, config, workflow, options, { given = null, dryRun = false, preview = false } = {}) {
   // All workflows use the same phase-bound proposal. Existing convergence-backed proposals remain
   // readable/decidable, but a new intent change never needs an artificial convergence finding.
   const source = await phaseIntentAmendmentSource(root, config, workflow,
@@ -2099,8 +2100,8 @@ async function proposeIntentAmendment(root, config, workflow, options, { given =
       { code: 'INTENT_AMENDMENT_FILE_REQUIRED' }
     );
   }
-  const reason = given ? given.reason : optionString(options, 'reason');
-  if (!reason?.trim()) {
+  const reason = (given ? given.reason : optionString(options, 'reason')) ?? (preview ? '' : null);
+  if (!reason?.trim() && !(preview && dryRun)) {
     throw new SingularityFlowError('An intent-amendment proposal requires --reason.', {
       code: 'INTENT_AMENDMENT_REASON_REQUIRED'
     });
@@ -2354,6 +2355,64 @@ export function intentAmendmentDecisionEvent(result, {
   };
 }
 
+/**
+ * `story intent-amendment preview [<AMD-ID> | --file FILE]` [CIC:REQ-012]: what approving an amendment does, by the
+ * computation the approval itself applies (state.mjs intentAmendmentEffect), recording nothing. For a drafted
+ * file, what proposing it records (its clause diff and claim-map radius, by the proposal's own dry run) and what
+ * approving it would then do; for a pending proposal, what approving it does now, or why it cannot be approved
+ * as it is. `summary` says it in a person's words (decision-list.mjs, as every card does) and leads the result.
+ */
+export async function previewIntentAmendment(root, config, workflow, proposalId, options = {}) {
+  const workId = workflow.workItem.id;
+  const [{ intentAmendmentEffect, intentAmendmentStaleness }, words] = await Promise.all([import('../state-stores.mjs'), import('../decision-list.mjs')]);
+  let proposal;
+  let proposedText;
+  const file = proposalId ? null : optionString(options, 'file');
+  if (proposalId) {
+    const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
+    if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`, { code: 'INTENT_AMENDMENT_UNKNOWN' });
+    if (summary.status !== 'proposed') {
+      throw new SingularityFlowError(`${proposalId} is ${summary.status}, so approving it does nothing more; its record says what it did (story intent-amendment status).`,
+        { code: 'INTENT_AMENDMENT_NOT_PENDING' });
+    }
+    proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
+    const stale = await intentAmendmentStaleness(root, config, workflow, proposal);
+    if (stale) {
+      return { resultType: 'intent-amendment-preview', workId, recorded: false, amendment: proposalId, source: 'proposal',
+        summary: [`${proposalId} cannot be approved as it is: ${stale.message} A scope approver refreshes it or rejects it on the decisions card.`],
+        stale: { code: stale.code, cause: stale.cause, phase: stale.phase }, effect: null,
+        next: { command: `singularity-flow decisions ${workId}`, skill: '/sf-decide', label: 'Refresh or reject it on the decisions card' } };
+    }
+    proposedText = await readFile(path.join(root, proposal.specification.proposedPath), 'utf8');
+    if (createHash('sha256').update(proposedText).digest('hex') !== proposal.specification.proposedSha256) {
+      throw new SingularityFlowError(`${proposalId}'s proposed bytes changed after it was proposed, so it cannot be approved. Reject it, then propose the change again.`,
+        { code: 'INTENT_AMENDMENT_INVALID' });
+    }
+  } else {
+    if (!file) {
+      throw new SingularityFlowError('Name the drafted specification with --file FILE, or a pending proposal by its ID.', { code: 'INTENT_AMENDMENT_FILE_REQUIRED' });
+    }
+    ({ proposal } = await proposeIntentAmendment(root, config, workflow, options, { dryRun: true, preview: true }));
+    proposedText = await readFile(path.resolve(file), 'utf8');
+  }
+  const effect = await intentAmendmentEffect(root, config, workflow, proposal, { proposedText });
+  const clause = (id) => words.clauseName(workflow, id);
+  const changes = [['adds', 'added'], ['revises', 'revised'], ['removes', 'removed']]
+    .filter(([, kind]) => effect.changes[kind].length).map(([verb, kind]) => `${verb} ${words.listWords(effect.changes[kind].map(clause))}`);
+  const lines = [
+    `${proposalId ? `If ${proposalId} is approved` : `If ${file} is proposed (as ${proposal.id}) and approved`} as the Story is now. This preview records nothing.`,
+    `It ${words.listWords(changes)}.${effect.dependents.length ? ` ${words.listWords(effect.dependents.map(clause))} ${effect.dependents.length === 1 ? 'depends' : 'depend'} on a changed clause, so ${effect.dependents.length === 1 ? 'its' : 'their'} evidence is stale too.` : ''}`,
+    ...(proposal.radius?.totals ? [radiusSummary(proposal.radius)] : []),
+    ...words.amendmentEffectWords(workflow, effect, { steps: 20 }),
+    ...words.amendmentRepeatWords(workflow, effect.repeats)
+  ];
+  const next = proposalId
+    ? { command: `singularity-flow decisions ${workId}`, skill: '/sf-decide', label: `A scope approver decides ${proposalId} on the decisions card` }
+    : { command: `singularity-flow story intent-amendment propose --work-id ${workId} --file "${file}" --reason "<why the specification changes>"`, label: 'Propose it' };
+  return { resultType: 'intent-amendment-preview', workId, recorded: false, amendment: proposal.id, source: proposalId ? 'proposal' : 'draft',
+    summary: lines, next, effect, radius: proposal.radius?.totals ?? null };
+}
+
 async function decideProposedIntentAmendment(root, config, workflow, proposalId, options) {
   if (!(workflow.intentAmendments ?? []).some((entry) => entry.id === proposalId)) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
   const decision = optionString(options, 'decision');
@@ -2535,6 +2594,13 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     for (const slot of result.slots) console.log(`  ${slot.kind === 'revise' ? 'revise' : 'add   '} ${slot.clauseId}${slot.from ? ` (adopting ${slot.from})` : ''}`);
     console.log('Replace every sflow-draft slot with the clause wording; nothing is proposed until you run:');
     printCommandRoutes(result.next.command, { label: 'Propose intent amendment' });
+    return;
+  }
+  if (action === 'preview') {
+    const result = await previewIntentAmendment(root, config, workflow, positionals[3] ?? null, options);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    for (const line of result.summary) console.log(line);
+    printCommandRoutes(result.next.command, { label: result.next.label, ...(result.next.skill ? { skill: result.next.skill } : {}) });
     return;
   }
   if (action === 'propose') {

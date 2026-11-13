@@ -61,10 +61,10 @@ test('a row with a form still names each step that stays in the terminal, and a 
   const decide = (decision) => `singularity-flow story intent-amendment decide AMD-001 --decision ${decision} --confirm AMD-001 --work-id PAY-1`;
   const intent = { id: 'd3', kind: 'intent-amendment', title: 'Decide intent amendment AMD-001', why: 'It proposes a change.', decidedBy: allowed,
     options: [{ ...choice('reject', 'Reject AMD-001'), terminal: decide('reject') }, { ...choice('approve', 'Approve AMD-001'), terminal: decide('approve') }],
-    details: { lines: ['AC-001 is revised from "1" to "2"'], proposedBy: 'Story Author proposed it.', reach: 'Steps it may reopen: Plan.' } };
+    details: { lines: ['AC-001 is revised from "1" to "2"'], proposedBy: 'Story Author proposed it.', reach: 'If it is approved: Plan is reopened: it cites AC-001.' } };
   const decided = decisionsTable(packet({ items: [intent] }));
   assert.ok(decided.includes(`Your decision, on the forms below; or in your terminal: Reject AMD-001: \`${decide('reject')}\`; Approve AMD-001: \`${decide('approve')}\``), decided);
-  assert.ok(decided.includes('**Decide intent amendment AMD-001.** Story Author proposed it.\n- AC-001 is revised from "1" to "2"\n- Steps it may reopen: Plan.'), decided);
+  assert.ok(decided.includes('**Decide intent amendment AMD-001.** Story Author proposed it.\n- AC-001 is revised from "1" to "2"\n- If it is approved: Plan is reopened: it cites AC-001.'), decided);
 });
 
 test('nothing is preselected: no default on any field, and a person must choose', () => {

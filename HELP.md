@@ -4147,6 +4147,7 @@ singularity-flow story submit
 singularity-flow story converge [--assisted] [--json]
 singularity-flow story adjudicate <ITEM-ID> --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]
 singularity-flow story intent-amendment status [--json]
+singularity-flow story intent-amendment preview [AMD-ID | --file AMENDED-SPEC.md] [--json]
 singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT
 singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--source-phase <CURRENT-PHASE>] [--clause WORK-ID:CLAUSE-ID ...]
 singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>

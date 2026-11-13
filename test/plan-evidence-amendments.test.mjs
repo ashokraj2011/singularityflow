@@ -102,7 +102,8 @@ test('preview works with future phase names/custom roots, is read-only, exact-by
   assert.equal(preview.proposedContract.slots[0].method, 'visual');
   // The terminal form is the person's own step: its live review refused the agent's shell (2026-10-28).
   assert.equal(preview.acceptance.copilotCommand, null);
-  assert.match(preview.guidedReview.copilotCommand, /^\/sf-appeal evidence-accept --phase future-render.*--review-ui/u);
+  // A route that confirms a reviewed value reads as its short code in Copilot (owner, 2026-11-12; confirm-code.mjs).
+  assert.match(preview.guidedReview.copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
   assert.equal(preview.guidedReview.argv.includes('--review-ui'), true);
   assert.equal(f.git('status', '--porcelain=v1', '--untracked-files=all'), before);
   const actions = await evidenceContractRecoveryActions(f.root, f.config, f.workflow, f.workflow.phases['future-render'], { unexpectedPaths: [file, 'other-story/screen.png'] });

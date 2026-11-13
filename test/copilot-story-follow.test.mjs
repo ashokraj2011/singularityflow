@@ -156,8 +156,11 @@ test('extension follows a scoped verified checkout, not a profile update or Stor
   assert.match(follow, /\['workspace', 'context', '--json'\]/);
   assert.match(follow, /verifiedCopilotStoryFollow\(notice, verified\)/);
   assert.match(follow, /navigationGeneration !== workspaceNavigationGeneration/);
-  assert.match(follow, /await follow\(\{ \.\.\.selection, navigationIsCurrent: isCurrent \}\)/);
-  assert.match(follow, /storyCheckoutNeedsWindowSwitch/);
-  assert.match(follow, /'vscode\.openFolder', vscode\.Uri\.file\(selection\.repositoryPath\), false/);
-  assert.doesNotMatch(follow, /openGovernedCopilot|\.sendText\(|reloadWindow|executeCommand\('git/);
+  // The follower adopts the verified selection through the same function the Navigator's Refresh uses [office, 2026-11-12].
+  assert.match(follow, /await adoptVerifiedSelection\(selection, isCurrent,/);
+  const adopt = extension.slice(extension.indexOf('const adoptVerifiedSelection ='), extension.indexOf('let offeredSelectionRevision'));
+  assert.match(adopt, /await follow\(\{ \.\.\.selection, navigationIsCurrent: isCurrent \}\)/);
+  assert.match(adopt, /storyCheckoutNeedsWindowSwitch/);
+  assert.match(adopt, /'vscode\.openFolder', vscode\.Uri\.file\(selection\.repositoryPath\), false/);
+  for (const text of [follow, adopt]) assert.doesNotMatch(text, /openGovernedCopilot|\.sendText\(|reloadWindow|executeCommand\('git/);
 });

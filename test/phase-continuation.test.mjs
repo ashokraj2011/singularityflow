@@ -126,7 +126,8 @@ test('all continuation commands are registered model-free with accurate mutation
 test('confirmed continuation performs only bounded publish and submit, never approval', async t => {
   const f = await fixture(t, 'team-build');
   const planned = await f.invoke(); assert.equal(planned.continuationAllowed, true);
-  assert.match(planned.next.copilotCommand, /^\/sf-appeal resolve-run/u);
+  // A route that confirms a reviewed value reads as its short code in Copilot (owner, 2026-11-12; confirm-code.mjs).
+  assert.match(planned.next.copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
   assert.equal(f.calls.length, 0);
   const result = await f.invoke('run', planned.confirmation);
   assert.deepEqual(f.calls.map(argv => argv[0]), ['phase', 'submit']);

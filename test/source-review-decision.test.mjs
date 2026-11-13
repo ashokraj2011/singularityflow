@@ -16,7 +16,8 @@ test('decision preparation is read-only and retains the exact human-decision rou
   const packet = sourceReviewDecisionPacket(values);
   assert.deepEqual(values, before);
   assert.deepEqual(packet.effects, { stateChanged: false, filesChanged: false, publicationCreated: false });
-  assert.ok(packet.commandGuidance.copilotCommand.startsWith('/sf-review-decide team-scope'));
+  // A route that confirms a reviewed value reads as its short code in Copilot (owner, 2026-11-12; confirm-code.mjs).
+  assert.match(packet.commandGuidance.copilotCommand, /^\/sf-confirm [0-9A-Z]{4}-[0-9A-Z]{4}$/u);
   assert.ok(packet.commandGuidance.argv.includes(packet.packetSha256));
   assert.equal(packet.commandGuidance.modelFreeCommand, null);
   assert.doesNotThrow(() => assertSourceReviewDecisionConfirmation(packet, packet.packetSha256));

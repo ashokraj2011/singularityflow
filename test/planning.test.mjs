@@ -29,8 +29,11 @@ function run(root, command, args, { allowFailure = false } = {}) {
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'feature', agent: 'product-owner' }),
     SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile: 'initiative-lite' })
   };
-  const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', env });
-  if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  // A Story's whole patch history passes 1 MB, spawnSync's default, and a cut-off git reads as a failed one.
+  const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', env, maxBuffer: 1 << 26 });
+  if (!allowFailure && result.status !== 0) {
+    throw new Error(`${command} ${args.join(' ')}${result.error ? ` (${result.error.message})` : ''}\n${result.stdout}\n${result.stderr}`);
+  }
   return result;
 }
 

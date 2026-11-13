@@ -185,9 +185,10 @@ export function evidenceEvaluationPolicies(pathSyntax,utf8,digests){
     {plannedProductSourcePaths}=plannedClaimPathPolicies(pathSyntax),risks=obligationRiskPolicies(digests),
     {effectiveContract,mergedVerificationContracts,witnessMappingCore,witnessMappingSha256}=verificationContractPolicies(pathSyntax,digests),
     {riskEligibility}=risks,recordSha256=value=>textDigestCapability(digests).sha256Utf8(canonicalJson(value));
-function evidenceGraph({ workflow, records, deliveries = [], inspections = [], witnessRecords = [], findings = [], untrusted = false, terminal = null, scope = null },{completenessReview=null}={}) {
+function evidenceGraph({ workflow, records, deliveries = [], inspections = [], witnessRecords = [], findings = [], untrusted = false, terminal = null, scope = null, executionPolicies },{completenessReview=null}={}) {
   // A completeness review counts only for the exact inventory it reviewed [E2G-007].
-  const graph = { workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, terminal, scope, completenessReview };
+  const graph = { workflow, records, deliveries, inspections, witnessRecords, findings, untrusted, terminal, scope, completenessReview,
+    ...(executionPolicies!==undefined?{executionPolicies}: {}) };
   // What the evaluation was computed from, so a cache or a stored decision can tell whether its
   // inputs are still current without re-reading every record.
   graph.inputSha256 = `sha256:${recordSha256({
@@ -217,7 +218,8 @@ function evidenceGraph({ workflow, records, deliveries = [], inspections = [], w
     scopeRevision: workflow.scopeRevisions?.at(-1)?.revisionSha256 ?? null,
     riskDecisions: (workflow.riskDecisions ?? []).map((entry) => recordSha256(entry)),
     planAmendments: (workflow.planAmendments ?? []).map((entry) => recordSha256(entry)),
-    witnessRecords: witnessRecords.map((entry) => recordSha256(entry))
+    witnessRecords: witnessRecords.map((entry) => recordSha256(entry)),
+    ...(executionPolicies!==undefined?{executionPolicies}: {})
   })}`;
   // A final evaluation counts only for the evidence it was made over.
   if (terminal == null && workflow.completion?.inputSha256 === graph.inputSha256) graph.terminal = workflow.completion;
@@ -225,6 +227,10 @@ function evidenceGraph({ workflow, records, deliveries = [], inspections = [], w
 }
 
 function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requiredAssurance = DEFAULT_REQUIRED_ASSURANCE, at, admission = {} } = {}) {
+  if(graph.executionPolicies!==undefined&&(!Array.isArray(graph.executionPolicies)||graph.executionPolicies.length>512||graph.executionPolicies.some(row=>
+    row.profile!=='sflow-namespace-execution-permission/v1'||!['test-cohort','test-run-risk'].includes(row.kind)||typeof row.phaseId!=='string'
+    ||!['active','uncovered','restored-baseline'].includes(row.disposition)||!Array.isArray(row.actions)||!Array.isArray(row.references))))
+    throw new SingularityFlowError('Execution permissions require bounded original-owner observations.',{code:'ENGINE_INPUT_INVALID'});
   if(admission.witnessMappings!==undefined&&(!Array.isArray(admission.witnessMappings)||admission.witnessMappings.length>1000))
     throw new SingularityFlowError('Admit a bounded set of authenticated exact witness reviews.',{code:'ENGINE_INPUT_INVALID'});
   if(admission.riskBindings!==undefined&&(!admission.riskBindings||typeof admission.riskBindings!=='object'||Array.isArray(admission.riskBindings)
@@ -483,7 +489,9 @@ function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requi
           decisionFor: (entry) => adequacyDecision(entry, id, contract),
           unattached: unattached.get(id) ?? [],
           records: graph.witnessRecords ?? [],
-          acceptedRisk: submitted.some((entry) => entry.delivery.testRecovery?.disposition === 'accepted-risk'),
+          acceptedRisk: submitted.some((entry) => entry.delivery.testRecovery?.disposition === 'accepted-risk')
+            &&(graph.executionPolicies===undefined||contract.slots.filter(slot=>slot.method!=='test'&&slot.role==='primary').every(slot=>
+              (graph.witnessRecords??[]).some(row=>row.clauseId===id&&row.slot===slot.slot&&row.method===slot.method&&row.status==='met'))),
           // The commands whose runs a step approver accepted could not execute any test.
           acceptedNoTestRunCommands: new Set(submitted.flatMap((entry) => entry.delivery.testRecovery?.source === 'test-run-risk'
             ? entry.delivery.testRecovery.commandIds ?? [] : []))
@@ -733,7 +741,20 @@ function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requi
     findings.push(finding('EVIDENCE_NO_CRITERIA', 'No requirement or acceptance criterion is indexed for this Story, so nothing can be shown as satisfied.'));
   }
   const clauseRows = rows;
-  const allRows = [...clauseRows, ...scopeRows, ...storyRows];
+  // Scope reductions and accepted environment failures stay visible through the actual closing vote.
+  // They have their own owners and cannot be replaced by a second generic obligation-risk decision.
+  const executionRows=(graph.executionPolicies??[]).map(row=>{
+    const covered=row.disposition!=='uncovered',result=covered?row.disposition==='restored-baseline'?'satisfied':'satisfied-with-exception':'pending';
+    return {id:row.kind+':'+row.phaseId+':'+row.generation,type:'EXECUTION-POLICY',definedIn:row.phaseId,source:row.policy,
+      result,assurance:row.kind==='test-run-risk'?'declared':'not-applicable',plan:null,implementation:null,verification:null,
+      obligations:[{id:row.kind+':'+row.phaseId+':'+row.generation,responsibility:'verify',subject:'story',owningSteps:[row.phaseId],
+        status:covered?row.disposition==='restored-baseline'?'met':'excepted':'pending',facets:{coverage:'not-applicable',execution:'not-applicable',
+          assurance:'declared',review:'decided',freshness:covered?'current':'stale',exception:covered&&row.disposition!=='restored-baseline'?'accepted-risk':'none'}}],
+      findings:covered?[]:[finding('EXECUTION_PERMISSION_NOT_CURRENT','Renew the original permission or restore its required execution evidence.')],
+      actions:row.actions,executionPolicy:row};
+  });
+  for(const row of executionRows)findings.push(...row.findings);
+  const allRows = [...clauseRows, ...scopeRows, ...storyRows, ...executionRows];
   const counts = resultCounts(allRows);
   const blocked = scopeMissing || allRows.some((row) => BLOCKING_RESULTS.has(row.result))
     || findings.some((entry) => entry.blocking && entry.category === 'records');
@@ -749,7 +770,7 @@ function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requi
   })));
   return {
     schemaVersion: 1, // schema-transient: computed evaluation, never persisted by this version
-    profile:admission.witnessMappings!==undefined?'sflow-evidence-evaluation/v3':admission.riskBindings===undefined?EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v2',
+    profile:graph.executionPolicies!==undefined?'sflow-evidence-evaluation/v4':admission.witnessMappings!==undefined?'sflow-evidence-evaluation/v3':admission.riskBindings===undefined?EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v2',
     workId,
     ...(localIntegrationRuns.length ? { localIntegrationRuns } : {}),
     title: workflow.workItem.title ?? null,

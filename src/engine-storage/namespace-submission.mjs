@@ -1,10 +1,10 @@
-import {createNamespaceSourceReviewOwners} from './namespace-source-review-reader.mjs';
 /** Shared-record submission of an actual published document. No private draft or Git discovery. */
+import {isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,canonicalJson,NAMESPACE_SUBMISSION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
+import {createNamespaceSourceReviewOwners} from './namespace-source-review-reader.mjs';
 import {createHash} from 'node:crypto';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,NAMESPACE_SUBMISSION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 import {phaseAgentMutationFacts,skillPhaseHostRequirement} from '../kernel/phase-admission.mjs';
@@ -24,10 +24,10 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {createNamespaceReadPorts} from './namespace-reader.mjs';
 import {lifecycleRecord} from './namespace-lifecycle-contract.mjs';
+import {convergenceSubmissionEvidence} from './namespace-convergence-submission.mjs';
 import {namespaceSubmissionBindingValue,namespaceSubmissionValue,namespaceSubmissionRecord,namespaceSubmissionRoutingValue,
   NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE,NAMESPACE_CHECKED_SUBMISSION_PROFILE} from './namespace-submission-contract.mjs';
 export {NAMESPACE_SUBMISSION_PROFILE,NAMESPACE_SUBMISSION_DECISION_PROFILE,NAMESPACE_CHECKED_SUBMISSION_PROFILE};
-import {convergenceSubmissionEvidence} from './namespace-convergence-submission.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
@@ -174,7 +174,8 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
           await publications.policies.freshConvergenceSources(published,sources,{signal});
         }
         for(const owner of [...publications.specifications.owners(published),...publications.policies.owners(published)])required.delete(owner);
-        if(published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await publications.policies.freshTestRisk(published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(published.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))await publications.policies.freshCohort(published,snapshot,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))await publications.policies.freshTestRisk(published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publications.policies.freshReuseSources(published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(published.checks){await checks.assertCurrent(published.checks,s.phaseId,{signal});required.delete('check-execution');}
         if(required.size)throw error('This submission needs additional policy or execution owners.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.submit',required:[...required].sort()});
@@ -230,7 +231,8 @@ export function createNamespaceSubmissionPorts({records,content,localContent=nul
       const s=selected(context),p=preparations.get(token);if(!p||p.context!==context)throw error('Use this submission preparation.','ENGINE_INPUT_INVALID');
       if(p.accepted)return p.accepted;
       return commitNamespaceOperation(committer,s.operationId,async()=>{
-        if(p.published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await publications.policies.freshTestRisk(p.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(p.published.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))await publications.policies.freshCohort(p.published,p.snapshot,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(p.published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))await publications.policies.freshTestRisk(p.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(p.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publications.policies.freshReuseSources(p.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(p.convergence)await publications.policies.freshConvergenceSources(p.published,sources,{signal});
         await authorize(signal,p.agent);await unchanged(p.snapshot,signal);},{signal});

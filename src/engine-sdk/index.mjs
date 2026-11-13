@@ -55,6 +55,10 @@ const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','select
 const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
 const CORRECTION_FIELDS=Object.freeze(['ownerPhase','operations','reason','upstreamIssue']);
 const SINGLE_DECISIONS = Object.freeze([
+  ['test-risk.confirm-recovery','test-run-risk',['phaseId','commandId','argvSha256','causeClass','cause','reason','expires','expectedRecovery'],
+    {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','phaseId','commandId','argvSha256','causeClass','cause','reason','expires','expectedRecovery'])}],
+  ['test-cohort.confirm','test-cohort',['phaseId','baselinePhaseId','baselineOperationId','observedOperationId','expectedContext','revoke','reason','expires'],
+    {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','reason'])}],
   ['test-recovery.confirm','test-recovery-agreement',['phaseId','expectedContext','reason'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','expectedContext','reason'])}],
   ['convergence.adjudicate','convergence-adjudication',['phaseId','itemId','disposition','clauseIds','reason','expectedContext'],
@@ -148,6 +152,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectEvidenceReuseContext'},
   {id:'test-risk.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRiskContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRiskContext'},
+  {id:'test-cohort.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','baselinePhaseId','baselineOperationId','observedOperationId']),
+    requiredFields:Object.freeze(['phaseId','baselineOperationId','observedOperationId']),port:'testCohortContext',stages:Object.freeze(['load','read']),validate:'testCohortContextInput',execute:'inspectTestCohortContext'},
   {id:'test-witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testWitnessContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestWitnessContext'},
   {id:'test-recovery.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRecoveryContext',
@@ -817,6 +823,20 @@ async function inspectEvidenceReuseContext(port,input,signal){
       'The reuse context returned another Story, task or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'evidence-reuse.context',subject:binding.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+}
+function testCohortContextInput(value,operation){
+  const input=data(value);if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key))
+    ||Object.values(input).some(value=>value!==null&&(typeof value!=='string'||!value||value.length>512)))invalid('Use exact baseline and candidate check operation identities.');
+  return input;
+}
+async function inspectTestCohortContext(port,input,signal){
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const facts=data(await port.read(context,{signal}));notCancelled(signal);
+  if(facts.profile!=='sflow-namespace-test-cohort-context/v1'||context.subject?.kind!=='story'||facts.workId!==context.subject.id||facts.phase!==input.phaseId
+    ||facts.workId!==context.workflow?.workItem?.id||!/^sha256:[a-f0-9]{64}$/u.test(facts.expectedContext??'')||facts.newExecutionClaimed!==false
+    ||!Array.isArray(facts.selection)||facts.selection.length>1024||!Array.isArray(facts.authorities))throw new SingularityFlowError('The cohort context returned another Story, phase or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-cohort.context',subject:context.subject,manifest:facts,
+    effects:{committed:false,pushed:false,testsRun:false,modelInvocations:0,approvalRecorded:false,storyAdvanced:false}});
 }
 async function inspectTestRecoveryContext(port,input,signal){
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
@@ -1950,7 +1970,7 @@ export function createEngine(options = {}) {
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectDecisionList, inspectStoryGuide, inspectStoryNext,
     inspectStoryStatus, inspectStoryEvidence, inspectWorkflowAssets, phaseBeginInput, phaseEntryInput, phaseInputsInput, phaseReviewInput,
     preparePhase, preparePhaseInputs, publicationInput, publish, readDocument, recordDecisions,
-    recordSingleDecision, recordStoryDocument, storyDocumentInput, inspectConformanceContext, inspectScopeContext, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,
+    recordSingleDecision, recordStoryDocument, storyDocumentInput, testCohortContextInput, inspectTestCohortContext, inspectConformanceContext, inspectScopeContext, reject, rejectionInput, rolloverPhase, singleDecisionInput, storyGuideInput,
     storyStatusInput, submissionInput, submit, upstreamOperation, workflowAssetsInput
   });
 }

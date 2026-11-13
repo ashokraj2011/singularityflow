@@ -1019,14 +1019,16 @@ export function namespaceTestRiskPlan(workflow,request,facts,source,rules){
     const target=rows.find(row=>row.id===request.revoke);
     if(!target)throw new SingularityFlowError('This Story has no such test-run risk. ',{code:'TEST_RUN_RISK_UNKNOWN'});
     if(rows.some(row=>row.revokes===request.revoke))throw new SingularityFlowError('This test-run risk is already revoked.',{code:'TEST_RUN_RISK_REVOKED'});
-    record={schemaVersion:1,profile:'sflow-namespace-test-run-risk/v1',revokes:request.revoke,phase:target.phase,commandId:target.commandId,
+    record={schemaVersion:target.schemaVersion,profile:target.profile,revokes:request.revoke,phase:target.phase,commandId:target.commandId,
       reason:rules.testRunRiskText(request.reason,20,1000,'--reason','why the decision is revoked'),...common};
   }else{
     if(rows.some(row=>row.id&&row.phase===request.phaseId&&row.commandId===request.commandId&&row.argvSha256===request.argvSha256
-      &&row.causeClass===request.causeClass&&namespaceTestRiskState(proposed,row,{at:facts.at})==='active'))throw new SingularityFlowError(
+      &&row.causeClass===request.causeClass&&(!source.identity.recovery||row.recovery&&canonicalJson(row.recovery)===canonicalJson(source.identity.recovery))&&namespaceTestRiskState(proposed,row,{at:facts.at})==='active'))throw new SingularityFlowError(
       'A standing decision already covers this exact command and environment cause. Use it or revoke it before replacing it.',{code:'TEST_RUN_RISK_ALREADY_RECORDED'});
     const value=rules.recordTestRunRisk({testRunRisks:structuredClone(rows)},{...request,attempt:null,...common});
-    record={schemaVersion:1,profile:'sflow-namespace-test-run-risk/v1',...value,commandSha256:source.commandSha256};
+    const version=source.identity.profile==='sflow-namespace-test-run-risk/v3'?3:source.identity.profile==='sflow-namespace-test-run-risk/v2'?2:1;
+    if(source.recovery&&Date.parse(value.expiresAt)-Date.parse(facts.at)>source.recovery.maximumDays*86400000)throw new SingularityFlowError('The environment decision exceeds the pinned test-recovery risk lifetime.',{code:'TEST_RUN_RISK_INVALID'});
+    record={schemaVersion:version,profile:'sflow-namespace-test-run-risk/v'+version,...value,commandSha256:source.commandSha256,...(version===3?{recovery:source.identity.recovery}:{})};
   }
   proposed.namespaceTestRunRisks=[...rows,record];
   proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'test_run_risk_decided',phase:request.phaseId,
@@ -1155,4 +1157,78 @@ export function testNarrowingPolicies(port){
     return { id: decision.id, sha256: `sha256:${recordSha256(decision)}` };
   }
   return Object.freeze({observedNarrowing,skippedByAgreement,narrowingReasons,narrowingFingerprint,narrowingCovers,testNarrowingIneligibility,recordTestNarrowing,recordTestNarrowingRevocation,testNarrowingState,testNarrowingBinding});
+}
+
+/** Admitted Code failures keep their actual witness result; an environment decision only names an exception. */
+export function namespaceCodeEnvironmentRiskCoverage(matches,repositoryId,report,{enforceAssertionAdequacy=false}={}){
+  if(!report||!['sflow-namespace-test-risk-policy/v2','sflow-namespace-test-risk-policy/v3'].includes(report.profile)||!matches.length)return null;
+  const ids=[];
+  for(const {witness,result}of matches){
+    if(result.status==='met'&&!result.shortfall)continue;
+    if(!witness.identity||(witness.gaps??[]).length||!['failed','unavailable','not-run'].includes(result.outcome)
+      ||(enforceAssertionAdequacy||witness.enforceAssertionAdequacy)&&witness.assertions?.adequacy!=='adequate')return null;
+    const row=report.observations.find(row=>row.repositoryId===repositoryId&&row.commandId===witness.commandId
+      &&row.decision&&row.cause?.category==='environment');
+    if(!row)return null;ids.push(row.decision.record.id);
+  }
+  return ids.length?{profile:'sflow-namespace-code-execution-exception/v1',decisions:[...new Set(ids)].sort(),testsPassed:false}:null;
+}
+
+/** Scope of actually observed test cohorts, separate from execution success and human authentication. */
+export function namespaceTestCohortPolicies(digests){
+  const hash=value=>'sha256:'+textDigestCapability(digests).sha256Utf8(canonicalJson(value)),
+    fail=(message,code='TEST_COHORT_INVALID',details=null)=>{throw new SingularityFlowError(message,{code,details});};
+  function cases(tests,occurrences){
+    if(!tests||!Number.isInteger(tests.discovered)||tests.discovered<1||!Array.isArray(occurrences)||occurrences.length!==tests.discovered||occurrences.length>100000)
+      fail('The cohort needs complete structured test occurrences, not module counts.','TEST_COHORT_IDENTITY_REQUIRED');
+    const ids=new Set(),rows=[];
+    for(const row of occurrences){
+      if(typeof row.file!=='string'||!row.file||/^(?:[\\/]|[a-z]:)/iu.test(row.file)||row.file.split(/[\\/]/u).some(part=>!part||part==='.'||part==='..')
+        ||typeof row.name!=='string'||!row.name.trim()||row.name.length>4096||(row.framework!=null&&(typeof row.framework!=='string'||row.framework.length>128))
+        ||!Array.isArray(row.ancestorTitles)||row.ancestorTitles.length>128||row.ancestorTitles.some(title=>typeof title!=='string'||title.length>4096)
+        ||!['passed','failed','skipped','not-run'].includes(row.outcome))fail('The report does not identify a portable bounded test cohort.','TEST_COHORT_IDENTITY_REQUIRED');
+      const id=hash({file:row.file,name:row.name,suite:row.ancestorTitles,framework:row.framework??null});
+      if(ids.has(id))fail('Duplicate test display identities need a stronger runner identity before selecting a cohort.','TEST_COHORT_IDENTITY_REQUIRED');
+      ids.add(id);rows.push({id,file:row.file,name:row.name,suite:row.ancestorTitles,outcome:row.outcome});
+    }
+    return rows.sort((a,b)=>a.id.localeCompare(b.id));
+  }
+  function compare(baseline,current){
+    if(baseline.length!==current.length)fail('The baseline and candidate need the same configured command and repository inventory.','TEST_COHORT_PIN_CHANGED');
+    return baseline.map(base=>{
+      const now=current.find(row=>row.repositoryId===base.repositoryId&&row.commandId===base.commandId);
+      if(!now||now.pinSha256!==base.pinSha256)fail('The runner, command, configuration or environment differs from the retained baseline.','TEST_COHORT_PIN_CHANGED');
+      const baselineIds=base.cases.filter(row=>row.outcome==='passed').map(row=>row.id),baselineSet=new Set(baselineIds),selectedIds=now.cases.filter(row=>['passed','failed'].includes(row.outcome)).map(row=>row.id),selected=new Set(selectedIds);
+      return {repositoryId:base.repositoryId,commandId:base.commandId,pinSha256:base.pinSha256,baselineIds,selectedIds,
+        excludedIds:baselineIds.filter(id=>!selected.has(id)),newIds:selectedIds.filter(id=>!baselineSet.has(id))};
+    });
+  }
+  function state(rows,record,at){
+    if(typeof at!=='string'||!Number.isFinite(Date.parse(at)))fail('Observe cohort expiry at an explicit time.','ENGINE_INPUT_INVALID');
+    if(rows.some(row=>row.revokes===record.id))return 'revoked';
+    if(record.expiresAt&&Date.parse(record.expiresAt)<=Date.parse(at))return 'expired';
+    return 'active';
+  }
+  function confirm(workflow,request,facts,source){
+    const proposed=structuredClone(workflow),rows=proposed.namespaceTestCohorts??=[];let record;
+    if(request.revoke){const target=rows.find(row=>row.id===request.revoke);
+      if(!target)fail('This Story has no such cohort decision.','TEST_COHORT_UNKNOWN');
+      if(rows.some(row=>row.revokes===target.id))fail('The cohort decision is already revoked.','TEST_COHORT_REVOKED');
+      record={schemaVersion:1,profile:'sflow-namespace-test-cohort-decision/v1',revokes:target.id,phase:target.phase,reason:request.reason,
+        actor:facts.actorId,authorityGroup:facts.authorityGroup,recordedAt:facts.at};
+    }else{
+      if(request.expectedContext!==source.context.sha256)fail('Review this exact baseline and observed cohort before confirming it.','TEST_COHORT_CONTEXT_CHANGED');
+      const reduced=source.context.value.selection.some(row=>row.excludedIds.length),expiry=request.expires?new Date(request.expires+'T23:59:59.999Z'):null;
+      if((reduced&&!expiry)||expiry&&(!/^\d{4}-\d{2}-\d{2}$/u.test(request.expires)||!Number.isFinite(expiry.getTime())
+        ||expiry.toISOString().slice(0,10)!==request.expires||expiry<=new Date(facts.at)||expiry-new Date(facts.at)>90*86400000))
+        fail('A reduced cohort needs an expiry within the next 90 days.');
+      record={schemaVersion:1,profile:'sflow-namespace-test-cohort-decision/v1',id:'TCO-'+String(rows.filter(row=>row.id).length+1).padStart(3,'0'),phase:request.phaseId,
+        generation:source.context.value.generation,context:source.context.value,contextSha256:source.context.sha256,
+        selectionSha256:hash({baseline:source.context.value.baseline,selection:source.context.value.selection}),
+        expiresAt:expiry?.toISOString()??null,reason:request.reason,actor:facts.actorId,authorityGroup:facts.authorityGroup,recordedAt:facts.at};
+    }
+    proposed.namespaceTestCohorts=[...rows,record];proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'test_cohort_decided',phase:record.phase,detail:record.id??record.revokes});
+    return {workflow:proposed,outcome:{currentPhase:workflow.currentPhase,record}};
+  }
+  return Object.freeze({hash,cases,compare,state,confirm});
 }

@@ -47,7 +47,8 @@ export function createNamespaceTerminalEvidenceOwner({observer,scope,workId}){
     if(report.decision.gate==='block')fail('Meet the remaining obligations, repair their evidence, or obtain an eligible original-owner risk decision before closing the Story.',
       'ENGINE_TERMINAL_EVIDENCE_REQUIRED',{rows:report.rows.filter(row=>!['satisfied','satisfied-with-exception','not-applicable'].includes(row.result)).slice(0,32),
         actions:[{operation:'story.evidence',inputs:{workId}}]});
-    return {value:{schemaVersion:1,profile:'sflow-namespace-terminal-evidence/v1',approval:intent(value),proposal:'uncommitted-human-vote',
+    const version=observed.graph.executionPolicies!==undefined?2:1;
+    return {value:{schemaVersion:version,profile:'sflow-namespace-terminal-evidence/v'+version,approval:intent(value),proposal:'uncommitted-human-vote',
       sourceInputSha256:observed.graph.inputSha256,report,riskReceipts:proofs.map(row=>row.reference)},references:[...observed.references.filter(row=>row.namespace==='evidence'),...proofs.map(row=>row.reference)],
       readBindings:observed.readBindings,fresh:observed.fresh};
   }

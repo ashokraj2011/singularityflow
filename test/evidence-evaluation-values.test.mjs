@@ -34,3 +34,15 @@ test('review facets use the supplied admitted approval inventory without claimin
   assert.equal(reviewFacetValue(phase,null,[]),'pending');
   assert.equal(reviewFacetValue(phase,null,phase.approvals),'approved');
 });
+test('explicit execution permissions have a separate evidence profile, input digest and original-owner recovery',()=>{
+  const fixture=captured.cases[0],observation={profile:'sflow-namespace-execution-permission/v1',kind:'test-cohort',phaseId:'implementation',generation:1,
+    disposition:'uncovered',policy:{kind:'test-cohort/v1'},references:[],actions:[{operation:'test-cohort.context',inputs:{phaseId:'implementation'},requiredInputs:['baselineOperationId','observedOperationId']}]},
+    graph=rules.evidenceGraph({...fixture.graph,executionPolicies:[observation]}),result=rules.evaluateEvidence(graph,fixture.options),
+    row=result.rows.find(row=>row.type==='EXECUTION-POLICY');
+  assert.notEqual(graph.inputSha256,fixture.graphSha256);assert.equal(result.profile,'sflow-evidence-evaluation/v4');assert.equal(result.decision.gate,'block');
+  assert.equal(row.result,'pending');assert.deepEqual(row.actions,observation.actions);assert.equal(row.obligations[0].subject,'story');
+  assert.ok(row.actions.every(action=>action.operation!=='decision.risk'),'an original cohort gap does not create a competing generic decision');
+  const active=rules.evaluateEvidence(rules.evidenceGraph({...fixture.graph,executionPolicies:[{...observation,disposition:'active'}]}),fixture.options);
+  assert.equal(active.rows.find(row=>row.type==='EXECUTION-POLICY').result,'satisfied-with-exception');
+  assert.deepEqual(native(fixture.graph,fixture.options),fixture.result,'ordinary native evidence bytes retain their original meaning');
+});

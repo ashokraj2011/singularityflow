@@ -1,9 +1,10 @@
+/** Recompute concrete policy evidence from original bytes, policy and accepted history. Read only. */
+import {isNamespaceTestCohortPolicy,namespaceCodeReportEvidenceProfile,isNamespaceTestRiskPolicy,canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,SPECIFICATION_ANALYSIS_REPORT_SCHEMA,namespaceCodePolicyProfile,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
+import {createNamespaceTestCohortOwner,namespaceTestCohortManifest} from './namespace-test-cohort-reader.mjs';
 import {createNamespaceConvergencePolicyReader} from './namespace-convergence-policy.mjs';
 import {CONVERGENCE_POLICY_EVIDENCE} from './namespace-convergence-contract.mjs';
-/** Recompute concrete policy evidence from original bytes, policy and accepted history. Read only. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,SPECIFICATION_ANALYSIS_REPORT_SCHEMA,namespaceCodePolicyProfile} from '../foundation/record-schema.mjs';
 import {phaseAssignmentRequired} from '../kernel/phase-policy.mjs';
 import {specificationAnalysisPublicationPolicy} from '../kernel/specification-analysis.mjs';
 import {specificationGateValue,evaluateApprovalChecklist} from '../engine-compatibility/node-specification-policy.mjs';
@@ -23,7 +24,7 @@ import {createNamespaceAssignmentOwners} from './namespace-assignment-reader.mjs
 import {createNamespaceConstitutionExceptionOwners} from './namespace-constitution-exception-reader.mjs';
 import {createNamespaceDocumentReviewReader,isDocumentReviewEvidence} from './namespace-document-review.mjs';
 import {createNamespaceEvidenceReuseOwner,EVIDENCE_REUSE_POLICY,namespaceEvidenceReuseManifest} from './namespace-evidence-reuse-reader.mjs';
-import {createNamespaceTestRiskOwner,TEST_RISK_POLICY,namespaceTestRiskManifest} from './namespace-test-risk-reader.mjs';
+import {createNamespaceTestRiskOwner,namespaceTestRiskManifest} from './namespace-test-risk-reader.mjs';
 import {createNamespaceTestRecoveryOwner,TEST_RECOVERY_EVIDENCE,namespaceTestRecoveryManifest} from './namespace-test-recovery-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
@@ -31,6 +32,24 @@ const error=(message,code,details=null,cause=undefined)=>new SingularityFlowErro
 
 export function createNamespacePublicationPolicyReader({observer,scope,workId,checks=null}) {
   const verified=new WeakMap();
+  let cohort;const cohortReader=()=>cohort??=createNamespaceTestCohortOwner({observer,scope,workId});
+  const cohortCandidate=(publication,snapshot,options={})=>cohortReader().candidate(publication,snapshot,options);
+  async function verifyCohort(publication,binding,{signal}={}){
+    const manifest=namespaceTestCohortManifest(await json(binding.record,signal),{scope,workId,phaseId:publication.phase}),report=await json(manifest.report,signal);
+    if(!same(namespaceSpecificationIdentity(publication),Object.fromEntries(Object.keys(namespaceSpecificationIdentity(publication)).map(key=>[key,manifest[key]])))
+      ||manifest.recordedAt!==publication.publishedAt||!same(manifest.artifact,{key:publication.artifact.sourceKey,content:publication.artifact.content}))throw error('The cohort report has another publication identity.','ENGINE_STORAGE_CORRUPT');
+    const state=await observer.state(await observer.bytes(manifest.basis.head.state,manifest.basis.head.state.bytes,signal),manifest.basis.head,{signal}),
+      snapshot={revision:manifest.basis.revision,configuration:manifest.basis.head.configuration,workflow:state.workflow},
+      expected=await cohortCandidate(publication,snapshot,{signal,at:publication.publishedAt,bound:report});
+    if(!expected||!same(report,expected.report))throw error('The cohort report differs from the actual baseline, run or human decision.','ENGINE_STORAGE_CORRUPT');
+    return {...expected,binding,manifest,report,snapshot};
+  }
+  async function freshCohort(publication,snapshot,{signal,at}={}){
+    const retained=proofs(publication).find(row=>isNamespaceTestCohortPolicy(row.binding.kind));if(!retained)return [];
+    const current=await cohortCandidate(publication,snapshot,{signal,at,bound:retained.report}),identity=report=>({...report,disposition:null});
+    if(!current||!same(identity(current.report),identity(retained.report)))throw error('The published cohort no longer has its original baseline and execution.','TEST_COHORT_NOT_COVERED');
+    return current.references;
+  }
   let risk;const riskReader=()=>risk??=createNamespaceTestRiskOwner({observer,scope,workId});
   const testRiskCandidate=(publication,snapshot,options={})=>riskReader().draftCandidate(publication,snapshot,options);
   async function verifyTestRisk(publication,binding,{signal}={}){
@@ -42,13 +61,38 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
       snapshot={revision:manifest.basis.revision,configuration:manifest.basis.head.configuration,workflow:state.workflow},report=await json(manifest.report,signal),
       expected=await riskReader().publication({...publication,riskChecks:report.checks},snapshot,{signal,at:publication.publishedAt});
     if(!same(report,expected.report))throw error('Accepted environment failures differ from their actual execution and human receipt.','ENGINE_STORAGE_CORRUPT');
-    return {...expected,binding,manifest,report};
+    return {...expected,binding,manifest,report,snapshot};
   }
   async function freshTestRisk(publication,snapshot,units,{signal,at}={}){
-    const retained=proofs(publication).find(row=>row.binding.kind===TEST_RISK_POLICY);if(!retained)return;
+    const retained=proofs(publication).find(row=>isNamespaceTestRiskPolicy(row.binding.kind));if(!retained)return;
     const current=await riskReader().fresh({...publication,riskChecks:retained.report.checks},snapshot,units,{signal,at,bound:retained.report});
     if(!same(current.report,retained.report))throw error('The accepted environment risk or command changed after publication.','TEST_RUN_RISK_NOT_COVERED',{
       actions:[{operation:'test-risk.context',inputs:{workId,phaseId:publication.phase}},{operation:'phase.checks.run',inputs:{workId,phaseId:publication.phase},requiredInputs:['operationId']}]});
+  }
+  /** Current permission over an immutable execution; a view never invents a replacement decision. */
+  async function executionDispositions(publication,snapshot,{signal,at}={}){
+    const rows=[];
+    for(const retained of proofs(publication).filter(row=>isNamespaceTestCohortPolicy(row.binding.kind)
+      ||isNamespaceTestRiskPolicy(row.binding.kind)&&namespaceTestRiskRecordProfile('report',row.report).executionRisk)){
+      const cohort=isNamespaceTestCohortPolicy(retained.binding.kind),kind=cohort?'test-cohort':'test-run-risk',
+        original={...snapshot,workflow:{...snapshot.workflow,sourceBindings:retained.snapshot.workflow.sourceBindings}},
+        value={profile:'sflow-namespace-execution-permission/v1',kind,phaseId:publication.phase,generation:publication.generation,
+          publication:{baseRevision:publication.baseRevision,artifact:publication.artifact.content},policy:retained.binding,
+          decisions:cohort?[retained.report.decision.record.id]:retained.report.observations.flatMap(row=>row.decision?[row.decision.record.id]:[]),
+          disposition:'active',actions:[],references:retained.references};
+      try{
+        const current=cohort?await cohortCandidate(publication,original,{signal,at,bound:retained.report})
+          :await riskReader().publication({...publication,riskChecks:retained.report.checks},original,{signal,at,bound:retained.report});
+        if(!current)throw error('The retained execution permission has no original decision.','ENGINE_STORAGE_CORRUPT');
+        if(cohort&&(current.report.disposition==='restored-baseline'||current.report.selection.every(row=>row.excludedIds.length===0)))value.disposition='restored-baseline';
+        value.references=[...new Map([...value.references,...current.references].map(ref=>[canonicalJson(ref),ref])).values()];
+      }catch(cause){
+        if(![cohort?'TEST_COHORT_NOT_COVERED':'TEST_RUN_RISK_NOT_COVERED'].includes(cause.code))throw cause;
+        value.disposition='uncovered';value.actions=cause.details?.actions??[];
+      }
+      rows.push(value);
+    }
+    return rows;
   }
   let reuse;const reuseReader=()=>reuse??=createNamespaceEvidenceReuseOwner({observer,scope,workId});
   const reuseCandidate=(publication,snapshot,options={})=>reuseReader().publication(snapshot,publication.phase,options);
@@ -183,7 +227,8 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     const values=[];
     for(const binding of publication.policyEvidence) {
       namespacePolicyEvidenceBinding(binding);
-      if(binding.kind===TEST_RISK_POLICY){values.push(await verifyTestRisk(publication,binding,{signal}));continue;}
+      if(isNamespaceTestCohortPolicy(binding.kind)){values.push(await verifyCohort(publication,binding,{signal}));continue;}
+      if(isNamespaceTestRiskPolicy(binding.kind)){values.push(await verifyTestRisk(publication,binding,{signal}));continue;}
       if(binding.kind===EVIDENCE_REUSE_POLICY){values.push(await verifyReuse(publication,binding,{signal,policyTraversal:token}));continue;}
       if(binding.kind===TEST_RECOVERY_EVIDENCE){values.push(await verifyRecovery(publication,binding,{signal,policyTraversal:token}));continue;}
       if(isDocumentReviewEvidence(binding.kind)){values.push(await documentReader().verify(publication,binding,{signal,policyTraversal:token}));continue;}
@@ -218,18 +263,18 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   function proofs(publication) {const found=verified.get(publication);return found&&found.identity===canonicalJson(publication)
     &&found.values.every(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().proof(publication)===value
       :isConformanceEvidence(value.binding.kind)?conformanceReader().proof(publication)===value:value.binding.kind!==CODE_INPUT_EVIDENCE||inputReader().proof(publication)===value)?found.values:[];}
-  function owners(publication) {return proofs(publication).flatMap(value=>(value.binding.kind===TEST_RISK_POLICY||value.binding.kind===EVIDENCE_REUSE_POLICY||value.binding.kind===TEST_RECOVERY_EVIDENCE||isDocumentReviewEvidence(value.binding.kind)||value.binding.kind===CONVERGENCE_POLICY_EVIDENCE||value.binding.kind===CONSTITUTION_POLICY_EVIDENCE||value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE||isCodePolicyEvidence(value.binding.kind)||value.binding.kind===CODE_INPUT_EVIDENCE||value.binding.kind===ARTIFACT_SET_EVIDENCE||isConformanceEvidence(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
-  function evidence(publication) {return proofs(publication).flatMap(value=>isDocumentReviewEvidence(value.binding.kind)?documentReader().evidence(value):value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?convergenceReader().evidence(value):[TEST_RISK_POLICY,EVIDENCE_REUSE_POLICY,TEST_RECOVERY_EVIDENCE,PHASE_ASSIGNMENT_EVIDENCE].includes(value.binding.kind)?[value.binding.record,value.manifest.report,...value.references]:value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.evidence(value):isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):value.binding.kind===CODE_INPUT_EVIDENCE?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
+  function owners(publication) {return proofs(publication).flatMap(value=>(isNamespaceTestCohortPolicy(value.binding.kind)||isNamespaceTestRiskPolicy(value.binding.kind)||value.binding.kind===EVIDENCE_REUSE_POLICY||value.binding.kind===TEST_RECOVERY_EVIDENCE||isDocumentReviewEvidence(value.binding.kind)||value.binding.kind===CONVERGENCE_POLICY_EVIDENCE||value.binding.kind===CONSTITUTION_POLICY_EVIDENCE||value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE||isCodePolicyEvidence(value.binding.kind)||value.binding.kind===CODE_INPUT_EVIDENCE||value.binding.kind===ARTIFACT_SET_EVIDENCE||isConformanceEvidence(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
+  function evidence(publication) {return proofs(publication).flatMap(value=>isDocumentReviewEvidence(value.binding.kind)?documentReader().evidence(value):value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?convergenceReader().evidence(value):(isNamespaceTestRiskPolicy(value.binding.kind)||['test-cohort/v1','test-cohort/v2',EVIDENCE_REUSE_POLICY,TEST_RECOVERY_EVIDENCE,PHASE_ASSIGNMENT_EVIDENCE].includes(value.binding.kind))?[value.binding.record,value.manifest.report,...value.references]:value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.evidence(value):isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):value.binding.kind===CODE_INPUT_EVIDENCE?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
     ?[value.binding.record,...(value.response?[value.response.reference]:[])]:[value.binding.record,value.manifest.report,...(value.manifest.previous?[value.manifest.previous.record]:[])]).map(value=>({...value}));}
-  function resources(publication) {return proofs(publication).flatMap(value=>value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.resources(value):[{kind:value.binding.kind===TEST_RISK_POLICY?'test-run-risk':value.binding.kind===EVIDENCE_REUSE_POLICY?'evidence-reuse':value.binding.kind===TEST_RECOVERY_EVIDENCE?'test-recovery':isDocumentReviewEvidence(value.binding.kind)?'document-review':value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?'convergence-projection':value.binding.kind===CONSTITUTION_POLICY_EVIDENCE?'constitution-policy':value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE?'phase-assignment':isConformanceEvidence(value.binding.kind)?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':value.binding.kind===CODE_INPUT_EVIDENCE?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
+  function resources(publication) {return proofs(publication).flatMap(value=>value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.resources(value):[{kind:isNamespaceTestCohortPolicy(value.binding.kind)?'test-cohort':isNamespaceTestRiskPolicy(value.binding.kind)?'test-run-risk':value.binding.kind===EVIDENCE_REUSE_POLICY?'evidence-reuse':value.binding.kind===TEST_RECOVERY_EVIDENCE?'test-recovery':isDocumentReviewEvidence(value.binding.kind)?'document-review':value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?'convergence-projection':value.binding.kind===CONSTITUTION_POLICY_EVIDENCE?'constitution-policy':value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE?'phase-assignment':isConformanceEvidence(value.binding.kind)?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':value.binding.kind===CODE_INPUT_EVIDENCE?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
     reference:{...(value.binding.kind===CLARIFICATION_EVIDENCE?value.response?.reference??value.binding.record:value.manifest.report)}},
     ...(isCodePolicyEvidence(value.binding.kind)?(value.report.preflight.outputs?.files??[]).map(row=>({kind:'retained-output',sourceKey:row.path,reference:row.content})):[])]);}
-  function readBindings(publication) {return proofs(publication).flatMap(value=>value.binding.kind===TEST_RISK_POLICY?riskReader().readBindings(value.report.checks):isCodePolicyEvidence(value.binding.kind)?codeReader().readBindings(value):value.binding.kind===CLARIFICATION_EVIDENCE?[{...value.manifest.observed}]:[]);}
+  function readBindings(publication) {return proofs(publication).flatMap(value=>isNamespaceTestRiskPolicy(value.binding.kind)?riskReader().readBindings(value.report.checks):isCodePolicyEvidence(value.binding.kind)?codeReader().readBindings(value):value.binding.kind===CLARIFICATION_EVIDENCE?[{...value.manifest.observed}]:[]);}
   function codeEvidence(publication){const value=proofs(publication).find(row=>isCodePolicyEvidence(row.binding.kind));
     return value?structuredClone({binding:value.binding,manifest:value.manifest,report:value.report,sources:value.source.plan.sources}):null;}
   function conformanceEvidence(publication){const value=proofs(publication).find(row=>isConformanceEvidence(row.binding.kind));return value?structuredClone(value):null;}
   function artifactSetEvidence(publication){const value=proofs(publication).find(row=>row.binding.kind===ARTIFACT_SET_EVIDENCE);return value?structuredClone(value):null;}
-  function manualAcceptance(publication){return proofs(publication).find(row=>isCodePolicyEvidence(row.binding.kind)&&namespaceCodePolicyProfile('codeReport',row.report).humanAcceptance===true);}
+  function manualAcceptance(publication){return proofs(publication).find(row=>isCodePolicyEvidence(row.binding.kind)&&namespaceCodeReportEvidenceProfile(row.report).humanAcceptance===true);}
   function verifyPlan(publication,plan) {
     if(!publication.policyEvidence)return;
     const values=proofs(publication);
@@ -243,18 +288,19 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     return {evidence:structuredClone(value.binding),result:evaluateApprovalChecklist({policy:value.selected.quality,decisions,
       authorities:value.definition.approvalAuthorities,actor:actor.identity})};
   }
-  return Object.freeze({candidate,testRiskCandidate,freshTestRisk,reuseCandidate,freshReuseSources,recoveryCandidate,documentReviewCandidate:(...args)=>documentReader().candidate(...args),convergenceCandidate:(...args)=>convergenceReader().candidate(...args),freshConvergenceCandidate:(...args)=>convergenceReader().freshCandidate(...args),convergenceReview:(...args)=>convergenceReader().review(...args),freshConvergenceSources:(...args)=>convergenceReader().freshSources(...args),assignmentCandidate,constitutionCandidate:(...args)=>constitutionReader().candidate(...args),clarificationEvidence:publication=>proofs(publication).find(row=>row.binding.kind===CLARIFICATION_EVIDENCE)??null,artifactSetCandidate:artifactSets.candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
+  return Object.freeze({candidate,executionDispositions,cohortCandidate,freshCohort,testRiskCandidate,freshTestRisk,reuseCandidate,freshReuseSources,recoveryCandidate,documentReviewCandidate:(...args)=>documentReader().candidate(...args),convergenceCandidate:(...args)=>convergenceReader().candidate(...args),freshConvergenceCandidate:(...args)=>convergenceReader().freshCandidate(...args),convergenceReview:(...args)=>convergenceReader().review(...args),freshConvergenceSources:(...args)=>convergenceReader().freshSources(...args),assignmentCandidate,constitutionCandidate:(...args)=>constitutionReader().candidate(...args),clarificationEvidence:publication=>proofs(publication).find(row=>row.binding.kind===CLARIFICATION_EVIDENCE)??null,artifactSetCandidate:artifactSets.candidate,clarificationCandidate,codeSourceBinding:(...args)=>codeReader().sourceBinding(...args),codeCandidate:(...args)=>codeReader().candidate(...args),
     codeInputCandidate:(...args)=>inputReader().candidate(...args),conformanceCandidate:(...args)=>conformanceReader().candidate(...args),
     freshCodeCandidate:(...args)=>codeReader().freshCandidate(...args),freshInputCandidate:(...args)=>inputReader().freshEvidence(...args),
     freshConformanceCandidate:(...args)=>conformanceReader().freshCandidate(...args),
     freshInputSources:(publication,...args)=>proofs(publication).some(value=>value.binding.kind===CONVERGENCE_POLICY_EVIDENCE)?convergenceReader().freshSources(publication,...args):proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))
       ?conformanceReader().freshSources(publication,...args):inputReader().freshSources(publication,...args),
-    requiresDisposition:(publication,options)=>proofs(publication).some(value=>[TEST_RISK_POLICY,EVIDENCE_REUSE_POLICY].includes(value.binding.kind))&&options?.reached!==false&&!options?.reworkTarget
+    requiresDisposition:(publication,options)=>proofs(publication).some(value=>(isNamespaceTestCohortPolicy(value.binding.kind)||isNamespaceTestRiskPolicy(value.binding.kind)||value.binding.kind===EVIDENCE_REUSE_POLICY))&&options?.reached!==false&&!options?.reworkTarget
       ||Boolean(manualAcceptance(publication)&&options?.reached!==false&&!options?.reworkTarget)
       ||proofs(publication).some(value=>value.binding.kind===CONSTITUTION_POLICY_EVIDENCE)&&options?.reached!==false&&!options?.reworkTarget
       ||publication.policyEvidence?.some(value=>isConformanceEvidence(value.kind))===true&&proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))&&conformanceReader().requiresDisposition(publication,options),
     assertApproval:async(publication,options)=>{const result=proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))?await conformanceReader().assertApproval(publication,options):[];
-      const risk=proofs(publication).find(row=>row.binding.kind===TEST_RISK_POLICY);
+      if(options.reached!==false&&!options.reworkTarget)result.push(...await freshCohort(publication,options.snapshot,{signal:options.signal,at:options.at}));
+      const risk=proofs(publication).find(row=>isNamespaceTestRiskPolicy(row.binding.kind));
       if(risk&&options.reached!==false&&!options.reworkTarget){
         const current=await riskReader().publication({...publication,riskChecks:risk.report.checks},options.snapshot,{signal:options.signal,at:options.at,bound:risk.report});
         if(!same(current.report,risk.report))throw error('The exact environment risk was revoked, expired or changed.','TEST_RUN_RISK_NOT_COVERED');

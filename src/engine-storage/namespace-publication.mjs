@@ -1,11 +1,11 @@
 /** Explicit namespace publication composition. Installed Git hosts never select this writer. */
+import {isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {documentReviewPublicationPolicy,DOCUMENT_REVIEW_OWNERS} from '../kernel/document-review.mjs';
 import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {artifactBytesAreText,artifactContentObservation,inspectRequiredArtifactObservation,inspectBinaryArtifactSize} from '../kernel/artifact-content.mjs';
 import {primaryDocumentPublicationRequirements,codePublicationPolicy,CODE_PUBLICATION_OWNERS,codeInputPublicationPolicy,CODE_INPUT_PUBLICATION_OWNERS,conformancePublicationPolicy,CONFORMANCE_PUBLICATION_OWNERS,convergencePublicationPolicy,CONVERGENCE_PUBLICATION_OWNERS} from '../kernel/publication-intent.mjs';
@@ -155,7 +155,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
           const tested=await checks.inspectDraft(checkInput,{signal});
           if(!tested&&(current.workflow.namespaceEvidenceReuses??[]).some(row=>row.id&&row.phase===s.phaseId))s.reuse=await publicationReader.policies.reuseCandidate(
             {phase:s.phaseId},current,{signal,at:projectEnrollmentTimestamp(await now()),units:sources});
-          if(tested&&tested.found.body.verdict!=='passed'&&!codePublicationPolicy(current.workflow,currentPhase)&&!current.workflow.resolution.testRecovery?.enabled){
+          if(tested&&tested.found.body.verdict!=='passed'&&(!current.workflow.resolution.testRecovery?.enabled||current.workflow.resolution.testRecovery.enabledRiskCategories.includes('validation-unavailable'))){
             s.failedChecks=tested;s.risk=await publicationReader.policies.testRiskCandidate({phase:s.phaseId},current,{signal,at:projectEnrollmentTimestamp(await now()),checked:tested,checkInput});}
           if(!s.reuse&&!s.risk)s.checkEvidence=await checks.forDraft(checkInput,{signal});}
         if(clarificationMode!=='off') {
@@ -185,10 +185,10 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         const clarificationPolicy=resolvedClarificationPolicy(observed.definition,snapshot.workflow,phase);
         const codePolicy=codePublicationPolicy(snapshot.workflow,phase);
         const convergencePolicy=convergencePublicationPolicy(snapshot.workflow,phase),codeInputsPolicy=convergencePolicy?null:codeInputPublicationPolicy(snapshot.workflow,phase),conformancePolicy=conformancePublicationPolicy(snapshot.workflow,phase);
-        const recoveryRequired=snapshot.workflow.resolution.testRecovery?.enabled===true;
+        const recoveryRequired=snapshot.workflow.resolution.testRecovery?.enabled===true,cohortRequired=(snapshot.workflow.namespaceTestCohorts??[]).some(row=>row.phase===s.phaseId);
         const assignmentRequired=phaseAssignmentRequired(snapshot.workflow,observed.definition),constitutionRequired=snapshot.workflow.resolution.constitution?.mode!=='off';
         const artifactSet=artifactSets.declaration(observed.definition,snapshot.workflow,phase);
-        const available=[...(s.reuse||s.risk?['check-execution']:[]),...(recoveryRequired?['test-recovery']:[]),...(documentReviewPolicy?DOCUMENT_REVIEW_OWNERS:[]),...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
+        const available=[...(cohortRequired?['test-cohort']:[]),...(s.reuse||s.risk?['check-execution']:[]),...(recoveryRequired?['test-recovery']:[]),...(documentReviewPolicy?DOCUMENT_REVIEW_OWNERS:[]),...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
           ...(clarificationPolicy.mode!=='off'?['clarification-record']:[]),...(codePolicy?CODE_PUBLICATION_OWNERS:[]),...(convergencePolicy?CONVERGENCE_PUBLICATION_OWNERS:[]),...(codeInputsPolicy?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformancePolicy?CONFORMANCE_PUBLICATION_OWNERS:[]),...(artifactSet?['artifact-set']:[]),...(assignmentRequired?['assignment-record']:[]),...(constitutionRequired?['constitution-policy']:[])];
         const pending=required.filter(item=>!available.includes(item));
         if(pending.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
@@ -214,18 +214,19 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
             actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
             artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
-          let testRisk=null,reuse=null,recovery=null,documentReview=null,specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null,convergence=null;
-          if(s.risk||s.reuse||recoveryRequired||documentReviewPolicy||convergencePolicy||specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
+          let cohort=null,testRisk=null,reuse=null,recovery=null,documentReview=null,specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null,convergence=null;
+          if(cohortRequired||s.risk||s.reuse||recoveryRequired||documentReviewPolicy||convergencePolicy||specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
             const head=await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal);
             if(head.version!==snapshot.revision)throw error('The Story changed before specification retention.','ENGINE_CONTEXT_CHANGED');
             if(s.risk)testRisk=await policyWriter.retainTestRisk(base,{snapshot,head:head.value,signal,checked:s.failedChecks,expected:s.risk.report});
+            if(cohortRequired)cohort=await policyWriter.retainCohort({...base,checks:s.checkEvidence??null,...(testRisk?{policyEvidence:[testRisk.binding]}:{})},{snapshot,head:head.value,signal});
             if(s.reuse)reuse=await policyWriter.retainReuse(base,{snapshot,head:head.value,signal,sources,expected:s.reuse.report});
             if(recoveryRequired)recovery=await policyWriter.retainRecovery(base,{snapshot,head:head.value,signal});
             if(documentReviewPolicy)documentReview=await policyWriter.retainDocumentReview(base,{snapshot,head:head.value,signal});
             if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
             if(clarificationPolicy.mode!=='off')clarification=await policyWriter.retainClarification(base,{snapshot,head:head.value,signal});
             if(analysisPolicy)analysis=await policyWriter.retain(clarification?{...base,policyEvidence:[clarification]}:base,{snapshot,head:head.value,signal});
-            if(codePolicy){codeEvidence=await policyWriter.retainCode({...base,checks:s.checkEvidence??null},{snapshot,head:head.value,signal});
+            if(codePolicy){codeEvidence=await policyWriter.retainCode({...base,checks:s.checkEvidence??null,...(testRisk?{policyEvidence:[testRisk.binding]}:{})},{snapshot,head:head.value,signal});
               if(!same(codeEvidence.sourceBinding,s.codeSource))throw error(
                 'Code source evidence changed while preparing publication. Reinspect its retained candidate.','ENGINE_CONTEXT_CHANGED');}
             if(codeInputsPolicy)codeInputs=await policyWriter.retainCodeInputs({...base,checks:s.checkEvidence??null},{snapshot,head:head.value,signal});
@@ -236,12 +237,13 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             if(artifactSet){const members=[];for(const member of observed.payload.members??[])members.push({path:member.path,data:await runtime.artifactMemberBytes(admission,member.path,{signal})});
               bundle=await policyWriter.retainArtifactSet(base,{snapshot,head:head.value,signal,members});}
           }
-          const policyEvidence=[...(testRisk?[testRisk.binding]:[]),...(reuse?[reuse.binding]:[]),...(recovery?[recovery.binding]:[]),...(documentReview?[documentReview.binding]:[]),...(convergence?[convergence.binding]:[]),...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
+          const policyEvidence=[...(cohort?[cohort.binding]:[]),...(testRisk?[testRisk.binding]:[]),...(reuse?[reuse.binding]:[]),...(recovery?[recovery.binding]:[]),...(documentReview?[documentReview.binding]:[]),...(convergence?[convergence.binding]:[]),...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
           const record=namespacePublicationRecord(base,{checks:s.checkEvidence??null,specifications,policyEvidence:policyEvidence.length?policyEvidence:null});
           namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,
             format:'sflow-phase-publication-binding/v1',generation,record:reference};phasePublicationBindingValue(binding);
           const verified=specifications||policyEvidence.length?await publicationReader.read(binding,s.phaseId,{signal}):record;
+          if(cohort)await publicationReader.policies.freshCohort(verified,snapshot,{signal,at:publishedAt});
           if(testRisk)await publicationReader.policies.freshTestRisk(verified,snapshot,sources,{signal,at:publishedAt});
           if(reuse)await publicationReader.policies.freshReuseSources(verified,snapshot,sources,{signal,at:publishedAt});
           if(codePolicy&&!s.checkEvidence)await publicationReader.policies.freshCodeSources(verified,sources,{signal});
@@ -341,7 +343,8 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         await runtime.revalidateDraft(p.admission,{signal});
         if(s.checkEvidence)await checks.freshSources(s.checkEvidence,s.phaseId,sources,{signal});
         const retained=(await retainedPublication(s.plan,s,signal)).publication,owners=publicationReader.policies.owners(retained);
-        if(retained.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await publicationReader.policies.freshTestRisk(retained,s.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(retained.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))await publicationReader.policies.freshCohort(retained,s.snapshot,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(retained.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))await publicationReader.policies.freshTestRisk(retained,s.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(retained.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publicationReader.policies.freshReuseSources(retained,s.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(!s.checkEvidence&&owners.includes('code-delivery'))await publicationReader.policies.freshCodeSources(retained,sources,{signal});
         if(owners.includes('code-delivery-inputs'))await publicationReader.policies.freshInputSources(retained,sources,{signal});

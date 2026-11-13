@@ -1,5 +1,6 @@
+import {createNamespaceTestCohortOwner} from './namespace-test-cohort-reader.mjs';
 /** Actual decision observations only. No transactions, command rendering or execution. */
-import {canonicalJson} from '../foundation/record-schema.mjs';
+import {canonicalJson,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import {namespaceDecisionListPolicy,namespaceDecisionListActions} from '../kernel/decision-plan.mjs';
@@ -125,11 +126,25 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
     if((workflow.namespaceTestRunRisks??[]).length){
       const risks=await createNamespaceTestRiskOwner({observer,scope,workId}).admitted(snapshot,{signal});
       source.testRunRisks=risks.map(row=>row.reference);references.push(...source.testRunRisks);
-      for(const proof of risks){const row=proof.value.outcome.record;if(!row.id||phaseId!==null&&row.phase!==phaseId)continue;
-        const state=namespaceTestRiskState(workflow,row,{at}),groups=testRunRiskAuthorities(workflow,row.phase),
+      for(const proof of risks){const row=proof.value.outcome.record;if(!row.id)continue;
+        const state=namespaceTestRiskState(workflow,row,{at});if(phaseId!==null&&row.phase!==phaseId&&(!namespaceTestRiskRecordProfile('record',row).executionRisk||state==='active'))continue;
+        const groups=testRunRiskAuthorities(workflow,row.phase),
           choice=state==='active'?option('revoke-test-risk','decision.test-risk',{revoke:row.id},groups):option('review-test-risk','test-risk.context',{phaseId:row.phase},groups,{},false);
         if(state!=='active')choice.action={operation:'test-risk.context',inputs:{workId,phaseId:row.phase},requiredInputs:[],prerequisites:['inspect-original-command-and-current-risk']};
         observations.push({kind:'test-run-risk',key:row.id+':'+state,offered:true,options:[choice]});
+      }
+    }
+    if((workflow.namespaceTestCohorts??[]).length){
+      const owner=createNamespaceTestCohortOwner({observer,scope,workId}),proofs=await owner.admitted(snapshot,{signal}),rows=proofs.map(row=>row.value.outcome.record),latest=new Map();
+      source.testCohorts=proofs.map(row=>row.reference);references.push(...source.testCohorts);
+      for(const row of rows)if(row.id)latest.set(row.selectionSha256,row);
+      for(const row of latest.values()){
+        const state=owner.rules.state(rows,row,at);if(phaseId!==null&&phaseId!==row.phase&&state==='active')continue;
+        const input={workId,phaseId:row.phase,baselinePhaseId:row.context.baseline.phase,
+          baselineOperationId:row.context.baseline.checks.operationId,observedOperationId:row.context.observed.operationId},
+          choice=option('review-observed-cohort','test-cohort.context',input,testRunRiskAuthorities(workflow,row.phase),{},false);
+        choice.action={operation:'test-cohort.context',inputs:input,requiredInputs:[],prerequisites:['review-original-baseline-and-observed-execution']};
+        observations.push({kind:'test-cohort',key:row.id+':'+state,offered:state==='active',options:[choice]});
       }
     }
     const phase=workflow.phases[phaseId],binding=phase?.publicationBindings?.find(row=>row.generation===phase.generation);

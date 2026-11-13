@@ -1,3 +1,4 @@
+import {namespaceCodeReportEvidenceProfile} from '../foundation/record-schema.mjs';
 /** Human inspection over exact published bytes and independently approved verification contracts. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
@@ -109,12 +110,13 @@ export function createNamespaceWitnessOwners({observer,scope,workId}){
     return {rows,eligible:source.eligible,references:[...prior.references,...source.references]};
   }
   async function assertAcceptance(snapshot,publication,proof,{signal,policyTraversal,reached=true,reworkTarget=null}={}){
-    if(!reached||reworkTarget||!namespaceCodePolicyProfile('codeReport',proof.report).humanAcceptance)return [];
+    if(!reached||reworkTarget||!namespaceCodeReportEvidenceProfile(proof.report).humanAcceptance)return [];
     const prior=await admitted(snapshot,{signal,policyTraversal}),references=[...prior.references],open=[];
     for(const criterion of proof.report.acceptance.filter(row=>row.contract)){
       const slots=[];
       for(const slot of criterion.contract.slots){
-        if(slot.method==='test'){const observed=criterion.testSlots.find(row=>row.slot===slot.slot)?.results??[],results=observed.map(row=>row.result),summary=aggregateWitnesses(results),
+        if(slot.method==='test'){const observed=criterion.testSlots.find(row=>row.slot===slot.slot)?.results??[],
+            results=observed.flatMap(row=>proof.report.executionException?row.witnessResults??[]:[row.result]),summary=aggregateWitnesses(results),
             required=observed.reduce((value,row)=>ASSURANCE.indexOf(row.requiredAssurance)>ASSURANCE.indexOf(value)?row.requiredAssurance:value,slot.requiredAssurance??'none');
           slots.push({...slot,...summary,status:summary.status==='met'&&ASSURANCE.indexOf(summary.assurance)<ASSURANCE.indexOf(required)?'inconclusive':summary.status,
             requiredAssurance:required,results,excepted:false,findings:[]});continue;}
@@ -126,7 +128,11 @@ export function createNamespaceWitnessOwners({observer,scope,workId}){
         slots.push({...slot,status:found?.status??'missing',assurance:found?.status==='met'?'source-bound':'none',identity:found?.status==='met'?'source-bound':'none',execution:'none',
           requiredAssurance:slot.requiredAssurance??'source-bound',results:[],excepted:false,findings:[]});
       }
-      const result=verificationContractSummary(criterion.contract,slots);if(result.status!=='met')open.push({clauseId:criterion.clauseId,status:result.status,slots:result.slots,
+      // An execution exception carries only its exact test results. It cannot carry a missing image or inspection.
+      const acceptedRisk=Boolean(proof.report.executionException)&&slots.filter(row=>row.role==='primary'&&row.method!=='test').every(row=>row.status==='met')
+        &&criterion.testSlots.filter(row=>criterion.contract.slots.some(slot=>slot.slot===row.slot&&slot.role==='primary'))
+          .every(row=>row.results.length&&row.results.every(item=>item.result.status==='met'||item.executionException?.profile==='sflow-namespace-code-execution-exception/v1'));
+      const result=verificationContractSummary(criterion.contract,slots,{acceptedRisk});if(result.status!=='met'&&!(acceptedRisk&&result.status==='excepted'&&result.exception==='accepted-risk'))open.push({clauseId:criterion.clauseId,status:result.status,slots:result.slots,
         actions:slots.filter(row=>row.method!=='test'&&row.role==='primary'&&row.status!=='met').map(row=>({operation:'witness.context',inputs:{workId,clauseId:criterion.clauseId,slotName:row.slot},requiredInputs:['file']}))});
     }
     if(open.length)throw error('Complete the approved verification contract with actual test results and human inspection decisions.','ENGINE_WITNESS_DECISION_REQUIRED',{phase:publication.phase,criteria:open});

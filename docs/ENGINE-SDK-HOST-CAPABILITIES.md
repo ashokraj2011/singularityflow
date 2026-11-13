@@ -19,9 +19,12 @@ refused before the domain port runs, so it cannot accidentally fall through to a
 Existing ports without a selection keep their original binding behavior. Narrow runtimes only
 advertise coordinators they actually contain.
 
-The namespace composition now declares its actual standalone decision and upstream owners.
-Unimplemented risk, witness-exception, test-decision, decision-batch and forward-amendment
-operations remain unbound. Optional local checks remain unbound when their execution port was
+The namespace composition declares its actual standalone decision and upstream owners, including
+the cohort, Code/recovery risk, witness-exception, decision-batch and forward-amendment operations.
+The current vocabulary has 93 operations: 42 native Git bindings and 86 namespace bindings before
+optional execution. Native terminal plan ceremonies, visual-profile decisions, native narrowing
+and reviewed source rollover retain their explicit unbound status in this namespace composition.
+Optional local checks and bounded repair remain unbound when their execution port was
 not supplied. They are not advertised as connected simply because they occur in the vocabulary.
 The same selection is used by dispatch and by the manifest. Native Git composition declares
 its existing eight standalone decision implementations and excludes the new namespace-only

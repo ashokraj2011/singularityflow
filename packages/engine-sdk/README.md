@@ -29,8 +29,12 @@ The ordinary CLI and extension installers and their existing package exports rem
 `testing/causes` and `testing/risks` provide pure classification and risk-record values. Namespace
 hosts use `test-risk.context` and `decision.test-risk` for actual human decisions; the artifact-phase
 `test-risk/v1` publication profile retains genuine failed execution and never claims passing tests.
-See `docs/ENGINE-SDK-TEST-RISKS.md` in the source repository for authority, renewal, replay and the
-explicitly unsupported Code/recovery combinations.
+Code uses `test-risk/v2` and explicit recovery-agreement risks use `test-risk/v3`; both retain
+failed outcomes separately from source coverage and human visual acceptance. `test-cohort.context`
+and `test-cohort.confirm` bind an actual observed suite baseline to a human-selected cohort, with
+fresh receiving execution and original-owner renewal. The pure values are in `testing/recovery`.
+See `docs/ENGINE-SDK-COHORT-AND-CODE-RISKS.md` for contracts, authority and the remaining selective
+recovery/reuse work. Existing artifact-phase and native Git meanings stay unchanged.
 
 The `evidence` export also includes witness-exception renewal values with explicit prior-expiry
 and time inputs. They preserve native record meanings and do not authenticate or persist a review.

@@ -29,7 +29,8 @@ obsolete-access removal and final distribution remain separate.
 - [x] Finish confirmed full-command recovery, command amendments and bounded repeated execution.
 - [x] Add source-bound, human-authorized artifact-phase reuse without claiming a receiving execution.
 - [x] Add retained environment-risk publication, independent approval and shared-only replay for artifact phases.
-- [ ] Add baseline/cohort selection, Code/environment-sensitive reuse and test-risk ceremony owners.
+- [x] Add observed-suite baseline/cohort selection, Code environment risks and explicit recovery-risk ceremonies.
+- [ ] Finish independently inventoried selective recovery/known-failure decisions and environment-sensitive cross-execution reuse.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through explicit
   execution and evidence ports. Configured requirements cannot become successful flags.
@@ -62,6 +63,22 @@ The unchanged original 34-check package qualifier also passes alone in 55.1 seco
 original 120/60-second limits, bringing this extraction's affected qualification to 259 distinct
 checks. Source validation passes 4,382 checks; VS Code types, the 2,011-site Git audit and all 13
 unchanged bundle ceilings pass. Gateway remains 852/852 modules (6,935,458 bytes).
+
+The [cohort and Code-risk delivery](ENGINE-SDK-COHORT-AND-CODE-RISKS.md) now supplies actual baseline
+and selected-suite contexts, original human confirmation/revocation, fresh execution, independent
+approval and original-owner renewal during later phases. Code failures stay failed; mixed visual
+contracts require a separate genuine human witness. Explicit recovery-risk confirmation binds
+the actual pinned agreement and enabled category. Evidence v4 and terminal evidence v2 preserve
+current permission gaps and original recovery routes. The observed baseline does not replace an
+independently inventoried selective-recovery/known-failure owner; the unchecked owners remain open.
+
+This delivery passes 286 distinct targeted Mac tests, including all three stores, two repositories,
+actual Code/cohort/recovery combinations, independent human decisions, shared-only takeover and
+offline installed consumers. The unchanged original 34-check package qualifier passed alone in
+93 seconds within the original 120/60-second limits. Source validation passes 4,388 checks; VS Code
+types, the unchanged 2,011-site Git audit and all 13 original bundle ceilings pass. The gateway is
+852/852 modules (6,939,111 bytes). The registry has 93 operations, with 42 native and 86 namespace
+bindings before optional execution. No Windows, provider, production installation or main merge ran.
 
 Exact clause-obligation risks now have a [registered namespace owner and final evidence evaluation](ENGINE-SDK-OBLIGATION-RISKS.md).
 Human decisions bind their actual observations and owning publications; replacement generations,

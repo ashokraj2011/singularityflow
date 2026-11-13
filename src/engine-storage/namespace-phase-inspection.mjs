@@ -1,13 +1,11 @@
 /** Read-only candidate inspection. It neither stages publication nor runs or invents checks. */
+import {isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,canonicalJson} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {documentReviewPublicationPolicy,DOCUMENT_REVIEW_OWNERS} from '../kernel/document-review.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson} from '../foundation/record-schema.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {phaseNeedsGeneration,effectivePhasePublicationProducer,phaseAssignmentRequired} from '../kernel/phase-policy.mjs';
 import {artifactBytesAreText,artifactContentObservation,inspectRequiredArtifactObservation,inspectBinaryArtifactSize} from '../kernel/artifact-content.mjs';
-import {primaryDocumentPublicationRequirements,publicationAuthorshipIntent,codePublicationPolicy,CODE_PUBLICATION_OWNERS,
-  codeInputPublicationPolicy,CODE_INPUT_PUBLICATION_OWNERS,conformancePublicationPolicy,CONFORMANCE_PUBLICATION_OWNERS,convergencePublicationPolicy,CONVERGENCE_PUBLICATION_OWNERS} from '../kernel/publication-intent.mjs';
 import {specificationPublicationPolicy,SPECIFICATION_PUBLICATION_OWNERS} from '../kernel/specification-publication.mjs';
 import {specificationAnalysisPublicationPolicy} from '../kernel/specification-analysis.mjs';
 import {resolvedClarificationPolicy} from '../kernel/clarification-responses.mjs';
@@ -18,6 +16,8 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {namespaceArtifactSetPolicies} from '../kernel/namespace-artifact-sets.mjs';
 import {NODE_CONFIGURATION_PATH_SYNTAX} from '../engine-compatibility/node-configuration-path.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
+import {primaryDocumentPublicationRequirements,publicationAuthorshipIntent,codePublicationPolicy,CODE_PUBLICATION_OWNERS,
+  codeInputPublicationPolicy,CODE_INPUT_PUBLICATION_OWNERS,conformancePublicationPolicy,CONFORMANCE_PUBLICATION_OWNERS,convergencePublicationPolicy,CONVERGENCE_PUBLICATION_OWNERS} from '../kernel/publication-intent.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex'),same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 const repairable=new Set(['TEST_RUN_RISK_NOT_COVERED','TEST_RUN_RISK_NOT_ELIGIBLE','ENGINE_EVIDENCE_REUSE_INCOMPLETE','TEST_RECOVERY_AGREEMENT_REQUIRED','ARTIFACT_AUTHORING_INCOMPLETE','CLARIFICATION_REQUIRED','ENGINE_CHECK_EVIDENCE_REQUIRED',
@@ -64,7 +64,8 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
       if(!bound)throw error('The retained phase has no original publication binding.','ENGINE_STORAGE_CORRUPT');
       const published=await publications.accepted(bound,phase.id,{signal});fingerprint=published.artifact.fingerprint;producer=published.authorship.producer;
       if(published.checks)requiredTests='retained-passing';
-      if(published.policyEvidence?.some(row=>row.kind==='test-risk/v1')){requiredTests='accepted-environment-failure';
+      if(prepublish&&published.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))fresh.push(async()=>publications.policies.freshCohort(published,snapshot,{signal,at:await clock.now()}));
+      if(published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind))){requiredTests='accepted-environment-failure';
         if(prepublish)fresh.push(async()=>publications.policies.freshTestRisk(published,snapshot,sources,{signal,at:await clock.now()}));}
       if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1')){requiredTests='reused-not-executed';
         if(prepublish)fresh.push(async()=>publications.policies.freshReuseSources(published,snapshot,sources,{signal,at:await clock.now()}));}
@@ -125,16 +126,17 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             const current=await checks.inspectDraft(checkInput,{signal});
             if(!current&&(workflow.namespaceEvidenceReuses??[]).some(row=>row.id&&row.phase===phase.id))reused=await attempt(async()=>publications.policies.reuseCandidate(
               candidate,snapshot,{signal,at:await clock.now(),units:sources}));
-            if(current&&current.found.body.verdict!=='passed'&&!code&&!workflow.resolution.testRecovery?.enabled)testRisk=await attempt(async()=>publications.policies.testRiskCandidate(
+            if(current&&current.found.body.verdict!=='passed'&&(!workflow.resolution.testRecovery?.enabled||workflow.resolution.testRecovery.enabledRiskCategories.includes('validation-unavailable')))testRisk=await attempt(async()=>publications.policies.testRiskCandidate(
               candidate,snapshot,{signal,at:await clock.now(),checked:current,checkInput}));
             if(!reused&&!testRisk)tested=await attempt(()=>checks.forDraft(checkInput,{signal}));}
           candidate.checks=tested;
+          if((workflow.namespaceTestCohorts??[]).some(row=>row.phase===phase.id))await publications.policies.cohortCandidate(candidate,snapshot,{signal,at:await clock.now(),...(testRisk?{riskChecks:testRisk.report.checks}:{})});
           if(tested){requiredTests='retained-passing';fresh.push(()=>checks.freshSources(tested,phase.id,sources,{signal}));}
           else if(reused)requiredTests='reused-not-executed';
           else if(testRisk){requiredTests='accepted-environment-failure';
             fresh.push(()=>checks.freshObservedSources(testRisk.report.checks,phase.id,sources,{signal}));}
           else if(commandProof.commands.length)requiredTests='evidence-required';
-          if(code){const result=await attempt(()=>publications.policies.codeCandidate(candidate,snapshot,{signal}));
+          if(code){const result=await attempt(()=>publications.policies.codeCandidate(candidate,snapshot,{signal,...(testRisk?{riskChecks:testRisk.report.checks}:{})}));
             if(result)fresh.push(()=>publications.policies.freshCodeCandidate(result,candidate,sources,{signal}));}
           if(inputs){const result=await attempt(()=>publications.policies.codeInputCandidate(candidate,snapshot,{signal}));
             if(result)fresh.push(()=>publications.policies.freshInputCandidate(result,sources,{signal}));}

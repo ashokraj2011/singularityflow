@@ -1,5 +1,5 @@
 /** Reconstruct an evidence view from actual accepted publications, checks and human receipts. No effects. */
-import {canonicalJson} from '../foundation/record-schema.mjs';
+import {isNamespaceTestRiskPolicy,canonicalJson,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {NODE_TEXT_DIGESTS,NODE_TEXT_VALUE_SYNTAX} from '../records.mjs';
@@ -35,13 +35,14 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
     if(required.length)fail('This evidence view needs the original decision and identity proof owners.','ENGINE_PORT_UNAVAILABLE',{required});
     if(workflow.phaseOrder.length>256)fail('The evidence view exceeds its bounded phase inventory.','ENGINE_STORAGE_LIMIT');
     const source=await scopes.inventory(snapshot,'decision.completeness',{signal}),amendments=await plans.projection(snapshot,{signal}),
-      records={indexes:[],planned:[],observed:[],acceptance:[]},deliveries=[],inspections=[],witnessRecords=[],references=[workflow.workItem.source.content,snapshot.configuration.content,...source.references,...amendments.references],excluded=[];
+      records={indexes:[],planned:[],observed:[],acceptance:[]},deliveries=[],inspections=[],witnessRecords=[],executionPolicies=[],references=[workflow.workItem.source.content,snapshot.configuration.content,...source.references,...amendments.references],excluded=[];
     const approved=workflow.phaseOrder.filter(id=>workflow.phases[id].status==='approved'&&!phaseNeedsGeneration(workflow,workflow.phases[id]));
     const votes=await packets.inspectApprovedMany(snapshot,approved,{signal}),acceptedPublications=new Map(approved.map((id,index)=>[id,votes[index]?.published]));
     for(const [index,id]of approved.entries()){
       const proof=votes[index];if(!proof)fail('An approved phase has no actual submitted and approved delivery.');
       references.push(proof.binding.record,...(workflow.phases[id].approvals??[]).filter(row=>row.namespaceVote).map(row=>row.namespaceVote.record));
       if(workflow.status==='closed'&&workflow.currentPhase===null&&((workflow.namespaceObligationRisks??[]).length
+        ||(workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)||(workflow.namespaceTestCohorts??[]).length
         ||Object.values(workflow.phases).some(phase=>phase.approvals?.some(row=>row.witnessMappings?.length)))){
         for(const row of workflow.phases[id].approvals.filter(row=>row.namespaceVote&&!row.invalidatedAt)){
           const vote=await json(row.namespaceVote.record,signal);if(!vote.terminalEvidence)continue;
@@ -58,7 +59,9 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       if(!binding){if(phase.generation>0)fail('A current generation has no retained publication.',undefined,{phase:id});continue;}
       const publication=acceptedPublications.get(id)??await publications.accepted(binding,id,{signal});
       references.push(binding.record,publication.artifact.content,...publications.policies.evidence(publication),...publications.specifications.evidence(publication));
-      if(publication.policyEvidence?.some(row=>row.kind==='test-risk/v1'))excluded.push({phase:id,generation:phase.generation,reason:'failed-tests-with-accepted-environment-risk-are-not-passing-evidence'});
+      const execution=await publications.policies.executionDispositions(publication,snapshot,{signal,at});
+      executionPolicies.push(...execution);references.push(...execution.flatMap(row=>row.references));
+      if(publication.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))excluded.push({phase:id,generation:phase.generation,reason:'failed-tests-with-accepted-environment-risk-are-not-passing-evidence'});
       if(publication.specifications){
         const manifest=namespaceSpecificationManifest(await json(publication.specifications.record,signal),{scope,workId,phaseId:id});
         if(manifest.index)records.indexes.push(await json(manifest.index,signal));
@@ -75,7 +78,8 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
         continue;
       }
       const code=publications.policies.codeEvidence(publication);if(!code)fail('A Code phase needs its actual accepted source and execution evidence.','ENGINE_PORT_UNAVAILABLE',{required:['retained-code-policy'],phase:id});
-      const plan=await publications.specifications.sourcePlan(snapshot,id,{signal}),tested=publication.checks?await checks.publication(publication,{signal}):null,
+      const plan=await publications.specifications.sourcePlan(snapshot,id,{signal}),risk=code.report.executionException,
+        tested=publication.checks?await checks.publication(publication,{signal}):risk?await checks.publicationObservation({...publication,checks:risk.checks},{signal}):null,
         acceptedCriteria=new Set(code.report.acceptance.map(row=>row.clauseId)),
         delivered={phaseId:id,generation:phase.generation,status:'ready',testRecovery:null,acceptanceCriteria:{bindings:[],witnesses:[],unattachedTags:[]},
           receipt:{status:'ready'},executions:[],preflight:[],testsOnly:true,testPaths:[]};
@@ -104,6 +108,7 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
           delivered.executions.push({commandId:command(step.command.id),kind:'test-execution',status:record.status,record});
         }
       }
+      if(risk&&execution.some(row=>row.kind==='test-run-risk'&&row.disposition==='active'))delivered.testRecovery={disposition:'accepted-risk',source:'test-run-risk',commandIds:delivered.executions.filter(row=>(row.record.tests?.passed??0)+(row.record.tests?.failed??0)===0).map(row=>row.commandId)};
       delivered.receipt.traceability={...delivered.acceptanceCriteria};deliveries.push(delivered);
       for(const criterion of code.report.acceptance.filter(row=>row.contract))for(const slot of criterion.contract.slots.filter(row=>row.method!=='test')){
         const observed=await witnesses.candidates(snapshot,{clauseId:criterion.clauseId,slotName:slot.slot},{signal});references.push(...observed.references);
@@ -112,7 +117,8 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       }
     }
     const review=(workflow.completenessReviews??[]).findLast(row=>!row.withdrawnAt&&row.inventorySha256===source.inventory.inventorySha256)??null,
-      rawGraph=rules.evidenceGraph({workflow,records,deliveries,inspections,witnessRecords,scope:source.inventory,terminal},{completenessReview:review}),
+      rawGraph=rules.evidenceGraph({workflow,records,deliveries,inspections,witnessRecords,scope:source.inventory,terminal,
+        ...(executionPolicies.length?{executionPolicies}: {})},{completenessReview:review}),
       mappingReviews=Object.values(workflow.phases).some(phase=>(phase.approvals??[]).some(row=>row.witnessMappings?.length)),
       reviewed=mappingReviews||(workflow.namespaceWitnessExceptionRenewals??[]).length?await createNamespaceWitnessRenewalOwner({observer,scope,workId}).effective(snapshot,{signal}):null,
       admission=reviewed?{witnessMappings:reviewed.decisions}:{},graph=reviewed?namespaceWitnessMappingInput(rawGraph,reviewed.decisions,reviewed.references):rawGraph,

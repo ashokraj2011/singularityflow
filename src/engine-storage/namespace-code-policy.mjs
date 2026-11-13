@@ -1,7 +1,9 @@
 /** Recompute Code publication from original source, approved claims and actual check receipts. */
+import {isNamespaceTestRiskPolicy,canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch,namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
+import {createNamespaceTestRiskOwner} from './namespace-test-risk-reader.mjs';
+import {namespaceCodeEnvironmentRiskCoverage} from '../kernel/test-recovery.mjs';
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch,namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {exactObject,namespaceIdentifier,namespaceRevision} from '../sda/namespace/values.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
@@ -50,9 +52,11 @@ export async function verifyCodePolicyInTraversal(reader,observer,publication,bi
   }catch(cause){entry.key=null;entry.pending=null;throw cause;}
 }
 function reportValue(value){
-  try{const profile=namespaceCodePolicyProfile('codeReport',value);
-    exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance']);
-    if(value.format!==profile.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
+  try{const wire=namespaceCodePolicyProfile('codeReport',value),profile=wire.executionRisk?namespaceCodePolicyProfile('codeReport',{schemaVersion:value.evidenceVersion}):wire;
+    if(wire.executionRisk&&(!Number.isInteger(value.evidenceVersion)||value.evidenceVersion<1||value.evidenceVersion>31||value.checks!==null
+      ||value.executionException?.profile!=='sflow-namespace-code-execution-risk/v1'||value.executionException.testsPassed!==false))throw Error('Another execution exception.');
+    exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance',...(wire.executionRisk?['evidenceVersion','executionException']:[])]);
+    if(value.format!==wire.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
     const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[]),
       ...((profile.optionalPredecessors?Boolean(p.priorCode):profile.predecessors)?['priorCode']:[]),...((profile.optionalOutputs?Boolean(p.outputs):profile.outputs)?['outputs']:[]),...(profile.repositoryCoverage?['repositoryScope']:[])]);
     const preflightVersion=profile.humanAcceptance?namespaceCodePreflightVersion(p):profile.version;
@@ -102,7 +106,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
   }
   async function json(reference,signal){const data=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));}catch(cause){throw error('Code policy evidence is not UTF-8 JSON.','ENGINE_STORAGE_CORRUPT',null,cause);}}
-  async function candidateFor(publication,snapshot,{signal,bound=null,policyTraversal}={}, {observer,sources,controls,plans,current,retained,checks}){
+  async function candidateFor(publication,snapshot,{signal,bound=null,policyTraversal,riskChecks=null}={}, {observer,sources,controls,plans,current,retained,checks}){
     const workflow=snapshot.workflow,phase=workflow.phases[publication.phase],policy=codePublicationPolicy(workflow,phase);
     if(!policy)missing('code-publication-policy');
     const selected=identity(publication);
@@ -112,7 +116,10 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
       source=await sources.accepted({operationId:preflight.source.operationId,workId,phaseId:publication.phase},{signal}),
       plan=await plans.sourcePlan(snapshot,publication.phase,{signal}),definition=(await observer.approved(snapshot,{signal})).compiled.definition;
     if(!source||!same(source.binding,preflight.source))throw error('The Code report lost its actual retained source receipt.');
-    const tested=publication.checks?await checks.publication(publication,{signal}):null;
+    const riskOwner=publication.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)&&row.kind!=='test-risk/v1')||riskChecks?createNamespaceTestRiskOwner({observer,scope,workId}):null,
+      risk=riskChecks?{...await riskOwner.candidate(publication,snapshot,{signal,at:publication.publishedAt,checked:{binding:riskChecks,found:await checks.proof(riskChecks,publication.phase,{signal})}}),
+        binding:riskChecks,found:await checks.proof(riskChecks,publication.phase,{signal})}:riskOwner?await riskOwner.forPublication(publication,snapshot,{signal}):null,
+      tested=publication.checks?await checks.publication(publication,{signal}):risk?.found??null;
     if(!tested&&(preflight.history?.mode==='revalidated'||preflight.repositories.some(row=>row.delivery.testPaths.length)))throw error('Run and retain the pinned tests for this exact Code generation.','ENGINE_CHECK_EVIDENCE_REQUIRED',{
       operation:'phase.checks.run',workId,phase:publication.phase});
     if(tested&&tested.plan.sources.length!==source.plan.sources.length)throw error('Code and check evidence name different repository sets.');
@@ -124,7 +131,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
       if(tested&&(!checked||!same(checked.descriptor,selectedSource.repository.descriptor)
         ||!same(inventory(await checks.snapshot(checked.content,checked.descriptor,signal)),inventory(sourceSnapshot))))throw error(
           'The accepted tests did not run on the retained Code source.','ENGINE_CODE_CHECK_SOURCE_MISMATCH',{repositoryId:row.id,operation:'phase.checks.run'});
-      const commands=(tested?.plan.steps??[]).filter((step,index)=>step.repositoryId===row.id&&tested.body.checks[index].status==='passed'&&step.command.kind==='test').map(step=>step.command),
+      const commands=(tested?.plan.steps??[]).filter((step,index)=>step.repositoryId===row.id&&(tested.body.checks[index].status==='passed'||risk?.report.observations.some(item=>item.repositoryId===row.id&&item.commandId===step.command.id&&item.decision))&&step.command.kind==='test').map(step=>step.command),
         uncovered=uncoveredTestDeliveryPaths(row.delivery,phase.sourceBoundary,commands);
       if(workflow.resolution.codeDelivery?.tests?.requireAffectedModuleCoverage!==false&&uncovered.length)throw error(
         'Pinned passing tests do not cover every affected delivery path.','CODE_DELIVERY_TEST_COVERAGE_INCOMPLETE',{repositoryId:row.id,paths:uncovered});
@@ -144,11 +151,13 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
           for(const global of slot.witness.path?[slot.witness.path]:slot.witness.paths??[]){
             const local=plan.repositoryPlan?repositoryPlanTestLocation(plan.repositoryPlan,global,{workflow,definition}):{repositoryId:repositories[0]?.id,path:global},
               repository=repositories.find(row=>row.id===local?.repositoryId),matches=repository?.witnesses.filter(row=>row.witness.clauseId===clause.id&&row.witness.testSource===local.path)??[],
-              result=aggregateWitnesses(matches.map(row=>row.result)),assurance=slot.requiredAssurance??matches[0]?.result.requiredAssurance??'module-observed';
-            if(slot.role==='primary'&&contract.combination==='all'&&(result.status!=='met'||ASSURANCE.indexOf(result.assurance)<ASSURANCE.indexOf(assurance)))throw error(
+              result=aggregateWitnesses(matches.map(row=>row.result)),assurance=slot.requiredAssurance??matches[0]?.result.requiredAssurance??'module-observed',
+              exception=namespaceCodeEnvironmentRiskCoverage(matches,local?.repositoryId,risk?.report,{enforceAssertionAdequacy:workflow.resolution.codeDelivery?.assertionAdequacy==='enforce'});
+            if(slot.role==='primary'&&contract.combination==='all'&&!exception&&(result.status!=='met'||ASSURANCE.indexOf(result.assurance)<ASSURANCE.indexOf(assurance)))throw error(
               'Retain successful execution of each required primary test slot before Code publication.','CODE_TEST_WITNESS_INCOMPLETE',{
                 clauseId:clause.id,slot:slot.slot,repositoryId:local?.repositoryId??null,path:global,operation:'phase.checks.run'});
-            results.push({repositoryId:local?.repositoryId??null,path:global,result,requiredAssurance:assurance});}
+            results.push({repositoryId:local?.repositoryId??null,path:global,result,requiredAssurance:assurance,
+              ...(risk?{witnessResults:matches.map(row=>row.result)}:{}),...(exception?{executionException:exception}:{})});}
           if(!results.length&&slot.role==='primary'&&contract.combination==='all')throw error('The primary test slot needs an exact planned test path.',
             'CODE_TEST_WITNESS_INCOMPLETE',{clauseId:clause.id,slot:slot.slot,operation:'phase.draft.write'});
           testSlots.push({slot:slot.slot,results});}
@@ -158,16 +167,19 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
         for(const global of paths){
         const local=plan.repositoryPlan?repositoryPlanTestLocation(plan.repositoryPlan,global,{workflow,definition}):{repositoryId:repositories[0]?.id,path:global},
           repository=repositories.find(row=>row.id===local?.repositoryId),matches=repository?.witnesses.filter(row=>row.witness.clauseId===clause.id&&row.witness.testSource===local.path)??[],
-          result=aggregateWitnesses(matches.map(row=>row.result)),assurance=slot.requiredAssurance??matches[0]?.result.requiredAssurance??'module-observed';
-        if(result.status!=='met'||ASSURANCE.indexOf(result.assurance)<ASSURANCE.indexOf(assurance))throw error(
+          result=aggregateWitnesses(matches.map(row=>row.result)),assurance=slot.requiredAssurance??matches[0]?.result.requiredAssurance??'module-observed',
+              exception=namespaceCodeEnvironmentRiskCoverage(matches,local?.repositoryId,risk?.report,{enforceAssertionAdequacy:workflow.resolution.codeDelivery?.assertionAdequacy==='enforce'});
+        if(!exception&&(result.status!=='met'||ASSURANCE.indexOf(result.assurance)<ASSURANCE.indexOf(assurance)))throw error(
           'Retain successful execution of every planned acceptance test before Code publication.','CODE_TEST_WITNESS_INCOMPLETE',{
             clauseId:clause.id,slot:slot.slot,repositoryId:local?.repositoryId??null,path:local?.path??global,status:result.status,assurance:result.assurance,requiredAssurance:assurance,
             reasons:[...new Set(matches.flatMap(row=>row.result.reasons))],operation:'phase.checks.run'});
-        acceptance.push({clauseId:clause.id,slot:slot.slot,repositoryId:local.repositoryId,path:local.path,result,requiredAssurance:assurance});
+        acceptance.push({clauseId:clause.id,slot:slot.slot,repositoryId:local.repositoryId,path:local.path,result,requiredAssurance:assurance,...(exception?{executionException:exception}:{})});
         }
       }
     }
-    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31}[preflightVersion]??7):preflightVersion,report=reportValue({schemaVersion:version,format:'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance});
+    const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31}[preflightVersion]??7):preflightVersion;
+    const report=reportValue({schemaVersion:risk?32:version,format:'sflow-namespace-code-policy-report/v'+(risk?32:version),preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
+      ...(risk?{evidenceVersion:version,executionException:{profile:'sflow-namespace-code-execution-risk/v1',checks:risk.binding,testsPassed:false,policy:publication.policyEvidence?.find(row=>isNamespaceTestRiskPolicy(row.kind)&&row.kind!=='test-risk/v1')??null}}:{})});
     return {report,source,policy};
   }
   async function candidate(publication,snapshot,options){const value=await withReaders(readers=>candidateFor(publication,snapshot,options,readers));

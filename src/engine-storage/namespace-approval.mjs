@@ -1,9 +1,9 @@
 /** Explicit human approval over shared retained records; no private checkout, Git or provider. */
+import {isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,canonicalJson,NAMESPACE_APPROVAL_SCHEMAS,namespaceApprovalRoutingProfile,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {createNamespaceReadSession} from './namespace-read-session.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,NAMESPACE_APPROVAL_SCHEMAS,namespaceApprovalRoutingProfile} from '../foundation/record-schema.mjs';
 import {phaseAccessIdentity,phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {assertApprovalReviewConfirmation,principalApprovalPlan} from '../kernel/approval-policy.mjs';
 import {phaseAgentMutationFacts,skillPhaseHostRequirement} from '../kernel/phase-admission.mjs';
@@ -118,6 +118,7 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
     if(!proof||proof.review.packetSha256!==s.reviewBinding.reviewPacketSha256)throw error('The retained approval lost its submitted packet.','ENGINE_STORAGE_CORRUPT');
     let approvalCandidate=null;
     if(packets.publicationRequiresDisposition(proof.published,{reached:true})||(body.workflow.namespaceObligationRisks??[]).length||s.mappingRequest
+      ||(body.workflow.namespaceTestCohorts??[]).length||(body.workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)
       ||Object.values(body.workflow.phases).some(row=>row.approvals?.some(vote=>vote.witnessMappings?.length))){
       const original=await observer.state(await observer.bytes(plan.basis.head.state,plan.basis.head.state.bytes,signal),plan.basis.head,{signal});
       approvalCandidate={operationId:s.operationId,snapshot:{workflow:original.workflow,configuration:plan.basis.head.configuration,revision:plan.basis.headVersion}};
@@ -257,7 +258,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
         const policy=checklistAuthority??principalApprovalPlan(workflow,phase,s.reviewer,{author:s.proof.published.actor,active:s.active.decisions});
         const outcome=policy.reached&&s.routed?decisionOutcomeFacts(workflow,phase):null;
         s.approvalPolicy={reached:policy.reached,reworkTarget:outcome?.kind==='loop'?outcome.target:null};
-        if(s.proof.published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await packets.publicationReader.policies.freshTestRisk(s.proof.published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(s.proof.published.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))await packets.publicationReader.policies.freshCohort(s.proof.published,snapshot,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(s.proof.published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))await packets.publicationReader.policies.freshTestRisk(s.proof.published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.proof.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await packets.publicationReader.policies.freshReuseSources(s.proof.published,snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         s.dispositionRequired=packets.publicationRequiresDisposition(s.proof.published,s.approvalPolicy);
         s.dispositionEvidence=await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot,
@@ -279,7 +281,9 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
           const route=s.routed?routing(workflow,phase,policy.reached,recordedAt):null;
           if(policy.reached&&route?.selected.currentPhase===null&&(workflow.forwardAmendments??[]).length)
             await createNamespaceForwardAmendmentOwners({observer,scope,workId}).assertReady(snapshot,phase.id,{signal,terminal:true});
-          const artifactSet=await save(set,signal),terminalSnapshot=(workflow.namespaceObligationRisks??[]).length||witnessReview?.decisions.length||Object.values(workflow.phases).some(row=>(row.approvals??[]).some(vote=>vote.witnessMappings?.length))?{...snapshot,workflow:structuredClone(workflow)}:null;
+          const artifactSet=await save(set,signal),terminalSnapshot=(workflow.namespaceObligationRisks??[]).length||witnessReview?.decisions.length
+            ||(workflow.namespaceTestCohorts??[]).length||(workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)
+            ||Object.values(workflow.phases).some(row=>(row.approvals??[]).some(vote=>vote.witnessMappings?.length))?{...snapshot,workflow:structuredClone(workflow)}:null;
           let value=namespaceApprovalRecord({projectId:scope.projectId,workId,phase:s.phaseId,
             generation:phase.generation,operationId:s.operationId,requestSha256:s.requestSha256,baseRevision:snapshot.revision,configuration:snapshot.configuration,
             reviewPacket:s.proof.binding.record,artifactSet,actor:s.reviewer.actor,agentId:s.reviewer.agentId,recordedAt,
@@ -336,7 +340,8 @@ export function createNamespaceApprovalPorts({records,content,localContent=null,
         if(s.mappingRequest)namespaceWitnessMappingReview(namespaceWitnessMappingContext(p.snapshot,s.proof.published,
           await packets.publicationReader.specifications.sourcePlan(p.snapshot,s.phaseId,{signal}),packets.publicationReader.policies.codeEvidence(s.proof.published)),
           s.mappingRequest.answers,projectEnrollmentTimestamp(await now()),s.mappingRequest.context,[...s.active.decisions].reverse().flatMap(row=>row.witnessMappings??[]));
-        if(s.proof.published.policyEvidence?.some(row=>row.kind==='test-risk/v1'))await packets.publicationReader.policies.freshTestRisk(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(s.proof.published.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))await packets.publicationReader.policies.freshCohort(s.proof.published,p.snapshot,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(s.proof.published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))await packets.publicationReader.policies.freshTestRisk(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.proof.published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await packets.publicationReader.policies.freshReuseSources(s.proof.published,p.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(s.dispositionRequired)await packets.publicationApproval(s.proof.published,{...s.approvalPolicy,snapshot:p.snapshot,at:projectEnrollmentTimestamp(await now()),signal});},{signal});
     },

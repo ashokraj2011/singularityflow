@@ -28,8 +28,10 @@ cause cannot be duplicated; lost acknowledgements return the original accepted r
 ## What an accepted run means
 
 The initial namespace profile supports artifact phases without an enabled no-waiver recovery
-agreement. Code and recovery-agreement risk combinations require their own owners and remain
-explicitly unavailable. This keeps the existing full-command recovery agreement intact.
+agreement. The separately versioned [Code and recovery-risk owners](ENGINE-SDK-COHORT-AND-CODE-RISKS.md)
+now cover those combinations with actual execution and original human decisions. Existing v1
+and full-command no-waiver agreements retain their original meanings; a recovery agreement must
+explicitly enable the environment-risk category before that separate ceremony is available.
 
 The publication owner reads the real SGOS contract, accepted intent, exact draft, result, raw
 reports, process closure, quiescence and before/after source observations. It replays the report

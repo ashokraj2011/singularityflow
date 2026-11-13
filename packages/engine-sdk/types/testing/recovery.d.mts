@@ -63,3 +63,30 @@ export interface TestNarrowingValues {
 }
 /** Pure values do not authenticate human observations, collect test files, select a baseline or execute tests. */
 export declare function testNarrowingPolicies(digests:SpecificationDigests):Readonly<TestNarrowingValues>;
+
+export interface ObservedCohortCase {readonly id:string;readonly file:string;readonly name:string;readonly suite:readonly string[];
+  readonly outcome:'passed'|'failed'|'skipped'|'not-run'}
+export interface ObservedCohortCommand {readonly repositoryId:string;readonly commandId:string;readonly pinSha256:string;readonly cases:readonly ObservedCohortCase[]}
+export interface ObservedCohortSelection {readonly repositoryId:string;readonly commandId:string;readonly pinSha256:string;
+  readonly baselineIds:readonly string[];readonly selectedIds:readonly string[];readonly excludedIds:readonly string[];readonly newIds:readonly string[]}
+export interface CohortPermission {readonly id?:string;readonly revokes?:string;readonly expiresAt?:string|null}
+export interface NamespaceTestCohortValues {
+  hash(value:JsonValue):string;
+  cases(tests:{readonly discovered:number}|null,occurrences:readonly {readonly file:string;readonly name:string;readonly ancestorTitles:readonly string[];
+    readonly framework?:string|null;readonly outcome:ObservedCohortCase['outcome']}[]|null):readonly ObservedCohortCase[];
+  compare(baseline:readonly ObservedCohortCommand[],current:readonly ObservedCohortCommand[]):readonly ObservedCohortSelection[];
+  state(rows:readonly CohortPermission[],record:CohortPermission,at:string):'active'|'revoked'|'expired';
+  confirm(workflow:Readonly<Record<string,JsonValue>>,request:{readonly phaseId:string;readonly expectedContext?:string;readonly revoke?:string|null;
+    readonly reason:string;readonly expires?:string|null},facts:{readonly actorId:string;readonly agentId:string|null;readonly at:string;readonly authorityGroup:string},
+    source:{readonly context:{readonly sha256:string;readonly value:{readonly generation:number;readonly baseline:JsonValue;readonly selection:readonly ObservedCohortSelection[]}}}):
+    {readonly workflow:Readonly<Record<string,JsonValue>>;readonly outcome:{readonly currentPhase:string|null;readonly record:Readonly<Record<string,JsonValue>>}};
+}
+/** Observed report identities describe scope; they neither authenticate people nor invent execution. */
+export declare function namespaceTestCohortPolicies(digests:SpecificationDigests):Readonly<NamespaceTestCohortValues>;
+export interface CodeEnvironmentRiskMatch {readonly witness:{readonly identity:JsonValue;readonly gaps?:readonly JsonValue[];readonly commandId:string;
+  readonly enforceAssertionAdequacy?:boolean;readonly assertions?:{readonly adequacy:string}};
+  readonly result:{readonly status:string;readonly outcome:string;readonly shortfall?:JsonValue}}
+export declare function namespaceCodeEnvironmentRiskCoverage(matches:readonly CodeEnvironmentRiskMatch[],repositoryId:string,report:{readonly profile:string;
+  readonly observations:readonly {readonly repositoryId:string;readonly commandId:string;readonly decision:{readonly record:{readonly id:string}}|null;
+    readonly cause?:{readonly category:string}}[]}|null,options?:{readonly enforceAssertionAdequacy?:boolean}):
+  {readonly profile:'sflow-namespace-code-execution-exception/v1';readonly decisions:readonly string[];readonly testsPassed:false}|null;

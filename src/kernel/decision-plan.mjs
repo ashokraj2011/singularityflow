@@ -85,6 +85,8 @@ export function standaloneDecisionAdmission(operation, workflow) {
     return {workId, phase:workflow.pendingDecision.after ?? null};
   }
   const closed = {
+    'test-risk.confirm-recovery':['RISK_STORY_CLOSED','Review exact recovery risks while the Story is in progress.'],
+    'test-cohort.confirm':['TEST_COHORT_CLOSED','Confirm observed test cohorts while the Story is in progress.'],
     'test-recovery.confirm':['TEST_RECOVERY_CLOSED','Confirm recovery while the Story is in progress.'],
     'convergence.adjudicate':['CONVERGENCE_STORY_CLOSED','Decide convergence findings while the Story is in progress.'],
     'decision.constitution-exception':['CONSTITUTION_EXCEPTION_STORY_CLOSED','Record an exact article exception while the Story is in progress.'],
@@ -116,6 +118,11 @@ export function standaloneDecisionAdmission(operation, workflow) {
 /** Normalize domain values only; identity, policy and publication are never request fields. */
 export function standaloneDecisionRequest(operation, input) {
   const reason = input.reason ?? '';
+  if(operation==='test-risk.confirm-recovery'){const {revoke,...request}=standaloneDecisionRequest('decision.test-risk',input);if(revoke)refused('Use the ordinary risk revocation owner for an original decision.','TEST_RUN_RISK_INVALID');return {...request,expectedRecovery:input.expectedRecovery??null};}
+  if(operation==='test-cohort.confirm'){
+    if(typeof reason!=='string'||reason.trim().length<20||reason.length>1000)refused('Explain the reviewed test cohort in 20 to 1000 characters.','TEST_COHORT_INVALID');
+    return {phaseId:input.phaseId??null,baselinePhaseId:input.baselinePhaseId??input.phaseId??null,baselineOperationId:input.baselineOperationId??null,observedOperationId:input.observedOperationId??null,expectedContext:input.expectedContext??null,revoke:input.revoke??null,expires:input.expires??null,reason:reason.trim()};
+  }
   if(operation==='test-recovery.confirm')return {phaseId:input.phaseId??null,expectedContext:input.expectedContext??null,reason};
   if(operation==='source-review.record')return {phaseId:input.phaseId??null,report:input.report??null,expectedContext:input.expectedContext??null};
   if(operation==='convergence.adjudicate')return {phaseId:input.phaseId??null,itemId:input.itemId??null,disposition:input.disposition??null,

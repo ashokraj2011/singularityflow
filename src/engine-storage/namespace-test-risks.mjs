@@ -31,5 +31,9 @@ export function createNamespaceTestRiskPorts(options){
       phaseTransitionAccess(await access.current({projectId:scope.projectId,workId,operation:contextOperation,signal}),scope.projectId,contextOperation,{expected:state.principal});
       const fresh=await observer.capture({signal});if(fresh.snapshot.revision!==state.captured.snapshot.revision||fresh.basis.authorityVersion!==state.captured.basis.authorityVersion)
         fail('The Story or risk authority changed during inspection.','ENGINE_CONTEXT_CHANGED');return value;}};
-  return Object.freeze({decision,context,owned});
+  const recoveryDecision=createNamespaceRecordedMutationPort(options,{operation:'test-risk.confirm-recovery',explicitIdentity:true,
+    request:input=>standaloneDecisionRequest('test-risk.confirm-recovery',input),owner:owned.owner,contract:namespaceDecisionContract,
+    finish:(value,revision,{replayed})=>({workId,phase:value.phase,recordKind:'test-run-risk',record:value.outcome.record,revision:replayed?null:revision,
+      retained:replayed,pushed:false,actorId:value.actor.principalId,authorityGroup:value.authorityGroup,currentPhase:value.outcome.currentPhase})});
+  return Object.freeze({decision,recoveryDecision,context,owned});
 }

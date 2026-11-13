@@ -18,7 +18,7 @@ import {executeTestDecision} from './shared/test-decision-operation.mjs';
 import { commandResult, effects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 
-import { testRunCauseWords } from '../test-run-cause.mjs';
+import { testRunCauseWords } from '../engine-compatibility/node-test-causes.mjs';
 import { optionBoolean, optionString } from '../util.mjs';
 
 import {testRunRiskDecisionPart,recordTestRunRiskDecision} from '../engine-compatibility/native-test-risk-decisions.mjs';

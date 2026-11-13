@@ -224,7 +224,7 @@ export function requiredTestExecutionForRefusal(error) {
 
 /** Bounded examples from this invocation's parsed report, before transient reports are restored. */
 export async function requiredTestFailureExamples(parsed, adapter) {
-  const { failedSuiteMessages, testCaseMessages } = await import('./test-case-messages.mjs');
+  const { failedSuiteMessages, testCaseMessages } = await import('./engine-compatibility/node-test-causes.mjs');
   const occurrences = parsed.testcaseObservation?.occurrences ?? [];
   const contents = (parsed.rawReports ?? []).map(entry => entry.contents);
   const messages = testCaseMessages(adapter, contents, occurrences.length);

@@ -472,3 +472,10 @@ own; publication reports preserve the producer and explicitly disclose that dist
 Configured Code checks and recovery agreements that prohibit reuse retain their own contracts.
 The `testing/reuse` export exposes pure bounded helpers, not evidence acceptance or authority.
 See [the reuse profile and qualification](../../docs/ENGINE-SDK-EVIDENCE-REUSE.md).
+
+
+`testing/causes` exposes cause classification and bounded case/suite messages through an explicit
+memory-byte normalization capability. It shares the native rules, preserves code failure priority
+and refuses to turn an unknown or timed-out run into an environment exception. These are value
+observations; human risk acceptance and execution evidence remain separate registered owners.
+See [the ownership and compatibility record](../../docs/ENGINE-SDK-TEST-CAUSES.md).

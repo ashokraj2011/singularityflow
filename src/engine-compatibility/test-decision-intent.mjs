@@ -61,7 +61,7 @@ export async function resolveNativeTestDecision(context,request,operation) {
     target=(records??[]).find(entry=>!entry.revokes&&entry.id===request.revoke)??null;
   }
   if(operation==='decision.test-risk'&&request.causeClass!==null) {
-    const {testRunCauseCategory}=await import('../test-run-cause.mjs');
+    const {testRunCauseCategory}=await import('./node-test-causes.mjs');
     causeCategory=testRunCauseCategory(request.causeClass);
   }
   return resolveTestEvidenceIntent(operation,workflow,request,{target,causeCategory});

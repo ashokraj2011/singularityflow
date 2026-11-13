@@ -29,7 +29,7 @@
 import { testReceiptPassing } from './code-delivery-tests.mjs';
 import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
-import { classifyTestRunCause, testRunCauseCategory, testRunCauseWords } from './test-run-cause.mjs';
+import { classifyTestRunCause, testRunCauseCategory, testRunCauseWords } from './engine-compatibility/node-test-causes.mjs';
 import { SingularityFlowError } from './util.mjs';
 import {testRunRiskAuthorities} from './kernel/approval-fallback.mjs';
 export {testRunRiskAuthorities};

@@ -185,7 +185,7 @@ async function rawReportLocations(receipt, contents) {
  */
 async function caseMessages(root, receipt, contents, { materialized = null } = {}) {
   if (!contents || !receipt.occurrences?.length) return null;
-  const { testCaseMessages } = await import('../test-case-messages.mjs');
+  const { testCaseMessages } = await import('../engine-compatibility/node-test-causes.mjs');
   const messages = testCaseMessages(receipt.adapter, contents, receipt.occurrences.length);
   if (!messages) return null;
   let redactor = materialized;

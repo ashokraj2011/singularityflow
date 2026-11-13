@@ -388,3 +388,21 @@ compatibility, all-three-store journeys and an offline installed consumer. The u
 VS Code types, the unchanged 2,011-site Git audit and all thirteen original bundle ceilings pass;
 gateway is 852/852. The vocabulary has 88 operations, 42 default native bindings and 78 namespace
 bindings before optional execution. No Windows, live provider or production installation ran.
+
+
+## Shared test cause and report messages
+
+Test-run classification and bounded case/suite messages now have one pure owner, explicit memory
+normalization and an installed `testing/causes` API. Existing native exports, code-over-environment
+precedence, unknown/timeout refusals and report meanings are preserved against 152 independent
+pre-extraction outcomes. See [the cause ownership record](ENGINE-SDK-TEST-CAUSES.md).
+
+All 165 distinct affected Mac checks pass, including real native risk continuation, 107 architecture
+guards and an offline SDK consumer with infrastructure/clocks denied. The unchanged 34-check
+installed qualifier ran alone in 69.3 seconds under its original deadlines. Source validation
+passes 4,354 checks; VS Code types, the unchanged Git audit and all thirteen original bundle
+ceilings pass. Gateway remains 852/852.
+
+This is the shared classification prerequisite, not completion of namespace test-risk ceremonies,
+cohort/reuse, live review or other required evidence/execution owners. Neither Phase 5 nor Phase 7
+is marked complete; main and installed authority remain unchanged.

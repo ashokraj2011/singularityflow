@@ -74,7 +74,7 @@ async function retainedCaseMessages(root, receipt, workId) {
     if (!bytes || (total += bytes.length) > 16 * 1024 * 1024) return null;
     contents.push(bytes);
   }
-  const { testCaseMessages } = await import('./test-case-messages.mjs');
+  const { testCaseMessages } = await import('./engine-compatibility/node-test-causes.mjs');
   const { redactDiagnosticText } = await import('./git-remote-diagnostics.mjs');
   return testCaseMessages(receipt.adapter, contents, receipt.occurrences.length)?.map(message => message == null ? null : redactDiagnosticText(message)) ?? null;
 }

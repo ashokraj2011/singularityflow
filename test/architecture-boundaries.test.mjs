@@ -2316,3 +2316,20 @@ test('evidence reuse keeps execution, native Git identities and human authority 
   assert.ok(manifest.includes("'src/kernel/evidence-reuse.mjs'"));assert.ok(identity.includes("'kernel/evidence-reuse.mjs'"));
   assert.match(adapter,/countedRecords/u);assert.match(adapter,/COMMIT/u);assert.match(adapter,/ATTEMPT_ID/u);
 });
+
+test('cause classification and report messages share one pure owner with explicit memory normalization',async()=>{
+  const kernel='src/kernel/test-run-cause.mjs',adapter='src/engine-compatibility/node-test-causes.mjs',
+    graph=await inspectPureModuleGraph({root:packageRoot,entries:[kernel],allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});
+  assert.deepEqual(graph.problems,[]);const body=await readFile(path.join(packageRoot,kernel),'utf8');
+  assert.doesNotMatch(body,/\bBuffer\b|Date\.now|spawnSync|readFile/u);assert.match(body,/const normalize=toBytes/u);
+  for(const file of ['src/test-run-cause.mjs','src/test-case-messages.mjs']){
+    const text=await readFile(path.join(packageRoot,file),'utf8');assert.match(text,/node-test-causes\.mjs/u);
+    assert.doesNotMatch(text,/function|classifyTestRunCause\s*\(/u,'legacy exports remain compatibility aliases');
+  }
+  const binding=await readFile(path.join(packageRoot,adapter),'utf8');assert.match(binding,/testRunCausePolicies/u);assert.match(binding,/Buffer\.from/u);
+  assert.doesNotMatch(binding,/node:|git\.mjs|state\.mjs|process|spawn|readFile/u);
+  const manifest=await readFile(path.join(packageRoot,'src/vsix-source-manifest.mjs'),'utf8'),identity=await readFile(path.join(packageRoot,'src/build-identity.mjs'),'utf8');
+  for(const file of ['kernel/test-run-cause.mjs','engine-compatibility/node-test-causes.mjs']){
+    assert.ok(manifest.includes("'src/"+file+"'"));assert.ok(identity.includes("'"+file+"'"));
+  }
+});

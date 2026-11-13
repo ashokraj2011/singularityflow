@@ -148,6 +148,8 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/evidence/labels.mjs',
   'src/kernel/evidence-evaluation.mjs',
   'src/kernel/evidence-reuse.mjs',
+  'src/kernel/test-run-cause.mjs',
+  'src/engine-compatibility/node-test-causes.mjs',
   'src/kernel/evidence-labels.mjs',
   'src/kernel/evidence-vocabulary.mjs',
   'src/kernel/application-review.mjs',

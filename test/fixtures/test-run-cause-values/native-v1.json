@@ -1,0 +1,1121 @@
+{
+  "capturedFrom": "6e3ae5797",
+  "sourceSha256": {
+    "src/test-run-cause.mjs": "3eab4572c3ba6c75d63e38653f4d1fcd260f4977af2c7530d907c568f2d14599",
+    "src/test-case-messages.mjs": "0976cfd863ce6778e9de98cd232f3f6b833a1393f60812a8be5b89ba0e65f340"
+  },
+  "cases": [
+    {
+      "name": "process-launcher-0",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "no recognised marker"
+      }
+    },
+    {
+      "name": "process-launcher-2",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "no recognised marker"
+      }
+    },
+    {
+      "name": "process-dependency-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "dependency-missing",
+        "basis": "process",
+        "signal": "missing package"
+      }
+    },
+    {
+      "name": "process-dependency-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "dependency-missing",
+        "basis": "process",
+        "signal": "missing package"
+      }
+    },
+    {
+      "name": "process-registry-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "registry-unreachable",
+        "basis": "process",
+        "signal": "network or proxy"
+      }
+    },
+    {
+      "name": "process-registry-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "registry-unreachable",
+        "basis": "process",
+        "signal": "network or proxy"
+      }
+    },
+    {
+      "name": "process-certificate-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "registry-unreachable",
+        "basis": "process",
+        "signal": "network or proxy"
+      }
+    },
+    {
+      "name": "process-certificate-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "registry-unreachable",
+        "basis": "process",
+        "signal": "network or proxy"
+      }
+    },
+    {
+      "name": "process-browser-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "browser-missing",
+        "basis": "process",
+        "signal": "browser executable"
+      }
+    },
+    {
+      "name": "process-browser-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "browser-missing",
+        "basis": "process",
+        "signal": "browser executable"
+      }
+    },
+    {
+      "name": "process-toolchain-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "toolchain-version",
+        "basis": "process",
+        "signal": "Java runtime version"
+      }
+    },
+    {
+      "name": "process-toolchain-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "toolchain-version",
+        "basis": "process",
+        "signal": "Java runtime version"
+      }
+    },
+    {
+      "name": "process-device-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "device-unavailable",
+        "basis": "process",
+        "signal": "no device"
+      }
+    },
+    {
+      "name": "process-device-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "device-unavailable",
+        "basis": "process",
+        "signal": "no device"
+      }
+    },
+    {
+      "name": "process-docker-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "docker-unavailable",
+        "basis": "process",
+        "signal": "Docker daemon"
+      }
+    },
+    {
+      "name": "process-docker-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "docker-unavailable",
+        "basis": "process",
+        "signal": "Docker daemon"
+      }
+    },
+    {
+      "name": "process-service-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "service-unreachable",
+        "basis": "process",
+        "signal": "ECONNREFUSED"
+      }
+    },
+    {
+      "name": "process-service-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "service-unreachable",
+        "basis": "process",
+        "signal": "ECONNREFUSED"
+      }
+    },
+    {
+      "name": "process-port-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "port-in-use",
+        "basis": "process",
+        "signal": "address in use"
+      }
+    },
+    {
+      "name": "process-port-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "port-in-use",
+        "basis": "process",
+        "signal": "address in use"
+      }
+    },
+    {
+      "name": "process-permission-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "permission-denied",
+        "basis": "process",
+        "signal": "EACCES"
+      }
+    },
+    {
+      "name": "process-permission-2",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "permission-denied",
+        "basis": "process",
+        "signal": "EACCES"
+      }
+    },
+    {
+      "name": "process-typescript-0",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "compile-error",
+        "basis": "process",
+        "signal": "error TS"
+      }
+    },
+    {
+      "name": "process-typescript-2",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "compile-error",
+        "basis": "process",
+        "signal": "error TS",
+        "file": "src/value.ts"
+      }
+    },
+    {
+      "name": "process-syntax-0",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "syntax-error",
+        "basis": "process",
+        "signal": "SyntaxError"
+      }
+    },
+    {
+      "name": "process-syntax-2",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "syntax-error",
+        "basis": "process",
+        "signal": "SyntaxError"
+      }
+    },
+    {
+      "name": "process-assertion-0",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "no recognised marker"
+      }
+    },
+    {
+      "name": "process-assertion-2",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "no recognised marker"
+      }
+    },
+    {
+      "name": "process-unknown-0",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "no recognised marker"
+      }
+    },
+    {
+      "name": "process-unknown-2",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "no recognised marker"
+      }
+    },
+    {
+      "name": "process-code-before-environment-0",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "syntax-error",
+        "basis": "process",
+        "signal": "SyntaxError"
+      }
+    },
+    {
+      "name": "process-code-before-environment-2",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "syntax-error",
+        "basis": "process",
+        "signal": "SyntaxError"
+      }
+    },
+    {
+      "name": "process-import-package-0",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "dependency-missing",
+        "basis": "process",
+        "signal": "module not found"
+      }
+    },
+    {
+      "name": "process-import-package-2",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "import-error",
+        "basis": "process",
+        "signal": "module not found",
+        "file": "src/db.js"
+      }
+    },
+    {
+      "name": "process-import-relative-0",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "import-error",
+        "basis": "process",
+        "signal": "module not found"
+      }
+    },
+    {
+      "name": "process-import-relative-2",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "import-error",
+        "basis": "process",
+        "signal": "module not found"
+      }
+    },
+    {
+      "name": "category-launcher-unavailable",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-launcher-unavailable",
+      "ok": true,
+      "value": "the test launcher is missing or not executable"
+    },
+    {
+      "name": "category-dependency-missing",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-dependency-missing",
+      "ok": true,
+      "value": "a dependency the tests need is not installed"
+    },
+    {
+      "name": "category-registry-unreachable",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-registry-unreachable",
+      "ok": true,
+      "value": "a package registry, the network or a proxy cannot be reached"
+    },
+    {
+      "name": "category-toolchain-version",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-toolchain-version",
+      "ok": true,
+      "value": "the toolchain here is not the version the build needs"
+    },
+    {
+      "name": "category-browser-missing",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-browser-missing",
+      "ok": true,
+      "value": "the browser the tests drive is not installed"
+    },
+    {
+      "name": "category-device-unavailable",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-device-unavailable",
+      "ok": true,
+      "value": "no emulator, simulator or device is attached"
+    },
+    {
+      "name": "category-service-unreachable",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-service-unreachable",
+      "ok": true,
+      "value": "a service the tests connect to is not reachable"
+    },
+    {
+      "name": "category-port-in-use",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-port-in-use",
+      "ok": true,
+      "value": "a port the tests need is already in use"
+    },
+    {
+      "name": "category-docker-unavailable",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-docker-unavailable",
+      "ok": true,
+      "value": "Docker is not available"
+    },
+    {
+      "name": "category-permission-denied",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-permission-denied",
+      "ok": true,
+      "value": "the run was denied access to a file or directory"
+    },
+    {
+      "name": "category-all-tests-skipped",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-all-tests-skipped",
+      "ok": true,
+      "value": "every discovered test skipped itself"
+    },
+    {
+      "name": "category-compile-error",
+      "ok": true,
+      "value": "code"
+    },
+    {
+      "name": "words-compile-error",
+      "ok": true,
+      "value": "the code does not compile"
+    },
+    {
+      "name": "category-syntax-error",
+      "ok": true,
+      "value": "code"
+    },
+    {
+      "name": "words-syntax-error",
+      "ok": true,
+      "value": "a syntax error"
+    },
+    {
+      "name": "category-import-error",
+      "ok": true,
+      "value": "code"
+    },
+    {
+      "name": "words-import-error",
+      "ok": true,
+      "value": "an import that does not resolve"
+    },
+    {
+      "name": "category-foreign-test-file",
+      "ok": true,
+      "value": "code"
+    },
+    {
+      "name": "words-foreign-test-file",
+      "ok": true,
+      "value": "this runner collected a test file written for another runner"
+    },
+    {
+      "name": "category-suite-failure",
+      "ok": true,
+      "value": "code"
+    },
+    {
+      "name": "words-suite-failure",
+      "ok": true,
+      "value": "a test file failed outside its tests, usually while loading"
+    },
+    {
+      "name": "category-assertion-failure",
+      "ok": true,
+      "value": "code"
+    },
+    {
+      "name": "words-assertion-failure",
+      "ok": true,
+      "value": "tests ran and failed"
+    },
+    {
+      "name": "category-source-mutation",
+      "ok": true,
+      "value": "code"
+    },
+    {
+      "name": "words-source-mutation",
+      "ok": true,
+      "value": "the run changed application source or test inputs"
+    },
+    {
+      "name": "category-timeout",
+      "ok": true,
+      "value": "unknown"
+    },
+    {
+      "name": "words-timeout",
+      "ok": true,
+      "value": "the run timed out"
+    },
+    {
+      "name": "category-no-tests",
+      "ok": true,
+      "value": "unknown"
+    },
+    {
+      "name": "words-no-tests",
+      "ok": true,
+      "value": "the run found no tests"
+    },
+    {
+      "name": "category-unrecognised",
+      "ok": true,
+      "value": "unknown"
+    },
+    {
+      "name": "words-unrecognised",
+      "ok": true,
+      "value": "the output names no cause recognised here"
+    },
+    {
+      "name": "category-browser-missing+service-unreachable",
+      "ok": true,
+      "value": "environment"
+    },
+    {
+      "name": "words-browser-missing+service-unreachable",
+      "ok": true,
+      "value": "the browser the tests drive is not installed and a service the tests connect to is not reachable"
+    },
+    {
+      "name": "category-service-unreachable+browser-missing",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "words-service-unreachable+browser-missing",
+      "ok": true,
+      "value": "a service the tests connect to is not reachable and the browser the tests drive is not installed"
+    },
+    {
+      "name": "category-syntax-error+service-unreachable",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "words-syntax-error+service-unreachable",
+      "ok": true,
+      "value": "a syntax error and a service the tests connect to is not reachable"
+    },
+    {
+      "name": "category-unknown-class",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "words-unknown-class",
+      "ok": true,
+      "value": "unknown-class"
+    },
+    {
+      "name": "category-",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "words-",
+      "ok": true,
+      "value": ""
+    },
+    {
+      "name": "failed-messages-null",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "assertion-failure",
+        "basis": "tests",
+        "signal": "failed tests without messages",
+        "failedTests": 2
+      }
+    },
+    {
+      "name": "failed-messages-[]",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "assertion-failure",
+        "basis": "tests",
+        "signal": "failed tests without messages",
+        "failedTests": 2
+      }
+    },
+    {
+      "name": "failed-messages-[\"connect ECONNREFUSED\"]",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "assertion-failure",
+        "basis": "tests",
+        "signal": "failed tests without messages",
+        "failedTests": 2
+      }
+    },
+    {
+      "name": "failed-messages-[\"connect ECONNREFUSED\",\"connect ECONNREFUSED\"]",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "service-unreachable",
+        "basis": "tests",
+        "signal": "ECONNREFUSED",
+        "failedTests": 2
+      }
+    },
+    {
+      "name": "failed-messages-[\"connect ECONNREFUSED\",\"AssertionError [ERR_ASSERTION]\"]",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "assertion-failure",
+        "basis": "tests",
+        "signal": "failed test",
+        "failedTests": 2
+      }
+    },
+    {
+      "name": "failed-messages-[\"connect ECONNREFUSED\",null]",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "assertion-failure",
+        "basis": "tests",
+        "signal": "failed test",
+        "failedTests": 2
+      }
+    },
+    {
+      "name": "failed-messages-[\"Executable doesn't exist at /missing/chromium\",\"connect ECONNREFUSED\"]",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "browser-missing+service-unreachable",
+        "basis": "tests",
+        "signal": "ECONNREFUSED, browser executable",
+        "failedTests": 2
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\",\"timedOut\":true},\"tests\":null}",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "timeout",
+        "basis": "process",
+        "signal": "timeout"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\",\"timedOut\":true},\"tests\":{\"discovered\":0,\"passed\":0,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "timeout",
+        "basis": "process",
+        "signal": "timeout"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\",\"timedOut\":true},\"tests\":{\"discovered\":2,\"passed\":2,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "timeout",
+        "basis": "process",
+        "signal": "timeout"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\",\"timedOut\":true},\"tests\":{\"discovered\":2,\"passed\":0,\"failed\":0,\"skipped\":2}}",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "timeout",
+        "basis": "process",
+        "signal": "timeout"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\",\"sourceMutation\":true},\"tests\":null}",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "source-mutation",
+        "basis": "process",
+        "signal": "source changed during the run"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\",\"sourceMutation\":true},\"tests\":{\"discovered\":0,\"passed\":0,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "source-mutation",
+        "basis": "process",
+        "signal": "source changed during the run"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\",\"sourceMutation\":true},\"tests\":{\"discovered\":2,\"passed\":2,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "source-mutation",
+        "basis": "process",
+        "signal": "source changed during the run"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\",\"sourceMutation\":true},\"tests\":{\"discovered\":2,\"passed\":0,\"failed\":0,\"skipped\":2}}",
+      "ok": true,
+      "value": {
+        "category": "code",
+        "class": "source-mutation",
+        "basis": "process",
+        "signal": "source changed during the run"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"\",\"infrastructureUnavailable\":true},\"tests\":null}",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "launcher-unavailable",
+        "basis": "process",
+        "signal": "spawn ENOENT"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"\",\"infrastructureUnavailable\":true},\"tests\":{\"discovered\":0,\"passed\":0,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "launcher-unavailable",
+        "basis": "process",
+        "signal": "spawn ENOENT"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"\",\"infrastructureUnavailable\":true},\"tests\":{\"discovered\":2,\"passed\":2,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "launcher-unavailable",
+        "basis": "process",
+        "signal": "spawn ENOENT"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"\",\"infrastructureUnavailable\":true},\"tests\":{\"discovered\":2,\"passed\":0,\"failed\":0,\"skipped\":2}}",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "launcher-unavailable",
+        "basis": "process",
+        "signal": "spawn ENOENT"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\"},\"tests\":null}",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "service-unreachable",
+        "basis": "process",
+        "signal": "ECONNREFUSED"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\"},\"tests\":{\"discovered\":0,\"passed\":0,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "service-unreachable",
+        "basis": "process",
+        "signal": "ECONNREFUSED"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\"},\"tests\":{\"discovered\":2,\"passed\":2,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "tests passed, run failed"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"failed\",\"exitCode\":1,\"stdout\":\"\",\"stderr\":\"ECONNREFUSED\"},\"tests\":{\"discovered\":2,\"passed\":0,\"failed\":0,\"skipped\":2}}",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "all-tests-skipped",
+        "basis": "tests",
+        "signal": "every test skipped"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"passed\",\"exitCode\":0},\"tests\":null}",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "no recognised marker"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"passed\",\"exitCode\":0},\"tests\":{\"discovered\":0,\"passed\":0,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "no-tests",
+        "basis": "tests",
+        "signal": "report counts no tests"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"passed\",\"exitCode\":0},\"tests\":{\"discovered\":2,\"passed\":2,\"failed\":0,\"skipped\":0}}",
+      "ok": true,
+      "value": {
+        "category": "unknown",
+        "class": "unrecognised",
+        "basis": "process",
+        "signal": "tests passed, run failed"
+      }
+    },
+    {
+      "name": "status-{\"check\":{\"status\":\"passed\",\"exitCode\":0},\"tests\":{\"discovered\":2,\"passed\":0,\"failed\":0,\"skipped\":2}}",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "all-tests-skipped",
+        "basis": "tests",
+        "signal": "every test skipped"
+      }
+    },
+    {
+      "name": "cases-vitest-json-0",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-vitest-json-1",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-vitest-json-2",
+      "ok": true,
+      "value": [
+        null,
+        "connect ECONNREFUSED 127.0.0.1:5432"
+      ]
+    },
+    {
+      "name": "cases-vitest-json-3",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "bad-vitest-json",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-jest-json-0",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-jest-json-1",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-jest-json-2",
+      "ok": true,
+      "value": [
+        null,
+        "connect ECONNREFUSED 127.0.0.1:5432"
+      ]
+    },
+    {
+      "name": "cases-jest-json-3",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "bad-jest-json",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-node-tap-0",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-node-tap-1",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-node-tap-2",
+      "ok": true,
+      "value": [
+        null,
+        "connect ECONNREFUSED 127.0.0.1:5432"
+      ]
+    },
+    {
+      "name": "cases-node-tap-3",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "bad-node-tap",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-junit-xml-0",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-junit-xml-1",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-junit-xml-2",
+      "ok": true,
+      "value": [
+        null,
+        "expected <2>\nAssertionError\n at value.js:2"
+      ]
+    },
+    {
+      "name": "cases-junit-xml-3",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "bad-junit-xml",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-unknown-0",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-unknown-1",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-unknown-2",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "cases-unknown-3",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "bad-unknown",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "suites-vitest-json",
+      "ok": true,
+      "value": [
+        {
+          "name": "load.test.js",
+          "message": "SyntaxError: unexpected token"
+        }
+      ]
+    },
+    {
+      "name": "suites-jest-json",
+      "ok": true,
+      "value": [
+        {
+          "name": "load.test.js",
+          "message": "SyntaxError: unexpected token"
+        }
+      ]
+    },
+    {
+      "name": "suites-node-tap",
+      "ok": true,
+      "value": []
+    },
+    {
+      "name": "suites-junit-xml",
+      "ok": true,
+      "value": []
+    },
+    {
+      "name": "suites-unknown",
+      "ok": true,
+      "value": []
+    },
+    {
+      "name": "bounded-",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "bounded-null",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "bounded-\u001b[31mFailure\u001b[0m\r\n d",
+      "ok": true,
+      "value": "Failure\n detail"
+    },
+    {
+      "name": "bounded-aaaaaaaaaaaaaaaaaaaa",
+      "ok": true,
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+    },
+    {
+      "name": "invalid-utf8-xml",
+      "ok": true,
+      "value": null
+    },
+    {
+      "name": "split-utf8-json",
+      "ok": true,
+      "value": []
+    },
+    {
+      "name": "attempt-cause",
+      "ok": true,
+      "value": {
+        "category": "environment",
+        "class": "service-unreachable",
+        "basis": "tests",
+        "signal": "ECONNREFUSED",
+        "failedTests": 1
+      }
+    }
+  ]
+}

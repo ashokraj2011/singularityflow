@@ -228,7 +228,7 @@ export async function recordTestAttempt(root, itemRelative, {
     uncommittedChanges
   });
   if (attempt.status === 'failed' || attempt.status === 'blocked') {
-    attempt.cause = (await import('../test-run-cause.mjs')).attemptRunCause({ check, parsed, attempt, delivery });
+    attempt.cause = (await import('../engine-compatibility/node-test-causes.mjs')).attemptRunCause({ check, parsed, attempt, delivery });
   }
   // The pin a gate ran it under, which replay finds on the Story [TCE:REQ-014], and what narrowed it [TCE:REQ-021].
   if (pin) attempt.pin = pin;

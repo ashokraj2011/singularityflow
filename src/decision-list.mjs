@@ -30,7 +30,7 @@ import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-s
 import { recordSha256 } from './records.mjs';
 import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';
 import { testSetupFiles } from './test-support-files.mjs';
-import { testRunCauseWords } from './test-run-cause.mjs';
+import { testRunCauseWords } from './engine-compatibility/node-test-causes.mjs';
 import { testRunRiskAuthorities } from './test-run-risk.mjs';
 import { decisionGroups, decisionRefusalLead } from './decision-list-facts.mjs';
 import { CONFORMANCE_GAP_RULE, decidableUpstreamStep, decisionHeadline, issueNamesClause, stepName, upstreamIssueOutcomes, upstreamReturnLegal } from './upstream-routes.mjs';

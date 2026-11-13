@@ -234,7 +234,7 @@ function planFindings(problems, model) {
     return { at: 'workflow', code: problem.code,
       message: 'A step that writes code needs a step that defines the requirements at or before the step just before it. '
         + `${steps.length ? `Add one the repository has (${steps.slice(0, 6).join(', ')}), as it is or copied with from, before it.` : 'This repository has no step that defines requirements; add one in Workflow Studio first.'} `
-        + `No move declares a workflow without requirements.${details ? ` (${details})` : ''}` };
+        + `A workflow with a code step cannot leave its requirements out.${details ? ` (${details})` : ''}` };
   });
 }
 
@@ -473,6 +473,124 @@ function withSendBackMove(finding, workflow) {
     + ` with signOff { groups: [${groups.join(', ')}], minimum: ${minimum}, sendBackTo: [${sendBackTo.join(', ')}] }.` } };
 }
 
+// Why a workflow that writes no code does not hold each responsibility: true of any such workflow, so a
+// fix can say it without asking. A person's review is never left out.
+const NO_CODE_REASONS = Object.freeze({
+  scope: 'This workflow works from the product as it is; it defines no new requirements.',
+  plan: 'This workflow changes no code, so there is no change to plan.',
+  implement: 'This workflow changes no code; a change it finds is made in a Story of its own.',
+  verify: 'This workflow changes nothing in the product, so there is no change of its own to verify.'
+});
+const RESPONSIBILITY_NAMES = Object.freeze({ scope: 'requirements', plan: 'a plan', implement: 'the change itself', verify: 'verification', review: "a person's review" });
+const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+
+/**
+ * The fix a build can propose as it is, for the findings a builder meets when the workflow it makes
+ * writes no code [owner, 2026-11-13: "it gets stuck saying there is code generation"]:
+ * - a route that ends without requirements or a plan: in a workflow with no code step, the
+ *   workflow.omit moves that say so once, recorded by the group that signs off its last step; with a
+ *   code step, what to add instead (requirements are never left out there);
+ * - a step that may change code with nothing planned before it: two valid ways (`choices`), a copy
+ *   that writes only its report, or requirements and a plan before it; the person's words decide.
+ * A send-back target keeps its own one move (withSendBackMove).
+ */
+function withBuildFix(finding, workflow, draft, repositorySteps = []) {
+  if (finding.code === 'WORKFLOW_REJECTION_TARGET') return withSendBackMove(finding, workflow);
+  if (!workflow) return finding;
+  const phaseIds = repositorySteps.map((entry) => entry.id);
+  const freeId = (stem) => {
+    let id = stem;
+    for (let index = 2; phaseIds.includes(id) || workflow.phases.includes(id); index += 1) id = `${stem}-${index}`;
+    return id;
+  };
+  const stepOf = (id) => workflow.steps.find((entry) => entry.id === id) ?? null;
+  const label = (id) => stepOf(id)?.label ?? id;
+  const coding = workflow.steps.filter((entry) => entry.changesCode ?? entry.output === 'code').map((entry) => entry.label ?? entry.id);
+  if (finding.code === 'OBLIGATION_ROUTE_DROPS_RESPONSIBILITY' && !finding.subject?.decision) {
+    const missing = finding.subject?.missing ?? [];
+    const omittable = missing.filter((name) => NO_CODE_REASONS[name]);
+    const review = missing.includes('review') ? ` A person's review is never left out: give ${label(finding.subject?.step)} a sign-off (step.change with signOff).` : '';
+    if (coding.length) {
+      return { ...finding, fix: { text: `${listed(coding)} may change code, so this workflow needs ${listed(missing.map((name) => RESPONSIBILITY_NAMES[name] ?? name))} before the end: `
+        + `add a step that defines the requirements and one that plans the change before ${coding.length === 1 ? 'it' : 'them'}. If ${coding.length === 1 ? 'it only tests' : 'they only test'}, checks or reports, `
+        + `copy ${coding.length === 1 ? 'it' : 'each'} with from and changesCode false; the workflow then writes no code and can say what it leaves out.${review}` } };
+    }
+    if (!omittable.length) return review ? { ...finding, fix: { text: review.trim() } } : finding;
+    const signer = [stepOf(finding.subject?.step), ...[...workflow.steps].reverse()]
+      .find((entry) => entry && entry.approval?.mode !== 'none' && (entry.approval?.authorities ?? []).length) ?? null;
+    if (!signer) {
+      return { ...finding, fix: { text: `This workflow writes no code, so it can say once that it leaves out ${listed(omittable.map((name) => RESPONSIBILITY_NAMES[name]))}, `
+        + `recorded by the group that signs off its last step. Give ${label(finding.subject?.step)} a sign-off first (step.change with signOff).` } };
+    }
+    const authority = signer.approval.authorities[0];
+    const omit = (names) => names.map((name) => ({ move: 'workflow.omit', responsibility: name, reason: NO_CODE_REASONS[name], authority }));
+    const moves = omit(omittable);
+    const omitText = `This workflow writes no code, so it says once that it leaves out ${listed(omittable.map((name) => RESPONSIBILITY_NAMES[name]))}: `
+      + `${moves.length === 1 ? 'one workflow.omit move' : `${moves.length} workflow.omit moves`}, recorded by ${authority} with the workflow, so no Story asks it again.${review}`;
+    const criteria = missing.includes('scope') ? criteriaStep(workflow, repositorySteps, freeId) : null;
+    if (!criteria) return { ...finding, fix: { moves, text: omitText } };
+    // Steps that test or report against what the first step gathers cite it by clause ID only if a step
+    // defines the clauses; with none, every step is told to number none (phase-prompt-composer.mjs).
+    const rest = omittable.filter((name) => name !== 'scope' && name !== 'plan');
+    return { ...finding, fix: {
+      text: 'This workflow writes no code. Whether its steps cite the acceptance criteria by clause ID decides how it holds its requirements: take the one the person said, otherwise ask.',
+      choices: [
+        { label: `${criteria.label} states the acceptance criteria as clauses, such as [<Work ID>:AC-001], that the later steps cite by ID`, moves: [...criteria.moves, ...omit(rest)] },
+        { label: 'No clause IDs: the steps write plain criteria and findings, and the workflow leaves out requirements and a plan', moves }
+      ] } };
+  }
+  if (finding.code === 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN') {
+    const stepId = finding.subject?.step;
+    const step = stepOf(stepId);
+    if (!step) return finding;
+    let reportOnly;
+    const noCode = { changesCode: false, ...(step.output === 'code' ? { output: 'analysis' } : {}) };
+    if (draft.steps[stepId]?.new) reportOnly = [{ move: 'step.change', id: stepId, ...noCode }];
+    else {
+      // A step the repository has keeps its output for the workflows that share it: this one runs a copy.
+      const copy = freeId(`${stepId}-report`);
+      const readers = workflow.steps.filter((entry) => entry.id !== stepId && (entry.inputs ?? []).includes(stepId));
+      reportOnly = [{ move: 'step.add', id: copy, from: stepId, label: step.label, ...noCode, after: stepId },
+        ...readers.map((entry) => ({ move: 'step.change', id: entry.id, reads: entry.inputs.map((input) => (input === stepId ? copy : input)) })),
+        { move: 'step.remove', id: stepId }];
+    }
+    return { ...finding, fix: {
+      text: `${step.label} may change code, and nothing before it plans a change. Which fix is right depends on what it does in this workflow: take the one the person already said, otherwise ask.`,
+      choices: [
+        { label: `${step.label} only tests, checks or reports: it writes its report and changes no code`, moves: reportOnly },
+        { label: `${step.label} changes code: add requirements and a plan before it`,
+          text: `Add a step that defines the requirements (such as requirements or implementation-spec) and, just before ${step.label}, a step that plans the change.` }
+      ] } };
+  }
+  return finding;
+}
+
+/**
+ * The step that states a code-free workflow's acceptance criteria as clauses: a copy of the first
+ * repository step that defines clauses and changes no code (read from what steps do, never their
+ * names [E2G-001]), in place of an intake-like first step (it reads nothing and changes no code) under
+ * that step's name, or else ahead of the first step. Its template defines `[<Work ID>:REQ-001]` and
+ * `[<Work ID>:AC-001]` anchors; with no code step it also holds the plan. Null when the repository has none.
+ */
+function criteriaStep(workflow, repositorySteps, freeId) {
+  const source = repositorySteps.find((entry) => entry.definesClauses && entry.output !== 'code' && !entry.changesCode);
+  if (!source) return null;
+  const first = workflow.phases[0];
+  const firstStep = workflow.steps.find((entry) => entry.id === first);
+  const intake = Boolean(firstStep) && !(firstStep.inputs ?? []).length && !(firstStep.changesCode ?? firstStep.output === 'code');
+  const id = freeId(intake ? `${first}-criteria` : 'acceptance-criteria');
+  const label = intake ? firstStep.label ?? first : 'Acceptance criteria';
+  const groups = source.approval?.mode !== 'none' ? (source.approval?.authorities ?? []) : [];
+  const readers = intake ? workflow.steps.filter((entry) => entry.id !== first && (entry.inputs ?? []).includes(first)) : [];
+  return { label, moves: [
+    { move: 'step.add', id, from: source.id, label, after: intake ? first : null, reads: [],
+      purpose: 'States the request and its acceptance criteria as clauses that the later steps cite by ID.',
+      ...(groups.length ? { signOff: { groups: [...groups], minimum: source.approval?.minimum ?? 1, sendBackTo: [id] } } : {}) },
+    ...readers.map((entry) => ({ move: 'step.change', id: entry.id, reads: entry.inputs.map((input) => (input === first ? id : input)) })),
+    ...(intake ? [{ move: 'step.remove', id: first }] : [])
+  ] };
+}
+
 /**
  * Approval groups the build creates have nobody in them until people are added in People &
  * approvals; until then, unless the repository requires named people, whoever starts a Story is
@@ -563,7 +681,8 @@ export async function checkBuild(id, { root = null, include = null, env = proces
     if (draft.workflow.inPlace && !changeSet.changes.length) {
       plan.inspection = { check: await checkWorkflowConfiguration(repository, { workflows: [workflowId] }), preview: previewOf(model, workflowId) };
     }
-    return { draft, accepted, changeSet, plan, changes };
+    return { draft, accepted, changeSet, plan, changes,
+      repositorySteps: model.phases.map(({ id, label, output, changesCode, definesClauses, approval }) => ({ id, label, output, changesCode, definesClauses, approval })) };
   });
   if (result.landed) return landedCheck(record, result, { env });
   const { draft, accepted, changeSet, plan, changes } = result;
@@ -572,7 +691,7 @@ export async function checkBuild(id, { root = null, include = null, env = proces
   const inspection = plan.inspection?.check ?? null;
   const onboarding = [...onboardingFindings(record), ...emptyGroupFindings(draft)];
   const built = plan.inspection?.preview?.workflows?.[0] ?? null;
-  const findings = [...(inspection?.workflows?.[0]?.findings ?? []).map((entry) => withSendBackMove(entry, built)), ...onboarding];
+  const findings = [...(inspection?.workflows?.[0]?.findings ?? []).map((entry) => withBuildFix(entry, built, draft, result.repositorySteps)), ...onboarding];
   const counts = Object.fromEntries(['problem', 'warning', 'note'].map((severity) => [severity, findings.filter((entry) => entry.severity === severity).length
     + (severity === 'problem' ? plan.problems.length : 0)]));
   const openQuestions = record.questions.filter((question) => !question.answer);

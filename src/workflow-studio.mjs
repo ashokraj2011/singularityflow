@@ -128,6 +128,11 @@ function outputOf(phase = {}) {
   return stepOutputKind(phase);
 }
 
+/** Whether a step may change the repository's files beyond its own document: a code step, or one allowed to write source. */
+function changesCodeOf(phase = {}) {
+  return outputOf(phase) === 'code' || phase.writeScope === 'source-and-artifact';
+}
+
 /** The skills a step may choose to draft it, with each skill's own one-line description. */
 async function authoringSkillChoices() {
   return Promise.all(authoringSkillCatalog().map(async (entry) => {
@@ -456,13 +461,15 @@ export async function buildStudioModel(root, { authority = null } = {}) {
         ...(loop.resetOnPhase ? { resetOnPhase: loop.resetOnPhase } : {})
       })),
       decisions: structuredClone(type.decisions ?? []),
+      // What the workflow says it leaves out, each with its reason and the group that records it.
+      omits: structuredClone(type.omits ?? []),
       plannedClaims: plannedClaimsView(type, resolved, failure),
       steps: (resolved?.phases ?? (type.phases ?? []).map((phaseId) => ({ id: phaseId, ...phases[phaseId] }))).map((phase) => {
         const route = authoringRoute(phase);
         const written = writtenStep(type, phase.id);
         const tests = testsFrom(phase, written);
         return {
-          id: phase.id, label: phase.label ?? phase.id, output: outputOf(phase),
+          id: phase.id, label: phase.label ?? phase.id, output: outputOf(phase), changesCode: changesCodeOf(phase),
           // Resolution leaves the description out of Story pins, so it is read from the step itself.
           description: typeof phases[phase.id]?.description === 'string' ? phases[phase.id].description : '',
           agent: phase.defaultAgent ?? defaultAgentOf(phase.id),
@@ -532,7 +539,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       targets: Object.entries(raw.integrations?.targets ?? {}).map(([id, target]) => ({ id, ...structuredClone(target) }))
     },
     phases: Object.entries(phases).map(([id, phase]) => ({
-      id, label: phase.label ?? id, output: outputOf(phase),
+      id, label: phase.label ?? id, output: outputOf(phase), changesCode: changesCodeOf(phase),
       description: typeof phase.description === 'string' ? phase.description : '',
       approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
       authoringSkill: typeof phase.authoringSkill === 'string' ? phase.authoringSkill : null,
@@ -944,6 +951,19 @@ class StudioCandidate {
       const own = this.content.workTypes?.[workflowId]?.phaseOverrides?.[phaseId]?.approval;
       return !(typeof own === 'string' || (isObject(own) && Object.hasOwn(own, 'rejectTo')));
     });
+  }
+
+  /**
+   * Whether a step may change the repository's files beyond its own document (writeScope). A code step
+   * always does; testing and verification may, to write tests. A workflow that only tests and reports
+   * runs a copy that changes no code [owner, 2026-11-13].
+   */
+  setChangesCode(id, changesCode) {
+    if (typeof changesCode !== 'boolean') throw new SingularityFlowError('changesCode is true or false.', { code: 'STUDIO_CHANGES_CODE_INVALID' });
+    if (!changesCode && outputOf(this.phase(id) ?? {}) === 'code') {
+      throw new SingularityFlowError(`${this.phaseLabel(id)} delivers code, so it changes code; give it another output first.`, { code: 'STUDIO_CHANGES_CODE_INVALID' });
+    }
+    this.document.setIn(['phases', id, 'writeScope'], changesCode ? 'source-and-artifact' : 'artifact-only');
   }
 
   setOutput(id, output) {
@@ -2324,7 +2344,7 @@ class StudioCandidate {
     this.summary.push(`Installed blueprint ${profile.label ?? workflowId}: ${profile.phases.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  createPhase({ id, label, description, output, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile }) {
+  createPhase({ id, label, description, output, changesCode, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile }) {
     const phaseId = requireId(id, 'A step ID');
     if (this.phase(phaseId)) throw new SingularityFlowError(`A step called '${phaseId}' already exists.`, { code: 'STUDIO_PHASE_EXISTS' });
     const name = requireLabel(label, 'The step');
@@ -2370,6 +2390,7 @@ class StudioCandidate {
     this.document.setIn(['phases', phaseId], this.document.createNode(node));
     // A copy's own skill that cannot draft its new output is dropped; one the change names decides.
     const dropped = !copyOf || (output !== undefined && output !== outputOf(node)) ? this.setOutput(phaseId, output ?? 'document') : null;
+    if (changesCode != null) this.setChangesCode(phaseId, changesCode);
     if (template !== undefined && template !== null) this.document.setIn(['phases', phaseId, 'defaultTemplate'], this.templateValue(template, name));
     else if (!copyOf) this.writeTemplateIfMissing(`common/${phaseId}.md`, phaseId, name);
     if (artifactSet !== undefined && artifactSet !== null) {
@@ -2446,7 +2467,7 @@ class StudioCandidate {
     });
   }
 
-  updatePhase({ id, workflow, label, description, output, inputs, approval, views, clarification, clarificationPolicy, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile }) {
+  updatePhase({ id, workflow, label, description, output, changesCode, inputs, approval, views, clarification, clarificationPolicy, authoringSkill, afterStep, qualityCommands, template, artifactSet, artifactFile }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
     // Shared once the change set is applied: a step this change set also adds to another workflow
@@ -2476,6 +2497,7 @@ class StudioCandidate {
     let dropped = null;
     if (label != null) { this.document.setIn(['phases', phaseId, 'label'], requireLabel(label, 'The step')); changed.push('name'); }
     if (output != null) { dropped = this.setOutput(phaseId, output); changed.push('output'); }
+    if (changesCode != null) { this.setChangesCode(phaseId, changesCode); changed.push('whether it changes code'); }
     if (description !== undefined) {
       // What the step is for is the step's own, wherever it is used.
       const text = stepDescription(description, name);

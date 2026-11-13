@@ -452,7 +452,9 @@ async function checkWorkflow(workflow, { definition, raw = {}, model, locate, gu
       const title = OBLIGATION_TITLES[entry.code]?.({ step: step ? stepLabel(step) : 'this step', missing: entry.subject?.missing ?? [] }) ?? firstSentence(detail);
       add({ code: entry.code, area: 'flow', severity: entry.severity === 'error' ? 'problem' : 'warning',
         title, detail: detail.charAt(0).toUpperCase() + detail.slice(1), fix: obligationFix(entry),
-        subject: { ...(entry.subject?.phase ? { step: entry.subject.phase } : {}), ...(entry.subject?.decision ? { decision: entry.subject.decision } : {}) },
+        subject: { ...(entry.subject?.phase ? { step: entry.subject.phase } : {}), ...(entry.subject?.decision ? { decision: entry.subject.decision } : {}),
+          // What the route skips, by name (scope, plan, implement, verify, review), for a fix to act on.
+          ...(entry.subject?.missing?.length ? { missing: [...entry.subject.missing] } : {}) },
         // Story start refuses every route that drops a responsibility (assertWorkTypeStartable).
         blocksStart: entry.severity === 'error' });
     }

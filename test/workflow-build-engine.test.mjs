@@ -112,12 +112,12 @@ test('a proposal is checked move by move, each finding located, and nothing is r
   // Live Copilot run 2026-10-18: the planned-claims refusal spoke of "authoritative clause phases"
   // and a "resolvable mode required topology"; it now says what to add and names the steps.
   assert.equal(unsaveable.details.findings[0].code, 'STUDIO_PLANNED_CLAIMS');
-  assert.match(unsaveable.details.findings[0].message, /^A step that writes code needs a step that defines the requirements at or before the step just before it\. Add one the repository has \([^)]*\brequirements\b[^)]*\), as it is or copied with from, before it\. No move declares a workflow without requirements\./u);
+  assert.match(unsaveable.details.findings[0].message, /^A step that writes code needs a step that defines the requirements at or before the step just before it\. Add one the repository has \([^)]*\brequirements\b[^)]*\), as it is or copied with from, before it\. A workflow with a code step cannot leave its requirements out\./u);
   assert.doesNotMatch(unsaveable.details.findings[0].message, /resolvable mode required topology|omits for scope/u);
   const { movesGuide } = await import('../src/workflow-build/moves.mjs');
   const guide = movesGuide();
   assert.match(guide.proposal.evidence, /^\[\{ path, startLine, endLine \}\]/u, 'the proposal shape is in the guide, not only in refusals');
-  for (const rule of [/^Moves apply in order/u, /^A step that writes code \(output code\) needs a step that defines the requirements/u, /^action\.add runs an integration target the repository has registered/u]) {
+  for (const rule of [/^Moves apply in order/u, /^A step that writes code \(output code, or changesCode true\) needs a step that defines the requirements/u, /^action\.add runs an integration target the repository has registered/u]) {
     assert.ok(guide.rules.some((entry) => rule.test(entry)), String(rule));
   }
   const { readWorkflowBuild } = await import('../src/workflow-build/store.mjs');
@@ -505,6 +505,92 @@ test('a reused step keeps its send-back targets; the check names the one move th
   const guide = movesGuide();
   assert.match(guide.values.signOff, /sendBackTo: \[step IDs\]/u);
   assert.ok(guide.rules.some((rule) => /^signOff\.sendBackTo .*the step itself or steps before it in this workflow/u.test(rule)));
+});
+
+test('a workflow named up front that writes no code: the check gives the moves that settle it, and it is ready', async () => {
+  const { run, flow, json, engineEnv } = await harness();
+  const root = await repository(run, flow);
+  const build = json(root, ['workflow', 'build', 'start', '--describe', 'Intake, testing, then the test output and its gaps. No code is written.', '--name', 'Test report']).build;
+  const mine = (title, moves) => json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-', '--by', 'you', '--accept'], { input: JSON.stringify({ title, why: 'The team named these steps.', moves }) });
+  const problem = (check, code) => check.findings.find((entry) => entry.code === code && entry.severity === 'problem');
+  // Office, 2026-11-13: Testing may write tests, so a build of three steps that write no code stopped on code
+  // generation, and no move could say the workflow needs no requirements.
+  mine('Three steps', [
+    { move: 'step.add', id: 'intake', after: null },
+    { move: 'step.add', id: 'testing' },
+    { move: 'step.add', id: 'test-gaps', from: 'test-run', label: 'Test output and gaps', output: 'document', reads: ['testing'], purpose: 'Reports what the tests found and the gaps they leave.' }
+  ]);
+  const first = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  const unplanned = problem(first, 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN');
+  assert.equal(unplanned.subject.step, 'testing');
+  assert.deepEqual(unplanned.fix.choices.map((choice) => [Boolean(choice.moves), /^Testing (only tests|changes code)/u.test(choice.label)]), [[true, true], [false, true]],
+    'a copy that changes no code, or requirements and a plan before it: the person\'s words decide');
+  assert.deepEqual(unplanned.fix.choices[0].moves, [
+    { move: 'step.add', id: 'testing-report', from: 'testing', label: 'Testing', changesCode: false, after: 'testing' },
+    { move: 'step.change', id: 'test-gaps', reads: ['testing-report'] },
+    { move: 'step.remove', id: 'testing' }]);
+  const dropped = problem(first, 'OBLIGATION_ROUTE_DROPS_RESPONSIBILITY');
+  assert.deepEqual(dropped.subject.missing, ['scope', 'plan']);
+  assert.equal(dropped.fix.moves, undefined, 'while a step may change code, its requirements are never left out');
+  assert.match(dropped.fix.text, /^Testing may change code, so this workflow needs requirements and a plan/u);
+
+  mine('Testing only reports', unplanned.fix.choices[0].moves);
+  const second = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.deepEqual(second.draft.workflow.phases, ['intake', 'testing-report', 'test-gaps']);
+  assert.equal(problem(second, 'OBLIGATION_IMPLEMENT_WITHOUT_PLAN'), undefined);
+  const omits = problem(second, 'OBLIGATION_ROUTE_DROPS_RESPONSIBILITY');
+  assert.deepEqual(omits.subject.missing, ['scope', 'plan', 'implement']);
+  // Whether testing and the report cite the criteria by clause ID decides how the workflow holds its
+  // requirements [owner, 2026-11-13: "make sure that it inserts right clause ids"].
+  const [criteria, plainCriteria] = omits.fix.choices;
+  assert.match(criteria.label, /^Intake states the acceptance criteria as clauses, such as \[<Work ID>:AC-001\]/u);
+  assert.deepEqual(criteria.moves, [
+    { move: 'step.add', id: 'intake-criteria', from: 'requirements', label: 'Intake', after: 'intake', reads: [],
+      purpose: 'States the request and its acceptance criteria as clauses that the later steps cite by ID.',
+      signOff: { groups: ['product-approvers'], minimum: 1, sendBackTo: ['intake-criteria'] } },
+    { move: 'step.remove', id: 'intake' },
+    { move: 'workflow.omit', responsibility: 'implement', reason: 'This workflow changes no code; a change it finds is made in a Story of its own.', authority: 'quality-reviewers' }],
+    'the copy holds the requirements and, with no code step, the plan: only the change itself is left out');
+  assert.deepEqual(plainCriteria.moves.map((move) => [move.move, move.responsibility, move.authority]),
+    ['scope', 'plan', 'implement'].map((name) => ['workflow.omit', name, 'quality-reviewers']), 'recorded by the group that signs off the last step');
+  const sendBack = second.findings.filter((entry) => entry.severity === 'problem' && entry.fix.move).map((entry) => entry.fix.move);
+  const plainProposal = json(root, ['workflow', 'build', 'propose', '--build', build.id, '--proposal', '-'],
+    { input: JSON.stringify({ title: 'Plain criteria', why: 'No clause IDs.', moves: [...plainCriteria.moves, ...sendBack] }) }).build.proposals.at(-1);
+  const plainCheck = json(root, ['workflow', 'build', 'check', '--build', build.id, '--include', plainProposal.id]);
+  // A pending piece is shown as it would leave the workflow; the build is ready only once it is accepted.
+  assert.deepEqual([plainCheck.plan.valid, plainCheck.counts.problem], [true, 0], JSON.stringify(plainCheck.findings.filter((entry) => entry.severity === 'problem')));
+  json(root, ['workflow', 'build', 'decide', '--build', build.id, '--proposal', plainProposal.id, '--decline', '--reason', 'The team wants clause IDs.']);
+
+  mine('Intake states the criteria as clauses', [...criteria.moves, ...sendBack]);
+  const ready = json(root, ['workflow', 'build', 'check', '--build', build.id]);
+  assert.deepEqual([ready.ready, ready.counts.problem], [true, 0], JSON.stringify(ready.findings.filter((entry) => entry.severity === 'problem')));
+  assert.deepEqual(ready.draft.workflow.phases, ['intake-criteria', 'testing-report', 'test-gaps']);
+  assert.equal(ready.changeSet.changes.find((change) => change.op === 'phase.create' && change.id === 'testing-report').changesCode, false);
+  assert.equal(ready.changeSet.changes.find((change) => change.op === 'phase.create' && change.id === 'intake-criteria').copyOf, 'requirements');
+  assert.deepEqual(ready.changeSet.changes.find((change) => change.op === 'workflow.create').omits.map((entry) => [entry.responsibility, entry.authority]),
+    [['implement', 'quality-reviewers']]);
+  assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
+
+  // What workflow.omit and changesCode refuse, each at its move and field.
+  const { proposeToBuild } = await import('../src/workflow-build/engine.mjs');
+  const refused = async (moves) => (await proposeToBuild(build.id, { title: 'Refused', why: 'Each move is wrong.', moves }, { root, ...engineEnv })
+    .then(() => assert.fail('recorded'), (error) => error)).details.findings.map((entry) => [entry.at, entry.code]);
+  const reason = 'This workflow runs the tests and reports; it changes no code.';
+  assert.deepEqual(await refused([{ move: 'workflow.omit', responsibility: 'review', reason, authority: 'quality-reviewers' }]), [['moves[0].responsibility', 'BUILD_OMIT_REVIEW']]);
+  assert.deepEqual(await refused([{ move: 'workflow.omit', responsibility: 'verify', reason: 'Too short.', authority: 'nobody-here' }]),
+    [['moves[0].reason', 'BUILD_MOVE_SHAPE'], ['moves[0].authority', 'BUILD_MOVE_REFERENCE']]);
+  assert.deepEqual((await refused([{ move: 'step.add', id: 'implementation', after: 'testing-report' }, { move: 'workflow.omit', responsibility: 'plan', reason, authority: 'quality-reviewers' }]))
+    .filter(([at]) => at.startsWith('moves[')), [['moves[1].responsibility', 'BUILD_OMIT_CODE_STEP']], 'a workflow with a code step never leaves out its plan');
+  assert.deepEqual(await refused([{ move: 'step.add', id: 'intake', after: null }, { move: 'step.change', id: 'intake', changesCode: true }]), [['moves[1].id', 'BUILD_MOVE_SHARED_STEP']],
+    'whether a step other workflows use changes code is changed on a copy');
+  assert.deepEqual(await refused([{ move: 'step.change', id: 'testing-report', output: 'code', changesCode: false }]), [['moves[0].changesCode', 'BUILD_MOVE_SHAPE']]);
+  assert.deepEqual(await refused([{ move: 'step.add', id: 'testing', changesCode: false }]), [['moves[0].id', 'BUILD_MOVE_REUSE']]);
+
+  const { movesGuide } = await import('../src/workflow-build/moves.mjs');
+  const guide = movesGuide();
+  assert.deepEqual(guide.moves['workflow.omit'], { required: ['responsibility', 'reason', 'authority'], optional: [] });
+  assert.ok(guide.rules.some((rule) => /^A workflow that writes no code .*workflow\.omit moves/u.test(rule)));
+  assert.ok(!guide.rules.some((rule) => /never offer that choice/u.test(rule)));
 });
 
 test('starting from a workflow copies it; finishing writes a bundle that imports, or one reviewed proposal on the approved configuration', slowLane(), async () => {

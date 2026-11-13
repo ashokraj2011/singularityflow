@@ -14,7 +14,7 @@
     "lazy-panels-runtime.cjs": { "maximumBytes": 3538200, "maximumModules": 316 },
     "support-runtime.cjs": { "maximumBytes": 455000, "maximumModules": 111 },
     "workflow-markup-runtime.cjs": { "maximumBytes": 140000, "maximumModules": 12 },
-    "workflow-intent-runtime.cjs": { "maximumBytes": 35000, "maximumModules": 4 },
+    "workflow-intent-runtime.cjs": { "maximumBytes": 35100, "maximumModules": 4 },
     "workflow-authoring-ui-runtime.cjs": { "maximumBytes": 70000, "maximumModules": 6 }
   }
 }

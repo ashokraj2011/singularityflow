@@ -3,8 +3,8 @@
  *
  * A proposal (from Copilot or the person) is a short list of moves: add or change a step, add an
  * agent from an existing one, add or attach a skill, add an instruction, a decision, an approval
- * group, an action after a step, a check a step runs (a command the material holds), or say what a
- * found item becomes. Each move is checked on its own
+ * group, an action after a step, a check a step runs (a command the material holds), a responsibility
+ * a workflow that writes no code leaves out, or say what a found item becomes. Each move is checked on its own
  * (closed fields, IDs, references), every finding located at `moves[i].field`. Accepted moves fold
  * into a draft, and the draft lowers to ordinary Studio operations, so a build finishes through
  * Studio's own reviewed proposal and the check runs on exactly what would be published.
@@ -19,13 +19,18 @@ import { normalizeClarificationPolicy } from '../clarifications.mjs';
 const OUTPUTS = ['document', 'analysis', 'code', 'none'];
 const TRIGGERS = ['submitted', 'approved', 'rejected'];
 const SIGN_OFF_FIELDS = ['groups', 'minimum', 'sendBackTo'];
+// What every route of a workflow must hold unless it says why not (src/evidence/obligation-compiler.mjs).
+export const RESPONSIBILITIES = Object.freeze(['scope', 'plan', 'implement', 'verify', 'review']);
+// A workflow with a code step needs requirements, a plan and the change itself; only one that writes no code leaves them out.
+const CODE_NEEDS = new Set(['scope', 'plan', 'implement']);
 const ITEM_AS = ['step', 'agent', 'skill', 'instruction', 'prompt', 'document', 'api-call', 'tool', 'link', 'command', 'checkpoint', 'branch', 'script'];
 const INPUT_NAME = /^[a-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$/u;
 const kebab = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 60);
 
 export const MOVES = Object.freeze({
-  'step.add': { required: ['id'], optional: ['label', 'after', 'from', 'agent', 'output', 'reads', 'signOff', 'purpose'] },
-  'step.change': { required: ['id'], optional: ['label', 'purpose', 'agent', 'output', 'reads', 'signOff'] },
+  // changesCode false: the step writes only its own document, never the repository's files (a testing step that only reports).
+  'step.add': { required: ['id'], optional: ['label', 'after', 'from', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'purpose'] },
+  'step.change': { required: ['id'], optional: ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff'] },
   'step.remove': { required: ['id'], optional: [] },
   'step.move': { required: ['id'], optional: ['after'] },
   // command, category, directory and a test command's completed record are filled in from the found
@@ -42,6 +47,9 @@ export const MOVES = Object.freeze({
   // The work goes a different way by one value (channel web, mobile, otherwise) and comes back together.
   'branch.add': { required: ['after', 'name', 'arms', 'join'], optional: ['label', 'values', 'otherwise', 'item'] },
   'group.add': { required: ['id', 'label'], optional: [] },
+  // A responsibility this workflow, which writes no code, does not hold: written as its omits, which the
+  // group records once with the workflow, so no Story asks it again [owner, 2026-11-12].
+  'workflow.omit': { required: ['responsibility', 'reason', 'authority'], optional: [] },
   'action.add': { required: ['step', 'on', 'target'], optional: [] },
   'item.classify': { required: ['item', 'as'], optional: [] },
   'item.leaveOut': { required: ['item', 'reason'], optional: [] },
@@ -53,7 +61,7 @@ export const MOVES = Object.freeze({
 export function movesGuide() {
   return {
     moves: Object.fromEntries(Object.entries(MOVES).map(([name, fields]) => [name, fields])),
-    values: { output: OUTPUTS, on: TRIGGERS, as: ITEM_AS, requirement: ['required', 'advisory'], signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }" },
+    values: { output: OUTPUTS, on: TRIGGERS, as: ITEM_AS, requirement: ['required', 'advisory'], responsibility: [...RESPONSIBILITIES], signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }" },
     examples: [
       { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'pay-reviewer', output: 'document',
         reads: ['pay-build'], signOff: { groups: ['payments-security'], minimum: 1 }, purpose: 'Checks the change against the PCI rules before release.' },
@@ -64,6 +72,7 @@ export function movesGuide() {
       { move: 'step.clarify', id: 'pay-build', mode: 'when-needed', maxQuestions: 3, topics: ['approved deviations', 'implementation blockers'] },
       { move: 'branch.add', after: 'intake', name: 'channel', arms: [{ when: 'web', steps: ['web-build', 'web-test'] }, { when: 'mobile', steps: ['mobile-build'] }],
         otherwise: { steps: ['other-build'] }, join: 'release' },
+      { move: 'workflow.omit', responsibility: 'implement', reason: 'It runs the tests and reports; it changes no code.', authority: 'quality-reviewers' },
       { move: 'item.leaveOut', item: 'i-0123456789ab', reason: 'CI already scans every change.' }
     ],
     proposal: {
@@ -79,7 +88,10 @@ export function movesGuide() {
       'A new step needs an agent: one the repository has, or one an agent.add in the build adds.',
       'A step that other workflows use keeps its name, output, agent and purpose; add a copy with step.add and `from` to change those.',
       'Moves apply in order: step.add places the step after `after`, or last. A group, agent, skill or instruction the proposal adds can be used by any of its moves.',
-      'A step that writes code (output code) needs a step that defines the requirements at or before the step just before it: reuse one the repository has that defines requirements (such as requirements or implementation-spec), as it is or copied with `from`. No move declares a workflow without requirements, so never offer that choice.',
+      'Steps the person names up front (intake, testing, a test report) are the first piece, in that order.',
+      'A step that writes code (output code, or changesCode true) needs a step that defines the requirements at or before the step just before it: reuse one the repository has (such as requirements or implementation-spec), as it is or copied with `from`. Such a workflow never leaves out requirements, a plan or the change itself.',
+      "A workflow that writes no code has no such step: copy one that may change code (changesCode in the catalog) with `from` and changesCode false, or use test-run. The check then names what it leaves out; its fix gives the workflow.omit moves, or the choice of a first step that defines the acceptance criteria as clauses. A person's review is never left out.",
+      "Propose a finding's fix.moves as they are; of fix.choices, take the one the person chose, else ask.",
       'action.add runs an integration target the repository has registered; a command found in the material is never invented as a target.',
       "When the work goes different ways by one value (a branch item, or text like 'when channel is web … if mobile … otherwise …'), use branch.add: the person submitting the step after which it is known chooses the value; every way comes back to join. Put the steps in order first (after, each arm's steps, otherwise's steps, join), each way's steps its own; the last step of each way needs a sign-off to skip the other ways.",
       "A script or document in a skill's folder (partOf names the skill) goes with that skill: when the skill's procedure names it, write its repositoryPath, where the agent finds it; one with no repositoryPath is not in the repository and becomes needed first once the skill is used.",
@@ -125,7 +137,8 @@ export function validateMoves(moves, { model, draft }) {
   const steps = new Set(draft.workflow.phases);
   // The order the proposal leaves the workflow in: a send-back target must come at or before its step.
   let order = null;
-  try { if (moves.every(plain)) order = applyMoves(draft, moves.slice(0, 50)).workflow.phases; } catch { order = null; }
+  let after = null;
+  try { if (moves.every(plain)) { after = applyMoves(draft, moves.slice(0, 50)); order = after.workflow.phases; } } catch { order = null; after = null; }
   moves.slice(0, 50).forEach((move, index) => {
     const at = `moves[${index}]`;
     if (!plain(move) || typeof move.move !== 'string' || !MOVES[move.move]) {
@@ -166,6 +179,11 @@ export function validateMoves(moves, { model, draft }) {
         else if (order?.includes(move.id) && order.indexOf(target) > order.indexOf(move.id)) add(`${at}.${field}.sendBackTo`, 'BUILD_MOVE_SEND_BACK', `Step '${target}' comes after '${move.id}'; rejected work goes back only to the step itself or an earlier step.`);
       }
     };
+    const changesCodeField = (entry, where) => {
+      if (entry.changesCode == null) return;
+      if (typeof entry.changesCode !== 'boolean') add(`${where}.changesCode`, 'BUILD_MOVE_SHAPE', 'changesCode is true or false.');
+      else if (entry.changesCode === false && entry.output === 'code') add(`${where}.changesCode`, 'BUILD_MOVE_SHAPE', 'A step whose output is code changes code; give it another output, or leave changesCode out.');
+    };
     const stepList = (field) => {
       if (move[field] == null) return;
       if (!Array.isArray(move[field]) || move[field].some((value) => typeof value !== 'string')) { add(`${at}.${field}`, 'BUILD_MOVE_SHAPE', `${field} is a list of step IDs.`); return; }
@@ -182,12 +200,13 @@ export function validateMoves(moves, { model, draft }) {
         const reused = stepId && has.step(stepId) && move.from == null;
         if (!reused && move.from == null && move.agent == null) add(`${at}.agent`, 'BUILD_MOVE_FIELD_MISSING', 'A new step needs the agent that drafts it.');
         if (!reused && move.label == null) add(`${at}.label`, 'BUILD_MOVE_FIELD_MISSING', 'A new step needs a name.');
-        if (reused && ['label', 'agent', 'output', 'reads', 'signOff', 'purpose'].some((field) => move[field] != null)) {
+        if (reused && ['label', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'purpose'].some((field) => move[field] != null)) {
           add(`${at}.id`, 'BUILD_MOVE_REUSE', `Step '${stepId}' exists and is added as it is; change it with step.change, or add a copy with from: '${stepId}' and a new ID.`);
         }
         if (move.agent != null) { id('agent', 'agent'); known('agent', 'agent'); }
         if (move.after != null && !steps.has(move.after) && !added.step.has(move.after)) add(`${at}.after`, 'BUILD_MOVE_REFERENCE', `Step '${move.after}' is not in this workflow.`);
         if (move.output != null && !OUTPUTS.includes(move.output)) add(`${at}.output`, 'BUILD_MOVE_SHAPE', `output is one of ${OUTPUTS.join(', ')}.`);
+        changesCodeField(move, at);
         if (move.label != null && !text(move.label, 120)) add(`${at}.label`, 'BUILD_MOVE_SHAPE', 'label is a name of 1 to 120 characters.');
         if (move.purpose != null && !text(move.purpose, 600)) add(`${at}.purpose`, 'BUILD_MOVE_SHAPE', 'purpose is one paragraph of at most 600 characters.');
         stepList('reads'); signOff('signOff');
@@ -196,12 +215,13 @@ export function validateMoves(moves, { model, draft }) {
       }
       case 'step.change':
         if (move.id && !steps.has(move.id) && !added.step.has(move.id)) add(`${at}.id`, 'BUILD_MOVE_REFERENCE', `Step '${move.id}' is not in this workflow.`);
-        else if (move.id && !draft.steps[move.id]?.new && ['label', 'output', 'agent', 'purpose'].some((field) => move[field] != null)) {
+        else if (move.id && !draft.steps[move.id]?.new && ['label', 'output', 'changesCode', 'agent', 'purpose'].some((field) => move[field] != null)) {
           const users = (model.phases.find((phase) => phase.id === move.id)?.usedBy ?? []).filter((workflow) => workflow !== draft.workflow.id && workflow !== draft.workflow.copyOf);
-          if (users.length) add(`${at}.id`, 'BUILD_MOVE_SHARED_STEP', `Step '${move.id}' is also used by ${users.join(', ')}; its name, output, agent and purpose change there too. Add a copy with step.add and from: '${move.id}' instead.`);
+          if (users.length) add(`${at}.id`, 'BUILD_MOVE_SHARED_STEP', `Step '${move.id}' is also used by ${users.join(', ')}; its name, output, whether it changes code, agent and purpose change there too. Add a copy with step.add and from: '${move.id}' instead.`);
         }
         if (move.agent != null) known('agent', 'agent');
         if (move.output != null && !OUTPUTS.includes(move.output)) add(`${at}.output`, 'BUILD_MOVE_SHAPE', `output is one of ${OUTPUTS.join(', ')}.`);
+        changesCodeField(move, at);
         if (move.purpose != null && typeof move.purpose === 'string' && move.purpose.length > 600) add(`${at}.purpose`, 'BUILD_MOVE_SHAPE', 'purpose is at most 600 characters.');
         stepList('reads'); signOff('signOff');
         break;
@@ -317,6 +337,19 @@ export function validateMoves(moves, { model, draft }) {
       case 'item.classify':
         if (!ITEM_AS.includes(move.as)) add(`${at}.as`, 'BUILD_MOVE_SHAPE', `as is one of ${ITEM_AS.join(', ')}.`);
         break;
+      case 'workflow.omit': {
+        if (!RESPONSIBILITIES.includes(move.responsibility)) { add(`${at}.responsibility`, 'BUILD_MOVE_SHAPE', `responsibility is one of ${RESPONSIBILITIES.join(', ')}.`); break; }
+        if (move.responsibility === 'review') add(`${at}.responsibility`, 'BUILD_OMIT_REVIEW', "A person's review is never left out: give the last step a sign-off (signOff) instead.");
+        if (typeof move.reason !== 'string' || move.reason.trim().length < 20 || move.reason.length > 400) add(`${at}.reason`, 'BUILD_MOVE_SHAPE', 'reason says in 20 to 400 characters why this workflow does not need it.');
+        if (move.authority != null && (typeof move.authority !== 'string' || !ID.test(move.authority))) add(`${at}.authority`, 'BUILD_MOVE_ID', `authority '${move.authority}' must be a group ID.`);
+        else known('authority', 'group');
+        const coding = CODE_NEEDS.has(move.responsibility) && after ? codeSteps(after, model) : [];
+        if (coding.length) {
+          add(`${at}.responsibility`, 'BUILD_OMIT_CODE_STEP', `${coding.join(', ')} may change code, so this workflow needs requirements, a plan and the change itself; it cannot leave out ${move.responsibility}. `
+            + `If ${coding.length === 1 ? 'it only tests' : 'they only test'}, checks or reports, copy ${coding.length === 1 ? 'it' : 'each'} with from and changesCode false first.`);
+        }
+        break;
+      }
       default:
         break;
     }
@@ -341,7 +374,10 @@ export function initialDraft(build, model) {
       base: source ? { id: source.id, label: source.label, phases: [...source.phases] } : null,
       phases: source ? [...source.phases] : [],
       decisions: source ? structuredClone(source.decisions ?? []) : [],
-      baseDecisions: source ? structuredClone(source.decisions ?? []) : []
+      baseDecisions: source ? structuredClone(source.decisions ?? []) : [],
+      // What the workflow says it leaves out (omits), as the one it starts from has it.
+      omits: source ? structuredClone(source.omits ?? []) : [],
+      baseOmits: source ? structuredClone(source.omits ?? []) : []
     },
     steps: {}, overrides: {}, agents: {}, skills: {}, instructions: {}, groups: {}, attachments: [], actions: {}, checks: {}, clarifications: {},
     items: {}
@@ -365,7 +401,7 @@ export function applyMoves(draft, moves) {
         next.workflow.phases = insertAfter(next.workflow.phases, move.id, after);
         if (move.from != null || move.agent != null || move.label != null) {
           next.steps[move.id] = { new: true, label: move.label, from: move.from ?? null, agent: move.agent ?? null, output: move.output ?? null,
-            reads: move.reads ?? null, signOff: move.signOff ?? null, purpose: move.purpose ?? null };
+            ...(move.changesCode != null ? { changesCode: move.changesCode } : {}), reads: move.reads ?? null, signOff: move.signOff ?? null, purpose: move.purpose ?? null };
         }
         break;
       }
@@ -373,7 +409,7 @@ export function applyMoves(draft, moves) {
         const own = next.steps[move.id];
         const target = own?.new ? own : (next.overrides[move.id] ??= {});
         const earlier = target.signOff;
-        for (const field of ['label', 'purpose', 'agent', 'output', 'reads', 'signOff']) if (move[field] !== undefined) target[field] = move[field];
+        for (const field of ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff']) if (move[field] !== undefined) target[field] = move[field];
         // A sign-off that does not name send-back targets keeps the ones an earlier move gave it, as Studio does.
         if (plain(move.signOff) && move.signOff.sendBackTo == null && plain(earlier) && earlier.sendBackTo) target.signOff = { ...move.signOff, sendBackTo: earlier.sendBackTo };
         break;
@@ -391,6 +427,10 @@ export function applyMoves(draft, moves) {
       case 'skill.add': next.skills[move.id] = { label: move.label ?? null, description: move.description, from: move.from ?? null, procedure: move.procedure ?? null, loading: move.loading ?? null }; break;
       case 'instruction.add': next.instructions[move.id] = { label: move.label ?? null, description: move.description, from: move.from ?? null, text: move.text ?? null }; break;
       case 'group.add': next.groups[move.id] = { label: move.label }; break;
+      case 'workflow.omit':
+        next.workflow.omits = [...(next.workflow.omits ?? []).filter((entry) => entry.responsibility !== move.responsibility),
+          { responsibility: move.responsibility, reason: move.reason.trim(), authority: move.authority }];
+        break;
       case 'skill.attach':
         next.attachments = [...next.attachments.filter((entry) => !(entry.skill === move.skill && (entry.agent ?? null) === (move.agent ?? null))),
           { skill: move.skill, agent: move.agent ?? null, steps: move.steps ?? [], use: move.use ?? '' }];
@@ -439,6 +479,27 @@ export function applyMoves(draft, moves) {
   return next;
 }
 
+/**
+ * The steps of a draft that may change code (the engine's implement responsibility): a step whose
+ * output is code, or one allowed to change the repository's files, as testing and verification are to
+ * write tests. Studio's rules decide: changesCode says it outright; moving a step to code makes it
+ * change code; moving one from code to another output stops it; any other output keeps what it had.
+ */
+export function codeSteps(draft, model) {
+  const repository = (id) => model.phases.find((phase) => phase.id === id) ?? null;
+  const changes = (setting, base) => {
+    if (setting.output === 'code') return true;
+    if (setting.changesCode != null) return setting.changesCode;
+    if (setting.output != null && base?.output === 'code') return false;
+    return Boolean(base?.changesCode ?? base?.output === 'code');
+  };
+  return draft.workflow.phases.filter((id) => {
+    const own = draft.steps[id];
+    if (own?.new) return changes(own, own.from ? repository(own.from) : { output: 'document', changesCode: false });
+    return changes(draft.overrides[id] ?? {}, repository(id));
+  }).map((id) => draft.steps[id]?.label ?? repository(id)?.label ?? id);
+}
+
 const approvalChange = (signOff) => (signOff === 'none' ? 'none'
   : { groups: [...signOff.groups], minimum: signOff.minimum ?? 1, ...(signOff.sendBackTo ? { rejectTo: [...signOff.sendBackTo] } : {}) });
 
@@ -473,6 +534,7 @@ export function lowerDraft(draft, model) {
       // A copy of a step the source workflow runs keeps that workflow's settings for it.
       ...(step.from ? { copyOf: step.from, ...(model.workflows.find((workflow) => workflow.id === draft.workflow.copyOf)?.phases.includes(step.from) ? { copyFromWorkflow: draft.workflow.copyOf } : {}) } : {}),
       ...(step.output || !step.from ? { output: step.output ?? 'document' } : {}),
+      ...(step.changesCode != null ? { changesCode: step.changesCode } : {}),
       ...(step.reads ? { inputs: [...step.reads] } : step.from ? {} : { inputs: [] }),
       ...(step.signOff ? { approval: approvalChange(step.signOff) } : step.from ? {} : { approval: 'none' }),
       ...(step.agent ? { agent: step.agent } : {}),
@@ -480,18 +542,24 @@ export function lowerDraft(draft, model) {
       ...(draft.actions[id] ? { afterStep: draft.actions[id].map((action, index) => ({ id: `${id}-action-${index + 1}`, on: action.on, target: action.target })) } : {}) });
   }
   const decisionsChanged = JSON.stringify(draft.workflow.decisions) !== JSON.stringify(draft.workflow.baseDecisions ?? []);
+  const omits = draft.workflow.omits ?? [];
+  const omitsChanged = JSON.stringify(omits) !== JSON.stringify(draft.workflow.baseOmits ?? []);
   if (draft.workflow.inPlace) {
     // A change build updates the workflow it names; only what changed is written.
     const base = draft.workflow.base;
     const update = {
       ...(JSON.stringify(draft.workflow.phases) !== JSON.stringify(base.phases) ? { phases: [...draft.workflow.phases] } : {}),
       ...(draft.workflow.label !== base.label ? { label: draft.workflow.label } : {}),
-      ...(decisionsChanged ? { decisions: structuredClone(draft.workflow.decisions) } : {})
+      ...(decisionsChanged ? { decisions: structuredClone(draft.workflow.decisions) } : {}),
+      ...(omitsChanged ? { omits: omits.length ? structuredClone(omits) : null } : {})
     };
     if (Object.keys(update).length) changes.push({ op: 'workflow.update', id: workflowId, ...update });
   } else {
     changes.push({ op: 'workflow.create', id: workflowId, label: draft.workflow.label, phases: [...draft.workflow.phases],
-      ...(draft.workflow.description ? { description: draft.workflow.description } : {}), ...(draft.workflow.copyOf ? { copyOf: draft.workflow.copyOf } : {}) });
+      ...(draft.workflow.description ? { description: draft.workflow.description } : {}), ...(draft.workflow.copyOf ? { copyOf: draft.workflow.copyOf } : {}),
+      ...(omitsChanged && omits.length ? { omits: structuredClone(omits) } : {}) });
+    // A copy starts with the omits of the workflow it copies; one the build takes away is removed after.
+    if (omitsChanged && !omits.length) changes.push({ op: 'workflow.update', id: workflowId, omits: null });
   }
   for (const [id, change] of Object.entries(draft.overrides)) {
     if (!draft.workflow.phases.includes(id)) continue;
@@ -499,6 +567,7 @@ export function lowerDraft(draft, model) {
     if (change.label != null) shared.label = change.label;
     if (change.purpose != null) shared.description = change.purpose;
     if (change.output != null) shared.output = change.output;
+    if (change.changesCode != null) shared.changesCode = change.changesCode;
     if (Object.keys(shared).length) changes.push({ op: 'phase.update', id, ...shared });
     if (change.agent != null) changes.push({ op: 'phase.agent', phase: id, agent: change.agent });
     const scoped = {};

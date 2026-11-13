@@ -63,7 +63,7 @@ export function builderCatalog(model: StudioModelLike | null, kind?: string, que
     catalog[MODEL_KEYS[name]] = {
       total: entries.length,
       entries: entries.slice(0, CATALOG_LIMIT).map((entry) => ({ id: entry.id, label: entry.label ?? entry.id, ...(entry.description ? { description: String(entry.description).slice(0, 300) } : {}),
-        ...(name === 'step' ? { output: entry.output, usedBy: entry.usedBy, ...(entry.definesClauses ? { definesRequirements: true } : {}) } : {}), ...(name === 'agent' ? { phases: entry.phases } : {}) }))
+        ...(name === 'step' ? { output: entry.output, usedBy: entry.usedBy, ...(entry.definesClauses ? { definesRequirements: true } : {}), ...(entry.changesCode ? { changesCode: true } : {}) } : {}), ...(name === 'agent' ? { phases: entry.phases } : {}) }))
     };
   }
   return { catalog, note: 'Use these IDs as they are in moves; give `from` to start a new one from one of them.' };
@@ -150,18 +150,18 @@ function stateStep(step: Entry, index: number, steps: Entry[]): Entry {
 }
 
 /**
- * Findings with their fix in words, and the move that makes it when there is one (`fixMove`, to
- * propose as it is). Ones that differ only in detail (one per rejection target, say)
+ * Findings with their fix in words, and the move that makes it when there is one (`fixMove`, or
+ * `fixMoves`, to propose as they are; `fixChoices` when two ways are valid and the person's words
+ * decide). Ones that differ only in detail (one per rejection target, say)
  * become one with each detail; the open-items warning's detail repeats `items`, so it is left out.
  */
 function stateFindings(findings: Entry[], workflow: unknown): Entry[] {
   const grouped = new Map<string, Entry & { details: string[] }>();
   for (const finding of findings) {
     const subject = plain(finding.subject) ? kept(Object.fromEntries(Object.entries(finding.subject).filter(([key, value]) => !(key === 'workflow' && value === workflow)))) : {};
-    const fix = plain(finding.fix) ? finding.fix.text : finding.fix;
-    const fixMove = plain(finding.fix) ? finding.fix.move : null;
-    const key = JSON.stringify([finding.code, finding.severity, finding.title, subject, fix, fixMove]);
-    if (!grouped.has(key)) grouped.set(key, { ...kept({ code: finding.code, severity: finding.severity, title: finding.title, subject: Object.keys(subject).length ? subject : null, fix, fixMove }), details: [] });
+    const { text: fix = finding.fix, move: fixMove = null, moves: fixMoves = null, choices: fixChoices = null } = plain(finding.fix) ? finding.fix as Entry : {} as Entry;
+    const key = JSON.stringify([finding.code, finding.severity, finding.title, subject, fix, fixMove, fixMoves, fixChoices]);
+    if (!grouped.has(key)) grouped.set(key, { ...kept({ code: finding.code, severity: finding.severity, title: finding.title, subject: Object.keys(subject).length ? subject : null, fix, fixMove, fixMoves, fixChoices }), details: [] });
     if (finding.detail && finding.code !== 'BUILD_ITEMS_OPEN') grouped.get(key)!.details.push(String(finding.detail));
   }
   return [...grouped.values()].map(({ details, ...finding }) => ({ ...finding, ...(details.length === 1 ? { detail: details[0] } : details.length ? { details } : {}) }));

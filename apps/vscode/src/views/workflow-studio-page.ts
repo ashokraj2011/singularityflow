@@ -6183,6 +6183,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // change the workflow is drawn, explained and checked. The host runs the workflow build commands.
 
   var BUILD_OUTPUT_WORDS = { document: 'writes a document', analysis: 'writes an analysis', code: 'changes code', none: 'no output' };
+  var BUILD_RESPONSIBILITY_WORDS = { scope: 'requirements', plan: 'a plan', implement: 'the change itself', verify: 'verification' };
   var BUILD_ITEM_STATUS = { open: 'not used yet', confirmed: 'used', 'left-out': 'left out', 'kept-as-link': 'kept as a link', prerequisite: 'needed first' };
   /** What a person can keep as a link to open: never part of a step. */
   var BUILD_LINK_KINDS = ['link', 'document', 'api-call', 'tool', 'script'];
@@ -6271,9 +6272,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       case 'step.add': return Object.keys(move).length <= 3 && state.draft.phases[move.id] && !move.label
         ? 'Use the existing step ' + buildStepLabel(move.id) + (move.after === undefined ? '' : move.after ? ' after ' + buildStepLabel(move.after) : ' at the start')
         : 'Add the step ' + (move.label || move.id) + (move.from ? ' (a copy of ' + buildStepLabel(move.from) + ')' : '') + (move.after ? ' after ' + buildStepLabel(move.after) : move.after === null ? ' at the start' : '')
-          + (move.agent ? ', drafted by ' + buildName('agent', move.agent) : '') + (move.output ? ', ' + (BUILD_OUTPUT_WORDS[move.output] || move.output) : '') + signOff(move.signOff);
-      case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'reads', 'signOff'].filter(function (key) { return move[key] !== undefined; })
-        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'signOff' ? 'sign-off' + (sendBack(move.signOff) ? ' (' + sendBack(move.signOff) + ')' : '') : key; }).join(', ');
+          + (move.agent ? ', drafted by ' + buildName('agent', move.agent) : '') + (move.output ? ', ' + (BUILD_OUTPUT_WORDS[move.output] || move.output) : '')
+          + (move.changesCode === false ? ', changes no code' : move.changesCode === true ? ', may change code' : '') + signOff(move.signOff);
+      case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff'].filter(function (key) { return move[key] !== undefined; })
+        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'changesCode' ? (move.changesCode ? 'may change code' : 'changes no code')
+          : key === 'signOff' ? 'sign-off' + (sendBack(move.signOff) ? ' (' + sendBack(move.signOff) + ')' : '') : key; }).join(', ');
       case 'step.remove': return 'Remove ' + buildStepLabel(move.id) + ' from this workflow';
       case 'step.move': return 'Move ' + buildStepLabel(move.id) + (move.after ? ' after ' + buildStepLabel(move.after) : ' to the start');
       case 'agent.add': return 'Add the agent ' + move.label + (move.from ? ', starting from ' + buildName('agent', move.from) : '');
@@ -6289,6 +6292,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       case 'step.check': return 'When ' + buildStepLabel(move.id) + ' is submitted, sflow runs ' + (move.command || buildItemName(move.item)) + (move.directory ? ' in ' + move.directory + '/' : '')
         + ' as its check' + (move.requirement === 'advisory' ? ' (advisory)' : '');
       case 'group.add': return 'Add the approval group ' + move.label + ' (people are added later)';
+      case 'workflow.omit': return 'This workflow leaves out ' + (BUILD_RESPONSIBILITY_WORDS[move.responsibility] || move.responsibility) + ': ' + move.reason + ' (' + buildName('group', move.authority) + ' records it once, with the workflow)';
       case 'action.add': return 'Tell ' + move.target + ' when ' + buildStepLabel(move.step) + ' is ' + move.on;
       case 'item.classify': return 'Treat ' + buildItemName(move.item) + ' as ' + move.as;
       case 'item.leaveOut': return 'Leave out ' + buildItemName(move.item) + ': ' + move.reason;

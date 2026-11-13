@@ -454,6 +454,28 @@ test('naming a step\'s output keeps the write scope of a step that writes agains
   assert.equal(workflow.phases.verification.writeScope, 'source-and-artifact', 'only moving to or from code changes write scope');
 });
 
+test('whether a step changes code is said outright: a copy of Testing that only reports writes its document alone', async () => {
+  const root = await repository();
+  const before = await (await import('../src/workflow-studio.mjs')).buildStudioModel(root);
+  assert.deepEqual(['testing', 'test-run', 'implementation', 'intake'].map((id) => before.phases.find((phase) => phase.id === id).changesCode), [true, false, true, false],
+    'testing may write tests, the test run only reports, implementation delivers code, intake writes its document');
+  const file = await changeSet(root, [
+    { op: 'phase.create', id: 'testing-report', label: 'Testing report', copyOf: 'testing', changesCode: false, agent: 'qa' },
+    { op: 'phase.update', id: 'verification', changesCode: false }
+  ]);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.ok(plan.summary.includes('Verification: whether it changes code changed.'), plan.summary.join('\n'));
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const workflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual([workflow.phases['testing-report'].writeScope, workflow.phases.testing.writeScope, workflow.phases.verification.writeScope],
+    ['artifact-only', 'source-and-artifact', 'artifact-only'], 'the copy and the changed step change no code; the step it copies still may');
+  const refused = json(root, ['workflow', 'studio', 'apply', '--change-set', await changeSet(root, [{ op: 'phase.update', id: 'implementation', changesCode: false }]), '--dry-run'],
+    { allowFailure: true });
+  assert.equal(refused.valid, false);
+  assert.match(JSON.stringify(refused.problems ?? refused.error), /STUDIO_CHANGES_CODE_INVALID|delivers code, so it changes code/u);
+});
+
 test('a Studio agent save refuses a changed agent baseline without overwriting concurrent instructions', async () => {
   const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
   const root = await repository();

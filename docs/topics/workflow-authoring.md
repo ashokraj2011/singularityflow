@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 100
+version: 101
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1475,16 +1475,27 @@ singularity-flow workflow build finish --build <ID> --out payments-release.sflow
 
 | Move | What it does |
 |---|---|
-| `step.add` | Adds a step: one the repository has, as it is; a new one with its agent, output, reads, sign-off and purpose; or a copy of one (`from`) |
+| `step.add` | Adds a step: one the repository has, as it is; a new one with its agent, output, whether it changes code (`changesCode`), reads, sign-off and purpose; or a copy of one (`from`) |
 | `step.change`, `step.move`, `step.remove` | Changes, moves or removes a step in this workflow. A step other workflows use keeps its name, output, agent and purpose; add a copy instead. Its sign-off changes for this workflow only |
 | `agent.add`, `skill.add`, `instruction.add` | Adds an agent, skill or instruction, new or starting from one the repository has (`from`) |
 | `skill.attach` | Attaches a skill to an agent, or to this workflow, for some or all steps |
 | `decision.add`, `decision.remove` | Adds or removes a decision after a step |
 | `group.add` | Adds an approval group, empty; people are added in Workflow Studio |
+| `workflow.omit` | In a workflow that writes no code, says once that it leaves out a responsibility no step holds (`scope`, `plan`, `implement` or `verify`), with the reason and the approval group that records it. A person's review is never left out, and a workflow with a step that may change code never leaves out its requirements, plan or the change itself |
 | `action.add` | Tells an existing integration target when a step is submitted, approved or rejected |
 | `branch.add` | Makes the work go different ways by one value and come back together: after the step that knows it (whoever submits it chooses the value), each arm's steps for its values, `otherwise` for every other value, then `join` (a step or `end`). It writes one branch decision and, at the end of each way, a decision that reuses the value, so nobody is asked twice. The steps must already be in that order |
 | `step.check` | Makes a test, lint, type-check, format or build command the material holds a check of a step: sflow runs it when the step is submitted, records the result, and a failing one stops the submit. It is the command as the team wrote it; install, run, script and deployment commands stay in their skill or instructions for the agent and are never checks |
 | `item.classify`, `item.leaveOut`, `item.keepAsLink`, `item.prerequisite` | Says what a found item is or becomes, or leaves it out with a reason |
+
+A workflow can be named up front, steps and result: "intake, testing, then a test output and gaps
+report". When none of its steps is to change code, it holds no requirements, plan or change of its
+own, and it says so instead of being refused for them. A step the repository has that may change
+code (`changesCode` in the catalog: testing and verification may write tests) is copied with `from`
+and `changesCode: false`, or the workflow uses `test-run`, which runs the repository's tests and
+writes only its report. The check then names what the workflow leaves out, and its fix is the
+`workflow.omit` moves, recorded by the group that signs off the last step; no Story asks about them
+again. When a step may change code and nothing before it plans the change, the fix offers both
+ways: a copy that changes no code, or requirements and a plan before it. The person's words decide.
 
 A sign-off is `none` or `{ groups, minimum, sendBackTo }`. `sendBackTo` (optional) names the steps
 an approver may send rejected work back to: the step itself or steps before it in this workflow,

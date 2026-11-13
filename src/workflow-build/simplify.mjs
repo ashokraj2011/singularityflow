@@ -44,7 +44,7 @@ const UNUSED = Object.freeze({ CHECK_AGENT_UNUSED: 'agent', CHECK_SKILL_UNUSED: 
 // Moves a simplify candidate may carry: each changes only the copy (a step the copy leaves out or
 // adds as it is, what a step reads and who signs it off in this workflow, a decision), never a step
 // other workflows share.
-const COPY_ONLY_MOVES = new Set(['step.remove', 'step.move', 'step.clarify', 'decision.remove', 'decision.add', 'branch.add', 'item.leaveOut', 'item.keepAsLink', 'item.prerequisite', 'item.classify']);
+const COPY_ONLY_MOVES = new Set(['step.remove', 'step.move', 'step.clarify', 'decision.remove', 'decision.add', 'branch.add', 'workflow.omit', 'item.leaveOut', 'item.keepAsLink', 'item.prerequisite', 'item.classify']);
 
 function fail(code, message, details = undefined) {
   throw new SingularityFlowError(message, { code, details });
@@ -57,7 +57,7 @@ const candidateId = (kind, subject) => `sc-${createHash('sha256').update(JSON.st
 /** Whether a move changes only the copy: see COPY_ONLY_MOVES; a step.add reuses a step or copies one under a new ID. */
 export function copyOnlyMove(move, model) {
   if (COPY_ONLY_MOVES.has(move?.move)) return true;
-  if (move?.move === 'step.change') return ['label', 'purpose', 'agent', 'output'].every((field) => move[field] == null);
+  if (move?.move === 'step.change') return ['label', 'purpose', 'agent', 'output', 'changesCode'].every((field) => move[field] == null);
   if (move?.move === 'step.add') return move.from != null || model.phases.some((phase) => phase.id === move.id);
   return false;
 }

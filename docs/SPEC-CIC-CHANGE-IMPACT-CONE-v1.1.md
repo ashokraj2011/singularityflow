@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 13 November 2026
-**Status:** Owner decisions recorded 2026-11-13 (section 9). Stages 1 and 2 are built (section 7.1); stages 3 to 7 follow in the order of section 7, each behind its own switch where it changes an outcome.
+**Status:** Owner decisions recorded 2026-11-13 (section 9). Stages 1 and 2 are built (section 7.1), and stage 3 (section 7.2, owner go-ahead 2026-11-14); stages 4 to 7 follow in the order of section 7, each behind its own switch where it changes an outcome.
 **Namespace:** CIC. Specification documents declare their own namespace in their header (see [DOCUMENTATION-MAP.md](DOCUMENTATION-MAP.md)); no other document uses CIC.
 **Source baseline:** commit 4aabac18a (main 15d6137d3 with the decisions-card work)
 **Replaces:** SPEC-CIC v1.0 (draft of the same day), corrected against the source baseline
@@ -80,9 +80,9 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 
 ### 4.1 Observed dependencies (G1)
 
-**[CIC:REQ-001]** When a step publishes a generation, the kernel MUST record a dependency record for it from production facts only: the clause revisions (ID and statement hash) in its composed input as the prompt receipt records them; the clause claims in the planned and observed claim maps; the paths in its code-delivery change set; the tests bound to its clauses by the traceability bindings; the witnesses; and the implementation bindings and citations. A model's description of what it used is not an input.
+**[CIC:REQ-001]** When a step publishes a generation, the kernel MUST record a dependency record for it from production facts only: the clause revisions (ID and statement hash) in its composed input as the prompt receipt records them (under switch 1 the receipt records them; before stage 3 it held only the capsule's digest and counts); the clause claims in the planned claim maps (a code step's observed claim map is written at submission, after the record, so its claims are the ones planned for it); the paths in its code-delivery change set; the tests bound to its clauses by the traceability bindings; the witnesses; and the source and implementation bindings and the citations. A model's description of what it used is not an input.
 
-**[CIC:REQ-002]** Dependency records MUST be append-only, digest-bound to the step generation and to the scope revision current at publication, and kept in the existing Story state. Each edge names its kind: `input` (in the composed input), `claim` (the generation claims the clause), `path` (it changed a path a clause expects), `test` (a bound test verifies the clause), `witness`, `binding` or `citation`. Each revision recorded after enablement is a `scope-revision/v2` record that stores the stale set it computed and the edges it used; v1 records are never rewritten, and the hash chain runs through both and is verified on read.
+**[CIC:REQ-002]** Dependency records MUST be append-only, digest-bound to the step generation and to the scope revision current at publication, and kept in the existing Story state. Each edge names its kind: `input` (in the composed input), `claim` (the generation claims the clause), `path` (it changed a path a clause expects), `test` (a bound test verifies the clause), `witness`, `binding` or `citation`. Each revision recorded after enablement is a `scope-revision/v2` record that stores the stale set it computed, with each clause's reason (`added`, `revised`, or `depends` with the clauses it depends through), and the edges it used; v1 records are never rewritten, and the hash chain runs through both and is verified on read. A broken chain or a tampered record is reported and read as `unresolved`; no refusal is added, since none existed for v1.
 
 **[CIC:REQ-003]** The effective dependency set used for staleness MUST be the union of `dependsOn`, exact-ID citations and recorded edges. `staleClausesOf` and `scopeStaleness` keep their current results as a lower bound; recorded edges can only add stale items.
 
@@ -90,7 +90,7 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 
 ### 4.2 Widening (G2)
 
-**[CIC:REQ-005]** Each step generation MUST have a coverage state: `resolved` when a complete dependency record exists for it, otherwise `unresolved`. Generations published before enablement, generations whose receipt or claim map is missing or fails its digest, and generations that changed a path no clause claims are `unresolved`.
+**[CIC:REQ-005]** Each step generation MUST have a coverage state: `resolved` when a complete dependency record exists for it, otherwise `unresolved`. Generations published before enablement, generations whose receipt or claim map is missing or fails its digest, and generations that changed a path no clause claims are `unresolved`. Each unresolved generation names its reasons from a closed set (section 7.2).
 
 **[CIC:REQ-006]** On any revision that adds, revises or removes a clause, every `unresolved` generation of the defining step and of every later step MUST be treated as inside the cone. A removed clause counts as changed for the clauses that depend on it. A revision with `changes: null` widens to every later step. A changed path that no clause claims places the whole generation that changed it inside the cone.
 
@@ -126,7 +126,7 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 
 **[CIC:REQ-017]** Per Story, counts MUST record revisions by class, cone size, widened share, evidence items kept, "still holds" questions and answers, steps reset and publications refused. Content is not recorded.
 
-**[CIC:REQ-018]** The capability MUST be enabled per workflow by pinned policy in three independent switches, following the `spec` block pattern and read from the pinned raw field: switch 1, observed dependencies, widening, file closure and D1 (REQ-001 to 007, 021); switch 2, the reopened step's pin and the publication check (REQ-008 to 011); switch 3, classes, the scope-change authority and the chat entry (REQ-013 to 016). The preview (REQ-012) and the fail-closed artifact read (REQ-020) need no switch: one only shows, the other only resets a step whose evidence cannot be read. With all switches off, behaviour is that of the source baseline plus REQ-020.
+**[CIC:REQ-018]** The capability MUST be enabled per workflow by pinned policy in three independent switches, following the `spec` block pattern and read from the pinned raw field: switch 1 (`spec.observedDependencies: on`), observed dependencies, widening, file closure and D1 (REQ-001 to 007, 021); switch 2, the reopened step's pin and the publication check (REQ-008 to 011); switch 3, classes, the scope-change authority and the chat entry (REQ-013 to 016). The preview (REQ-012) and the fail-closed artifact read (REQ-020) need no switch: one only shows, the other only resets a step whose evidence cannot be read. With all switches off, behaviour is that of the source baseline plus REQ-020.
 
 **[CIC:REQ-019]** Records added by this specification MUST be additive to the existing Story state, and no migration rewrites earlier records (D3). Widening of earlier generations under REQ-006 applies only to Stories whose pinned policy enables switch 1; a Story pinned before enablement keeps baseline behaviour, plus REQ-020.
 
@@ -135,7 +135,7 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 | Record | Fields | Lives in |
 | --- | --- | --- |
 | Scope revision v2 | the v1 fields, the stale set it computed with each clause's reason, the edges it used, `previousRevisionSha256` across v1 and v2 | `scopeRevisions`, beside v1 records |
-| Step dependency record | step, generation, scope revision digest, edges (kind, clause ID, statement hash, path, test, witness or binding), coverage state, receipt digest, record digest | Story state |
+| Step dependency record (`step-dependencies/v1`) | step, generation, publication time, scope revision and its digest, receipt path and digest, the claim maps relied on with their digests, the change set path and digest, edges (kind, clause ID, and the statement hash, path, test or line each kind carries), changed paths no clause claims, coverage state with reasons, record digest | one file per generation, `context/dependencies/<step>-gen<N>.json`, committed with the publication; the step keeps `dependencyRecords: [{ generation, path, recordSha256 }]` |
 | Reopened-step pin | step, generation, scope revision digest, set-aside prompt location, amendment | the step's own record |
 | Amendment effect | stale clauses with dependents, per later step: reset, kept or asked with reasons; first reset step; evidence kept; plan rows carried; "still holds" groups; churn | not stored by the preview; the approval stores what it applied in the amendment's `application`, as today |
 | Applied change entry | class, cone size, widened share | existing amendment record |
@@ -146,7 +146,7 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 | --- | --- | --- |
 | `story intent-amendment preview --file <FILE>` | Read, model-free | REQ-012 for a drafted amendment |
 | `story intent-amendment preview <AMD-ID>` | Read, model-free | REQ-012 for a pending proposal; the decisions card shows the same effect |
-| `scope dependencies [<step>]` | Read, model-free | Recorded edges and coverage state, from stage 3 |
+| `spec dependencies [STEP]` | Read, model-free | Recorded edges by kind and the coverage state per generation with its reasons, and the scope revision chain's check (stage 3). It sits beside `spec trace` and `spec coverage`: no `scope` command exists, and a new top-level command would add a command family to root dispatch |
 | existing `story intent-amendment` and change-request commands | Mutation | Unchanged; they apply the effect the preview showed |
 
 ## 7. Delivery order
@@ -171,6 +171,18 @@ Stages 2 and 3 change no outcome except REQ-020, which only resets a step whose 
 - REQ-020's unreadable case cannot be reached through the CLI for a file in the Story: every governed write first copies the Story directory to roll back from (`src/publication-recovery.mjs`), and an unreadable file there refuses the write. The engine's own check is the second line, and the test runs it in process.
 - A step that never ran is reset in the effect's record but not named in its words: it reads the amended scope when it starts.
 - Churn and reversals (D4) are read from the Story's approved amendments and its scope revisions' statement hashes.
+
+### 7.2 What stage 3 built, and what building it found
+
+- **Switch 1** is `spec.observedDependencies: on | off` in the workflow definition's `spec` block (`schemas/workflow-definition.schema.json`, `normalizeSpecPolicy`). It is pinned only when on, so a Story without it (every Story pinned before it, and every new Story while it is off) keeps byte-identical state; readers check the pinned raw field. With it off nothing new is written: no record, no `dependencyRecords`, v1 revisions, and receipts as before.
+- **Records** (`src/dependency-records.mjs`, loaded only on the publish path and by the read). `publishGeneration` writes one per generation after the generation's own records are final, in the publication's commit; `decideIntentAmendment` writes the record of the scope generation it publishes. One file per generation keeps `workflow.json` small: the step holds only `{ generation, path, recordSha256 }`. On the fixture the records were 976 to 2,427 bytes. Each `input` edge costs about 160 bytes, so a step after 100 clauses carries about 17 KB, in its own file.
+- **Prompt receipts did not name the clause revisions.** They held the capsule's digest and counts only. Under switch 1 the composer now records `clauseRevisions` (each ID and approved statement hash, the same hash a scope revision holds) on the receipt. A receipt exists only when a prompt was composed (`phase enter --compose`, an agent's entry). A generation authored without one, such as deterministic code or the scope generation an amendment publishes, reads `unresolved` with `receipt-missing`. That will be common, and it is the fail-closed reading REQ-005 asks for.
+- **Coverage reasons**, a closed set. At publication: `receipt-missing`, `receipt-digest` (the prompt no longer matches the receipt), `receipt-clauses-unrecorded`, `claim-map-missing`, `claim-map-digest`, `delivery-evidence-missing`, `unclaimed-paths` and `artifact-unreadable`. On read: `no-record`, `record-missing`, `record-digest`, `receipt-changed`, `claim-map-changed` and `scope-chain`.
+- **Changed paths no clause claims:** under REQ-005 as written, a plan's Supporting files (lockfiles, CI, build files) are unclaimed, so most real code generations that touch one read `unresolved`. Stage 4 should decide whether Supporting files count as accounted before widening on them.
+- **`scope-revision/v2`** is written by `recordApprovedScopeRevision` under switch 1, with `stale` (each clause's reason) and `edges` (the declared edges the reasons used). Staleness still reads `changes` and `dependsOn` exactly as before, and the test pins `stale` equal to `staleClausesOf`. `schemas/workflow.schema.json` takes each item as v1 or v2, both with `additionalProperties: false`.
+- **Nothing verified the v1 chain before.** `verifyScopeRevisionChain` checks each revision's digest and its link to the one before, through v1 and v2. Only the read uses it, and a record whose revision is not in a chain that verifies reads `unresolved` with `scope-chain`.
+- **Outcomes are unchanged.** On the fixture, the same Story with the switch on and off has equal amendment effects, revision changes, staleness, reset and kept steps, and history.
+- **Publish time:** the CLI's `phase publish` took 1.7 s, 1.7 s and 2.9 s for intake, fix-design and implement with the switch on, and 1.7 s, 1.7 s and 2.8 s with it off, within run-to-run noise.
 
 ## 8. Acceptance
 

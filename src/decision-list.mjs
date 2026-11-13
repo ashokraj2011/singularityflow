@@ -1383,7 +1383,7 @@ function settledItems(workflow, context) {
     return {
       kind: 'settled', settled: true, title: String(entry.answer).slice(0, 200), subject: entry.subject,
       answerWords: entry.answer, evidenceWords: evidence, evidence: (entry.evidence ?? []).map((fact) => `${fact.what} (${fact.where})`), by: entry.by, at: entry.at,
-      why: `${by.replace(/^./u, (first) => first.toUpperCase())} settled this because ${evidence}. Nobody was asked; undo it only if it is wrong.`,
+      why: `${by.replace(/^./u, (first) => first.toUpperCase())} settled this from the evidence below; nobody was asked. Undo it only if it is wrong.`,
       options: [{ ...option(workflow, context, { id: 'undo', label: 'Undo: ask me instead', words: route.words,
         effects: [{ kind: 'settled-undo', settled: entry.id }], needs: { reason: textNeed('', OPTIONAL_REASON) } }), terminal: undo }],
       details: { settledId: entry.id, settledKind: entry.kind, ...(entry.phase ? { phase: entry.phase } : {}), evidence: entry.evidence,

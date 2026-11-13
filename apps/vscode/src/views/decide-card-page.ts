@@ -193,7 +193,8 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
   const rows = decideRows(packet).filter((item) => !item.settled);
   const settled = settledRows(packet);
   const shared = sharedAnswers(packet);
-  const yours = rows.some((item) => item.decidedBy?.allowed && item.options.some(decidable));
+  // An Undo under "Settled for you" is recorded like any answer, so it alone enables the review [owner, 2026-11-13].
+  const yours = [...rows, ...settled].some((item) => item.decidedBy?.allowed && item.options.some(decidable));
   return `<main class="dc" data-digest="${escape(packet.packetSha256)}">
     <header><h1>Decide · ${escape(packet.workId)} · ${escape(packet.phaseLabel)}</h1>
       <p class="muted">${escape(packet.headline)} Nothing is recorded until you review the list and confirm it.</p></header>
@@ -204,10 +205,10 @@ export function decideHtml(packet: DecisionPacket, { error = null as string | nu
       <select id="dc-all-choice"><option value="">Choose…</option>${shared.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.label)} (${entry.rows} rows)</option>`).join('')}</select>
       <input id="dc-all-reason" aria-label="One reason for all of them" placeholder="One reason" maxlength="1000"><button type="button" data-apply-all>Apply to all</button>
       ${shared.filter((entry) => entry.others).map((entry) => `<p class="muted">"${escape(entry.label)}" covers only the rows you decide; ${entry.others === 1 ? '1 more stays' : `${entry.others} more stay`} listed for their own approvers.</p>`).join('')}</section>` : ''}
-    <div class="dc-table"><table>
+    ${rows.length || !settled.length ? `<div class="dc-table"><table>
       <thead><tr><th>What it is</th><th>Your decision</th><th>Your reason</th></tr></thead>
       <tbody>${rows.map((item) => rowHtml(item, draft)).join('')}</tbody>
-    </table></div>
+    </table></div>` : ''}
     ${settled.length ? `<section class="dc-settled" aria-label="Settled for you"><h2>Settled for you</h2>
       <p class="muted">SFlow settled these from its records. Choose Undo on any of them to decide it yourself.</p>
       <div class="dc-table"><table><thead><tr><th>What it is</th><th>Your decision</th><th>Your reason</th></tr></thead>

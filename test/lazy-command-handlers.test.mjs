@@ -904,7 +904,11 @@ test('the common session projection does not import attach, state stores or publ
   // a settled Node's version file count with the plan, read where the plan is (plan-amendments.mjs +901, no import);
   // `decisions undo` is registered (command-registry.mjs +195); /sf-session's entry says a settled Story is opened
   // (copilot-mode.mjs +93). What records, reads and undoes them stays lazy (settled-decisions.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_251_800, `session current loads ${current.bytes} source bytes`);
+  // 4,250,772 (measured): a decision's VS Code route is the Decide card, never "not available for this action",
+  // also where a route arrives without its model-free field [owner, 2026-11-13] (model-free-commands.mjs +678). No new eager file.
+  // 4,252,450 (measured 4,252,428): both of the above together on one branch, each one's growth as measured (+1,656 and
+  // +678); the card's advice (decision-advice.mjs) and the settled list stay lazy. No new eager file.
+  assert.ok(current.bytes <= 4_252_450, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { agentAct } from '../src/agent-output.mjs';
 import { approvalHoldOwner } from '../src/approval-check.mjs';
 import { loadApprovalPacket } from '../src/commands/approval-packet.mjs';
+import { VSCODE_DECIDE_CARD } from '../src/model-free-commands.mjs';
 import { accountedAmendmentPaths, planAmendmentRecord, recordPlanAmendment } from '../src/plan-amendments.mjs';
 import { evaluateSpecCoverage } from '../src/specifications.mjs';
 
@@ -70,7 +71,8 @@ test('known approval holds return an exact decision-list route without creating 
   assert.equal(act.state, 'blocked');
   assert.equal(act.do.copilot, '/sf-decide TEST-ONLY');
   assert.equal(act.do.shell, 'singularity-flow decisions TEST-ONLY --for-agent --json');
-  assert.equal(act.do.vscode, null);
+  // A decisions route's VS Code route is the Decide card, never "not available" [owner, 2026-11-13].
+  assert.equal(act.do.vscode, VSCODE_DECIDE_CARD);
   assert.ok(act.read.includes('approvalPacket.readiness.owedDecisions'));
   assert.match(act.said, /Only approvalCheck\.holds block this approval; report owed items separately/);
 });

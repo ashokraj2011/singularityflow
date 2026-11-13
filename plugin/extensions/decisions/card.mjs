@@ -11,7 +11,9 @@ export const EACH = 'Decide each one';
 export const NOT_NOW = 'Not now';
 // Answers already given and what the plan settled: asked only once the person chooses to, as /adjudicate does [SCS:REQ-034, REQ-035].
 export const CHANGE = 'Change an answer or overrule the plan';
-export const CHANGEABLE_KINDS = Object.freeze(['convergence-answer', 'convergence-settled']);
+// What SFlow settled for the person waits the same way: undone only if they say it is wrong [owner, 2026-11-13].
+export const UNDO_SETTLED = 'Undo what was settled for you';
+export const CHANGEABLE_KINDS = Object.freeze(['convergence-answer', 'convergence-settled', 'settled']);
 export const RECORD = 'Record these decisions';
 export const SIGN = 'Record this review';
 export const FORM_SIZE = 5;
@@ -126,7 +128,7 @@ export function adviceLines(packet) {
 export function settledLines(packet) {
   const rows = settledRows(packet);
   return rows.length ? ['', '**Settled for you.** SFlow settled these from its records; undo any of them on the forms below.',
-    ...rows.flatMap((item) => [`- ${line(itemName(item))}: ${line(item.why)}`,
+    ...rows.flatMap((item) => [`- ${line(itemName(item)).replace(/[.!?]+$/u, '')}: ${line(item.why)}`,
       ...[item.evidence ?? item.details?.evidence].flat().filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => `  - ${line(entry)}`)])] : [];
 }
 
@@ -134,8 +136,10 @@ export function decisionsTable(packet) {
   // What each holds back sits with why it is asked [decision map, finding 1], and its recommended answer beside it [owner, 2026-11-13].
   const rows = [...cardRows(packet).filter((item) => !item.settled), ...approvalRows(packet)]
     .map((item) => `| ${cell(itemName(item))} | ${cell([item.why, item.holdsWords, item.recommended?.words].filter(Boolean).join(' '))} | ${cell(howWords(item, packet))} |`);
-  return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${packet.headline} Nothing is recorded until you confirm the list.`, '',
-    '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows, ...adviceLines(packet), ...settledLines(packet), ...amendmentLines(packet), ...evidenceLines(packet)].join('\n');
+  // Only what was settled for the person: no empty table above "Settled for you".
+  return [`**Decide ${packet.workId} · ${packet.phaseLabel}.** ${packet.headline} Nothing is recorded until you confirm the list.`,
+    ...(rows.length ? ['', '| What it is | Why it waits | How it is answered |', '|---|---|---|', ...rows] : []),
+    ...adviceLines(packet), ...settledLines(packet), ...amendmentLines(packet), ...evidenceLines(packet)].join('\n');
 }
 
 /**
@@ -171,9 +175,12 @@ export function firstForm(packet) {
   const shared = sharedAnswers(packet).map((entry) => ({ ...entry, word: `${entry.label} for all ${entry.items.length}, with one reason` }));
   const open = decidable(packet).filter((item) => !changeable(item)).length;
   const later = decidable(packet).filter(changeable).length;
-  const change = later ? `${CHANGE} (${later})` : null;
+  const settled = decidable(packet).filter((item) => item.settled === true).length;
+  const change = later ? `${settled === later ? UNDO_SETTLED : CHANGE} (${later})` : null;
+  const offered = settled === later ? `settled for you, which you may undo if ${later === 1 ? 'it is' : 'one is'} wrong`
+    : `offered beside the list: an answer already given${settled ? ', a file the plan settled, or what SFlow settled for you' : ', or a file the plan settled'}, which you may change if you disagree`;
   return { shared, change, form: { message: `${open ? `${open} still need a decision from you.` : 'Nothing here waits on a decision from you.'}${later
-    ? ` ${later} ${later === 1 ? 'is' : 'are'} offered beside the list: an answer already given, or a file the plan settled, which you may change if you disagree.` : ''}${shared.map(othersWords).join('')}`,
+    ? ` ${later} ${later === 1 ? 'is' : 'are'} ${offered}.` : ''}${shared.map(othersWords).join('')}`,
   requestedSchema: { type: 'object', required: ['choice'], properties: {
     choice: { type: 'string', title: 'How do you want to decide?', enum: [...shared.map((entry) => entry.word), ...(open ? [EACH] : []), ...(change ? [change] : []), NOT_NOW] } } } } };
 }

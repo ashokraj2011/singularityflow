@@ -706,9 +706,9 @@ test('lifecycle, review and repair skills name the route each stop leaves the pe
   const skill = async (name) => readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
   // IDE and build files left in an Android, Xcode or .NET checkout must not stall intake.
   assert.match(await skill('sflow-start'), /`worktree-review-required`: preserve\/list `changes`; no Story\. The person commits, ignores, moves or lands them \(`\/sf-adhoc`\), then reruns `\/sf-start`/);
-  // The outcomes come from the returned command, narrowed to what this issue's step allows (719603e24);
-  // the person answers each, with the link or expiry an outcome requires.
-  assert.match(await skill('sflow-decide'), /show `id`, `phase`, `about` and allowed outcomes\. Ask outcome, reason and any required PRC\/FAM link or expiry; run its returned `singularity-flow upstream-issue decide` command with those answers/);
+  // An existing issue is shown with its allowed outcomes and recommendation, and decided on the Decide card: one place
+  // for every person decision, never asked free-form in chat [owner, 2026-11-13].
+  assert.match(await skill('sflow-decide'), /Existing issues: show `id`, `phase`, `about`, allowed outcomes and `recommended\.words`; they are decided on the Decide card \(12\)/);
   // Escalation targets only a configured stronger workflow, then starts a new Story with it.
   const interval = await skill('sflow-work-interval');
   assert.match(interval, /Hand off to `\/sf-start` for a new Story whose workflow is the plan's `toWorkType`/);

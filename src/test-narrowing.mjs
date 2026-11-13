@@ -31,7 +31,8 @@ import path from 'node:path';
 
 import { committedFilesAtRevisions, committedTreePaths } from './git.mjs';
 import { readRepositoryManifest } from './repository-manifest.mjs';
-import { recordSha256 } from './records.mjs';
+import { NODE_TEXT_DIGESTS } from './records.mjs';
+import {testNarrowingPolicies} from './kernel/test-recovery.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { collectionConfigNames, collectionLimit } from './test-collection-limits.mjs';
 import { commandTokens, launcherName, packageScriptName, shellSegments } from './test-command-pins.mjs';
@@ -39,6 +40,7 @@ import { selectingRunner, SELECTING_RUNNERS } from './test-runners.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { tokenizeJavaScript } from './verification/javascript-declarations.mjs';
 
+const narrowingValues=testNarrowingPolicies(NODE_TEXT_DIGESTS);
 const MAX_SOURCE_BYTES = 1024 * 1024;
 const MAX_FOCUS_FILES = 256;
 const JAVASCRIPT = /\.(?:[cm]?[jt]sx?)$/iu;
@@ -423,62 +425,24 @@ function unreadConfigWords(entry) {
 }
 
 /** The narrowing an attempt records: the facts known before the run and what its report counted [TCE:REQ-021]. */
-export function observedNarrowing(facts, tests) {
-  const skipped = Number(tests?.skipped) || 0;
-  const discovered = Number.isInteger(tests?.discovered) ? tests.discovered : null;
-  const baseline = Number.isInteger(facts?.baseline) ? facts.baseline : null;
-  const shortfall = baseline != null && discovered != null ? Math.max(0, baseline - discovered) : 0;
-  const filters = facts?.filters ?? [];
-  const focused = facts?.focused ?? [];
-  // Skipped tests the team already had are not this Story's narrowing: only added skip markers, or more
-  // skipped than the pin's first passing run, are.
-  const skipsAdded = skipped > 0 && ((facts?.addedSkips ?? []).length > 0
-    || (Number.isInteger(facts?.baselineSkipped) && skipped > facts.baselineSkipped));
-  return {
-    reasons: [...(filters.length ? ['filter'] : []), ...(focused.length ? ['focused'] : []), ...(skipsAdded ? ['skipped'] : []),
-      ...(shortfall > 0 ? ['below-baseline'] : [])],
-    filters, focused, skipped, discovered, baseline, shortfall,
-    ...(facts?.standing && (facts.standing.filters.length || facts.standing.focused.length) ? { standing: facts.standing } : {}),
-    ...(facts?.addedSkips?.length ? { addedSkips: facts.addedSkips } : {}),
-    ...(facts?.paths?.length ? { paths: facts.paths } : {})
-  };
-}
+export const observedNarrowing=narrowingValues.observedNarrowing;
 
 /**
  * Whether the Story's test-policy agreement reviews reduced coverage itself (TRP `reduced-coverage`):
  * its skipped tests are that agreement's to judge, so they are no narrowing here.
  */
-export function skippedByAgreement(workflow) {
-  return Boolean((workflow?.testRecovery || workflow?.resolution?.testRecovery?.enabled === true)
-    && workflow?.resolution?.testRecovery?.enabledRiskCategories?.includes('reduced-coverage'));
-}
+export const skippedByAgreement=narrowingValues.skippedByAgreement;
 
 /** The reasons a gate refuses: a skip the test-policy agreement already accepted is not one. */
-export function narrowingReasons(narrowing, { skippedAccepted = false } = {}) {
-  return (narrowing?.reasons ?? []).filter((reason) => !(skippedAccepted && reason === 'skipped'));
-}
+export const narrowingReasons=narrowingValues.narrowingReasons;
 
-const filterKey = (filter) => `${filter.option}=${filter.value ?? ''}`;
-const focusKey = (entry) => `${entry.path}|${entry.name ?? ''}`;
+
 
 /** The digest of a narrowing's extent: its filters, focused tests, skipped count and shortfall. */
-export function narrowingFingerprint(narrowing) {
-  return `sha256:${recordSha256({
-    filters: [...new Set((narrowing?.filters ?? []).map(filterKey))].sort(),
-    focused: [...new Set((narrowing?.focused ?? []).map(focusKey))].sort(),
-    skipped: narrowing?.skipped ?? 0, shortfall: narrowing?.shortfall ?? 0
-  })}`;
-}
+export const narrowingFingerprint=narrowingValues.narrowingFingerprint;
 
 /** Whether an accepted narrowing covers an observed one: the same or smaller in every respect. */
-export function narrowingCovers(accepted, observed, { skippedAccepted = false } = {}) {
-  const filters = new Set((accepted?.filters ?? []).map(filterKey));
-  const focused = new Set((accepted?.focused ?? []).map(focusKey));
-  return (observed?.filters ?? []).every((entry) => filters.has(filterKey(entry)))
-    && (observed?.focused ?? []).every((entry) => focused.has(focusKey(entry)))
-    && (skippedAccepted || (observed?.skipped ?? 0) <= (accepted?.skipped ?? 0))
-    && (observed?.shortfall ?? 0) <= (accepted?.shortfall ?? 0);
-}
+export const narrowingCovers=narrowingValues.narrowingCovers;
 
 /** The narrowing in plain words: "filter -k fast (package.json#scripts.test); 2 tests skipped". */
 export function narrowingWords(narrowing, { skippedAccepted = false } = {}) {
@@ -506,69 +470,22 @@ export function testNarrowingCommand(workflow, { phaseId, commandId }) {
 }
 
 /** Why a person may not accept this attempt's narrowing, or null when they may. */
-export function testNarrowingIneligibility(attempt) {
-  if (!attempt) return 'no run of this command is recorded for the step in this checkout yet; publish or submit it first so its narrowed run is recorded';
-  if (attempt.status !== 'passed') return `its latest run is ${attempt.status}; only a narrowed run that passed is accepted, a failing one is fixed`;
-  if (!attempt.pin?.sha256) return 'its latest run was recorded without a command pin; run it again';
-  if (!narrowingReasons(attempt.narrowing).length) return 'its latest run was not narrowed';
-  return null;
-}
-
-function textBetween(value, minimum, maximum, option, what) {
-  const text = String(value ?? '').trim();
-  if (text.length < minimum || text.length > maximum) {
-    throw new SingularityFlowError(`Say ${what} in ${minimum} to ${maximum} characters with ${option}.`, { code: 'TEST_NARROWING_INVALID' });
-  }
-  return text;
-}
+export const testNarrowingIneligibility=narrowingValues.testNarrowingIneligibility;
 
 /** Record a person's acceptance of an attempt's narrowing; the caller found the attempt and checked authority. */
-export function recordTestNarrowing(workflow, { phaseId, attempt, reason, expires = null, actor, authorityGroup, identityAssurance = null, at }) {
-  const ineligible = testNarrowingIneligibility(attempt);
-  if (ineligible) {
-    throw new SingularityFlowError(`The narrowing of ${attempt?.commandId ?? 'this test command'} cannot be accepted: ${ineligible}.`, {
-      code: 'TEST_NARROWING_NOT_ELIGIBLE', details: { phase: phaseId, commandId: attempt?.commandId ?? null }
-    });
-  }
-  const text = textBetween(reason, 20, 1000, '--reason', 'why the narrowed run is enough for this step');
-  let expiresAt = null;
-  if (expires != null) {
-    const expiry = /^\d{4}-\d{2}-\d{2}$/u.test(String(expires)) ? new Date(`${expires}T23:59:59.999Z`) : null;
-    if (!expiry || Number.isNaN(expiry.getTime()) || expiry <= new Date(at)) {
-      throw new SingularityFlowError('--expires must be a date from today on (YYYY-MM-DD); without it the acceptance lasts until the Story ends.', { code: 'TEST_NARROWING_INVALID' });
-    }
-    expiresAt = expiry.toISOString();
-  }
-  const { reasons, filters, focused, skipped, discovered, baseline, shortfall } = attempt.narrowing;
-  workflow.testNarrowings ??= [];
-  const decision = {
-    id: `TNR-${String(workflow.testNarrowings.filter((entry) => !entry.revokes).length + 1).padStart(3, '0')}`,
-    phase: phaseId, commandId: attempt.commandId, pinSha256: attempt.pin.sha256,
-    narrowing: { reasons, filters, focused, skipped, discovered, baseline, shortfall }, fingerprint: narrowingFingerprint(attempt.narrowing),
-    observation: { attemptId: attempt.attemptId }, reason: text, expiresAt, actor, authorityGroup, identityAssurance, at
-  };
-  workflow.testNarrowings.push(decision);
-  return decision;
-}
+export const recordTestNarrowing=narrowingValues.recordTestNarrowing;
 
 /** Revoke an acceptance; the record stays, and so does the revocation. */
-export function recordTestNarrowingRevocation(workflow, { narrowingId, reason, actor, authorityGroup, identityAssurance = null, at }) {
-  const target = countedRecords(workflow, workflow.testNarrowings).find((entry) => !entry.revokes && entry.id === narrowingId);
-  if (!target) throw new SingularityFlowError(`This Story has no test-narrowing decision ${narrowingId}.`, { code: 'TEST_NARROWING_UNKNOWN' });
-  if (countedRecords(workflow, workflow.testNarrowings).some((entry) => entry.revokes === narrowingId)) {
-    throw new SingularityFlowError(`${narrowingId} is already revoked.`, { code: 'TEST_NARROWING_REVOKED' });
-  }
-  const revocation = { revokes: narrowingId, phase: target.phase, commandId: target.commandId,
-    reason: textBetween(reason, 20, 1000, '--reason', 'why the acceptance is revoked'), actor, authorityGroup, identityAssurance, at };
-  workflow.testNarrowings.push(revocation);
-  return revocation;
+export function recordTestNarrowingRevocation(workflow,{narrowingId,reason,actor,authorityGroup,identityAssurance=null,at}){
+  const records=countedRecords(workflow,workflow.testNarrowings),known=records.some(entry=>!entry.revokes&&entry.id===narrowingId);
+  return narrowingValues.recordTestNarrowingRevocation(workflow,{narrowingId,reason,actor,authorityGroup,identityAssurance,at},
+    {records,revocations:known?countedRecords(workflow,workflow.testNarrowings):records});
 }
 
 /** Whether a decision is `active`, `revoked` or `expired` at `at`. */
-export function testNarrowingState(workflow, decision, { at } = {}) {
-  if (countedRecords(workflow, workflow?.testNarrowings).some((entry) => entry.revokes === decision.id)) return 'revoked';
-  if (decision.expiresAt && new Date(decision.expiresAt) <= new Date(at ?? Date.now())) return 'expired';
-  return 'active';
+export function testNarrowingState(workflow,decision,{at}={}){
+  const records=countedRecords(workflow,workflow?.testNarrowings),revoked=records.some(entry=>entry.revokes===decision.id);
+  return narrowingValues.testNarrowingState(records,decision,{at:at??(!revoked&&decision.expiresAt?Date.now():0)});
 }
 
 const decisionsFor = (workflow, phaseId, attempt) => countedRecords(workflow, workflow?.testNarrowings).filter((entry) => !entry.revokes
@@ -581,9 +498,7 @@ export function coveringTestNarrowing(workflow, { phaseId, attempt, at, skippedA
 }
 
 /** The binding a check or execution carries for the decision that let its narrowed run through. */
-export function testNarrowingBinding(decision) {
-  return { id: decision.id, sha256: `sha256:${recordSha256(decision)}` };
-}
+export const testNarrowingBinding=narrowingValues.testNarrowingBinding;
 
 /**
  * The gate rule [TCE:REQ-022]: null for a run that was not narrowed, the binding of the decision

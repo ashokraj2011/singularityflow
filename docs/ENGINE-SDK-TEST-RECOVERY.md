@@ -57,3 +57,36 @@ Person presence, external design/MCP containment, signing, integrations and appl
 separate contracts; this profile does not replace them with success labels. The active Phase 5/7
 completion ledger continues to name the remaining work. Mac-only testing does not qualify Windows
 or an external model service.
+
+## Shared narrowed-run values
+
+`testing/recovery` now exports `testNarrowingPolicies`, with explicit text hashing, admitted
+record observations and observation time. It owns observed narrowing, agreement exclusions,
+fingerprints, extent comparison, eligibility, record/revocation values, expiry and exact decision
+bindings. It cannot discover a repository, authenticate a human, execute tests or approve a phase.
+The record input requires the actual command and attempt identity; the declaration does not promise
+an observation identity omitted by its caller.
+
+The native `test-narrowing.mjs` adapter preserves original signatures, presence-counted records and
+optional clock defaults. File and script collection, Git baseline reads, command rendering and
+native gate coordination remain there. An expired or revoked record cannot become an active one;
+native state evaluation reads the clock only where the original implementation did.
+
+The independent oracle contains 88 outcomes captured from the original native implementation at
+`8252c93b7` before extraction. Both the native adapter and the installed pure API reproduce every
+result, mutated workflow, digest and error. The installed consumer denies infrastructure imports,
+implicit clocks and executable PATH while replaying those outcomes. Strict NodeNext tests also
+reject an omitted observation time, an invented approval method and a record without an attempt ID.
+
+Mac qualification covers 225 distinct affected checks across 13 files: complete native narrowing
+Story journeys, person presence, native SDK/CLI decision parity, runner observations, baseline and
+TRP policy compatibility, actual three-store recovery/repair/risk journeys, installed consumers and
+113 architecture guards. The unchanged original 34-check package qualifier passes alone in 55.1
+seconds under its original 120/60-second limits, for 259 distinct affected checks without skips or
+cancellations. Source validation passes 4,382 checks; VS Code types, the 2,011-site Git audit and all
+13 original bundle ceilings pass. Gateway remains 852/852 modules.
+
+This closes the shared narrowing-value prerequisite. It does not claim namespace baseline/cohort
+selection, a namespace narrowed-run human ceremony or its publication/approval gate. Those owners
+must authenticate actual original and current executions, command/configuration identity and human
+receipts before they can use these values. They remain required Phase 5/7 work.

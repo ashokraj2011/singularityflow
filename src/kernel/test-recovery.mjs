@@ -1033,3 +1033,126 @@ export function namespaceTestRiskPlan(workflow,request,facts,source,rules){
     detail:(record.id??record.revokes)+(record.revokes?' revoked. ':' accepts only its exact environment cause. ')+record.reason});
   return {workflow:proposed,outcome:{currentPhase:workflow.currentPhase,record}};
 }
+
+
+/** Narrowed-run value rules. Record authentication, source collection and optional native clocks stay in adapters. */
+export function testNarrowingPolicies(port){
+  const {sha256Utf8}=textDigestCapability(port),recordSha256=value=>sha256Utf8(canonicalJson(value));
+  const filterKey = (filter) => `${filter.option}=${filter.value ?? ""}`;
+  const focusKey = (entry) => `${entry.path}|${entry.name ?? ""}`;
+  function observedNarrowing(facts, tests) {
+    const skipped = Number(tests?.skipped) || 0;
+    const discovered = Number.isInteger(tests?.discovered) ? tests.discovered : null;
+    const baseline = Number.isInteger(facts?.baseline) ? facts.baseline : null;
+    const shortfall = baseline != null && discovered != null ? Math.max(0, baseline - discovered) : 0;
+    const filters = facts?.filters ?? [];
+    const focused = facts?.focused ?? [];
+    // Skipped tests the team already had are not this Story's narrowing: only added skip markers, or more
+    // skipped than the pin's first passing run, are.
+    const skipsAdded = skipped > 0 && ((facts?.addedSkips ?? []).length > 0
+      || (Number.isInteger(facts?.baselineSkipped) && skipped > facts.baselineSkipped));
+    return {
+      reasons: [...(filters.length ? ['filter'] : []), ...(focused.length ? ['focused'] : []), ...(skipsAdded ? ['skipped'] : []),
+        ...(shortfall > 0 ? ['below-baseline'] : [])],
+      filters, focused, skipped, discovered, baseline, shortfall,
+      ...(facts?.standing && (facts.standing.filters.length || facts.standing.focused.length) ? { standing: facts.standing } : {}),
+      ...(facts?.addedSkips?.length ? { addedSkips: facts.addedSkips } : {}),
+      ...(facts?.paths?.length ? { paths: facts.paths } : {})
+    };
+  }
+
+  function skippedByAgreement(workflow) {
+    return Boolean((workflow?.testRecovery || workflow?.resolution?.testRecovery?.enabled === true)
+      && workflow?.resolution?.testRecovery?.enabledRiskCategories?.includes('reduced-coverage'));
+  }
+
+  function narrowingReasons(narrowing, { skippedAccepted = false } = {}) {
+    return (narrowing?.reasons ?? []).filter((reason) => !(skippedAccepted && reason === 'skipped'));
+  }
+
+  function narrowingFingerprint(narrowing) {
+    return `sha256:${recordSha256({
+      filters: [...new Set((narrowing?.filters ?? []).map(filterKey))].sort(),
+      focused: [...new Set((narrowing?.focused ?? []).map(focusKey))].sort(),
+      skipped: narrowing?.skipped ?? 0, shortfall: narrowing?.shortfall ?? 0
+    })}`;
+  }
+
+  function narrowingCovers(accepted, observed, { skippedAccepted = false } = {}) {
+    const filters = new Set((accepted?.filters ?? []).map(filterKey));
+    const focused = new Set((accepted?.focused ?? []).map(focusKey));
+    return (observed?.filters ?? []).every((entry) => filters.has(filterKey(entry)))
+      && (observed?.focused ?? []).every((entry) => focused.has(focusKey(entry)))
+      && (skippedAccepted || (observed?.skipped ?? 0) <= (accepted?.skipped ?? 0))
+      && (observed?.shortfall ?? 0) <= (accepted?.shortfall ?? 0);
+  }
+
+  function testNarrowingIneligibility(attempt) {
+    if (!attempt) return 'no run of this command is recorded for the step in this checkout yet; publish or submit it first so its narrowed run is recorded';
+    if (attempt.status !== 'passed') return `its latest run is ${attempt.status}; only a narrowed run that passed is accepted, a failing one is fixed`;
+    if (!attempt.pin?.sha256) return 'its latest run was recorded without a command pin; run it again';
+    if (!narrowingReasons(attempt.narrowing).length) return 'its latest run was not narrowed';
+    return null;
+  }
+
+  function textBetween(value, minimum, maximum, option, what) {
+    const text = String(value ?? '').trim();
+    if (text.length < minimum || text.length > maximum) {
+      throw new SingularityFlowError(`Say ${what} in ${minimum} to ${maximum} characters with ${option}.`, { code: 'TEST_NARROWING_INVALID' });
+    }
+    return text;
+  }
+
+  function recordTestNarrowing(workflow, { phaseId, attempt, reason, expires = null, actor, authorityGroup, identityAssurance = null, at }) {
+    const ineligible = testNarrowingIneligibility(attempt);
+    if (ineligible) {
+      throw new SingularityFlowError(`The narrowing of ${attempt?.commandId ?? 'this test command'} cannot be accepted: ${ineligible}.`, {
+        code: 'TEST_NARROWING_NOT_ELIGIBLE', details: { phase: phaseId, commandId: attempt?.commandId ?? null }
+      });
+    }
+    const text = textBetween(reason, 20, 1000, '--reason', 'why the narrowed run is enough for this step');
+    let expiresAt = null;
+    if (expires != null) {
+      const expiry = /^\d{4}-\d{2}-\d{2}$/u.test(String(expires)) ? new Date(`${expires}T23:59:59.999Z`) : null;
+      if (!expiry || Number.isNaN(expiry.getTime()) || expiry <= new Date(at)) {
+        throw new SingularityFlowError('--expires must be a date from today on (YYYY-MM-DD); without it the acceptance lasts until the Story ends.', { code: 'TEST_NARROWING_INVALID' });
+      }
+      expiresAt = expiry.toISOString();
+    }
+    const { reasons, filters, focused, skipped, discovered, baseline, shortfall } = attempt.narrowing;
+    workflow.testNarrowings ??= [];
+    const decision = {
+      id: `TNR-${String(workflow.testNarrowings.filter((entry) => !entry.revokes).length + 1).padStart(3, '0')}`,
+      phase: phaseId, commandId: attempt.commandId, pinSha256: attempt.pin.sha256,
+      narrowing: { reasons, filters, focused, skipped, discovered, baseline, shortfall }, fingerprint: narrowingFingerprint(attempt.narrowing),
+      observation: { attemptId: attempt.attemptId }, reason: text, expiresAt, actor, authorityGroup, identityAssurance, at
+    };
+    workflow.testNarrowings.push(decision);
+    return decision;
+  }
+
+  function recordTestNarrowingRevocation(workflow, { narrowingId, reason, actor, authorityGroup, identityAssurance = null, at }, {records,revocations=records}={}) {
+    if(!Array.isArray(records)||!Array.isArray(revocations))throw new SingularityFlowError("Revocation values need explicit admitted record observations.",{code:"ENGINE_INPUT_INVALID"});
+    const target = records.find((entry) => !entry.revokes && entry.id === narrowingId);
+    if (!target) throw new SingularityFlowError(`This Story has no test-narrowing decision ${narrowingId}.`, { code: 'TEST_NARROWING_UNKNOWN' });
+    if (revocations.some((entry) => entry.revokes === narrowingId)) {
+      throw new SingularityFlowError(`${narrowingId} is already revoked.`, { code: 'TEST_NARROWING_REVOKED' });
+    }
+    const revocation = { revokes: narrowingId, phase: target.phase, commandId: target.commandId,
+      reason: textBetween(reason, 20, 1000, '--reason', 'why the acceptance is revoked'), actor, authorityGroup, identityAssurance, at };
+    workflow.testNarrowings.push(revocation);
+    return revocation;
+  }
+
+  function testNarrowingState(records, decision, { at } = {}) {
+    if(at===undefined||!Array.isArray(records))throw new SingularityFlowError("Narrowing state needs admitted records and explicit observation time.",{code:"ENGINE_INPUT_INVALID"});
+    if (records.some((entry) => entry.revokes === decision.id)) return 'revoked';
+    if (decision.expiresAt && new Date(decision.expiresAt) <= new Date(at)) return 'expired';
+    return 'active';
+  }
+
+  function testNarrowingBinding(decision) {
+    return { id: decision.id, sha256: `sha256:${recordSha256(decision)}` };
+  }
+  return Object.freeze({observedNarrowing,skippedByAgreement,narrowingReasons,narrowingFingerprint,narrowingCovers,testNarrowingIneligibility,recordTestNarrowing,recordTestNarrowingRevocation,testNarrowingState,testNarrowingBinding});
+}

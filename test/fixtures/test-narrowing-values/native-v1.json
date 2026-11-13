@@ -1,0 +1,1572 @@
+{
+  "baseline": "8252c93b7",
+  "source": "src/test-narrowing.mjs",
+  "sha256": "f25537f7a50dc8f4b61368d63211590bb56183830c1886d5cefad54452b36a90",
+  "cases": [
+    {
+      "name": "counts null null",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": null,
+          "baseline": null,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts null 0",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 0,
+          "baseline": null,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts null 5",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 5,
+          "baseline": null,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts null 8",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 8,
+          "baseline": null,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 0 null",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": null,
+          "baseline": 0,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 0 0",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 0,
+          "baseline": 0,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 0 5",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 5,
+          "baseline": 0,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 0 8",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 8,
+          "baseline": 0,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 5 null",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": null,
+          "baseline": 5,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 5 0",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "below-baseline"
+          ],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 0,
+          "baseline": 5,
+          "shortfall": 5
+        }
+      }
+    },
+    {
+      "name": "counts 5 5",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 5,
+          "baseline": 5,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 5 8",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 8,
+          "baseline": 5,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 12 null",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": null,
+          "baseline": 12,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "counts 12 0",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "below-baseline"
+          ],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 0,
+          "baseline": 12,
+          "shortfall": 12
+        }
+      }
+    },
+    {
+      "name": "counts 12 5",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "below-baseline"
+          ],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 5,
+          "baseline": 12,
+          "shortfall": 7
+        }
+      }
+    },
+    {
+      "name": "counts 12 8",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "below-baseline"
+          ],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 8,
+          "baseline": 12,
+          "shortfall": 4
+        }
+      }
+    },
+    {
+      "name": "new filter",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "filter"
+          ],
+          "filters": [
+            {
+              "option": "-t",
+              "value": "selected",
+              "source": "argv"
+            }
+          ],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 5,
+          "baseline": 5,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "new focus",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "focused"
+          ],
+          "filters": [],
+          "focused": [
+            {
+              "path": "test/a.test.js",
+              "line": 3,
+              "name": "one"
+            }
+          ],
+          "skipped": 0,
+          "discovered": 5,
+          "baseline": 5,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "standing filters",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 5,
+          "baseline": 5,
+          "shortfall": 0,
+          "standing": {
+            "filters": [
+              {
+                "option": "-t",
+                "value": "selected",
+                "source": "argv"
+              }
+            ],
+            "focused": [
+              {
+                "path": "test/a.test.js",
+                "line": 3,
+                "name": "one"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "standing skip",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 2,
+          "discovered": 5,
+          "baseline": 5,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "new skips",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "skipped"
+          ],
+          "filters": [],
+          "focused": [],
+          "skipped": 3,
+          "discovered": 5,
+          "baseline": 5,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "new skip markers",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "skipped"
+          ],
+          "filters": [],
+          "focused": [],
+          "skipped": 1,
+          "discovered": 5,
+          "baseline": 5,
+          "shortfall": 0,
+          "addedSkips": [
+            {
+              "path": "test/a.test.js",
+              "added": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "path observation",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": 5,
+          "baseline": 5,
+          "shortfall": 0,
+          "paths": [
+            {
+              "source": "argv",
+              "operands": [
+                "test/a.test.js"
+              ],
+              "droppedCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "string counts",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [
+            "skipped"
+          ],
+          "filters": [],
+          "focused": [],
+          "skipped": 2,
+          "discovered": null,
+          "baseline": 5,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "missing counts",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "reasons": [],
+          "filters": [],
+          "focused": [],
+          "skipped": 0,
+          "discovered": null,
+          "baseline": null,
+          "shortfall": 0
+        }
+      }
+    },
+    {
+      "name": "agreement 0",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "agreement 1",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "agreement 2",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "agreement 3",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "agreement 4",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "all reasons",
+      "observation": {
+        "kind": "return",
+        "value": [
+          "filter",
+          "skipped",
+          "below-baseline"
+        ]
+      }
+    },
+    {
+      "name": "skips accepted",
+      "observation": {
+        "kind": "return",
+        "value": [
+          "filter",
+          "below-baseline"
+        ]
+      }
+    },
+    {
+      "name": "no reasons",
+      "observation": {
+        "kind": "return",
+        "value": []
+      }
+    },
+    {
+      "name": "fingerprint 0",
+      "observation": {
+        "kind": "return",
+        "value": "sha256:d0f18724fe265f8a9dd07028cd49f60e8e99a947d8a17697c856bdd58683742f"
+      }
+    },
+    {
+      "name": "fingerprint 1",
+      "observation": {
+        "kind": "return",
+        "value": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a"
+      }
+    },
+    {
+      "name": "fingerprint 2",
+      "observation": {
+        "kind": "return",
+        "value": "sha256:9bdcc3abebf00f3bfebc35236877220cf53b2facc541a1a50ec96e7db11eefb8"
+      }
+    },
+    {
+      "name": "fingerprint 3",
+      "observation": {
+        "kind": "return",
+        "value": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a"
+      }
+    },
+    {
+      "name": "fingerprint 4",
+      "observation": {
+        "kind": "return",
+        "value": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a"
+      }
+    },
+    {
+      "name": "fingerprint 5",
+      "observation": {
+        "kind": "return",
+        "value": "sha256:a7c9a813e0f14fd7375928ecf4fbc51344ff34d31ac36ae1ccdd57ef71dcf6f6"
+      }
+    },
+    {
+      "name": "coverage 0 false",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "coverage 0 true",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "coverage 1 false",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "coverage 1 true",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "coverage 2 false",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "coverage 2 true",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "coverage 3 false",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "coverage 3 true",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "coverage 4 false",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "coverage 4 true",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "coverage 5 false",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "coverage 5 true",
+      "observation": {
+        "kind": "return",
+        "value": false
+      }
+    },
+    {
+      "name": "coverage 6 false",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "coverage 6 true",
+      "observation": {
+        "kind": "return",
+        "value": true
+      }
+    },
+    {
+      "name": "eligibility 0",
+      "observation": {
+        "kind": "return",
+        "value": "no run of this command is recorded for the step in this checkout yet; publish or submit it first so its narrowed run is recorded"
+      }
+    },
+    {
+      "name": "eligibility 1",
+      "observation": {
+        "kind": "return",
+        "value": "its latest run is failed; only a narrowed run that passed is accepted, a failing one is fixed"
+      }
+    },
+    {
+      "name": "eligibility 2",
+      "observation": {
+        "kind": "return",
+        "value": "its latest run is unavailable; only a narrowed run that passed is accepted, a failing one is fixed"
+      }
+    },
+    {
+      "name": "eligibility 3",
+      "observation": {
+        "kind": "return",
+        "value": "its latest run was recorded without a command pin; run it again"
+      }
+    },
+    {
+      "name": "eligibility 4",
+      "observation": {
+        "kind": "return",
+        "value": "its latest run was not narrowed"
+      }
+    },
+    {
+      "name": "eligibility 5",
+      "observation": {
+        "kind": "return",
+        "value": null
+      }
+    },
+    {
+      "name": "record actual narrowing",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "id": "TNR-001",
+          "phase": "code",
+          "commandId": "unit",
+          "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "narrowing": {
+            "reasons": [
+              "filter",
+              "skipped",
+              "below-baseline"
+            ],
+            "filters": [
+              {
+                "option": "-t",
+                "value": "selected",
+                "source": "argv"
+              }
+            ],
+            "focused": [],
+            "skipped": 1,
+            "discovered": 3,
+            "baseline": 5,
+            "shortfall": 2
+          },
+          "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+          "observation": {
+            "attemptId": "TA-original"
+          },
+          "reason": "The original reviewers accept this bounded test selection.",
+          "expiresAt": null,
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        "workflow": {
+          "testNarrowings": [
+            {
+              "id": "TNR-001",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+              "observation": {
+                "attemptId": "TA-original"
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": null,
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "record 0",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "id": "TNR-002",
+          "phase": "code",
+          "commandId": "unit",
+          "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "narrowing": {
+            "reasons": [
+              "filter",
+              "skipped",
+              "below-baseline"
+            ],
+            "filters": [
+              {
+                "option": "-t",
+                "value": "selected",
+                "source": "argv"
+              }
+            ],
+            "focused": [],
+            "skipped": 1,
+            "discovered": 3,
+            "baseline": 5,
+            "shortfall": 2
+          },
+          "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+          "observation": {
+            "attemptId": "TA-original"
+          },
+          "reason": "The original reviewers accept this bounded test selection.",
+          "expiresAt": "2026-12-01T23:59:59.999Z",
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        "workflow": {
+          "testNarrowings": [
+            {
+              "id": "TNR-001",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": "2026-12-01T23:59:59.999Z",
+              "at": "2026-11-08T12:00:00.000Z"
+            },
+            {
+              "revokes": "TNR-older"
+            },
+            {
+              "id": "TNR-002",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+              "observation": {
+                "attemptId": "TA-original"
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": "2026-12-01T23:59:59.999Z",
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "record 1",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "id": "TNR-002",
+          "phase": "code",
+          "commandId": "unit",
+          "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "narrowing": {
+            "reasons": [
+              "filter",
+              "skipped",
+              "below-baseline"
+            ],
+            "filters": [
+              {
+                "option": "-t",
+                "value": "selected",
+                "source": "argv"
+              }
+            ],
+            "focused": [],
+            "skipped": 1,
+            "discovered": 3,
+            "baseline": 5,
+            "shortfall": 2
+          },
+          "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+          "observation": {
+            "attemptId": "TA-original"
+          },
+          "reason": "The original reviewers accept this bounded test selection.",
+          "expiresAt": "2026-11-08T23:59:59.999Z",
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        "workflow": {
+          "testNarrowings": [
+            {
+              "id": "TNR-001",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": "2026-12-01T23:59:59.999Z",
+              "at": "2026-11-08T12:00:00.000Z"
+            },
+            {
+              "revokes": "TNR-older"
+            },
+            {
+              "id": "TNR-002",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+              "observation": {
+                "attemptId": "TA-original"
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": "2026-11-08T23:59:59.999Z",
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "record 2",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "--expires must be a date from today on (YYYY-MM-DD); without it the acceptance lasts until the Story ends.",
+        "code": "TEST_NARROWING_INVALID"
+      }
+    },
+    {
+      "name": "record 3",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "--expires must be a date from today on (YYYY-MM-DD); without it the acceptance lasts until the Story ends.",
+        "code": "TEST_NARROWING_INVALID"
+      }
+    },
+    {
+      "name": "record 4",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "--expires must be a date from today on (YYYY-MM-DD); without it the acceptance lasts until the Story ends.",
+        "code": "TEST_NARROWING_INVALID"
+      }
+    },
+    {
+      "name": "record 5",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "Say why the narrowed run is enough for this step in 20 to 1000 characters with --reason.",
+        "code": "TEST_NARROWING_INVALID"
+      }
+    },
+    {
+      "name": "record 6",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "id": "TNR-002",
+          "phase": "code",
+          "commandId": "unit",
+          "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "narrowing": {
+            "reasons": [
+              "filter",
+              "skipped",
+              "below-baseline"
+            ],
+            "filters": [
+              {
+                "option": "-t",
+                "value": "selected",
+                "source": "argv"
+              }
+            ],
+            "focused": [],
+            "skipped": 1,
+            "discovered": 3,
+            "baseline": 5,
+            "shortfall": 2
+          },
+          "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+          "observation": {
+            "attemptId": "TA-original"
+          },
+          "reason": "xxxxxxxxxxxxxxxxxxxx",
+          "expiresAt": null,
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        "workflow": {
+          "testNarrowings": [
+            {
+              "id": "TNR-001",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": "2026-12-01T23:59:59.999Z",
+              "at": "2026-11-08T12:00:00.000Z"
+            },
+            {
+              "revokes": "TNR-older"
+            },
+            {
+              "id": "TNR-002",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+              "observation": {
+                "attemptId": "TA-original"
+              },
+              "reason": "xxxxxxxxxxxxxxxxxxxx",
+              "expiresAt": null,
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "record 7",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "id": "TNR-002",
+          "phase": "code",
+          "commandId": "unit",
+          "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "narrowing": {
+            "reasons": [
+              "filter",
+              "skipped",
+              "below-baseline"
+            ],
+            "filters": [
+              {
+                "option": "-t",
+                "value": "selected",
+                "source": "argv"
+              }
+            ],
+            "focused": [],
+            "skipped": 1,
+            "discovered": 3,
+            "baseline": 5,
+            "shortfall": 2
+          },
+          "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+          "observation": {
+            "attemptId": "TA-original"
+          },
+          "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "expiresAt": null,
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        "workflow": {
+          "testNarrowings": [
+            {
+              "id": "TNR-001",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": "2026-12-01T23:59:59.999Z",
+              "at": "2026-11-08T12:00:00.000Z"
+            },
+            {
+              "revokes": "TNR-older"
+            },
+            {
+              "id": "TNR-002",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+              "observation": {
+                "attemptId": "TA-original"
+              },
+              "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "expiresAt": null,
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "record 8",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "Say why the narrowed run is enough for this step in 20 to 1000 characters with --reason.",
+        "code": "TEST_NARROWING_INVALID"
+      }
+    },
+    {
+      "name": "record 9",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "id": "TNR-002",
+          "phase": "code",
+          "commandId": "unit",
+          "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "narrowing": {
+            "reasons": [
+              "filter",
+              "skipped",
+              "below-baseline"
+            ],
+            "filters": [
+              {
+                "option": "-t",
+                "value": "selected",
+                "source": "argv"
+              }
+            ],
+            "focused": [],
+            "skipped": 1,
+            "discovered": 3,
+            "baseline": 5,
+            "shortfall": 2
+          },
+          "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+          "observation": {
+            "attemptId": "TA-original"
+          },
+          "reason": "A bounded human review accepts these exact selected tests.",
+          "expiresAt": null,
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        "workflow": {
+          "testNarrowings": [
+            {
+              "id": "TNR-001",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": "2026-12-01T23:59:59.999Z",
+              "at": "2026-11-08T12:00:00.000Z"
+            },
+            {
+              "revokes": "TNR-older"
+            },
+            {
+              "id": "TNR-002",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "fingerprint": "sha256:dec02aa5aee967aff2fb63709e24a42a352dddd966e926a25a9612bee5be646a",
+              "observation": {
+                "attemptId": "TA-original"
+              },
+              "reason": "A bounded human review accepts these exact selected tests.",
+              "expiresAt": null,
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "record 10",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "The narrowing of this test command cannot be accepted: no run of this command is recorded for the step in this checkout yet; publish or submit it first so its narrowed run is recorded.",
+        "code": "TEST_NARROWING_NOT_ELIGIBLE",
+        "details": {
+          "phase": "code",
+          "commandId": null
+        }
+      }
+    },
+    {
+      "name": "record 11",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "The narrowing of unit cannot be accepted: its latest run is failed; only a narrowed run that passed is accepted, a failing one is fixed.",
+        "code": "TEST_NARROWING_NOT_ELIGIBLE",
+        "details": {
+          "phase": "code",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "record 12",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "The narrowing of unit cannot be accepted: its latest run was not narrowed.",
+        "code": "TEST_NARROWING_NOT_ELIGIBLE",
+        "details": {
+          "phase": "code",
+          "commandId": "unit"
+        }
+      }
+    },
+    {
+      "name": "revoke actual",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "revokes": "TNR-001",
+          "phase": "code",
+          "commandId": "unit",
+          "reason": "The full configured test coverage is required again.",
+          "actor": "reviewer",
+          "authorityGroup": "reviewers",
+          "identityAssurance": null,
+          "at": "2026-11-08T12:00:00.000Z"
+        },
+        "workflow": {
+          "testNarrowings": [
+            {
+              "id": "TNR-001",
+              "phase": "code",
+              "commandId": "unit",
+              "pinSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "narrowing": {
+                "reasons": [
+                  "filter",
+                  "skipped",
+                  "below-baseline"
+                ],
+                "filters": [
+                  {
+                    "option": "-t",
+                    "value": "selected",
+                    "source": "argv"
+                  }
+                ],
+                "focused": [],
+                "skipped": 1,
+                "discovered": 3,
+                "baseline": 5,
+                "shortfall": 2
+              },
+              "reason": "The original reviewers accept this bounded test selection.",
+              "expiresAt": "2026-12-01T23:59:59.999Z",
+              "at": "2026-11-08T12:00:00.000Z"
+            },
+            {
+              "revokes": "TNR-001",
+              "phase": "code",
+              "commandId": "unit",
+              "reason": "The full configured test coverage is required again.",
+              "actor": "reviewer",
+              "authorityGroup": "reviewers",
+              "identityAssurance": null,
+              "at": "2026-11-08T12:00:00.000Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "revoke unknown",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "This Story has no test-narrowing decision TNR-001.",
+        "code": "TEST_NARROWING_UNKNOWN"
+      }
+    },
+    {
+      "name": "revoke twice",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "TNR-001 is already revoked.",
+        "code": "TEST_NARROWING_REVOKED"
+      }
+    },
+    {
+      "name": "revoke reason invalid",
+      "observation": {
+        "kind": "throw",
+        "name": "SingularityFlowError",
+        "message": "Say why the acceptance is revoked in 20 to 1000 characters with --reason.",
+        "code": "TEST_NARROWING_INVALID"
+      }
+    },
+    {
+      "name": "state 0",
+      "observation": {
+        "kind": "return",
+        "value": "active"
+      }
+    },
+    {
+      "name": "revoked state 0",
+      "observation": {
+        "kind": "return",
+        "value": "revoked"
+      }
+    },
+    {
+      "name": "state 1",
+      "observation": {
+        "kind": "return",
+        "value": "active"
+      }
+    },
+    {
+      "name": "revoked state 1",
+      "observation": {
+        "kind": "return",
+        "value": "revoked"
+      }
+    },
+    {
+      "name": "state 2",
+      "observation": {
+        "kind": "return",
+        "value": "expired"
+      }
+    },
+    {
+      "name": "revoked state 2",
+      "observation": {
+        "kind": "return",
+        "value": "revoked"
+      }
+    },
+    {
+      "name": "state 3",
+      "observation": {
+        "kind": "return",
+        "value": "expired"
+      }
+    },
+    {
+      "name": "revoked state 3",
+      "observation": {
+        "kind": "return",
+        "value": "revoked"
+      }
+    },
+    {
+      "name": "state 4",
+      "observation": {
+        "kind": "return",
+        "value": "active"
+      }
+    },
+    {
+      "name": "revoked state 4",
+      "observation": {
+        "kind": "return",
+        "value": "revoked"
+      }
+    },
+    {
+      "name": "decision binding",
+      "observation": {
+        "kind": "return",
+        "value": {
+          "id": "TNR-001",
+          "sha256": "sha256:b0c54b6fef47b4b5db60f2d10474e6846f985856f556716ecb70a5b00e9c36e9"
+        }
+      }
+    }
+  ]
+}

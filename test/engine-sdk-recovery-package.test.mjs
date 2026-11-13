@@ -1,6 +1,6 @@
 /** Installed recovery confirmation and policy replay cannot reach the source checkout or host CLI. */
 import test from 'node:test';import assert from 'node:assert/strict';import {spawnSync} from 'node:child_process';
-import {copyFile,mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import {fileURLToPath} from 'node:url';import ts from 'typescript';
+import {copyFile,mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import {fileURLToPath} from 'node:url';import ts from 'typescript';
 import {buildEngineSdk} from '../scripts/build-engine-sdk.mjs';import {resolvePlatformProcess} from '../src/platform-process.mjs';
 import {isolatedTestEnvironment} from '../scripts/test-machine-state.mjs';import {namespaceEngineFixture} from './helpers/namespace-engine-fixture.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),packageName='@singularity-flow/engine-sdk';
@@ -33,7 +33,26 @@ test('an offline SDK consumer confirms exact recovery and replays the original a
     authority:f.authority,identity,at:awaitClock,request,replay})],{cwd:consumer,env:{...env,PATH:''}})),awaitClock=await f.clock.now();
   const recorded=invoke(false);assert.equal(recorded.record.revision,1);await f.author();await f.review();f.asAuthor();const before=await f.capture();
   assert.deepEqual(invoke(true),recorded);assert.deepEqual(await f.capture(),before);
+  const narrowing=JSON.parse(await readFile(new URL('./fixtures/test-narrowing-values/native-v1.json',import.meta.url),'utf8')),
+    valueHelper=(await readFile(new URL('./helpers/test-narrowing-values-fixture.mjs',import.meta.url),'utf8')).replaceAll('export function','function');
+  await writeFile(path.join(consumer,'narrowing.mjs'),[
+    'import assert from "node:assert/strict";import {createHash} from "node:crypto";import {registerHooks} from "node:module";',
+    'const hook=registerHooks({resolve(specifier,context,next){if(specifier.startsWith("node:"))throw Error("No narrowing infrastructure: "+specifier);return next(specifier,context);}});',
+    'Date.now=()=>{throw Error("No ambient narrowing clock");};',
+    'const {testNarrowingPolicies}=await import("'+packageName+'/testing/recovery"),{TEXT_DIGEST_PROFILE}=await import("'+packageName+'/specifications");',
+    'const values=testNarrowingPolicies(Object.freeze({profile:TEXT_DIGEST_PROFILE,sha256Utf8:value=>createHash("sha256").update(value).digest("hex")}));',
+    valueHelper,'const api=admittedTestNarrowingValues(values),expected='+JSON.stringify(narrowing.cases)+';',
+    'for(const[index,row]of testNarrowingValueCases().entries())assert.deepEqual(observeTestNarrowingValue(api,row),expected[index].observation,row.name);hook.deregister();'
+  ].join('\n'));child(process.execPath,['narrowing.mjs'],{cwd:consumer,env:{...env,PATH:''}});
   const types=path.join(consumer,'types.mts');await writeFile(types,[
+    'import {testNarrowingPolicies,type TestNarrowingRecord} from "'+packageName+'/testing/recovery";',
+    'declare const narrow:ReturnType<typeof testNarrowingPolicies>;declare const decision:TestNarrowingRecord;narrow.testNarrowingState([decision],decision,{at:"2026-11-08T00:00:00Z"});',
+    '// @ts-expect-error Expiry evaluation requires explicit observation time.',
+    'narrow.testNarrowingState([decision],decision);',
+    '// @ts-expect-error Shared values cannot authenticate or approve a human decision.',
+    'narrow.approve();',
+    '// @ts-expect-error Recording cannot promise an observation identity omitted by the caller.',
+    'narrow.recordTestNarrowing({},{phaseId:"build",attempt:{status:"passed",pin:{sha256:"sha256:a"},narrowing:decision.narrowing},reason:"Reviewed exact reduced scope",actor:"reviewer",authorityGroup:"reviewers",at:"2026-11-08T00:00:00Z"});',
     'import type {EngineInputs} from "'+packageName+'";',
     'import type {NamespaceTestRepairBindings} from "'+packageName+'/hosts/namespace-engine";',
     'const input:EngineInputs["phase.repair.run"]={operationId:"repair-one",workId:"story",phaseId:"code",failedOperationId:"failed-check"};',
@@ -41,6 +60,6 @@ test('an offline SDK consumer confirms exact recovery and replays the original a
     'const wrong:EngineInputs["phase.repair.run"]={operationId:"repair-one",workId:"story",phaseId:"code",failedOperationId:true};',
     'declare const repairs:NamespaceTestRepairBindings;void input;void wrong;void repairs;'
   ].join('\n'));
-  const program=ts.createProgram([types],{noEmit:true,strict:true,skipLibCheck:true,module:ts.ModuleKind.NodeNext,moduleResolution:ts.ModuleResolutionKind.NodeNext,target:ts.ScriptTarget.ES2022});
+  const program=ts.createProgram([types],{noEmit:true,strict:true,skipLibCheck:false,module:ts.ModuleKind.NodeNext,moduleResolution:ts.ModuleResolutionKind.NodeNext,target:ts.ScriptTarget.ES2022});
   assert.deepEqual(ts.getPreEmitDiagnostics(program).map(row=>ts.flattenDiagnosticMessageText(row.messageText,'\n')),[]);
 });

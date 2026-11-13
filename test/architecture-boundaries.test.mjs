@@ -2396,3 +2396,15 @@ test('namespace witness mapping construction cannot discover hosts, mutate stora
   assert.match(renewal,/inspectApprovedMany/u);assert.match(renewal,/reader\.accepted/u);assert.match(renewal,/recordWitnessExceptionRenewal/u);
   assert.doesNotMatch(renewal,/Date\.now|spawn|writeFile|runTests|approvalRecorded:true/u);
 });
+
+test('test narrowing values require admitted records and explicit time while native collection and presence retain their owners',async()=>{
+  const entry='src/kernel/test-recovery.mjs',pure=await inspectPureModuleGraph({root:packageRoot,entries:[entry],
+    allowed:[...await sourceFiles('src/kernel'),...await sourceFiles('src/foundation')]});assert.deepEqual(pure.problems,[]);
+  const body=await readFile(path.join(packageRoot,entry),'utf8'),values=body.slice(body.indexOf('export function testNarrowingPolicies'));
+  assert.doesNotMatch(values,/Date\.now|countedRecords|node:|\bprocess\b|readFile|committedFiles|commandTokens/u);
+  assert.match(values,/Array\.isArray\(records\)/u);assert.match(values,/at===undefined/u);
+  const native=await readFile(path.join(packageRoot,'src/test-narrowing.mjs'),'utf8');
+  assert.match(native,/testNarrowingPolicies\(NODE_TEXT_DIGESTS\)/u);assert.match(native,/countedRecords/u);assert.match(native,/Date\.now/u);
+  assert.match(native,/committedFilesAtRevisions/u);assert.match(native,/commandTokens/u);
+  assert.doesNotMatch(native,/function (?:observedNarrowing|narrowingCovers|recordTestNarrowing)\(/u);
+});

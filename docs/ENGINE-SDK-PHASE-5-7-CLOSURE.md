@@ -14,6 +14,7 @@ obsolete-access removal and final distribution remain separate.
 - [x] Connect exact artifact-phase execution reuse to original approved executions and human receipts.
 - [x] Connect exact artifact-phase environment risks to real failed executions, human decisions and renewal.
 - [x] Finish exact witness-mapping approval and original-phase exception renewal.
+- [x] Extract native narrowed-run values with independent original outcomes and installed contracts.
 - [ ] Finish the remaining evidence/test risk and cohort-reuse ceremonies.
 - [x] Connect upstream issues, forward amendments, their list query and recorded decision batches.
 - [ ] Qualify final decisions, approval, rejection and continuation through the single registry.
@@ -50,6 +51,17 @@ This checkpoint passes 339 distinct affected Mac checks. The original 34-check p
 passes alone in 44.2 seconds with its unchanged 120/60-second limits. Source validation passes
 4,380 checks; VS Code types, the Git boundary audit and all 13 original bundle ceilings pass.
 The gateway remains 852/852 modules. Both phases stay open for the remaining owners below.
+
+The [narrowed-run value prerequisite](ENGINE-SDK-TEST-RECOVERY.md#shared-narrowed-run-values)
+now reproduces 88 independent original outcomes without repository, presence or clock discovery.
+Its native compatibility adapter retains those responsibilities and original signatures. All 225
+distinct affected Mac checks across 13 files pass, including 113 architecture guards. Namespace
+baseline/cohort selection and its human recording/publication/approval owners remain open; this
+extraction is not a substitute for actual execution evidence or human authority.
+The unchanged original 34-check package qualifier also passes alone in 55.1 seconds within its
+original 120/60-second limits, bringing this extraction's affected qualification to 259 distinct
+checks. Source validation passes 4,382 checks; VS Code types, the 2,011-site Git audit and all 13
+unchanged bundle ceilings pass. Gateway remains 852/852 modules (6,935,458 bytes).
 
 Exact clause-obligation risks now have a [registered namespace owner and final evidence evaluation](ENGINE-SDK-OBLIGATION-RISKS.md).
 Human decisions bind their actual observations and owning publications; replacement generations,

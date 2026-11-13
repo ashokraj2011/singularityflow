@@ -82,6 +82,51 @@ test('a lagging repository gets one review-only proposal bound to exactly the re
   assert.equal((await openConfigurationReviews({ registryFile: '/registry.json', refresh: unbound.refresh })).outcome, 'unavailable');
 });
 
+test('a stale plan is previewed once more and that fresh plan applied; a lag that is only the build name is current', async () => {
+  const stale = { status: 'blocked', results: [
+    { status: 'stale-plan', repository: 'app', error: 'Configuration or state authority changed after preview. Refresh the plan before applying it.' },
+    { status: 'stale-plan', repository: 'lib', error: 'Configuration or state authority changed after preview. Refresh the plan before applying it.' }
+  ] };
+  const lags = (...repositories) => repositories.map((repository) => ({ status: 'would-update', repository, configurationChanged: true }));
+  const opened = (repository) => ({ results: [{ status: 'review-required', repository, remote: 'origin', proposalBranch: `sflow/config-refresh/${repository}` }] });
+
+  // [owner, 2026-11-13] Every repository still lags: the fresh preview covered exactly them, so its plan is applied.
+  const retried = refreshes([{ results: lags('app', 'lib') }, { planId: 'plan-1', results: lags('app', 'lib') }, stale,
+    { planId: 'plan-2', results: lags('app', 'lib') }, opened('app')]);
+  const result = await openConfigurationReviews({ registryFile: '/registry.json', refresh: retried.refresh });
+  assert.equal(result.outcome, 'reviews-opened');
+  assert.deepEqual(retried.calls.slice(2), [
+    { registryFile: '/registry.json', repositories: ['app', 'lib'], confirmPlan: 'plan-1', reviewOnly: true },
+    { registryFile: '/registry.json', repositories: ['app', 'lib'], dryRun: true },
+    { registryFile: '/registry.json', repositories: ['app', 'lib'], confirmPlan: 'plan-2', reviewOnly: true }
+  ]);
+
+  // One became current meanwhile (another refresh published it): the rest is bound again before it is applied.
+  const narrowed = refreshes([{ results: lags('app', 'lib') }, { planId: 'plan-1', results: [] }, stale,
+    { planId: 'plan-2', results: [...lags('app'), { status: 'current', repository: 'lib' }] },
+    { planId: 'plan-3', results: lags('app') }, opened('app')]);
+  assert.equal((await openConfigurationReviews({ registryFile: '/registry.json', refresh: narrowed.refresh })).outcome, 'reviews-opened');
+  assert.deepEqual(narrowed.calls.slice(4), [
+    { registryFile: '/registry.json', repositories: ['app'], dryRun: true },
+    { registryFile: '/registry.json', repositories: ['app'], confirmPlan: 'plan-3', reviewOnly: true }
+  ]);
+
+  const published = refreshes([{ results: lags('app') }, { planId: 'plan-1', results: [] }, stale,
+    { planId: 'plan-2', results: [{ status: 'current', repository: 'app' }] }]);
+  assert.equal((await openConfigurationReviews({ registryFile: '/registry.json', refresh: published.refresh })).outcome, 'current',
+    'the fresh preview finds the configuration published: nothing to review');
+
+  const twice = refreshes([{ results: lags('app') }, { planId: 'plan-1', results: [] }, stale,
+    { planId: 'plan-2', results: lags('app') }, stale]);
+  const failed = await openConfigurationReviews({ registryFile: '/registry.json', refresh: twice.refresh });
+  assert.equal(failed.outcome, 'failed', 'a second stale plan fails, and the pass is tried again later');
+  assert.equal(twice.calls.length, 5, 'previewed once more, never a third time');
+
+  const stampOnly = refreshes([{ results: [{ status: 'would-update', repository: 'app', configurationChanged: true, productStampOnly: true }] }]);
+  assert.equal((await openConfigurationReviews({ registryFile: '/registry.json', refresh: stampOnly.refresh })).outcome, 'current');
+  assert.equal(stampOnly.calls.length, 1, 'only the build name would change: nothing is bound or proposed');
+});
+
 test('a background pass starts unless the build recorded one or another process holds the pass', async (t) => {
   const item = await machine(t);
   const launched = [];

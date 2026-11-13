@@ -131,12 +131,32 @@ function passResult(outcome, reviews = [], unfinished = [], reason = null) {
 }
 
 /**
+ * Repositories whose approved configuration lags this build's packaged configuration. A lag that is
+ * only the build's name in the package baseline proposes nothing to review [owner, 2026-11-13].
+ */
+function laggingRepositories(preview) {
+  return (preview?.results ?? [])
+    .filter((entry) => entry.status === 'would-update' && entry.configurationChanged && !entry.productStampOnly)
+    .map((entry) => entry.repository);
+}
+
+function stalePlan(result) {
+  return (result?.results ?? []).some((entry) => entry.status === 'stale-plan');
+}
+
+/**
  * Open a review for each registered repository whose approved configuration lags this build's
  * packaged configuration: preview, bind the plan to exactly the lagging repositories, then apply it
  * review-only. The same three steps the VS Code check runs through the CLI.
  *
  * One unreachable repository stops the refresh's preview before any repository is compared, so the
  * reachable ones are compared on their own; the ones left unchecked keep the pass open for a retry.
+ *
+ * An apply that finds its plan stale previews once more and applies that fresh plan. The plan binds
+ * every repository's approved configuration and state, and they move between a preview and an
+ * apply: build 91cea5a93's pass ran while the installer's own refresh published the same
+ * configuration, and failed all three repositories [owner, 2026-11-13]. What it opens is only a
+ * review a person merges, so proposing from a fresh preview is safe; a second stale plan fails.
  */
 export async function openConfigurationReviews({ registryFile, refresh = defaultRefresh } = {}) {
   let preview = await refresh({ registryFile, dryRun: true });
@@ -150,16 +170,28 @@ export async function openConfigurationReviews({ registryFile, refresh = default
     const again = troubled(preview);
     if (again.length) return passResult('unavailable', [], [...unreachable, ...again]);
   }
-  const lagging = (preview?.results ?? [])
-    .filter((entry) => entry.status === 'would-update' && entry.configurationChanged)
-    .map((entry) => entry.repository);
+  let lagging = laggingRepositories(preview);
   if (!lagging.length) return passResult('current', [], unreachable);
-  const bound = await refresh({ registryFile, repositories: lagging, dryRun: true });
-  if (!bound?.planId || troubled(bound).length) {
-    return passResult('unavailable', [], [...unreachable, ...troubled(bound)],
-      bound?.planId ? null : 'The bound preview returned no plan.');
+  let opened = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let bound = null;
+    if (attempt) {
+      const fresh = await refresh({ registryFile, repositories: lagging, dryRun: true });
+      if (troubled(fresh).length) return passResult('unavailable', [], [...unreachable, ...troubled(fresh)]);
+      const still = laggingRepositories(fresh);
+      if (!still.length) return passResult('current', [], unreachable);
+      // The fresh preview covered exactly `lagging`; while every one still lags, its plan is bound.
+      if (still.length === lagging.length) bound = fresh;
+      lagging = still;
+    }
+    bound ??= await refresh({ registryFile, repositories: lagging, dryRun: true });
+    if (!bound?.planId || troubled(bound).length) {
+      return passResult('unavailable', [], [...unreachable, ...troubled(bound)],
+        bound?.planId ? null : 'The bound preview returned no plan.');
+    }
+    opened = await refresh({ registryFile, repositories: lagging, confirmPlan: bound.planId, reviewOnly: true });
+    if (!stalePlan(opened)) break;
   }
-  const opened = await refresh({ registryFile, repositories: lagging, confirmPlan: bound.planId, reviewOnly: true });
   const reviews = (opened?.results ?? [])
     .filter((entry) => entry.status === 'review-required' && entry.proposalBranch)
     .map(({ repository, remote = null, proposalBranch }) => Object.freeze({ repository, remote, proposalBranch }));

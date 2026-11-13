@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 40
+version: 41
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -188,8 +188,13 @@ step, it is `workspace refresh-configuration --confirm-plan <PLAN-ID> --review-o
 refresh never creates a first configuration authority. A review is named by the approved commit it
 starts from and the exact configuration it proposes, so every teammate on the same build joins that
 one review instead of opening another. The proposal records its build in the package baseline, so a
-teammate on another build proposes a review of that build. A window waiting to reload onto a newer
-build opens none; the reloaded build does.
+teammate on another build proposes a review of that build. A repository whose approved configuration
+differs only in the build its package baseline names has nothing to review, and is reported current.
+If the approved configuration or the state branch moves between the pass's preview and its review,
+as when the installer's own refresh publishes the same build, the pass previews once more and
+proposes from that preview; a second move fails the pass, which is tried again an hour later. A
+confirmed `--confirm-plan` refresh still refuses a plan whose authority moved. A window waiting to
+reload onto a newer build opens none; the reloaded build does.
 
 A terminal has no window to wait in, so a new build's first mutation starts the same pass as a
 background worker. `singularity-flow product status` lists the reviews it opened. One pass runs on a

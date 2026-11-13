@@ -1709,6 +1709,14 @@ export async function refreshPackagedConfiguration(root, {
   })));
   const lockText = YAML.stringify(lock);
   const previousLockText = await readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8').catch(() => null);
+  // The baseline names the build that wrote it, so every new build differs from the approved one
+  // until its own refresh is published, even when its packaged configuration is byte-identical. A
+  // difference that is only that name is nothing for a person to review [owner, 2026-11-13]: build
+  // 91cea5a93's review pass previewed before the installer's refresh had published its name, and
+  // found three repositories lagging behind a byte-identical packaged configuration.
+  const productStampOnly = previousLockText !== null && previousLockText !== lockText
+    && changedFiles.size === 0 && plainObject(baseline?.product)
+    && YAML.stringify({ ...lock, product: baseline.product }) === previousLockText;
   if (previousLockText !== lockText) {
     changedFiles.add(PACKAGE_BASELINE_PATH);
     if (!dryRun) {
@@ -1745,6 +1753,7 @@ export async function refreshPackagedConfiguration(root, {
     product: lock.product,
     packageContentDigest,
     changed: changedFiles.size > 0,
+    ...(productStampOnly ? { productStampOnly } : {}),
     files: [...changedFiles].sort(),
     removed: [...removedFiles].sort(),
     conflicts,
@@ -3039,6 +3048,9 @@ function refreshPlanId(candidates, {
 }
 
 function previewResultForCandidate(candidate, status) {
+  // Only the build's name in the baseline would change (a hard cutover can add files after it).
+  const productStampOnly = status === 'would-update' && candidate.refresh.productStampOnly === true
+    && equal(candidate.refresh.files, [PACKAGE_BASELINE_PATH]);
   return {
     status,
     repository: candidate.repository.id,
@@ -3049,6 +3061,7 @@ function previewResultForCandidate(candidate, status) {
     bootstrapCandidateCommit: candidate.bootstrapCandidateCommit ?? null,
     bootstrapCandidateTree: candidate.bootstrapCandidateTree ?? null,
     configurationChanged: status === 'would-initialize' || candidate.refresh.changed,
+    ...(productStampOnly ? { productStampOnly } : {}),
     stateChanged: status === 'would-initialize'
       || candidate.refresh.changed || candidate.stateBefore.changed,
     stateStatus: status === 'would-initialize'

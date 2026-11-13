@@ -31,6 +31,7 @@ import {
   refreshWorkspaceConfigurations,
   STATE_CONFIGURATION_MANIFEST
 } from '../src/workspace-configuration-refresh.mjs';
+import { openConfigurationReviews } from '../src/configuration-review-pass.mjs';
 import { changedLines, foldYamlFile, unfoldFirst } from './helpers/folded-yaml.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -4265,4 +4266,166 @@ test('a review-only refresh never creates a first configuration authority', asyn
   }), { code: 'CONFIGURATION_REVIEW_AUTHORITY_MISSING' });
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', '--verify', '--quiet', 'refs/heads/sflow/config'], { allowFailure: true }).status, 1,
     'no authority was created');
+});
+
+/**
+ * Approved configuration as an installed build leaves it: refreshed and mirrored to a `state`
+ * branch. `change` edits sflow/config the way a person or another build does.
+ */
+async function approvedConfigurationFixture(root) {
+  const fixture = await registeredRepositoryFixture(root, 'application');
+  const statePublisher = path.join(root, 'state-publisher');
+  await initializeStatePublisher(statePublisher);
+  git(statePublisher, ['remote', 'add', 'origin', fixture.remote]);
+  git(statePublisher, ['push', 'origin', 'HEAD:state']);
+  assert.equal((await refreshWorkspaceConfigurations({ registryFile: fixture.registry })).status, 'complete');
+  const editor = path.join(root, 'configuration-editor');
+  run('git', ['clone', '--quiet', '--branch', 'sflow/config', fixture.remote, editor]);
+  git(editor, ['config', 'user.name', 'Configuration Test']);
+  git(editor, ['config', 'user.email', 'configuration@example.test']);
+  const change = async (message, edit) => {
+    git(editor, ['fetch', '--quiet', 'origin', 'sflow/config']);
+    git(editor, ['reset', '--quiet', '--hard', 'FETCH_HEAD']);
+    await edit(editor);
+    git(editor, ['add', '-A']);
+    git(editor, ['commit', '--quiet', '-m', message]);
+    git(editor, ['push', '--quiet', 'origin', 'HEAD:sflow/config']);
+  };
+  const removeTemplate = (relative) => change(`Remove ${relative}`, (checkout) => rm(path.join(checkout, relative)));
+  const ref = (name) => run('git', ['--git-dir', fixture.remote, 'rev-parse', '--verify', '--quiet', `refs/heads/${name}`],
+    { allowFailure: true }).stdout.trim();
+  const reviewBranches = () => run('git', ['--git-dir', fixture.remote, 'for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-refresh/']).stdout.split('\n').filter(Boolean);
+  return { ...fixture, change, removeTemplate, ref, reviewBranches };
+}
+
+test('a review plan holds across a gap and a clock moved past the preview cache, and opens the review', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-plan-gap-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await approvedConfigurationFixture(root);
+  await fixture.removeTemplate('singularity/templates/feature/intake.md');
+  const approved = fixture.ref('sflow/config');
+  const state = fixture.ref('state');
+  const preview = await refreshWorkspaceConfigurations({ registryFile: fixture.registry, dryRun: true });
+  assert.equal(preview.results[0].status, 'would-update');
+  assert.equal(preview.results[0].productStampOnly, undefined, 'a restored template is a real change');
+  // Commit times have one-second resolution: nothing a second later may change the plan.
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const again = await refreshWorkspaceConfigurations({ registryFile: fixture.registry, dryRun: true });
+  assert.equal(again.planId, preview.planId, 'a later preview of the same authority is the same plan');
+  const clones = async (action) => {
+    const timer = commandTimer('configuration-review-apply');
+    const result = await withCommandTiming(timer, action);
+    return { result, clones: timer.finish().counters['git.remote.command.clone'] ?? 0 };
+  };
+  const { result: cached, clones: cachedClones } = await clones(() => refreshWorkspaceConfigurations({
+    registryFile: fixture.registry, confirmPlan: preview.planId, reviewOnly: true
+  }));
+  assert.equal(cachedClones, 0, 'the apply reuses the preview\'s retained checkout');
+  assert.equal(cached.planId, preview.planId);
+  assert.equal(cached.results[0].status, 'review-required', cached.results[0].error ?? '');
+  // [owner, 2026-11-13] Three hours on, the retained preview checkout is past its reuse window, so
+  // the apply rebuilds the candidate from a fresh clone: the plan is still the one previewed.
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() + 3 * 60 * 60 * 1000 });
+  const { result: later, clones: laterClones } = await clones(() => refreshWorkspaceConfigurations({
+    registryFile: fixture.registry, confirmPlan: preview.planId, reviewOnly: true
+  }));
+  t.mock.timers.reset();
+  assert.equal(laterClones, 1, 'the retained checkout is too old to reuse: the apply clones afresh');
+  assert.equal(later.planId, preview.planId);
+  assert.equal(later.results[0].status, 'review-required', later.results[0].error ?? '');
+  assert.equal(later.results[0].proposalBranch, cached.results[0].proposalBranch, 'the same review, joined');
+  assert.deepEqual(fixture.reviewBranches(), [cached.results[0].proposalBranch]);
+  assert.equal(fixture.ref('sflow/config'), approved, 'approved configuration changes only when the review is merged');
+  assert.equal(fixture.ref('state'), state, 'a review-only apply publishes no state');
+});
+
+test('a real change after preview refuses a confirmed apply; the review pass previews again and opens a review', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-plan-moved-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await approvedConfigurationFixture(root);
+  await fixture.removeTemplate('singularity/templates/feature/intake.md');
+  const preview = await refreshWorkspaceConfigurations({ registryFile: fixture.registry, dryRun: true });
+  await fixture.removeTemplate('singularity/templates/bugfix/intake.md');
+  const moved = fixture.ref('sflow/config');
+  const refused = await refreshWorkspaceConfigurations({
+    registryFile: fixture.registry, confirmPlan: preview.planId, reviewOnly: true
+  });
+  assert.equal(refused.status, 'blocked');
+  assert.deepEqual(refused.results.map((entry) => entry.status), ['stale-plan'],
+    'a person confirmed the plan they previewed, and the configuration moved after it');
+  assert.equal(fixture.ref('sflow/config'), moved);
+  assert.deepEqual(fixture.reviewBranches(), []);
+
+  // The background pass: the configuration moves again between its bound preview and its apply.
+  const calls = [];
+  let moveOnce = true;
+  const refresh = async (options) => {
+    calls.push(options.confirmPlan ? 'apply' : 'preview');
+    const result = await refreshWorkspaceConfigurations(options);
+    if (options.dryRun && options.repositories?.length && moveOnce) {
+      moveOnce = false;
+      await fixture.removeTemplate('singularity/templates/chore/intake.md');
+    }
+    return result;
+  };
+  const pass = await openConfigurationReviews({ registryFile: fixture.registry, refresh });
+  assert.equal(pass.outcome, 'reviews-opened', JSON.stringify(pass));
+  assert.deepEqual(calls, ['preview', 'preview', 'apply', 'preview', 'apply'],
+    'one fresh preview, whose plan is the one applied');
+  const [review] = pass.reviews;
+  assert.deepEqual(fixture.reviewBranches(), [review.proposalBranch]);
+  const proposed = run('git', ['--git-dir', fixture.remote, 'diff', '--name-only',
+    `refs/heads/sflow/config..refs/heads/${review.proposalBranch}`]).stdout.split('\n').filter(Boolean);
+  assert.deepEqual(proposed, ['bugfix', 'chore', 'feature'].map((name) => `singularity/templates/${name}/intake.md`),
+    'the review is from the fresh preview: it restores the template removed after the first plan too');
+});
+
+test('a build whose packaged configuration is unchanged reports current, also while the installer publishes it', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-stamp-only-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await approvedConfigurationFixture(root);
+  // [owner, 2026-11-13] Build 91cea5a93 changed no template after d39ab016f; the approved baseline
+  // still named d39ab016f, which is all its preview found to change.
+  const restamp = (edit) => fixture.change('Approved by an earlier build', async (checkout) => {
+    const file = path.join(checkout, PACKAGE_BASELINE_PATH);
+    const baseline = YAML.parse(await readFile(file, 'utf8'));
+    baseline.product.revision = 'd39ab016fff8bf458ef3e110627a5d418b7413e5';
+    edit?.(baseline);
+    await writeFile(file, YAML.stringify(baseline));
+  });
+  await restamp();
+  const preview = await refreshWorkspaceConfigurations({ registryFile: fixture.registry, dryRun: true });
+  assert.equal(preview.results[0].status, 'would-update');
+  assert.deepEqual(preview.results[0].changedFiles, [PACKAGE_BASELINE_PATH]);
+  assert.equal(preview.results[0].productStampOnly, true);
+  const calls = [];
+  const counted = async (options) => { calls.push(options); return refreshWorkspaceConfigurations(options); };
+  const pass = await openConfigurationReviews({ registryFile: fixture.registry, refresh: counted });
+  assert.equal(pass.outcome, 'current', JSON.stringify(pass));
+  assert.equal(calls.length, 1, 'nothing lags, so nothing is bound or proposed');
+  assert.deepEqual(fixture.reviewBranches(), []);
+
+  await restamp((baseline) => {
+    baseline.assets['singularity/templates/feature/intake.md'].sha256 = '0'.repeat(64);
+  });
+  const recorded = await refreshWorkspaceConfigurations({ registryFile: fixture.registry, dryRun: true });
+  assert.equal(recorded.results[0].productStampOnly, undefined,
+    'a baseline that records other package bytes is a change beside the build name');
+
+  // The installer's own refresh publishes this build's configuration while the pass is between its
+  // bound preview and its apply, as it did for 91cea5a93: the fresh preview finds it current.
+  await fixture.removeTemplate('singularity/templates/feature/intake.md');
+  let installOnce = true;
+  const racing = async (options) => {
+    const result = await refreshWorkspaceConfigurations(options);
+    if (options.dryRun && options.repositories?.length && installOnce) {
+      installOnce = false;
+      assert.equal((await refreshWorkspaceConfigurations({ registryFile: fixture.registry })).status, 'complete');
+    }
+    return result;
+  };
+  const raced = await openConfigurationReviews({ registryFile: fixture.registry, refresh: racing });
+  assert.equal(raced.outcome, 'current', JSON.stringify(raced));
+  assert.deepEqual(fixture.reviewBranches(), []);
 });

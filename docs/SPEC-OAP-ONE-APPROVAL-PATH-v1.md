@@ -188,8 +188,8 @@ Built in M3 (2026-10-24):
   the approval itself (`youDecide`). An approval-check hold another item carries is not repeated, so
   the list and the approval check cannot disagree.
 - Each new item is the person's own step with its exact command; nothing new is recordable from the
-  list. An item for another group names the group, up to five of its members and the line to share
-  (`/sf-decide <WORK-ID>`).
+  list, except an intent amendment since the owner decision of 2026-11-13 (below). An item for another
+  group names the group, up to five of its members and the line to share (`/sf-decide <WORK-ID>`).
 - The packet carries `open` (every item, the approval included) and `next` (the first item and its
   command). `pendingSummary` is what every surface reads:
   - readiness, as `pending` in `status --submission-readiness` and the editor snapshot;
@@ -371,6 +371,37 @@ All five accepted as recommended (2026-10-24).
    the explicit-intent check.
 5. **`push retry` folds into `sync`.** Recommended: yes. One command for "finish what was not
    published".
+
+## Owner decision, 2026-11-13: an intent amendment is decided on the decisions card
+
+This reverses "nothing new is recordable from the list" for the intent-amendment item only.
+
+1. **D1: approve or reject on the card.** A requirements (scope-step) approver approves or rejects a
+   pending intent amendment on the decisions card from chat: VS Code `#sflowDecide` and Copilot CLI
+   `sflow_decide`. The model passes only the Story ID; the person picks in the host's own form, and the
+   extension records through `decisions record <WORK-ID> --answers FILE`, bound to the list's digest.
+   The record is the one `story intent-amendment decide` writes, with every check it makes (the
+   approver's group, distinct identities, the self-approval policy, staleness, the plan rows it carries)
+   and the same review-safe commit, its channel `decisions-card`. The card shows each clause it adds,
+   revises or removes with its statement, who proposed it and who wrote the wording, and what it
+   reaches (claims, files, tests and the steps that may reopen). The exact decide command stays beside
+   each choice. A decision on an amendment is recorded alone in its run. On a Story SF Guard requires,
+   the card records nothing and hands the decision to the person's own terminal, which signs it.
+2. **D2: acknowledge on the card.** Anyone working on the Story acknowledges an approved amendment on
+   the card, after reading what it changed.
+3. **D3: refresh a stale proposal.** While a proposal is pending, Copilot pauses the step. If the step
+   it was proposed in moved anyway (its generation, status, artifact or the application source, or the
+   approved scope), the card offers one choice to refresh it: a scope approver's rejection ("Refreshed as
+   AMD-00N: the step changed after it was proposed") and a proposal of the same bytes, reason,
+   authorship, proposer and carried plan rows, bound to the step as it is now. These are two ordinary
+   commits, `[W][intent-amendment:reject]` and `[W][intent-amendment:propose]`. A replacement that cannot
+   be proposed leaves the old proposal pending, records nothing and says why.
+
+Built: `intentAmendmentItem` (src/decision-list.mjs) with the facts src/decision-list-reads.mjs reads,
+`intentAmendmentStaleness` (src/state.mjs, shared with the approval's own check),
+`recordIntentAmendmentDecision`, `refreshIntentAmendment` and `acknowledgeApprovedIntentAmendment`
+(src/commands/story.mjs), and the record path in src/commands/decisions.mjs. Guard:
+test/iac-decide-card.test.mjs.
 
 ## Out of scope
 

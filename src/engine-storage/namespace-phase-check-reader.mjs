@@ -2,11 +2,12 @@
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson,namespacePhaseCheckPlanProfile,admitRecordSchemaVersion,NODE_CHECK_ENVIRONMENT_OBSERVATION_SCHEMA} from '../foundation/record-schema.mjs';
-import {localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
+import {localCheckExecutionProfile,reviewedFileSelectionPolicy} from '../foundation/execution-unit-port.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import {qualityValidationVerdict,observedPhaseCheck,observedCommandCheck} from '../kernel/phase-checks.mjs';
 import {namespaceReuseEnvironment} from '../kernel/evidence-reuse.mjs';
+import {namespaceScriptTestInventory} from '../kernel/test-impact-selection.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {normalizeExternalCommand} from '../engine-compatibility/node-configuration-path.mjs';
 import {createNodeTestReportCodec,parseNativeNodeJunitReport} from '../verification/test-report-reader.mjs';
@@ -77,13 +78,24 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     for(const step of plan.steps){const selected=plan.selection?.rows.find(row=>row.commandId===step.command.id&&row.repositoryId===step.repositoryId),
         execution=localCheckExecutionProfile(step.manifest.toolPolicy),policy=step.manifest.toolPolicy;
       if(Boolean(execution.selective)!==Boolean(selected)||policy.command.argumentsSha256!==digest((selected?.argv??step.command.argv).slice(1))
-        ||selected&&!same(policy.selection,{profile:'sflow-node-check-file-selection/v1',sha256:plan.selection.record.contextSha256,
-          originalArgumentsSha256:digest(step.command.argv.slice(1)),files:selected.files}))throw error('The retained executor changed the exact reviewed file selection.','ENGINE_STORAGE_CORRUPT');}
+        ||selected&&!same(policy.selection,reviewedFileSelectionPolicy(plan.selection,selected,digest(step.command.argv.slice(1)))))throw error('The retained executor changed the exact reviewed file selection.','ENGINE_STORAGE_CORRUPT');}
     return {plan,reference:value.content};
   }
   async function snapshot(reference,descriptor,signal){const data=await observer.bytes(reference,reference.bytes,signal);let value;
     try{value=sourceSnapshot(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data)),descriptor);}
     catch(cause){throw error('A check source observation is invalid.','ENGINE_STORAGE_CORRUPT',null,cause);}return value;}
+  async function independentFiles(found,index,declaration,{signal}={}){
+    const step=found.plan.steps[index],output=found.body.results[index].candidate?.output,qualification=step.manifest.toolPolicy.environmentQualification;
+    if(!output||found.body.results[index].failure||!output.process.closed||output.process.status===null||output.process.signal!==null
+      ||output.process.timedOut||output.process.overflow||output.diagnostics.length||output.reports.raw.length!==1||output.reports.raw[0].path!==null
+      ||!qualifiedCheckReportRoot(qualification?.reportRoot)||step.manifest.toolPolicy.command.environmentNames.length)
+      throw error('Script selection needs an intact qualified full baseline.','SELECTIVE_TEST_BASELINE_REQUIRED');
+    const raw=output.reports.raw[0].content,parsed=parseNativeNodeJunitReport(await observer.bytes(raw,raw.bytes,signal));
+    parsed.cases=parsed.cases.map(row=>({...row,file:row.file===null&&new Set(declaration.tests.map(row=>row.path)).size===1?declaration.tests[0].path:qualifiedCheckReportLocation(row.file,qualification.reportRoot)}));
+    const source=found.plan.sources.find(row=>row.id===step.repositoryId),facts=namespaceScriptTestInventory(NODE_TEXT_DIGESTS).observed({command:step.command,declaration,
+      snapshot:await snapshot(source.content,source.descriptor,signal),parsed,reportSha256s:['sha256:'+raw.sha256]});
+    return {facts,parsed,qualification,exit:output.process.status,references:[raw,output.stdout,output.stderr,output.source.before.content,output.source.after.content,source.content]};
+  }
   async function observations(plan,results,signal) {
     if(!Array.isArray(results)||results.length!==plan.steps.length)throw error('The check set is incomplete.','ENGINE_STORAGE_CORRUPT');
     const checks=[];
@@ -229,7 +241,10 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     if(found.plan.selection){
       if(typeof clock?.now!=='function')throw error('Fresh selected execution needs its explicit lifecycle clock.','ENGINE_PORT_UNAVAILABLE',{required:['clock']});
       const selected=await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId,sources,checks:executors}).current(
-        (await observer.capture({signal})).snapshot,phaseId,{signal,at:projectEnrollmentTimestamp(await clock.now())});
+        (await observer.capture({signal})).snapshot,phaseId,{signal,at:projectEnrollmentTimestamp(await clock.now()),
+          // Accepted graph knowledge may travel to another consumer. Source equality above,
+          // the actual environment and current permission are still rechecked below.
+          retainedImpact:found.plan.selection.record.context.impact?.observation??null});
       if(!selected||selected.record.contextSha256!==found.plan.selection.record.contextSha256)throw error('The reviewed selection expired, was revoked or changed before the lifecycle action.','SELECTIVE_TEST_RECOVERY_NOT_CURRENT');
     }
     return found;
@@ -258,5 +273,5 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     return {identity:namespaceReuseEnvironment(value.qualification,value.command),source:observed};
   }
   return Object.freeze({codec,observer,intent,accepted,observations,snapshot,proof,forDraft,inspectDraft,publication,publicationObservation,readBindings,assertCurrent,currentObservation,freshSources,freshObservedSources,
-    environment,codeRecoveryReuse:executors?.codeRecoveryReuse===true,environmentSensitiveReuse:executors?.environmentSensitiveReuse===true});
+    environment,independentFiles,combinedEvidenceReuse:executors?.combinedEvidenceReuse===true,codeRecoveryReuse:executors?.codeRecoveryReuse===true||executors?.combinedEvidenceReuse===true,environmentSensitiveReuse:executors?.environmentSensitiveReuse===true});
 }

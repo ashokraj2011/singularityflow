@@ -24,7 +24,7 @@ export function createNamespaceTestRecoveryPorts(options){
     const fresh=await observer.capture({signal});
     if(fresh.snapshot.revision!==state.captured.snapshot.revision||fresh.basis.authorityVersion!==state.captured.basis.authorityVersion)fail(
       'Recovery authority or the Story changed during reading.','ENGINE_CONTEXT_CHANGED');
-    const version=value.context.value.reuse==='never'?1:2;
+    const version=value.context.value.reuse==='never'?1:value.context.value.reuse==='environment-qualified-selected'?3:2;
     return {schemaVersion:version,profile:'sflow-namespace-test-recovery-review/v'+version,workId,phase:state.phaseId,revision:state.captured.snapshot.revision,
       expectedContext:value.context.sha256,agreement:value.context.value,previous:value.previous,
       authorities:testRunRiskAuthorities(context.workflow,state.phaseId),

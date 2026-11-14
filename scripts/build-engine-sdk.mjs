@@ -20,7 +20,7 @@ function allowedSource(relative) {
       'src/sgos/node-execution-unit.mjs','src/sgos/node-execution-values.mjs','src/platform-process-values.mjs',
       'src/sgos/operational-contract.mjs','src/sgos/namespace-operational-store.mjs',
       'src/sgos/durable-execution-unit.mjs','src/sgos/node-execution-owner.mjs',
-      'src/sgos/node-check-execution-unit.mjs','src/sgos/node-git-source-control-reader.mjs','src/git-status-detail.mjs',
+      'src/sgos/node-check-execution-unit.mjs','src/sgos/source-test-impact.mjs','src/sgos/node-git-source-control-reader.mjs','src/git-status-detail.mjs',
       'src/verification/test-report-reader.mjs','src/verification/node-test-reporter.mjs','src/test-runners.mjs',
       'src/engine-compatibility/node-test-causes.mjs', 'src/engine-compatibility/node-configuration-path.mjs', 'src/engine-compatibility/node-network-syntax.mjs',
       'src/engine-compatibility/node-source-policy.mjs','src/engine-compatibility/node-source-analysis.mjs','src/engine-compatibility/node-specification-policy.mjs','src/engine-compatibility/node-repository-plan.mjs','src/governed-roots.mjs','src/initialization-assets.mjs',
@@ -30,6 +30,7 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(field==='candidateGeneration')return 'number | null';
   if(operation.id.startsWith('test-recovery.select-')&&field==='selection')return 'readonly {readonly repositoryId:string;readonly commandId:string;readonly files:readonly string[]}[]';
   if(operation.id==='forward-amendment.propose'&&field==='content')return 'ContentReference';
   if(operation.id==='convergence.adjudicate')return field==='clauseIds'?'readonly string[]':field==='disposition'?'ConvergenceDisposition':field==='fetch'?'boolean | null':'string';

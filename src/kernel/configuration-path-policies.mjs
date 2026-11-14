@@ -1046,9 +1046,15 @@ function normalizeTestRecoveryPolicy(value) {
 }
 /** Explicit new reuse vocabulary; the original normalizer above stays byte-for-byte unchanged. */
 function normalizeQualifiedTestRecoveryPolicy(value) {
+  if(Array.isArray(value?.caseInventory)&&value.caseInventory.some(row=>row?.adapter==='node-script-junit-v1')){
+    const caseInventory=value.caseInventory.map(row=>row?.adapter==='node-script-junit-v1'?{...row,adapter:'node-test-junit-v1'}:row),
+      original=normalizeQualifiedTestRecoveryPolicy({...value,caseInventory});
+    return {...original,caseInventory:original.caseInventory.map((row,index)=>value.caseInventory[index].adapter==='node-script-junit-v1'?{...row,adapter:'node-script-junit-v1'}:row)};
+  }
   if(value?.reuseProfile===undefined)return normalizeTestRecoveryPolicy(value);
-  if(!value||typeof value!=='object'||Array.isArray(value)||value.reuseProfile!=='environment-qualified-exact/v1'
+  if(!value||typeof value!=='object'||Array.isArray(value)||!['environment-qualified-exact/v1','environment-qualified-selected/v1'].includes(value.reuseProfile)
     ||value.enabled!==true||value.allowEvidenceReuse!==true)fail('The qualified reuse profile requires enabled recovery and explicit allowEvidenceReuse.');
+  if(value.reuseProfile==='environment-qualified-selected/v1'&&!value.enabledRiskCategories?.includes('reduced-coverage'))fail('Selected-execution reuse needs the approved reduced-coverage authority and independent inventory.');
   const {reuseProfile,...legacy}=value,
     originalRisk=Array.isArray(value.enabledRiskCategories)&&value.enabledRiskCategories.some(category=>['new-test-failure','known-test-failure','reduced-coverage'].includes(category)),
     policy=normalizeTestRecoveryPolicy({...legacy,allowEvidenceReuse:originalRisk});

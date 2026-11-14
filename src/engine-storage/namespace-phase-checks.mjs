@@ -4,7 +4,7 @@ import path from 'node:path';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
-import {captureExecutionUnit,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
+import {captureExecutionUnit,localCheckExecutionProfile,reviewedFileSelectionPolicy} from '../foundation/execution-unit-port.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {qualityValidationVerdict,qualityReportUsesStdout} from '../kernel/phase-checks.mjs';
 import {phaseAccessIdentity} from '../kernel/phase-preparation.mjs';
@@ -136,7 +136,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
             if(execution.testReport!==(command.kind==='test')||!execution.testReport&&execution.commandKind!==command.kind||manifest.provider!=='authorized-local-check'||policy.repository.projectId!==scope.projectId
               ||policy.repository.repositoryId!==repo.id||!same(policy.repository.selection,repo.descriptor.selection)
               ||bound.executable!==command.argv[0]||bound.executableSha256!==policy.command.executableSha256
-              ||Boolean(execution.selective)!==Boolean(selected)||selected&&(!same(policy.selection,{profile:'sflow-node-check-file-selection/v1',sha256:selection.record.contextSha256,originalArgumentsSha256:digest(command.argv.slice(1)),files:selected.files}))
+              ||Boolean(execution.selective)!==Boolean(selected)||selected&&(!same(policy.selection,reviewedFileSelectionPolicy(selection,selected,digest(command.argv.slice(1)))))
               ||policy.command.argumentsSha256!==digest(argv.slice(1))||policy.command.environmentSha256!==digest(bound.environment)
               ||Object.entries(command.env??{}).some(([key,value])=>bound.environment[key]!==value)
               ||policy.report.adapter!==(command.result?.adapter??null)||!same(policy.report.files,command.kind!=='test'||qualityReportUsesStdout(command,path.basename)?[]:[command.result.path]))
@@ -207,7 +207,8 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
     async finish(context,accepted){const s=select(context);if(!accepted?.record||!same(accepted.plan.input,s.input))throw error('Use the accepted check receipt.','ENGINE_PORT_RESULT_INVALID');
       return {workId,phase:s.input.phaseId,operationId:s.input.operationId,generation:accepted.plan.generation,record:accepted.record,
         recordedAt:accepted.body.recordedAt,principalId:accepted.plan.actor.actor.principalId,checks:accepted.body.checks,verdict:accepted.body.verdict,replayed:accepted.replayed,
-        ...(accepted.plan.selection?{execution:{schemaVersion:1,profile:'sflow-selective-check-summary/v1',mode:'reviewed-file-selection',decision:accepted.plan.selection.decision,
+        ...(accepted.plan.selection?{execution:{schemaVersion:accepted.plan.selection.record.context.impact?2:1,profile:'sflow-selective-check-summary/v'+(accepted.plan.selection.record.context.impact?2:1),mode:accepted.plan.selection.record.context.impact?'changed-and-affected':'reviewed-file-selection',decision:accepted.plan.selection.decision,
+          ...(accepted.plan.selection.record.context.impact?{impact:accepted.plan.selection.record.context.impact.selection}:{}),
           unexecuted:accepted.plan.selection.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,testIds:row.excludedIds})),
           completeSuiteClaimed:false,impactComplete:false,failuresWaived:false}}:{})};}
   };

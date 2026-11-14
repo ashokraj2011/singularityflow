@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {admitRecordSchemaVersion,NAMESPACE_SELECTIVE_TEST_RECOVERY_CONTEXT_SCHEMA,phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile,namespaceWitnessMappingProfile} from '../foundation/record-schema.mjs';
+import {admitRecordSchemaVersion,namespaceSelectiveTestRecoveryProfile,phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile,namespaceWitnessMappingProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -55,7 +55,7 @@ const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','select
 const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
 const CORRECTION_FIELDS=Object.freeze(['ownerPhase','operations','reason','upstreamIssue']);
 const SINGLE_DECISIONS = Object.freeze([
-  ['test-recovery.select-confirm','selective-test-recovery',['phaseId','baselineOperationId','selection','expectedContext','revoke','reason','expires','followUpOwner','remediationRef'],
+  ['test-recovery.select-confirm','selective-test-recovery',['phaseId','baselineOperationId','selection','mode','candidateGeneration','expectedContext','revoke','reason','expires','followUpOwner','remediationRef'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','reason'])}],
   ['test-risk.confirm-known','known-test-risk',['phaseId','baselineOperationId','observedOperationId','expectedContext','revoke','reason','expires','followUpOwner','remediationRef'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','reason'])}],
@@ -164,8 +164,8 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestWitnessContext'},
   {id:'test-recovery.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','reuse']),port:'testRecoveryContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRecoveryContext'},
-  {id:'test-recovery.select-context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','baselineOperationId','selection']),
-    requiredFields:Object.freeze(['phaseId','baselineOperationId','selection']),port:'selectiveTestRecoveryContext',stages:Object.freeze(['load','read']),
+  {id:'test-recovery.select-context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','baselineOperationId','selection','mode','candidateGeneration']),
+    requiredFields:Object.freeze(['phaseId','baselineOperationId']),port:'selectiveTestRecoveryContext',stages:Object.freeze(['load','read']),
     validate:'selectiveRecoveryContextInput',execute:'inspectSelectiveRecoveryContext'},
   {id:'source-review.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'sourceReviewContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectSourceReviewContext'},
@@ -821,18 +821,25 @@ async function inspectEvidenceReuseContext(port,input,signal){
   const binding=data({subject:context?.subject,workId:context?.workflow?.workItem?.id,phase:context?.phase?.id}),
     facts=data(await port.read(context,{signal}));notCancelled(signal);
   let profile;try{profile=namespaceEvidenceReuseRecordProfile('context',facts);}catch{ /* Reject another transport/schema at the port boundary. */ }
+  const selectionRecoveryAction=row=>profile?.combinedReuse&&row?.operation==='test-recovery.select-context'&&row.inputs?.workId===binding.workId
+    &&facts.candidates?.some(candidate=>candidate?.selection?.record?.context?.baseline&&Array.isArray(candidate.selection.rows)&&row.inputs.phaseId===candidate.selection.record.phase
+      &&candidate.selection.rows.every(value=>value&&typeof value.repositoryId==='string'&&typeof value.commandId==='string'&&Array.isArray(value.files)&&value.files.every(file=>typeof file==='string'))
+      &&typeof candidate.selection.record.context.baseline.operationId==='string'&&row.inputs.baselineOperationId===candidate.selection.record.context.baseline.operationId
+      &&(row.inputs.candidateGeneration??null)===(candidate.selection.record.context.candidateGeneration??null)
+      &&(candidate.selection.record.context.impact?row.inputs.mode==='changed-and-affected':JSON.stringify(row.inputs.selection)===JSON.stringify(candidate.selection.rows.map(value=>({repositoryId:value.repositoryId,commandId:value.commandId,files:value.files})))));
   if(!profile||binding.subject?.kind!=='story'||binding.subject.id!==binding.workId||input.workId!=null&&input.workId!==binding.workId
     ||input.phaseId!=null&&input.phaseId!==binding.phase||facts.profile!==profile.profile
     ||facts.workId!==binding.workId||facts.phase!==binding.phase||typeof facts.revision!=='string'||!facts.revision
     ||facts.testsExecutedByReceiver!==false||!Array.isArray(facts.candidates)||facts.candidates.length>1024||!Array.isArray(facts.decisions)
-    ||!Array.isArray(facts.authorities)||!Array.isArray(facts.actions)||facts.candidates.some(row=>typeof row.taskId!=='string'||!row.taskId
+    ||!Array.isArray(facts.authorities)||!Array.isArray(facts.actions)||facts.candidates.some(row=>typeof row?.taskId!=='string'||!row.taskId
       ||(!(profile.codeRecoveryReuse&&row.retainedExecution===true)&&(!row.publication?.record||!row.submission?.record))||!row.checks?.result||!row.command?.id||typeof row.sourceMatches!=='boolean')
     ||profile.environmentQualified&&facts.candidates.some(row=>typeof row.environmentMatches!=='boolean')
     ||profile.codeRecoveryReuse&&(!['renew-original-permission','review-receiving-reuse'].includes(facts.purpose)
       ||facts.sourceObservation!==(facts.purpose==='renew-original-permission'?'retained-original':'fresh'))
-    ||facts.actions.some(row=>row.inputs?.workId!==binding.workId||row.inputs?.phaseId!==binding.phase
+    ||profile.combinedReuse&&facts.candidates.some(row=>typeof row.selectionCompatible!=='boolean')
+    ||facts.actions.some(row=>!selectionRecoveryAction(row)&&(row?.inputs?.workId!==binding.workId||row?.inputs?.phaseId!==binding.phase
       ||(row.operation==='phase.checks.run'?!profile.environmentQualified:row.operation!=='decision.evidence-reuse'
-        ||!facts.candidates.some(candidate=>candidate.sourceMatches&&(profile.version===1||candidate.environmentMatches)&&candidate.evidenceAge?.eligible!==false&&candidate.taskId===row.inputs.attemptId))))throw new SingularityFlowError(
+        ||!facts.candidates.some(candidate=>candidate.sourceMatches&&(profile.version===1||candidate.environmentMatches)&&candidate.selectionCompatible!==false&&candidate.evidenceAge?.eligible!==false&&candidate.taskId===row.inputs.attemptId)))))throw new SingularityFlowError(
       'The reuse context returned another Story, task or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'evidence-reuse.context',subject:binding.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
@@ -870,7 +877,7 @@ async function inspectTestRecoveryContext(port,input,signal){
     ||input.phaseId!=null&&input.phaseId!==binding.phase||facts.profile!==profile.profile
     ||facts.workId!==binding.workId||facts.phase!==binding.phase||typeof facts.revision!=='string'||!facts.revision
     ||!/^sha256:[a-f0-9]{64}$/u.test(facts.expectedContext??'')||facts.agreement?.workId!==binding.workId
-    ||facts.agreement.executionMode!=='all-configured'||facts.agreement.reuse!==(profile.version===1?'never':'environment-qualified-exact')||!Array.isArray(facts.authorities)||!Array.isArray(facts.actions))
+    ||facts.agreement.executionMode!=='all-configured'||facts.agreement.reuse!==(profile.selectedReuse?'environment-qualified-selected':profile.version===1?'never':'environment-qualified-exact')||!Array.isArray(facts.authorities)||!Array.isArray(facts.actions))
     throw new SingularityFlowError('The recovery context returned another Story, phase or command agreement.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-recovery.context',subject:binding.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
@@ -879,17 +886,21 @@ function selectiveRecoveryContextInput(value,operation){
   const input=data(value);if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key))
     ||['phaseId','baselineOperationId'].some(key=>typeof input[key]!=='string'||!input[key]||input[key].length>512)
     ||input.workId!=null&&(typeof input.workId!=='string'||!input.workId||input.workId.length>512)
-    ||!Array.isArray(input.selection)||!input.selection.length||input.selection.length>1024)invalid('Use an exact baseline and bounded file selection.');
+    ||input.mode!=null&&input.mode!=='changed-and-affected'
+    ||input.candidateGeneration!=null&&(!Number.isSafeInteger(input.candidateGeneration)||input.candidateGeneration<1||input.mode!=='changed-and-affected')
+    ||(input.mode==='changed-and-affected'?input.selection!=null:!Array.isArray(input.selection)||!input.selection.length||input.selection.length>1024))invalid('Use an exact baseline and bounded file selection, or explicit changed-and-affected analysis.');
   return input;
 }
 async function inspectSelectiveRecoveryContext(port,input,signal){
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   const facts=data(await port.read(context,{signal}));notCancelled(signal);
-  try{admitRecordSchemaVersion(NAMESPACE_SELECTIVE_TEST_RECOVERY_CONTEXT_SCHEMA,facts);}catch(cause){throw new SingularityFlowError(
+  let profile;try{profile=namespaceSelectiveTestRecoveryProfile('context',facts);}catch(cause){throw new SingularityFlowError(
     'The selection context has an unsupported or invalid version.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
-  if(facts.profile!=='sflow-namespace-selective-test-recovery-context/v1'||context.subject?.kind!=='story'
+  if(facts.profile!==profile.profile||context.subject?.kind!=='story'
+    ||profile.impactSelection&&(!['review-receiving-selection','renew-original-permission'].includes(facts.purpose)||facts.sourceObservation!==(facts.purpose==='renew-original-permission'?'retained-original':'fresh'))
     ||facts.workId!==context.subject.id||facts.phase!==input.phaseId||facts.workId!==context.workflow?.workItem?.id
-    ||!/^sha256:[a-f0-9]{64}$/u.test(facts.expectedContext??'')||facts.executionMode!=='reviewed-file-selection'||facts.testsExecuted!==false
+    ||!/^sha256:[a-f0-9]{64}$/u.test(facts.expectedContext??'')||facts.executionMode!==(input.mode??'reviewed-file-selection')
+    ||input.mode==='changed-and-affected'&&!profile.impactSelection||facts.testsExecuted!==false
     ||facts.impactComplete!==false||facts.failuresWaived!==false||!Array.isArray(facts.rows)||!facts.rows.length||facts.rows.length>1024
     ||!Array.isArray(facts.authorities))throw new SingularityFlowError('The selection context returned another Story or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-recovery.select-context',subject:context.subject,manifest:facts,
@@ -1408,7 +1419,9 @@ function singleDecisionInput(value, operation, {requestOnly=false,intent=false}=
   if(!requestOnly&&!intent&&(operation.requiredFields??[]).some(key=>!Object.hasOwn(input,key)||input[key]==null))invalid('Supply every required field for this standalone operation.');
   for (const [key,value] of Object.entries(input)) {
     if (value==null) continue;
-    if(key==='selection'&&operation.id==='test-recovery.select-confirm'){
+    if(key==='candidateGeneration'&&operation.id==='test-recovery.select-confirm'){
+      if(!Number.isSafeInteger(value)||value<1)invalid('Use the actual bounded candidate generation.');
+    }else if(key==='selection'&&operation.id==='test-recovery.select-confirm'){
       if(!Array.isArray(value)||!value.length||value.length>1024||value.some(row=>!row||typeof row!=='object'||Array.isArray(row)))invalid('Use bounded repository/command file selection records.');
     }else if (['fetch','notApplicable','open','fromArtifact'].includes(key)) {if(typeof value!=='boolean')invalid(`Decision ${key} must be a boolean.`);}
     else if (['clauseIds','transitions','sourceRoots'].includes(key)) {

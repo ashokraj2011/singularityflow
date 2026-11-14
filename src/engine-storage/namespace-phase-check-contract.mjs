@@ -1,6 +1,6 @@
 /** Phase-check metadata identities and conditional acceptance. Explicit text hashing; no I/O. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {NAMESPACE_PHASE_CHECK_SCHEMAS,namespacePhaseCheckPlanProfile,admitRecordSchemaVersion,textDigestCapability} from '../foundation/record-schema.mjs';
+import {NAMESPACE_PHASE_CHECK_SCHEMAS,namespaceSelectiveTestRecoveryProfile,namespacePhaseCheckPlanProfile,admitRecordSchemaVersion,textDigestCapability} from '../foundation/record-schema.mjs';
 import {namespaceScope,namespaceIdentifier,namespaceIdentityJson,namespaceRevision,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {namespaceTransaction,namespaceTransactionIdentity} from '../sda/namespace/transaction.mjs';
@@ -20,7 +20,7 @@ const fields=Object.freeze({
   intent:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content'],
   manifest:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content','previousIndexVersion']
 });
-export function phaseCheckRecord(kind,fields){const version=kind==='plan'&&fields.selection?5:kind==='plan'&&fields.executionProfile?4:kind==='plan'&&fields.recovery?3:kind==='plan'&&fields.testCommands?2:1;return {schemaVersion:version,format:version===1?formats[kind]:'sflow-namespace-phase-check-plan/v'+version,...fields};}
+export function phaseCheckRecord(kind,fields){const version=kind==='plan'&&fields.selection&&namespaceSelectiveTestRecoveryProfile('record',fields.selection.record).impactSelection?6:kind==='plan'&&fields.selection?5:kind==='plan'&&fields.executionProfile?4:kind==='plan'&&fields.recovery?3:kind==='plan'&&fields.testCommands?2:1;return {schemaVersion:version,format:version===1?formats[kind]:'sflow-namespace-phase-check-plan/v'+version,...fields};}
 export function phaseCheckRecordValue(kind,value) {
   try{admitRecordSchemaVersion(NAMESPACE_PHASE_CHECK_SCHEMAS[kind],value);
     const selected=kind==='plan'?namespacePhaseCheckPlanProfile(value):null,amended=selected?.commands;

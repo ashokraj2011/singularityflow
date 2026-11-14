@@ -27,8 +27,9 @@ import {createNamespaceEvidenceReuseOwner,namespaceEvidenceReuseManifest} from '
 import {createNamespaceTestRiskOwner,namespaceTestRiskManifest} from './namespace-test-risk-reader.mjs';
 import {createNamespaceTestRecoveryOwner,namespaceTestRecoveryManifest} from './namespace-test-recovery-reader.mjs';
 import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
+import {selectiveTestRecoveryReviewInput} from '../kernel/evidence-reuse.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
-const selectiveRecovery=value=>isNamespaceTestRecoveryPolicy(value.binding.kind)&&value.report.executionMode==='reviewed-file-selection';
+const selectiveRecovery=value=>isNamespaceTestRecoveryPolicy(value.binding.kind)&&['reviewed-file-selection','changed-and-affected','reused-selected-execution'].includes(value.report.executionMode);
 const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function reportVersion(profile,value){
@@ -106,12 +107,11 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
       rows.push({profile:'sflow-namespace-execution-permission/v1',kind:'test-cohort',phaseId:publication.phase,generation:publication.generation,
         publication:{baseRevision:publication.baseRevision,artifact:publication.artifact.content},policy:selected.binding,decisions:[active?.value.outcome.record.id??source.record.id],
         disposition:active?'active':'uncovered',references:[...selected.references,...(active?[active.reference]:[])],
-        actions:active?[]:[{operation:'test-recovery.select-context',inputs:{workId,phaseId:publication.phase,baselineOperationId:source.record.context.baseline.operationId,
-          selection:source.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,files:row.files}))},prerequisites:['authenticated-original-test-risk-authority']}]});
+        actions:active?[]:[{operation:'test-recovery.select-context',inputs:{workId,...selectiveTestRecoveryReviewInput(source)},prerequisites:['authenticated-original-test-risk-authority']}]});
     }
-    const reused=proofs(publication).find(row=>row.binding.kind==='evidence-reuse/v3');
+    const reused=proofs(publication).find(row=>['evidence-reuse/v3','evidence-reuse/v4'].includes(row.binding.kind));
     if(reused){let permission=null,actions=[];
-      try{permission=await reuseReader().permission(publication,snapshot,{signal,at});}catch(cause){if(cause.code!=='ENGINE_EVIDENCE_REUSE_NOT_CURRENT')throw cause;actions=cause.details?.actions??[];}
+      try{permission=await reuseReader().permission(publication,snapshot,{signal,at});}catch(cause){if(!['ENGINE_EVIDENCE_REUSE_NOT_CURRENT','SELECTIVE_TEST_RECOVERY_NOT_CURRENT'].includes(cause.code))throw cause;actions=cause.details?.actions??[];}
       rows.push({profile:'sflow-namespace-execution-permission/v2',kind:'evidence-reuse',phaseId:publication.phase,generation:publication.generation,
         publication:{baseRevision:publication.baseRevision,artifact:publication.artifact.content},policy:reused.binding,
         decisions:(permission?.references??[]).map(row=>row.sha256),disposition:permission?'active':'uncovered',references:[...reused.references,...(permission?.references??[])],actions});
@@ -141,8 +141,9 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   }
   async function freshSelective(publication,units,{signal}={}){
     if(!proofs(publication).some(selectiveRecovery))return;
-    if(!publication.checks||!checks)throw error('Selected execution needs its actual check-proof reader.','ENGINE_PORT_UNAVAILABLE');
-    await checks.freshSources(publication.checks,publication.phase,units,{signal});
+    if(!checks)throw error('Selected execution needs its actual check-proof reader.','ENGINE_PORT_UNAVAILABLE');
+    const reused=publication.checks?null:await reuseReader().forPublication(publication,{signal}),binding=publication.checks??reused.checks;
+    await checks.freshSources(binding,reused?.found.plan.input.phaseId??publication.phase,units,{signal});
   }
   let recovery;const recoveryReader=()=>recovery??=createNamespaceTestRecoveryOwner({observer,scope,workId});
   const recoveryCandidate=(publication,snapshot,options={})=>recoveryReader().publication(snapshot,publication.phase,{...options,publication});

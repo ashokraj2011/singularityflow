@@ -24,15 +24,15 @@ test('no patterns, arbitrary argv, empty or ambiguous inventories may become an 
 test('new record meanings have separate closed versions and leave the old agreement and check profiles intact',()=>{
   assert.deepEqual(namespacePhaseCheckPlanProfile({schemaVersion:3}),{version:3,format:'sflow-namespace-phase-check-plan/v3',commands:true,recovery:true});
   assert.equal(namespacePhaseCheckPlanProfile({schemaVersion:5,recovery:{}}).selective,true);assert.equal(namespacePhaseCheckPlanProfile({schemaVersion:5,recovery:{}}).mixed,undefined);
-  assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:6}),{code:'SCHEMA_VERSION_FUTURE'});
-  assert.equal(namespaceCodePolicyProfile('code',{schemaVersion:38}).selectiveRecovery,true);assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:40}),{code:'SCHEMA_VERSION_FUTURE'});
-  assert.equal(namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:3}).selectiveInputs,true);assert.throws(()=>namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:7}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.equal(namespaceCodePolicyProfile('code',{schemaVersion:38}).selectiveRecovery,true);assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:43}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.equal(namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:3}).selectiveInputs,true);assert.throws(()=>namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:6}),{code:'SCHEMA_VERSION_FUTURE'});
   for(const kind of ['record','context','policy','report']){assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:1}).version,1);assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:2}).version,2);
     assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:1}).environmentQualified,undefined);assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:2}).environmentQualified,true);
-    assert.throws(()=>namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});}
+    assert.throws(()=>namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});}
   for(const schema of [NAMESPACE_SELECTIVE_TEST_RECOVERY_CONTEXT_SCHEMA,SELECTIVE_CHECK_SUMMARY_SCHEMA,NODE_CHECK_ENVIRONMENT_OBSERVATION_SCHEMA]){
-    assert.equal(admitRecordSchemaVersion(schema,{schemaVersion:1}).storedVersion,1);assert.throws(()=>admitRecordSchemaVersion(schema,{schemaVersion:2}),{code:'SCHEMA_VERSION_FUTURE'});}
-  assert.equal(namespaceTestRecoveryRecordProfile('agreement',{schemaVersion:1}).version,1);assert.throws(()=>namespaceTestRecoveryRecordProfile('agreement',{schemaVersion:3}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.equal(admitRecordSchemaVersion(schema,{schemaVersion:1}).storedVersion,1);assert.throws(()=>admitRecordSchemaVersion(schema,{schemaVersion:schema.maximumReadableVersion+1}),{code:'SCHEMA_VERSION_FUTURE'});}
+  assert.equal(namespaceTestRecoveryRecordProfile('agreement',{schemaVersion:1}).version,1);assert.throws(()=>namespaceTestRecoveryRecordProfile('agreement',{schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
 });
 test('environment equality is exact for the actual runtime and environment while ignoring device-local report paths',()=>{
   const command={executableSha256:'sha256:'+'1'.repeat(64),environmentSha256:'sha256:'+'2'.repeat(64),argumentsSha256:'sha256:'+'3'.repeat(64)},

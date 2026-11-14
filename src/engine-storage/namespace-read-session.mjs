@@ -34,6 +34,14 @@ export function memoNamespaceLifecycleReceiptProof(records,content,identity,obse
   const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
   return session.read('accepted-lifecycle-receipt/v1:'+canonicalJson(identity),observe,value=>value?.status==='committed',signal,true,true);
 }
+/** Verified receipt readers already return deep-frozen JSON. Preserve that read-only contract
+ * without cloning entire predecessor/receiving state trees on each nested proof read. */
+export function memoNamespaceFrozenLifecycleReceiptProof(records,content,identity,observe,{signal}={}){
+  const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
+  const freeze=value=>{if(value&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;};
+  return session.read('accepted-frozen-lifecycle-receipt/v1:'+canonicalJson(identity),async()=>freeze(await observe()),
+    value=>value?.status==='committed',signal,true,true,value=>value);
+}
 /** Fully accepted source/check evidence only. A missing result can become accepted during a run. */
 export function memoNamespaceSourceEvidenceProof(records,content,identity,observe,{signal}={}){
   const session=proofSessions.get(records);if(!session||session.content!==content)return observe();
@@ -55,21 +63,21 @@ function copy(value){const result=structuredClone(value);if(value?.data instance
 const size=value=>value?.data instanceof Uint8Array?value.data.byteLength:Buffer.byteLength(canonicalJson(value));
 export function createNamespaceReadSession({records,content}) {
   const active=new AsyncLocalStorage();
-  async function read(key,load,admitted,signal,coalesce=false,priority=false) {
+  async function read(key,load,admitted,signal,coalesce=false,priority=false,copyValue=copy) {
     cancelled(signal);const context=active.getStore();
     if(!context)return load();
     if(context.closed)throw new SingularityFlowError('The namespace read outlived its operation.',{code:'ENGINE_CONTEXT_CHANGED'});
     const epoch=context.epoch,previous=context.entries.get(key);
     if(previous){const value=await previous.pending;cancelled(signal);if(context.closed)throw new SingularityFlowError(
-      'The namespace read outlived its operation.',{code:'ENGINE_CONTEXT_CHANGED'});return copy(value);}
+      'The namespace read outlived its operation.',{code:'ENGINE_CONTEXT_CHANGED'});return copyValue(value);}
     const entry={pending:Promise.resolve().then(load)};
     if(coalesce&&key!==null&&context.entries.size<LIMITS.entries)context.entries.set(key,entry);
     try{const value=await entry.pending;cancelled(signal);if(context.closed)throw new SingularityFlowError(
       'The namespace read outlived its operation.',{code:'ENGINE_CONTEXT_CHANGED'});
-      if(context.epoch!==epoch)return copy(value);
+      if(context.epoch!==epoch)return copyValue(value);
       const discard=()=>{if(context.entries.get(key)===entry){context.entries.delete(key);context.bytes-=entry.bytes??0;}};
       if(key===null||!admitted(value)){discard();return value;}
-      if(context.entries.has(key)&&context.entries.get(key)!==entry)return copy(value);
+      if(context.entries.has(key)&&context.entries.get(key)!==entry)return copyValue(value);
       const bytes=size(value),full=()=>context.bytes+bytes>LIMITS.bytes||!context.entries.has(key)&&context.entries.size>=LIMITS.entries;
       // Prefer a completed, verified proof to rereadable raw bytes. Bounds and mutable reads stay unchanged.
       if(priority&&bytes<=LIMITS.bytes)for(const [candidate,retained]of context.entries){
@@ -78,7 +86,7 @@ export function createNamespaceReadSession({records,content}) {
         context.entries.delete(candidate);context.bytes-=retained.bytes;
       }
       if(full()){discard();return value;}
-      entry.bytes=bytes;entry.priority=Number(priority);context.entries.set(key,entry);context.bytes+=bytes;return copy(value);
+      entry.bytes=bytes;entry.priority=Number(priority);context.entries.set(key,entry);context.bytes+=bytes;return copyValue(value);
     }catch(error){if(context.entries.get(key)===entry)context.entries.delete(key);throw error;}
   }
   const cachedRecords=bindNamespaceReadBatch(records,Object.freeze({...records,

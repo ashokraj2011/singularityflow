@@ -14,8 +14,8 @@ import {createFilesystemSourceUnit} from './filesystem-source-unit.mjs';
 import {createExecutionUnitManifest,createExecutionUnitAdapter,executionUnitSha256,
   assertPinnedExecutionExecutable,executePinnedProcess,untilExecutionStopped} from './node-execution-unit.mjs';
 
-import {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
-export {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
+import {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_SCRIPT_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
+export {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_SCRIPT_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
 const MAXIMUM_BYTES=EXECUTION_UNIT_LIMITS.maximumOutputBytes;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fingerprint=info=>[info.dev,info.ino,info.mode,info.size,info.mtimeNs,info.ctimeNs].map(String).join(':');
@@ -55,6 +55,14 @@ export async function createNodeCommandExecutionUnit(options={}){
   if(!options||typeof options!=='object'||Object.hasOwn(options,'report'))throw error('Command checks do not accept a test report selection.');
   const {commandKind,...binding}=options,selected=localCheckExecutionProfile({profile:NODE_COMMAND_EXECUTION_PROFILE,commandKind});
   return localCheckExecutionUnit({...binding,report:{adapter:null,files:[]}},{profile:selected.format,commandKind});
+}
+/** Explicit opt-in command provenance for mixed test/compile/lint reuse. Still no parsed tests. */
+export async function createEnvironmentQualifiedNodeCommandExecutionUnit(options={}){
+  if(!options||typeof options!=='object'||Object.hasOwn(options,'report'))throw error('Command checks do not accept a test report selection.');
+  const {commandKind,hostId,...binding}=options;
+  if(typeof hostId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(hostId))throw error('Supply the authenticated executor host identity.');
+  localCheckExecutionProfile({profile:NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE,commandKind});
+  return localCheckExecutionUnit({...binding,report:{adapter:null,files:[]}},{profile:NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE,commandKind,hostId});
 }
 async function localCheckExecutionUnit(options,execution){
   const selected=localCheckExecutionProfile(execution);
@@ -180,19 +188,20 @@ async function localCheckExecutionUnit(options,execution){
   if(!selected.qualifiedEnvironment)return adapter;
   // A read-only observation rechecks the actual executable and checkout. A manifest or a
   // successful doctor result alone cannot attest to the environment of a later operation.
-  return Object.freeze({...adapter,...(!selected.selective?{async selectTestFiles(input){
+  return Object.freeze({...adapter,...(!selected.selective&&selected.testReport?{async selectTestFiles(input){
     const request=data(input,['files','selectionSha256','originalArgumentsSha256'],'Reviewed test selection'),args=command.arguments,
-      offset=args[2]==='--'?3:2,full=args.slice(offset);
-    if(args[0]!=='--test'||args[1]!=='--test-reporter=junit'||report.adapter!=='junit-xml'||report.files.length
+      script=args[1]==='--test-reporter=junit'&&args[2]==='--'&&/\.[cm]?js$/u.test(args[0]??'')&&!args[0].startsWith('-')&&sourceRelativePath(args[0])===args[0],
+      offset=script?3:args[2]==='--'?3:2,full=args.slice(offset);
+    if((!script&&(args[0]!=='--test'||args[1]!=='--test-reporter=junit'))||report.adapter!=='junit-xml'||report.files.length
       ||Object.keys(command.environment).length||request.originalArgumentsSha256!==policy.command.argumentsSha256
       ||!/^sha256:[a-f0-9]{64}$/u.test(request.selectionSha256??'')||!Array.isArray(request.files)||!request.files.length
       ||request.files.length>256||new Set(request.files).size!==request.files.length||request.files.some(file=>!full.includes(file)
         ||sourceRelativePath(file)!==file||file.startsWith('-'))||full.some(file=>file.startsWith('-')))
       throw error('Select only explicit complete files of this pinned native Node JUnit command.','SGOS_CHECK_SELECTION_INVALID');
     return localCheckExecutionUnit({...options,id:id+'-selected-'+request.selectionSha256.slice(7,23),
-      command:{...command,arguments:[...args.slice(0,offset),...request.files]}},{profile:NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,
-        hostId:execution.hostId,selection:{profile:'sflow-node-check-file-selection/v1',sha256:request.selectionSha256,
-          originalArgumentsSha256:request.originalArgumentsSha256,files:request.files}});
+      command:{...command,arguments:[...args.slice(0,offset),...request.files]}},{profile:script?NODE_SCRIPT_SELECTIVE_CHECK_EXECUTION_PROFILE:NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,
+        hostId:execution.hostId,selection:{profile:script?'sflow-node-check-file-selection/v2':'sflow-node-check-file-selection/v1',sha256:request.selectionSha256,
+          originalArgumentsSha256:request.originalArgumentsSha256,files:request.files,...(script?{adapter:'node-script-junit-v1'}:{})}});
   }}:{}),async observeEnvironment({signal}={}){
     const active=signal??new AbortController().signal;
     active.throwIfAborted();

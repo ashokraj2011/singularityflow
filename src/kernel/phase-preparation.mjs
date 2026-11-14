@@ -35,13 +35,13 @@ export function phasePreparationCatalogAdmission(definition,w,phase,agentId,{tes
     const skillHost=skillPhaseHostRequirement(w,phase);
     if(skillHost)throw admissionError('The qualified skill containment and delivery host is not installed for this phase.','SKP_HOST_ENFORCEMENT_UNAVAILABLE',skillHost);
     const agreement=testRecovery?.agreement,context=testRecovery?.context;
-    const recoveryVersion=['sflow-namespace-test-recovery-agreement/v1','sflow-namespace-test-recovery-agreement/v2'].includes(agreement?.profile)
+    const recoveryVersion=['sflow-namespace-test-recovery-agreement/v1','sflow-namespace-test-recovery-agreement/v2','sflow-namespace-test-recovery-agreement/v3'].includes(agreement?.profile)
       ?namespaceTestRecoveryRecordProfile('agreement',agreement):null;
     const recoveryAdmitted=recoveryVersion&&agreement.profile===recoveryVersion.profile
       &&context?.value?.profile==='sflow-namespace-test-recovery-context/v'+recoveryVersion.version&&agreement.contextSha256===context.sha256
       &&agreement.context.workId===w.workItem.id&&agreement.context.executionMode==='all-configured'
-      &&(recoveryVersion.qualifiedReuse?agreement.context.reuse==='environment-qualified-exact'
-        &&w.resolution.testRecovery?.reuseProfile==='environment-qualified-exact/v1'&&w.resolution.testRecovery.allowEvidenceReuse:true)
+      &&(recoveryVersion.qualifiedReuse?agreement.context.reuse===(recoveryVersion.selectedReuse?'environment-qualified-selected':'environment-qualified-exact')
+        &&w.resolution.testRecovery?.reuseProfile===agreement.context.reuse+'/v1'&&w.resolution.testRecovery.allowEvidenceReuse:true)
       &&JSON.stringify(agreement.context.policy)===JSON.stringify(w.resolution.testRecovery);
     if(phaseRequiresCodeDelivery(phase)&&w.resolution.testRecovery?.enabled&&!recoveryAdmitted)throw admissionError('The code phase needs its retained test-recovery agreement and verified readiness on this backend.',
       w.resolution.testRecoveryAgreement?'TRP_READINESS_EVIDENCE_REQUIRED':'TRP_AGREEMENT_REQUIRED');

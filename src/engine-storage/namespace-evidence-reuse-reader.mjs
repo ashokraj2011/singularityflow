@@ -15,9 +15,10 @@ import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mj
 import {createNamespaceSubmissionReader} from './namespace-submission-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceSourceObservations} from './namespace-source-observations.mjs';
-import {memoNamespaceObservedDecision} from './namespace-story-reader.mjs';
+import {memoNamespaceObservedDecision,memoNamespaceObservedCodePolicy} from './namespace-story-reader.mjs';
 import {namespaceSpecificationIdentity} from './namespace-specification-contract.mjs';
 import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
+import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 import {namespaceEvidencePolicyManifest} from './namespace-policy-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sha256').update(value).digest('hex'),
   fail=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>{throw new SingularityFlowError(message,{code,details});},
@@ -39,7 +40,10 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
       if(row.profile!==profile.profile)fail('The retained reuse decision has another profile.');}
     const proofs=[];
     for(const link of links)proofs.push(await memoNamespaceObservedDecision(observer,{profile:NAMESPACE_EVIDENCE_REUSE_PROFILE,record:link.record},
-      ()=>reader.accepted(link,options),options));
+      async()=>{const {value,reference,source}=await reader.accepted(link,options);
+        // Replay the complete receipt before retaining its small consuming projection.
+        // Historical states and transaction plans are not needed by another permission check.
+        return {value,reference,source:{sourceBindings:source.sourceBindings??null}};},options));
     if(!same(rows,proofs.map(proof=>proof.value.outcome.record)))fail('The reuse inventory differs from its accepted decisions.');
     return proofs;
   }
@@ -78,21 +82,22 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
       const producerPhaseId=options.producerPhaseId??phaseId;
       if(workflow.phaseOrder.indexOf(producerPhaseId)<0||workflow.phaseOrder.indexOf(producerPhaseId)>workflow.phaseOrder.indexOf(phaseId))fail('Select an existing current or earlier execution phase.','EVIDENCE_REUSE_NOT_ELIGIBLE');
       const tested=await checks.accepted({workId,phaseId:producerPhaseId,operationId:options.producerOperationId},options);
-      if(!tested||tested.plan.selection||tested.body.verdict!=='passed'||!same(tested.plan.basis.configuration,snapshot.configuration)
+      if(!tested||tested.plan.selection&&!options.combined||tested.body.verdict!=='passed'||!same(tested.plan.basis.configuration,snapshot.configuration)
         ||!same(tested.plan.sources.map(row=>({id:row.id,selection:row.descriptor.selection})),repositories.map(row=>({id:row.id,selection:row.descriptor.selection})))
         ||!same(tested.plan.steps.filter((_,index)=>index%repositories.length===0).map(row=>row.command),selected.commands)
-        ||tested.plan.steps.some(row=>row.command.kind!=='test'))fail('Select an actual complete passing check set with the same configuration, commands and repositories.','EVIDENCE_REUSE_NOT_ELIGIBLE');
+        ||!options.combined&&tested.plan.steps.some(row=>row.command.kind!=='test'))fail('Select an actual complete passing check set with the same configuration, commands and repositories.','EVIDENCE_REUSE_NOT_ELIGIBLE');
       const key=checks.codec.indexKey(tested.plan),binding=phaseCheckRecord('binding',{operationId:tested.plan.input.operationId,
         result:tested.record,index:{key,version:tested.receipt.records.find(row=>row.key===key).version}});
       references.push(tested.record.content);
       for(const [offset,step]of tested.plan.steps.entries()){
         const observed=tested.body.checks[offset],tests=observed.tests;
-        if(observed.status!=='passed'||!tests||tests.discovered<Math.max(1,minimums.minimumDiscovered??1)||tests.passed<Math.max(1,minimums.minimumPassed??1)
-          ||tests.failed!==0||tests.skipped!==0||(tests.cancelled??0)!==0||(tests.todo??0)!==0)fail('A reused command must retain every passing required test without skips.','EVIDENCE_REUSE_NOT_ELIGIBLE');
+        if(observed.status!=='passed'||(step.command.kind==='test'?(!tests||tests.discovered<Math.max(1,minimums.minimumDiscovered??1)||tests.passed<Math.max(1,minimums.minimumPassed??1)
+          ||tests.failed!==0||tests.skipped!==0||(tests.cancelled??0)!==0||(tests.todo??0)!==0):!options.combined||tests!==null))fail('A reused command must retain every passing required test or its separate actual command observation.','EVIDENCE_REUSE_NOT_ELIGIBLE');
         const producer={phase:producerPhaseId,generation:tested.plan.generation,publication:null,submission:null,checks:binding,retainedExecution:true,
           taskId:step.contract.taskId,repositoryId:step.repositoryId,command:step.command,tests,completedAt:tested.body.recordedAt,
           executionSha256:'sha256:'+hash(canonicalJson(tested.body.results[offset]))};
-        candidates.push({taskId:step.contract.taskId,producer,sources:tested.plan.sources,qualification:step.manifest.toolPolicy.environmentQualification??null,command:step.manifest.toolPolicy.command});
+        candidates.push({taskId:step.contract.taskId,producer,sources:tested.plan.sources,selection:tested.plan.selection??null,qualification:step.manifest.toolPolicy.environmentQualification??null,
+          command:tested.plan.selection?.rows.some(row=>row.repositoryId===step.repositoryId&&row.commandId===step.command.id)?{...step.manifest.toolPolicy.command,argumentsSha256:'sha256:'+hash(canonicalJson(step.command.argv.slice(1)))}:step.manifest.toolPolicy.command});
       }
     }
     if(candidates.length>1024)fail('The reuse candidate inventory exceeds its explicit bound.','ENGINE_STORAGE_LIMIT');
@@ -150,12 +155,14 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
     if(!snapshot.workflow.resolution.testRecovery?.enabled)return null;
     if(!extended)namespaceEvidenceReusePhase(snapshot.workflow,snapshot.workflow.currentPhase);
     const current=await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(snapshot,options);
-    if(current.agreement.context.reuse!=='environment-qualified-exact')fail('Review the explicit qualified reuse agreement, or execute the complete configured checks.','ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED',{
-      actions:[{operation:'test-recovery.context',inputs:{workId,reuse:'environment-qualified-exact'}},{operation:'phase.checks.run',inputs:{workId,phaseId:snapshot.workflow.currentPhase},requiredInputs:['operationId']}]});
+    if(!['environment-qualified-exact','environment-qualified-selected'].includes(current.agreement.context.reuse))fail('Review the explicit qualified reuse agreement, or execute the complete configured checks.','ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED',{
+      actions:[{operation:'test-recovery.context',inputs:{workId,reuse:snapshot.workflow.resolution.testRecovery.reuseProfile==='environment-qualified-selected/v1'?'environment-qualified-selected':'environment-qualified-exact'}},{operation:'phase.checks.run',inputs:{workId,phaseId:snapshot.workflow.currentPhase},requiredInputs:['operationId']}]});
     return {agreement:current.agreement.contextSha256,records:current.references};
   }
   const producerRequest=request=>request.producerOperationId?{producerPhaseId:request.producerPhaseId??request.phaseId,producerOperationId:request.producerOperationId}:null;
-  const extendedMode=options=>options.bound?options.bound.profile==='sflow-namespace-evidence-reuse/v3':environmentReader.codeRecoveryReuse;
+  const extendedMode=options=>options.bound?['sflow-namespace-evidence-reuse/v3','sflow-namespace-evidence-reuse/v4'].includes(options.bound.profile):environmentReader.codeRecoveryReuse;
+  const combinedMode=options=>options.bound?options.bound.profile==='sflow-namespace-evidence-reuse/v4':environmentReader.combinedEvidenceReuse;
+  const currentRecoveryMode=snapshot=>snapshot.workflow.namespaceTestRecoveryAgreements?.at(-1)?.context.reuse;
   const renewalPhase=(snapshot,phaseId)=>snapshot.workflow.currentPhase!==phaseId||['approved','awaiting_approval'].includes(snapshot.workflow.phases[phaseId]?.status);
   const priorDecision=(proofs,phaseId,query,taskId=null)=>proofs.toReversed().find(row=>row.value.phase===phaseId&&row.value.outcome.record.id
     &&namespaceEvidenceReuseRecordProfile('record',row.value.outcome.record).codeRecoveryReuse
@@ -171,24 +178,27 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
         return {generation:phase.generation,identity:{profile:NAMESPACE_EVIDENCE_REUSE_PROFILE,revoke:target.reference},
           references:previous.map(row=>row.reference)};}
       const prior=renewalPhase(snapshot,request.phaseId)?priorDecision(previous,request.phaseId,producerRequest(request),request.attemptId):null,
-        extended=extendedMode(options)||Boolean(!options.bound&&prior),renewal=extended&&prior,selectedSnapshot=originalSelection(snapshot,renewal),
+        extended=extendedMode(options)||Boolean(!options.bound&&prior),combined=combinedMode(options)||Boolean(prior&&namespaceEvidenceReuseRecordProfile('record',prior.value.outcome.record).combinedReuse),renewal=extended&&prior,selectedSnapshot=originalSelection(snapshot,renewal),
         original=options.bound??(renewal?renewal.value.source:null),
-        admittedOptions={...options,extended,...(producerRequest(request)??{})},recovery=await recoveryBinding(selectedSnapshot,extended,options);
+        admittedOptions={...options,extended,combined,...(producerRequest(request)??{})},recovery=await recoveryBinding(selectedSnapshot,extended,options);
       if((snapshot.workflow.currentPhase!==request.phaseId||phase.status==='awaiting_approval')&&!renewal)fail(
         'Authorize reused tests in the active authoring phase before submitting its packet.','EVIDENCE_REUSE_NOT_ELIGIBLE',{
           actions:[{operation:'phase.review',inputs:{workId,phaseId:request.phaseId}}]});
       const values=await inventory(selectedSnapshot,request.phaseId,admittedOptions),candidate=values.candidates.find(row=>row.taskId===request.attemptId);
       if(!candidate)fail(extended?'Select an actual complete passing execution from the current or an earlier phase.':'This task is not a matching passing execution of an earlier approved phase.','EVIDENCE_REUSE_NOT_ELIGIBLE',{
         actions:[{operation:'evidence-reuse.context',inputs:{workId,phaseId:request.phaseId,...(producerRequest(request)??{})}},{operation:'phase.checks.run',inputs:{workId,phaseId:request.phaseId},requiredInputs:['operationId']}]});
+      const selection=candidate.selection??null,selectionProofs=selection?await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}).admitted(snapshot,options):[];
+      if(selection&&recovery&&currentRecoveryMode(selectedSnapshot)!=='environment-qualified-selected')fail('The full-execution agreement does not authorize selected-run reuse. Execute the complete configured checks.','ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED',{
+        actions:[{operation:'phase.checks.run',inputs:{workId,phaseId:request.phaseId},requiredInputs:['operationId']}]});
       const observed=await observations(selectedSnapshot,values.repositories,{...options,bound:original?.observations??null});
       if(!await matches(selectedSnapshot,candidate,observed.rows,options))fail('Source or test inputs changed after the original execution. Run current checks.','ENGINE_SOURCE_CHANGED',{
         actions:[{operation:'phase.checks.run',inputs:{workId,phaseId:request.phaseId},requiredInputs:['operationId']}]});
       const qualified=extended||Boolean(original&&Object.hasOwn(original,'environments'))||!options.bound&&environmentReader.environmentSensitiveReuse,
         environments=qualified?await environment(selectedSnapshot,request.phaseId,candidate,observed.rows,{...options,bound:original?.environments??null}):null;
-      return {generation:phase.generation,candidate,extended,sourceBindings:selectedSnapshot.workflow.sourceBindings,observations:observed.rows,...(qualified?{environments}:{}),identity:{profile:extended?'sflow-namespace-evidence-reuse/v3':qualified?'sflow-namespace-evidence-reuse/v2':NAMESPACE_EVIDENCE_REUSE_PROFILE,
+      return {generation:phase.generation,candidate,extended,combined,selection,sourceBindings:selectedSnapshot.workflow.sourceBindings,observations:observed.rows,...(qualified?{environments}:{}),identity:{profile:combined?'sflow-namespace-evidence-reuse/v4':extended?'sflow-namespace-evidence-reuse/v3':qualified?'sflow-namespace-evidence-reuse/v2':NAMESPACE_EVIDENCE_REUSE_PROFILE,
         ...(extended?{producerRequest:producerRequest(request),recovery}:{}),
-        candidate:candidate.producer,commands:values.commandIdentity,observations:observed.rows,...(qualified?{environments}:{})},
-        pendingEvidence:observed.pendingEvidence,references:unique([...previous.map(row=>row.reference),...values.references,...(recovery?.records??[]),...observed.rows.map(row=>row.content)])};
+        ...(combined?{selection}:{}),candidate:candidate.producer,commands:values.commandIdentity,observations:observed.rows,...(qualified?{environments}:{})},
+        pendingEvidence:observed.pendingEvidence,references:unique([...previous.map(row=>row.reference),...selectionProofs.map(row=>row.reference),...values.references,...(recovery?.records??[]),...observed.rows.map(row=>row.content)])};
     },
     authority(workflow,request,actor){
       if(workflow.resolution.presence)fail('Reuse requires its configured person-presence evidence.','ENGINE_PORT_UNAVAILABLE',{required:['person-presence']});
@@ -211,9 +221,10 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
       .filter(row=>row.record.id&&row.record.phase===phaseId);
     if(!rows.length)return null;
     const extended=Boolean(bound?namespaceEvidenceReuseRecordProfile('report',bound).codeRecoveryReuse:rows.some(row=>namespaceEvidenceReuseRecordProfile('record',row.record).codeRecoveryReuse)),
-      recovery=await recoveryBinding(snapshot,extended,{signal}),values=await inventory(snapshot,phaseId,{signal,policyTraversal,extended});
+      combined=Boolean(bound?namespaceEvidenceReuseRecordProfile('report',bound).combinedReuse:rows.some(row=>namespaceEvidenceReuseRecordProfile('record',row.record).combinedReuse)),
+      recovery=await recoveryBinding(snapshot,extended,{signal}),values=await inventory(snapshot,phaseId,{signal,policyTraversal,extended,combined});
     for(const query of unique(rows.filter(row=>row.record.producerRequest).map(row=>row.record.producerRequest))){
-      const extra=await inventory(snapshot,phaseId,{signal,policyTraversal,extended,...query});values.candidates.push(...extra.candidates);values.references.push(...extra.references);}
+      const extra=await inventory(snapshot,phaseId,{signal,policyTraversal,extended,combined,...query});values.candidates.push(...extra.candidates);values.references.push(...extra.references);}
     const observed=await observations(snapshot,values.repositories,{signal,bound:bound?.sources??null,units}),
       selected=[],missing=[],lapsed=[],environments=[];
     for(const command of values.commands)for(const repository of values.repositories){
@@ -233,15 +244,18 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
     if(!values.commands.length||missing.length)fail('Reused tests do not cover the current exact command and repository inventory. Run current checks or review its reuse decisions.',
       'ENGINE_EVIDENCE_REUSE_INCOMPLETE',{phase:phaseId,missing,lapsed,actions:[...(extended?unique(rows.map(row=>row.record.producerRequest??null)):[null]).map(query=>({operation:'evidence-reuse.context',inputs:{workId,phaseId,...(query??{})}})),
         {operation:'phase.checks.run',inputs:{workId,phaseId},requiredInputs:['operationId']}]});
-    const version=extended?3:environments.length?2:1;
+    const selection=combined?selected[0]?.record.selection??null:null,version=combined?4:extended?3:environments.length?2:1;
+    if(combined&&selected.some(row=>!namespaceEvidenceReuseRecordProfile('record',row.record).combinedReuse||!same(row.record.selection,selection)))fail('Every command must retain the identical reviewed selection.','EVIDENCE_REUSE_NOT_ELIGIBLE');
+    const selectionPermission=selection?await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}).permission(snapshot,selection,{signal,at}):null;
+    if(selection&&recovery&&currentRecoveryMode(snapshot)!=='environment-qualified-selected')fail('The original recovery agreement forbids selected reuse.','ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED');
     if(extended&&selected.some(row=>!namespaceEvidenceReuseRecordProfile('record',row.record).codeRecoveryReuse))fail('Review qualified Code/recovery reuse for every receiving command and repository.','ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED');
     if(extended&&recovery&&selected.some(row=>namespaceEvidenceReuseAge(snapshot.workflow,phaseId,row.record.producer.completedAt,at)?.eligible===false))fail(
         'The original execution exceeds the approved reuse age. Run current configured checks.','ENGINE_EVIDENCE_REUSE_TOO_OLD',{
           actions:[{operation:'phase.checks.run',inputs:{workId,phaseId},requiredInputs:['operationId']}]});
     if(version>=2&&selected.some(row=>!namespaceEvidenceReuseRecordProfile('record',row.record).environmentQualified))fail('A qualified reuse set requires qualified decisions for every receiving command and repository.','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_REQUIRED');
     return {report:{schemaVersion:version,profile:'sflow-namespace-evidence-reuse-policy/v'+version,workId,phaseId,commands:values.commandIdentity,
-      reused:selected,sources:observed.rows,...(version>=2?{environments}:{}),...(extended?{recovery}:{}),testsExecutedByReceiver:false,environmentRechecked:version>=2,failuresWaived:false},
-      references:unique([...proofs.map(proof=>proof.reference),...values.references,...(recovery?.records??[]),...observed.rows.map(row=>row.content)]),
+      reused:selected,sources:observed.rows,...(version>=2?{environments}:{}),...(extended?{recovery}:{}),...(combined?{selection,selectionPermission}:{}),testsExecutedByReceiver:false,environmentRechecked:version>=2,failuresWaived:false},
+      references:unique([...proofs.map(proof=>proof.reference),...values.references,...(selectionPermission?[selectionPermission.decision]:[]),...(recovery?.records??[]),...observed.rows.map(row=>row.content)]),
       pendingEvidence:observed.pendingEvidence,policy:{owners:['check-execution']}};
   }
   async function context(snapshot,phaseId,{signal,at,...query}={}){
@@ -250,30 +264,38 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
       &&namespaceEvidenceReuseRecordProfile('record',row.value.outcome.record).codeRecoveryReuse)){
       const phase=snapshot.workflow.phases[phaseId],binding=phase?.publicationBindings?.find(row=>row.generation===phase.generation);
       if(binding){const published=await packets.publicationReader.accepted(binding,phaseId,{signal});
-        if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v3')){
+        if(published.policyEvidence?.some(row=>['evidence-reuse/v3','evidence-reuse/v4'].includes(row.kind))){
           consumed=await forPublication(published,{signal});query={...query,...(consumed.report.reused[0].record.producerRequest??{})};
         }}
     }
     const prior=renewal?priorDecision(proofs,phaseId,producerRequest({phaseId,...query}),consumed?.report.reused[0].record.producer.taskId??null):null,
-      extended=environmentReader.codeRecoveryReuse||Boolean(prior),selectedSnapshot=originalSelection(snapshot,extended?prior:null),
-      values=await inventory(selectedSnapshot,phaseId,{signal,extended,...query}),original=prior?.value.source??null,
+      extended=environmentReader.codeRecoveryReuse||Boolean(prior),combined=environmentReader.combinedEvidenceReuse||Boolean(prior&&namespaceEvidenceReuseRecordProfile('record',prior.value.outcome.record).combinedReuse),selectedSnapshot=originalSelection(snapshot,extended?prior:null),
+      values=await inventory(selectedSnapshot,phaseId,{signal,extended,combined,...query}),original=prior?.value.source??null,
       observed=await observations(selectedSnapshot,values.repositories,{signal,bound:original?.observations??null}),candidates=[];
     if(consumed)values.candidates=values.candidates.filter(row=>consumed.report.reused.some(value=>value.record.producer.taskId===row.taskId));
-    await recoveryBinding(selectedSnapshot,extended,{signal});const version=extended?3:environmentReader.environmentSensitiveReuse?2:1;
+    await recoveryBinding(selectedSnapshot,extended,{signal});const version=combined?4:extended?3:environmentReader.environmentSensitiveReuse?2:1;
     for(const candidate of values.candidates){const sourceMatches=await matches(selectedSnapshot,candidate,observed.rows,{signal});let environmentMatches=false,environmentIssue=null;
       const candidateSource=original?proofs.toReversed().find(row=>row.value.phase===phaseId
         &&row.value.outcome.record.producer?.taskId===candidate.taskId&&same(row.value.outcome.record.producerRequest,producerRequest({phaseId,...query})))?.value.source:null;
       if(version>=2&&sourceMatches)try{await environment(selectedSnapshot,phaseId,candidate,observed.rows,{signal,bound:candidateSource?.environments??null});environmentMatches=true;}
       catch(cause){if(!['ENGINE_EVIDENCE_REUSE_ENVIRONMENT_CHANGED','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_REQUIRED'].includes(cause.code))throw cause;
         environmentIssue={code:cause.code,message:cause.message,details:cause.details??null};}
-      candidates.push({...candidate.producer,sourceMatches,...(version>=2?{environmentMatches,environmentIssue}:{}),
+      let selectionCompatible=true,selectionIssue=null;
+      if(combined&&candidate.selection){
+        if(selectedSnapshot.workflow.resolution.testRecovery?.enabled&&currentRecoveryMode(selectedSnapshot)!=='environment-qualified-selected'){
+          selectionCompatible=false;selectionIssue={code:'ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED',actions:[{operation:'phase.checks.run',inputs:{workId,phaseId},requiredInputs:['operationId']}]};
+        }else try{await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}).permission(selectedSnapshot,candidate.selection,{signal,at});}
+        catch(cause){if(cause.code!=='SELECTIVE_TEST_RECOVERY_NOT_CURRENT')throw cause;selectionCompatible=false;selectionIssue={code:cause.code,actions:cause.details?.actions??[]};}
+      }
+      candidates.push({...candidate.producer,sourceMatches,...(combined?{selection:candidate.selection??null,selectionCompatible,selectionIssue}:{}),...(version>=2?{environmentMatches,environmentIssue}:{}),
         ...(extended?{evidenceAge:namespaceEvidenceReuseAge(snapshot.workflow,phaseId,candidate.producer.completedAt,at)}:{})});}
     return {schemaVersion:version,profile:'sflow-namespace-evidence-reuse-context/v'+version,workId,phase:phaseId,revision:snapshot.revision,candidates,
       ...(extended?{purpose:prior?'renew-original-permission':'review-receiving-reuse',sourceObservation:prior?'retained-original':'fresh'}:{}),
       decisions:proofs.filter(row=>row.value.phase===phaseId).map(row=>({record:row.value.outcome.record,reference:row.reference,
         state:row.value.outcome.record.revokes?'revocation':namespaceEvidenceReuseState(snapshot.workflow,row.value.outcome.record,{at})})),
       authorities:evidenceReuseAuthorities(snapshot.workflow,phaseId),testsExecutedByReceiver:false,
-      actions:[...candidates.filter(row=>row.sourceMatches&&(version===1||row.environmentMatches)&&row.evidenceAge?.eligible!==false).map(row=>({operation,inputs:{workId,phaseId,attemptId:row.taskId,...query},requiredInputs:['reason']})),
+      actions:[...candidates.filter(row=>row.sourceMatches&&(version===1||row.environmentMatches)&&row.selectionCompatible!==false&&row.evidenceAge?.eligible!==false).map(row=>({operation,inputs:{workId,phaseId,attemptId:row.taskId,...query},requiredInputs:['reason']})),
+        ...unique(candidates.flatMap(row=>row.selectionIssue?.actions??[])),
         ...(version>=2?[{operation:'phase.checks.run',inputs:{workId,phaseId},requiredInputs:['operationId'],prerequisites:['authored-current-phase-draft','explicit-check-execution-bindings']}]:[])]};
   }
   async function execution(report,{signal}={}){
@@ -282,7 +304,8 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
     if(report.reused.some(row=>!same(row.record.producer.checks,original.checks)||row.record.producer.phase!==original.phase))fail('This profile requires one complete original execution across all repositories and commands.','EVIDENCE_REUSE_NOT_ELIGIBLE',{
       actions:[{operation:'phase.checks.run',inputs:{workId,phaseId:report.phaseId},requiredInputs:['operationId']}]});
     const found=await checks.proof(original.checks,original.phase,{signal});
-    if(found.plan.selection||found.body.verdict!=='passed'||found.plan.steps.length!==report.reused.length)fail('Reused Code must retain the actual complete passing check set.');
+    if(found.plan.selection&&!namespaceEvidenceReuseRecordProfile('report',report).combinedReuse||found.body.verdict!=='passed'||found.plan.steps.length!==report.reused.length
+      ||namespaceEvidenceReuseRecordProfile('report',report).combinedReuse&&!same(found.plan.selection??null,report.selection))fail('Reused Code must retain the exact executed command set and selected scope.');
     for(const [index,step]of found.plan.steps.entries()){
       const row=report.reused.find(row=>row.record.producer.taskId===step.contract.taskId&&row.record.producer.repositoryId===step.repositoryId);
       if(!row||!same(row.record.producer.command,step.command)||!same(row.record.producer.tests,found.body.checks[index].tests)
@@ -290,8 +313,8 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
     }
     return {found,checks:original.checks};
   }
-  async function forPublication(value,{signal,policyTraversal}={}){
-    const binding=value.policyEvidence?.find(row=>row.kind==='evidence-reuse/v3');if(!binding)fail('Code reuse lost its original qualified policy.');
+  async function publicationProof(value,{signal,policyTraversal}={}){
+    const binding=value.policyEvidence?.find(row=>['evidence-reuse/v3','evidence-reuse/v4'].includes(row.kind));if(!binding)fail('Code reuse lost its original qualified policy.');
     const manifest=namespaceEvidenceReuseManifest(await json(binding.record,signal),{scope,workId,phaseId:value.phase}),report=await json(manifest.report,signal);
     if(!same(namespaceSpecificationIdentity(value),Object.fromEntries(Object.keys(namespaceSpecificationIdentity(value)).map(key=>[key,manifest[key]])))
       ||manifest.recordedAt!==value.publishedAt||!same(manifest.artifact,{key:value.artifact.sourceKey,content:value.artifact.content})||value.checks)fail('Code reuse has another publication identity.');
@@ -301,8 +324,15 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
     if(!same(report,actual.report))fail('Code reuse differs from its original human receipts, environment or source.');
     return {binding,manifest,report,...await execution(report,{signal})};
   }
+  async function forPublication(value,options={}){
+    // Only a completed original immutable proof is reused, within this public operation.
+    // Live source/environment, expiry, authority and receiving permissions stay outside.
+    return memoNamespaceObservedCodePolicy(observer,{profile:'sflow-qualified-reuse-publication-proof/v1',publication:value},
+      ()=>publicationProof(value,options),options);
+  }
   async function permission(value,snapshot,{signal,at}={}){
     const original=await forPublication(value,{signal}),proofs=await admitted(snapshot,{signal}),references=[];
+    if(original.report.selection){const selected=await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}).permission(snapshot,original.report.selection,{signal,at});references.push(selected.decision);}
     for(const source of original.report.reused){const standing=proofs.toReversed().find(row=>row.value.phase===value.phase&&row.value.outcome.record.id
       &&same(row.value.outcome.record.producer,source.record.producer)&&same(row.value.outcome.record.environments,source.record.environments)
       &&same(row.value.outcome.record.observations,source.record.observations)

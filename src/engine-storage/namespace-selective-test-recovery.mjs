@@ -2,6 +2,7 @@
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {phaseTransitionAccess} from '../kernel/phase-preparation.mjs';
 import {standaloneDecisionRequest} from '../kernel/decision-plan.mjs';
+import {namespaceSelectiveTestRecoveryProfile} from '../foundation/record-schema.mjs';
 import {testRunRiskAuthorities} from '../kernel/approval-fallback.mjs';
 import {createNamespaceStoryObserver} from './namespace-story-reader.mjs';
 import {createNamespaceRecordedMutationPort} from './namespace-recorded-mutation.mjs';
@@ -26,8 +27,9 @@ export function createNamespaceSelectiveTestRecoveryPorts(options){
     const source=await owned.context(state.captured.snapshot,state.input,{signal});
     phaseTransitionAccess(await access.current({projectId:scope.projectId,workId,operation:readOperation,signal}),scope.projectId,readOperation,{expected:state.principal});
     const fresh=await observer.capture({signal});if(fresh.snapshot.revision!==state.captured.snapshot.revision||fresh.basis.authorityVersion!==state.captured.basis.authorityVersion)fail('Selection authority or Story changed.','ENGINE_CONTEXT_CHANGED');
-    return {...source.context.value,expectedContext:source.context.sha256,revision:state.captured.snapshot.revision,authorities:testRunRiskAuthorities(context.workflow,context.phase.id),
-      actions:[{operation,inputs:{workId,phaseId:context.phase.id,baselineOperationId:state.input.baselineOperationId,selection:state.input.selection,expectedContext:source.context.sha256},
+    const profile=namespaceSelectiveTestRecoveryProfile('context',source.context.value);
+    return {...source.context.value,...(profile.impactSelection?{purpose:source.renewal?'renew-original-permission':'review-receiving-selection',sourceObservation:source.renewal?'retained-original':'fresh'}:{}),expectedContext:source.context.sha256,revision:state.captured.snapshot.revision,authorities:testRunRiskAuthorities(context.workflow,context.phase.id),
+      actions:[{operation,inputs:{workId,phaseId:context.phase.id,baselineOperationId:state.input.baselineOperationId,...(state.input.mode?{mode:state.input.mode}:{selection:state.input.selection}),...(state.input.candidateGeneration!=null?{candidateGeneration:state.input.candidateGeneration}:{}),expectedContext:source.context.sha256},
         requiredInputs:['operationId','reason','expires','followUpOwner','remediationRef'],prerequisites:['authenticated-test-risk-authority']}]};
   }};
   return Object.freeze({context,decision,owned});

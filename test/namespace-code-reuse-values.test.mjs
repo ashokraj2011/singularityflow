@@ -7,12 +7,12 @@ test('Code reuse, inherited execution and recovery permission retain their own c
  for(const kind of ['record','context','policy','report']){
   assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:2}).codeRecoveryReuse,undefined);
   assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:3}).codeRecoveryReuse,true);
-  assert.throws(()=>namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
  }
  for(const kind of ['agreement','context','contextValue']){
   assert.equal(namespaceTestRecoveryRecordProfile(kind,{schemaVersion:1}).qualifiedReuse,undefined);
   assert.equal(namespaceTestRecoveryRecordProfile(kind,{schemaVersion:2}).qualifiedReuse,true);
-  assert.throws(()=>namespaceTestRecoveryRecordProfile(kind,{schemaVersion:3}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespaceTestRecoveryRecordProfile(kind,{schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
  }
  for(const kind of ['policy','report'])assert.equal(namespaceTestRecoveryRecordProfile(kind,{schemaVersion:3}).version,3);
  for(const kind of ['code','codeReport'])assert.equal(namespaceCodePolicyProfile(kind,{schemaVersion:39}).reusedExecution,true);

@@ -1,8 +1,20 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createNamespaceReadSession,captureNamespaceReadBindings,memoNamespaceStoryOrigin,memoNamespaceWitnessProof,memoNamespaceCodePredecessorProof,memoNamespaceCodePolicyProof,memoNamespaceDecisionProof,memoNamespaceLifecycleReceiptProof} from '../src/engine-storage/namespace-read-session.mjs';
+import {createNamespaceReadSession,captureNamespaceReadBindings,memoNamespaceStoryOrigin,memoNamespaceWitnessProof,memoNamespaceCodePredecessorProof,memoNamespaceCodePolicyProof,memoNamespaceDecisionProof,memoNamespaceLifecycleReceiptProof,memoNamespaceFrozenLifecycleReceiptProof} from '../src/engine-storage/namespace-read-session.mjs';
 import {namespaceStoreDescriptor,NAMESPACE_STORE_METHODS} from '../src/sda/namespace/contract.mjs';
 import {contentStoreDescriptor,CONTENT_STORE_METHODS} from '../src/sda/content/contract.mjs';
 const scope={projectId:'P'},reference={namespace:'evidence',sha256:'a'.repeat(64),bytes:4};
+test('read-only receipt reuse freezes every nested state and expires at exact port, write and invocation boundaries',async()=>{
+  const session=createNamespaceReadSession({records:{transact:async()=>({status:'committed'})},content:{}});let reads=0,denied=false;
+  const failure=Object.freeze(Object.assign(Error('Actual retained receipt read failed.'),{code:'EACCES'})),identity={scope,operationId:'accepted'},
+    observe=()=>{reads++;if(denied)throw failure;return {status:'committed',state:{workflow:{phases:[{id:'code',generation:reads}]}},basisState:{rows:[1]}};},
+    read=(records=session.records)=>memoNamespaceFrozenLifecycleReceiptProof(records,session.content,identity,observe);
+  await session.run(async()=>{const first=await read();assert.equal(Object.isFrozen(first.state.workflow.phases[0]),true);
+    assert.throws(()=>{first.state.workflow.phases[0].generation=99;},TypeError);assert.strictEqual(await read(),first);assert.equal(reads,1);
+    await read({...session.records});assert.equal(reads,2);await session.records.transact(scope,{});assert.notStrictEqual(await read(),first);assert.equal(reads,3);});
+  await session.run(()=>read());assert.equal(reads,4);denied=true;
+  for(let n=0;n<2;n++)await assert.rejects(session.run(()=>read()),error=>error===failure);assert.equal(reads,6);
+  const signal=AbortSignal.abort();await assert.rejects(session.run(()=>memoNamespaceFrozenLifecycleReceiptProof(session.records,session.content,identity,observe,{signal})),{code:'ENGINE_OPERATION_CANCELLED'});
+});
 test('a completed accepted receipt displaces raw cache entries without increasing the entry or byte bounds',async()=>{
   const f=fixture();let observed=0;
   await f.session.run(async()=>{for(let n=0;n<256;n++)await f.session.records.read(scope,'evidence','raw-'+n);

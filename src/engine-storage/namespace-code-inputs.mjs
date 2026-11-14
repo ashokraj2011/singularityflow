@@ -78,7 +78,7 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
               .find(row=>isNamespaceTestRecoveryPolicy(row.policy.kind)&&row.kind==='test-cohort');
             if(!permission||permission.disposition==='uncovered')throw error('Renew the original file-selection permission or restore full execution evidence.','SELECTIVE_TEST_RECOVERY_NOT_CURRENT',{
               phase:publication.phase,sourcePhase:id,actions:permission?.actions??[]});
-            testSelection={profile:'sflow-selective-code-input/v1',checks:proof.published.checks,decision:selection.decision,
+            testSelection={profile:'sflow-selective-code-input/v1',checks:proof.published.checks??testReuse?.checks,decision:selection.decision,
               executionMode:'reviewed-file-selection',excluded:selection.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,testIds:row.excludedIds,outcome:'not-run'})),
               permission:{decisions:permission.decisions,references:permission.references},receiverExecuted:false,impactComplete:false,failuresWaived:false};}
         }
@@ -95,7 +95,7 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
         for(const source of row.sources){const previous=current.get(source.id),position=workflow.phaseOrder.indexOf(id);
           if(id===policy.testSource||!previous||previous.phase!==policy.testSource&&position>workflow.phaseOrder.indexOf(previous.phase))current.set(source.id,{phase:id,generation:row.generation,...source});}
       }
-      const profile=namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:inputs.some(row=>row.testReuse)?4:inputs.some(row=>row.testSelection)?3:inputs.some(row=>row.executionRisk)?2:1}),
+      const profile=namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:inputs.some(row=>row.testReuse&&row.testSelection)?5:inputs.some(row=>row.testReuse)?4:inputs.some(row=>row.testSelection)?3:inputs.some(row=>row.executionRisk)?2:1}),
         report=inputReport({schemaVersion:profile.version,format:profile.format,testEvidenceFrom:policy.testSource,
         inputs,currentSources:[...current.values()].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0)});
       const value={report,policy,workflow,definition:(await scoped.approved(snapshot,{signal})).compiled.definition};

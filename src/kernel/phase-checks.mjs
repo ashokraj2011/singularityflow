@@ -1,6 +1,6 @@
 /** Shared check evidence and report-capture policy. No command execution, storage or host rendering. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {admitRecordSchemaVersion,SELECTIVE_CHECK_SUMMARY_SCHEMA} from '../foundation/record-schema.mjs';
+import {selectiveCheckSummaryProfile} from '../foundation/record-schema.mjs';
 import {testReceiptPassing} from './test-report-codec.mjs';
 const fail=(message,code='ENGINE_INPUT_INVALID',details=null)=>{throw new SingularityFlowError(message,{code,details});};
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(value);
@@ -71,10 +71,11 @@ export function phaseChecksResult(input,facts) {
     fail('The phase check writer returned malformed observation facts.','ENGINE_PORT_RESULT_INVALID');
   const summary=qualityValidationVerdict(facts.checks,{required:true});
   if(summary.verdict!==facts.verdict)fail('The phase check summary differs from its observed checks.','ENGINE_PORT_RESULT_INVALID');
-  if(facts.execution)try{admitRecordSchemaVersion(SELECTIVE_CHECK_SUMMARY_SCHEMA,facts.execution);}catch{fail(
+  let executionProfile=null;if(facts.execution)try{executionProfile=selectiveCheckSummaryProfile(facts.execution);}catch{fail(
     'A selected run must disclose its original decision and unexecuted cases without a full-suite claim.','ENGINE_PORT_RESULT_INVALID');}
-  if(facts.execution&&(facts.execution.profile!=='sflow-selective-check-summary/v1'
-    ||facts.execution.mode!=='reviewed-file-selection'||facts.execution.completeSuiteClaimed!==false||facts.execution.impactComplete!==false||facts.execution.failuresWaived!==false
+  if(facts.execution&&(facts.execution.profile!==executionProfile.profile
+    ||facts.execution.mode!==(executionProfile.impactSelection?'changed-and-affected':'reviewed-file-selection')||facts.execution.completeSuiteClaimed!==false||facts.execution.impactComplete!==false||facts.execution.failuresWaived!==false
+    ||executionProfile.impactSelection&&(facts.execution.impact?.profile!=='sflow-test-impact-selection/v1'||facts.execution.impact.impactComplete!==false||facts.execution.impact.failuresWaived!==false)
     ||facts.execution.decision?.namespace!=='evidence'||!Array.isArray(facts.execution.unexecuted)||facts.execution.unexecuted.length>1024
     ||facts.execution.unexecuted.some(row=>!id(row.repositoryId)||!id(row.commandId)||!Array.isArray(row.testIds)||row.testIds.length>10000||row.testIds.some(value=>typeof value!=='string'||!value))))
     fail('A selected run must disclose its original decision and unexecuted cases without a full-suite claim.','ENGINE_PORT_RESULT_INVALID');

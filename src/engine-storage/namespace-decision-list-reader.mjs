@@ -13,6 +13,7 @@ import {endpointTaken,omissionAuthorities} from '../kernel/applicability.mjs';
 import {upstreamIssueAuthorities,upstreamIssueStates} from '../kernel/upstream-issues.mjs';
 import {testRunRiskAuthorities} from '../kernel/approval-fallback.mjs';
 import {storyTestCommandPolicies} from '../kernel/test-recovery.mjs';
+import {selectiveTestRecoveryReviewInput} from '../kernel/evidence-reuse.mjs';
 import {phaseNeedsGeneration} from '../kernel/phase-policy.mjs';
 import {routingChoiceSelection} from '../kernel/routed-approval.mjs';
 import {createNamespaceScopeDecisionOwners} from './namespace-scope-reader.mjs';
@@ -154,8 +155,7 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
       for(const row of rows)if(row.id)latest.set(row.contextSha256,row);
       for(const row of latest.values()){
         const state=owner.rules.state(rows,row,at);if(phaseId!==null&&phaseId!==row.phase&&state==='active')continue;
-        const inputs={workId,phaseId:row.phase,baselineOperationId:row.context.baseline.operationId,
-          selection:row.context.rows.map(value=>({repositoryId:value.repositoryId,commandId:value.commandId,files:value.files}))},
+        const inputs={workId,...selectiveTestRecoveryReviewInput({record:row,rows:row.context.rows})},
           choice=option('review-selective-recovery','test-recovery.select-context',inputs,testRunRiskAuthorities(workflow,row.phase),{},false);
         choice.action={operation:'test-recovery.select-context',inputs,requiredInputs:[],prerequisites:['review-original-independent-inventory-selected-files-and-current-environment']};
         observations.push({kind:'test-cohort',key:row.id+':'+state,offered:state==='active',options:[choice]});

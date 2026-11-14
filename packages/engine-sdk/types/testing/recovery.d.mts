@@ -127,3 +127,15 @@ export interface NamespaceSelectiveTestRecoveryValues {
 }
 /** Selection values never claim dependency-complete impact analysis or authenticate a reviewer. */
 export declare function namespaceSelectiveTestRecoveryPolicies(digests:SpecificationDigests):Readonly<NamespaceSelectiveTestRecoveryValues>;
+export declare function namespaceTestImpactPolicies(digests:SpecificationDigests):Readonly<{
+  hash(value:JsonValue):string;
+  graph(value:unknown,sources:readonly {readonly repositoryId:string;readonly revision:string;readonly snapshot:import('../source.mjs').SourceSnapshot}[]):import('./execution.mjs').TestImpactObservation;
+  select(input:{readonly before:readonly {readonly repositoryId:string;readonly snapshot:import('../source.mjs').SourceSnapshot}[];
+    readonly current:readonly {readonly repositoryId:string;readonly revision:string;readonly snapshot:import('../source.mjs').SourceSnapshot}[];
+    readonly observation:import('./execution.mjs').TestImpactObservation;readonly commands:readonly SelectiveTestFileSet[];
+    readonly requiredFiles?:readonly {readonly repositoryId:string;readonly path:string}[]}):Readonly<Record<string,JsonValue>>;
+}>;
+export declare function namespaceScriptTestInventory(digests:SpecificationDigests):Readonly<{
+  narrow:NamespaceSelectiveTestRecoveryValues['narrow'];
+  observed(input:Readonly<Record<string,unknown>>):Readonly<Record<string,JsonValue>>;
+}>;

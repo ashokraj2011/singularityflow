@@ -338,7 +338,7 @@
         "maxRiskDays": { "type": "integer", "minimum": 1, "maximum": 30 },
         "maxDistinctAutomaticAttempts": { "type": "integer", "minimum": 0, "maximum": 3 },
         "allowEvidenceReuse": { "type": "boolean", "default": false },
-        "reuseProfile": { "enum": ["environment-qualified-exact/v1"] },
+        "reuseProfile": { "enum": ["environment-qualified-exact/v1", "environment-qualified-selected/v1"] },
         "maxEvidenceAgeSeconds": { "type": "integer", "minimum": 1, "maximum": 2592000 },
         "caseInventory": {
           "description": "Independent approved test identities, never report-discovered inventory. Native adapters authenticate exact reports and declared runtime dependencies. This is not a sandbox attestation.",
@@ -348,7 +348,7 @@
             "properties": {
               "phaseId": { "type": "string", "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
               "commandId": { "type": "string", "minLength": 1, "maxLength": 256 },
-              "adapter": { "enum": ["node-test-junit-v1", "pytest-junit-v1", "maven-surefire-junit-v1"] },
+              "adapter": { "enum": ["node-test-junit-v1", "node-script-junit-v1", "pytest-junit-v1", "maven-surefire-junit-v1"] },
               "dependencyScope": { "enum": ["repository-and-node-builtins-only", "repository-and-declared-runtime-only"] },
               "runtime": {
                 "type": "object", "additionalProperties": false, "required": ["executableSha256", "dependencyRoots"],

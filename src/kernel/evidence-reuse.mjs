@@ -1,6 +1,12 @@
 /** Reuse value rules. Source, original execution, presence and human authority are admitted by their owners. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
 export const MAX_EVIDENCE_REUSE_DAYS=90;
+/** Exact original review route, shared by direct selection, downstream risk and reuse owners. */
+export function selectiveTestRecoveryReviewInput(selection){const context=selection.record.context;
+  return {phaseId:selection.record.phase,baselineOperationId:context.baseline.operationId,
+    ...(context.impact?{mode:'changed-and-affected',...(context.candidateGeneration!=null?{candidateGeneration:context.candidateGeneration}:{})}:
+      {selection:selection.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,files:row.files}))})};}
+
 const fail=(message,code='EVIDENCE_REUSE_INVALID',details=null)=>{throw new SingularityFlowError(message,{code,details});};
 export function evidenceReuseReason(value,{revoking=false}={}){
   const text=String(value??'').trim();
@@ -47,7 +53,7 @@ export function namespaceEvidenceReuseState(workflow,decision,{at}={}){
 /** Fresh receiving use has an explicit age bound; later renewal concerns the accepted original publication. */
 export function namespaceEvidenceReuseAge(workflow,phaseId,completedAt,at){
   const policy=workflow.resolution?.testRecovery;
-  if(!policy?.enabled||policy.reuseProfile!=='environment-qualified-exact/v1'||workflow.currentPhase!==phaseId||workflow.phases?.[phaseId]?.status==='approved')return null;
+  if(!policy?.enabled||!['environment-qualified-exact/v1','environment-qualified-selected/v1'].includes(policy.reuseProfile)||workflow.currentPhase!==phaseId||workflow.phases?.[phaseId]?.status==='approved')return null;
   if(!workflow.phases?.[phaseId])fail('Name the receiving reuse phase.');
   const age=Date.parse(at)-Date.parse(completedAt),maximum=policy.maxEvidenceAgeSeconds;
   return {observedSeconds:Number.isFinite(age)?age/1000:null,maximumSeconds:maximum,eligible:Number.isFinite(age)&&age>=0&&age<=maximum*1000};
@@ -70,13 +76,17 @@ export function namespaceEvidenceReusePlan(workflow,request,facts,source){
     const standing=rows.find(row=>row.id&&row.phase===request.phaseId&&row.producer.repositoryId===candidate.producer.repositoryId
       &&row.producer.command.id===candidate.producer.command.id&&namespaceEvidenceReuseState(workflow,row,{at:facts.at})==='active');
     if(standing)fail(standing.id+' already accounts for that receiving command and repository.','EVIDENCE_REUSE_ALREADY_RECORDED',{phase:request.phaseId});
-    const version=source.extended?3:source.environments?2:1;
+    const version=source.combined?4:source.extended?3:source.environments?2:1;
+    if(source.selection){const prior=workflow.namespaceSelectiveTestRecoveries??[],active=prior.toReversed().find(row=>row.id&&row.phase===source.selection.record.phase
+        &&row.contextSha256===source.selection.record.contextSha256&&!prior.some(item=>item.revokes===row.id)&&Date.parse(row.expiresAt)>Date.parse(facts.at));
+      if(!active)fail('Renew the original selected-test permission before reusing that execution.','SELECTIVE_TEST_RECOVERY_NOT_CURRENT',{
+        actions:[{operation:'test-recovery.select-context',inputs:{workId:workflow.workItem.id,...selectiveTestRecoveryReviewInput(source.selection)}}]});}
     if(source.extended&&source.identity.recovery&&namespaceEvidenceReuseAge(workflow,request.phaseId,candidate.producer.completedAt,facts.at)?.eligible===false){
       fail('The original execution exceeds the approved reuse age. Run current configured checks.','ENGINE_EVIDENCE_REUSE_TOO_OLD',{
         actions:[{operation:'phase.checks.run',inputs:{workId:workflow.workItem.id,phaseId:request.phaseId},requiredInputs:['operationId']}]});
     }
     record={schemaVersion:version,profile:'sflow-namespace-evidence-reuse/v'+version,id:'ERU-'+String(rows.filter(row=>row.id).length+1).padStart(3,'0'),
-      phase:request.phaseId,producer:structuredClone(candidate.producer),...(source.extended?{producerRequest:source.identity.producerRequest,recovery:source.identity.recovery}:{}),observations:structuredClone(source.observations),
+      phase:request.phaseId,producer:structuredClone(candidate.producer),...(source.extended?{producerRequest:source.identity.producerRequest,recovery:source.identity.recovery}:{}),...(source.combined?{selection:source.selection??null}:{}),observations:structuredClone(source.observations),
       ...(source.environments?{environments:structuredClone(source.environments)}:{}),
       reason,expiresAt:evidenceReuseExpiry(request.expires,facts.at),actor:facts.actorId,authorityGroup:facts.authorityGroup,at:facts.at};
   }

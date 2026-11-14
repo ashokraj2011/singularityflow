@@ -9,17 +9,17 @@ import {createNodeExecutionOwner} from '../../src/sgos/node-execution-owner.mjs'
 import {createNamespaceStoryObserver} from '../../src/engine-storage/namespace-story-reader.mjs';
 const executableSha256='sha256:'+createHash('sha256').update(await readFile(process.execPath)).digest('hex');
 export const selectionReason='Run the selected independent legacy regression and all Story acceptance tests; the other unchanged baseline regression stays explicitly unexecuted.';
-export async function namespaceSelectiveTestRecoveryFixture(t,{backend='sqlite',reuse='never',configure=()=>{},...extra}={}){
+export async function namespaceSelectiveTestRecoveryFixture(t,{backend='sqlite',reuse='never',runner=null,configure=()=>{},...extra}={}){
   let checks,starts=0,deadlines={};
   const f=await namespaceSourceClauseFixture(t,{backend,baselineTestSource:actualWitnessTest,testSource:actualWitnessTest,retainChanges:false,...extra,
     baselineFiles:{'test/first.test.js':"import test from 'node:test';import assert from 'node:assert/strict';test('first stable regression',()=>assert.equal(2+2,4));\n",
-      'test/second.test.js':"import test from 'node:test';import assert from 'node:assert/strict';test('second stable regression',()=>assert.equal(3+3,6));\n",...(extra.baselineFiles??{})},
+      'test/second.test.js':"import test from 'node:test';import assert from 'node:assert/strict';test('second stable regression',()=>assert.equal(3+3,6));\n",...(runner?{'test-runner.mjs':runner}:{}),...(extra.baselineFiles??{})},
     configure:source=>{
       const primary=source.definition.phases.build.qualityCommands[0];primary.argv=['node','--test','test/converter.test.js'];
-      source.definition.phases.build.qualityCommands.push({...structuredClone(primary),id:'legacy-tests',argv:['node','--test','--test-reporter=junit','test/first.test.js','test/second.test.js'],
+      source.definition.phases.build.qualityCommands.push({...structuredClone(primary),id:'legacy-tests',argv:runner?['node','test-runner.mjs','--test-reporter=junit','--','test/first.test.js','test/second.test.js']:['node','--test','--test-reporter=junit','test/first.test.js','test/second.test.js'],
         result:{adapter:'junit-xml',path:'legacy-report.xml',minimumDiscovered:2,minimumPassed:2}});
       source.definition.testRecovery={enabled:true,riskAuthorities:['reviewers'],enabledRiskCategories:['reduced-coverage'],allowEvidenceReuse:true,maxRiskDays:20,
-        caseInventory:[{phaseId:'build',commandId:'legacy-tests',adapter:'node-test-junit-v1',dependencyScope:'repository-and-node-builtins-only',baselineMutableRoots:['src'],
+        caseInventory:[{phaseId:'build',commandId:'legacy-tests',adapter:runner?'node-script-junit-v1':'node-test-junit-v1',dependencyScope:'repository-and-node-builtins-only',baselineMutableRoots:['src'],
           tests:[{id:'legacy:first',path:'test/first.test.js',name:'first stable regression'},{id:'legacy:second',path:'test/second.test.js',name:'second stable regression'}]}]};configure(source);
       deadlines=Object.fromEntries(source.definition.phases.build.qualityCommands.map(row=>[row.id,row.timeoutMs??300000]));
     },
@@ -35,10 +35,10 @@ export async function namespaceSelectiveTestRecoveryFixture(t,{backend='sqlite',
       for(const [index,root]of roots.entries()){
         const repositoryId=index?'service-'+index:'app',environment={NODE_OPTIONS:'--test-reporter='+new URL('../../src/verification/node-test-reporter.mjs',import.meta.url).href,
           SINGULARITY_FLOW_NODE_TEST_ROOT:root,SINGULARITY_FLOW_NODE_TEST_TAP:'1'},
-          primary=await createNodeCheckExecutionUnit({id:'selective-primary-'+index,root,projectId:f.scope.projectId,repositoryId,content:f.content,timeoutMs:deadlines['node-tests'],
+          primary=await (reuse==='never'?createNodeCheckExecutionUnit:createEnvironmentQualifiedNodeCheckExecutionUnit)({id:'selective-primary-'+index,...(reuse==='never'?{}:{hostId:'selective-host'}),root,projectId:f.scope.projectId,repositoryId,content:f.content,timeoutMs:deadlines['node-tests'],
             command:{executable:process.execPath,executableSha256,arguments:['--test','test/converter.test.js'],environment},report:{adapter:'node-tap',files:[]},authorizeCommand:m=>m.manifestSha256}),
           legacy=await createEnvironmentQualifiedNodeCheckExecutionUnit({id:'selective-legacy-'+index,hostId:'selective-host',root,projectId:f.scope.projectId,repositoryId,content:f.content,timeoutMs:deadlines['legacy-tests'],
-            command:{executable:process.execPath,executableSha256,arguments:['--test','--test-reporter=junit','test/first.test.js','test/second.test.js'],environment:{}},report:{adapter:'junit-xml',files:[]},authorizeCommand:m=>m.manifestSha256});
+            command:{executable:process.execPath,executableSha256,arguments:runner?['test-runner.mjs','--test-reporter=junit','--','test/first.test.js','test/second.test.js']:['--test','--test-reporter=junit','test/first.test.js','test/second.test.js'],environment:{}},report:{adapter:'junit-xml',files:[]},authorizeCommand:m=>m.manifestSha256});
         for(const [commandId,unit,env]of [['node-tests',primary,environment],['legacy-tests',legacy,{}]])bindings.push({phaseId:'build',commandId,repositoryId,
           executable:'node',executableSha256,environment:env,unit:wrap(unit)});
         sources.push(await createFilesystemSourceUnit({root,id:'clause-source-'+index,projectId:f.scope.projectId,repositoryId}));

@@ -41,5 +41,5 @@ test('new successor and risk profiles do not reinterpret any original Code risk 
   for(const version of [34,35]){const p=namespaceCodePolicyProfile('code',{schemaVersion:version});assert.equal(p.reviewedSuccessor,true);assert.equal(p.humanAcceptance===true,version===35);}
   for(const version of [32,33,36,37]){const p=namespaceCodePolicyProfile('code',{schemaVersion:version});
     for(const evidence of [1,31,32,33,34,35,36,37,38])assert.equal(namespaceCodeExecutionRiskEvidenceAllowed(p,evidence),version>=36?[34,35].includes(evidence):[1,31].includes(evidence));}
-  assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:40}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:43}),{code:'SCHEMA_VERSION_FUTURE'});
 });

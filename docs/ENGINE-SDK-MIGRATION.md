@@ -1,6 +1,6 @@
 # Engine SDK and namespaced storage migration
 
-The latest Phase 5/7 delivery is [cancellation fencing and Code/recovery receiving reuse](ENGINE-SDK-CODE-RECOVERY-REUSE.md).
+The latest Phase 5/7 delivery is [source-bound impact selection and combined evidence reuse](ENGINE-SDK-IMPACT-AND-COMBINED-REUSE.md).
 Its explicit new profiles preserve original agreements and do not finish the remaining owners in
 the [completion ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md).
 

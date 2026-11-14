@@ -12,9 +12,11 @@ export const CODE_REWORK_EVIDENCE='code-delivery/v2';
 const codeEvidenceKinds=Object.freeze(Array.from({length:NAMESPACE_PHASE_POLICY_SCHEMAS.code.maximumReadableVersion},(_,index)=>'code-delivery/v'+(index+1)));
 export const isCodePolicyEvidence=kind=>codeEvidenceKinds.includes(kind);
 export const CODE_INPUT_EVIDENCE='approved-code-inputs/v1';
-export const isCodeInputEvidence=kind=>[CODE_INPUT_EVIDENCE,'approved-code-inputs/v2','approved-code-inputs/v3','approved-code-inputs/v4'].includes(kind);
+const codeInputEvidenceKinds=Object.freeze(Array.from({length:NAMESPACE_PHASE_POLICY_SCHEMAS.codeInputs.maximumReadableVersion},(_,index)=>'approved-code-inputs/v'+(index+1)));
+export const isCodeInputEvidence=kind=>codeInputEvidenceKinds.includes(kind);
 export const CONFORMANCE_EVIDENCE='conformance/v1';
-export const isConformanceEvidence=kind=>[CONFORMANCE_EVIDENCE,'conformance/v2','conformance/v3','conformance/v4'].includes(kind);
+const conformanceEvidenceKinds=Object.freeze(Array.from({length:NAMESPACE_PHASE_POLICY_SCHEMAS.conformance.maximumReadableVersion},(_,index)=>'conformance/v'+(index+1)));
+export const isConformanceEvidence=kind=>conformanceEvidenceKinds.includes(kind);
 const evidence=value=>{if(contentReference(value).namespace!=='evidence')throw Error('Policy evidence requires shared immutable content.');};
 function invalid(cause) {return new SingularityFlowError('The retained phase-policy evidence is invalid.',{cause,
   code:['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED','ENGINE_STORAGE_UNSUPPORTED'].includes(cause?.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT'});}

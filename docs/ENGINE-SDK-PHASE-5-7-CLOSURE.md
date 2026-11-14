@@ -5,7 +5,25 @@ remain historical evidence. Neither phase is complete until its remaining owners
 cross-agent journeys are qualified. Phase 8 authority migration and Phase 9 production cutover,
 obsolete-access removal and final distribution remain separate.
 
-The latest slice adds [cancellation fencing and Code/recovery receiving reuse](ENGINE-SDK-CODE-RECOVERY-REUSE.md).
+The latest slice adds [source-bound impact selection and combined evidence reuse](ENGINE-SDK-IMPACT-AND-COMBINED-REUSE.md).
+It binds a host AST observation to actual source bytes, derives transitive cross-repository impact,
+expands uncertain selections and supports a separately admitted pinned-script selector. Explicit
+combined reuse retains actual selected execution and mixed passing compile/test results, with
+separate scope and reuse permissions and original-owner renewal. Decisions preserve the exact
+impact mode and successor generation. The remaining external adapters and failed-risk/cohort
+combinations stay open; neither phase is marked complete.
+
+This slice passes 850 distinct affected Mac checks across 104 files, including 117 architecture
+guards, 37 native SDK/CLI parity cases, eight additional installed consumers and the unchanged
+34-check package qualifier. The qualifier ran alone in 52.1 seconds within its original
+120/60-second limits. Source validation passes 4,437 checks; VS Code types, the unchanged
+2,011-site Git audit and all thirteen original bundle ceilings pass. Gateway remains 852/852
+modules (6,947,370 bytes); the vocabulary remains 97 operations. The
+[delivery record](ENGINE-SDK-IMPACT-AND-COMBINED-REUSE.md#qualification-method) records the actual
+two-repository journeys, original report-shape compatibility and bounded consumer harness.
+No Windows, provider, production installation or main merge ran.
+
+The preceding slice adds [cancellation fencing and Code/recovery receiving reuse](ENGINE-SDK-CODE-RECOVERY-REUSE.md).
 It carries cancellation through asynchronous ownership claims, retains bounded terminal event
 suffixes and preserves negative quiescence failures. Explicit qualified full-execution reuse now
 reaches independently approved Code, Verification and Release, with original-owner renewal and
@@ -13,7 +31,7 @@ shared-only replay across all three stores. Receiving publications do not claim 
 The original no-reuse agreement and legacy configuration rule bodies remain unchanged.
 The other unfinished owners below still keep both phases open.
 
-This delivery passes 621 distinct affected Mac tests across 82 files, including 117 architecture
+That preceding delivery passed 621 distinct affected Mac tests across 82 files, including 117 architecture
 guards, 37 native SDK/CLI parity cases and the unchanged 34-check package qualifier. The qualifier
 ran alone in 72.2 seconds within its original 120/60-second limits. Another 30 repeated
 cancellation/termination checks pass during validation. Source validation passes 4,426 checks;
@@ -28,7 +46,7 @@ It binds reviewed whole-file execution to an actual original native Node JUnit i
 preserves unexecuted cases, renews original-owner permission through Verification/Release and
 rechecks actual runner/runtime/dependency inputs for artifact-phase reuse. The preceding
 [source adoption and rollover](ENGINE-SDK-SOURCE-OPENINGS.md) delivery remains unchanged.
-Generalized impact selection, further combined reuse/risk profiles, live application review and the
+Further impact adapters, combined failed-risk/cohort profiles, live application review and the
 other owners below remain open.
 
 That preceding slice passed 474 distinct affected Mac checks across 60 files, including 117 architecture
@@ -68,6 +86,8 @@ Neither phase is marked complete while its remaining owners below are open.
 - [ ] Finish the remaining evidence/test risk and cohort-reuse ceremonies.
 - [x] Connect qualified complete-execution Code/recovery reuse, original-owner renewal and
   downstream evidence without claiming another execution or loosening old agreements.
+- [x] Connect source-bound generalized impact selection, pinned-script file selection and explicit
+  selected-scope/mixed-passing-command reuse, preserving independent human permissions.
 - [x] Connect upstream issues, forward amendments, their list query and recorded decision batches.
 - [ ] Qualify final decisions, approval, rejection and continuation through the single registry.
 
@@ -90,7 +110,11 @@ Neither phase is marked complete while its remaining owners below are open.
   artifact-phase reuse, preserving real execution, human review and shared-only replay.
 - [x] Connect qualified complete-execution Code/recovery receiving reuse and its original
   producer/source/environment/authority proofs through downstream phases and offline consumers.
-- [ ] Finish generalized impact/adapter selection and further combined risk/reuse profiles;
+- [x] Connect generalized source/AST impact closure and independently inventoried pinned-script
+  selection through actual Code execution, approval and original-owner permission renewal.
+- [x] Connect selected-scope and qualified mixed-command reuse through Code, Verification and Release,
+  retaining original tests, omitted scope, separate permissions and shared-only replay.
+- [ ] Finish additional external impact/runner adapters and combined failed-risk/cohort profiles;
   those combinations must preserve their original source, evidence and authority contracts.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through explicit

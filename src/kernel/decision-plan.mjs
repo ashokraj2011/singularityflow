@@ -124,8 +124,11 @@ export function standaloneDecisionRequest(operation, input) {
     if(typeof reason!=='string'||reason.trim().length<20||reason.length>1000)refused('Explain the reduced file selection in 20 to 1000 characters.','SELECTIVE_TEST_RECOVERY_INVALID');
     if(['phaseId','baselineOperationId','expectedContext','revoke','expires','followUpOwner','remediationRef'].some(key=>input[key]!=null
       &&(typeof input[key]!=='string'||!input[key].trim()||input[key].length>512))||!input.revoke&&(!input.phaseId||!input.baselineOperationId||!input.expectedContext||!input.expires||!input.followUpOwner||!input.remediationRef)
-      ||input.revoke&&['baselineOperationId','expectedContext','selection','expires','followUpOwner','remediationRef'].some(key=>input[key]!=null))refused('Use the exact selection review or one original decision to revoke.','SELECTIVE_TEST_RECOVERY_INVALID');
+      ||input.mode!=null&&input.mode!=='changed-and-affected'||input.mode==='changed-and-affected'&&input.selection!=null
+      ||input.candidateGeneration!=null&&(!Number.isSafeInteger(input.candidateGeneration)||input.candidateGeneration<1||input.mode!=='changed-and-affected')
+      ||input.revoke&&['baselineOperationId','expectedContext','selection','mode','candidateGeneration','expires','followUpOwner','remediationRef'].some(key=>input[key]!=null))refused('Use the exact selection review or one original decision to revoke.','SELECTIVE_TEST_RECOVERY_INVALID');
     return {phaseId:input.phaseId??null,baselineOperationId:input.baselineOperationId??null,selection:input.selection??null,
+      ...(input.mode?{mode:input.mode}:{}),...(input.candidateGeneration!=null?{candidateGeneration:input.candidateGeneration}:{}),
       expectedContext:input.expectedContext??null,revoke:input.revoke??null,expires:input.expires??null,reason:reason.trim(),
       followUpOwner:input.followUpOwner??null,remediationRef:input.remediationRef??null};
   }

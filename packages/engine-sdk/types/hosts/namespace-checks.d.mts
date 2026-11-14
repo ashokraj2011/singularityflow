@@ -14,6 +14,10 @@ export interface NamespaceChecksBindings {readonly mode?:never;readonly owner:Ex
   readonly environmentSensitiveReuse?:boolean;
   /** Opt-in v3: exact qualified Code/recovery reuse still needs its genuine human decisions. */
   readonly codeRecoveryReuse?:boolean;
+  /** Selected-scope/qualified-reuse and successful mixed command observations remain separately attributed. */
+  readonly combinedEvidenceReuse?:boolean;
+  /** Source-bound dependency graph from a real host AST adapter; unknown scope expands execution. */
+  readonly impact?:import('../testing/execution.mjs').TestImpactUnit;
 }
 export type NamespacePhaseChecksOptions=Omit<NamespaceEngineOptions,'working'>&{
   readonly localRecords?:NamespaceStore|null;readonly localContent?:ContentStore|null;

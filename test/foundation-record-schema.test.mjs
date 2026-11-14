@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceCodeInputPolicyProfile, namespaceConformancePolicyProfile,namespacePreparedPayloadProfile,namespaceWitnessContextProfile,namespaceGenerationProfile,namespacePlanCorrectionRecordProfile } from '../src/foundation/record-schema.mjs';
+import { admitRecordSchemaVersion, COMMAND_TIMING_SCHEMA, CONTENT_STORAGE_SCHEMA, NAMESPACE_READER_SCHEMAS, NAMESPACE_PHASE_POLICY_SCHEMAS, namespaceCodePolicyProfile, namespaceCodePolicyVersionsMatch, namespaceCodeInputPolicyProfile, namespaceConformancePolicyProfile,namespacePreparedPayloadProfile,namespaceWitnessContextProfile,namespaceGenerationProfile,namespacePlanCorrectionRecordProfile,namespaceTestRecoveryRecordProfile } from '../src/foundation/record-schema.mjs';
 import { NAMESPACE_STORAGE_SCHEMAS, SQLITE_NAMESPACE_SCHEMAS,
   admitNamespaceStorageSchema, admitSqliteNamespaceSchema } from '../src/sda/namespace/storage-schemas.mjs';
 import { readRecord, schemaFamily } from '../src/schema-migrations.mjs';
@@ -130,10 +130,22 @@ test('inherited known-failure evidence uses separate Code-input and conformance 
     assert.deepEqual(namespaceCodeInputPolicyProfile(kind,{schemaVersion:1}),{version:1,kind:'approved-code-inputs/v1',
       format:'sflow-namespace-code-input-policy'+(kind==='codeInputReport'?'-report':'')+'/v1'});
     assert.equal(namespaceCodeInputPolicyProfile(kind,{schemaVersion:2}).knownFailureInputs,true);
-    assert.throws(()=>namespaceCodeInputPolicyProfile(kind,{schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
+    const combined=namespaceCodeInputPolicyProfile(kind,{schemaVersion:5});assert.equal(combined.selectiveInputs,true);assert.equal(combined.reusedInputs,true);
+    assert.throws(()=>namespaceCodeInputPolicyProfile(kind,{schemaVersion:6}),{code:'SCHEMA_VERSION_FUTURE'});
   }
   for(const kind of ['conformance','conformanceReport'])for(const version of [1,2,3,4]){
     const p=namespaceConformancePolicyProfile(kind,{schemaVersion:version});assert.equal(p.issueLinks,[2,4].includes(version));
     assert.equal(p.knownFailureInputs===true,version>=3);
+  }
+});
+
+test('selected reuse changes its new agreements without reinterpreting earlier recovery reports',()=>{
+  for(const [kind,family]of [['policy','namespace-test-recovery-policy-manifest'],['report','namespace-test-recovery-policy']])
+    for(const version of [1,2,3])assert.deepEqual(namespaceTestRecoveryRecordProfile(kind,{schemaVersion:version}),{
+      version,profile:'sflow-'+family+'/v'+version});
+  for(const [kind,family]of [['agreement','namespace-test-recovery-agreement'],['context','namespace-test-recovery-review'],['contextValue','namespace-test-recovery-context']]){
+    assert.deepEqual(namespaceTestRecoveryRecordProfile(kind,{schemaVersion:1}),{version:1,profile:'sflow-'+family+'/v1'});
+    assert.deepEqual(namespaceTestRecoveryRecordProfile(kind,{schemaVersion:2}),{version:2,profile:'sflow-'+family+'/v2',qualifiedReuse:true});
+    assert.deepEqual(namespaceTestRecoveryRecordProfile(kind,{schemaVersion:3}),{version:3,profile:'sflow-'+family+'/v3',qualifiedReuse:true,selectedReuse:true});
   }
 });

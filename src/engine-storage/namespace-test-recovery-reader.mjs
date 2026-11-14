@@ -49,7 +49,7 @@ export function createNamespaceTestRecoveryOwner({observer,scope,workId}){
       if(phase.status==='awaiting_approval')fail('Do not change a recovery agreement during a submitted review.','TEST_RECOVERY_DURING_REVIEW',{
         actions:[{operation:'phase.review',inputs:{workId,phaseId:phase.id}}]});
       const value=await context(snapshot,{...options,...(request.reuse?{reuse:request.reuse}:{})});
-      return {...value,generation:phase.generation,identity:{profile:'sflow-namespace-test-recovery-source/v'+(value.context.value.reuse==='never'?1:2),context:value.context.value,sha256:value.context.sha256}};
+      return {...value,generation:phase.generation,identity:{profile:'sflow-namespace-test-recovery-source/v'+(value.context.value.reuse==='never'?1:value.context.value.reuse==='environment-qualified-selected'?3:2),context:value.context.value,sha256:value.context.sha256}};
     },
     authority(workflow,request,actor){
       if(workflow.resolution.presence)fail('The agreement requires its configured person-presence evidence.','ENGINE_PORT_UNAVAILABLE',{required:['person-presence']});
@@ -62,20 +62,23 @@ export function createNamespaceTestRecoveryOwner({observer,scope,workId}){
   reader=createNamespaceRecordedMutationReader({observer,scope,workId,operation,owner,contract:namespaceDecisionContract});
   async function publication(snapshot,phaseId,options={}){
     const source=await current(snapshot,options),qualified=namespaceTestRecoveryRecordProfile('agreement',source.agreement).qualifiedReuse===true;
-    if(options.publication?.policyEvidence?.some(row=>row.kind==='evidence-reuse/v3')){
-      if(source.agreement.context.reuse!=='environment-qualified-exact')fail('The original full-command agreement forbids reuse.','ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED');
+    if(options.publication?.policyEvidence?.some(row=>['evidence-reuse/v3','evidence-reuse/v4'].includes(row.kind))){
+      if(!['environment-qualified-exact','environment-qualified-selected'].includes(source.agreement.context.reuse))fail('The original full-command agreement forbids reuse.','ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED');
       const reused=await createNamespaceEvidenceReuseOwner({observer,scope,workId}).forPublication(options.publication,options);
-      return {report:{schemaVersion:3,profile:'sflow-namespace-test-recovery-policy/v3',workId,phaseId,agreement:source.agreement,agreements:source.references,
-        commands:source.context.value.commands,executionMode:'reused-full-execution',reuse:{policy:reused.binding,report:reused.manifest.report,checks:reused.checks},
+      const selection=reused.found.plan.selection,version=selection?5:3;
+      return {report:{schemaVersion:version,profile:'sflow-namespace-test-recovery-policy/v'+version,workId,phaseId,agreement:source.agreement,agreements:source.references,
+        commands:source.context.value.commands,executionMode:selection?'reused-selected-execution':'reused-full-execution',reuse:{policy:reused.binding,report:reused.manifest.report,checks:reused.checks},
+        ...(selection?{selection,checks:reused.checks,excluded:selection.rows.flatMap(row=>row.excludedIds.map(testId=>({repositoryId:row.repositoryId,commandId:row.commandId,testId,outcome:'not-run'}))),impactComplete:false}:{}),
         receiverExecuted:false,failuresWaived:false},references:[...source.references,reused.binding.record,reused.manifest.report],policy:{owners:['test-recovery']}};
     }
     if(options.publication?.checks&&(snapshot.workflow.namespaceSelectiveTestRecoveries??[]).length){const checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),
         checked=await checks.proof(options.publication.checks,phaseId,options),selection=checked.plan.selection;
-      if(selection)return {report:{schemaVersion:qualified?3:2,profile:'sflow-namespace-test-recovery-policy/v'+(qualified?3:2),workId,phaseId,
-        agreement:source.agreement,agreements:source.references,commands:source.context.value.commands,executionMode:'reviewed-file-selection',
+      if(selection){const generalized=Boolean(selection.record.context.impact||selection.rows.some(row=>row.declaration.adapter==='node-script-junit-v1')),version=generalized?4:qualified?3:2;
+        return {report:{schemaVersion:version,profile:'sflow-namespace-test-recovery-policy/v'+version,workId,phaseId,
+        agreement:source.agreement,agreements:source.references,commands:source.context.value.commands,executionMode:selection.record.context.impact?'changed-and-affected':'reviewed-file-selection',
         selection,checks:options.publication.checks,executed:checked.body.checks,
         excluded:selection.rows.flatMap(row=>row.excludedIds.map(testId=>({repositoryId:row.repositoryId,commandId:row.commandId,testId,outcome:'not-run'}))),
-        impactComplete:false,failuresWaived:false},references:[...source.references,selection.decision],policy:{owners:['test-recovery']}};
+        impactComplete:false,failuresWaived:false},references:[...source.references,selection.decision],policy:{owners:['test-recovery']}};}
     }
     return {report:{schemaVersion:qualified?3:1,profile:'sflow-namespace-test-recovery-policy/v'+(qualified?3:1),workId,phaseId,
       agreement:source.agreement,agreements:source.references,commands:source.context.value.commands,

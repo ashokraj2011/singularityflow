@@ -6,12 +6,13 @@ import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {createNamespaceLifecycleObserver} from './namespace-lifecycle-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
 import {lifecyclePrepared,lifecycleManifest,lifecycleConfiguration} from './namespace-lifecycle-contract.mjs';
-import {memoNamespaceLifecycleReceiptProof} from './namespace-read-session.mjs';
+import {memoNamespaceFrozenLifecycleReceiptProof} from './namespace-read-session.mjs';
 import {readNamespaceBatch} from '../sda/namespace/read-batch.mjs';
 const same=(a,b)=>namespaceIdentityJson(a)===namespaceIdentityJson(b);
 const error=(message,code,details=null)=>new SingularityFlowError(message,{code,details});
 function cancelled(signal){if(signal?.aborted)throw error('Lifecycle receipt inspection was cancelled.','ENGINE_OPERATION_CANCELLED');}
-function freeze(value){if(value&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;}
+const frozenValues=new WeakSet();
+function freeze(value){if(value&&typeof value==='object'&&!frozenValues.has(value)){for(const child of Object.values(value))freeze(child);Object.freeze(value);frozenValues.add(value);}return value;}
 export function createNamespaceLifecycleReceiptReader({records,content,scope,workId,authority}={}) {
   scope=namespaceScope(scope);authority=Object.freeze(structuredClone(authority));
   const observer=createNamespaceLifecycleObserver({records,content,scope,workId,authority});
@@ -60,7 +61,7 @@ export function createNamespaceLifecycleReceiptReader({records,content,scope,wor
     return proof;
   }
   async function accepted(operationId,options={}){
-    const proof=await memoNamespaceLifecycleReceiptProof(records,content,{scope,workId,authority,operationId},
+    const proof=await memoNamespaceFrozenLifecycleReceiptProof(records,content,{scope,workId,authority,operationId},
       ()=>acceptedObservation(operationId,options),options);
     return freeze(proof);
   }

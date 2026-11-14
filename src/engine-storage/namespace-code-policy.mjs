@@ -56,9 +56,9 @@ function reportValue(value){
   try{const wire=namespaceCodePolicyProfile('codeReport',value),profile=wire.executionRisk||wire.selectiveRecovery||wire.reusedExecution?namespaceCodePolicyProfile('codeReport',{schemaVersion:value.evidenceVersion}):wire;
     if(wire.reusedExecution&&(!Number.isInteger(value.evidenceVersion)||value.evidenceVersion<1||value.evidenceVersion>35||[32,33].includes(value.evidenceVersion)
       ||value.checks!==null||value.reusedExecution?.profile!=='sflow-namespace-code-reused-execution/v1'||value.reusedExecution.receiverExecuted!==false
-      ||value.reusedExecution.policy?.kind!=='evidence-reuse/v3'||!value.reusedExecution.checks))throw Error('Another qualified reuse contract.');
+      ||value.reusedExecution.policy?.kind!==(wire.combinedReuse?'evidence-reuse/v4':'evidence-reuse/v3')||!value.reusedExecution.checks))throw Error('Another qualified reuse contract.');
     if(wire.selectiveRecovery&&(!Number.isInteger(value.evidenceVersion)||value.evidenceVersion<1||value.evidenceVersion>35
-      ||[32,33].includes(value.evidenceVersion)||!value.checks||value.selectiveRecovery?.profile!=='sflow-namespace-code-selective-execution/v1'
+      ||[32,33].includes(value.evidenceVersion)||!wire.reusedExecution&&!value.checks||value.selectiveRecovery?.profile!==(wire.impactSelection?'sflow-namespace-code-selective-execution/v2':'sflow-namespace-code-selective-execution/v1')
       ||value.selectiveRecovery.failuresWaived!==false||value.selectiveRecovery.impactComplete!==false))throw Error('Another selective execution contract.');
     if(wire.executionRisk&&(!namespaceCodeExecutionRiskEvidenceAllowed(wire,value.evidenceVersion)||value.checks!==null
       ||value.executionException?.profile!==(wire.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1')||wire.knownFailureRisk&&value.executionException.failedAcceptanceWaived!==false||value.executionException.testsPassed!==false))throw Error('Another execution exception.');
@@ -126,7 +126,7 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
     const riskOwner=publication.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)&&row.kind!=='test-risk/v1')||riskChecks?createNamespaceTestRiskOwner({observer,scope,workId}):null,
       risk=riskChecks?{...await riskOwner.candidate(publication,snapshot,{signal,at:publication.publishedAt,checked:{binding:riskChecks,found:await checks.proof(riskChecks,publication.phase,{signal})}}),
         binding:riskChecks,found:await checks.proof(riskChecks,publication.phase,{signal})}:riskOwner?await riskOwner.forPublication(publication,snapshot,{signal}):null,
-      reused=publication.policyEvidence?.some(row=>row.kind==='evidence-reuse/v3')?await createNamespaceEvidenceReuseOwner({observer,scope,workId}).forPublication(publication,{signal,policyTraversal}):null,
+      reused=publication.policyEvidence?.some(row=>['evidence-reuse/v3','evidence-reuse/v4'].includes(row.kind))?await createNamespaceEvidenceReuseOwner({observer,scope,workId}).forPublication(publication,{signal,policyTraversal}):null,
       tested=publication.checks?await checks.publication(publication,{signal}):risk?.found??reused?.found??null;
     if(!tested&&(preflight.history?.mode==='revalidated'||preflight.repositories.some(row=>row.delivery.testPaths.length)))throw error('Run and retain the pinned tests for this exact Code generation.','ENGINE_CHECK_EVIDENCE_REQUIRED',{
       operation:'phase.checks.run',workId,phase:publication.phase});
@@ -186,10 +186,14 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
       }
     }
     const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31,34:35}[preflightVersion]??7):preflightVersion;
-    const selection=tested?.plan.selection;if(selection&&risk)missing('selective-recovery-execution-risk-combination');
-    const riskProfile=risk?namespaceCodeExecutionRiskProfile(risk.report,{evidenceVersion:version}):null,report=reportValue({schemaVersion:selection?38:reused?39:riskProfile?.version??version,format:selection?'sflow-namespace-code-policy-report/v38':reused?'sflow-namespace-code-policy-report/v39':riskProfile?.format??'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
+    const selection=tested?.plan.selection;if(selection&&risk)throw error('This selected failed execution needs its separate combined-risk owner; restore full configured execution in this phase.',
+      'ENGINE_PORT_UNAVAILABLE',{required:['selective-recovery-execution-risk-combination'],actions:[
+        {operation:'test-recovery.select-confirm',inputs:{workId,revoke:selection.record.id},requiredInputs:['operationId','reason'],prerequisites:['authenticated-original-test-risk-authority']},
+        {operation:'phase.checks.run',inputs:{workId,phaseId:publication.phase},requiredInputs:['operationId'],prerequisites:['revoked-selection','rebased-current-draft','retained-current-source']}]});
+    const impactSelection=Boolean(selection&&(reused||selection.record.context.impact||selection.rows.some(row=>row.declaration.adapter==='node-script-junit-v1'))),selectionVersion=reused?41:impactSelection?40:38,reuseVersion=reused?.binding.kind==='evidence-reuse/v4'?42:39,
+      riskProfile=risk?namespaceCodeExecutionRiskProfile(risk.report,{evidenceVersion:version}):null,report=reportValue({schemaVersion:selection?selectionVersion:reused?reuseVersion:riskProfile?.version??version,format:selection?'sflow-namespace-code-policy-report/v'+selectionVersion:reused?'sflow-namespace-code-policy-report/v'+reuseVersion:riskProfile?.format??'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
       ...(reused?{evidenceVersion:version,reusedExecution:{profile:'sflow-namespace-code-reused-execution/v1',policy:reused.binding,report:reused.manifest.report,checks:reused.checks,receiverExecuted:false}}:{}),
-      ...(selection?{evidenceVersion:version,selectiveRecovery:{profile:'sflow-namespace-code-selective-execution/v1',decision:selection.decision,
+      ...(selection?{evidenceVersion:version,selectiveRecovery:{profile:'sflow-namespace-code-selective-execution/v'+(impactSelection?2:1),decision:selection.decision,...(impactSelection?{impact:selection.record.context.impact??null}:{}),
         excluded:selection.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,testIds:row.excludedIds,outcome:'not-run'})),impactComplete:false,failuresWaived:false}}:{}),
       ...(risk?{evidenceVersion:version,executionException:{profile:riskProfile.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1',...(riskProfile.knownFailureRisk?{failedAcceptanceWaived:false}:{}),checks:risk.binding,testsPassed:false,policy:publication.policyEvidence?.find(row=>isNamespaceTestRiskPolicy(row.kind)&&row.kind!=='test-risk/v1')??null}}:{})});
     return {report,source,policy};

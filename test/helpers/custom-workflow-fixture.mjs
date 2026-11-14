@@ -90,8 +90,8 @@ export async function addFamilyWorkflow(root, { loop = true, requirementsTemplat
   const agent = (name, label, steps, description) => ['---', `name: ${name}`, `description: ${description}`, 'model: [auto]',
     'tools: [read, search, edit, execute]', 'metadata:', `  sflow-label: "${label}"`, `  sflow-phases: "${steps}"`, `  sflow-default-for: "${steps}"`, '---', '',
     `# ${label}`, '', `${description}`, ''].join('\n');
-  await writeFile(path.join(root, '.github', 'agents', 'fmly-engineer.agent.md'),
+  await writeFile(path.join(root, 'singularity', 'agents', 'fmly-engineer.agent.md'),
     agent('fmly-engineer', 'Family engineer', 'fmly-requirements,fmly-build,fmly-notes,fmly-testing,fmly-testing-again,fmly-release', 'Drafts every step of the family team\'s delivery.'));
-  await writeFile(path.join(root, '.github', 'agents', 'fmly-legacy.agent.md'),
+  await writeFile(path.join(root, 'singularity', 'agents', 'fmly-legacy.agent.md'),
     agent('fmly-legacy', 'Family legacy reviewer', 'fmly-legacy-review', 'Reviewed changes before the team had a workflow.'));
 }

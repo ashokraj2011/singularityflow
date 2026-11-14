@@ -152,8 +152,8 @@ test('delete cleans references outside workflows, trims a shared agent, and the 
   story.documents = { ...(story.documents ?? {}), allowedPhases: [...new Set([...(story.documents?.allowedPhases ?? []), own, shared])] };
   story.contextPolicy = { ...(story.contextPolicy ?? {}), phaseOverrides: { ...(story.contextPolicy?.phaseOverrides ?? {}), [own]: 'new' } };
   await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(story));
-  await mkdir(path.join(root, '.github/agents'), { recursive: true });
-  await writeFile(path.join(root, '.github/agents/shared-helper.agent.md'), [
+  await mkdir(path.join(root, 'singularity/agents'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/agents/shared-helper.agent.md'), [
     '---', 'name: shared-helper', 'description: Helps two workflows.', 'metadata:',
     `  sflow-label: "Shared helper"`, `  sflow-phases: "${own}, ${shared}"`, '---', '', '# Shared helper', ''].join('\n'));
   const impact = await yaml(root, 'singularity/impact.yml').catch(() => null);
@@ -173,7 +173,7 @@ test('delete cleans references outside workflows, trims a shared agent, and the 
   const after = await yaml(root, 'singularity/workflow.yml');
   assert.ok(!after.documents.allowedPhases.includes(own) && after.documents.allowedPhases.includes(shared));
   assert.equal(Object.hasOwn(after.contextPolicy.phaseOverrides ?? {}, own), false);
-  const agent = await readFile(path.join(root, '.github/agents/shared-helper.agent.md'), 'utf8');
+  const agent = await readFile(path.join(root, 'singularity/agents/shared-helper.agent.md'), 'utf8');
   assert.match(agent, new RegExp(`sflow-phases: "${shared}"`, 'u'), 'the shared agent loses only the removed step');
   if (impact?.studies?.length) assert.ok(!(await yaml(root, 'singularity/impact.yml')).studies[0].eligibility.workTypes.includes('mine'));
   assert.equal(json(flow(root, 'workflow', 'validate', '--json')).valid, true);

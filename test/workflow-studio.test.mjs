@@ -77,17 +77,17 @@ test('a workflow, a new step and its new agent land together, and a dry run writ
   assert.ok(plan.warnings.some((warning) => warning.code === 'OBLIGATION_ROUTE_DROPS_RESPONSIBILITY'
     && /^Stories cannot start from this workflow yet: /.test(warning.message)), JSON.stringify(plan.warnings));
   assert.deepEqual(plan.files.map((entry) => [entry.path, entry.action]).sort(), [
-    ['.github/agents/vendor-analyst.agent.md', 'create'],
+    ['singularity/agents/vendor-analyst.agent.md', 'create'],
     ['singularity/templates/common/vendor-analysis.md', 'create'],
     ['singularity/workflow.yml', 'update']
   ]);
   assert.ok(plan.summary.some((line) => /New step Vendor analysis: drafted by Vendor analyst, signed off by Product approvers/.test(line)));
   assert.match(plan.files.find((entry) => entry.path === 'singularity/workflow.yml').diff, /\+\s+vendor-assessment:/);
-  assert.equal(existsSync(path.join(root, '.github/agents/vendor-analyst.agent.md')), false, 'a dry run writes nothing');
+  assert.equal(existsSync(path.join(root, 'singularity/agents/vendor-analyst.agent.md')), false, 'a dry run writes nothing');
 
   const applied = json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   assert.deepEqual(applied.written.sort(), plan.files.map((entry) => entry.path).sort());
-  const agent = await readFile(path.join(root, '.github/agents/vendor-analyst.agent.md'), 'utf8');
+  const agent = await readFile(path.join(root, 'singularity/agents/vendor-analyst.agent.md'), 'utf8');
   assert.match(agent, /sflow-default-for: "vendor-analysis"/);
   assert.match(agent, /sflow-phases: "vendor-analysis"/, "a new agent is eligible for exactly the steps it drafts");
   assert.match(agent, /tools: \[ ?read, search, edit, ask_user ?\]/);
@@ -106,12 +106,12 @@ test('moving a step to another agent changes both agents in one valid change', a
   const file = await changeSet(root, [{ op: 'phase.agent', phase: 'design', agent: 'product-owner' }]);
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
-  assert.deepEqual(plan.files.map((entry) => entry.path).sort(), ['.github/agents/architect.agent.md', '.github/agents/product-owner.agent.md']);
+  assert.deepEqual(plan.files.map((entry) => entry.path).sort(), ['singularity/agents/architect.agent.md', 'singularity/agents/product-owner.agent.md']);
   assert.ok(plan.summary.some((line) => /^Architecture and design is now drafted by Product owner \(was Architect\), in all \d+ workflows that use it\.$/.test(line)));
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
   const model = json(root, ['workflow', 'studio']);
   assert.equal(model.workflows.find((workflow) => workflow.id === 'repo-feature').steps.find((step) => step.id === 'design').agent, 'product-owner');
-  const architect = await readFile(path.join(root, '.github/agents/architect.agent.md'), 'utf8');
+  const architect = await readFile(path.join(root, 'singularity/agents/architect.agent.md'), 'utf8');
   assert.equal(architect.match(/sflow-default-for: "([^"]*)"/)[1].split(',').includes('design'), false);
   assert.match(architect, /# Architect agent/, 'the agent keeps its own instructions');
 });
@@ -301,7 +301,7 @@ test('a copy of convergence is convergence: the engine knows it by its artifact 
 
 test('a copy says at Check what it cannot take along: a skill that takes its step by name, and an agent skill kept for that step [E2G-001]', async () => {
   const root = await repository();
-  const agentFile = path.join(root, '.github/agents/architect.agent.md');
+  const agentFile = path.join(root, 'singularity/agents/architect.agent.md');
   await writeFile(agentFile, `${await readFile(agentFile, 'utf8')}\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| design-kit | https://example.test/design-kit.md | design | yes | 4096 |\n`);
   run('git', ['commit', '-qam', 'Keep a design skill for the design step'], root);
   const model = json(root, ['workflow', 'studio']);
@@ -376,9 +376,9 @@ test('from a Story checkout, Studio changes become one review proposal on the ap
     '--expected-authority-remote-fingerprint', remoteFingerprint(remote), '--expected-authority-source-commit', model.authority.sourceCommit ?? approved]);
   assert.equal(proposal.reviewRequired, true, JSON.stringify(proposal));
   assert.match(proposal.branch, /^sflow\/config-change\/workflow\/studio-/);
-  assert.deepEqual([...proposal.files].sort(), ['.github/agents/vendor-analyst.agent.md', 'singularity/constitution.md', 'singularity/templates/common/vendor-analysis.md', 'singularity/workflow.yml']);
+  assert.deepEqual([...proposal.files].sort(), ['singularity/agents/vendor-analyst.agent.md', 'singularity/constitution.md', 'singularity/templates/common/vendor-analysis.md', 'singularity/workflow.yml']);
   assert.match(run('git', ['--git-dir', remote, 'show', `${proposal.branch}:singularity/constitution.md`], base).stdout, /Retain a rollback procedure/);
-  assert.match(run('git', ['--git-dir', remote, 'show', `${proposal.branch}:.github/agents/vendor-analyst.agent.md`], base).stdout, /sflow-default-for: "vendor-analysis"/);
+  assert.match(run('git', ['--git-dir', remote, 'show', `${proposal.branch}:singularity/agents/vendor-analyst.agent.md`], base).stdout, /sflow-default-for: "vendor-analysis"/);
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'], base).stdout.trim(), approved, 'approved configuration is unchanged until review');
   assert.equal(run('git', ['rev-parse', 'HEAD'], story).stdout.trim(), storyHead, 'the Story checkout is unchanged');
   assert.equal(run('git', ['status', '--porcelain'], story).stdout, '');
@@ -495,7 +495,7 @@ test('a Studio agent save refuses a changed agent baseline without overwriting c
 test('a Studio agent edit changes only its own line of frontmatter folded at 80 columns', async () => {
   const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
   const root = await repository();
-  const file = path.join(root, '.github/agents/architect.agent.md');
+  const file = path.join(root, 'singularity/agents/architect.agent.md');
   // The frontmatter as the library's defaults write it: a folded description, padded flow lists.
   const [, header, body] = /^---\n([\s\S]*?\n)---\n([\s\S]*)$/.exec(await readFile(file, 'utf8'));
   const frontmatter = YAML.parseDocument(header);
@@ -1090,9 +1090,9 @@ test('a new agent can start from an existing one: its instructions, tools and sk
   const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   assert.ok(plan.summary.some((line) => /^New agent Payments QA, starting from .+: its instructions, .+ and 1 skill \(edge-cases\)\. It drafts no step until you choose one, and copies no remote resources\.$/u.test(line)), JSON.stringify(plan.summary));
-  assert.deepEqual(plan.files.map((entry) => entry.path), ['.github/agents/payments-qa.agent.md'], 'the source agent and its steps are unchanged');
+  assert.deepEqual(plan.files.map((entry) => entry.path), ['singularity/agents/payments-qa.agent.md'], 'the source agent and its steps are unchanged');
   json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
-  const text = await readFile(path.join(root, '.github/agents/payments-qa.agent.md'), 'utf8');
+  const text = await readFile(path.join(root, 'singularity/agents/payments-qa.agent.md'), 'utf8');
   assert.match(text, /^# Payments QA agent$/mu);
   assert.doesNotMatch(text, /^# QA agent$/mu);
   assert.match(text, /Map every approved acceptance and behavior clause/u);
@@ -1132,7 +1132,7 @@ test('duplicating a protected agent keeps conditional skill links and leaves the
   const changes = page.changeSetFrom(model, page.state().draft).changes;
   const preview = await apply(changes, false);
   assert.equal(preview.valid, true, JSON.stringify(preview.problems));
-  assert.deepEqual(preview.files.map((file) => file.path), ['.github/agents/team-qa.agent.md']);
+  assert.deepEqual(preview.files.map((file) => file.path), ['singularity/agents/team-qa.agent.md']);
   await apply(changes);
   assert.deepEqual(await Promise.all(files.map((file) => readFile(path.join(root, file), 'utf8'))), retained, 'source files and seeded workflow assignments remain byte-identical');
   const after = await buildStudioModel(root);

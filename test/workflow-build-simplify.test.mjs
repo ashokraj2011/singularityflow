@@ -94,7 +94,7 @@ test('simplify offers each candidate it checked, located with why; finish waits 
     { move: 'step.change', id: 'fmly-release', reads: ['fmly-requirements', 'fmly-build', 'fmly-testing'] }]);
   assert.match(duplicate.why, /same agent \(Family engineer\), output \(document\) and template \(common\/verification\.md\).*one sign-off; Family release check reads Family testing instead\./u);
   const [unused] = byKind('unused-asset');
-  assert.deepEqual([unused.location, unused.subject, unused.moves[0].move, unused.moves[0].item], [{ file: '.github/agents/fmly-legacy.agent.md', line: 1 }, { agent: 'fmly-legacy' }, 'item.leaveOut', 'i-unused-agent-fmly-legacy']);
+  assert.deepEqual([unused.location, unused.subject, unused.moves[0].move, unused.moves[0].item], [{ file: 'singularity/agents/fmly-legacy.agent.md', line: 1 }, { agent: 'fmly-legacy' }, 'item.leaveOut', 'i-unused-agent-fmly-legacy']);
   assert.ok(started.items.some((item) => item.id === 'i-unused-agent-fmly-legacy' && item.status === 'open'));
   const [unneeded] = byKind('unneeded-step');
   assert.match(await lineAt(root, unneeded.location), /fmly-notes/u);
@@ -357,7 +357,7 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
   const [folder, checkout] = [await readConfigurationFolder(root), await readRepositoryConfiguration(root)];
   assert.deepEqual([folder.source, checkout.source], [{ kind: 'staged' }, { kind: 'checkout' }]);
   assert.deepEqual([...folder.files.keys()], [...checkout.files.keys()]);
-  assert.ok(folder.files.has('singularity/workflow.yml') && folder.files.has('.github/agents/fmly-engineer.agent.md'));
+  assert.ok(folder.files.has('singularity/workflow.yml') && folder.files.has('singularity/agents/fmly-engineer.agent.md'));
   // An agent nothing uses is the repository's: it makes no workflow heavy.
   const seeded = JSON.parse(h.flow(root, ['workflow', 'validate', 'repo-feature', '--json']).stdout);
   assert.deepEqual([seeded.valid, seeded.workflows[0].simplify], [true, undefined]);

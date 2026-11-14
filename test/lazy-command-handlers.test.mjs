@@ -911,7 +911,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,253,612 (measured): SPEC-CIC stage 6's one change impact setting and the scope-change authority it names are
   // normalized and checked where the spec block already is (specifications.mjs +941, config.mjs +277); the class rules,
   // the card's class and the chat entry stay lazy (amendment-class.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_253_612, `session current loads ${current.bytes} source bytes`);
+  // 4,253,836 (measured): the chat entry's two turns and its one step in the person-step catalog, which every hook reads
+  // (person-step-catalog.mjs +224); its check stays in the lazily loaded answer binding. No new eager file.
+  assert.ok(current.bytes <= 4_253_836, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

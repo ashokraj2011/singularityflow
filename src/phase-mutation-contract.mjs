@@ -195,7 +195,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     repositoryRoot,
     policy: { writeScope: phase?.writeScope ?? 'artifact-only', sourceBoundary: phase?.sourceBoundary ?? 'unrestricted',
       requiresOpenGeneration: code, openGeneration, editable, supportingChangesOnly: !code && !ownsCode,
-      ...(pause ? { intentAmendmentPause: { id: pause.id, phaseId: phase.id } } : {}) },
+      ...(pause ? { intentAmendmentPause: { id: pause.id, phaseId: phase.id } } : {}),
+      // SPEC-CIC switch 3: a proposal in chat waits for the person's yes (copilot-answer-binding.mjs) [CIC:REQ-015].
+      ...(workflow?.resolution?.spec?.changeImpact === 'on' ? { changeImpact: true } : {}) },
     allow: { artifacts: turnMode === 'authoring' && editable && !deterministic && !pause ? artifacts : [], application, staging },
     deny: { protectedPaths: [...new Set([...(definition?.governance?.protectedPaths ?? []),
       ...(workflow?.resolution?.governance?.protectedPaths ?? []),

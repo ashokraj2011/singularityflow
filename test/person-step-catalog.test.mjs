@@ -36,8 +36,9 @@ test('the answer binding reads the catalog, and every step it holds is a guard e
   assert.deepEqual([...ANSWER_BOUND_SKILLS], [...binding.ANSWER_BOUND_TURNS]);
   assert.equal(binding.ANSWER_BOUND_TURNS, ANSWER_BOUND_TURNS);
   const known = new Set([...OWN_TERMINAL_STEPS, ...PERSON_DECISIONS].map((step) => step.id));
-  // The upstream decision is refused by the guard's own rule, not a table entry; see personStep.
-  assert.deepEqual(ANSWER_BOUND_STEPS.filter((id) => !known.has(id)), ['upstream-issue-decision']);
+  // The upstream decision is refused by the guard's own rule, not a table entry; see personStep. A proposal in chat is the
+  // agent's own step, held to the person's yes only where change impact is on (copilot-mutation-guard.mjs proposalStepOfCall).
+  assert.deepEqual(ANSWER_BOUND_STEPS.filter((id) => !known.has(id)), ['upstream-issue-decision', 'intent-amendment-proposal']);
   for (const id of ANSWER_BOUND_STEPS) assert.equal(binding.answerBoundStep({ id }), true, id);
   assert.equal(binding.answerBoundStep({ id: 'witness' }), false);
   // A person's whole table in their own terminal is an own-terminal entry too.

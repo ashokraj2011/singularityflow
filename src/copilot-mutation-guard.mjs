@@ -16,7 +16,7 @@ export const ANSWER_BOUND_SKILLS = new Set(ANSWER_BOUND_TURNS);
 import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
-import { adjudicationTableStep, ANSWER_BOUND_TURNS, DECIDE_SKILL_MUTATIONS, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PERSON_DECISIONS, planRowCorrectionStep } from './person-step-catalog.mjs';
+import { adjudicationTableStep, ANSWER_BOUND_TURNS, DECIDE_SKILL_MUTATIONS, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PERSON_DECISIONS, planRowCorrectionStep, PROPOSAL_BOUND_TURNS } from './person-step-catalog.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 import { normalizeConfirmCode, resolveConfirmCode } from './confirm-code.mjs';
@@ -1327,6 +1327,18 @@ function personStepOfCall(call, cwd) {
   }
   return null;
 }
+/**
+ * Proposing an intent amendment in chat, as a step held to the person's own yes to its preview under SPEC-CIC switch 3
+ * (the contract's `changeImpact`, computed at refresh) [CIC:REQ-015, owner decision 3], or null.
+ */
+function proposalStepOfCall(call, cwd) {
+  if (!SHELL_INPUT_TOOLS.has(call.name)) return null;
+  const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars].find(value => typeof value === 'string');
+  if (!text || !/singularity-flow|sflow/iu.test(text)) return null;
+  const argv = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd).map(entry => entry.argv)
+    .find(candidate => parseCli(candidate).positionals.slice(0, 3).join(' ') === 'story intent-amendment propose');
+  return argv ? { id: 'intent-amendment-proposal', argv } : null;
+}
 function personStepCall(call, cwd) {
   const step = personStepOfCall(call, cwd);
   return step ? personStepRefusal(step) : null;
@@ -1797,17 +1809,25 @@ async function answerBoundDenial(payload, record) {
     await answerBinding().then(binding => binding.noteQuestionAsked(file, record)).catch(() => {});
     return null;
   }
+  // The turn's contract, read once and only for a proposal: whether change impact holds it to a yes.
+  let contract;
+  const changeImpact = async () => ((contract ??= await currentContract(payload, record, { reclassifyOutputs: false })
+    .then(value => value.contract, () => null))?.policy?.changeImpact === true);
   for (const call of toolCalls) {
-    const step = personStepOfCall(call, payload.cwd);
-    if (!step) continue;
+    const proposal = personStepOfCall(call, payload.cwd) ? null : proposalStepOfCall(call, payload.cwd);
+    const step = personStepOfCall(call, payload.cwd) ?? (proposal && await changeImpact() ? proposal : null);
+    if (!step || (PROPOSAL_BOUND_TURNS.includes(skillName(record.skill)) && step.id !== 'intent-amendment-proposal')) continue;
     const binding = await answerBinding();
     if (!binding.answerBoundStep(step)) continue;
     const { positionals, options } = parseCli(step.argv);
     const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals }).catch(() => null);
-    // The person's own answer is the way through, on the card or in their terminal; the words say the same.
+    // The person's own answer is the way through, on the card or in their terminal; the words say the same. A proposal's
+    // is the preview they say yes to, in this same turn.
     if (reason) {
-      const workId = record.contract?.workId ?? null;
-      const routes = [safeCommandGuidance({ argv: ['decisions', ...(workId ? [workId] : [])], skill: '/sf-decide' })].filter(Boolean);
+      const workId = record.contract?.workId ?? contract?.workId ?? null;
+      const routes = [safeCommandGuidance(step.id === 'intent-amendment-proposal'
+        ? { argv: ['story', 'intent-amendment', 'preview', ...(workId ? ['--work-id', workId] : []), ...(typeof options.file === 'string' ? ['--file', options.file] : []), '--for-agent', '--json'] }
+        : { argv: ['decisions', ...(workId ? [workId] : [])], skill: '/sf-decide' })].filter(Boolean);
       return { ...mutationDenial(null, reason, [], { routes }), recoverable: true };
     }
   }

@@ -215,6 +215,19 @@ export function assertCarriesClosedCode(config, workflow, phase, changeSet, deta
   });
 }
 
+/**
+ * Whether `changeSet`, a code step's application change set from its closed generation's baseline, is exactly the code
+ * the closure recorded and nothing else: what its own `phase begin` carries (assertCarriesClosedCode) with nothing to
+ * adopt, so recovery routes there, not to a commit of the code [paid run, 2026-11-14].
+ */
+export function carriesExactlyClosedCode(config, workflow, phase, changeSet) {
+  const record = phase?.scopePin?.closedChangeSet;
+  if (!record || record.intent !== phase.generationIntent?.id || !changeSet?.entries?.length) return false;
+  const byPath = new Map((record.paths ?? []).map((entry) => [entry.path, entry]));
+  const { held, other } = heldPaths(config, workflow, phase, changeSet);
+  return !other.length && [...held].every(([file, content]) => sameContent(byPath.get(file), content));
+}
+
 /** Whether a generation's recorded start scope is the pinned one or a later one, by revision digest, else by amendment. */
 function startsUnder(workflow, pin, scope) {
   if (!scope) return false;

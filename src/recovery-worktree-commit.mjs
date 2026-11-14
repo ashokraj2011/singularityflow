@@ -14,7 +14,9 @@ export async function reviewedWorktreeCommitAction(root, config, workflow, phase
       || phase.status !== 'in_progress'
       || branch(root) !== workflow.workItem.branch) return null;
   const scope = knownScope ?? await inspectPhaseWorktreeScope(root, config, workflow, phase);
-  if (scope?.status !== 'verified') return null;
+  // A closed generation's recorded code, and nothing else, is carried by the step's own `phase begin`: never committed as
+  // reviewed authoring [paid run, 2026-11-14]. Anything beyond the record keeps this option.
+  if (scope?.status !== 'verified' || scope.closedCarry === true) return null;
   const paths = inspection.entries.filter(entry => entry.path.kind === 'utf8'
     && (entry.type === 'untracked' || (entry.type === 'ordinary' && !entry.submodule.isSubmodule
       && ['.M', 'M.', 'MM', 'A.', 'AM', '.A'].includes(entry.xy.raw)))

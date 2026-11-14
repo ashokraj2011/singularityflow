@@ -129,13 +129,17 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
     && entry.mode === 'guided' && typeof entry.command === 'string');
   const successorRequired = applicationScope?.basis === 'published-generation' && applicationPaths.length > 0;
   const guided = inPhaseAuthoring && (!successorRequired || Boolean(rollover));
-  const route = guided && applicationPaths.length
+  // Exactly the code a closed generation recorded, and nothing else (SPEC-CIC switch 2): the step's own `phase begin` carries
+  // it, so it is neither a draft to continue nor a commit to make [paid run, 2026-11-14]. Anything else keeps the routes below.
+  const carried = guided && applicationScope?.closedCarry === true && applicationPaths.length > 0;
+  const route = carried ? `singularity-flow phase begin ${phase.id} --json`
+    : guided && applicationPaths.length
     ? successorRequired ? rollover.command : `singularity-flow phase prepublish ${phase.id} --json`
     : null;
   return {
     id: 'working-tree', safe: false, automatic: false,
     mode: guided ? 'guided' : 'manual',
-    classification: guided ? successorRequired ? 'successor-generation-review-required'
+    classification: carried ? 'closed-generation-carry' : guided ? successorRequired ? 'successor-generation-review-required'
       : 'current-phase-review-required' : 'review-required',
     reviewRequired: true,
     confirmation: guided ? successorRequired ? 'plan-hash' : 'none' : 'human-authority', command: route,
@@ -144,7 +148,9 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
     ...(authoringContinuation ? { authoringContinuation } : {}),
     applicationPaths, applicationScope,
     preserved: ['working-tree bytes', 'Git index', 'published generations', 'approval history'],
-    detail: guided && applicationPaths.length
+    detail: carried
+      ? `This is exactly the code ${phase.id}'s generation held when ${phase.scopePin?.closedChangeSet ? phase.scopePin.amendment : 'an amendment'} closed it, recorded path by path: begin the step's next generation, which carries it under the amended scope. Do not commit it or set it aside; a path changed since, or new code, is refused at the begin with its way out. Recovery does not commit, stash or discard these edits.`
+      : guided && applicationPaths.length
       ? successorRequired
         ? `Review the exact listed application diff since published generation ${applicationScope.publishedGeneration}, then use the returned confirmed rollover command. The prior publication stays immutable; recovery does not commit, stash or discard these edits.`
         : 'Review the listed source, test and documentation changes within the verified open generation, then continue that draft and recheck prepublish. This scope check does not establish authorship or make unfinished artifacts or failing tests valid. Recovery does not commit, stash or discard these edits.'

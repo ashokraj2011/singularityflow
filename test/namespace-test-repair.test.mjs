@@ -6,7 +6,7 @@ import {createOwnedExecutionUnit,createExecutionUnitManifest} from '../src/sgos/
 import {createNodeExecutionOwner} from '../src/sgos/node-execution-owner.mjs';
 import {sha256} from '../src/sgos/node-execution-values.mjs';
 const reason='Review all configured checks and the exact bounded repair scope without accepting failed tests.';
-async function fixture(t,{backend='sqlite',maximum=3,repair=null}={}){
+async function fixture(t,{backend='sqlite',maximum=3,repair=null,modify=()=>{}}={}){
   const broken=converterSource.replace('toUpperCase()','toLowerCase()'),f=await namespaceTestWitnessFixture(t,{backend,source:broken,
     configure(source){source.definition.testRecovery={enabled:true,maxDistinctAutomaticAttempts:maximum};},beforeSpecification:async f=>{
       f.control.permissions.push('test-recovery.context','test-recovery.confirm');
@@ -21,10 +21,16 @@ async function fixture(t,{backend='sqlite',maximum=3,repair=null}={}){
     unit=createOwnedExecutionUnit(manifest,async contract=>{repairs++;assert.deepEqual(contract.writeScope,['app:src/converter.js']);
       if(repair)await repair(f,contract);else await writeFile(path.join(f.roots[0],'src/converter.js'),converterSource);
       return {output:{path:'src/converter.js',attempt:repairs}};}),
-    bindings={owner:createNodeExecutionOwner({hostId:'repair-fixture-host'}),bindings:[{phaseId:'build',unit}]},
-    engine=createNamespaceEngine({...f.options,checks:f.checks,repairs:bindings}),input={operationId:'repair-observed-failure',workId:f.inputs.workId,phaseId:'build',failedOperationId:'witness-execution'};
+    bindings={owner:createNodeExecutionOwner({hostId:'repair-fixture-host'}),bindings:[{phaseId:'build',unit}]};modify(bindings);
+  const engine=createNamespaceEngine({...f.options,checks:f.checks,repairs:bindings}),input={operationId:'repair-observed-failure',workId:f.inputs.workId,phaseId:'build',failedOperationId:'witness-execution'};
   return {...f,engine,input,repairs:()=>repairs,bindings};
 }
+test('cancellation during the repair lease cannot launch a repair or run another check',{timeout:120000},async t=>{
+  const controller=new AbortController(),f=await fixture(t,{modify:bindings=>{const owner=bindings.owner;bindings.owner={...owner,async acquire(){const token=await owner.acquire();controller.abort();return token;}};}});
+  const before=await readFile(path.join(f.roots[0],'src/converter.js'),'utf8');
+  await assert.rejects(f.engine.run('phase.repair.run',f.input,{signal:controller.signal}),{code:'ENGINE_OPERATION_CANCELLED'});
+  assert.equal(f.repairs(),0);assert.equal(f.starts(),1);assert.equal(await readFile(path.join(f.roots[0],'src/converter.js'),'utf8'),before);
+});
 for(const backend of ['filesystem','sqlite','application'])test(backend+' a real bounded repair reruns the configured test and publishes with original failure retained',{timeout:120000},async t=>{
   const f=await fixture(t,{backend}),failure=await f.engine.run('phase.checks.run',{operationId:'witness-execution',workId:f.inputs.workId,phaseId:'build'});
   assert.equal(failure.verdict,'failed');const testsBefore=await readFile(path.join(f.roots[0],'test/converter.test.js'),'utf8');

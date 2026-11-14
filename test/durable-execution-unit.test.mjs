@@ -148,10 +148,10 @@ test('a final event suffix is reconciled after genuine quiescence without launch
   assert.equal(retained.quiescence.eventHeadSha256,candidate.eventHeadSha256);
 });
 test('a concurrent stop retains its final events before the actual executor failure is acknowledged',async t=>{
-  const f=await fixture(t,{script:'setInterval(()=>{},1000);'});let announce;
+  const f=await fixture(t,{script:'setInterval(()=>{},1000);'});let announce;const cursors=[];
   const firstEvent=new Promise(resolve=>{announce=resolve;});
-  const unit={...f.unit,async *observe(handle,cursor=0){for await(const event of f.raw.observe(handle,cursor)){
-    yield event;if(cursor===0){announce();break;}}}};
+  const unit={...f.unit,async *observe(handle,cursor=0){cursors.push(cursor);for await(const event of f.raw.observe(handle,cursor)){
+    yield event;if(cursor===0)announce();break;}}};
   const runtime=f.make({unit}),handle=await runtime.start(f.contract),collected=runtime.collect(handle);collected.catch(()=>{});
   await firstEvent;await runtime.requestStop(handle,{reason:'Stop this exact owned check.'});
   let original;try{await f.raw.collect(handle);}catch(cause){original=cause;}
@@ -160,6 +160,20 @@ test('a concurrent stop retains its final events before the actual executor fail
   const receipt=await runtime.quiesce(handle),events=[];for await(const event of runtime.observe(handle))events.push(event);
   assert.deepEqual(events.map(event=>event.type),['started','stop-requested','failed']);
   assert.equal(receipt.eventHeadSha256,events.at(-1).eventSha256);assert.equal(f.control.starts,1);
+  assert.deepEqual(cursors,[0,1,2]);
+});
+test('cancellation fences the actual launch after asynchronous lease acquisition',async t=>{
+  const f=await fixture(t,{script:"require('node:fs').writeFileSync('launched','unexpected');"}),controller=new AbortController(),reason=Object.assign(Error('Cancelled while acquiring the execution lease.'),{code:'TEST_ABORT'});
+  const runtime=f.make({owner:{...f.owner,async acquire(){const token=await f.owner.acquire();controller.abort(reason);return token;}}});
+  await assert.rejects(runtime.start(f.contract,{signal:controller.signal}),cause=>cause===reason);
+  assert.equal(f.control.starts,0);await assert.rejects(access(path.join(f.directory,'launched')),{code:'ENOENT'});
+  assert.equal((await f.store.read()).entries[key(f.contract)],undefined);
+});
+test('a negative quiescence receipt cannot become a complete or passing retained execution',async t=>{
+  const f=await fixture(t),runtime=f.make({unit:{...f.unit,async quiesce(handle){const original=await f.raw.quiesce(handle),core={...original,quiescent:false};delete core.quiescenceReceiptSha256;
+    return {...core,quiescenceReceiptSha256:digest(core)};}}}),handle=await runtime.start(f.contract);
+  await assert.rejects(runtime.collect(handle),{code:'SGOS_EXECUTION_RECORD_INVALID'});const retained=(await f.store.read()).entries[key(f.contract)];
+  assert.equal(retained.status,'running');assert.equal(retained.result,null);assert.equal(retained.quiescence,null);assert.equal(f.control.starts,1);
 });
 test('a collection transport failure after a completed stream is not a proven terminal executor failure',async t=>{
   const f=await fixture(t),original=Object.assign(new Error('Transport unavailable.'),{code:'EACCES'}),runtime=f.make({unit:{...f.unit,collect(){throw original;}}});

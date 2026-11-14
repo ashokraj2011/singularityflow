@@ -247,8 +247,12 @@ export function createDurableExecutionUnit({unit,store,content,scope,owner,clock
       // quiescence is the boundary after which the final event suffix must also be retained.
       // A negative receipt remains a real protocol failure, never a reason to certify termination.
       if(quiescence?.quiescent===true){
-        const cursor=(await read(key)).value.events.length;
-        for await(const event of execution.observe(handle,cursor)){await owned(session);await retainEvent(key,handle,event);}
+        for(let batch=0;batch<MAXIMUM_EVENTS;batch++){
+          const current=(await read(key)).value,cursor=current.events.length;
+          if((current.events.at(-1)?.eventSha256??null)===quiescence.eventHeadSha256)break;
+          for await(const event of execution.observe(handle,cursor)){await owned(session);await retainEvent(key,handle,event);}
+          if((await read(key)).value.events.length===cursor)break;
+        }
       }
       const observed=(await read(key)).value,retained=await events(observed,handle),eventHead=retained.at(-1)?.eventSha256??null;
       const quiet=quietValue(quiescence,handle,eventHead);
@@ -271,7 +275,8 @@ export function createDurableExecutionUnit({unit,store,content,scope,owner,clock
   }
   return Object.freeze({
     descriptor:execution.descriptor,doctor:execution.doctor,planCapability:execution.planCapability,
-    async start(contract) {
+    async start(contract,{signal=null}={}) {
+      signal?.throwIfAborted();
       contract=hashed(contract,'agent-task-contract','contractSha256');
       const manifest=hashed(execution.descriptor(),'execution-unit-manifest','manifestSha256'),key=keyFor(contract.contractSha256);
       if(contract.executionUnitManifestSha256!==manifest.manifestSha256)fail('The task belongs to another execution unit.','SGOS_GEU_MANIFEST_MISMATCH');
@@ -287,7 +292,7 @@ export function createDurableExecutionUnit({unit,store,content,scope,owner,clock
       }
       const at=await timestamp();
       const token=cloneSgosRecordValue(await ownership.acquire());fields(token,['hostId','instanceId','id']);
-      try {await mutate(key,async(value,snapshot)=>{
+      try {signal?.throwIfAborted();await mutate(key,async(value,snapshot)=>{
         if(value)throw recovery(value);
         await unclaimed(key,snapshot);
         return {format:'sflow.sgos.execution-attempt/v1',profile:DURABLE_EXECUTION_PROFILE,projectId:project.projectId,attemptId:key,
@@ -296,7 +301,7 @@ export function createDurableExecutionUnit({unit,store,content,scope,owner,clock
       });}catch(cause){await ownership.release(token);throw cause;}
       const session={owner:token,handle:null,completion:null,failure:null};sessions.set(key,session);
       try {
-        await owned(session);const handle=handleValue(await execution.start(contract));session.handle=handle;
+        await owned(session);signal?.throwIfAborted();const handle=handleValue(await execution.start(contract,{signal}));session.handle=handle;
         if(handle.contractSha256!==contract.contractSha256||handle.executionUnitManifestSha256!==manifest.manifestSha256)fail('The executor started another task.');
         const updatedAt=await timestamp();
         await mutate(key,value=>{

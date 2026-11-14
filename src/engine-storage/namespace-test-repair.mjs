@@ -16,6 +16,7 @@ import {createNamespaceTestRepairReader,TEST_REPAIR_EXECUTION_PROFILE} from './n
 import {testRepairInput} from './namespace-test-repair-contract.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b),error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause}),
   diagnostic=cause=>({name:cause.name??'Error',code:cause.code??null,message:cause.message??String(cause),details:cause.details??null});
+const cancelled=signal=>{if(signal?.aborted)throw error('The repair operation was cancelled before its next effect.','ENGINE_OPERATION_CANCELLED');};
 export function createNamespaceTestRepairPort(options,runtime,executeOperation){
   const {records,content,scope,workId,access,clock,repairs,sources=[]}=options,observer=createNamespaceStoryObserver(options),
     reader=createNamespaceTestRepairReader({observer,scope,workId}),{codec}=reader,contexts=new WeakMap(),
@@ -98,12 +99,15 @@ export function createNamespaceTestRepairPort(options,runtime,executeOperation){
     },
     async execute(context,_token,{signal}={}){
       const s=state(context),bound=units.get(s.input.phaseId);await fresh(s,signal);
-      const handle=await bound.runtime.start(s.plan.contract);let candidate=null,failure=null,scopeViolation=null,stopping=null;
-      const stop=()=>{stopping??=bound.runtime.requestStop(handle,{reason:'The explicit repair operation was cancelled.'});stopping.catch(()=>{});};
+      let handle;try{handle=await bound.runtime.start(s.plan.contract,{signal});}catch(cause){cancelled(signal);throw cause;}
+      let candidate=null,failure=null,scopeViolation=null,stopping=null;
+      const stop=()=>{stopping??=(async()=>{try{return await bound.runtime.requestStop(handle,{reason:'The explicit repair operation was cancelled.'});}
+        catch(cause){if(!['SGOS_EXECUTION_ALREADY_SETTLED','SGOS_EXECUTION_LEASE_LOST'].includes(cause.code))throw cause;
+          const quiet=await bound.runtime.quiesce(handle);if(quiet.quiescent!==true)throw cause;return quiet;}})();stopping.catch(()=>{});};
       signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();let quiescence;
       try{try{candidate=await bound.runtime.collect(handle);}catch(cause){failure=diagnostic(cause);}
-        quiescence=await bound.runtime.quiesce(handle);if(stopping)await stopping;
-      }finally{signal?.removeEventListener('abort',stop);}
+        quiescence=await bound.runtime.quiesce(handle);if(stopping)await stopping;cancelled(signal);
+      }finally{signal?.removeEventListener('abort',stop);if(signal?.aborted){if(!stopping)stop();await stopping;await bound.runtime.quiesce(handle);}}
       const after=await capture(s.plan,signal);try{await reader.validateChanges(s.plan,after,signal);}
       catch(cause){if(cause.code!=='TEST_RECOVERY_SCOPE_CHANGED')throw cause;scopeViolation=diagnostic(cause);}
       let source=null,checked=null,verdict=scopeViolation?'scope-review-required':'repair-required';

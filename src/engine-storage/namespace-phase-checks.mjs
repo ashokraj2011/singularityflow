@@ -174,7 +174,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
       for(const step of s.plan.steps){cancelled(signal);await runtime.revalidateDraft(s.admission,{signal});const bound=await binding(step,s.plan.selection);
         if(!same(validateExecutionUnitManifest(bound.unit.descriptor()),step.manifest))throw error('The executor changed after preparation.','ENGINE_CHECK_BINDING_CHANGED');
         executionSignals.set(step.contract.contractSha256,signal??null);
-        let handle;try{handle=await bound.runtime.start(step.contract);}catch(cause){executionSignals.delete(step.contract.contractSha256);cancelled(signal);throw cause;}
+        let handle;try{handle=await bound.runtime.start(step.contract,{signal});}catch(cause){executionSignals.delete(step.contract.contractSha256);cancelled(signal);throw cause;}
         let stopping=null;
         const stop=()=>{stopping??=(async()=>{try{return await bound.runtime.requestStop(handle,{reason:'The bound phase-check operation was cancelled.'});}
           catch(cause){if(!['SGOS_EXECUTION_ALREADY_SETTLED','SGOS_EXECUTION_LEASE_LOST'].includes(cause.code))throw cause;

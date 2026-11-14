@@ -21,6 +21,7 @@ import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { COPILOT_AGENT_MAPPING_NAME_RULE, validCopilotAgentMappingName } from './copilot-agent-names.mjs';
+import { AGENTS_HOME, LEGACY_AGENTS_ROOT, agentsRootOf } from './configuration-assets.mjs';
 
 export { fetchRemoteMarkdown, isPublicRemoteAddress, resolvePublicRemoteHost } from './remote-fetch.mjs';
 
@@ -85,20 +86,37 @@ export async function discoverAgents(root) {
     });
 }
 
+/**
+ * The agents root the repository's own workflow.yml records [AGH:REQ-002]: `.github/agents` with
+ * no key (or no workflow.yml), `singularity/agents` on the agents home. A Story checkout reads its
+ * own pinned workflow.yml, so a Story keeps the layout it started with [AGH:REQ-020].
+ */
+export async function repositoryAgentsRoot(repositoryRoot) {
+  const text = await readFile(path.join(repositoryRoot, 'singularity/workflow.yml'), 'utf8').catch(() => '');
+  if (!/^agentPromptsRoot\s*:/mu.test(text)) return LEGACY_AGENTS_ROOT;
+  let parsed;
+  try { parsed = parseYamlText(text); } catch { return LEGACY_AGENTS_ROOT; }
+  return agentsRootOf(parsed);
+}
+
 async function discoverAgentsSnapshot(root, repositoryRoot) {
   const packagedIdentities = await packagedAgentIdentities();
-  const locations = [
-    ['repository', path.join(repositoryRoot, '.github/agents')],
-    ['plugin', path.join(PACKAGE_ROOT, 'plugin/agents')],
-    ['bundled', path.join(PACKAGE_ROOT, 'templates/agents')]
-  ];
+  const agentsRoot = await repositoryAgentsRoot(repositoryRoot);
   const agents = new Map();
   // APM's lock and workflow.yml's `apm` block, read only when the repository has them [APM A3].
   let apm;
   const apmContext = async () => (apm ??= await readApmContext(repositoryRoot));
-  for (const [scope, directory] of locations) {
+  const locations = [
+    ['repository', await agentFiles(path.join(repositoryRoot, agentsRoot))],
+    // On the agents home, the only .github/agents files read are the ones APM's lock says APM
+    // deployed [AGH:REQ-011]; a team's own agents there are never read and never shadow SFlow's.
+    ...(agentsRoot === AGENTS_HOME ? [['repository', await apmDeployedAgentFiles(repositoryRoot, apmContext)]] : []),
+    ['plugin', await agentFiles(path.join(PACKAGE_ROOT, 'plugin/agents'))],
+    ['bundled', await agentFiles(path.join(PACKAGE_ROOT, 'templates/agents'))]
+  ];
+  for (const [scope, files] of locations) {
     const localIds = new Map();
-    for (const file of await agentFiles(directory)) {
+    for (const file of files) {
       const text = await readFile(file, 'utf8');
       const relative = posix(path.relative(repositoryRoot, file));
       let parsed;
@@ -139,6 +157,16 @@ async function discoverAgentsSnapshot(root, repositoryRoot) {
   return [...agents.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
+async function apmDeployedAgentFiles(repositoryRoot, apmContext) {
+  if (!(await exists(path.join(repositoryRoot, 'apm.lock.yaml')))) return [];
+  const { deployed } = await apmContext();
+  const files = [];
+  for (const relative of [...(deployed?.keys() ?? [])].filter((entry) => /^\.github\/agents\/[^/]+\.md$/u.test(entry)).sort()) {
+    if (await exists(path.join(repositoryRoot, relative))) files.push(path.join(repositoryRoot, relative));
+  }
+  return files;
+}
+
 async function readApmContext(repositoryRoot) {
   const { APM_LOCKFILE, apmDeployedIndex, readApmDocument } = await import('./apm-lock.mjs');
   const lock = await readApmDocument(repositoryRoot, APM_LOCKFILE, 'lock');
@@ -153,7 +181,7 @@ async function readApmContext(repositoryRoot) {
 }
 
 /**
- * Agents APM deployed into .github/agents [APM A3]. Each is marked with its package, and the steps
+ * Agents APM deployed into .github/agents [APM A3] (read there on either layout, AGH:REQ-011). Each is marked with its package, and the steps
  * workflow.yml's `apm.agents` gives it become its steps and defaults, since APM owns its file; the
  * file's own sflow-phases and sflow-default-for are never read, so no package can choose a step.
  *
@@ -192,7 +220,7 @@ async function applyApmAgents(agents, repositoryRoot, apmContext) {
 }
 
 export function validateAgentCatalog(agents, definition) {
-  if (!agents.length) throw new SingularityFlowError('No Agent Markdown files were found in .github/agents or the bundled plugin.');
+  if (!agents.length) throw new SingularityFlowError(`No Agent Markdown files were found in ${definition?.agentPromptsRoot ?? LEGACY_AGENTS_ROOT} or the bundled plugin.`);
   const displayNames = new Map();
   for (const agent of agents) {
     const name = (agent.displayName ?? agent.label ?? agent.id).trim().toLowerCase();

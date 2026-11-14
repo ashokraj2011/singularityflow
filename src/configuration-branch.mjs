@@ -54,7 +54,7 @@ import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context
 import { acquireFileLease, inspectFileLease } from './file-lease.mjs';
 import {
   configurationAssetPolicy, configurationAssetSearchRoots, DEFAULT_CONFIGURATION_ASSET_POLICY,
-  isConfigurationAssetPath,
+  isConfigurationAssetPath, LEGACY_AGENTS_ROOT,
   mergeConfigurationAssetPolicies
 } from './configuration-assets.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
@@ -956,7 +956,20 @@ export async function prepareConfigurationBootstrapWorktree(root, {
     run('git', ['switch', '--quiet', '--orphan', CONFIGURATION_BRANCH], { cwd: root, env });
     await clearScratchWorktree(root);
     await copyAssets(seed, root);
-    const wrote = await initializeDefinition(root);
+    // A branch with no workflow.yml becomes a configuration on the agents home [AGH:REQ-006]: the
+    // agents in its .github/agents that are SFlow's move there, byte for byte, and the team's own are
+    // left on the branch, not imported. A move that is held keeps the legacy layout for the upgrade.
+    let agentsRoot = null;
+    if (!importedWorkflow) {
+      const { applyAgentsHomeMigration, planAgentsHomeMigration } = await import('./agents-home-migration.mjs');
+      const plan = await planAgentsHomeMigration(root, {});
+      if (plan?.status === 'held') agentsRoot = LEGACY_AGENTS_ROOT;
+      else {
+        await applyAgentsHomeMigration(root, plan);
+        await rm(path.join(root, ...LEGACY_AGENTS_ROOT.split('/')), { recursive: true, force: true });
+      }
+    }
+    const wrote = await initializeDefinition(root, agentsRoot ? { agentsRoot } : {});
     if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(root, branch);
     if (!importedCapabilityMap) {
       await rm(path.join(root, 'singularity/capabilities.yml'), { force: true });

@@ -156,10 +156,14 @@ async function renderFiles(detection, selections) {
         definition.artifactSets = Object.fromEntries(Object.entries(definition.artifactSets ?? {})
           .filter(([id]) => usedArtifactSets.has(id)));
         delete definition.mcpServers;
+        // SFlow's agents are proposed in the agents home, never in the team's .github/agents [AGH:REQ-006].
+        const { version, ...rest } = definition;
+        Object.keys(definition).forEach((key) => delete definition[key]);
+        Object.assign(definition, { version, agentPromptsRoot: 'singularity/agents', ...rest });
         const suffix = `\n# Accepted deterministic initialization policy. Explain with: sflow config explain\ninitialization:\n${YAML.stringify(policy).split('\n').map((line) => line ? `  ${line}` : line).join('\n')}\n`;
         bytes = Buffer.from(`${YAML.stringify(definition).replace(/\s+$/u, '')}${suffix}`, 'utf8');
       }
-      if (asset.path.startsWith('.github/agents/') && asset.path.endsWith('.agent.md')) {
+      if (asset.path.startsWith('singularity/agents/') && asset.path.endsWith('.agent.md')) {
         if (!selectedPhaseIds) throw new SingularityFlowError(
           'Smart-init agent rendering requires the selected workflow phase catalog.',
           { code: 'INI_PRESET_UNAVAILABLE' }

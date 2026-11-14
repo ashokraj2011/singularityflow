@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "5f89b2478ea8ab6aec0e55b9161824a28b0d3b25",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-13-TEST-RUN-WORKFLOW.md",
+    "reviewedAtCommit": "e0815f5237608aa32c36cf327dd5db321ce6a27e",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-11-14-AGENTS-HOME.md",
     "companionIds": [
-      "workflow-configuration"
+      "smart-initialization-v1"
     ]
   },
   "companions": [
@@ -99,7 +99,7 @@
     {
       "id": "smart-initialization-v1",
       "path": "src/initialization/proposal.mjs",
-      "sha256": "sha256:1701ccd4b2c0bae3543916d594d640402a7d14d504d01867ed631a66cb0da208"
+      "sha256": "sha256:ff3f29f86293a6e8bb748914f5b6f4720b76dad70e960da00c2478c55bebb941"
     }
   ]
 }

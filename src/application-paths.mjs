@@ -2,6 +2,9 @@ import { isAgentOutputPath } from './agent-output-folder.mjs';
 import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import { SingularityFlowError } from './util.mjs';
 
+// The legacy agents root (configuration-assets.mjs LEGACY_AGENTS_ROOT), kept here so path classification loads nothing more.
+const LEGACY_AGENTS_ROOT = '.github/agents';
+
 function safeGovernedRoot(value) {
   const portable = String(value ?? '').trim().replaceAll('\\', '/');
   if (!portable || /[\u0000-\u001f\u007f]/.test(portable)
@@ -65,6 +68,11 @@ function configuredRoots(source) {
   ]);
 }
 
+function declaresAgentsRoot(source) {
+  const direct = object(source);
+  return [direct, object(direct.resolution)].some((owner) => typeof owner.agentPromptsRoot === 'string');
+}
+
 function configuredPaths(source) {
   const direct = object(source);
   const resolution = object(direct.resolution);
@@ -111,7 +119,9 @@ export function applicationPathContext(...sources) {
   return Object.freeze({
     caseInsensitivePaths,
     governedRoots: Object.freeze(uniquePaths([
-      ...GOVERNED_ROOTS, ...sources.flatMap(configuredRoots)
+      ...GOVERNED_ROOTS, ...sources.flatMap(configuredRoots),
+      // .github/agents is SFlow's only on the legacy layout, or when no source says [AGH:REQ-009].
+      ...(sources.some(declaresAgentsRoot) ? [] : [LEGACY_AGENTS_ROOT])
     ], { caseInsensitivePaths })),
     governedPaths: Object.freeze(uniquePaths(
       sources.flatMap(configuredPaths), { caseInsensitivePaths }

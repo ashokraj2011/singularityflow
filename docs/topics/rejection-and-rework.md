@@ -8,7 +8,8 @@ aliases:
 related:
   - approvals
   - artifacts-and-generation
-version: 9
+  - changing-requirements
+version: 10
 commands: []
 ---
 A rejection reopens the phase and requires a fresh generation — with the reviewer's reasons pinned as composed context for the regeneration, alongside anything they cited. Nothing else is lost: implementation branches, interval history, checkpoints, and evidence carry forward. Rejection is designed to be cheap for the author and informative by construction: generation 2 starts from everything generation 1 learned, including the reviewer's exact words.
@@ -70,4 +71,4 @@ The commands mapped to this topic are read-only. They may inspect local files an
 
 ## Related topics
 
-Continue with `sflow explain approvals`, `sflow explain artifacts-and-generation`.
+Continue with `sflow explain approvals`, `sflow explain artifacts-and-generation`, `sflow explain changing-requirements`. A change to what the Story must do is an intent amendment, not a rejection.

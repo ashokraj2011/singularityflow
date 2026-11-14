@@ -1,12 +1,12 @@
 ---
 id: phase-appeals
-version: 8
+version: 9
 title: Phase appeals and recoverable blockers
 summary: Preserve and review exact extra work without silently bypassing tests, intent or configuration authority.
 audience: [developer, approver, administrator]
 commands: [appeal]
 skills: [sf-appeal, sf-recover]
-related: [recovery, test-recovery, compact-phase-entry]
+related: [recovery, test-recovery, compact-phase-entry, changing-requirements]
 ---
 
 # Phase appeals and recovery
@@ -142,7 +142,7 @@ Repair attempts are now durable, not remembered only within a Copilot turn. The 
 |---|---|
 | Extra location/supporting work for existing intent | Exact-diff scope appeal |
 | Approved screenshot/inspection obligation incorrectly typed as source | Exact evidence-contract preview and live plan-authority correction; visual proof remains required |
-| New requirements or changed acceptance criteria | Existing Story intent-amendment and affected-phase acknowledgement/revalidation |
+| New requirements or changed acceptance criteria | Existing Story intent-amendment and affected-phase acknowledgement/revalidation (`sflow explain changing-requirements`) |
 | Eligible observed test shortfall | Existing `story test-policy risks` preview and exact authorized risk decision, with scope/expiry/remediation |
 | Eligible authored-document quality shortfall | `appeal risk-prepare --finding EXACT-CODE`; exact human review, transitions and expiry |
 | Runner configuration error | Approved configuration proposal and bounded Story test-command adoption |
@@ -176,4 +176,4 @@ Tests for scope appeals exercise real Git transactions and live terminal review 
 
 ## Related topics
 
-Continue with `sflow explain recovery`, `sflow explain test-recovery`, `sflow explain compact-phase-entry`.
+Continue with `sflow explain recovery`, `sflow explain test-recovery`, `sflow explain compact-phase-entry`, `sflow explain changing-requirements`.

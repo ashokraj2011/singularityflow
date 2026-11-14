@@ -29,7 +29,12 @@
     { "question": "crash", "status": "resolved", "topic": "recovery", "intent": "concept" },
     { "question": "Explain approval review", "status": "ambiguous", "intent": "concept", "candidate": "approvals" },
     { "question": "aproovals", "status": "not-found", "intent": "concept", "candidate": "approvals" },
-    { "question": "How do I file my taxes?", "status": "not-found", "intent": "procedure" }
+    { "question": "How do I file my taxes?", "status": "not-found", "intent": "procedure" },
+    { "question": "The requirements changed, what do I do?", "status": "resolved", "topic": "changing-requirements", "intent": "concept" },
+    { "question": "requirements changed", "status": "resolved", "topic": "changing-requirements", "intent": "concept" },
+    { "question": "intent amendment", "status": "resolved", "topic": "changing-requirements", "intent": "concept" },
+    { "question": "Why can't I publish after an amendment?", "status": "resolved", "topic": "changing-requirements", "intent": "diagnose" },
+    { "question": "How do I change the acceptance criteria after the scope is approved?", "status": "resolved", "topic": "changing-requirements", "intent": "procedure" }
   ],
   "actionImperatives": [
     "Submit this phase",

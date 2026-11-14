@@ -13,7 +13,8 @@ related:
   - work-intervals
   - escalation
   - sequence-gates
-version: 19
+  - changing-requirements
+version: 20
 ---
 `sflow story interval reconcile` deterministically compares reality against the starting contract: claimed vs. changed paths, protected paths, required checks bound to the exact commit, and clause coverage. Verdicts are clear · attention · blocked · incomplete, and `clear` explicitly does not claim semantic correctness. Convergence findings are facts; a human dispositions each one as `rework`, `update-intent`, `accepted-deviation`, `dismissed`, or `deferred`. Final submission requires a clean reconciliation bound to the submitted commit.
 
@@ -40,7 +41,7 @@ Use this topic when the current goal matches **reconciliation**. Start in a repo
 4. For intent that must change, draft it with `sflow story intent-amendment draft`: it copies the approved scope and marks a `sflow-draft` slot in the row of each clause dispositioned `update-intent` (and any `--clause` you name), and adds a clause for each closed Story's clause this Story takes over (`--adopt CLAUSE-ID`, or one recorded with `spec drift decide --adopt --story`), with its planned-evidence row. The draft is written beside the checkout's Git data, never into the Story. Write the wording in every slot; `propose` refuses a draft with a slot left. Then prepare the amended scope/specification Markdown and run `sflow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT`. This is available by default in every existing or future workflow from an active phase after scope approval: no convergence phase, `update-intent` finding, rework-loop setting, YAML change, or Story migration is required. The CLI binds the current phase and derives every exact changed clause from the reviewed bytes. Optional `--source-phase` must equal the current phase; an optional `--clause` list must name every and only changed clause. This publishes a proposal; it does not edit approved intent. Before scope approval, record the human change in clarification and revise/review its draft normally. Closed Stories use their ordinary reviewed reopen route.
 5. An authorized specification reviewer approves or rejects it on the decisions card (`/sf-decide WORK-ID` in Copilot, Decide in VS Code), which shows each clause it adds, revises or removes, who proposed it and what it reaches, or runs `sflow story intent-amendment decide AMD-NNN --decision approve|reject --confirm AMD-NNN` in their own terminal. A Story SF Guard requires takes the signature in the terminal: the card hands it there. No chat turn decides it. Approval creates a new specification generation and a new scope revision, invalidates downstream approvals, and labels existing evidence as affected when it cites a changed clause by its exact ID. Approved steps right after the scope that cite none of the changed, removed or now-stale clauses keep their approval (rule E8), as long as nothing else they decided over had changed and every step before them kept theirs too; code and convergence steps, steps tied to a decision or a skill, and a planning step when the amendment adds a clause, always run again. When the amendment removes a clause, a code step's prepublish names every tag that still claims it. In the evidence matrix only the clauses the revision added or revised, and the clauses depending on them, are stale; every other clause keeps its evidence.
 6. Someone working on the Story reads the recorded clause and blast-radius summary, then acknowledges it on the decisions card or with `sflow story intent-amendment acknowledge AMD-NNN`. Submission remains blocked until this acknowledgement.
-7. Replay the downstream phases. Existing unaffected evidence remains in place; affected evidence must be regenerated or revalidated through the normal publication and approval gates.
+7. Replay the downstream phases. Existing unaffected evidence remains in place; affected evidence must be regenerated or revalidated through the normal publication and approval gates. `sflow explain changing-requirements` walks a whole amendment, with the route for each step, the "still holds" questions and the drafts written before it.
 
 ## After a Story closes: spec drift
 
@@ -76,4 +77,4 @@ These commands can change repository or machine-local state: `story`. They remai
 
 ## Related topics
 
-Continue with `sflow explain work-intervals`, `sflow explain escalation`, `sflow explain sequence-gates`.
+Continue with `sflow explain work-intervals`, `sflow explain escalation`, `sflow explain sequence-gates`, `sflow explain changing-requirements`.

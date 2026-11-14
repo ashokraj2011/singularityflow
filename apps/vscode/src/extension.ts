@@ -1396,6 +1396,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { kind: 'action', id: 'help:workspaces-and-capabilities', label: 'Workspaces & capabilities', description: 'scope and ownership', icon: 'type-hierarchy', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:story-intake', label: 'Story intake', description: 'Jira or manual', icon: 'book', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:how-the-workflow-works', label: 'Lifecycle & approvals', description: 'state and phases', icon: 'git-branch', runCommand: 'singularityFlow.openHelp' },
+        { kind: 'action', id: 'help:changing-requirements-during-a-story', label: 'Changing requirements', description: 'intent amendments', icon: 'edit', runCommand: 'singularityFlow.openHelp' },
         { kind: 'action', id: 'help:agents-and-approval-groups', label: 'Agents, prompts & world model', description: 'prompt composition', icon: 'hubot', runCommand: 'singularityFlow.openHelp' }
       ]
     },

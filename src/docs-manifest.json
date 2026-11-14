@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "15d6137d3c5fff9fd00daf69560b441d59ce97b4",
-  "topicCount": 92,
-  "contentSha256": "c0aa8be1b4722a530a5927ff22f40921febbd0c8b21bbb4efb030cac28148394",
+  "sourceCommit": "6385ecc38403a72715b9d2b9fb33a6f65720f582",
+  "topicCount": 93,
+  "contentSha256": "c185baa9e416b392be4969a4a06039b856e34ed65fb68b4076bc4b420755f4f9",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -56,9 +56,9 @@
     {
       "id": "approvals",
       "title": "Approvals",
-      "version": 23,
-      "sha256": "153bb63aa49422afc5167030985b93677a6e93a283761887e546386dd5951ccd",
-      "routingSha256": "81030abd52b0fb0d14e037badbf00dff7fc47e4c514c1da7dcfff32bf2b0365a",
+      "version": 24,
+      "sha256": "57cb17edb294e4f9c889ee554c991a2754c9897d6285389d2ff4d043ff7481d7",
+      "routingSha256": "85a95a3a36e07139ed38692e07cbb4cace9e5c4581d595e45769611fc93f6698",
       "file": "approvals.md"
     },
     {
@@ -100,6 +100,14 @@
       "sha256": "5fde62cb7cc02ab30c8791fa706926f7ced89daa53dbc10af705246252770682",
       "routingSha256": "6874a23d15e217eb6dd79f5fbdd5ca670345c6cce3d0cbd1ca82ccfaf8d94049",
       "file": "capability-management.md"
+    },
+    {
+      "id": "changing-requirements",
+      "title": "Changing requirements during a Story",
+      "version": 1,
+      "sha256": "163b617a8ed30b9c747e79bf82a99f230ec996b45bcbedfc7dd0b5febda6fd84",
+      "routingSha256": "78268adb097ec90eda043eae536257b49cdf76d12e8db3ba96ee480fc625e01c",
+      "file": "changing-requirements.md"
     },
     {
       "id": "checkpoints-pause-continue",
@@ -416,9 +424,9 @@
     {
       "id": "phase-appeals",
       "title": "Phase appeals and recoverable blockers",
-      "version": 8,
-      "sha256": "36cbd69c8c77477275f49234d45376e5bf9d877df2cf9b0deae1e35e4949f0c8",
-      "routingSha256": "e2a804ba23d067717ab94a3b915334324e81bcc4ec14f67c09990e97295fed67",
+      "version": 9,
+      "sha256": "9c16869b0bdd1af9ff17a17906f8e8f4a983dc4c468ddfc6fb3ea2ac4be73078",
+      "routingSha256": "7d1c074174973a29061474abebac1f934004dfca98d84d17cf69eebf09f7dbf5",
       "file": "phase-appeals.md"
     },
     {
@@ -464,9 +472,9 @@
     {
       "id": "reconciliation",
       "title": "Reconciliation and dispositions",
-      "version": 19,
-      "sha256": "0005fe298dd730534cf7cca77b3b8387cd22aae0ad9a61eaee9d82ae74b65466",
-      "routingSha256": "48a986aceb19a24c858f7afdd2b8cba4ce3e55ede741d4b437d592712669e3a7",
+      "version": 20,
+      "sha256": "b7d0fb2e1c867925f5085dc05c49dd1ec4d1a2104e84cd1af27b57c10326095f",
+      "routingSha256": "68e6d6bf45b85f894df6057876c56b88c91e439d43ad60ea88741616b86b87c2",
       "file": "reconciliation.md"
     },
     {
@@ -488,9 +496,9 @@
     {
       "id": "rejection-and-rework",
       "title": "Rejection and rework",
-      "version": 9,
-      "sha256": "e14cfd6f90c7cfefb3f67581de604d8a58e2277d23aa64ea1b9236c48c8c824c",
-      "routingSha256": "1f6e7452a50ce8f4a4ce16c0cbc245d198d1d1815ff25a77c9429e37aff18825",
+      "version": 10,
+      "sha256": "88507ded384096525f1cffb0609d16f829bb4ca53735ef7c03975df6f645c65c",
+      "routingSha256": "f18689121dcbc911ebc7eec1c26eaf998e97c9d5cadbbe9ecd6936bb1080cab4",
       "file": "rejection-and-rework.md"
     },
     {
@@ -632,9 +640,9 @@
     {
       "id": "story-lifecycle",
       "title": "Story lifecycle, phases, and generations",
-      "version": 7,
-      "sha256": "0c4b15fe587abad57e4f6122e4b46faed77d557f11777b9e9ad63b9e820221bc",
-      "routingSha256": "3b0bff2625cc67700ca6c85dbe9fdae373732b590782d27cc064bb74649fea18",
+      "version": 8,
+      "sha256": "3a9829497e47f9a84525afe33594ba82c6bc365969dd49755c04a49a19cb9b60",
+      "routingSha256": "32819c13477cbc8def612db26bbb518d093899f317c211adfc448d319667ead0",
       "file": "story-lifecycle.md"
     },
     {

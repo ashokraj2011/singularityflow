@@ -18,7 +18,8 @@ related:
   - starting-work
   - sequence-gates
   - pins
-version: 7
+  - changing-requirements
+version: 8
 ---
 A story moves through the phases of its pinned work type (e.g. requirements → design → implementation → verification). Each phase produces artifacts as numbered generations; a rejection requires a fresh generation — history is never rewritten. State lives in `singularity/work-items/<ID>/` on the story branch: workflow.json (authority), artifacts, approvals, context, telemetry, evidence.
 
@@ -89,4 +90,4 @@ These commands can change repository or machine-local state: `finalize`, `cancel
 
 ## Related topics
 
-Continue with `sflow explain starting-work`, `sflow explain sequence-gates`, `sflow explain pins`.
+Continue with `sflow explain starting-work`, `sflow explain sequence-gates`, `sflow explain pins`, `sflow explain changing-requirements`.

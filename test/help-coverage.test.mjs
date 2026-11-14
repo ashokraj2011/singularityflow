@@ -75,7 +75,8 @@ test('every served topic is a surface-aware tutorial', async () => {
   // 90: repository-commit-policy (the git-policy command, 4c79a2b8d).
   // 91: security-and-tlm-findings (the findings command, CQF M6).
   // 92: plain-chat-routing (each setting, the repository's hooks and when they do not run) [PCR:REQ-043].
-  assert.equal(topics.length, 92);
+  // 93: changing-requirements (the user's guide to an intent amendment partway through a Story, SPEC-CIC v1.1).
+  assert.equal(topics.length, 93);
   for (const topic of topics) {
     for (const section of requiredSections) {
       assert.match(topic.body, new RegExp(`^## ${section}$`, 'm'), `${topic.file} lacks ${section}`);

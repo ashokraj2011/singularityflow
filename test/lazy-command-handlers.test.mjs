@@ -908,7 +908,10 @@ test('the common session projection does not import attach, state stores or publ
   // also where a route arrives without its model-free field [owner, 2026-11-13] (model-free-commands.mjs +678). No new eager file.
   // 4,252,450 (measured 4,252,428): both of the above together on one branch, each one's growth as measured (+1,656 and
   // +678); the card's advice (decision-advice.mjs) and the settled list stay lazy. No new eager file.
-  assert.ok(current.bytes <= 4_252_450, `session current loads ${current.bytes} source bytes`);
+  // 4,253,612 (measured): SPEC-CIC stage 6's one change impact setting and the scope-change authority it names are
+  // normalized and checked where the spec block already is (specifications.mjs +941, config.mjs +277); the class rules,
+  // the card's class and the chat entry stay lazy (amendment-class.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_253_612, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -430,13 +430,18 @@ function rejectedIntentAmendmentPair(root, config, workflow, id, rejectionCommit
  * commit whose event approves exactly that amendment, that writes only the Story's own records and none of
  * this step's files, leaves this step's record exactly as reviewed, and lists the step at that generation
  * for revalidation. Any other commit after the submission, one between them included, still stales it.
- * The revalidations themselves are review-safe decisions (person-step-catalog.mjs).
+ * The revalidations themselves are review-safe decisions (person-step-catalog.mjs). An amendment approved as editorial
+ * (SPEC-CIC switch 3) is found the same way, its approval recording `carried: 'editorial'` instead of a listed row.
  */
 export async function confirmedIntentAmendments(root, config, workflow, phase, commits) {
-  if (!commits.length || !(workflow.amendmentRevalidations ?? []).length) return [];
+  // Under SPEC-CIC switch 3, an amendment approved as editorial changes nothing this step's review saw: it reset nothing
+  // and carried the evidence of the clauses it reworded [CIC:REQ-014], so its proposal and approval may precede it too.
+  const editorial = workflow.resolution?.spec?.changeImpact === 'on'
+    ? (workflow.intentAmendments ?? []).filter((entry) => entry?.carried === 'editorial' && ['approved', 'revalidated'].includes(entry.status)).map((entry) => entry.id) : [];
+  if (!commits.length || (!(workflow.amendmentRevalidations ?? []).length && !editorial.length)) return [];
   const { revalidationCarriers } = await import('./scope/carried-evidence.mjs');
-  const confirmed = [...new Set([...revalidationCarriers(workflow).values()]
-    .filter((answer) => answer.phase === phase.id && Number(answer.generation) === Number(phase.generation)).map((answer) => answer.amendment))];
+  const confirmed = [...new Set([...[...revalidationCarriers(workflow).values()]
+    .filter((answer) => answer.phase === phase.id && Number(answer.generation) === Number(phase.generation)).map((answer) => answer.amendment), ...editorial])];
   if (!confirmed.length) return [];
   const state = await import('./state.mjs');
   const own = new Set((phase.artifacts ?? []).map((artifact) => artifact.path));
@@ -451,7 +456,7 @@ export async function confirmedIntentAmendments(root, config, workflow, phase, c
       if (!change || !amendmentEventMatches(change, LIFECYCLE_EVENT.INTENT_AMENDMENT_APPROVED, workflow, id, summary)) continue;
       const before = (change.before.intentAmendments ?? []).find((entry) => entry?.id === id);
       const after = (change.after.intentAmendments ?? []).find((entry) => entry?.id === id);
-      if (before?.status !== 'proposed' || after?.status !== 'approved' || !listed(after)
+      if (before?.status !== 'proposed' || after?.status !== 'approved' || !(listed(after) || (editorial.includes(id) && after.carried === 'editorial'))
           || change.changed.some((file) => !file.startsWith(`${change.item}/`) || own.has(file))
           || change.before.currentPhase !== phase.id || change.after.currentPhase !== phase.id
           || recordSha256(change.before.phases?.[phase.id] ?? null) !== recordSha256(change.after.phases?.[phase.id] ?? null)) continue;

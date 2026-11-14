@@ -19,7 +19,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { refusalRemediationPlan, KNOWN_REFUSAL_CODES } from '../src/refusal-remediation.mjs';
-import { codeStepTemplate, openConvergenceTemplate, preAmendmentDraftTemplate, registryReader, releaseDraftTemplate, returnedRoutes, routeEffect, stillHoldsTemplate, storyCopy, walk, WORK } from './helpers/route-walker.mjs';
+import { codeStepTemplate, materialChangeTemplate, openConvergenceTemplate, preAmendmentDraftTemplate, registryReader, releaseDraftTemplate, returnedRoutes, routeEffect, stillHoldsTemplate, storyCopy, walk, WORK } from './helpers/route-walker.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -150,6 +150,12 @@ const SCENARIOS = Object.freeze([
   // its publication refuses it; the way out is in the step (begin again, compose again), and nothing loops back.
   { id: 'draft-written-before-the-amendment', meets: 'PHASE_DRAFT_PREDATES_AMENDMENT', real: 'CIC stage 5: a code step reopened in place with its earlier draft',
     template: 'preAmendmentDraft', phase: 'implement', start: `singularity-flow phase publish implement --work-id ${WORK} --authored deterministic --json`, reached: published },
+  // SPEC-CIC switch 3 [CIC:REQ-014]: an approver outside the scope-change authority raises an amendment to material and
+  // approves it; the refusal names who decides it and how (the Decide card, their own terminal), and nothing is recorded.
+  { id: 'material-change-outside-its-authority', meets: 'INTENT_AMENDMENT_MATERIAL_AUTHORITY', real: 'CIC stage 6: a material change approved by someone outside the scope-change authority',
+    template: 'material', phase: 'implement', start: `singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001 --class material --work-id ${WORK} --json`,
+    // A scope approver who is not in the authority (the Story's starter is enrolled in every group).
+    setup: (story) => { story.env = { SINGULARITY_FLOW_TEST_IDENTITY: 'Other Approver' }; } },
   { id: 'ending-with-items-open', meets: 'STORY_TERMINAL_READINESS_REFUSED', real: 'STORY_TERMINAL_READINESS_REFUSED: 3 hits, 2 stopped, 0 advanced', template: 'ending', phase: 'convergence',
     setup: (story) => {
       for (const item of JSON.parse(story.cli('story', 'adjudications', '--json').stdout).items) story.cli('story', 'adjudicate', item.id, '--disposition', 'deferred', '--reason', 'The person keeps this for a later Story.');
@@ -194,7 +200,8 @@ test('every walk reaches its outcome or a person, or its dead end is on the list
   const templates = { code: await build('code', () => codeStepTemplate(t)), convergence: await build('convergence', () => openConvergenceTemplate(t)),
     ending: await build('ending', () => openConvergenceTemplate(t, { configure: endAtConvergence })),
     release: await build('release', () => releaseDraftTemplate(t)), releasePartial: await build('releasePartial', () => releaseDraftTemplate(t, { verdict: 'partial' })),
-    stillHolds: await build('stillHolds', () => stillHoldsTemplate(t)), preAmendmentDraft: await build('preAmendmentDraft', () => preAmendmentDraftTemplate(t)) };
+    stillHolds: await build('stillHolds', () => stillHoldsTemplate(t)), preAmendmentDraft: await build('preAmendmentDraft', () => preAmendmentDraftTemplate(t)),
+    material: await build('material', () => materialChangeTemplate(t)) };
   // A person fixing one route walks only that one: WALK_ONLY=a,b. The full list is what the suite holds.
   const only = process.env.WALK_ONLY?.split(',');
   for (const scenario of SCENARIOS.filter((entry) => !only || only.includes(entry.id))) {

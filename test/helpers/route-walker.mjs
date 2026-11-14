@@ -550,7 +550,13 @@ export const stillHoldsTemplate = (t) => amendedStoryTemplate(t, { observed: tru
  */
 export const preAmendmentDraftTemplate = (t) => amendedStoryTemplate(t, { draftOnly: true });
 
-async function amendedStoryTemplate(t, { observed = false, draftOnly = false }) {
+/**
+ * SPEC-CIC switch 3 [CIC:REQ-014]: change impact is on and names a scope-change authority the walker is not in, and an
+ * amendment of a tested criterion waits for its decision. Approving it as material is the authority's decision alone.
+ */
+export const materialChangeTemplate = (t) => amendedStoryTemplate(t, { material: true });
+
+async function amendedStoryTemplate(t, { observed = false, draftOnly = false, material = false }) {
   const parent = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-walk-')));
   t.after(() => rm(parent, { recursive: true, force: true }));
   const root = path.join(parent, 'repository');
@@ -568,6 +574,10 @@ async function amendedStoryTemplate(t, { observed = false, draftOnly = false }) 
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   delete config.phases['fix-design'].clarification;
   if (observed) config.spec = { ...config.spec, observedDependencies: 'on' };
+  if (material) {
+    config.approvalAuthorities['scope-change'] = { label: 'Scope-change authority', allowAnyGitIdentity: false, members: [{ email: 'scope.owner@example.com', name: 'Scope Owner' }] };
+    config.spec = { ...config.spec, changeImpact: 'on', scopeChangeAuthority: 'scope-change' };
+  }
   const quick = config.workTypes['quick-fix'];
   config.workTypes['quick-design'] = { ...quick, phases: ['intake', 'fix-design', 'implement', 'verify'], sourceReview: { mode: 'off' },
     phaseOverrides: { ...quick.phaseOverrides, implement: { inputs: ['intake', 'fix-design'] } } };
@@ -601,6 +611,7 @@ async function amendedStoryTemplate(t, { observed = false, draftOnly = false }) 
   const amended = path.join(parent, 'amended.md');
   await writeFile(amended, intake('The exported value equals 2 and is a number.'));
   cli('story', 'intent-amendment', 'propose', '--file', amended, '--reason', 'Say the value is numeric.');
+  if (material) return { parent, root, item, cli };
   cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001');
   cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
   cli('resume', WORK);

@@ -1150,10 +1150,12 @@ Usage:
   singularity-flow story adjudications [--work-id ID] [--json]  (what changed, what the plan says, what is decided)
   singularity-flow story intent-amendment status [--work-id ID] [--json]
   singularity-flow story intent-amendment draft [--clause ID]... [--adopt CLAUSE-ID]... [--out FILE] [--work-id ID] [--json]
-  singularity-flow story intent-amendment preview [AMD-ID | --file AMENDED-SPEC.md] [--work-id ID] [--json]
+  singularity-flow story intent-amendment preview [AMD-ID | --file AMENDED-SPEC.md [--class CLASS]] [--work-id ID] [--json]
     What approving it does, by the computation approval applies: each later step reset, kept (rule E8) or asked
     whether it still holds, and why; the stale clauses and the earlier changes it repeats. Records nothing.
+    With spec.changeImpact on, also how big it is (editorial, refinement or material), why, and who decides it.
   singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]
+    [--class editorial|refinement|material] (spec.changeImpact on: a suggestion; one below the rules' floor is raised to it)
     [--authored human|governed-agent|external-tool] [--channel CHANNEL]
     [--external-ai none|assisted] [--change-origin ORIGIN...]
     [--source-phase CURRENT-PHASE] [--clause ID]... (optional exact list; otherwise computed)
@@ -1164,6 +1166,7 @@ Usage:
     --remove-row, and --keep-row or a decision plan row update): the plan's approvers sign it by deciding the
     amendment, and the plan keeps its approval.
   singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
+    [--class refinement|material] (spec.changeImpact on: an approver raises its class while approving, never lowers it)
   singularity-flow story intent-amendment acknowledge [AMD-ID]
   singularity-flow story skill-version status [--work-id ID] [--json]
   singularity-flow story target-origin [WORK-ID] --url AUTHORIZED-URL [--reason TEXT --confirm PLAN-DIGEST] [--json]

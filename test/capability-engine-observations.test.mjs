@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -173,7 +174,7 @@ async function legacyMirror(f) {
   run('git', ['config', 'user.name', 'Engine Fixture'], { cwd: publisher });
   run('git', ['config', 'user.email', 'engine@example.test'], { cwd: publisher });
   await cp(path.join(approved, 'singularity'), path.join(publisher, 'singularity'), { recursive: true });
-  await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
+  if (existsSync(path.join(approved, '.github'))) await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
   const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: approved }).stdout.trim();
   const objects = new Map(run('git', ['ls-tree', '-r', '-z', 'HEAD'], { cwd: approved }).stdout
     .split('\0').filter(Boolean).map((row) => {

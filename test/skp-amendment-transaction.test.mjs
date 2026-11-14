@@ -142,7 +142,7 @@ async function publishSkill(publisher, version, {
     definition.phases['privacy-check'] = configurationPhaseFromCompiledSkill(independentCompiled);
   }
   await writeFile(workflowPath, YAML.stringify(definition));
-  const agentPath = path.join(publisher, '.github/agents/developer.agent.md');
+  const agentPath = path.join(publisher, 'singularity/agents/developer.agent.md');
   const agent = await readFile(new URL('../templates/agents/developer.agent.md', import.meta.url),
     'utf8');
   await writeFile(agentPath, agent.replaceAll('implement,implementation',

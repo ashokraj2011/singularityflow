@@ -366,7 +366,7 @@ async function configurationFreeExecutableRepository() {
   const root = await executableRepository();
   const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
   await ensureConfigurationBranch(remote);
-  run('git', ['rm', '-qr', '--', 'singularity', '.github/agents'], root);
+  run('git', ['rm', '-qr', '--', 'singularity'], root);
   run('git', ['commit', '-m', 'keep application main configuration-free'], root);
   run('git', ['push', 'origin', 'main'], root);
   return root;
@@ -715,7 +715,7 @@ test('Auto continuation uses its Story closure after the live phase agent disapp
     ...proposal, unresolvedDecisions: ['Pause before authoring.']
   }, { workId: 'AUT-SAVED-AGENT', workType: 'feature', fromBranch: 'main' });
   const { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
-  const liveAgent = path.join(flight.worktree, '.github/agents/product-owner.agent.md');
+  const liveAgent = path.join(flight.worktree, 'singularity/agents/product-owner.agent.md');
   await rm(liveAgent);
   const resumed = await resumeAutoFlight(root, flight.flightId, flight.checkpointSha256);
   assert.equal(resumed.status, 'running');

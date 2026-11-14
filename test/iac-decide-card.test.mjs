@@ -377,7 +377,7 @@ test('SF Guard required: the card records nothing and hands the decision to the 
         const outcome = await inRoot(at, () => guard(['guard', ...words], { positionals: ['guard', ...words], options: { json: true, ...(words[0] === 'enable' ? { 'remote-check': 'sf-guard-verify' } : {}) } }, guardPerson(ONE.email, [key])));
         assert.equal(outcome.error, undefined, outcome.error?.message);
       }
-      inGit('add', PRESENCE_CHAIN_PATH, '.github/agents');
+      inGit('add', PRESENCE_CHAIN_PATH, 'singularity/agents');
       inGit('commit', '-qm', 'Turn SF Guard on');
       inGit('push', '-q', 'origin', 'main');
     }

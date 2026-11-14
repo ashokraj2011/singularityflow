@@ -118,7 +118,7 @@ async function compositionFixture(t) {
     acceptanceCriteria: ['Shared evidence is presented once.'], labels: []
   }, null, 2)}\n`);
 
-  git(root, ['add', 'singularity', '.github/agents']);
+  git(root, ['add', 'singularity']);
   git(root, ['commit', '-m', 'Initialize prompt projection fixture']);
   const referenceBytes = await readFile(path.join(root, referencePath));
   const registered = await registerReference(root, {

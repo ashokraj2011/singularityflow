@@ -73,9 +73,9 @@ async function isolateSkillMaster(root) {
   delete definition.mcpServers['demo-playwright'];
   await writeFile(file, YAML.stringify(definition));
   for (const id of ['demo-intake-analyst', 'demo-code-checker', 'demo-code-repairer', 'demo-story-closer']) {
-    await rm(path.join(root, `.github/agents/${id}.agent.md`));
+    await rm(path.join(root, `singularity/agents/${id}.agent.md`));
   }
-  for (const id of ['demo-instruction-analyst', 'demo-instruction-tester', 'demo-instruction-developer', 'demo-instruction-closer']) await rm(path.join(root, `.github/agents/${id}.agent.md`));
+  for (const id of ['demo-instruction-analyst', 'demo-instruction-tester', 'demo-instruction-developer', 'demo-instruction-closer']) await rm(path.join(root, `singularity/agents/${id}.agent.md`));
   await rm(path.join(root, 'singularity/instruction-library'), { recursive: true });
   await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
 }
@@ -95,7 +95,7 @@ async function writeSkill(root, skill = SECURITY_REVIEW) {
 }
 
 async function attach(root, agent = 'developer', table = TABLE) {
-  const file = path.join(root, `.github/agents/${agent}.agent.md`);
+  const file = path.join(root, `singularity/agents/${agent}.agent.md`);
   await writeFile(file, `${await readFile(file, 'utf8')}${table}`);
 }
 
@@ -107,7 +107,7 @@ function git(root, ...args) {
 
 test('workflow skills are isolated from shared phases; agent skills follow the selected agent', async (t) => {
   const root = await seededRepository(t, 'sflow-workflow-skill-scope-');
-  const beforeAgent = await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8');
+  const beforeAgent = await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8');
   const beforeDefinition = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
   const plan = await planStudioChangeSet(root, changeSet([
     { op: 'skill.create', ...SECURITY_REVIEW },
@@ -120,7 +120,7 @@ test('workflow skills are isolated from shared phases; agent skills follow the s
   assert.equal((await render('spec-driven-standard', 'developer')).skills.length, 0, 'shared phase does not inherit workflow skill');
   assert.equal((await render('feature', 'qa')).skills.length, 1, 'workflow skill is independent of agent selection');
   assert.equal((await render('feature', 'developer', 'verification')).skills.length, 0, 'step restriction is respected');
-  assert.equal(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), beforeAgent);
+  assert.equal(await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8'), beforeAgent);
   assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), beforeDefinition, 'seeded definitions remain immutable');
   const global = await planStudioChangeSet(root, changeSet([{ op: 'skill.attach', skill: 'security-review', agent: 'developer', use: 'Review agent changes' }]), { write: true });
   assert.equal(global.valid, true, JSON.stringify(global.problems));
@@ -347,7 +347,7 @@ test('configuration refuses an agent that attaches a skill the skill master lack
     && /not in the skill master \(singularity\/skill-library\/security-review\/SKILL\.md\)/.test(error.message));
 
   await writeSkill(root);
-  const file = path.join(root, '.github/agents/developer.agent.md');
+  const file = path.join(root, 'singularity/agents/developer.agent.md');
   await writeFile(file, (await readFile(file, 'utf8')).replace('| security-review | implementation |', '| security-review | nowhere |'));
   await assert.rejects(() => loadDefinition(root), (error) => error.code === 'AGENT_PHASE_UNKNOWN'
     && /attaches skill 'security-review' for unknown phase 'nowhere'/.test(error.message));
@@ -393,7 +393,7 @@ test('an attached skill is in the agent\'s prompt for the steps it applies in, a
 async function storyFixture(t) {
   const root = await temporary(t, 'sflow-skill-story-');
   const templatePath = 'singularity/templates/implementation.md';
-  const agentPath = '.github/agents/developer.agent.md';
+  const agentPath = 'singularity/agents/developer.agent.md';
   const template = '# Implementation\n\nWork: {{work.id}}\n';
   const agent = `---
 name: developer
@@ -548,7 +548,7 @@ test('a Story whose snapshot did not keep an attached skill says so and goes on 
 
 test('Workflow Studio keeps the skill master: one skill, attached to several agents, changed, detached and removed', async (t) => {
   const root = await repository(t);
-  const qaBefore = await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8');
+  const qaBefore = await readFile(path.join(root, 'singularity/agents/qa.agent.md'), 'utf8');
   // A skill attached in the same change set that creates it.
   const created = await planStudioChangeSet(root, changeSet([
     { op: 'skill.attach', skill: 'security-review', agent: 'developer', phases: ['implementation'], use: 'After you write the code, before you publish it' },
@@ -557,12 +557,12 @@ test('Workflow Studio keeps the skill master: one skill, attached to several age
   ]), { write: true });
   assert.equal(created.valid, true, JSON.stringify(created.problems));
   assert.deepEqual(created.files.map((file) => [file.path, file.action]).sort(), [
-    ['.github/agents/developer.agent.md', 'update'], ['.github/agents/qa.agent.md', 'update'], [SKILL_PATH, 'create']
+    ['singularity/agents/developer.agent.md', 'update'], ['singularity/agents/qa.agent.md', 'update'], [SKILL_PATH, 'create']
   ]);
   assert.equal(await readFile(path.join(root, SKILL_PATH), 'utf8'), librarySkillText(SECURITY_REVIEW));
-  assert.match(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'),
+  assert.match(await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8'),
     /\n## Attached skills\n\n\| Skill \| Phases \| When to use it \|\n\|[-| ]+\|\n\| security-review \| implementation \| After you write the code, before you publish it \|\n$/);
-  assert.match(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'), /\| security-review \| \* \| - \|\n$/);
+  assert.match(await readFile(path.join(root, 'singularity/agents/qa.agent.md'), 'utf8'), /\| security-review \| \* \| - \|\n$/);
   assert.ok(created.summary.includes('New skill Security pass in the skill master.'), created.summary.join('\n'));
 
   const model = await buildStudioModel(root);
@@ -586,7 +586,7 @@ test('Workflow Studio keeps the skill master: one skill, attached to several age
     { op: 'skill.update', id: 'security-review', instructions: 'Check every input.' }
   ]), { write: true });
   assert.equal(edited.valid, true, JSON.stringify(edited.problems));
-  const developerText = await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8');
+  const developerText = await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8');
   assert.match(developerText, /Keep every change small\.\n\n## Attached skills\n/);
   assert.deepEqual(parseAgentDependencies(developerText).librarySkills.map((entry) => entry.id), ['security-review']);
   assert.ok(edited.summary.some((line) => /^Skill Security pass updated; .+ use the new text in Stories started from now on\.$/.test(line)), edited.summary.join('\n'));
@@ -613,17 +613,17 @@ test('Workflow Studio keeps the skill master: one skill, attached to several age
 
   const detached = await planStudioChangeSet(root, changeSet([{ op: 'skill.detach', skill: 'security-review', agent: 'qa' }]), { write: true });
   assert.equal(detached.valid, true, JSON.stringify(detached.problems));
-  assert.equal(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'), qaBefore,
+  assert.equal(await readFile(path.join(root, 'singularity/agents/qa.agent.md'), 'utf8'), qaBefore,
     'an agent that no longer attaches any skill goes back to its text without the section');
 
   // Removing a skill detaches it from every agent that still uses it.
   const removed = await planStudioChangeSet(root, changeSet([{ op: 'skill.remove', id: 'security-review' }]), { write: true });
   assert.equal(removed.valid, true, JSON.stringify(removed.problems));
   assert.deepEqual(removed.files.map((file) => [file.path, file.action]).sort(), [
-    ['.github/agents/developer.agent.md', 'update'], [SKILL_PATH, 'delete']
+    ['singularity/agents/developer.agent.md', 'update'], [SKILL_PATH, 'delete']
   ]);
   assert.equal(existsSync(path.join(root, SKILL_PATH)), false);
-  assert.doesNotMatch(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), /security-review/);
+  assert.doesNotMatch(await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8'), /security-review/);
   await loadDefinition(root);
 });
 
@@ -635,7 +635,7 @@ test('attaching a skill to an agent with locked remote resources keeps its lock 
     { op: 'skill.attach', skill: 'security-review', agent: 'release-manager', phases: ['store-submission'] }
   ]), { write: true });
   assert.equal(applied.valid, true, JSON.stringify(applied.problems));
-  const text = await readFile(path.join(root, '.github/agents/release-manager.agent.md'), 'utf8');
+  const text = await readFile(path.join(root, 'singularity/agents/release-manager.agent.md'), 'utf8');
   const lock = YAML.parse(await readFile(path.join(root, 'singularity/agents.lock.yml'), 'utf8'));
   assert.equal(lock.agents['release-manager'].sourceSha256, sha256(text));
   assert.deepEqual(lock.agents['release-manager'].dependencies.map((entry) => entry.id), ['store-checklist', 'release-notes'],
@@ -787,7 +787,7 @@ test('the command line lists, shows, creates, attaches, detaches and removes ski
   flow(root, ['skill', 'detach', 'security-review', '--agent', 'qa']);
   flow(root, ['skill', 'remove', 'security-review']);
   assert.equal(existsSync(path.join(root, SKILL_PATH)), false);
-  assert.doesNotMatch(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), /security-review/);
+  assert.doesNotMatch(await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8'), /security-review/);
   assert.match(flow(root, ['skill', 'list']).stdout, /^The skill master has no skills yet\./);
 
   const refusals = [
@@ -883,12 +883,12 @@ test('agent-file attachments exported onto a locked agent retain a valid exact-b
   await addReleaseWorkflow(source, 'source');
   await writeSkill(source);
   await writeAttachments(source, skillAttachmentsText([{ agent: 'release-manager', id: 'security-review', phases: ['store-submission'], use: 'Before release' }]));
-  const beforeAgent = await readFile(path.join(source, '.github/agents/release-manager.agent.md'), 'utf8');
+  const beforeAgent = await readFile(path.join(source, 'singularity/agents/release-manager.agent.md'), 'utf8');
   const beforeLock = await readFile(path.join(source, 'singularity/agents.lock.yml'), 'utf8');
   const ledgerPath = path.join(source, 'singularity/imports.lock.yml');
   const sourceLedger = YAML.parse(await readFile(ledgerPath, 'utf8'));
   sourceLedger.imports['agent:release-manager'] = { kind: 'agent',
-    target: { id: 'release-manager', path: '.github/agents/release-manager.agent.md' },
+    target: { id: 'release-manager', path: 'singularity/agents/release-manager.agent.md' },
     source: { kind: 'url', url: 'https://skills.example.org/release-manager.agent.md' },
     sha256: sha256(beforeAgent), bytes: Buffer.byteLength(beforeAgent), fetchedAt: '2026-10-05T00:00:00.000Z' };
   await writeFile(ledgerPath, YAML.stringify(sourceLedger));
@@ -901,7 +901,7 @@ test('agent-file attachments exported onto a locked agent retain a valid exact-b
   assert.equal(bundle.imports['agent:release-manager'].fileSha256, sha256(exported.content));
   assert.deepEqual(bundle.imports['agent:release-manager'].transforms, ['materialized-skill-attachments']);
   assert.deepEqual(bundle.agentLocks['release-manager'].dependencies, YAML.parse(beforeLock).agents['release-manager'].dependencies);
-  assert.equal(await readFile(path.join(source, '.github/agents/release-manager.agent.md'), 'utf8'), beforeAgent);
+  assert.equal(await readFile(path.join(source, 'singularity/agents/release-manager.agent.md'), 'utf8'), beforeAgent);
   assert.equal(await readFile(path.join(source, 'singularity/agents.lock.yml'), 'utf8'), beforeLock);
   assert.equal(await readFile(ledgerPath, 'utf8'), beforeLedger);
   const target = await repository(t, 'sflow-locked-agent-attachments-import-');
@@ -1179,7 +1179,7 @@ test('the attachments file lists which agents use which skills, in which steps a
 test('the attachments file attaches a skill to a seeded workflow\'s agent for the steps it names, and configuration checks it', async (t) => {
   const root = await seededRepository(t, 'sflow-skill-attachments-');
   await writeSkill(root);
-  const developerFile = path.join(root, '.github/agents/developer.agent.md');
+  const developerFile = path.join(root, 'singularity/agents/developer.agent.md');
   const developerText = await readFile(developerFile, 'utf8');
   const attachment = (lines) => writeAttachments(root, ['attachments:', ...lines.map((line) => `  ${line}`), ''].join('\n'));
   await attachment(['- skill: security-review', '  agent: developer', '  steps: [implementation]', '  use: Before you publish']);
@@ -1219,7 +1219,7 @@ test('a skill attached to an agent must not share the ID of one of the agent\'s 
 
 test('Workflow Studio attaches a skill to a seeded workflow\'s agents in the attachments file and leaves the agents as they shipped', async (t) => {
   const root = await seededRepository(t, 'sflow-skill-seeded-');
-  const agentFile = (id) => path.join(root, `.github/agents/${id}.agent.md`);
+  const agentFile = (id) => path.join(root, `singularity/agents/${id}.agent.md`);
   const developerBefore = await readFile(agentFile('developer'), 'utf8');
   const model = await buildStudioModel(root);
   assert.ok(model.protection.agents.includes('developer') && model.protection.agents.includes('qa'), 'Feature is seeded, so its agents are read-only');
@@ -1289,8 +1289,8 @@ test('an agent this repository owns keeps its skills in its own file, and a skil
     { op: 'skill.attach', skill: 'security-review', agent: 'qa', use: 'Before you sign off' }
   ]), { write: true });
   assert.equal(plan.valid, true, JSON.stringify(plan.problems));
-  assert.deepEqual(plan.files.map((file) => file.path).sort(), ['.github/agents/developer.agent.md', ATTACHMENTS_PATH]);
-  assert.match(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), /\| security-review \| implementation \| - \|\n$/);
+  assert.deepEqual(plan.files.map((file) => file.path).sort(), ['singularity/agents/developer.agent.md', ATTACHMENTS_PATH]);
+  assert.match(await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8'), /\| security-review \| implementation \| - \|\n$/);
   assert.deepEqual(parseSkillAttachments(await readFile(path.join(root, ATTACHMENTS_PATH), 'utf8')),
     [{ agent: 'qa', id: 'security-review', phases: [], use: 'Before you sign off' }]);
   const model = await buildStudioModel(root);
@@ -1331,7 +1331,7 @@ test('a Story keeps the skills the attachments file gave its agents when it star
 
 test('a skill from a link for a seeded workflow\'s agent goes to the skill master and the attachments file', async (t) => {
   const root = await seededRepository(t, 'sflow-skill-link-seeded-');
-  const developerBefore = await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8');
+  const developerBefore = await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8');
   const link = await staged(root, '# Release notes\n\n- Write what changed for users.\n', 'https://skills.example.org/release-notes.md');
   const refused = await planStudioChangeSet(root, changeSet([
     { op: 'import.skill', agent: 'developer', id: 'release-notes', source: 'https://skills.example.org/release-notes.md', sha256: link.sha, phases: ['implementation'] }
@@ -1345,6 +1345,6 @@ test('a skill from a link for a seeded workflow\'s agent goes to the skill maste
   ]), { write: true, imports: link.imports });
   assert.equal(routed.valid, true, JSON.stringify(routed.problems));
   assert.deepEqual(routed.files.map((file) => file.path).sort(), ['singularity/imports.lock.yml', ATTACHMENTS_PATH, 'singularity/skill-library/release-notes/SKILL.md']);
-  assert.equal(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), developerBefore);
+  assert.equal(await readFile(path.join(root, 'singularity/agents/developer.agent.md'), 'utf8'), developerBefore);
   await loadDefinition(root);
 });

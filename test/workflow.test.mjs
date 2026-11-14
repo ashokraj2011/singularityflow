@@ -40,7 +40,7 @@ async function repository() {
   // purpose. Every step's review is walked in review-every-step-cli.test.mjs.
   for (const workType of Object.values(config.workTypes)) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root); execute('git', ['commit', '-m', 'initial'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/hooks'], root); execute('git', ['commit', '-m', 'initial'], root);
   const remote = `${root}.git`;
   execute('git', ['init', '--bare', '-b', 'main', remote], root);
   execute('git', ['remote', 'add', 'origin', remote], root);
@@ -423,7 +423,7 @@ test('agent selection changes only the local session and persists for later acti
   const root = await repository(); const workId = 'AGENT-1';
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const before = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-  const liveAgent = path.join(root, '.github/agents/architect.agent.md');
+  const liveAgent = path.join(root, 'singularity/agents/architect.agent.md');
   const originalAgent = await readFile(liveAgent, 'utf8');
   // Resume and explicit selection must reach the accepted Story closure even when today's live
   // replacement cannot be parsed. This file is restored below so the local-session assertion stays

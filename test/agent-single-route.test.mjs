@@ -52,7 +52,7 @@ async function initialized(base, name) {
   return root;
 }
 
-const agentFile = (root) => readFile(path.join(root, '.github', 'agents', `${AGENT.id}.agent.md`), 'utf8');
+const agentFile = (root) => readFile(path.join(root, 'singularity', 'agents', `${AGENT.id}.agent.md`), 'utf8');
 
 // Seeded steps keep their seeded agents, so the agent drafts a step of a workflow made here.
 const STEP = 'claim-check';
@@ -115,11 +115,11 @@ test('team import keeps its own metadata and leaves a toolless agent with every 
       { id: 'planner', label: 'Planner', description: 'Plans the work.', body: '# Planner\n\nPlan the work in small steps.' },
       { id: 'plan-reviewer', label: 'Plan reviewer', description: 'Reviews the plan.', tools: ['read'], body: 'Review the plan; do not edit.' }]
   });
-  const planner = await readFile(path.join(stage, '.github', 'agents', 'planner.agent.md'), 'utf8');
+  const planner = await readFile(path.join(stage, 'singularity', 'agents', 'planner.agent.md'), 'utf8');
   assert.doesNotMatch(planner, /^tools:/mu, 'no tools listed stays none listed');
   assert.match(planner, /^# Planner agent\n/mu);
   assert.doesNotMatch(planner, /^# Planner$/mu, 'the team file\'s own title gives way to the standard one');
-  const reviewer = await readFile(path.join(stage, '.github', 'agents', 'plan-reviewer.agent.md'), 'utf8');
+  const reviewer = await readFile(path.join(stage, 'singularity', 'agents', 'plan-reviewer.agent.md'), 'utf8');
   assert.match(reviewer, /^ {2}sflow-mode: read-only-review$/mu);
   assert.match(reviewer, /sflow-phases: "plan"/u);
   assert.match(reviewer, /sflow-default-for: ""/u);
@@ -149,7 +149,7 @@ test('an agent and the step it drafts are one save, one proposal and one approva
   git(base, 'clone', '-q', '--bare', seed, remote);
   flow(base, ['bootstrap', remote, '--capability', 'agents', '--into', checkout]);
   const approved = (file) => git(remote, 'show', `sflow/config:${file}`);
-  assert.match(approved('.github/agents/scratch-agent.agent.md'), /sflow-default-for: "claim-check"/u, 'the step starts with the scratch agent');
+  assert.match(approved('singularity/agents/scratch-agent.agent.md'), /sflow-default-for: "claim-check"/u, 'the step starts with the scratch agent');
 
   const saved = flow(checkout, ['agents', 'create', AGENT.id, '--label', AGENT.label, '--description', AGENT.description,
     '--tools', AGENT.tools.join(','), '--instructions', AGENT.instructions, '--step', STEP]).stdout;
@@ -163,8 +163,8 @@ test('an agent and the step it drafts are one save, one proposal and one approva
 
   flow(checkout, ['configuration', 'propose']);
   flow(checkout, ['configuration', 'approve', '--yes']);
-  assert.match(approved('.github/agents/checker.agent.md'), /sflow-default-for: "claim-check"/u);
-  assert.match(approved('.github/agents/scratch-agent.agent.md'), /sflow-default-for: ""/u, 'the step left the scratch agent in the same approval');
+  assert.match(approved('singularity/agents/checker.agent.md'), /sflow-default-for: "claim-check"/u);
+  assert.match(approved('singularity/agents/scratch-agent.agent.md'), /sflow-default-for: ""/u, 'the step left the scratch agent in the same approval');
   assert.match(flow(checkout, ['configuration', 'drafts']).stdout, /^No drafts\./u);
 
   // Choosing the drafting agent of a step on its own is a draft too.
@@ -180,7 +180,7 @@ test('configuration save refuses an agent file, with or without --propose, and n
   const root = await initialized(base, 'save');
   flow(root, ['agents', 'create', AGENT.id, '--label', AGENT.label, '--description', AGENT.description, '--instructions', AGENT.instructions]);
   const before = await agentFile(root);
-  for (const [relative, extra] of [[`.github/agents/${AGENT.id}.agent.md`, []], [`.github/agents/${AGENT.id}.agent.md`, ['--propose']], ['.github/agents/fresh.agent.md', []]]) {
+  for (const [relative, extra] of [[`singularity/agents/${AGENT.id}.agent.md`, []], [`singularity/agents/${AGENT.id}.agent.md`, ['--propose']], ['singularity/agents/fresh.agent.md', []]]) {
     const result = flow(root, ['configuration', 'save', relative, ...extra, '--json'], null);
     assert.notEqual(result.status, 0, relative);
     assert.match(`${result.stdout}${result.stderr}`, /CONFIGURATION_AGENT_FILE_STUDIO_ONLY/u);

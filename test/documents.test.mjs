@@ -41,7 +41,7 @@ async function repository(configure = () => {}) {
   // review-every-step-cli.test.mjs.
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
-  run('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root); run('git', ['commit', '-m', 'initialize'], root);
+  run('git', ['add', 'README.md', 'singularity', '.github/hooks'], root); run('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
   run('git', ['init', '--bare', '-b', 'main', remote], root);
   run('git', ['remote', 'add', 'origin', remote], root);

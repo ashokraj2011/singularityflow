@@ -711,7 +711,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // has its own classification and advice (git-remote-diagnostics.mjs +590) [owner, 2026-11-13].
   // 866,100 (measured 866,068): `decisions undo`, a person's undo of what was settled for them, is a registered
   // mutation (command-registry.mjs +195) [owner, 2026-11-13]. No new eager file.
-  assert.ok(root.bytes <= 866_100, `root dispatch loads ${root.bytes} source bytes`);
+  // 867,700 (measured 867,672): SFlow's agents move to singularity/agents [SPEC-AGH, owner 2026-11-14]: the
+  // transport policy reads the layout workflow.yml records, declared where configuration locations are
+  // (configuration-assets.mjs +1,643). The migration itself stays lazy (agents-home-migration.mjs). No new eager file.
+  assert.ok(root.bytes <= 867_700, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -908,7 +911,13 @@ test('the common session projection does not import attach, state stores or publ
   // also where a route arrives without its model-free field [owner, 2026-11-13] (model-free-commands.mjs +678). No new eager file.
   // 4,252,450 (measured 4,252,428): both of the above together on one branch, each one's growth as measured (+1,656 and
   // +678); the card's advice (decision-advice.mjs) and the settled list stay lazy. No new eager file.
-  assert.ok(current.bytes <= 4_252_450, `session current loads ${current.bytes} source bytes`);
+  // 4,257,800 (measured 4,257,780): the agents home [SPEC-AGH, owner 2026-11-14]: the layout signal read and refused
+  // where configuration loads, and init's layout (config.mjs +1,678), the init mappings for either layout
+  // (initialization-assets.mjs +1,305), the legacy root governed only when no source records a layout
+  // (application-paths.mjs +500), the layout and the transport policy (configuration-assets.mjs +1,643) and moved
+  // agents' package history (packaged-asset-history.mjs +226). The migration, its preview and its lines stay lazy
+  // (agents-home-migration.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_257_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

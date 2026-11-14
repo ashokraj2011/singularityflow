@@ -125,7 +125,7 @@ test('install into an earlier repository adopts all dependencies, is dry-run saf
   await writeFile(configPath, YAML.stringify(config));
   for (const id of SKILLS) await rm(path.join(root, path.dirname(librarySkillPath(id))), { recursive: true });
   await rm(path.join(root, SKILL_ATTACHMENTS_PATH));
-  for (const id of AGENTS) await rm(path.join(root, `.github/agents/${id}.agent.md`));
+  for (const id of AGENTS) await rm(path.join(root, `singularity/agents/${id}.agent.md`));
   await rm(path.join(root, 'singularity/templates/demo-web-e2e-testing'), { recursive: true });
   const preview = await installWorkflow(root, ID, { dryRun: true });
   assert.ok(SKILLS.every((id) => preview.files.includes(librarySkillPath(id))));
@@ -133,7 +133,7 @@ test('install into an earlier repository adopts all dependencies, is dry-run saf
   await installWorkflow(root, ID);
   assert.deepEqual(resolveWorkType(await loadDefinition(root), ID).phases.map((phase) => phase.defaultAgent), [AGENTS[0], AGENTS[1], AGENTS[2], AGENTS[1]]);
   const skillPath = path.join(root, librarySkillPath(SKILLS[1]));
-  const agentPath = path.join(root, `.github/agents/${AGENTS[1]}.agent.md`);
+  const agentPath = path.join(root, `singularity/agents/${AGENTS[1]}.agent.md`);
   const customSkill = `${await readFile(skillPath, 'utf8')}\nUse the team-specific browser fixture.\n`;
   const customAgent = `${await readFile(agentPath, 'utf8')}\nRespect the team's test environment.\n`;
   await writeFile(skillPath, customSkill); await writeFile(agentPath, customAgent);
@@ -158,7 +158,7 @@ test('workflow export and renamed import carry exact custom agents and attached 
   const targetConfig = YAML.parse(await readFile(targetConfigPath, 'utf8'));
   delete targetConfig.workTypes[ID];
   await writeFile(targetConfigPath, YAML.stringify(targetConfig));
-  for (const id of AGENTS) await rm(path.join(target, `.github/agents/${id}.agent.md`));
+  for (const id of AGENTS) await rm(path.join(target, `singularity/agents/${id}.agent.md`));
   const resolutions = { [`workflow:${ID}`]: { action: 'rename', to: 'team-web-e2e' } };
   const plan = await planWorkflowImport(target, bundle, { resolutions });
   assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));

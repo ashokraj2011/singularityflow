@@ -130,7 +130,7 @@ test('an imported skill is vendored with its lock entry; the agent then runs off
   assert.equal(dry.valid, true, JSON.stringify(dry.problems));
   assert.deepEqual(dry.files.map((file) => [file.action, file.path]).sort(), [
     ['create', 'singularity/agents.lock.yml'], ['create', 'singularity/imports.lock.yml'],
-    ['create', 'singularity/imports/agents/architect/skill-security-review.md'], ['update', '.github/agents/architect.agent.md']
+    ['create', 'singularity/imports/agents/architect/skill-security-review.md'], ['update', 'singularity/agents/architect.agent.md']
   ]);
   await plan(root, changes, { imports, write: true });
   assert.equal(await readFile(path.join(root, 'singularity/imports/agents/architect/skill-security-review.md'), 'utf8'), content);
@@ -146,7 +146,7 @@ test('an imported skill is vendored with its lock entry; the agent then runs off
 
 test('adding to an agent that names untrusted remote resources is refused; a Studio edit re-stamps a current lock', async () => {
   const root = await repository();
-  const file = path.join(root, '.github/agents/architect.agent.md');
+  const file = path.join(root, 'singularity/agents/architect.agent.md');
   // Packaged agents ship without empty resource tables, so add the row the way an import does:
   // a text replacement aimed at a table that is not there would leave the agent unchanged.
   const named = upsertAgentTableRow(await readFile(file, 'utf8'), 'skill', ['existing', 'https://cdn.example.com/e.md', '*', 'no', '1024']);
@@ -186,7 +186,7 @@ test('templates and agents import exactly; replacing local work and removing in-
   assert.equal(conflict.problems[0].code, 'STUDIO_PHASE_AGENT_CONFLICT');
   const kept = await plan(root, [{ op: 'import.agent', source: 'https://skills.example.org/r.agent.md', sha256: second.sha, withoutDefaults: true }], { imports: second.imports, write: true });
   assert.equal(kept.valid, true, JSON.stringify(kept.problems));
-  assert.doesNotMatch(await readFile(path.join(root, '.github/agents/security-reviewer.agent.md'), 'utf8'), /sflow-default-for/);
+  assert.doesNotMatch(await readFile(path.join(root, 'singularity/agents/security-reviewer.agent.md'), 'utf8'), /sflow-default-for/);
   const local = await staged(root, '---\nname: architect\ndescription: Not ours.\n---\nBody\n', 'https://skills.example.org/x.agent.md');
   const replaceLocal = await plan(root, [{ op: 'import.agent', source: 'https://skills.example.org/x.agent.md', sha256: local.sha, replace: true }], { imports: local.imports });
   assert.equal(replaceLocal.problems[0].code, 'STUDIO_AGENT_EXISTS');

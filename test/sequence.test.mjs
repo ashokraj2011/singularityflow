@@ -53,7 +53,7 @@ async function repository() {
   // review is walked in review-every-step-cli.test.mjs.
   config.workTypes.feature.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));
-  execute('git', ['add', 'README.md', 'singularity', '.github/agents', '.github/hooks'], root);
+  execute('git', ['add', 'README.md', 'singularity', '.github/hooks'], root);
   execute('git', ['commit', '-m', 'initialize'], root);
   const remote = `${root}.git`;
   execute('git', ['init', '--bare', '-b', 'main', remote], root);

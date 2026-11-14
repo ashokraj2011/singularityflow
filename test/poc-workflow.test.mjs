@@ -45,7 +45,7 @@ async function removePocWorkflow(root) {
   await writeFile(workflowPath, YAML.stringify(old));
   for (const agent of [
     'poc-analyst', 'poc-automation', 'poc-explorer', 'poc-test-developer', 'poc-validator'
-  ]) await rm(path.join(root, `.github/agents/${agent}.agent.md`));
+  ]) await rm(path.join(root, `singularity/agents/${agent}.agent.md`));
   await rm(path.join(root, 'singularity/templates/poc-workflow'), { recursive: true });
 }
 
@@ -163,7 +163,7 @@ test('legacy init keeps exact packaged POC agents dormant and edited repository 
   assert.equal(analyst.scope, 'repository', 'the public repository ownership contract must not change');
   assert.equal(Object.hasOwn(analyst, 'packagedCopy'), false, 'package provenance stays private');
 
-  const analystPath = path.join(root, '.github/agents/poc-analyst.agent.md');
+  const analystPath = path.join(root, 'singularity/agents/poc-analyst.agent.md');
   const customized = (await readFile(analystPath, 'utf8'))
     .replaceAll('poc-intake', 'poc-intake-typo');
   await writeFile(analystPath, customized);
@@ -172,7 +172,7 @@ test('legacy init keeps exact packaged POC agents dormant and edited repository 
     (error) => error?.code === 'AGENT_PHASE_UNKNOWN'
       && error?.details?.agentId === 'poc-analyst'
       && error?.details?.phaseId === 'poc-intake-typo'
-      && error?.details?.source === '.github/agents/poc-analyst.agent.md'
+      && error?.details?.source === 'singularity/agents/poc-analyst.agent.md'
   );
 
 });
@@ -216,7 +216,9 @@ test('installing a packaged workflow only adds its own entries to a workflow fol
   const installed = YAML.parse(after);
   assert.deepEqual(installed.workTypes['poc-workflow'], (await starter()).workTypes['poc-workflow'],
     'the work type is written as the starter has it');
-  for (const field of ['agents', 'agentCatalog', 'agentPromptsRoot']) assert.equal(installed[field], undefined);
+  for (const field of ['agents', 'agentCatalog']) assert.equal(installed[field], undefined);
+  // The layout init recorded stays as it was [AGH:REQ-002]; the discovered catalog is never written.
+  assert.equal(installed.agentPromptsRoot, YAML.parse(before).agentPromptsRoot);
   assert.deepEqual(resolveWorkType(await loadDefinition(root), 'poc-workflow').phases.map((phase) => phase.id), PHASES);
 });
 
@@ -229,7 +231,7 @@ test('catalog installation upgrades an older repository with POC agents and MCP 
 
   const result = await installWorkflow(root, 'poc-workflow');
   for (const agent of ['poc-analyst', 'poc-explorer', 'poc-test-developer', 'poc-validator']) {
-    assert.ok(result.files.includes(`.github/agents/${agent}.agent.md`));
+    assert.ok(result.files.includes(`singularity/agents/${agent}.agent.md`));
   }
   const upgraded = await loadDefinition(root);
   const resolved = resolveWorkType(upgraded, 'poc-workflow');

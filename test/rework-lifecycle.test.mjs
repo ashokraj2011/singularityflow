@@ -243,9 +243,9 @@ test('governed repairs and later Code publications are not stale evidence; out-o
   // code -> a review confined to test automation -> review -> second code step -> final review
   for (const [packaged, id, phase] of [['poc-lite-implementer', 'second-implementer', 'act-two'],
     ['poc-lite-verifier', 'test-repair-verifier', 'test-repair']]) {
-    const text = await readFile(path.join(root, `.github/agents/${packaged}.agent.md`), 'utf8');
+    const text = await readFile(path.join(root, `singularity/agents/${packaged}.agent.md`), 'utf8');
     const original = /sflow-default-for: "([^"]+)"/u.exec(text)[1];
-    await write(`.github/agents/${id}.agent.md`, text.replace(`name: ${packaged}`, `name: ${id}`).replaceAll(`"${original}"`, `"${phase}"`));
+    await write(`singularity/agents/${id}.agent.md`, text.replace(`name: ${packaged}`, `name: ${id}`).replaceAll(`"${original}"`, `"${phase}"`));
   }
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));

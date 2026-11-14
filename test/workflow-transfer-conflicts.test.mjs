@@ -194,7 +194,7 @@ test('a same-name conflict names its subject, who uses it here, and each choice 
   assert.equal(bySubject['approval-group:release-managers'].suggested, 'keep');
   // Everything an agent brings follows it: its file, lock, imported copy and that copy's record.
   assert.deepEqual(bySubject['agent:release-manager'].reasons.map((reason) => reason.split(':')[0]).sort(),
-    ['agent file .github/agents/release-manager.agent.md', 'dependency lock', `import record skill`, `imported copy ${VENDORED}`].sort());
+    ['agent file singularity/agents/release-manager.agent.md', 'dependency lock', `import record skill`, `imported copy ${VENDORED}`].sort());
   assert.equal(bySubject['template-file:singularity/templates/mobile-release/intake.md'].renameTo,
     'singularity/templates/mobile-release/intake-imported.md');
   await assert.rejects(() => applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 }),
@@ -205,7 +205,7 @@ test('keep and replace write exactly what was chosen', async (t) => {
   const { bundle } = await releaseBundle(t);
   const target = await repository(t, 'sflow-transfer-conflicts-keep-');
   await addReleaseWorkflow(target, 'local');
-  const before = await readFile(path.join(target, '.github/agents/release-manager.agent.md'), 'utf8');
+  const before = await readFile(path.join(target, 'singularity/agents/release-manager.agent.md'), 'utf8');
   const resolutions = {
     'agent:release-manager': 'keep', 'agent:release-reviewer': 'keep', 'approval-group:release-managers': 'keep',
     'phase:release-plan': 'replace', 'template-file:singularity/templates/mobile-release/intake.md': 'keep',
@@ -222,7 +222,7 @@ test('keep and replace write exactly what was chosen', async (t) => {
   assert.equal(await readFile(path.join(target, 'singularity/templates/mobile-release/release-plan.md'), 'utf8'),
     '# {{work.id}} release plan (source)\n\n## Rollout\n\n## Rollback\n');
   assert.match(await readFile(path.join(target, 'singularity/templates/mobile-release/intake.md'), 'utf8'), /\(local\)/);
-  assert.equal(await readFile(path.join(target, '.github/agents/release-manager.agent.md'), 'utf8'), before);
+  assert.equal(await readFile(path.join(target, 'singularity/agents/release-manager.agent.md'), 'utf8'), before);
   assert.equal(await readFile(path.join(target, VENDORED), 'utf8'), skillText('local'));
   await loadDefinition(target);
 });
@@ -232,7 +232,7 @@ test('importing under new names rewrites every reference, and nothing that exist
   const target = await repository(t, 'sflow-transfer-conflicts-rename-');
   await addReleaseWorkflow(target, 'local');
   const ownBefore = await configuration(target);
-  const managerBefore = await readFile(path.join(target, '.github/agents/release-manager.agent.md'), 'utf8');
+  const managerBefore = await readFile(path.join(target, 'singularity/agents/release-manager.agent.md'), 'utf8');
   const plan = await planWorkflowImport(target, bundle, { resolveAll: 'suggested' });
   assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));
   assert.equal(plan.bundleSha256, bundle.bundleSha256, 'the plan binds the bundle as read, not its rewrite');
@@ -258,7 +258,7 @@ test('importing under new names rewrites every reference, and nothing that exist
     ['templates', 'release-intake'], ['mcpServers', 'app-store-connect'], ['approvalAuthorities', 'release-managers']]) {
     assert.deepEqual(after[catalog][id], ownBefore[catalog][id], `${catalog}.${id} is unchanged`);
   }
-  assert.equal(await readFile(path.join(target, '.github/agents/release-manager.agent.md'), 'utf8'), managerBefore);
+  assert.equal(await readFile(path.join(target, 'singularity/agents/release-manager.agent.md'), 'utf8'), managerBefore);
   const imported = after.workTypes['mobile-release-imported'];
   assert.equal(imported.label, 'Mobile release (imported)');
   assert.deepEqual(imported.phases, ['intake', 'release-plan-imported', 'store-submission-imported']);
@@ -291,8 +291,9 @@ test('importing under new names rewrites every reference, and nothing that exist
     [['store-submission-imported', 'artifacts/store-submission-imported/generated-notes.md']]);
 
   const lock = (await lockFile(target)).agents['release-manager-imported'];
+  // The lock keeps the bundle's portable name for the agent; its bytes are what it binds (sourceSha256).
   assert.equal(lock.source, '.github/agents/release-manager-imported.agent.md');
-  assert.equal(lock.sourceSha256, sha256(await readFile(path.join(target, '.github/agents/release-manager-imported.agent.md'), 'utf8')));
+  assert.equal(lock.sourceSha256, sha256(await readFile(path.join(target, 'singularity/agents/release-manager-imported.agent.md'), 'utf8')));
   assert.equal(lock.dependencies[0].vendored, 'singularity/imports/agents/release-manager-imported/skill-store-checklist.md');
   assert.equal(await readFile(path.join(target, lock.dependencies[0].vendored), 'utf8'), skillText('source'));
   const records = (await ledger(target)).imports;
@@ -315,7 +316,7 @@ test('a server configured by hand keeps naming its host entry under a new name',
   const after = await configuration(target);
   assert.equal(after.mcpServers['app-store-connect-imported'].hostReference, 'app-store-connect');
   assert.equal(after.mcpServers['app-store-connect'], undefined);
-  const agent = parseAgentDependencies(await readFile(path.join(target, '.github/agents/release-manager.agent.md'), 'utf8'));
+  const agent = parseAgentDependencies(await readFile(path.join(target, 'singularity/agents/release-manager.agent.md'), 'utf8'));
   assert.deepEqual(agent.tools, ['app-store-connect/upload_build', 'app-store-connect/submit_review']);
 });
 

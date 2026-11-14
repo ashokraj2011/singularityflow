@@ -251,12 +251,12 @@ test('init check finds missing assets and repair restores them without overwriti
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const customizedWorkflow = `${await readFile(workflowPath, 'utf8')}\n# company customization remains\n`;
   await writeFile(workflowPath, customizedWorkflow);
-  await rm(path.join(root, '.github/agents/qa.agent.md'));
+  await rm(path.join(root, 'singularity/agents/qa.agent.md'));
   await rm(path.join(root, 'singularity/prompts/copilot-planning.md'));
 
   const before = JSON.parse(run(process.execPath, [cli, 'init', '--check', '--json'], root).stdout);
   assert.equal(before.complete, false);
-  assert.ok(before.missingFiles.includes('.github/agents/qa.agent.md'));
+  assert.ok(before.missingFiles.includes('singularity/agents/qa.agent.md'));
   assert.ok(before.missingFiles.includes('singularity/prompts/copilot-planning.md'));
 
   const repaired = run(process.execPath, [cli, 'init', '--repair'], root);
@@ -265,7 +265,7 @@ test('init check finds missing assets and repair restores them without overwriti
   assert.equal(after.complete, true);
   assert.equal(after.missingFiles.length, 0);
   assert.equal(await readFile(workflowPath, 'utf8'), customizedWorkflow);
-  assert.match(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'), /\S/);
+  assert.match(await readFile(path.join(root, 'singularity/agents/qa.agent.md'), 'utf8'), /\S/);
   assert.match(await readFile(path.join(root, 'singularity/prompts/copilot-planning.md'), 'utf8'), /\S/);
 });
 
@@ -298,7 +298,7 @@ test('init never installs generic branch configuration when approved authority a
   git(root, 'push', '-u', 'origin', 'main', 'sflow/config');
   git(root, 'switch', 'sflow/config');
   const exactAuthorityHead = git(root, 'rev-parse', 'HEAD');
-  await rm(path.join(root, '.github/agents/qa.agent.md'));
+  await rm(path.join(root, 'singularity/agents/qa.agent.md'));
   const exactCheck = JSON.parse(run(process.execPath, [
     cli, 'init', '--check', '--json'
   ], root, { env: isolatedMachine(base) }).stdout);
@@ -307,7 +307,7 @@ test('init never installs generic branch configuration when approved authority a
   assert.equal(exactCheck.localAuthorityCommit, exactAuthorityHead);
   assert.equal(exactCheck.expectedAuthorityCommit, exactAuthorityHead);
   run(process.execPath, [cli, 'init', '--repair'], root, { env: isolatedMachine(base) });
-  assert.match(await readFile(path.join(root, '.github/agents/qa.agent.md'), 'utf8'), /\S/);
+  assert.match(await readFile(path.join(root, 'singularity/agents/qa.agent.md'), 'utf8'), /\S/);
   assert.equal(git(root, 'rev-parse', 'HEAD'), exactAuthorityHead);
   git(root, 'switch', 'main');
   const beforeHead = git(root, 'rev-parse', 'HEAD');
@@ -613,7 +613,7 @@ test('init refuses to repair a stale local sflow/config branch after its authori
   git(publisher, 'commit', '-m', 'advance configuration authority');
   git(publisher, 'push', 'origin', 'sflow/config');
   const authorityCommit = git(publisher, 'rev-parse', 'HEAD');
-  await rm(path.join(root, '.github/agents/qa.agent.md'));
+  await rm(path.join(root, 'singularity/agents/qa.agent.md'));
   const beforeStatus = git(root, 'status', '--porcelain');
 
   const checked = JSON.parse(run(process.execPath, [
@@ -636,7 +636,7 @@ test('init refuses to repair a stale local sflow/config branch after its authori
   assert.match(refused.stderr, /Nothing was changed/);
   assert.equal(git(root, 'rev-parse', 'HEAD'), staleCommit);
   assert.equal(git(root, 'status', '--porcelain'), beforeStatus);
-  await assert.rejects(readFile(path.join(root, '.github/agents/qa.agent.md')), { code: 'ENOENT' });
+  await assert.rejects(readFile(path.join(root, 'singularity/agents/qa.agent.md')), { code: 'ENOENT' });
 });
 
 test('init refuses an unrelated local sflow/config branch despite an existing workflow file', async (t) => {
@@ -660,5 +660,5 @@ test('init refuses an unrelated local sflow/config branch despite an existing wo
   assert.equal(git(root, 'rev-parse', 'HEAD'), unrelatedCommit);
   assert.equal(git(root, 'status', '--porcelain'), beforeStatus);
   assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), 'version: 2\n');
-  await assert.rejects(readFile(path.join(root, '.github/agents/qa.agent.md')), { code: 'ENOENT' });
+  await assert.rejects(readFile(path.join(root, 'singularity/agents/qa.agent.md')), { code: 'ENOENT' });
 });

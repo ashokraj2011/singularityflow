@@ -99,7 +99,7 @@ async function fixture(t, { overflow = false, disclosure = false } = {}) {
   }
   await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(definition));
   for (const phaseId of ['team-criteria', 'team-plan', 'team-code', 'old-binding']) {
-    await writeFile(path.join(root, `.github/agents/${phaseId}-role.agent.md`), `---\nname: ${phaseId}-role\ndescription: Exact repository role\ntools: []\nmetadata:\n  sflow-phases: ${phaseId}\n  sflow-default-for: ${phaseId}\n---\nPrivate prompt is not usage output: ghp_${'X'.repeat(36)}\n${phaseId === 'team-plan' ? `\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n| --- | --- | --- | --- | --- |\n| ${SKILL} | https://example.test/private-team/skill.md | team-plan | false | 4096 |\n` : ''}`);
+    await writeFile(path.join(root, `singularity/agents/${phaseId}-role.agent.md`), `---\nname: ${phaseId}-role\ndescription: Exact repository role\ntools: []\nmetadata:\n  sflow-phases: ${phaseId}\n  sflow-default-for: ${phaseId}\n---\nPrivate prompt is not usage output: ghp_${'X'.repeat(36)}\n${phaseId === 'team-plan' ? `\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n| --- | --- | --- | --- | --- |\n| ${SKILL} | https://example.test/private-team/skill.md | team-plan | false | 4096 |\n` : ''}`);
   }
   git(base, 'init', '--bare', '-q', '-b', 'main', remote); git(root, 'init', '-q', '-b', 'main');
   git(root, 'config', 'user.name', 'Usage Reader'); git(root, 'config', 'user.email', 'reader@example.test');

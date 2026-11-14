@@ -10,7 +10,7 @@ import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { validateId, loadConfig, assertNoPendingPublication } from '../state-stores.mjs';
 import { beginSelectionReceipt, answerSelectionReceipt, selectionReceiptStatus } from '../choices.mjs';
 import { assertApprovalSubmitted } from '../approval-submitted.mjs';
-import { assertLifecycleWorktreeClean, withSetAsideRoute } from '../lifecycle-worktree.mjs';
+import { assertLifecycleWorktreeClean, heldForLaterCode, withSetAsideRoute } from '../lifecycle-worktree.mjs';
 import { printSelectionReceipt } from './shared/print-selection-receipt.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
@@ -55,11 +55,14 @@ export async function choicesCommand(positionals, options) {
           let current = null;
           try { current = await loadAcceptedStoryExecution(root); }
           catch (readError) { if (readError.code !== 'STORY_NOT_FOUND') throw readError; }
-          if (current?.workflow.workItem.id === workId) {
+          if (current?.workflow.workItem.id !== workId) throw error;
+          // What is kept in place for a later code step is not this decision's (SPEC-CIC switch 2).
+          const held = await heldForLaterCode(root, current.definition, current.workflow);
+          try { if (!held?.size) throw error; assertLifecycleWorktreeClean(root, current.definition, current.workflow, { held }); }
+          catch (dirty) {
             await assertApprovalSubmitted(root, current.definition, current.workflow);
-            throw await withSetAsideRoute(error, root, current.definition, current.workflow);
+            throw await withSetAsideRoute(dirty, root, current.definition, current.workflow);
           }
-          throw error;
         }
         // The Story's own branch, which need not be named after its ID.
         await checkoutStoryBranch(root, config, workId, { fetch: optionBoolean(options, 'fetch') });
@@ -67,7 +70,7 @@ export async function choicesCommand(positionals, options) {
         workflow = await loadStoryAggregate(root, config, workId);
         await assertNoPendingPublication(root, config, workflow, 'prepare an approval selection');
         await assertApprovalSubmitted(root, config, workflow);
-        try { assertLifecycleWorktreeClean(root, config, workflow); }
+        try { assertLifecycleWorktreeClean(root, config, workflow, { held: await heldForLaterCode(root, config, workflow) }); }
         catch (error) { throw await withSetAsideRoute(error, root, config, workflow); }
       }
       receipt = await beginSelectionReceipt(root, config, { action, workId, workflow });

@@ -172,9 +172,9 @@ test('nextsteps leads with the card while an amendment waits or awaits acknowled
   const plain = story();
   assert.equal(intentAmendmentProposable(plain), true);
   const offered = workflowGuide(plain).nextActions.find((action) => action.command.includes('intent-amendment propose'));
-  assert.deepEqual([offered.skill, offered.copilotCommand, offered.optional], ['/sf-reject', '/sf-reject intent-amendment propose', true]);
+  assert.deepEqual([offered.skill, offered.copilotCommand, offered.optional], ['/sf-amend', '/sf-amend propose', true]);
   const proposeNext = workflowNextSteps(plain).find((action) => action.command.includes('intent-amendment propose'));
-  assert.deepEqual([proposeNext.timing, proposeNext.copilotCommand], ['alternative', '/sf-reject intent-amendment propose']);
+  assert.deepEqual([proposeNext.timing, proposeNext.copilotCommand], ['alternative', '/sf-amend propose']);
 
   const waiting = story({ amendment: true });
   assert.equal(intentAmendmentProposable(waiting), false);
@@ -200,14 +200,14 @@ test('nextsteps leads with the card while an amendment waits or awaits acknowled
   assert.equal(intentAmendmentProposable(approved), true);
 });
 
-test('D1/D2: a returned decide or acknowledge route is the person\'s, on the card; the propose route names its own /sf-reject form', () => {
+test('D1/D2: a returned decide or acknowledge route is the person\'s, on the card; the propose route names /sf-amend', () => {
   for (const command of [`singularity-flow story intent-amendment decide AMD-001 --decision reject --confirm AMD-001 --work-id ${WORK}`,
     `singularity-flow story intent-amendment acknowledge AMD-001 --work-id ${WORK}`]) {
     const act = agentAct({ error: { code: 'X_REFUSED', message: 'No.' }, nextAction: { command, label: 'A person decides it.' } });
     assert.deepEqual([act.state, act.do.copilot, act.do.shell], ['confirm-in-terminal', `/sf-decide ${WORK}`, command]);
     assert.match(act.said, /on the decisions card: give them do\.copilot, or do\.shell for their own terminal; never run it/u);
   }
-  assert.equal(copilotAction({ command: `singularity-flow story intent-amendment draft --work-id ${WORK}` }).copilotCommand, '/sf-reject intent-amendment propose');
+  assert.equal(copilotAction({ command: `singularity-flow story intent-amendment draft --work-id ${WORK}` }).copilotCommand, '/sf-amend propose');
 });
 
 test('an authoring turn may write the Story\'s amendment draft once its step may propose one, and no sooner', () => {

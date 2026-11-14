@@ -674,9 +674,9 @@ async function record(root, options, workId, io) {
     const recorded = outcome.recorded.filter((entry) => !isDraft(entry) && !same(entry)).map((entry) => ({ item: entry.item, kind: entry.kind, record: recordId(entry.kind, entry.record), value: entry.record }));
     // What was drafted, where, and what is next: a file, not a record [SCS:REQ-020, REQ-021].
     const drafted = outcome.recorded.filter(isDraft).map((entry) => ({ item: entry.item, path: entry.record.path, clauses: entry.record.clauses ?? [],
-      slots: (entry.record.slots ?? []).length, next: { command: entry.record.next.command, copilotCommand: '/sf-reject intent-amendment propose',
+      slots: (entry.record.slots ?? []).length, next: { command: entry.record.next.command, copilotCommand: '/sf-amend propose',
         words: 'Write the wording in place of each sflow-draft slot and delete the closing line, or ask the Story\'s agent '
-          + '(/sf-reject intent-amendment propose); then propose it. The scope approvers decide it.' } }));
+          + '(/sf-amend propose); then propose it. The scope approvers decide it.' } }));
     const remaining = outcome.remaining.map((entry) => ({ item: entry.item, kind: entry.kind, words: effectWords(workflow, entry.effect,
       plan.steps.find((step) => step.item === entry.item)?.values ?? {}) }));
     if (outcome.failed) {

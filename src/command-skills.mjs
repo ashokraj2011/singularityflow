@@ -189,7 +189,7 @@ const entries = {
   story: [
     'sf-start',
     'sf-inspect', 'sf-story-start', 'sf-story-inbox', 'sf-story-fetch', 'sf-story-branch',
-    'sf-story-checks', 'sf-work-interval', 'sf-story-skill-version', 'sf-return', 'sf-reject',
+    'sf-story-checks', 'sf-work-interval', 'sf-story-skill-version', 'sf-return', 'sf-reject', 'sf-amend',
     'sf-converge', 'sf-submit', 'sf-finalize', 'sf-mcp', 'sf-test-scope'
   ],
   workspace: [
@@ -414,11 +414,11 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     interval: 'sf-work-interval',
     return: 'sf-return',
     rework: 'sf-reject',
-    // /sf-reject drafts and proposes an amendment. Its bare form returns a phase and its turn may not
-    // decide or acknowledge one, so the amendment's read, decision and acknowledgement name no skill.
+    // /sf-amend drafts and proposes an amendment. Any turn reads one, and no turn decides or
+    // acknowledges one, so the amendment's read, decision and acknowledgement name no skill.
     'intent-amendment': null,
-    'intent-amendment draft': 'sf-reject',
-    'intent-amendment propose': 'sf-reject',
+    'intent-amendment draft': 'sf-amend',
+    'intent-amendment propose': 'sf-amend',
     'skill-version': 'sf-story-skill-version',
     'target-origin': 'sf-mcp',
     adjudicate: 'sf-converge',

@@ -2041,7 +2041,7 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
     if (existing && state?.draftSha256 !== digest(existing)) {
       throw new SingularityFlowError(`There is already a draft of the scope at ${out}, changed since it was drafted, so nothing was written. `
         + `Finish and propose it (${proposeCommand}), or move it away to draft again.`,
-      { code: 'INTENT_AMENDMENT_DRAFT_EDITED', details: { path: out, nextAction: { command: proposeCommand, skill: '/sf-reject', label: 'Write the draft and propose it.' } } });
+      { code: 'INTENT_AMENDMENT_DRAFT_EDITED', details: { path: out, nextAction: { command: proposeCommand, skill: '/sf-amend', label: 'Write the draft and propose it.' } } });
     }
   }
   const { buildIntentAmendmentDraft } = await import('../intent-amendment-draft.mjs');

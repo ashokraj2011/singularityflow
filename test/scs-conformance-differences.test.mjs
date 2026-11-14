@@ -226,7 +226,7 @@ test('once drafted, the list says where the draft is and that writing and propos
   assert.equal(update.recordable, false, 'the wording is a person\'s or the Story\'s agent\'s');
   assert.equal(update.action.command, `singularity-flow story intent-amendment propose --work-id ${W} --file "${DRAFT}" --reason "<why the specification changes>"`);
   assert.equal(update.action.file, DRAFT, 'a host may open the engine\'s own path');
-  assert.match(update.words, /\/sf-reject intent-amendment propose/u);
+  assert.match(update.words, /\/sf-amend propose/u);
   assert.equal(update.decidedBy.allowed, true);
   assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: ['d1=update-spec'] }), { at: AT }), /is your own step, not a recorded decision/u);
   // A draft for other clauses, or one from before an approved amendment (no clauses), drafts again.

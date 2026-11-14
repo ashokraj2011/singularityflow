@@ -94,6 +94,31 @@ test('a proposal in chat is held to the person\'s yes to its preview, on the rep
   assert.match((await f.run(other, PROPOSE)).permissionDecisionReason, /proposed only on the person's own yes/u);
 });
 
+test('/sf-amend holds its proposal to the person\'s yes the same way, on both hosts [CIC:AC-015]', async (t) => {
+  const f = await fixture(t);
+  const unasked = await f.enter('/sf-amend CHAT-1 retries go to five', 'amend-unasked');
+  const refused = await f.run(unasked, PROPOSE);
+  assert.equal(refused.permissionDecision, 'deny');
+  assert.match(refused.permissionDecisionReason, /proposed only on the person's own yes/u);
+  for (const [id, reply] of [['amend-no', 'User responded: No'], ['amend-canned', AUTO_REPLY], ['amend-declined', 'User declined to answer']]) {
+    const payload = await f.enter('/sf-amend CHAT-1', id);
+    await f.answered(payload, 'Propose it? (Yes, No)', reply);
+    assert.match((await f.run(payload, PROPOSE)).permissionDecisionReason ?? '', UNBOUND, id);
+  }
+  const yes = await f.enter('/sf-amend CHAT-1', 'amend-yes');
+  await f.answered(yes, 'Propose it? (Yes, No)', SAID);
+  assert.deepEqual(await f.run(yes, PROPOSE), {});
+  // VS Code's agent host hands the same ask_user answer; its own chat hands the questions tool's JSON, read the same way.
+  const local = await f.enter('/sf-amend CHAT-1', 'amend-vscode');
+  const hook = (fields) => ({ session_id: local.sessionId, cwd: local.cwd, hook_event_name: fields.tool_response === undefined ? 'PreToolUse' : 'PostToolUse', ...fields });
+  await repositoryPostToolGuard(hook({ tool_name: 'vscode_askQuestions', tool_input: { questions: [{ header: 'Propose', question: 'Propose it?' }] }, tool_use_id: 'q1',
+    tool_response: JSON.stringify({ answers: { Propose: { selected: ['Yes'], freeText: 'Retries go to five; the business wants it.', skipped: false } } }) }));
+  assert.notEqual((await repositoryToolGuard(hook({ tool_name: 'run_in_terminal', tool_input: { command: PROPOSE, cwd: f.root } }))).permissionDecision, 'deny');
+  // Deciding and acknowledging stay the person's there too.
+  for (const command of ['singularity-flow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001 --class material --work-id CHAT-1',
+    'singularity-flow story intent-amendment acknowledge AMD-001 --work-id CHAT-1']) assert.equal((await f.run(yes, command)).permissionDecision, 'deny', command);
+});
+
 test('VS Code\'s own chat, whose answers may not reach SFlow, is told to propose in the person\'s own terminal [CIC:AC-015]', async (t) => {
   const f = await fixture(t);
   const payload = await f.enter('/sf-reject intent-amendment propose CHAT-1', 'local');
@@ -123,9 +148,13 @@ test('deciding and acknowledging stay the person\'s in the chat entry, and witho
   assert.deepEqual(await off.run(before, PROPOSE), {}, 'no yes is asked for where change impact is off');
 });
 
-test('the skill shows the preview in plain words, asks, and proposes only after the person\'s own yes [CIC:AC-015, REQ-015]', async () => {
-  const skill = await readFile(new URL('../plugin/skills/sflow-reject/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /in plain words\n\s+\(what changes, its size and why, what is redone or kept, who decides\) and ask "Propose it\?"\. Only on their Yes run/u);
-  assert.match(skill, /--reason "<THEIR WORDS>"/u);
-  assert.match(skill, /never decide or acknowledge here/u);
+test('both skills show the preview in plain words, ask, and propose only after the person\'s own yes [CIC:AC-015, REQ-015]', async () => {
+  const reject = await readFile(new URL('../plugin/skills/sflow-reject/SKILL.md', import.meta.url), 'utf8');
+  assert.match(reject, /in plain words\n\s+\(what changes, its size and why, what is redone or kept, who decides\) and ask "Propose it\?"\. Only on their Yes run/u);
+  const amend = await readFile(new URL('../plugin/skills/sflow-amend/SKILL.md', import.meta.url), 'utf8');
+  assert.match(amend, /in plain words \(what changes, its size and why, what is redone or kept, who decides\) and ask "Propose it\?"\. It records nothing\.\n4\. Propose only on their Yes/u);
+  for (const skill of [reject, amend]) {
+    assert.match(skill, /--reason "<THEIR WORDS>"/u);
+    assert.match(skill, /[Nn]ever decide or acknowledge here/u);
+  }
 });

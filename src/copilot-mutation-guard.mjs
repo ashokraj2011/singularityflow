@@ -198,7 +198,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     // The kernel prepares only this file's parent, as issuance does; the parent grants no edits.
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 }).catch(() => {});
   }
-  // The one file a /sf-reject turn may write is named in its rules, so the draft lands there.
+  // The one file a /sf-reject or /sf-amend turn may write is named in its rules, so the draft lands there.
   if (mode === 'approval-only' && contract.allow.staging.length) {
     contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for story intent-amendment propose --file.`;
   }
@@ -637,6 +637,10 @@ export function argvAllowed(argv, mode, value) {
     && Object.keys(options).every(key => ['file', 'work-id', 'json', 'for-agent'].includes(key));
   if (mode === 'approval-only') {
     const action = value.skill?.replace(/^\/?(?:sf|sflow)-/u, '');
+    // /sf-amend runs only /sf-reject's intent-amendment route [owner, 2026-11-14]: what a /sf-reject turn reads, and
+    // proposing the bound Story's amendment from its file. Nothing else of /sf-reject's, and never a decision or an acknowledgement.
+    if (action === 'amend') return positionals[0] === 'choices' ? positionals[1] === 'status'
+      : classification === 'read' || !value.decisionEnded && intentAmendmentProposal(positionals, options, value.contract.workId);
     if (positionals[0] === 'choices') return positionals[1] === 'status' || !value.decisionEnded && (positionals[1] === 'answer'
       || positionals[1] === 'begin' && positionals[2] === action && positionals[3] === value.contract.workId);
     if (classification === 'read') return true;
@@ -647,9 +651,9 @@ export function argvAllowed(argv, mode, value) {
     // reopen a closed Story, propose an intent amendment (its scope approvers decide it) and abandon
     // rework. Deciding or acknowledging an amendment is not among them.
     if (action === 'reject' && positionals[0] === 'reopen') return positionals.length === 2 && positionals[1] === value.contract.workId;
-    if (action === 'reject' && positionals[0] === 'story') return options['work-id'] === value.contract.workId && positionals.length === 3
-      && (positionals[1] === 'intent-amendment' && positionals[2] === 'propose' && typeof options.file === 'string'
-        || positionals[1] === 'rework' && positionals[2] === 'roll-forward' && typeof options['change-request'] === 'string');
+    if (action === 'reject' && positionals[0] === 'story') return intentAmendmentProposal(positionals, options, value.contract.workId)
+      || options['work-id'] === value.contract.workId && positionals.length === 3
+        && positionals[1] === 'rework' && positionals[2] === 'roll-forward' && typeof options['change-request'] === 'string';
     return positionals[0] === action && (!positionals[1] || positionals[1] === value.originPhase)
       && (action !== 'approve' || approvalChatDecisions(options));
   }
@@ -907,6 +911,11 @@ function upstreamIssueDecision(call, value) {
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
 }
 
+/** `story intent-amendment propose --file` for the bound Story: the one amendment step a /sf-reject or /sf-amend turn records. */
+function intentAmendmentProposal(positionals, options, workId) {
+  return positionals[0] === 'story' && positionals[1] === 'intent-amendment' && positionals[2] === 'propose' && positionals.length === 3
+    && options['work-id'] === workId && typeof options.file === 'string';
+}
 /** `story intent-amendment decide|acknowledge`: a person's, on the decisions card, never an agent turn's [owner, 2026-11-13]. */
 function intentAmendmentPersonStep(positionals) {
   return positionals[0] === 'story' && positionals[1] === 'intent-amendment' && ['decide', 'acknowledge'].includes(positionals[2]);

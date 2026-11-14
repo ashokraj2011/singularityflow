@@ -2441,8 +2441,8 @@ Example: Story PAY-1 has the steps Intake (the scope), Design, Implement and Ver
 says a failed payment is retried up to 3 times. Design cites it, and Implement is half done. The
 business now wants 5 retries, and no retry after a fraud decline.
 
-1. Draft, preview and propose AMD-001: AC-001 revised, AC-003 added. Copilot:
-   `/sf-reject intent-amendment propose`. Shell: `singularity-flow story intent-amendment draft --clause PAY-1:AC-001`,
+1. Draft, preview and propose AMD-001: AC-001 revised, AC-003 added. Copilot: `/sf-amend propose`
+   (`/sf-reject intent-amendment propose` still works). Shell: `singularity-flow story intent-amendment draft --clause PAY-1:AC-001`,
    edit the file it names, then `singularity-flow story intent-amendment preview --file <DRAFT>` and
    `singularity-flow story intent-amendment propose --file <DRAFT> --reason "<why>" --authored human`.
    The preview records nothing; here it says Design is reopened because it cites AC-001. Implement pauses
@@ -2453,12 +2453,15 @@ business now wants 5 retries, and no retry after a fraud decline.
    terminal. Copilot never decides it for them.
 3. Anyone on the Story acknowledges it on the card, or with
    `singularity-flow story intent-amendment acknowledge AMD-001`. No step moves on until then.
-4. Design reopens in place. Its old text is kept read only, and its new prompt names that copy. Set
-   Implement's unfinished code aside first (`/sf-recover`), then compose Design again (`/sf-phase`); a person may publish the old text unchanged if it still holds. Its approvers
-   approve it again.
+4. Design reopens in place. Its old text is kept read only, and its new prompt names that copy.
+   Implement's unfinished code stays where it is: compose Design again (`/sf-phase`) with it in place;
+   a person may publish the old text unchanged if it still holds. Its approvers approve it again. A
+   Story started before `spec.preAmendmentDrafts` sets that code aside first (`/sf-recover`).
 5. Implement is written again: publishing its old draft is refused with `PHASE_DRAFT_PREDATES_AMENDMENT`.
-   `/sf-code` opens its code generation again and composes it; the code in the working tree is the
-   starting point. Then publish, submit and approve as usual.
+   `/sf-code` opens its code generation again and composes it; the code AMD-001 recorded is the
+   starting point. A recorded file changed since, or new code, is refused at `phase begin`
+   (`GENERATION_DIRTY_START`): put it back or set it aside (`/sf-recover`), then begin again. Then
+   publish, submit and approve as usual.
 
 If Design had named only AC-002, and not taken Intake as an input, it would keep its approval (rule E8). On a Story with
 `spec.observedDependencies: on`, its approvers would then be asked "Does Design still hold after
@@ -3105,6 +3108,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-submit` | Submit the current generated phase |
 | `/sf-approve` | Explicitly review and approve a submitted phase |
 | `/sf-reject` | Explicitly reject to an allowed earlier phase |
+| `/sf-amend` | Change a Story's requirements after its scope is approved: draft, preview and propose an intent amendment. A scope approver decides it on the decisions card (`/sf-decide`), never Copilot |
 | `/sf-cancel` | Cancel active work, preserve its evidence, and move it to Archived |
 | `/sf-status` | Show detailed work-item state and warnings |
 | `/sf-progress` | Show deterministic phase completion |

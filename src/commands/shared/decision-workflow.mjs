@@ -6,7 +6,7 @@ import { loadStoryDecisionExecution } from '../../story-decision-context.mjs';
 import { prefetchStoryPublicationObservation, assertNoPendingPublication, previewTestingRepair, storyPublicationPending } from '../../state-stores.mjs';
 import { assertPhaseSequence } from '../../sequence.mjs';
 import { assertApprovalSubmitted } from '../../approval-submitted.mjs';
-import { assertLifecycleWorktreeClean, withSetAsideRoute } from '../../lifecycle-worktree.mjs';
+import { assertLifecycleWorktreeClean, heldForLaterCode, withSetAsideRoute } from '../../lifecycle-worktree.mjs';
 import { resolveSelectionReceipt } from '../../choices.mjs';
 import { phaseUsesDeterministicGeneration } from '../../manual-authorship.mjs';
 import { actionActor, activatePhaseAgent } from '../kernel.mjs';
@@ -23,8 +23,9 @@ export async function decisionWorkflow(positionals, options, action) {
     await assertPhaseSequence(root, workflow, action, { requestedPhase });
   }
   try {
-    if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });
-    if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow);
+    const held = receiptToken || action === 'approve' ? await heldForLaterCode(root, config, workflow) : null;
+    if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root), held });
+    if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow, { held });
   } catch (error) {
     // A draft of a step not yet submitted is authoring work, not cleanup. A clean checkout goes on
     // to the sequence gate, whose refusal or confirmed soft gate decides a premature approval.

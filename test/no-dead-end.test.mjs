@@ -19,7 +19,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { refusalRemediationPlan, KNOWN_REFUSAL_CODES } from '../src/refusal-remediation.mjs';
-import { codeStepTemplate, materialChangeTemplate, openConvergenceTemplate, preAmendmentDraftTemplate, registryReader, releaseDraftTemplate, returnedRoutes, routeEffect, stillHoldsTemplate, storyCopy, walk, WORK } from './helpers/route-walker.mjs';
+import { codeStepTemplate, heldCodeTemplate, materialChangeTemplate, openConvergenceTemplate, preAmendmentDraftTemplate, registryReader, releaseDraftTemplate, returnedRoutes, routeEffect, stillHoldsTemplate, storyCopy, walk, WORK } from './helpers/route-walker.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -150,6 +150,18 @@ const SCENARIOS = Object.freeze([
   // its publication refuses it; the way out is in the step (begin again, compose again), and nothing loops back.
   { id: 'draft-written-before-the-amendment', meets: 'PHASE_DRAFT_PREDATES_AMENDMENT', real: 'CIC stage 5: a code step reopened in place with its earlier draft',
     template: 'preAmendmentDraft', phase: 'implement', start: `singularity-flow phase publish implement --work-id ${WORK} --authored deterministic --json`, reached: published },
+  // Owner, 2026-11-14: the design an amendment reopened is published with the code step's unfinished code left in place,
+  // which it does not count against itself, and commits none of it; then the code step carries that code and publishes.
+  { id: 'design-reopened-with-later-code-in-place', meets: null, real: 'CIC stage 5: the design stalled on the code step\'s code until a person set it aside',
+    template: 'heldCode', phase: 'fix-design', outcome: 'reached', start: `singularity-flow phase publish fix-design --work-id ${WORK} --authored human --channel manual-in-place --json`,
+    reached: (result, story) => published(result) && /^\s*M src\/value\.mjs$/mu.test(story.git('status', '--porcelain', '--', 'src')) },
+  { id: 'later-code-carried-after-the-design', meets: 'PHASE_DRAFT_PREDATES_AMENDMENT', real: 'CIC stage 5: the code step reached after the design it waited behind',
+    template: 'heldCode', phase: 'implement', outcome: 'reached',
+    setup: (story) => {
+      story.cli('prepare', 'fix-design');
+      story.cli('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place'); story.cli('submit', 'fix-design'); story.cli('approve', 'fix-design', '--yes');
+    }, start: `singularity-flow phase publish implement --work-id ${WORK} --authored deterministic --json`,
+    reached: (result, story) => published(result) && JSON.parse(readFileSync(path.join(story.root, story.item, 'workflow.json'), 'utf8')).phases.implement.generationIntent.baseline.mode === 'carried' },
   // SPEC-CIC switch 3 [CIC:REQ-014]: an approver outside the scope-change authority raises an amendment to material and
   // approves it; the refusal names who decides it and how (the Decide card, their own terminal), and nothing is recorded.
   { id: 'material-change-outside-its-authority', meets: 'INTENT_AMENDMENT_MATERIAL_AUTHORITY', real: 'CIC stage 6: a material change approved by someone outside the scope-change authority',
@@ -188,7 +200,9 @@ test('a route is what a result returned, and its effect comes from what it runs'
   'words never count as a route');
 });
 
-test('every walk reaches its outcome or a person, or its dead end is on the list', slowLane({ timeout: 900_000 }), async (t) => {
+// 1,800,000 (2026-11-14): one more Story to build and two more walks (the design reopened with the code step's code in
+// place). Measured runs took 250 to 760 seconds; on a machine at load 50, every walk passed and the whole took 1,211.
+test('every walk reaches its outcome or a person, or its dead end is on the list', slowLane({ timeout: 1_800_000 }), async (t) => {
   // The ending: a work type whose last step is convergence, so the final check comes up there.
   const endAtConvergence = (configuration) => {
     const workType = configuration.workTypes['spec-driven-standard'];
@@ -201,6 +215,7 @@ test('every walk reaches its outcome or a person, or its dead end is on the list
     ending: await build('ending', () => openConvergenceTemplate(t, { configure: endAtConvergence })),
     release: await build('release', () => releaseDraftTemplate(t)), releasePartial: await build('releasePartial', () => releaseDraftTemplate(t, { verdict: 'partial' })),
     stillHolds: await build('stillHolds', () => stillHoldsTemplate(t)), preAmendmentDraft: await build('preAmendmentDraft', () => preAmendmentDraftTemplate(t)),
+    heldCode: await build('heldCode', () => heldCodeTemplate(t)),
     material: await build('material', () => materialChangeTemplate(t)) };
   // A person fixing one route walks only that one: WALK_ONLY=a,b. The full list is what the suite holds.
   const only = process.env.WALK_ONLY?.split(',');
@@ -216,6 +231,8 @@ test('every walk reaches its outcome or a person, or its dead end is on the list
       assert.deepEqual(seen.filter((key) => !listed.includes(key)), [], `a new dead end: fix it, this list only shrinks\n${context}`);
       assert.deepEqual(listed.filter((key) => !seen.includes(key)), [], `no longer a dead end: remove it from known-dead-ends.json\n${context}`);
       if (result.outcome === 'dead-end') assert.ok(listed.length, `a dead end with nothing listed\n${context}`);
+      // A walk that must reach its outcome itself, not hand it to a person (setting the code aside, say).
+      if (scenario.outcome) assert.equal(result.outcome, scenario.outcome, context);
     });
   }
 });

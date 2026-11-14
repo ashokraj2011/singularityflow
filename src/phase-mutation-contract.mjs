@@ -51,7 +51,8 @@ const KERNEL_ONLY_SKILLS = new Set([
 
 export function mutationTurnMode(skill) {
   const name = String(skill ?? '').replace(/^\/?(?:sf|sflow)-/u, '');
-  if (['approve', 'reject'].includes(name)) return 'approval-only';
+  // /sf-amend is /sf-reject's intent-amendment route on its own; the guard narrows its turn to that route.
+  if (['approve', 'reject', 'amend'].includes(name)) return 'approval-only';
   if (['session', 'resume', 'agent'].includes(name)) return 'session-only';
   if (name === 'review-source') return 'read-only-review';
   if (name === 'review-decide') return 'review-decision-only';

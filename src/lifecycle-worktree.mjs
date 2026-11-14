@@ -32,17 +32,30 @@ function abandonedStoryWrite(relative, config, workflow) {
   return relative.startsWith(itemRoot);
 }
 
-export function inspectLifecycleWorktree(root, config = null, workflow = null) {
+export function inspectLifecycleWorktree(root, config = null, workflow = null, { held = null } = {}) {
   const { entries } = worktreeStatusDetail(root);
   const ownership = applicationPathContext(config, workflow);
   const reports = entries.filter(entry => entry.type === 'untracked' && entry.path.kind === 'utf8'
     && (isTransientTestResultPath(entry.path.value, ownership) || isTestRunnerOutputPath(entry.path.value, ownership)
       || abandonedStoryWrite(entry.path.value, config, workflow))
     && regularWorktreeFile(root, entry.path.value));
+  // `held`: what is kept in place for a later code step (heldForLaterCode), not this decision's.
+  const kept = (entry) => Boolean(held?.size) && [entry.path, entry.sourcePath].filter(Boolean).every(item => item.kind === 'utf8' && held.has(item.value));
   return {
-    entries: entries.filter(entry => !reports.includes(entry)),
-    disposableUntrackedPaths: reports.map(entry => entry.path.value).sort()
+    entries: entries.filter(entry => !reports.includes(entry) && !kept(entry)),
+    disposableUntrackedPaths: reports.map(entry => entry.path.value).sort(),
+    ...(held?.size ? { heldPaths: entries.filter(kept).flatMap(entry => [entry.path, entry.sourcePath].filter(Boolean).map(item => item.value)).sort() } : {})
   };
+}
+
+/**
+ * The paths kept in place for a later code step, unchanged since an amendment closed its generation or a return left it
+ * open (SPEC-CIC switch 2, amended-drafts.mjs): an earlier document step's decision does not count them. Null when none.
+ */
+export async function heldForLaterCode(root, config, workflow) {
+  const phase = workflow?.phases?.[workflow.currentPhase];
+  if (!phase || !Object.values(workflow.phases).some(step => step?.scopePin?.closedChangeSet || step?.heldCode)) return null;
+  return (await import('./amended-drafts.mjs')).heldCodePaths(root, config, workflow, phase);
 }
 
 /**
@@ -70,9 +83,9 @@ export async function withChangesAfterPublication(error, root, config, workflow)
     .withChangesAfterPublicationRoutes(error, root, config, workflow);
 }
 
-export function assertLifecycleWorktreeClean(root, config = null, workflow = null, { workId = null } = {}) {
+export function assertLifecycleWorktreeClean(root, config = null, workflow = null, { workId = null, held = null } = {}) {
   assertNoHiddenWorktreeChanges(root, 'Lifecycle decision');
-  const inspection = inspectLifecycleWorktree(root, config, workflow);
+  const inspection = inspectLifecycleWorktree(root, config, workflow, { held });
   if (!inspection.entries.length) return inspection;
   const id = workflow?.workItem?.id ?? workId;
   const command = `singularity-flow recover${id ? ` ${id}` : ''} --json`;

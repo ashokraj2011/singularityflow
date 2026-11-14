@@ -156,6 +156,10 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
       { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
     );
   }
+  // It carries exactly the code the closure recorded, what an earlier document step left in place for it [owner, 2026-11-14].
+  if (carried && existing.length && !adoptExisting && phase.scopePin?.closedChangeSet) {
+    (await import('./amended-drafts.mjs')).assertCarriesClosedCode(config, workflow, phase, applicationChangeSet, dirtyDetails);
+  }
   if (existing.length && !adoptExisting && !carried) {
     if (initialAdoptionBlocked) {
       throw new SingularityFlowError(

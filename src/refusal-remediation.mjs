@@ -2236,6 +2236,9 @@ export function refusalDetails(details) {
     if (/^sha256:[a-f0-9]{64}$/u.test(details.changeSetDigest ?? '')) projected.changeSetDigest = details.changeSetDigest;
     for (const key of ['dirtyStartPolicy', 'boundary']) if (text(details[key])) projected[key] = text(details[key]);
   }
+  // A later code step's recorded code changed since it was left in place for that step (SPEC-CIC switch 2).
+  const changedSinceClosure = list(details.changedSinceClosure, text);
+  if (changedSinceClosure.length) projected.changedSinceClosure = changedSinceClosure;
   // A missing environment file: its environment, path, template and both fixes, so an editor can offer them [ENVF].
   if (text(details.environment) && Array.isArray(details.commands)) {
     const file = (entry) => (entry && typeof entry === 'object' && text(entry.path)

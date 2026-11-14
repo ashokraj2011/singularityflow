@@ -400,3 +400,32 @@ test('a model-free run names the human publication route in its footers, refusal
     assert.doesNotMatch(output, /singularity-flow reject intake/u, 'no rejection is offered before submission');
   }
 });
+
+test('no next-step list holds the same item twice, wherever its entries come from [paid run, 2026-11-14]', () => {
+  const distinct = (steps, context) => {
+    const keys = steps.map((step) => `${step.command}|${step.reason}`);
+    assert.deepEqual(keys.filter((key, index) => keys.indexOf(key) !== index), [], context);
+  };
+  let proposable = 0;
+  for (const phaseStatus of ['in_progress', 'awaiting_approval']) for (const generation of [0, 1]) {
+    for (const amendment of [null, 'proposed', 'approved', 'acknowledged']) for (const enabled of [true, false]) {
+      const state = workflow({ currentPhase: 'requirements' });
+      state.resolution = { obligationGraph: { nodes: [{ id: 'intake', responsibilities: ['scope'] }] } };
+      state.phases.intake = { ...state.phases.intake, status: 'approved', generation: 1 };
+      state.phases.requirements = { ...state.phases.requirements, status: phaseStatus, generation };
+      state.intentAmendments = amendment ? [{ id: 'AMD-001', status: amendment === 'acknowledged' ? 'approved' : amendment, acknowledgementRequired: true,
+        ...(amendment === 'acknowledged' ? { acknowledgedAt: '2026-11-14T16:37:10.557Z' } : {}) }] : [];
+      const context = `${phaseStatus} gen ${generation} amendment ${amendment} model ${enabled}`;
+      const steps = workflowNextSteps(state, { modelMode: { enabled } });
+      proposable += steps.some((step) => step.command?.startsWith('singularity-flow story intent-amendment propose')) ? 1 : 0;
+      distinct(steps, context);
+      distinct(nextStepsSnapshot({ workflow: state, modelMode: { enabled } }).actions, context);
+    }
+  }
+  assert.ok(proposable > 0, 'the amendment route is among the states checked');
+  // Two producers of one item (a caller's prerequisite and the planner's own route): said once, where it first stands.
+  const state = workflow();
+  const own = workflowNextSteps(state)[0];
+  const doubled = workflowNextSteps(state, { prerequisites: [{ timing: 'optional', skill: own.skill, command: own.command, reason: own.reason }] });
+  assert.equal(doubled.filter((step) => step.command === own.command && step.reason === own.reason).length, 1);
+});

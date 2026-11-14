@@ -153,6 +153,12 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
     '--file', amendedPath, '--reason', 'Review showed that value 2 is required.',
     ...authorshipFlags, '--json').stdout);
   assert.equal(proposed.proposal.source.phaseId, sourcePhase);
+  // Where it is decided, with every route (paid run, 2026-11-14): the card, and the person's own decide command, whose
+  // Copilot and VS Code routes are the same card, never "no verified equivalent" or "not available".
+  const CARD = 'Command Palette: Singularity Flow: Decide Everything This Step Waits On';
+  assert.deepEqual(proposed.next.map((route) => [route.copilotCommand, route.command, route.modelFreeCommand]), [
+    [`/sf-decide ${WORK}`, `singularity-flow decisions ${WORK}`, CARD],
+    [`/sf-decide ${WORK}`, `singularity-flow story intent-amendment decide AMD-001 --decision <approve|reject> --confirm AMD-001 --work-id ${WORK}`, CARD]]);
   assert.deepEqual(proposed.proposal.requiredClauses, [`${WORK}:AC-001`, `${WORK}:REQ-001`]);
   assert.equal(proposed.proposal.convergence, undefined, 'no convergence findings were invented');
   assert.equal(proposed.proposal.source.artifactPresent, false);
@@ -194,6 +200,10 @@ test(`${workType}: an amendment needs no convergence finding and authority decid
   const decision = JSON.parse(cli('story', 'intent-amendment', 'decide', 'AMD-001',
     '--decision', 'approve', '--confirm', 'AMD-001', '--json').stdout);
   assert.equal(decision.transition.applied, true);
+  // Its acknowledgement, on the card or in the person's own terminal: the same card on every surface.
+  assert.deepEqual(decision.next.map((route) => [route.copilotCommand, route.command, route.modelFreeCommand]), [
+    [`/sf-decide ${WORK}`, `singularity-flow decisions ${WORK}`, CARD],
+    [`/sf-decide ${WORK}`, `singularity-flow story intent-amendment acknowledge AMD-001 --work-id ${WORK}`, CARD]]);
   const amended = JSON.parse(await readFile(workflowPath, 'utf8'));
   assert.equal(amended.phases.specification.generation, 2);
   assert.equal(amended.currentPhase, sourcePhase);

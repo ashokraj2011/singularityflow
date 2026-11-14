@@ -17,6 +17,7 @@ import { copilotCommandForCommand } from '../src/copilot-guidance.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 import { ownTerminalStep } from '../src/command-skills.mjs';
 import { confirmCode, confirmCommandText, resolveConfirmCode } from '../src/confirm-code.mjs';
+import { decideCardStep } from '../src/model-free-commands.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const digest = `sha256:${'d'.repeat(64)}`;
@@ -62,6 +63,11 @@ test('every reviewed-digest confirmation route carries its digest, through the e
     // terminal step (an amendment's decision, setting a waiting commit aside).
     if (guidance.copilotCommand === null) {
       assert.ok(ownTerminalStep(command), `${file}: ${command} has no Copilot route`);
+      continue;
+    }
+    // A person's own step the Decide card records (an amendment's decision) routes to the card, which shows it in words.
+    if (decideCardStep(guidance.argv)) {
+      assert.ok(ownTerminalStep(command) && /^\/sf-decide(?: \S+)?$/u.test(guidance.copilotCommand), `${file}: ${command}\n  routes to ${guidance.copilotCommand}`);
       continue;
     }
     checked.push(command);

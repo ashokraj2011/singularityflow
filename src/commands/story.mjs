@@ -2644,7 +2644,12 @@ export async function storyIntentAmendmentCommand(positionals, options) {
   }
   if (action === 'propose') {
     const result = await proposeIntentAmendment(root, config, workflow, options);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    // Where it is decided, with every route: the card (Copilot /sf-decide, VS Code Decide), or the decide command in the
+    // person's own terminal, whose Copilot and VS Code routes are the same card (paid run, 2026-11-14).
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, next: [
+      safeCommandGuidance({ command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' }),
+      safeCommandGuidance(`singularity-flow story intent-amendment decide ${result.proposal.id} --decision <approve|reject> --confirm ${result.proposal.id} --work-id ${workflow.workItem.id}`)
+    ].filter(Boolean) }, null, 2));
     console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; committed${result.publication.pushed ? ' and pushed' : ''}.`);
     // Under SPEC-CIC switch 3, how big it is and who decides it [CIC:REQ-013, REQ-014].
     if (result.proposal.classification) {
@@ -2660,7 +2665,7 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     // A scope approver decides it on the decisions card, or with the exact command in their own terminal [owner, 2026-11-13].
     printCommandRoutes(`singularity-flow decisions ${workflow.workItem.id}`, { label: 'A scope approver decides it on the decisions card', skill: '/sf-decide' });
     printCommandRoutes(
-      `singularity-flow story intent-amendment decide ${result.proposal.id} --decision <approve|reject> --confirm ${result.proposal.id}`,
+      `singularity-flow story intent-amendment decide ${result.proposal.id} --decision <approve|reject> --confirm ${result.proposal.id} --work-id ${workflow.workItem.id}`,
       { label: 'Or in their own terminal' }
     );
     return;
@@ -2668,7 +2673,14 @@ export async function storyIntentAmendmentCommand(positionals, options) {
   if (action === 'decide') {
     const proposalId = requirePositional(positionals, 3, 'intent amendment ID');
     const result = await decideProposedIntentAmendment(root, config, workflow, proposalId, options);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (optionBoolean(options, 'json')) {
+      // What the text below routes to, with every route: the card answers each, and acknowledges an applied one (paid run, 2026-11-14).
+      const application = result.transition.reached && result.transition.applied ? result.transition.proposal.application : null;
+      const card = safeCommandGuidance({ command: `singularity-flow decisions ${workflow.workItem.id}`, skill: '/sf-decide' });
+      const next = !application ? [] : application.revalidate?.length ? [card]
+        : [card, safeCommandGuidance(`singularity-flow story intent-amendment acknowledge ${proposalId} --work-id ${workflow.workItem.id}`)];
+      return console.log(JSON.stringify({ ...result, ...(next.length ? { next: next.filter(Boolean) } : {}) }, null, 2));
+    }
     if (!result.transition.reached) {
       const awaiting = result.transition.proposal.approvals.planSignOffsMissing ?? [];
       console.log(`Recorded approval for ${proposalId}; ${result.transition.proposal.approvals.reached}/${result.transition.proposal.approvals.required} authority decisions`
@@ -2715,8 +2727,9 @@ export async function storyIntentAmendmentCommand(positionals, options) {
       printCommandRoutes(`singularity-flow decisions ${workflow.workItem.id}`, { label: 'Answer each step\'s row', skill: '/sf-decide' });
       return;
     }
+    // On the card (/sf-decide, VS Code Decide) or in the person's own terminal: the same acknowledgement (paid run, 2026-11-14).
     printCommandRoutes(
-      `singularity-flow story intent-amendment acknowledge ${proposalId}`,
+      `singularity-flow story intent-amendment acknowledge ${proposalId} --work-id ${workflow.workItem.id}`,
       { label: 'Acknowledge before submitting' }
     );
     return;

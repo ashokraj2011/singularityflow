@@ -614,7 +614,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-lifecycle.mjs +273), an acknowledgement is a person's own step (person-step-catalog.mjs, source-review-policy.mjs),
     // /sf-reject's propose route and the authoring draft (copilot-guidance.mjs, phase-staging-paths.mjs, upstream-routes.mjs).
     // 9,663,250 (measured 9,663,230, commands/phase-lifecycle.mjs): the three above together, set once at the combined measurement.
-    assert.ok(closure.bytes <= 9_663_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,663,650 (measured 9,663,627, commands/phase-lifecycle.mjs): the agents home [SPEC-AGH, owner 2026-11-14] merged with
+    // main bd90bcc46 (9,656,050 there): discovery reads the root workflow.yml records (agents.mjs +1,701), the layout and its
+    // transport policy (configuration-assets.mjs +1,643), init's layout (config.mjs +1,345, initialization-assets.mjs +1,305),
+    // first governance moves SFlow's agents only (configuration-branch.mjs +837), the legacy root governed unless a source
+    // records the home (application-paths.mjs +520) and moved agents' package history (packaged-asset-history.mjs +226).
+    // The migration stays lazy (agents-home-migration.mjs). No new eager file [2026-11-15].
+    assert.ok(closure.bytes <= 9_663_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -917,6 +923,10 @@ test('the common session projection does not import attach, state stores or publ
   // 4,253,836 (measured): the chat entry's two turns and its one step in the person-step catalog, which every hook reads
   // (person-step-catalog.mjs +224); its check stays in the lazily loaded answer binding. No new eager file.
   // 4,253,868 (measured on the merge with main 153e78d1a): main's own growth since (+32) on top of the two above.
+  // 4,256,000 (measured 4,255,985 on the merge with main 7f0d9b738): every decision the Decide card records has the card
+  // as its VS Code route, and an intent amendment's decision or acknowledgement and a settled one's undo the card as their
+  // Copilot route too, read wherever a route is shown (model-free-commands.mjs +1,751, safe-command-guidance.mjs +366)
+  // (paid run, 2026-11-14), on top of the 4,253,868 above. No new eager file.
   // 4,257,800 (measured 4,257,780): the agents home [SPEC-AGH, owner 2026-11-14]: the layout signal read
   // where configuration loads, and init's layout (config.mjs +1,678), the init mappings for either layout
   // (initialization-assets.mjs +1,305), the legacy root governed only when no source records a layout
@@ -926,7 +936,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,257,850 (measured 4,257,812): the same, merged with main 153e78d1a (+32 there). No new eager file.
   // 4,258,950 (measured 4,258,907): the agents home above, merged with main 7f0d9b738 and its SPEC-CIC stage 6
   // (4,253,868 there): +5,039 for the agents home on that base [2026-11-15]. No new eager file.
-  assert.ok(current.bytes <= 4_258_950, `session current loads ${current.bytes} source bytes`);
+  // 4,261,050 (measured 4,261,024): the agents home, merged with main bd90bcc46 and its Decide card routes (4,255,985
+  // there): +5,039 for the agents home on that base [2026-11-15]. No new eager file.
+  assert.ok(current.bytes <= 4_261_050, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -598,3 +598,65 @@ test('a "still holds" answered No while the amendment has the code step\'s gener
     assert.deepEqual([published.status, published.baseline.mode, published.baseline.carriedFrom], ['consumed', 'carried', closed.generationIntent.id]);
     assert.deepEqual(f.dirty(), []);
   });
+
+// The routes a code step's entry and its recovery plan give for the checkout: [id, command] of each action.
+const entryRoutes = (f, phase) => {
+  const entry = JSON.parse(f.sflow('phase', 'enter', phase, '--compose', '--for-agent', '--json'));
+  return (entry.next ?? []).map((action) => [action.id, action.commandGuidance?.command ?? action.command ?? null]);
+};
+const planRoutes = (f, id, phase) => JSON.parse(f.sflow('recover', id, '--phase', phase, '--json')).actions
+  .map((action) => [action.id, action.commandGuidance?.command ?? action.command ?? null]);
+
+test('before a closed generation begins again, recovery routes exactly its recorded code to `phase begin`, never to a reviewed commit; anything beyond the record, and code a return left open, keep their routes [paid run, 2026-11-14]',
+  slowLane({ timeout: 900_000 }), async (t) => {
+    const [f, r] = await Promise.all([fixture(t, { refuse: true }), fixture(t, { refuse: true })]);
+    // f: the amendment closes the code step's generation; the design is written again with its code in place and approved.
+    await f.scoped('PD-8');
+    await f.designed('PD-8');
+    f.sflow('phase', 'begin', 'implement', '--json');
+    await f.code('PD-8');
+    f.sflow('prepare', 'implement');
+    f.sflow('phase', 'enter', 'implement', '--compose', '--json');
+    await f.amend('PD-8', (text) => text.replace('The value module stays a single export.', 'The value module keeps exactly one named export.'), 'Tighten the export clause.');
+    f.sflow('story', 'intent-amendment', 'acknowledge', 'AMD-001');
+    f.sflow('resume', 'PD-8');
+    f.sflow('prepare', 'fix-design'); f.sflow('phase', 'enter', 'fix-design', '--compose', '--json');
+    await writeFile(f.item('PD-8', 'artifacts/fix-design/fix-design.md'), f.designText('PD-8').replace('keeps the module to a single export', 'keeps exactly one named export'));
+    f.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place'); f.sflow('submit', 'fix-design'); f.sflow('approve', 'fix-design', '--yes');
+    assert.deepEqual(f.dirty(), [' M src/value.mjs', ' M test/value.test.mjs']);
+    const BEGIN = 'singularity-flow phase begin implement --json';
+    // Exactly the recorded code: the entry, before `phase begin`, routes it there; nothing offers to commit it as reviewed.
+    for (const routes of [entryRoutes(f, 'implement'), planRoutes(f, 'PD-8', 'implement')]) {
+      assert.deepEqual(routes.filter(([id]) => id === 'working-tree'), [['working-tree', BEGIN]], JSON.stringify(routes));
+      assert.ok(!routes.some(([id]) => id === 'commit-reviewed-worktree'), JSON.stringify(routes));
+    }
+    // A recorded file changed since: beyond the record, the routes are today's, and the begin refuses it in this step.
+    const kept = await readFile(path.join(f.root, 'src/value.mjs'), 'utf8');
+    await writeFile(path.join(f.root, 'src/value.mjs'), `${kept}// edited after the amendment\n`);
+    const beyond = entryRoutes(f, 'implement');
+    assert.ok(!beyond.some(([, command]) => command === BEGIN), JSON.stringify(beyond));
+    assert.ok(beyond.some(([id]) => id === 'commit-reviewed-worktree'), JSON.stringify(beyond));
+    assert.equal(errorOf(f.run(['phase', 'begin', 'implement', '--json'])).code, 'GENERATION_DIRTY_START');
+    await writeFile(path.join(f.root, 'src/value.mjs'), kept);
+    // The route it named carries the code.
+    f.sflow('phase', 'begin', 'implement', '--json');
+    assert.deepEqual((await f.workflow('PD-8')).phases.implement.generationIntent.baseline.mode, 'carried');
+
+    // r: a return to the design leaves the code step's open generation and its code in place (`heldCode`). Reached again, the
+    // generation is still open: its code is that generation's draft to continue, and nothing routes it to a begin.
+    await r.scoped('PD-9');
+    await r.designed('PD-9');
+    r.sflow('phase', 'begin', 'implement', '--json');
+    await r.code('PD-9');
+    r.sflow('prepare', 'implement');
+    r.sflow('phase', 'enter', 'implement', '--compose', '--json');
+    r.sflow('upstream-issue', 'raise', '--phase', 'fix-design', '--about', 'Root cause', '--problem', 'The design names the wrong root cause for the value.');
+    r.sflow('upstream-issue', 'decide', 'UPI-001', '--outcome', 'return', '--reason', 'The design must name the right root cause first.');
+    assert.ok((await r.workflow('PD-9')).phases.implement.heldCode);
+    r.sflow('prepare', 'fix-design'); r.sflow('phase', 'enter', 'fix-design', '--compose', '--json');
+    await writeFile(r.item('PD-9', 'artifacts/fix-design/fix-design.md'), r.designText('PD-9').replace('holds the old value', 'holds the old literal value'));
+    r.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place'); r.sflow('submit', 'fix-design'); r.sflow('approve', 'fix-design', '--yes');
+    const held = entryRoutes(r, 'implement');
+    assert.deepEqual(held.filter(([id]) => id === 'working-tree'), [['working-tree', 'singularity-flow phase prepublish implement --json']], JSON.stringify(held));
+    assert.ok(!held.some(([, command]) => command === BEGIN), JSON.stringify(held));
+  });

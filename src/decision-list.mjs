@@ -23,6 +23,7 @@ import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { matchApprovalAuthority, normalizeApprovalAuthorities, sameApprover } from './approval-authority.mjs';
 import { commandLineWithoutSkill, DECISION_LIST_CHAT_OPTIONS } from './command-skills.mjs';
+import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { recordSha256 } from './records.mjs';
 import { evidenceWords, reraisedRoute, settledByWords, settledDecisions } from './settled-decisions.mjs';
 import { pinDiffWords, testCommandReviewHold } from './story-test-commands.mjs';
@@ -1991,10 +1992,12 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
     ...(offered.length ? { offered } : {}),
     ...(settled.length ? { settled } : {}),
     ...(facts.inactiveTestCommands?.length ? { inactiveTestCommands: facts.inactiveTestCommands } : {}),
+    // With its VS Code route: the Decide card for the list itself, never "not available" beside it (paid run, 2026-11-14).
     next: first && !takenNow(first) ? { item: first.id, kind: first.kind, title: first.title, notYet: first.options[0]?.words ?? first.why,
       command: `singularity-flow nextsteps ${workId} --json`, copilotCommand: `/sf-next ${workId}` }
-      : first ? { item: first.id, kind: first.kind, title: first.title, command: first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`,
-        copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : first.routeSkill ? `${first.routeSkill} ${workId}` : listRoute } : null,
+      : first ? ((command) => ({ item: first.id, kind: first.kind, title: first.title, command,
+        copilotCommand: first.kind === 'approval' ? `/sf-approve ${phaseId} --work-id ${workId}` : first.routeSkill ? `${first.routeSkill} ${workId}` : listRoute,
+        ...(modelFreeCommandForCommand(command) ? { modelFreeCommand: modelFreeCommandForCommand(command) } : {}) }))(first.options[0]?.action?.command ?? `singularity-flow decisions ${workId}`) : null,
     packetSha256: digest,
     record: {
       // In a person's own terminal it shows the summary and asks them to confirm; `packetSha256` is the digest a script passes as --confirm.

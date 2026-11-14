@@ -89,14 +89,14 @@ test('each step of the pending-amendment plan carries its own routes, and none o
     { id: 'inspect-intent-amendment', command: STATUS, skill: null, copilotCommand: null, copilotReason: null },
     { id: 'decide-intent-amendment-on-card', command: CARD, skill: '/sf-decide', copilotCommand: `/sf-decide ${WORK}`, copilotReason: null },
     { id: 'leave-approval-turn', command: null, skill: null, copilotCommand: null, copilotReason: null },
-    { id: 'decide-intent-amendment', command: DECIDE, skill: null, copilotCommand: null, copilotReason: 'no verified equivalent: decide it in your terminal' }
+    // Its Copilot and VS Code routes are the same card, which records the same decision (paid run, 2026-11-14).
+    { id: 'decide-intent-amendment', command: DECIDE, skill: '/sf-decide', copilotCommand: `/sf-decide ${WORK}`, copilotReason: null }
   ]);
   const rendered = renderRefusalPlan(plan).split('\n');
   // Each route is its own bullet, Copilot first (8f25dc4b standardized the three surfaces).
   const routesOf = (command) => rendered.slice(rendered.indexOf(`     - Shell: ${command}`) - 1, rendered.indexOf(`     - Shell: ${command}`) + 2);
-  for (const command of [STATUS, DECIDE]) {
-    assert.deepEqual(routesOf(command), [`     - Copilot: ${NO_ROUTE}`, `     - Shell: ${command}`, '     - VS Code (model-free): not available for this action']);
-  }
+  assert.deepEqual(routesOf(STATUS), [`     - Copilot: ${NO_ROUTE}`, `     - Shell: ${STATUS}`, '     - VS Code (model-free): not available for this action']);
+  assert.deepEqual(routesOf(DECIDE), [`     - Copilot: /sf-decide ${WORK}`, `     - Shell: ${DECIDE}`, '     - VS Code (model-free): Command Palette: Singularity Flow: Decide Everything This Step Waits On']);
   // The decisions card's VS Code route is the Decide card itself [owner, 2026-11-13].
   assert.deepEqual(routesOf(CARD), [`     - Copilot: /sf-decide ${WORK}`, `     - Shell: ${CARD}`, '     - VS Code (model-free): Command Palette: Singularity Flow: Decide Everything This Step Waits On']);
   assert.doesNotMatch(rendered.join('\n'), /Copilot: \/sf-reject/u);
@@ -110,25 +110,27 @@ test('each step of the pending-amendment plan carries its own routes, and none o
   const { commandGuidanceText } = await import('../apps/vscode/src/views/command-guidance.ts');
   const { view: card } = refusalFor({ message: 'history changed', result: envelope });
   assert.deepEqual(card.actions.map(({ command, skill, copilotCommand }) => ({ command, skill, copilotCommand })),
-    [{ command: STATUS, skill: null, copilotCommand: null }, { command: CARD, skill: '/sf-decide', copilotCommand: `/sf-decide ${WORK}` }, { command: DECIDE, skill: null, copilotCommand: null }]);
+    [{ command: STATUS, skill: null, copilotCommand: null }, { command: CARD, skill: '/sf-decide', copilotCommand: `/sf-decide ${WORK}` }, { command: DECIDE, skill: '/sf-decide', copilotCommand: `/sf-decide ${WORK}` }]);
   const html = resultCardHtml(card);
-  assert.equal(html.split(`Copilot:</strong> ${NO_ROUTE} </li>`).length - 1, 2, html);
+  assert.equal(html.split(`Copilot:</strong> ${NO_ROUTE} </li>`).length - 1, 1, html);
   assert.doesNotMatch(html, /\/sf-reject<\/code>/u);
   assert.equal(commandGuidanceText(STATUS), `- Copilot: ${NO_ROUTE}\n- Shell: ${STATUS}\n- VS Code (model-free): not available for this action`);
 });
 
 test('the intent-amendment crosswalk routes only drafting and proposing, to /sf-amend', () => {
-  for (const command of [STATUS, DECIDE, `singularity-flow story intent-amendment --work-id ${WORK}`,
-    `singularity-flow story intent-amendment acknowledge AMD-001 --work-id ${WORK}`]) {
+  // The decision and the acknowledgement are a person's on the Decide card: their Copilot route is the card (paid run, 2026-11-14).
+  const card = [DECIDE, `singularity-flow story intent-amendment acknowledge AMD-001 --work-id ${WORK}`];
+  for (const command of [STATUS, ...card, `singularity-flow story intent-amendment --work-id ${WORK}`]) {
     const guidance = safeCommandGuidance(command);
     assert.equal(guidance?.command, command, command);
-    assert.equal(guidance.skill, null, command);
-    assert.equal(guidance.copilotCommand, null, command);
+    assert.equal(guidance.skill, card.includes(command) ? '/sf-decide' : null, command);
+    assert.equal(guidance.copilotCommand, card.includes(command) ? `/sf-decide ${WORK}` : null, command);
     assert.equal(copilotCommandForCommand(command, '/sf-reject'), null, `a supplied skill is no route either: ${command}`);
     // A producer asserting the old route is contradicted, never shown.
     assert.equal(safeCommandGuidance({ command, skill: '/sf-reject' }), null, command);
     assert.equal(safeCommandGuidance({ command, copilotCommand: '/sf-reject' }), null, command);
     const action = copilotAction({ skill: '/sf-reject', command, reason: 'x' });
+    // A contradicted producer's action names no Copilot route at all.
     assert.deepEqual([action.skill, action.copilotCommand], [null, null], command);
     assert.equal(actionCommandLines({ skill: '/sf-reject', command })[1], `- Copilot: ${NO_ROUTE}`);
   }
@@ -188,8 +190,9 @@ test('the advisory prints as warning lines with every route, and the approval pa
   const lines = blockingCommitLines(advisory);
   assert.equal(lines[0], `${advisory.statement} (Advisory; the approval gate decides.)`);
   assert.ok(lines.includes(`    - Shell: ${STATUS}`) && lines.includes(`    - Shell: ${DECIDE}`), lines.join('\n'));
-  // Neither the read nor the person's decision is /sf-reject's: that skill returns the phase.
-  assert.equal(lines.filter((line) => line === `    - Copilot: ${NO_ROUTE}`).length, 2, lines.join('\n'));
+  // Neither the read nor the person's decision is /sf-reject's: that skill returns the phase. The decision's is the card.
+  assert.equal(lines.filter((line) => line === `    - Copilot: ${NO_ROUTE}`).length, 1, lines.join('\n'));
+  assert.equal(lines.filter((line) => line === `    - Copilot: /sf-decide ${WORK}`).length, 2, lines.join('\n'));
   assert.ok(!lines.some((line) => line.includes('/sf-reject')), lines.join('\n'));
   assert.deepEqual(blockingCommitLines(null), []);
   const { approvalBlockingCommits, approvalBlockingCommitsHtml } = await import('../apps/vscode/src/views/webview.ts');

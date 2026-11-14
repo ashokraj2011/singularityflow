@@ -908,7 +908,11 @@ test('the common session projection does not import attach, state stores or publ
   // also where a route arrives without its model-free field [owner, 2026-11-13] (model-free-commands.mjs +678). No new eager file.
   // 4,252,450 (measured 4,252,428): both of the above together on one branch, each one's growth as measured (+1,656 and
   // +678); the card's advice (decision-advice.mjs) and the settled list stay lazy. No new eager file.
-  assert.ok(current.bytes <= 4_252_450, `session current loads ${current.bytes} source bytes`);
+  // 4,254,600 (measured 4,254,543): every decision the Decide card records has the card as its VS Code route, and an
+  // intent amendment's decision or acknowledgement and a settled one's undo the card as their Copilot route too, read
+  // wherever a route is shown (model-free-commands.mjs +1,751, safe-command-guidance.mjs +366) (paid run, 2026-11-14).
+  // No new eager file.
+  assert.ok(current.bytes <= 4_254_600, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

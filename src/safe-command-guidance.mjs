@@ -11,7 +11,7 @@
 import { authoringSkillEntry } from './authoring-skills.mjs';
 import { commandDefinition } from './command-registry.mjs';
 import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
-import { modelFreeCommandForArgv, formatCommandRouteLines } from './model-free-commands.mjs';
+import { decideCardCopilotCommand, decideCardStep, modelFreeCommandForArgv, formatCommandRouteLines } from './model-free-commands.mjs';
 import {
   copilotCommandForCommand, directCopilotSkill, directCopilotSkillId, recordedValueRoute
 } from './copilot-guidance.mjs';
@@ -362,11 +362,13 @@ export function safeCommandGuidance(value) {
   )) return null;
   const safe = fromCommand ?? fromArgv;
   if (!safe) return null;
-  // A registered command no skill carries out (an amendment's decision): its routes are the Shell
-  // command and "no verified Copilot equivalent". A supplied skill or route contradicts that.
+  // A registered command no skill carries out (a witness): its routes are the Shell command and "no verified
+  // Copilot equivalent"; a supplied skill or route contradicts that. One the Decide card records is the card's.
   if (commandLineWithoutSkill(safe.command)) {
-    if (input.skill != null || input.copilotCommand != null) return null;
-    return Object.freeze({ ...safe, skill: null, copilotCommand: null, modelFreeCommand: modelFreeCommandForArgv(safe.argv) });
+    const card = decideCardStep(safe.argv) ? { skill: '/sf-decide', copilotCommand: decideCardCopilotCommand(safe.argv) } : null;
+    if (input.skill != null && !(card && normalizedSkill(input.skill) === card.skill)) return null;
+    if (input.copilotCommand != null && input.copilotCommand !== card?.copilotCommand) return null;
+    return Object.freeze({ ...safe, skill: card?.skill ?? null, copilotCommand: card?.copilotCommand ?? null, modelFreeCommand: modelFreeCommandForArgv(safe.argv) });
   }
   const canonicalSkill = normalizedSkill(skillForCommandLine(safe.command));
   if (!canonicalSkill) return null;

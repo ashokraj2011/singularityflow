@@ -2452,8 +2452,10 @@ business now wants 5 retries, and no retry after a fraud decline.
    a person may publish the old text unchanged if it still holds. Its approvers approve it again. A
    Story started before `spec.preAmendmentDrafts` sets that code aside first (`/sf-recover`).
 5. Implement is written again: publishing its old draft is refused with `PHASE_DRAFT_PREDATES_AMENDMENT`.
-   `/sf-code` opens its code generation again and composes it; the code in the working tree is the
-   starting point. Then publish, submit and approve as usual.
+   `/sf-code` opens its code generation again and composes it; the code AMD-001 recorded is the
+   starting point. A recorded file changed since, or new code, is refused at `phase begin`
+   (`GENERATION_DIRTY_START`): put it back or set it aside (`/sf-recover`), then begin again. Then
+   publish, submit and approve as usual.
 
 If Design had named only AC-002, and not taken Intake as an input, it would keep its approval (rule E8). On a Story with
 `spec.observedDependencies: on`, its approvers would then be asked "Does Design still hold after

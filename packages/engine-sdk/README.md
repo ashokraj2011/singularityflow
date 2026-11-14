@@ -518,3 +518,34 @@ memory-byte normalization capability. It shares the native rules, preserves code
 and refuses to turn an unknown or timed-out run into an environment exception. These are value
 observations; human risk acceptance and execution evidence remain separate registered owners.
 See [the ownership and compatibility record](../../docs/ENGINE-SDK-TEST-CAUSES.md).
+
+
+### Git-free analytics and batch execution
+
+The preview namespace host also accepts v2 approved configurations with a `workProducts` map.
+Each policy declares requirements, measurable criteria, input/output ownership and a sequential
+closing acceptance contract. V1 configurations keep their original wire shapes.
+
+Use `work-product.context`, `work-product.retain` and `data.execute` through `engine.run`.
+Bind actual deterministic units under `data: {owner, bindings: [{adapterId, unit}]}`. The opt-in
+`execution/data` entry exports `createSqliteDataExecutionUnit`, `sqliteDataRequest` and
+`SQLITE_DATA_DRIVER_SHA256`. Construct the concrete manifest with `execution/node`'s
+`createExecutionUnitManifest`; the infrastructure-free `execution` entry defines the port only.
+Pin the qualified Node/SQLite executable digest in `toolPolicy.runtimeSha256` and the installed
+driver's digest in `toolPolicy.driverSha256`. A batch unit's manifest must pin its
+`sinkId`/`projectId`, and the task write scope must match that sink. The adapter reuses SGOS's
+pinned-process owner and actual termination handling. It never starts a model.
+
+An authorized phase approver can use `work-product.amend` with the exact context digest, shared
+replacement bytes and a reason. This preserves the original approval and failed observations.
+Completed data operations can be acknowledged with `data: {mode: 'retained-only'}`, without
+private drafts, an executor or a new clock. New executions still need actual execution capability.
+If SGOS completed but the lifecycle write was interrupted, the same mode can finish that original
+result after fresh authorization and input/actor/configuration checks. It cannot launch another
+task or complete an uncertain attempt. Fresh acceptance uses the current clock; acknowledging
+an already accepted result preserves the original timestamps.
+The `work-products` entry exports pure dataset, policy and quality-observation contracts.
+
+See the [data delivery record](../../docs/ENGINE-SDK-GIT-FREE-DATA-WORKFLOWS.md) for the supported
+scope and qualification. These are SDK operations; CLI/VS Code cutover is a later migration
+phase. Copilot remains the product's sole AI harness, outside pure SDK/kernel code.

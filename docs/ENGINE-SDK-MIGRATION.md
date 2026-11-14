@@ -1,8 +1,10 @@
 # Engine SDK and namespaced storage migration
 
-The latest Phase 5/7 delivery is [failure permissions, observed cohorts and external runners](ENGINE-SDK-FAILURE-COHORT-AND-EXTERNAL-RUNNERS.md).
-Its explicit new profiles preserve original agreements and do not finish the remaining owners in
-the [completion ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md).
+The latest Phase 5/7 delivery is [Git-free work products and data execution](ENGINE-SDK-GIT-FREE-DATA-WORKFLOWS.md).
+It follows [failure permissions, observed cohorts and external runners](ENGINE-SDK-FAILURE-COHORT-AND-EXTERNAL-RUNNERS.md)
+and preserves their original contracts. The [completion ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md)
+and [remaining-owner matrix](ENGINE-SDK-PHASE-5-7-COVERAGE.md) distinguish these delivered profiles
+from full Phase 5/7 completion. Copilot remains the sole AI harness.
 
 The target is a portable Node runtime with an embeddable engine. CLI, VS Code, MCP and Copilot
 adapters consume the same versioned operation vocabulary. An application can persist SFlow's

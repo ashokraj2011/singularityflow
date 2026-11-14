@@ -8,7 +8,7 @@ import { ENGINE_CONTRACT, ENGINE_HELPERS, ENGINE_OPERATIONS } from '../src/engin
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspace = path.join(root, 'packages/engine-sdk');
-const entryNames = Object.freeze(['index', 'evidence', 'application-review', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'scope', 'plans', 'constitution', 'convergence', 'testing/recovery', 'testing/reuse', 'testing/causes', 'testing/risks', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
+const entryNames = Object.freeze(['index', 'work-products', 'execution/data', 'evidence', 'application-review', 'errors', 'namespace', 'content', 'artifacts', 'specifications', 'scope', 'plans', 'constitution', 'convergence', 'testing/recovery', 'testing/reuse', 'testing/causes', 'testing/risks', 'specifications/node', 'source', 'source-control', 'changes', 'execution', 'execution/node', 'execution/runtime', 'execution/storage', 'execution/storage/namespace', 'sources/filesystem', 'sources/git', 'hosts/namespace-engine', 'hosts/namespace-preparation', 'hosts/namespace-publication', 'hosts/namespace-submission', 'hosts/namespace-approval', 'hosts/namespace-routing-choice', 'hosts/namespace-source', 'hosts/namespace-reader', 'hosts/namespace-project', 'hosts/namespace-configuration', 'hosts/namespace-story',
   'storage/filesystem', 'storage/sqlite', 'storage/sqlite-content', 'storage/application', 'storage/journal','testing/reports','testing/node','testing/execution','testing/node-test-reporter','hosts/namespace-test-witnesses','hosts/namespace-checks','hosts/namespace-source-inspection','hosts/namespace-source-retention','hosts/namespace-source-baseline','hosts/namespace-delivery-inspection','hosts/namespace-source-control']);
 const builtins = new Set(['node:crypto', 'node:fs', 'node:fs/promises', 'node:path', 'node:os', 'node:sqlite', 'node:net', 'node:child_process','node:test/reporters','node:async_hooks']);
 const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namespace-journal', 'namespace-journal-adapter',
@@ -17,9 +17,9 @@ const adapterNames = new Set(['filesystem-namespace-adapter', 'filesystem-namesp
 function allowedSource(relative) {
   return relative.startsWith('node_modules/yaml/browser/') || relative.startsWith('packages/engine-sdk/src/') || /^src\/(foundation|kernel|engine-sdk|engine-storage|sda\/(namespace|content))\//u.test(relative)
     || ['src/records.mjs', 'src/document-identity.mjs', 'src/authoring-skills.mjs', 'src/sgos/filesystem-source-unit.mjs',
-      'src/sgos/node-execution-unit.mjs','src/sgos/node-execution-values.mjs','src/platform-process-values.mjs',
+      'src/sgos/sql-data-values.mjs','src/sgos/sqlite-data-execution.mjs','src/sgos/sqlite-data-worker.mjs','src/sgos/node-execution-unit.mjs','src/sgos/node-execution-values.mjs','src/platform-process-values.mjs',
       'src/sgos/operational-contract.mjs','src/sgos/namespace-operational-store.mjs',
-      'src/sgos/durable-execution-unit.mjs','src/sgos/node-execution-owner.mjs',
+      'src/sgos/execution-attempt-values.mjs','src/sgos/retained-execution-reader.mjs','src/sgos/durable-execution-unit.mjs','src/sgos/node-execution-owner.mjs',
       'src/sgos/node-check-execution-unit.mjs','src/sgos/source-test-impact.mjs','src/sgos/node-git-source-control-reader.mjs','src/git-status-detail.mjs',
       'src/verification/test-report-reader.mjs','src/verification/node-test-reporter.mjs','src/test-runners.mjs',
       'src/engine-compatibility/node-test-causes.mjs', 'src/engine-compatibility/node-configuration-path.mjs', 'src/engine-compatibility/node-network-syntax.mjs',
@@ -30,6 +30,8 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(['work-product.retain','work-product.amend'].includes(operation.id)&&field==='content')return 'ContentReference';
+  if(['work-product.retain','work-product.amend','data.execute'].includes(operation.id))return field==='batchId'?'string | null':'string';
   if(field==='candidateGeneration')return 'number | null';
   if(operation.id.startsWith('test-recovery.select-')&&field==='selection')return 'readonly {readonly repositoryId:string;readonly commandId:string;readonly files:readonly string[]}[]';
   if(operation.id==='forward-amendment.propose'&&field==='content')return 'ContentReference';

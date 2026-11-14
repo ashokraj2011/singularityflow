@@ -20,6 +20,10 @@ export interface NamespaceEngineAccess {
   current(request:{readonly projectId:string;readonly workId?:string;readonly operation:NamespaceAccessOperation;readonly signal?:AbortSignal|null}):
     (NamespaceStoryAccessFacts&{readonly agentId:string|null})|Promise<NamespaceStoryAccessFacts&{readonly agentId:string|null}>;
 }
+export interface NamespaceDataBindings {
+  readonly owner:ExecutionOwner;
+  readonly bindings:readonly {readonly adapterId:string;readonly unit:ExecutionUnit}[];
+}
 export interface NamespaceEngineOptions {
   readonly records:NamespaceStore;readonly content:ContentStore;readonly scope:NamespaceScope;readonly workId:string;
   readonly authority:{readonly id:string;readonly epoch:number};readonly access:NamespaceEngineAccess;
@@ -31,6 +35,8 @@ export interface NamespaceEngineOptions {
   readonly sourceReaders?:readonly SourceContentReader[];
   readonly sourceControlReaders?:readonly SourceControlReader[];
   readonly notice?:(notice:unknown)=>unknown;
+  /** New query/batch execution needs an executor; completing retained evidence does not. */
+  readonly data?:NamespaceDataBindings|NamespaceRetainedExecutionBinding;
   readonly checks?:NamespaceChecksBindings|NamespaceRetainedExecutionBinding;
   /** Optional source-scoped repair units; never implied by enabled recovery or failed tests. */
   readonly repairs?:NamespaceTestRepairBindings|NamespaceRetainedExecutionBinding;

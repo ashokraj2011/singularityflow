@@ -34,6 +34,7 @@ import {testWitnessInspectionManifest} from '../kernel/verification-witnesses.mj
 import {clarificationOperationInput} from '../kernel/clarification-responses.mjs';
 import {storyDocumentRequest} from '../kernel/story-documents.mjs';
 import {phaseArtifactInspectionManifest} from '../kernel/namespace-artifact-sets.mjs';
+import {workProductMutationRequest} from '../kernel/work-products.mjs';
 
 export const ENGINE_CONTRACT = 'sflow-engine/v1';
 /** Convenience names are aliases for the registry, never independent execution paths. */
@@ -288,12 +289,67 @@ const definitions = [
     confirmation:'exact-reviewed-clarification-context',
     inputFields:Object.freeze(['operationId','workId','phaseId','agentId','contextSha256','responses','replace','reason']),
     requiredFields:Object.freeze(['operationId','workId','phaseId','contextSha256','responses']),port:'clarificationRecord',
-    stages:WRITE_STAGES,validate:'clarificationInput',execute:'recordClarification'}
+    stages:WRITE_STAGES,validate:'clarificationInput',execute:'recordClarification'},
+  {id:'work-product.context',version:1,effect:'read',inputFields:Object.freeze(['workId','phaseId']),port:'workProductContext',
+    stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectWorkProducts'},
+  {id:'work-product.retain',version:1,effect:'work-product-retention',inputFields:Object.freeze(['operationId','workId','phaseId','assetId','content','reason']),
+    requiredFields:Object.freeze(['operationId','workId','phaseId','assetId','content','reason']),port:'workProduct',
+    stages:Object.freeze(['load','prepare','commit','finish']),validate:'workProductInput',execute:'recordWorkProduct'},
+  {id:'work-product.amend',version:1,effect:'work-product-amendment',humanDecision:true,authority:'phase-approval-authority',confirmation:'exact-input-context',
+    inputFields:Object.freeze(['operationId','workId','phaseId','assetId','content','reason','expected']),requiredFields:Object.freeze(['operationId','workId','phaseId','assetId','content','reason','expected']),port:'workProductAmend',
+    stages:Object.freeze(['load','prepare','commit','finish']),validate:'workProductInput',execute:'recordWorkProduct'},
+  {id:'data.execute',version:1,effect:'data-execution',inputFields:Object.freeze(['operationId','workId','phaseId','expected','batchId']),
+    requiredFields:Object.freeze(['operationId','workId','phaseId','expected']),port:'dataExecution',
+    stages:Object.freeze(['load','retained','prepare','execute','commit','finish']),validate:'workProductInput',execute:'executeData'}
 ];
 export const ENGINE_OPERATIONS = Object.freeze(definitions.map(({validate,execute,...descriptor})=>Object.freeze(descriptor)));
 const registry = new Map(definitions.map(operation => [operation.id, Object.freeze(operation)]));
 
 function enrollmentInput(value) { return projectEnrollmentInput(data(value)); }
+function workProductInput(value,operation){
+  const input=data(value);
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!operation.inputFields.includes(k))
+    ||operation.requiredFields.some(k=>!Object.hasOwn(input,k))
+    ||['operationId','workId'].some(k=>typeof input[k]!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input[k])))invalid('Use the declared work-product operation fields.');
+  workProductMutationRequest(operation.id,input);return input;
+}
+function workProductResult(input,facts,operation){
+  const result=data(facts);
+  if(result?.workId!==input.workId||result.phase!==input.phaseId||!Number.isSafeInteger(result.generation)||result.generation<1
+    ||typeof result.revision!=='string'||!result.revision||typeof result.retained!=='boolean'||result.pushed!==false
+    ||!result.record||typeof result.record!=='object'||result.record.phase!==result.phase||result.record.generation!==result.generation||result.record.operationId!==input.operationId)throw new SingularityFlowError('The work-product port returned another accepted binding.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:operation.id,status:result.retained?'retained':'recorded',
+    subject:{kind:'story',id:result.workId},phase:result.phase,generation:result.generation,revision:result.revision,record:result.record,
+    effects:{committed:!result.retained,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+}
+async function recordWorkProduct(port,input,signal,operation){
+  notCancelled(signal);const context=await port.load(input,{signal,operation});notCancelled(signal);
+  const intent=await port.prepare(context,input,{signal,operation});notCancelled(signal);
+  const accepted=await port.commit(context,intent,{signal,operation});
+  try{return workProductResult(input,await port.finish(context,intent,accepted,{operation}),operation);}
+  catch(cause){attachDiagnostic(cause,'engineWorkProduct',accepted,{raw:true});throw cause;}
+}
+async function executeData(port,input,signal,operation){
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const retained=await port.retained(context,input,{signal});if(retained!==null)return workProductResult(input,retained,operation);
+  const plan=await port.prepare(context,input,{signal});notCancelled(signal);
+  const execution=await port.execute(context,plan,{signal});notCancelled(signal);
+  const accepted=await port.commit(context,execution,{signal});
+  try{return workProductResult(input,await port.finish(context,execution,accepted,{signal:null}),operation);}
+  catch(cause){attachDiagnostic(cause,'engineDataExecution',accepted,{raw:true});throw cause;}
+}
+async function inspectWorkProducts(port,input,signal){
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  if(context?.subject?.kind!=='story'||typeof context.subject.id!=='string'||!context.phase||typeof context.phase.id!=='string'||input.workId!=null&&input.workId!==context.subject.id)throw new SingularityFlowError('Use an exact work-product context.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  const result=data(await port.read(context,{signal}));notCancelled(signal);
+  if(result?.workId!==context.subject?.id||input.workId!=null&&input.workId!==result.workId||result.phase!==context.phase.id
+    ||!Number.isSafeInteger(result.generation)||result.generation<1||!/^[a-f0-9]{64}$/u.test(result.expected??'')
+    ||Object.keys(result).some(k=>!['workId','phase','generation','expected','inputs','outputs','missing','assets','criteria','latestExecution','actions'].includes(k))
+    ||!Array.isArray(result.inputs)||!Array.isArray(result.outputs)||!Array.isArray(result.missing)||!Array.isArray(result.assets)||!Array.isArray(result.criteria)||!Array.isArray(result.actions))
+    throw new SingularityFlowError('The work-product context has another Story or phase.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'work-product.context',status:result.missing.length?'inputs-required':'ready',...result,
+    effects:{committed:false,pushed:false,modelInvocations:0,approvalRecorded:false,storyAdvanced:false}});
+}
 function clarificationInput(value,operation){return clarificationOperationInput(data(value),operation);}
 function clarificationResult(input,result) {
   const facts=data(result);
@@ -2027,6 +2083,7 @@ function createEngineRuntime({ ports } = {}, implementations) {
 export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
+    workProductInput,inspectWorkProducts,recordWorkProduct,executeData,
     clarificationInput,inspectClarification,recordClarification,
     selectiveRecoveryContextInput,inspectSelectiveRecoveryContext,inspectTestRiskContext,inspectTestWitnessContext,inspectEvidenceReuseContext,inspectTestRecoveryContext,inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseRepairInput,runPhaseRepair,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,

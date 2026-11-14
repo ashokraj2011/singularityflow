@@ -3,7 +3,8 @@ import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
-import {CONTENT_PHASE_ENTRY_PROFILE,TARGETED_PHASE_ENTRY_PROFILE,ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE,phaseContextResources} from '../kernel/phase-entry.mjs';
+import {createNamespaceWorkProductOwners} from './namespace-work-products-reader.mjs';
+import {WORK_PRODUCT_PHASE_ENTRY_PROFILE,CONTENT_PHASE_ENTRY_PROFILE,TARGETED_PHASE_ENTRY_PROFILE,ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE,phaseContextResources} from '../kernel/phase-entry.mjs';
 import {currentEntryPhase} from '../kernel/phase-admission.mjs';
 import {phaseTransitionAccess,phasePreparationOpeningAdmission,phasePreparationCatalogAdmission} from '../kernel/phase-preparation.mjs';
 import {phaseExplicitlyReopened,phaseRequiresCodeDelivery,phaseKernelOwned,nextPhaseGeneration} from '../kernel/phase-policy.mjs';
@@ -67,13 +68,14 @@ export function createNamespacePhaseEntryPorts(options,runtime=null) {
     const repairScope=!retained&&phaseRequiresCodeDelivery(phase)?await createNamespaceCodeHistoryReader({observer,scope,workId}).repairScope(captured.snapshot,phase.id,{signal}):null;
     const repairs=createNamespaceArtifactRepairReader({observer,scope,workId,publications}),repair=!retained?await repairs.active(captured.snapshot,phase.id,{signal}):null,
       artifactRepairScope=repair?repairs.description(repair):null;
-    const context={manifestProfile:artifactRepairScope?ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE:repairScope?TARGETED_PHASE_ENTRY_PROFILE:CONTENT_PHASE_ENTRY_PROFILE,
-      ...(artifactRepairScope?{hasCodeRepair:Boolean(repairScope)}:{}),projectId:scope.projectId,paused:workflow.status==='paused',
+    const workProductPhase=workflow.resolution.workProducts?.phases.some(row=>row.id===phase.id)===true;
+    const context={manifestProfile:workProductPhase?WORK_PRODUCT_PHASE_ENTRY_PROFILE:artifactRepairScope?ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE:repairScope?TARGETED_PHASE_ENTRY_PROFILE:CONTENT_PHASE_ENTRY_PROFILE,
+      ...(artifactRepairScope||workProductPhase?{hasCodeRepair:Boolean(repairScope),...(workProductPhase?{hasArtifactRepair:Boolean(artifactRepairScope)}:{})}:{}),projectId:scope.projectId,paused:workflow.status==='paused',
       subject:{kind:'story',id:workId},phase:phase.id,workflow,revision:captured.snapshot.revision,
       ready:captured.snapshot.workId===workId&&phase.id===workflow.currentPhase,inspectionGeneration:generation,
       generatesCode:phaseRequiresCodeDelivery(phase),codeGenerationReady:Boolean(open),deterministic:phaseKernelOwned(phase),
       modelEnabled:options.modelEnabled??true,agentId:principal.identity.agentId};
-    contexts.set(context,{captured,approved,principal,phase,retained,generation,draft,draftCapture,operation,liveSources,sourceBlockers,repairScope,artifactRepairScope,missing:[],resources:null,clarification:null,facts:null});return context;
+    contexts.set(context,{captured,approved,principal,phase,retained,generation,draft,draftCapture,operation,liveSources,sourceBlockers,repairScope,artifactRepairScope,workProductPhase,missing:[],resources:null,clarification:null,facts:null});return context;
   }
   const selected=context=>{const s=contexts.get(context);if(!s)throw error('Use the issued phase-entry observation.','ENGINE_INPUT_INVALID');return s;};
   async function build(context,signal) {
@@ -117,13 +119,23 @@ export function createNamespacePhaseEntryPorts(options,runtime=null) {
     const p=s.draft?.payload;
     if(p)resources.push(resource('current-draft',p.artifact.key,p.artifact.current,'machine-local',phase.id,p.generation));
     if(p?.generationIntent)resources.push(resource('generation-intent',p.generationIntent.id,p.generationIntent.record,'machine-local',phase.id,p.generation));
+    let workProducts=null;
+    if(s.workProductPhase){const selected=await createNamespaceWorkProductOwners({observer,scope,workId}).context(s.captured.snapshot,phase.id,{signal,generation:s.generation}),
+      outputs=selected.state.products.filter(row=>row.phase===phase.id&&row.generation===s.generation);
+      workProducts={schemaVersion:1,profile:'sflow-work-product-phase-context/v1',contextSha256:selected.contextSha256,policy:selected.declaration,phase:phase.id,
+        inputs:selected.assets.map(row=>row.asset),outputs:outputs.map(row=>row.asset),missing:selected.missing,
+        latestExecution:selected.state.executions.filter(row=>row.phase===phase.id&&row.generation===s.generation).at(-1)??null};
+      for(const row of [...selected.assets,...outputs])resources.push(resource('work-product',row.asset.id,row.asset.content,'project',row.phase,row.generation));
+      const observed=workProducts.latestExecution?.observation;
+      if(observed)resources.push(resource('execution-observation',observed.documentId,observed.reference,'project',phase.id,s.generation));
+    }
     const maximumPreview=Math.min(w.resolution.documents?.maxPreviewBytes??65536,1048576),budgets={documentPreviewBytes:maximumPreview,
       supportingTotalBytes:w.resolution.documents?.maxPromptEvidenceBytes??49152};
-    s.resources=phaseContextResources(resources,{maximumBytes:maximumPreview,targetedRepair:Boolean(s.repairScope||s.artifactRepairScope)});
+    s.resources=phaseContextResources(resources,{maximumBytes:maximumPreview,targetedRepair:Boolean(s.repairScope||s.artifactRepairScope),workProducts:s.workProductPhase});
     const draft=p?{generation:p.generation,revision:s.draft.revision,bodySha256:s.draft.bodySha256,baseRevision:p.baseRevision,artifact:p.artifact.current,
       intent:p.generationIntent?{id:p.generationIntent.id,reference:p.generationIntent.record}:null}:null;
-    const identity={schemaVersion:s.artifactRepairScope?5:2,contract:s.artifactRepairScope?ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE:CONTENT_PHASE_ENTRY_PROFILE,projectId:scope.projectId,workId,phase:phase.id,generation:s.generation,
-      revision:context.revision,configuration:s.captured.snapshot.configuration,authorAgentId:phase.defaultAgent??null,resources:s.resources,
+    const identity={schemaVersion:s.workProductPhase?6:s.artifactRepairScope?5:2,contract:s.workProductPhase?WORK_PRODUCT_PHASE_ENTRY_PROFILE:s.artifactRepairScope?ARTIFACT_REPAIR_PHASE_ENTRY_PROFILE:CONTENT_PHASE_ENTRY_PROFILE,projectId:scope.projectId,workId,phase:phase.id,generation:s.generation,
+      ...(s.workProductPhase?{workProducts}:{}),revision:context.revision,configuration:s.captured.snapshot.configuration,authorAgentId:phase.defaultAgent??null,resources:s.resources,
       clarification:{contextSha256:plan.sha256,record:record?.reference??null},draft,budgets,sources:plan.value.sources,
       currentSources:s.liveSources.map(({repositoryId,revision})=>({repositoryId,revision})),...(s.repairScope?{repairScope:s.repairScope}:{}),...(s.artifactRepairScope?{artifactRepairScope:s.artifactRepairScope}:{})};
     const data=Buffer.from(canonicalJson(identity));s.identity={sha256:hash(data),bytes:data.byteLength};
@@ -133,7 +145,7 @@ export function createNamespacePhaseEntryPorts(options,runtime=null) {
       recovery:{requiresRecovery:false,actions:[],blockers:[]},references:{status:'not-configured'},deterministic:context.deterministic,
       documents:{status:missing.length?'reupload-required':'ready',localDocumentCount:documentResources.filter(value=>value.locality==='machine-local').length,
         documentCount:documentResources.length,missing:s.missing},budgets,resources,contextIdentity:s.identity,
-      permissions:s.principal.permissions,draft,blockers,configuration:s.captured.snapshot.configuration,...(s.repairScope?{repairScope:s.repairScope}:{}),...(s.artifactRepairScope?{artifactRepairScope:s.artifactRepairScope}:{})};
+      ...(s.workProductPhase?{workProducts}:{}),permissions:s.principal.permissions,draft,blockers,configuration:s.captured.snapshot.configuration,...(s.repairScope?{repairScope:s.repairScope}:{}),...(s.artifactRepairScope?{artifactRepairScope:s.artifactRepairScope}:{})};
     return s.facts;
   }
   async function fresh(context,signal) {

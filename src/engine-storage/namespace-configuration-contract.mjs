@@ -1,6 +1,7 @@
 /** Durable namespace configuration decisions. No policy, discovery, human identity or migration. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import { NAMESPACE_CONFIGURATION_SCHEMAS, admitRecordSchemaVersion } from '../foundation/record-schema.mjs';
+import {workProductPolicy} from '../kernel/work-products.mjs';
+import {canonicalJson, NAMESPACE_CONFIGURATION_SCHEMAS, admitRecordSchemaVersion,namespaceConfigurationProfile } from '../foundation/record-schema.mjs';
 import { exactObject, namespaceIdentifier, namespaceScope, namespaceRevision, namespaceKey } from '../sda/namespace/values.mjs';
 import { projectConfigurationReference, projectEnrollmentTimestamp } from '../kernel/project-enrollment.mjs';
 
@@ -38,15 +39,23 @@ export function namespaceConfigurationRecordValue(kind, value, scope, operationI
 }
 
 export function namespaceConfigurationCompiledValue(value,source) {
-  try {admitRecordSchemaVersion(NAMESPACE_CONFIGURATION_SCHEMAS.compiled,value);}
+  let profile;
+  try {profile=namespaceConfigurationProfile('compiled',value);}
   catch(cause){throw new SingularityFlowError(cause.message,{cause,details:cause.details,
     code:['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT'});}
-  exactObject(value,['schemaVersion','format','source','definition','workTypeIds','workflows','agents','skills','instructions','templates','files','warnings']);
-  if(value.format!=='sflow-namespace-configuration-compiled/v1' || !value.definition || typeof value.definition!=='object'
+  exactObject(value,['schemaVersion','format','source','definition','workTypeIds','workflows','agents','skills','instructions','templates','files','warnings',...(profile.workProducts?['workProducts']:[])]);
+  if(value.format!==profile.format || !value.definition || typeof value.definition!=='object'
     || value.source?.namespace!==source.namespace || value.source?.sha256!==source.sha256 || value.source?.bytes!==source.bytes
     || !Array.isArray(value.warnings) || value.warnings.length>2048 || !Array.isArray(value.workTypeIds)
     || !value.workflows || typeof value.workflows!=='object' || Array.isArray(value.workflows)
     || new Set(value.workTypeIds).size!==value.workTypeIds.length || Object.keys(value.workflows).length!==value.workTypeIds.length
     || value.workTypeIds.some(id=>typeof id!=='string'||!Object.hasOwn(value.workflows,id)))fail('The compiled configuration does not match its approved source.');
+  if(profile.workProducts){
+    if(!value.workProducts||typeof value.workProducts!=='object'||Array.isArray(value.workProducts)
+      ||Object.keys(value.workProducts).some(id=>!value.workTypeIds.includes(id)))fail('The compiled work-product policy map is invalid.');
+    for(const id of value.workTypeIds){const policy=value.workProducts[id],pinned=value.workflows[id].workProducts;
+      if(policy===undefined?Object.hasOwn(value.workflows[id],'workProducts'):canonicalJson(workProductPolicy(policy,{phaseIds:value.workflows[id].phases.map(row=>row.id)}))!==canonicalJson(pinned))
+        fail('The compiled work-product policy differs from its resolved workflow.');}
+  }
   return value;
 }

@@ -1,6 +1,7 @@
 /** Canonical namespace configuration is data; no Markdown discovery, files, Git or model calls. */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import { NAMESPACE_CONFIGURATION_SCHEMAS, admitRecordSchemaVersion, jsonValueContract } from '../foundation/record-schema.mjs';
+import { NAMESPACE_CONFIGURATION_SCHEMAS, namespaceConfigurationProfile, jsonValueContract } from '../foundation/record-schema.mjs';
+import {workProductPolicy} from './work-products.mjs';
 import { portableFilesystemPathIdentity } from '../foundation/portable-paths.mjs';
 import { createWorkflowConfigurationCompiler } from './workflow-configuration.mjs';
 import { configurationAssetPolicies } from './configuration-path-policies.mjs';
@@ -8,6 +9,7 @@ import { agentMappingProblems, parseAgentTemplateReference } from './configurati
 import { projectConfigurationReference, CONFIGURATION_PACKAGE_MAXIMUM_BYTES, CONFIGURATION_RESOURCE_MAXIMUM_BYTES } from './project-enrollment.mjs';
 
 export const NAMESPACE_CONFIGURATION_SOURCE_FORMAT = 'sflow-namespace-configuration-source/v1';
+export const NAMESPACE_WORK_PRODUCT_CONFIGURATION_SOURCE_FORMAT = 'sflow-namespace-configuration-source/v2';
 export const NAMESPACE_CONFIGURATION_COMPILED_FORMAT = 'sflow-namespace-configuration-compiled/v1';
 export function namespaceConfigurationJsonValues() {
   return jsonValueContract({ maximumBytes: CONFIGURATION_PACKAGE_MAXIMUM_BYTES, maximumDepth: 64, maximumNodes: 250_000,
@@ -28,8 +30,9 @@ export function createNamespaceConfigurationCompiler(dependencies) {
   const {exactObject,namespaceJson}=namespaceConfigurationJsonValues();
   return Object.freeze({ compile(source, reference) {
     source = namespaceJson(source); reference = projectConfigurationReference(reference);
-    exactObject(source, sourceFields); admitRecordSchemaVersion(NAMESPACE_CONFIGURATION_SCHEMAS.source, source);
-    if (source.format !== NAMESPACE_CONFIGURATION_SOURCE_FORMAT || !source.definition || typeof source.definition!=='object' || Array.isArray(source.definition)
+    const sourceProfile=namespaceConfigurationProfile('source',source);
+    exactObject(source, [...sourceFields,...(sourceProfile.workProducts?['workProducts']:[])]);
+    if (source.format !== sourceProfile.format || !source.definition || typeof source.definition!=='object' || Array.isArray(source.definition)
       || Object.hasOwn(source.definition, 'agentCatalog')) fail('A configuration package needs a definition and its own explicit agent catalog.');
     for (const field of ['agents','skills','instructions','templates','files']) {
       if (!Array.isArray(source[field]) || source[field].length > 2048) fail(`Configuration ${field} must be a bounded list.`);
@@ -116,7 +119,11 @@ export function createNamespaceConfigurationCompiler(dependencies) {
       if (pathIdentities.has(identity)) fail('Configuration resource paths collide across platforms.', { path: item.path });
       pathIdentities.add(identity); files.set(item.path, item); body(item, kind === 'templates' ? 'template' : 'file', item.path);
     }
-    const workflows = {}, warnings=[];
+    const workflows = {}, warnings=[],productPolicies={};
+    if(sourceProfile.workProducts){
+      if(!source.workProducts||typeof source.workProducts!=='object'||Array.isArray(source.workProducts)
+        ||Object.keys(source.workProducts).some(key=>!Object.hasOwn(definition.workTypes,key)))fail('Work-product policies must name declared workflows.');
+    }
     for (const workTypeId of Object.keys(definition.workTypes)) {
       const workflow = compiler.resolveWorkType(definition, workTypeId);
       for (const phase of workflow.phases) {
@@ -134,15 +141,21 @@ export function createNamespaceConfigurationCompiler(dependencies) {
         warnings.push({code:'CONFIGURATION_RESOURCE_UNAVAILABLE',kind:'constitution',workTypeId,path:constitution,mode:'warn'});
       }
       workflows[workTypeId] = workflow;
+      if(sourceProfile.workProducts&&Object.hasOwn(source.workProducts,workTypeId)){
+        if(workflow.decisions?.length)fail('The v1 data profile needs sequential work-product acceptance; routed data products require their versioned route owner.');
+        const products=workProductPolicy(source.workProducts[workTypeId],{phaseIds:workflow.phases.map(row=>row.id)});
+        productPolicies[workTypeId]=products;workflow.workProducts=products;
+      }
     }
     const prompt = definition.worldModel?.promptSource;
     if (prompt && prompt !== 'builtin' && !files.has(prompt)) fail('The configured knowledge prompt is missing.', { path: prompt });
     if(definition.planning.enabled&&!files.has(definition.planning.promptSource))fail('The configured planning prompt is missing.',{path:definition.planning.promptSource});
     // Resolution uses the existing JSON persistence meaning, including omitted optional fields.
     if(warnings.length>2048)fail('The configuration advisory inventory exceeds its bound.');
-    const compiled = namespaceJson(JSON.parse(JSON.stringify({ schemaVersion: NAMESPACE_CONFIGURATION_SCHEMAS.compiled.currentVersion,
-      format: NAMESPACE_CONFIGURATION_COMPILED_FORMAT, source: reference, definition, workTypeIds: Object.keys(workflows), workflows,
-      agents: source.agents, skills: source.skills, instructions: source.instructions, templates: source.templates, files: source.files, warnings })));
+    const compiled = namespaceJson(JSON.parse(JSON.stringify({ schemaVersion: sourceProfile.version,
+      format: 'sflow-namespace-configuration-compiled/v'+sourceProfile.version, source: reference, definition, workTypeIds: Object.keys(workflows), workflows,
+      agents: source.agents, skills: source.skills, instructions: source.instructions, templates: source.templates, files: source.files, warnings,
+      ...(sourceProfile.workProducts?{workProducts:productPolicies}:{}) })));
     return { compiled, resources };
   } });
 }

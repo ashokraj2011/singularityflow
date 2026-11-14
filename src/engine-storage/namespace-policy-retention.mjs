@@ -1,3 +1,4 @@
+import {namespaceWorkProductManifest,WORK_PRODUCT_EVIDENCE} from './namespace-work-product-policy.mjs';
 /** Concrete immutable-content retention. Lifecycle acceptance remains the publication writer's duty. */
 import {namespaceTestCohortManifest} from './namespace-test-cohort-reader.mjs';
 import {createHash} from 'node:crypto';
@@ -36,6 +37,13 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     const binding=namespacePolicyEvidenceBinding({schemaVersion:NAMESPACE_PHASE_POLICY_SCHEMAS.binding.currentVersion,
       format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:SPECIFICATION_ANALYSIS_EVIDENCE,record:await save(manifest,signal)});
     return {binding,report};
+  }
+  async function retainWorkProducts(publication,{snapshot,head,signal}={}){
+    const value=await reader.workProductCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),manifest={schemaVersion:1,
+      format:'sflow-namespace-work-product-policy/v1',...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+      artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
+    namespaceWorkProductManifest(manifest,{scope,workId,phaseId:publication.phase});
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:WORK_PRODUCT_EVIDENCE,record:await save(manifest,signal)}),report};
   }
   async function retainDocumentReview(publication,{snapshot,head,signal}={}){
     const value=await reader.documentReviewCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),version=value.report.schemaVersion,manifest={schemaVersion:version,
@@ -144,5 +152,5 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     namespaceConvergenceManifest(manifest,{scope,workId,phaseId:publication.phase});
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:CONVERGENCE_POLICY_EVIDENCE,record:await save(manifest,signal)}),report};
   }
-  return Object.freeze({retain,retainCohort,retainTestRisk,retainReuse,retainRecovery,retainDocumentReview,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment,retainConstitution,retainConvergence});
+  return Object.freeze({retainWorkProducts,retain,retainCohort,retainTestRisk,retainReuse,retainRecovery,retainDocumentReview,retainClarification,retainCode,retainCodeInputs,retainConformance,retainArtifactSet,retainAssignment,retainConstitution,retainConvergence});
 }

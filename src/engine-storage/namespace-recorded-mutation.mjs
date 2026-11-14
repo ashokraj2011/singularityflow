@@ -43,6 +43,10 @@ export function createNamespaceRecordedMutationPort(options,{operation,request,o
     if(!same(contentReference(saved?.reference),reference)||typeof saved.reused!=='boolean')throw error('The content store returned another human record.','ENGINE_PORT_RESULT_INVALID');
     await observer.bytes(reference,reference.bytes,signal);return reference;}
   return {
+    // Composition-only admission facts for an explicitly bound external execution. The SDK
+    // captures only its registered stages; these facts are never a public authorization token.
+    binding(context){const s=state(context);return structuredClone({actor:s.reviewer.actor,agentId:s.reviewer.agentId,
+      operationId:s.operationId,revision:s.observed.revision,replay:s.replay});},
     async load(input,{signal}={}){
       if(input.workId!=null&&input.workId!==workId)throw error('Use the bound Story.','ACTIVE_SUBJECT_MISMATCH');
       const suppliedId=explicitIdentity?namespaceIdentifier(input.operationId,'Decision operation ID'):null,

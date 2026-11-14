@@ -60,6 +60,7 @@ export function primaryDocumentPublicationRequirements(workflow,phase,{definitio
   need('repair-journal',Boolean(workflow.phaseRepairs||workflow.phaseRepairJournal||workflow.phaseAppeals||workflow.phaseAppealDecisions));
   need('quality-risk-decisions',Boolean(workflow.qualityRiskDecisions?.length));
   need('document-risk',(workflow.documentRisks??[]).length>0||Boolean(workflow.documentRiskDecisions?.length));
+  need('work-product-evidence',resolved.workProducts?.phases?.some(row=>row.id===phase.id)===true);
   need('execution-origin',workflow.executionOrigin?.mode==='auto');
   need('test-command-amendment',Boolean(workflow.testCommandAmendments?.length));
   return Object.freeze([...required].sort());

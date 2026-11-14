@@ -1,3 +1,4 @@
+import {hasWorkProductPolicy} from './namespace-work-product-policy.mjs';
 /** Read-only candidate inspection. It neither stages publication nor runs or invents checks. */
 import {isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,isNamespaceKnownTestRiskPolicy,namespaceTestRiskRecordProfile,isNamespaceEvidenceReusePolicy,canonicalJson} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
@@ -91,7 +92,7 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
         const documentReview=documentReviewPublicationPolicy(workflow,phase),spec=specificationPublicationPolicy(workflow,phase),analysis=specificationAnalysisPublicationPolicy(definition,workflow,phase),
           clarification=resolvedClarificationPolicy(definition,workflow,phase),code=codePublicationPolicy(workflow,phase),
           convergence=convergencePublicationPolicy(workflow,phase),inputs=convergence?null:codeInputPublicationPolicy(workflow,phase),conformance=conformancePublicationPolicy(workflow,phase),bundle=artifactSets.declaration(definition,workflow,phase),assignment=phaseAssignmentRequired(workflow,definition),
-          available=[...(workflow.resolution.testRecovery?.enabled?['test-recovery']:[]),...(documentReview?DOCUMENT_REVIEW_OWNERS:[]),...(spec?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysis?['specification-analysis']:[]),
+          available=[...(hasWorkProductPolicy(workflow,phase.id)?['work-product-evidence']:[]),...(workflow.resolution.testRecovery?.enabled?['test-recovery']:[]),...(documentReview?DOCUMENT_REVIEW_OWNERS:[]),...(spec?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysis?['specification-analysis']:[]),
             ...(clarification.mode!=='off'?['clarification-record']:[]),...(code?CODE_PUBLICATION_OWNERS:[]),
             ...(convergence?CONVERGENCE_PUBLICATION_OWNERS:[]),...(inputs?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformance?CONFORMANCE_PUBLICATION_OWNERS:[]),...(bundle?['artifact-set']:[]),...(assignment?['assignment-record']:[]),...(workflow.resolution.constitution?.mode!=='off'?['constitution-policy']:[]),'check-execution'];
         if(prepublish){const pending=primaryDocumentPublicationRequirements(workflow,phase,{definition}).filter(owner=>!available.includes(owner));
@@ -103,6 +104,7 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
             artifact:{key:p.artifact.key,sourceKey:(definition.workItemRoot??'singularity/work-items')+'/'+workId+'/'+p.artifact.key,
               kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content,fingerprint},inputs:facts.resources};
         if(workflow.resolution.testRecovery?.enabled)await attempt(()=>publications.policies.recoveryCandidate(candidate,snapshot,{signal}));
+        if(hasWorkProductPolicy(workflow,phase.id))await attempt(()=>publications.policies.workProductCandidate(candidate,snapshot,{signal}));
         if(spec)await attempt(()=>publications.specifications.derive(candidate,snapshot,{signal,artifactBytes:data}));
         if(documentReview)await attempt(()=>publications.policies.documentReviewCandidate(candidate,snapshot,{signal}));
         if(convergence){const result=await attempt(()=>publications.policies.convergenceCandidate(candidate,snapshot,{signal,artifactBytes:data}));

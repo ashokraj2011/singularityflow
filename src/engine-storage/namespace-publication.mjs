@@ -1,3 +1,4 @@
+import {hasWorkProductPolicy} from './namespace-work-product-policy.mjs';
 /** Explicit namespace publication composition. Installed Git hosts never select this writer. */
 import {isNamespaceEvidenceReusePolicy,isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,isNamespaceKnownTestRiskPolicy,canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
@@ -188,7 +189,8 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         const recoveryRequired=snapshot.workflow.resolution.testRecovery?.enabled===true,cohortRequired=(snapshot.workflow.namespaceTestCohorts??[]).some(row=>row.phase===s.phaseId);
         const assignmentRequired=phaseAssignmentRequired(snapshot.workflow,observed.definition),constitutionRequired=snapshot.workflow.resolution.constitution?.mode!=='off';
         const artifactSet=artifactSets.declaration(observed.definition,snapshot.workflow,phase);
-        const available=[...(cohortRequired?['test-cohort']:[]),...(s.reuse||s.risk?['check-execution']:[]),...(recoveryRequired?['test-recovery']:[]),...(documentReviewPolicy?DOCUMENT_REVIEW_OWNERS:[]),...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
+        const workProductPolicy=hasWorkProductPolicy(snapshot.workflow,s.phaseId);
+        const available=[...(workProductPolicy?['work-product-evidence']:[]),...(cohortRequired?['test-cohort']:[]),...(s.reuse||s.risk?['check-execution']:[]),...(recoveryRequired?['test-recovery']:[]),...(documentReviewPolicy?DOCUMENT_REVIEW_OWNERS:[]),...(specificationPolicy?SPECIFICATION_PUBLICATION_OWNERS:[]),...(analysisPolicy?['specification-analysis']:[]),
           ...(clarificationPolicy.mode!=='off'?['clarification-record']:[]),...(codePolicy?CODE_PUBLICATION_OWNERS:[]),...(convergencePolicy?CONVERGENCE_PUBLICATION_OWNERS:[]),...(codeInputsPolicy?CODE_INPUT_PUBLICATION_OWNERS:[]),...(conformancePolicy?CONFORMANCE_PUBLICATION_OWNERS:[]),...(artifactSet?['artifact-set']:[]),...(assignmentRequired?['assignment-record']:[]),...(constitutionRequired?['constitution-policy']:[])];
         const pending=required.filter(item=>!available.includes(item));
         if(pending.length)throw error('This phase requires policy/execution owners not yet bound by the primary-document publication host.','ENGINE_PORT_UNAVAILABLE',{
@@ -214,10 +216,11 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             baseRevision:snapshot.revision,configuration:snapshot.configuration,draft:{revision:observed.draftRevision,sha256:observed.bodySha256},
             actor:observed.actor,agentId:observed.agentId,publishedAt,authorship,
             artifact:{key:observed.payload.artifact.key,sourceKey,kind:phase.requiredArtifact.kind??'document',encoding:text?'utf8':'binary',content:artifact,fingerprint},inputs:observed.resources};
-          let cohort=null,testRisk=null,reuse=null,recovery=null,documentReview=null,specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null,convergence=null;
-          if(cohortRequired||s.risk||s.reuse||recoveryRequired||documentReviewPolicy||convergencePolicy||specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
+          let workProducts=null,cohort=null,testRisk=null,reuse=null,recovery=null,documentReview=null,specifications=null,analysis=null,clarification=null,codeEvidence=null,codeInputs=null,conformance=null,bundle=null,assignment=null,constitution=null,convergence=null;
+          if(workProductPolicy||cohortRequired||s.risk||s.reuse||recoveryRequired||documentReviewPolicy||convergencePolicy||specificationPolicy||analysisPolicy||clarificationPolicy.mode!=='off'||codePolicy||codeInputsPolicy||conformancePolicy||artifactSet||assignmentRequired||constitutionRequired) {
             const head=await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal);
             if(head.version!==snapshot.revision)throw error('The Story changed before specification retention.','ENGINE_CONTEXT_CHANGED');
+            if(workProductPolicy)workProducts=await policyWriter.retainWorkProducts(base,{snapshot,head:head.value,signal});
             if(s.risk)testRisk=await policyWriter.retainTestRisk(base,{snapshot,head:head.value,signal,checked:s.failedChecks,expected:s.risk.report});
             if(s.reuse)reuse=await policyWriter.retainReuse(base,{snapshot,head:head.value,signal,sources,expected:s.reuse.report});
             if(cohortRequired)cohort=await policyWriter.retainCohort({...base,checks:s.checkEvidence??null,...((testRisk||reuse)?{policyEvidence:[...(testRisk?[testRisk.binding]:[]),...(reuse?[reuse.binding]:[])]}:{})},{snapshot,head:head.value,signal});
@@ -237,7 +240,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             if(artifactSet){const members=[];for(const member of observed.payload.members??[])members.push({path:member.path,data:await runtime.artifactMemberBytes(admission,member.path,{signal})});
               bundle=await policyWriter.retainArtifactSet(base,{snapshot,head:head.value,signal,members});}
           }
-          const policyEvidence=[...(cohort?[cohort.binding]:[]),...(testRisk?[testRisk.binding]:[]),...(reuse?[reuse.binding]:[]),...(recovery?[recovery.binding]:[]),...(documentReview?[documentReview.binding]:[]),...(convergence?[convergence.binding]:[]),...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
+          const policyEvidence=[...(workProducts?[workProducts.binding]:[]),...(cohort?[cohort.binding]:[]),...(testRisk?[testRisk.binding]:[]),...(reuse?[reuse.binding]:[]),...(recovery?[recovery.binding]:[]),...(documentReview?[documentReview.binding]:[]),...(convergence?[convergence.binding]:[]),...(clarification?[clarification]:[]),...(analysis?[analysis.binding]:[]),...(codeEvidence?[codeEvidence.binding]:[]),...(codeInputs?[codeInputs.binding]:[]),...(conformance?[conformance.binding]:[]),...(bundle?[bundle.binding]:[]),...(assignment?[assignment.binding]:[]),...(constitution?[constitution.binding]:[])];
           const record=namespacePublicationRecord(base,{checks:s.checkEvidence??null,specifications,policyEvidence:policyEvidence.length?policyEvidence:null});
           namespacePublicationValue(record,{projectId:scope.projectId,workId,phaseId:s.phaseId});
           const reference=await shared(Buffer.from(canonicalJson(record)),signal),binding={schemaVersion:PHASE_PUBLICATION_SCHEMAS.binding.currentVersion,

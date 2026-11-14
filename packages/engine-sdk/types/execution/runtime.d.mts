@@ -1,4 +1,4 @@
-import type {ExecutionUnit} from '../execution.mjs';
+import type {ExecutionUnit,ExecutionHandle,ExecutionEvent,ExecutionCandidate,ExecutionQuiescenceReceipt} from '../execution.mjs';
 import type {OperationalStore} from './storage.mjs';
 import type {ContentStore} from '../content.mjs';
 import type {NamespaceScope} from '../namespace.mjs';
@@ -11,3 +11,10 @@ export declare function createNodeExecutionOwner(options:{readonly hostId:string
 export declare function createDurableExecutionUnit(options:{readonly unit:ExecutionUnit;readonly store:OperationalStore;
   readonly content:ContentStore;readonly scope:NamespaceScope;readonly owner:ExecutionOwner;
   readonly clock:{now():string|Promise<string>}}):Readonly<ExecutionUnit>;
+
+/** Reads only completed, verified attempts. No executor, ownership capability or clock is accepted. */
+export declare function createRetainedExecutionReader(options:{readonly store:OperationalStore;readonly content:ContentStore;readonly scope:NamespaceScope}):Readonly<{
+  collect(handle:ExecutionHandle):Promise<ExecutionCandidate>;
+  events(handle:ExecutionHandle):Promise<readonly ExecutionEvent[]>;
+  quiesce(handle:ExecutionHandle):Promise<ExecutionQuiescenceReceipt>;
+}>;

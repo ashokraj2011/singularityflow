@@ -5,7 +5,28 @@ remain historical evidence. Neither phase is complete until its remaining owners
 cross-agent journeys are qualified. Phase 8 authority migration and Phase 9 production cutover,
 obsolete-access removal and final distribution remain separate.
 
-The latest slice connects [failure permissions, observed cohorts and external runners](ENGINE-SDK-FAILURE-COHORT-AND-EXTERNAL-RUNNERS.md).
+The revised scope keeps Copilot as the only AI harness. The new [Git-free data delivery](ENGINE-SDK-GIT-FREE-DATA-WORKFLOWS.md)
+adds generic work products, real SQL analytics, a transactional batch sink, exact requirement/criterion
+traces, current-phase human input repair and read-only shared execution replay. Namespace configuration
+v2 preserves original v1 shapes, and phase-entry v6 carries exact work-product resources. Actual
+process success cannot satisfy a failed business check. The [coverage matrix](ENGINE-SDK-PHASE-5-7-COVERAGE.md)
+names the remaining mandatory owners; neither phase is marked complete by this delivery.
+
+This data delivery passes 1,159 distinct affected Mac checks across 134 files, with no failed,
+skipped or cancelled checks in final qualification. That includes 45 data/work-product checks,
+118 architecture guards, 41 native SDK/CLI parity checks, ten additional installed package
+consumers and the unchanged 34-check original package qualifier. The original qualifier ran
+alone in 65.8 seconds, retaining its original 120/60-second parent/child deadlines. Real analytics,
+batch and human-approved input-repair journeys complete on filesystem, SQLite and application
+stores; shared-only takeover preserves original attempts and accepted results.
+
+Source validation passes 4,471 checks across 191 skills; VS Code types, the unchanged 2,011-site
+Git audit and all 13 bundle ceilings pass. Gateway remains 852/852 modules and 6,950,161 bytes.
+The executable vocabulary has 101 operations, with 42 default native and 94 default namespace
+bindings before optional execution. See the [qualification method and corrected failures](ENGINE-SDK-GIT-FREE-DATA-WORKFLOWS.md#qualification).
+Only local Mac qualification ran; no Windows CI, live AI, installed-project change or main merge ran.
+
+The preceding slice connects [failure permissions, observed cohorts and external runners](ENGINE-SDK-FAILURE-COHORT-AND-EXTERNAL-RUNNERS.md).
 Selected environment and independently known failures retain separate scope, failure and cohort
 permissions, original failed counts and exact source bindings. Verification and Release retain
 producer attribution, current permissions and honest partial acceptance. Original-owner renewal
@@ -21,7 +42,7 @@ Remaining native extraction, live application review, document/evidence exceptio
 specific qualification and required evidence/execution ports still keep Phases 5 and 7 open.
 Production cutover, installed authority and main are unchanged.
 
-This slice passes 969 distinct affected Mac checks across 118 files, with no skips or cancellations:
+That preceding slice passed 969 distinct affected Mac checks across 118 files, with no skips or cancellations:
 117 architecture guards, 37 native SDK/CLI parity cases, nine additional installed consumers and
 the unchanged 34-check original package qualifier. The final qualifier ran alone in 24.5 seconds under
 its original 120/60-second deadlines. The full two-repository filesystem/SQLite/application
@@ -29,7 +50,7 @@ matrix retains real execution and separate human approvals through Release. Its 
 record distinguishes the plain-consumer harness correction from the product's journal batching
 and removed duplicate replay.
 
-Source validation passes 4,448 checks; VS Code types, the unchanged 2,011-site Git audit and all
+At that checkpoint, source validation passed 4,448 checks; VS Code types, the unchanged 2,011-site Git audit and all
 13 original bundle ceilings pass. Gateway remains 852/852 modules and 6,947,836 bytes; the
 vocabulary remains 97 operations. The schema owner dispatches original and combined cohort
 versions; the affected 233 checks and original package qualifier were repeated after that

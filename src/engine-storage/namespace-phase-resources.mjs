@@ -26,6 +26,9 @@ export function createNamespacePhaseResources({observer,packets,workId,localRead
     for(const document of w.namespaceDocuments??[]) {
       if(document.role!=='file'||document.id==='story-source'||document.status==='detached'
         ||document.phase!==null&&document.phase!==undefined&&document.phase!==phase.id)continue;
+      // The work-product owner supplies these exact assets in phase-entry v6. Do not deliver
+      // the same output again as an ordinary supporting document in the preparation manifest.
+      if(w.resolution.workProducts&&typeof document.kind==='string'&&(document.kind.startsWith('work-product:')||document.kind==='data-execution-observation'))continue;
       if(document.locality==='machine-local') {
         try {await localRead(document.content,{signal});}
         catch(cause){if(cause.code!=='ENGINE_STORAGE_CONTENT_MISSING')throw cause;

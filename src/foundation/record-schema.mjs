@@ -14,6 +14,16 @@ export const CONVERGENCE_VALUE_SCHEMA=Object.freeze({id:'convergence-record',cur
   minimumReadableVersion:1,maximumReadableVersion:6,immutable:true,unversionedAs:null});
 
 const convergenceFamily=id=>Object.freeze({id,currentVersion:1,minimumReadableVersion:1,maximumReadableVersion:1,immutable:true,unversionedAs:null});
+/** Work-product contracts are separate from source snapshots and never reinterpret repository identities. */
+export const WORK_PRODUCT_SCHEMAS=Object.freeze({
+  observation:convergenceFamily('data-execution-observation'),
+  activeIntent:convergenceFamily('active-data-intent'),intentGenesis:convergenceFamily('data-intent-genesis'),
+  phaseContext:convergenceFamily('work-product-phase-context'),sinkObservation:convergenceFamily('sql-data-sink-observation'),
+  policyManifest:convergenceFamily('work-product-policy-manifest'),policyReport:convergenceFamily('work-product-policy-report'),
+  reference:convergenceFamily('work-product-reference'),policy:convergenceFamily('work-product-policy'),
+  dataset:convergenceFamily('tabular-snapshot'),execution:convergenceFamily('data-execution'),
+  retained:convergenceFamily('namespace-work-product'),transaction:convergenceFamily('namespace-data-transaction')
+});
 export const NAMESPACE_CONVERGENCE_SCHEMAS=Object.freeze({
   projection:convergenceFamily('namespace-convergence-projection'),decision:convergenceFamily('namespace-convergence-adjudication'),
   policy:convergenceFamily('namespace-convergence-policy'),report:convergenceFamily('namespace-convergence-policy-report'),
@@ -192,10 +202,16 @@ export const NAMESPACE_ENROLLMENT_SCHEMAS = Object.freeze({
   intent: frozenFamily('namespace-enrollment-intent'), manifest: frozenFamily('namespace-enrollment-manifest')
 });
 export const NAMESPACE_CONFIGURATION_SCHEMAS = Object.freeze({
-  source: frozenFamily('namespace-configuration-source'), compiled: frozenFamily('namespace-configuration-compiled'),
+  source: Object.freeze({id:'namespace-configuration-source',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,immutable:true,unversionedAs:null}),
+  compiled: Object.freeze({id:'namespace-configuration-compiled',currentVersion:2,minimumReadableVersion:1,maximumReadableVersion:2,immutable:true,unversionedAs:null}),
   head: frozenFamily('namespace-configuration-head'), intent: frozenFamily('namespace-configuration-intent'),
   manifest: frozenFamily('namespace-configuration-manifest')
 });
+export function namespaceConfigurationProfile(kind,value){
+  if(!['source','compiled'].includes(kind))throw new SingularityFlowError('Unknown namespace configuration value family.',{code:'SCHEMA_FAMILY_UNKNOWN'});
+  const {storedVersion}=admitRecordSchemaVersion(NAMESPACE_CONFIGURATION_SCHEMAS[kind],value);
+  return Object.freeze({version:storedVersion,format:'sflow-namespace-configuration-'+kind+'/v'+storedVersion,workProducts:storedVersion===2});
+}
 export const NAMESPACE_STORY_SCHEMAS = Object.freeze({
   intent: frozenFamily('namespace-story-creation-intent'), genesis: frozenFamily('namespace-story-genesis'),
   manifest: frozenFamily('namespace-story-creation-manifest'), workflow: frozenFamily('namespace-story-workflow')
@@ -788,4 +804,10 @@ export function namespaceExecutionPermissionProfile(value){
   if(value?.profile==='sflow-namespace-execution-permission/v1'&&['test-cohort','test-run-risk'].includes(value.kind))return {version:1,fullExecution:false};
   if(value?.profile==='sflow-namespace-execution-permission/v2'&&value.kind==='evidence-reuse')return {version:2,fullExecution:true};
   throw new SingularityFlowError('Execution permissions require bounded original-owner observations.',{code:'ENGINE_INPUT_INVALID'});
+}
+
+/** Transient data-phase context admission belongs with its version metadata. */
+export function workProductPhaseContextProfile(value){
+  const {storedVersion}=admitRecordSchemaVersion(WORK_PRODUCT_SCHEMAS.phaseContext,value);
+  return {version:storedVersion,profile:'sflow-work-product-phase-context/v'+storedVersion};
 }

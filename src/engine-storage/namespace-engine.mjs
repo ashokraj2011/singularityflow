@@ -1,3 +1,4 @@
+import {createNamespaceWorkProductPorts} from './namespace-work-products.mjs';
 import {createNamespaceKnownTestRiskPorts} from './namespace-known-test-risks.mjs';
 import {createNamespaceTestCohortPorts} from './namespace-test-cohorts.mjs';
 import {createNamespaceSourceReviewPorts} from './namespace-source-review.mjs';
@@ -5,6 +6,7 @@ import {createNamespaceConvergencePorts} from './namespace-convergence.mjs';
 import {createNamespaceConvergenceAdvancementPort} from './namespace-convergence-advancement.mjs';
 import {createNamespaceEvidencePort} from './namespace-evidence.mjs';
 /** One explicit headless composition. Operations still enter the SDK registry exactly once. */
+import {captureExecutionUnit} from '../foundation/execution-unit-port.mjs';
 import {createEngine} from '../engine-sdk/index.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {validateSourceUnit,validateSourceContentReader} from '../foundation/source-snapshot.mjs';
@@ -70,7 +72,7 @@ function lazyPorts(factory,contracts){
 }
 
 export function createNamespaceEngine(options={}) {
-  const fields=['records','content','scope','workId','authority','access','clock','working','localContent','sources','modelEnabled','notice','checks','repairs','sourceReaders','sourceControlReaders'];
+  const fields=['records','content','scope','workId','authority','access','clock','working','localContent','sources','modelEnabled','notice','checks','repairs','sourceReaders','sourceControlReaders','data'];
   if(!options||typeof options!=='object'||Array.isArray(options)||Object.keys(options).some(key=>!fields.includes(key)))invalid('Use explicit namespace Engine bindings and capabilities.');
   options=Object.fromEntries(fields.map(key=>[key,options[key]]));
   const scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID');
@@ -98,8 +100,18 @@ export function createNamespaceEngine(options={}) {
   const sourceReaders=Object.freeze((options.sourceReaders??[]).map(reader=>Object.freeze({descriptor:validateSourceContentReader(reader),read:reader.read.bind(reader)})));
   if(!Array.isArray(options.sourceControlReaders??[])||(options.sourceControlReaders??[]).length>32)invalid('Source-control readers must be an explicit bounded list.');
   const sourceControlReaders=Object.freeze((options.sourceControlReaders??[]).map(reader=>Object.freeze({descriptor:validateSourceControlReader(reader),capture:reader.capture.bind(reader)})));
+  let data;
+  if(options.data!==undefined){
+    if(options.data?.mode==='retained-only'){exactObject(options.data,['mode']);data=Object.freeze({mode:'retained-only'});}
+    else{
+      exactObject(options.data,['owner','bindings']);if(!Array.isArray(options.data.bindings)||options.data.bindings.length>64)invalid('Use bounded explicit data execution bindings.');
+      const owner=Object.freeze(Object.fromEntries(['acquire','assert','release'].map(name=>{const fn=options.data.owner?.[name];if(typeof fn!=='function')invalid('Bind an explicit data execution owner.');return [name,fn.bind(options.data.owner)];}))),
+        bindings=Object.freeze(options.data.bindings.map(binding=>{exactObject(binding,['adapterId','unit']);return Object.freeze({adapterId:namespaceIdentifier(binding.adapterId),unit:Object.freeze({...captureExecutionUnit(binding.unit),...(()=>{const field=Object.getOwnPropertyDescriptor(binding.unit,'inspectBatch');if(!field)return {};if(!Object.hasOwn(field,'value')||typeof field.value!=='function')invalid('Use a plain optional sink-inspection method.');return {inspectBatch:field.value.bind(binding.unit)};})()})});}));
+      data=Object.freeze({owner,bindings});
+    }
+  }
   const common={records,content,scope,workId,authority,access,clock,localContent,sources,
-    modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,repairs:options.repairs,sourceReaders,sourceControlReaders};
+    modelEnabled:options.modelEnabled??true,notice:options.notice??(()=>{}),checks:options.checks,repairs:options.repairs,data,sourceReaders,sourceControlReaders};
   const runtime=working?createNamespacePreparationRuntime({...common,inputContent:localContent,localRecords:working.records,localContent:working.content}):null;
   const routing=createNamespaceRoutingChoicePorts(common);let scopeDecisions,planPorts,witnessPorts,assignmentPort,sourceReviewPorts,constitutionExceptionPorts,convergencePorts;
   const convergence=()=>convergencePorts??=createNamespaceConvergencePorts(common,runtime);
@@ -124,7 +136,8 @@ export function createNamespaceEngine(options={}) {
   }]))};
   let engine,executeOperation;
   let riskPorts;const risks=()=>riskPorts??=createNamespaceTestRiskPorts(common);
-  const ports={...lazyPorts(()=>({knownTestRiskContext:knownRisks().context}),{knownTestRiskContext:['load','read']}),...lazyPorts(()=>sourceReviews(),{sourceReviewContext:['load','read']}),...createNamespaceReadPorts(common,{authority}),
+  let workProductPorts;const products=()=>workProductPorts??=createNamespaceWorkProductPorts(common);
+  const ports={...lazyPorts(products,{workProductContext:['load','read'],workProduct:['load','prepare','commit','finish'],workProductAmend:['load','prepare','commit','finish'],...(options.data?{dataExecution:['load','retained','prepare','execute','commit','finish']}:{})}),...lazyPorts(()=>({knownTestRiskContext:knownRisks().context}),{knownTestRiskContext:['load','read']}),...lazyPorts(()=>sourceReviews(),{sourceReviewContext:['load','read']}),...createNamespaceReadPorts(common,{authority}),
     ...lazyPorts(()=>createNamespaceDecisionListPorts(common,runtime),{decisionList:['load','read']}),
     ...lazyPorts(()=>({decisions:createNamespaceDecisionBatchPort(common,runtime,executeOperation)}),{decisions:['load','prepare','apply','finish']}),
     convergenceContext:Object.fromEntries(['load','read'].map(stage=>[stage,(...args)=>convergence().convergenceContext[stage](...args)])),

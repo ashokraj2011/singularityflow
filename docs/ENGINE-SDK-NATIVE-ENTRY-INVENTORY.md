@@ -37,12 +37,14 @@ These imports stay visible as unresolved syntax observations. A new dynamic entr
 reviewed responsibility appears in `unclassifiedDynamicImports` and fails the real-checkout audit
 test. No guessed module or successful provider result is supplied for an unresolved expression.
 
-The executable vocabulary currently has 87 operations, 42 default native bindings and 76 namespace
-bindings with private working stores. The report lists each of the remaining eleven namespace
-bindings separately; two need optional actual execution capabilities. Native terminal plan review
+The executable vocabulary currently has 101 operations, 42 default native bindings and 94 namespace
+bindings with private working stores. The report lists each of the remaining seven namespace
+bindings separately; check execution, repair execution and data execution need optional explicit
+capabilities. Native terminal plan review
 retains its distinct ceremony, while portable plan-row context/record operations have their own
-contracts. Risk/reuse/exception ceremonies and reviewed source adoption still need their genuine
-owners. Phase 8/9 authority migration and production surface cutover remain separate.
+contracts. Visual-profile and native test-narrowing ceremonies also retain their distinct native
+contracts. The [coverage ledger](ENGINE-SDK-PHASE-5-7-COVERAGE.md) names the unfinished owners.
+Phase 8/9 authority migration and production surface cutover remain separate.
 
 ## Qualification
 

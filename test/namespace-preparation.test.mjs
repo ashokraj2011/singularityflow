@@ -1,3 +1,4 @@
+import {NAMESPACE_PREPARATION_SCHEMAS} from '../src/foundation/record-schema.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { namespacePreparationFixture } from './helpers/namespace-preparation-fixture.mjs';
@@ -216,7 +217,7 @@ for(const kind of ['context','generation'])test(`a future private ${kind} remain
   const f=await namespacePreparationFixture(t,{code:kind==='generation'});await f.engine.run('phase.prepare');
   const local=createNamespaceDraftStore({records:f.localRecords,content:f.localContent,scope:f.scope,workId:f.inputs.workId,phaseId:'intake'});
   const accepted=await local.capture(),payload=structuredClone(accepted.payload),reference=kind==='context'?payload.inputContext:payload.generationIntent.record;
-  const value=JSON.parse(Buffer.from((await f.localContent.read(f.scope,reference)).data));value.schemaVersion=kind==='generation'?3:2;
+  const value=JSON.parse(Buffer.from((await f.localContent.read(f.scope,reference)).data));value.schemaVersion=NAMESPACE_PREPARATION_SCHEMAS[kind].maximumReadableVersion+1;
   const changed=await f.upload(JSON.stringify(value));
   if(kind==='context')payload.inputContext=changed;
   else payload.generationIntent={...payload.generationIntent,id:'generation-'+changed.sha256,record:changed};

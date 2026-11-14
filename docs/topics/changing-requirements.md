@@ -33,7 +33,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 2
+version: 3
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -89,10 +89,11 @@ Story PAY-1, "Retry failed card payments", has four steps: Intake (the scope), D
    - Copilot: `/sf-decide PAY-1` opens the card; Copilot cannot acknowledge for you
    - Shell: `sflow story intent-amendment acknowledge AMD-001 --work-id PAY-1`
    - VS Code (model-free): the Decide card
-5. **Design, reopened in place.** The Story resumes at Design (`/sf-resume PAY-1` in another chat or checkout; Shell `sflow resume PAY-1`). Its old text is kept read only in the Story folder at `context/superseded/design-gen2-before-AMD-001/design.md`, and the new prompt names that file. Design publishes no code: while Implement's unfinished code is in the working tree, Design cannot be composed or published (`PHASE_ARTIFACT_ONLY_CHANGES`). Set the code aside first: `/sf-recover` (Shell `sflow recover PAY-1 --phase design --json`) offers it, keeps a private copy, and you run it in your own terminal. Or move the files out yourself and bring them back before Implement starts again. Then compose Design again and write it against the amended scope. A person may publish the old text unchanged if it still holds; an agent's draft must be composed again first. Its approvers approve it again.
+5. **Design, reopened in place.** The Story resumes at Design (`/sf-resume PAY-1` in another chat or checkout; Shell `sflow resume PAY-1`). Its old text is kept read only in the Story folder at `context/superseded/design-gen2-before-AMD-001/design.md`, and the new prompt names that file. Leave Implement's unfinished code where it is. AMD-001 recorded it, file by file, when it closed Implement's code generation. Design does not count that code against itself, and its publication commits none of it. Compose Design again and write it against the amended scope. A person may publish the old text unchanged if it still holds; an agent's draft must be composed again first. Its approvers approve it again. Design still answers for a recorded file changed since, and for new code: put back what was recorded, or set it aside.
    - Copilot: `/sf-phase` (an agent writes it again), or `/sf-publish design` for your own unchanged text; then `/sf-submit` and `/sf-approve design --work-id PAY-1`
    - Shell: `sflow prepare` (it prepares the current step, Design) and `sflow phase enter design --work-id PAY-1 --compose --for-agent --json`; a person's unchanged text: `sflow phase publish design --authored human --channel manual-in-place`; then `sflow submit design` and `sflow approve design --work-id PAY-1 --fetch`
    - VS Code (model-free): `@sflow /submit design`, then `@sflow /approve design --work-id PAY-1`
+   - Legacy: a Story started before `spec.preAmendmentDrafts` still sets the code aside first. `/sf-recover` (Shell `sflow recover PAY-1 --phase design --json`) offers it and keeps a private copy; bring the code back before Implement starts again.
 6. **Implement, written again.** AMD-001 closed Implement's code generation and set its old prompt aside. Publishing the old draft is refused with `PHASE_DRAFT_PREDATES_AMENDMENT`, naming the way out in this step: `phase begin implement` while its generation is closed, then `phase enter implement --compose`. The code in the working tree is carried into the new generation as its starting point, and the new prompt names the old summary read only. The agent raises the limit to 5, adds the fraud stop and its tests, and publishes. Then submit and approve, and go on to Verify.
    - Copilot: `/sf-code`, then `/sf-publish implement`, `/sf-submit` and `/sf-approve implement --work-id PAY-1`
    - Shell: `sflow prepare` (now at Implement, it opens the code generation again) and `sflow phase enter implement --work-id PAY-1 --compose --for-agent --json`, then `sflow phase publish implement --authored deterministic --channel kernel-generator --no-model`, `sflow submit implement` and `sflow approve implement --work-id PAY-1 --fetch`
@@ -158,7 +159,7 @@ Proposing commits the proposal; the approved scope stays as it is until the scop
 - **`INTENT_AMENDMENT_PLAN_UNCORRECTED`:** a separate approved plan would no longer match the clauses. Propose again with the rows the refusal names (`--add-row`, `--remove-row`, `--keep-row`). **`INTENT_AMENDMENT_PLAN_CORRECTION_INVALID`:** correct those row flags and propose again. **`INTENT_AMENDMENT_PLAN_STALE`:** reject it and propose it again with the rows the plan needs now.
 - **`AMENDMENT_REVALIDATION_INVALID`:** a plan cannot still hold while it lacks rows for the amended clauses. Its approvers correct it with `sflow decision plan`, or answer No.
 - **`EVIDENCE_STALE_AFTER_SCOPE_REVISION`:** a step's evidence of a changed clause predates the amendment. A person returns the step to its author, who runs it again.
-- **`PHASE_ARTIFACT_ONLY_CHANGES`:** a document step found code changes in the working tree; set them aside (step 5).
+- **`PHASE_ARTIFACT_ONLY_CHANGES`:** a document step found code changes it answers for: new code, or a file a later code step's record no longer matches. Put back what was recorded, or set it aside with `/sf-recover`. A later step's code an amendment left in place is not counted (step 5), except on a legacy Story, which sets it aside.
 
 ## Related topics
 

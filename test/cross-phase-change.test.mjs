@@ -191,3 +191,14 @@ test('a refusal printed for people still reaches the VS Code card as its structu
   assert.equal(view.actions[0].command, 'singularity-flow reject review --to backend --repair --reason <REASON>');
   assert.ok(view.why.some((entry) => entry.label === 'Responsible step: backend'));
 });
+
+test('a document step before every code step names the clauses it changed and no owner, never an empty one', async () => {
+  // The plan step comes before both code steps: nothing earlier owns the paths, so there is no return and no owner to name.
+  const workflow = story();
+  const change = await crossPhaseChange('/unused', {}, workflow, workflow.phases.plan, ['src/api.mjs'], { records });
+  assert.deepEqual([change.owners, change.returns], [[], []]);
+  for (const code of ['PHASE_ARTIFACT_ONLY_CHANGES', 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION']) {
+    const { text } = describeCrossPhaseChange(change, { code, gate: 'submission', workflow, phase: workflow.phases.plan });
+    assert.equal(text, 'They stay in your worktree; nothing was reverted or adopted. They change XPC-1:REQ-001.');
+  }
+});

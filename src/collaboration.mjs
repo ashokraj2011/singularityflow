@@ -18,7 +18,7 @@ import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { expectedPhaseEvidencePaths, expectedPreparationContextPaths, expectedStepOwnedPaths } from './recovery-preparation-context.mjs';
 import { setAsideWorktreeAction } from './recovery-set-aside.mjs';
-import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
+import { heldForLaterCode, inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { reviewedWorktreeCommitAction, submittedWorktreeCorrectionAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
@@ -71,6 +71,8 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
   // untracked result is disposable for routing: a tracked result (or any other dirty path) must
   // still be reviewed. This never removes the report or changes Git's index.
   const disposableUntrackedPaths = inspection.disposableUntrackedPaths;
+  const held = new Set(inspection.heldPaths ?? []);
+  paths = paths.filter((candidate) => !held.has(candidate));
   const relevantPaths = paths.filter((candidate) => !disposableUntrackedPaths.includes(candidate));
   const itemRoot = repositoryRelativePath(
     `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`
@@ -92,7 +94,7 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
     ...(config.governance?.protectedPaths ?? []),
     ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
   ].map(repositoryRelativePath).filter(Boolean);
-  const statusLines = status.split(/\r?\n/u).filter(Boolean);
+  const statusLines = status.split(/\r?\n/u).filter((line) => line && !held.has(line.slice(3)));
   // Renames, removals, conflicts, and type changes have an old endpoint or content transition that
   // a name-only roster cannot classify safely. Keep their entire recovery action manual.
   const simpleStatus = statusLines.length === paths.length && statusLines.every((line) =>
@@ -346,7 +348,8 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
   }
   const worktreeStatus = changes(root);
   // One raw-byte status inspection per plan; the apply-time stability guard always reads fresh.
-  const worktreeInspection = inspectLifecycleWorktree(root, config, workflow);
+  // A later code step's code, kept in place for it (SPEC-CIC switch 2), is no change for an earlier document step to review.
+  const worktreeInspection = inspectLifecycleWorktree(root, config, workflow, { held: await heldForLaterCode(root, config, workflow) });
   // Lagging index entries make the status unreadable as authored changes; classify it once they are refreshed.
   if (worktreeStatus.trim() && !staleIndex.length) {
     const worktreeAction = await workingTreeAction(root, config, workflow, phase ?? activePhase, worktreeStatus, phaseRecovery, worktreeInspection);

@@ -1455,6 +1455,53 @@
                 "required": ["path", "artifact", "sha256"],
                 "properties": { "path": { "type": "string", "minLength": 1 }, "artifact": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "minLength": 1 } },
                 "additionalProperties": false
+              },
+              "closedChangeSet": {
+                "description": "The code the closed code generation (setAside.intent) held when the amendment closed it: each application path its change set from baseCommit reached, with its content (kind missing where the change removed it). An earlier document step the amendment reopened does not count exactly these bytes against itself while that generation stays closed, and the step's next phase begin carries exactly them (owner, 2026-11-14).",
+                "type": "object",
+                "required": ["intent", "baseCommit", "paths"],
+                "properties": {
+                  "intent": { "type": "string", "minLength": 1 },
+                  "baseCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["path", "kind", "sha256"],
+                      "properties": {
+                        "path": { "type": "string", "minLength": 1 },
+                        "kind": { "enum": ["regular-file", "symlink", "missing"] },
+                        "sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "heldCode": {
+            "description": "SPEC-CIC switch 2 (owner, 2026-11-14): a code step a return to an earlier step reset while its generation was open and unpublished keeps that generation's code in place for it. Recorded as scopePin.closedChangeSet records a closure, with the change request that returned the Story (by). An earlier document step does not count exactly these bytes against itself while that same generation stays open and unpublished; inert once it is published or closed.",
+            "type": "object",
+            "required": ["by", "intent", "baseCommit", "paths"],
+            "properties": {
+              "by": { "type": "string", "minLength": 1 },
+              "intent": { "type": "string", "minLength": 1 },
+              "baseCommit": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "kind", "sha256"],
+                  "properties": {
+                    "path": { "type": "string", "minLength": 1 },
+                    "kind": { "enum": ["regular-file", "symlink", "missing"] },
+                    "sha256": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" }
+                  },
+                  "additionalProperties": false
+                }
               }
             },
             "additionalProperties": false

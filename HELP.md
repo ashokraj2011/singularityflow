@@ -2447,9 +2447,10 @@ business now wants 5 retries, and no retry after a fraud decline.
    terminal. Copilot never decides it for them.
 3. Anyone on the Story acknowledges it on the card, or with
    `singularity-flow story intent-amendment acknowledge AMD-001`. No step moves on until then.
-4. Design reopens in place. Its old text is kept read only, and its new prompt names that copy. Set
-   Implement's unfinished code aside first (`/sf-recover`), then compose Design again (`/sf-phase`); a person may publish the old text unchanged if it still holds. Its approvers
-   approve it again.
+4. Design reopens in place. Its old text is kept read only, and its new prompt names that copy.
+   Implement's unfinished code stays where it is: compose Design again (`/sf-phase`) with it in place;
+   a person may publish the old text unchanged if it still holds. Its approvers approve it again. A
+   Story started before `spec.preAmendmentDrafts` sets that code aside first (`/sf-recover`).
 5. Implement is written again: publishing its old draft is refused with `PHASE_DRAFT_PREDATES_AMENDMENT`.
    `/sf-code` opens its code generation again and composes it; the code in the working tree is the
    starting point. Then publish, submit and approve as usual.

@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 13 November 2026
-**Status:** Owner decisions recorded 2026-11-13 (section 9). Stages 1 and 2 are built (section 7.1), and stage 3 (section 7.2, owner go-ahead 2026-11-14); stages 4 to 7 follow in the order of section 7, each behind its own switch where it changes an outcome.
+**Status:** Owner decisions recorded 2026-11-13 (section 9). Stages 1 and 2 are built (section 7.1), stage 3 (section 7.2) and stage 4 (section 7.3, owner decisions 2026-11-14); stages 5 to 7 follow in the order of section 7, each behind its own switch where it changes an outcome.
 **Namespace:** CIC. Specification documents declare their own namespace in their header (see [DOCUMENTATION-MAP.md](DOCUMENTATION-MAP.md)); no other document uses CIC.
 **Source baseline:** commit 4aabac18a (main 15d6137d3 with the decisions-card work)
 **Replaces:** SPEC-CIC v1.0 (draft of the same day), corrected against the source baseline
@@ -90,9 +90,9 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 
 ### 4.2 Widening (G2)
 
-**[CIC:REQ-005]** Each step generation MUST have a coverage state: `resolved` when a complete dependency record exists for it, otherwise `unresolved`. Generations published before enablement, generations whose receipt or claim map is missing or fails its digest, and generations that changed a path no clause claims are `unresolved`. Each unresolved generation names its reasons from a closed set (section 7.2).
+**[CIC:REQ-005]** Each step generation MUST have a coverage state: `resolved` when a complete dependency record exists for it, otherwise `unresolved`. Generations published before enablement, generations whose receipt or claim map is missing or fails its digest, and generations that changed a path no clause claims are `unresolved`. A changed path that an approved plan row or approved plan amendment (`PAM-NNN`, add-supporting) names as a supporting change counts as covered and depends on no clause (owner decision, 2026-11-14). Each unresolved generation names its reasons from a closed set (section 7.2).
 
-**[CIC:REQ-006]** On any revision that adds, revises or removes a clause, every `unresolved` generation of the defining step and of every later step MUST be treated as inside the cone. A removed clause counts as changed for the clauses that depend on it. A revision with `changes: null` widens to every later step. A changed path that no clause claims places the whole generation that changed it inside the cone.
+**[CIC:REQ-006]** On any revision that adds, revises or removes a clause, every `unresolved` generation of the defining step and of every later step MUST be treated as inside the cone: an unresolved record counts as affected, never as unaffected. A removed clause counts as changed for the clauses that depend on it. A revision with `changes: null` (the first revision, or one from before E6) makes every clause it holds stale. A changed clause that no plan claims reaches every later published step whose record does not resolve it. A revision reaches a step's evidence at a generation as follows: a step it lists in `dependentGenerations`, at or below the generation recorded there, generation 0 included; the step whose generation made the revision, at its earlier generations; and any other step, at every generation not published after the revision (by its `generationPublications` time; an unknown time counts as before).
 
 **[CIC:REQ-007]** Every item in a computed cone MUST carry the reason it is there: `declared`, `cited`, `recorded:<edge kind>`, `file-closure`, `unreadable` or `widened:unresolved`. The share of the cone that is widened is reported, so teams can see what missing records cost them.
 
@@ -178,11 +178,31 @@ Stages 2 and 3 change no outcome except REQ-020, which only resets a step whose 
 - **Records** (`src/dependency-records.mjs`, loaded only on the publish path and by the read). `publishGeneration` writes one per generation after the generation's own records are final, in the publication's commit; `decideIntentAmendment` writes the record of the scope generation it publishes. One file per generation keeps `workflow.json` small: the step holds only `{ generation, path, recordSha256 }`. On the fixture the records were 976 to 2,427 bytes. Each `input` edge costs about 160 bytes, so a step after 100 clauses carries about 17 KB, in its own file.
 - **Prompt receipts did not name the clause revisions.** They held the capsule's digest and counts only. Under switch 1 the composer now records `clauseRevisions` (each ID and approved statement hash, the same hash a scope revision holds) on the receipt. A receipt exists only when a prompt was composed (`phase enter --compose`, an agent's entry). A generation authored without one, such as deterministic code or the scope generation an amendment publishes, reads `unresolved` with `receipt-missing`. That will be common, and it is the fail-closed reading REQ-005 asks for.
 - **Coverage reasons**, a closed set. At publication: `receipt-missing`, `receipt-digest` (the prompt no longer matches the receipt), `receipt-clauses-unrecorded`, `claim-map-missing`, `claim-map-digest`, `delivery-evidence-missing`, `unclaimed-paths` and `artifact-unreadable`. On read: `no-record`, `record-missing`, `record-digest`, `receipt-changed`, `claim-map-changed` and `scope-chain`.
-- **Changed paths no clause claims:** under REQ-005 as written, a plan's Supporting files (lockfiles, CI, build files) are unclaimed, so most real code generations that touch one read `unresolved`. Stage 4 should decide whether Supporting files count as accounted before widening on them.
+- **Changed paths no clause claims:** under REQ-005 as first written, a plan's Supporting files (lockfiles, CI, build files) were unclaimed, so most real code generations that touch one read `unresolved`. The owner decided (2026-11-14) that a supporting change an approved plan row or plan amendment names is covered; stage 4 records it as `supportingPaths`.
 - **`scope-revision/v2`** is written by `recordApprovedScopeRevision` under switch 1, with `stale` (each clause's reason) and `edges` (the declared edges the reasons used). Staleness still reads `changes` and `dependsOn` exactly as before, and the test pins `stale` equal to `staleClausesOf`. `schemas/workflow.schema.json` takes each item as v1 or v2, both with `additionalProperties: false`.
 - **Nothing verified the v1 chain before.** `verifyScopeRevisionChain` checks each revision's digest and its link to the one before, through v1 and v2. Only the read uses it, and a record whose revision is not in a chain that verifies reads `unresolved` with `scope-chain`.
 - **Outcomes are unchanged.** On the fixture, the same Story with the switch on and off has equal amendment effects, revision changes, staleness, reset and kept steps, and history.
 - **Publish time:** the CLI's `phase publish` took 1.7 s, 1.7 s and 2.9 s for intake, fix-design and implement with the switch on, and 1.7 s, 1.7 s and 2.8 s with it off, within run-to-run noise.
+
+### 7.3 What stage 4 built, and what building it found
+
+Everything below applies only to a Story whose pinned spec policy has `observedDependencies: on`. With the switch off, outcomes are those of main: the stage 2 and stage 3 acceptance tests and the rest of the suite run with it off.
+
+- **Staleness (REQ-006, `scope/revisions.mjs`).** Three rules close the remaining fail-open places of G2: a clause that depends on a removed one is stale; a revision with `changes: null` makes every clause it holds stale; and neither a step the revision does not list nor generation 0 is exempt. The reach rule is the one written in REQ-006. `scope-revision/v2` states the same set per clause, with the reasons `depends` (through a removed clause too) and `unrecorded`.
+- **The amendment's effect** (`intentAmendmentEffect`, used by the preview, the card and the approval alike) reads each published step's record as it reads now. A step whose record is missing or unresolved is affected, with the reason `unresolved-record` and its reasons, so rule E8 never keeps it. Changed clauses no plan claims are listed as `unclaimedClauses`.
+- **D1 (REQ-021).** A step rule E8 keeps whose record holds an `input` edge for a changed clause (one its prompt held and its document does not cite) gets a row on the Story's revalidation list: the amendment's `revalidate`, with `reason: prompt-held`, the clauses, and a recommendation. The recommendation is "still holds" when the step's document names neither those clauses nor any path they expect, otherwise "redo" (return the Story to it).
+  - The card says why in one line, on the terminal, the VS Code Decide card and the Copilot CLI card alike.
+  - The row is never settled for the person: the "settled for you" route does not take revalidation items.
+  - It is answered on the Decide card or in the person's own terminal (`upstream-issue revalidate`). It is not offered as a chat yes or no: its two answers are "still holds" and "redo", neither a reject, and the chat answer binding admits decision commands only.
+- **Where an unanswered question waits:**
+  - the approval of the step it is about, and of each step that reads it as an input;
+  - for a step that completes at its submission (approval `none`, or a waiver), that submission;
+  - the Story's end.
+
+  Nothing else waits, and nothing loops back. The refusal is `AMENDMENT_STILL_HOLDS_REQUIRED` (person-decides-in-step), and it names the Decide card (`/sf-decide`) and the approvers' own command. The decision list marks the row as holding an approval only where the engine says so. `test/no-dead-end.test.mjs` walks this route (`code-step-waits-for-still-holds`).
+- **Found:** a kept document step usually reads the scope only through its prompt's clause capsule, not as a phase input, so it has no input record. The existing "still holds" path refused it ("cannot read the approved scope"). For a D1 row the answer is now bound to the amended scope generation and its bytes, which is what carries its evidence across the revision (`revalidationCarriers`, `scopeStaleness`).
+- **Found:** quick-fix's code step has approval `none` and completes at its submission. "Its own approval" therefore means its submission, which is where that step waits.
+- **Supporting changes:** a changed path an approved plan row or plan amendment names as supporting is covered (`supportingPaths`), depends on no clause, and leaves the record resolved.
 
 ## 8. Acceptance
 
@@ -218,6 +238,11 @@ v1.0's CIC:AC-011 (a session with no recorded clause set) is retired: a Story ha
 5. **Publication of superseded work** is refused, not rebased (REQ-009).
 6. **Naming.** The classes are `editorial`, `refinement` and `material`. The preview is `story intent-amendment preview`, beside the existing `draft` and `propose`. The scope-change authority is a new optional policy key naming an `approvalAuthorities` group, defaulting to the scope step's own approval groups.
 7. **Older Stories.** The widening of REQ-006 applies only to Stories whose pinned policy enables switch 1; a Story pinned before enablement keeps baseline behaviour (REQ-019).
+
+## 9a. Owner decisions, 2026-11-14
+
+1. **Stage 4 takes the recommended defaults** (section 7.3).
+2. **Supporting changes count as covered when the plan lists them.** A changed path named as a supporting change in an approved plan row or approved plan amendment (`PAM-NNN`, add-supporting) counts as covered and depends on no clause; any other changed path no clause claims stays `unclaimed-paths`, and the record is unresolved (REQ-005).
 
 ## 10. Validation boundary
 

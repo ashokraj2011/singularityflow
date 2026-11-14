@@ -118,6 +118,10 @@ const SCENARIOS = Object.freeze([
     start: "singularity-flow appeal prepare --phase implementation --add-supporting .nvmrc=build-configuration --reason 'The person chose a pinned Node version for this Story.' --for-agent --json" },
   { id: 'chain-in-the-decision-turn', meets: 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED', real: 'a chain refused inside the turn that owns the decision',
     guard: { prompt: `/sf-decide ${WORK}`, toolArgs: { command: `singularity-flow decision plan ${WORK} --add-location ${WORK}:AC-001=src/a.mjs --reason "The first file implements the clause." && singularity-flow decision plan ${WORK} --add-location ${WORK}:AC-001=src/b.mjs --reason "The second file implements the clause."` } } },
+  // A paid Copilot CLI run (2026-11-14) typed `story intent-amendment propose …` without its program: told only to
+  // correct the tool form, twice, the model gave up on the route. The refusal names the command, run in this turn.
+  { id: 'command-without-its-program', meets: 'PHASE_MUTATION_SFLOW_PROGRAM_MISSING', real: 'paid Copilot CLI run 2026-11-14: a command family with no singularity-flow before it, refused as a tool form',
+    guard: { prompt: '/sf-publish', toolArgs: { command: PREPUBLISH.replace(/^singularity-flow /u, '') } }, reached: published },
   { id: 'decision-outside-its-turn', meets: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED', real: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: 3 hits, 0 advanced', setup: unplannedHelper,
     guard: { prompt: '/sf-code', toolArgs: { command: `singularity-flow decision plan ${WORK} --add-location ${WORK}:AC-001=src/helper.mjs --reason "The small helper implements the already approved return value."` } } },
   { id: 'edit-in-a-read-turn', meets: 'PHASE_MUTATION_PATH_DENIED', real: 'PHASE_MUTATION_TURN_READ_ONLY in older builds: 14 hits, 0 advanced', guard: { prompt: '/sf-next', toolName: 'edit', toolArgs: { path: 'src/value.mjs' } } },

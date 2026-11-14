@@ -72,7 +72,7 @@ const EDIT_MISS = /failed to find (?:the )?expected lines|could not (?:find|loca
 // What a turn cannot repair by itself: a permission, a protected or out-of-scope path, a missing input.
 const REAL_BLOCKER = /\bdenied\b|\brefused\b|permission|\bEACCES\b|\bEPERM\b|\bENOENT\b|protected|not admitted|read-only|no such file/iu;
 // Refusals whose own text says to correct the tool form in this turn; they do not invalidate the phase.
-const TOOL_FORM_CODES = new Set(['PHASE_MUTATION_TOOL_PROTOCOL', 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED']);
+const TOOL_FORM_CODES = new Set(['PHASE_MUTATION_TOOL_PROTOCOL', 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED', 'PHASE_MUTATION_SFLOW_PROGRAM_MISSING']);
 
 /**
  * A failure this turn repairs by itself, or null: an edit of its own that missed the file's current lines, or a

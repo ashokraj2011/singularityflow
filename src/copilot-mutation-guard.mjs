@@ -1831,7 +1831,8 @@ export async function mutationToolGuard(payload = {}) {
   if (typed) return typed;
   const personal = turnPersonDecisionDenial(payload, record);
   if (personal) return personal;
-  const decision = await mutationToolDecision(payload, record);
+  let decision = await mutationToolDecision(payload, record);
+  if (decision.permissionDecision === 'deny') decision = await missingProgram(payload, decision);
   // Only what this turn would run: a command refused for what it is keeps that refusal.
   if (decision.permissionDecision !== 'deny') {
     const unbound = await answerBoundDenial(payload, record);
@@ -1862,6 +1863,19 @@ export async function mutationToolGuard(payload = {}) {
   }
   await observeEdits(payload, record, decision).catch(() => {});
   return decision;
+}
+
+/**
+ * A refused terminal call whose line starts with an SFlow command family and no program (`story …`): the refusal names
+ * the command it meant, `singularity-flow story …`, and the call stays refused (copilot-missing-program.mjs, lazy).
+ */
+async function missingProgram(payload, decision) {
+  const guarded = calls(payload).filter(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name));
+  if (!guarded.length || !guarded.every(call => TERMINALS.has(call.name))) return decision;
+  const cached = await boundedRecord(recordFile(payload)).catch(() => null);
+  const scope = { contract: cached?.contract, repositoryRoot: cached?.contract?.repositoryRoot ?? cached?.repositoryRoot };
+  try { return (await import('./copilot-missing-program.mjs')).missingProgramDenial(guarded, call => scopedShellCommand(call, scope)) ?? decision; }
+  catch { return decision; } // the refusal stands as it was
 }
 
 // A read is turned back only when the host would cut it (the smallest cut seen was 8,193 bytes); the

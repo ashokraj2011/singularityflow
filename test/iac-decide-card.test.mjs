@@ -224,7 +224,7 @@ test('approved on the card: the amendment is installed and attributed to the car
   const again = story.run(process.execPath, [CLI, '--no-model', 'story', 'intent-amendment', 'propose', '--file', candidate, '--reason', 'Another change.', '--json'], { allowFailure: true });
   assert.equal(refusal(again).code, 'INTENT_AMENDMENT_ALREADY_PENDING');
   assert.deepEqual(JSON.parse(again.stdout).remediationPlan.steps.slice(1, 3).map((step) => [step.command, step.copilotCommand]),
-    [[`singularity-flow decisions ${WORK}`, `/sf-decide ${WORK}`], [`singularity-flow story intent-amendment decide AMD-001 --decision <approve|reject> --confirm AMD-001 --work-id ${WORK}`, null]]);
+    [[`singularity-flow decisions ${WORK}`, `/sf-decide ${WORK}`], [`singularity-flow story intent-amendment decide AMD-001 --decision <approve|reject> --confirm AMD-001 --work-id ${WORK}`, `/sf-decide ${WORK}`]]);
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).intentAmendments[0].sourcePhase, 'planning', 'the step it was proposed in');
   const decided = data(await cardRecord(story, WORK, { [decision.id]: 'approve' }, packet.packetSha256));
   assert.match(decided.decided[0].words, /^Approve AMD-001: approve AMD-001: the approved clauses change and the steps that cite them reopen \(intent amendment decision\)\. AMD-001 is approved: the amended scope is in force/u);

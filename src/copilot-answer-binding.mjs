@@ -225,10 +225,14 @@ function yesNoAnswer(ledger, yesNo) {
   return typed.length === 1 ? { side: typed[0], reply: null } : { problem: typed.length ? 'ambiguous' : 'none' };
 }
 
-function yesNoProblem(ledger, yesNo) {
+function yesNoProblem(ledger, yesNo, { localChat = false } = {}) {
   const found = yesNoAnswer(ledger, yesNo);
   if (!found) return null;
   const records = yesNo.records === 'yes' ? 'Yes' : 'No';
+  // VS Code's own chat may never hand this hook the answer: asking again would meet this refusal again.
+  if (found.problem === 'none' && localChat && !ledger.delivered) {
+    return `${REFUSAL} This chat's answers do not reach SFlow, so a yes or no for this row cannot be recorded here; do not ask again in this chat. The person answers it on the decisions card (sflowDecide or sflow_decide with the Story ID) or in their own terminal (singularity-flow decisions record <WORK-ID>); go on to the next item.`;
+  }
   if (found.problem === 'none') {
     return `${REFUSAL} This command records a yes or no for one row, and the person gave none for it in this turn. Ask them that row's yes-or-no question (Yes, No, Not now) with your question tool (ask_user; in VS Code, vscode_askQuestions), then run the command of the answer they chose with their words. ${ROUTES}`;
   }
@@ -251,7 +255,7 @@ export async function unboundAnswerReason(file, record, options, { localChat = f
   if (length) return length;
   const ledger = await readLedger(file, record.turnId);
   const yesNo = yesNoCommand(positionals, options);
-  const sided = yesNo ? yesNoProblem(ledger, yesNo) : null;
+  const sided = yesNo ? yesNoProblem(ledger, yesNo, { localChat }) : null;
   if (sided) return sided;
   const words = await (async () => {
     // A question whose answer never reached this hook proves nothing either way, so it refuses nothing.

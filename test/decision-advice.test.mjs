@@ -207,6 +207,16 @@ test('only a binary item may be answered yes or no in chat, through the command 
   await noteQuestionAnswered(file, record, { toolName: 'ask_user', toolResult: { textResultForLlm: 'User responded: Yes. The Epic already holds this Story\'s scope.' } });
   assert.equal(await unboundAnswerReason(file, record, { reason: 'The Epic already holds this Story\'s scope.' }), null);
   assert.match(await unboundAnswerReason(file, record, { reason: 'A reason the model wrote for the person.' }), /^PHASE_MUTATION_ANSWER_UNBOUND/u);
+  // VS Code's own chat may never hand the hook its answer: a yes or no is then sent to the card, never asked again in a loop.
+  const local = { turnId: 'turn-2' };
+  await startAnswerLedger(file, local, `/sf-decide ${WORK}`);
+  await noteQuestionAsked(file, local);
+  const revalidate = { 'work-id': WORK, amendment: 'AMD-001', outcome: 'unchanged', reason: 'The design names none of the changed clauses.' };
+  const unseen = await unboundAnswerReason(file, local, revalidate, { localChat: true, positionals: ['upstream-issue', 'revalidate', 'fix-design'] });
+  assert.match(unseen, /do not ask again in this chat\. The person answers it on the decisions card/u);
+  assert.doesNotMatch(unseen, /Ask them that row's yes-or-no question/u);
+  // Where the answers do arrive, a missing yes or no is asked for again.
+  assert.match(await unboundAnswerReason(file, local, revalidate, { positionals: ['upstream-issue', 'revalidate', 'fix-design'] }), /Ask them that row's yes-or-no question/u);
 });
 
 test('under SF Guard no row offers chat, and every host says it is recorded in the person\'s own terminal [owner, 2026-11-14]', () => {

@@ -261,9 +261,12 @@ test('its turn rules name the draft it may write, as /sf-reject\'s do', async (t
   assert.deepEqual(phaseStagingPaths({ gitDirectory: gitDir(f.root), definition: {}, workflow: f.workflow, turnMode: 'approval-only', skill: '/sf-approve' }), []);
   const payload = { cwd: f.root, sessionId: 'amend-rules', prompt: `/sf-amend ${WORK}` };
   const entered = await recordRepositoryBoundaryTurn(payload, { captureMutation: f.capture });
-  assert.match(JSON.stringify(entered), /SFlow turn boundary \(sf-amend\): approval-only turn/u);
+  // Told its own route, never "approval or rejection only" [owner, 2026-11-14].
+  assert.match(JSON.stringify(entered), /SFlow turn boundary \(sf-amend\): intent-amendment turn/u);
   const records = path.join(path.dirname(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), 'copilot-boundaries');
   const files = readdirSync(records).filter((name) => name.endsWith('.mutation.json'));
   const summaries = await Promise.all(files.map(async (name) => JSON.parse(await readFile(path.join(records, name), 'utf8')).contract?.summary ?? ''));
-  assert.ok(summaries.some((summary) => summary.includes(`Draft an intent amendment only at the issued file ${f.draft}, for story intent-amendment propose --file.`)), summaries.join('\n'));
+  assert.ok(summaries.some((summary) => summary.includes(`Intent amendment only: draft the change only at the issued file ${f.draft}, `)
+    && summary.includes(`\`singularity-flow story intent-amendment propose --work-id ${WORK} --file ${f.draft} --reason "<why>" --authored governed-agent --channel copilot-host --json\``)), summaries.join('\n'));
+  assert.ok(summaries.every((summary) => !summary.includes('Approval/rejection only')), summaries.join('\n'));
 });

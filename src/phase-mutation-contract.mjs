@@ -181,7 +181,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
         : !editable
           ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes; inspect the reviewed successor or return route.')]
           : [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', generationSkillForPhase(phase, workflow))];
-  const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`story intent-amendment status\` and \`draft\`, stay open.`
+  const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`singularity-flow story intent-amendment status\` and \`singularity-flow story intent-amendment draft\`, stay open.`
     : turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
     : turnMode !== 'authoring' ? `${turnMode}: no direct repository edits; only explicitly issued staging files and permitted kernel operations.`
       : !editable || (deterministic && !code) ? 'No direct edits to this retained or deterministic generation. Use the returned kernel/recovery action.'

@@ -102,7 +102,22 @@ async function derivedDraftStaging(skill, gitDirectory) {
   return [draft];
 }
 const sourceTextRule = files => files.length
-  ? ` Write an Epic source note or answer only at the issued file ${files[0]}, for epic sources note|answer --text-file.` : '';
+  ? ` Write an Epic source note or answer only at the issued file ${files[0]}, for \`singularity-flow epic sources note|answer --text-file ${files[0]}\`.` : '';
+/**
+ * What an /sf-amend turn does [owner, 2026-11-14]: it runs /sf-reject's intent-amendment route on its own, so it is told that
+ * route, never "approval or rejection only". Each command carries the binary, and where change impact is on the proposal waits
+ * for the person's own yes (copilot-answer-binding.mjs). A person decides and acknowledges it, never this turn.
+ */
+function amendTurnSummary(contract) {
+  const workId = contract.workId ?? '<WORK-ID>';
+  const file = contract.allow.staging[0] ?? null;
+  const at = file ?? '<FILE>';
+  return `Intent amendment only: draft the change ${file ? `only at the issued file ${file}` : 'only in the file `singularity-flow story intent-amendment draft` issues'}, `
+    + `show \`singularity-flow story intent-amendment preview --work-id ${workId} --file ${at} --for-agent --json\`, then propose with `
+    + `\`singularity-flow story intent-amendment propose --work-id ${workId} --file ${at} --reason "<why>" --authored governed-agent --channel copilot-host --json\``
+    + `${contract.policy?.changeImpact ? ', only after the person\'s own Yes to "Propose it?", with their words as the reason' : ''}. `
+    + `A person decides and acknowledges it on the Decide card (/sf-decide ${workId}) or in their own terminal, never this turn.`;
+}
 const digest = value => createHash('sha256').update(value).digest('hex');
 const directory = () => path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
 function key(payload) {
@@ -198,9 +213,12 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     // The kernel prepares only this file's parent, as issuance does; the parent grants no edits.
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 }).catch(() => {});
   }
-  // The one file a /sf-reject or /sf-amend turn may write is named in its rules, so the draft lands there.
-  if (mode === 'approval-only' && contract.allow.staging.length) {
-    contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for story intent-amendment propose --file.`;
+  // The one file a /sf-reject or /sf-amend turn may write is named in its rules, so the draft lands there, with the full
+  // command that proposes it. An /sf-amend turn is told its own route; a paused step keeps the pause's words.
+  if (mode === 'approval-only' && skillName(record.skill) === 'amend' && !contract.policy?.intentAmendmentPause) {
+    contract.summary = amendTurnSummary(contract);
+  } else if (mode === 'approval-only' && contract.allow.staging.length) {
+    contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for \`singularity-flow story intent-amendment propose --work-id ${contract.workId} --file ${contract.allow.staging[0]} --reason "<why>" --authored governed-agent --channel copilot-host --json\`.`;
   }
   const sourceText = await derivedDraftStaging(record.skill, gitIdentity.gitDir);
   contract.summary += sourceTextRule(sourceText);
@@ -252,7 +270,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
 export function turnBoundaryContext(value, presented = mutationContractPresentation(value.contract)) {
   const { contract } = value;
   const volatile = [
-    `SFlow turn boundary (${value.skill}): ${contract.turnMode} turn, ${contract.workId ?? 'no Story'} step ${contract.phaseId ?? 'none'} generation ${contract.generation ?? 'none'}.`,
+    `SFlow turn boundary (${value.skill}): ${contract.turnMode === 'approval-only' && skillName(value.skill) === 'amend' ? 'intent-amendment' : contract.turnMode} turn, ${contract.workId ?? 'no Story'} step ${contract.phaseId ?? 'none'} generation ${contract.generation ?? 'none'}.`,
     contract.authoringSkill ? `Step author: ${contract.authoringSkill}.` : null,
     // Only an authoring turn writes code. Told "Code authoring ready: false" in a /sf-next turn, an agent reported
     // "code authoring is not ready" as a blocker right after planning was approved (office, 2026-11-11).
@@ -341,8 +359,8 @@ export async function captureMutationTurn(payload, record, {
       sessionId: record.sessionId, turnId: record.turnId, skill: record.skill, modeChangedAt: record.modeChangedAt,
       contract: null, repositoryRoot: root, recordedAt: record.recordedAt, ...(draftStaging.length ? { draftStaging } : {}) });
     if (root && draftKind(record.skill)) return { additionalContext: `SFlow turn boundary (${record.skill}): ${mutationTurnMode(record.skill)} turn, no Story. `
-      + `Edit only the exact files this turn's SFlow commands issue (${draftKind(record.skill) === 'repair' ? 'the patch file repair authorize or repair status names'
-        : 'the step outputs initiative phase prepare or draft-check returns'}); no other file.${sourceTextRule(draftStaging)} ${CLI_PATH_REFERENCE}` };
+      + `Edit only the exact files this turn's SFlow commands issue (${draftKind(record.skill) === 'repair' ? 'the patch file `singularity-flow repair authorize` or `singularity-flow repair status` names'
+        : 'the step outputs `singularity-flow initiative phase` or `singularity-flow initiative phase draft-check` returns'}); no other file.${sourceTextRule(draftStaging)} ${CLI_PATH_REFERENCE}` };
   }
 }
 

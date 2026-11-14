@@ -678,10 +678,14 @@ export function argvAllowed(argv, mode, value) {
   // `decision risk` and `decision witness` stay outside it; a witness needs the human terminal.
   // Raising one for an earlier step is the route a final check names, and /sf-decide is where it is
   // routed: denied here, it was a dead-end (2026-10-28). The problem is the person's own words.
+  // A "still holds" row's yes or no is the row's own revalidate command, held to the person's answer like a decide
+  // [owner, 2026-11-14]; an amendment's own approval (`decide-amendment`) stays theirs, in their own terminal.
   if (mode === 'decision-only' && positionals[0] === 'upstream-issue') return !value.decisionEnded
     && (positionals[1] === 'decide' && /^UPI-\d{3,}$/u.test(positionals[2] ?? '') && positionals.length === 3
       || positionals[1] === 'raise' && positionals.length === 2 && typeof options.phase === 'string'
-        && typeof options.about === 'string' && typeof options.problem === 'string')
+        && typeof options.about === 'string' && typeof options.problem === 'string'
+      || positionals[1] === 'revalidate' && positionals.length === 3 && /^(?:FAM|AMD)-\d{3,}$/u.test(options.amendment ?? '')
+        && ['unchanged', 'return'].includes(options.outcome) && typeof options.reason === 'string')
     && options['work-id'] === value.contract.workId;
   if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
     && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
@@ -981,7 +985,7 @@ const OWN_STEP_DENIALS = Object.freeze({
   'adjudication-table': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this asks a person at their own terminal to answer the whole table, and no turn answers it. Call sflowAdjudicate or sflow_adjudicate with the Story ID where it is available; otherwise show the user this command to run themselves, and stop',
   'apm-install': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: installing or updating agent packages changes which agents run in this repository; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
   'apm-organisation': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing agents, or changing the organisation\'s marketplace or policy, changes what other teams run; the person runs it in their own terminal (its --dry-run preview may run here). Show the user the preview and the command, and stop; do not retry it',
-  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step, and its revalidation, is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',
+  'upstream-amendment-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an amendment of an earlier step is decided by that step\'s approvers in their own terminal, not by this turn. Show the user the command and stop; do not retry it',
   'spec-library-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: taking or turning down Copilot\'s proposals, deciding, deferring or reopening a specification gap, settling its checklist, publishing a revision to the shared library and discarding a draft are the person\'s own steps; no agent takes them. Show the user the command and stop; do not retry it',
   'spec-slice-change': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: dropping a clause of a Story\'s specification slice changes what the Story was asked to deliver; that is the person\'s own step. Show the user the command and stop; do not retry it',
   'spec-split-publication': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: publishing a split divides a specification revision among child specifications and Story slices for everyone who takes them; that is the person\'s own step (proposing one with --propose may run here). Show the user the command and stop; do not retry it',
@@ -1265,7 +1269,7 @@ const PERSON_DECISION_DENIALS = Object.freeze({
   approve: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: approving a step is the decision of a person who approves it, never an agent\'s, in any chat: they run /sf-approve, which shows them the review and asks, or this exact command in their own terminal. Show the user the command and stop; do not retry it or add --yes',
   reject: 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: returning a step for correction is the decision of a person who approves it, never an agent\'s, in any chat: they run /sf-reject, which asks them, or this exact command in their own terminal. Show the user the command and stop; do not retry it',
   'decision-list-record': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run /sf-decide, which records only the options they choose there, or this exact command in their own terminal. Show the user the summary and the command, and stop; do not retry it or change its digest',
-  'upstream-issue-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers, in /sf-decide or their own terminal, never by an agent. Show the user the command and stop; do not retry it'
+  'upstream-issue-decision': 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue is decided by the earlier step\'s approvers, and whether a step still holds after an amendment by its own, in /sf-decide or their own terminal, never by an agent. Show the user the command and stop; do not retry it'
 });
 
 const CHAINED_OWNED_STEP_DENIAL = 'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: nothing was recorded because these commands were chained. This turn may record each one: run them now, one standalone command per call, with the answers the person already gave. Do not ask them again';
@@ -2127,7 +2131,7 @@ async function mutationToolDecision(payload, record) {
           return mutationDenial(contract, `PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (a source review writes its report there too, never as JSON in a shell argument). Run a permitted SFlow command standalone: from a non-Git folder such as a chat folder it runs as is (SFlow finds the bound checkout); otherwise set the bound cwd${contract.repositoryRoot ? ` (${contract.repositoryRoot})` : ''} with \`cd <it> && …\` or \`env -C <it> …\`. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification`, [],
             OWN_ROUTE_TURNS.has(contract.turnMode) ? {} : { routes: [] });
         if (upstreamIssueDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers in their own terminal, not by this turn. Keep working; the Story completes once they decide it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue is decided by the earlier step\'s approvers, and whether a step still holds after an amendment by its own, in /sf-decide or their own terminal, not by this turn. Keep working; the Story completes once they decide it');
         // A gate under another Node on PATH: refused as ever, since only the gate's own run counts, with the command that answers what it was asking.
         const otherNode = commandUnderAnotherNode(call, contract);
         if (otherNode) return mutationDenial(contract, otherNode.reason, [], { routes: otherNode.routes });

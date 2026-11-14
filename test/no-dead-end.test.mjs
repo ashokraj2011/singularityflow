@@ -141,6 +141,11 @@ const SCENARIOS = Object.freeze([
     template: 'stillHolds', phase: 'implement', start: `singularity-flow submit implement --work-id ${WORK} --json`,
     reached: (result) => result?.status === 'approved' || result?.phase?.status === 'approved' || result?.data?.status === 'approved',
     answers: { choice: 'unchanged', why: 'The design does not rely on the numeric wording of the value criterion.' } },
+  // The same row answered yes in a /sf-decide chat [owner, 2026-11-14]: the turn runs the row's own revalidate command with the
+  // reason the person typed, through the real hook on the real Story; one they did not type is refused (decision-advice.test.mjs).
+  { id: 'still-holds-answered-in-chat', meets: null, real: 'owner 2026-11-14: a "still holds" row answered yes or no in chat', template: 'stillHolds', phase: 'implement',
+    guard: { prompt: `/sf-decide ${WORK}`, answered: 'Yes. The design does not rely on the numeric wording of the value criterion.',
+      toolArgs: { command: `singularity-flow upstream-issue revalidate fix-design --work-id ${WORK} --amendment AMD-001 --outcome unchanged --reason "The design does not rely on the numeric wording of the value criterion."` } } },
   { id: 'ending-with-items-open', meets: 'STORY_TERMINAL_READINESS_REFUSED', real: 'STORY_TERMINAL_READINESS_REFUSED: 3 hits, 2 stopped, 0 advanced', template: 'ending', phase: 'convergence',
     setup: (story) => {
       for (const item of JSON.parse(story.cli('story', 'adjudications', '--json').stdout).items) story.cli('story', 'adjudicate', item.id, '--disposition', 'deferred', '--reason', 'The person keeps this for a later Story.');

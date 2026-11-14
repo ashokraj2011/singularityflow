@@ -16,7 +16,8 @@
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
-import { ISSUE_ONLY_OPTIONS } from './person-step-catalog.mjs';
+import { ISSUE_ONLY_OPTIONS, PERSON_STEP_FAMILIES } from './person-step-catalog.mjs';
+import { presenceRequires } from './presence/counted.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
@@ -866,10 +867,35 @@ function forwardAmendmentItem(workflow, context, blocker) {
 }
 
 /**
+ * Whether SF Guard signs the record an effect writes to a person family's `list` on this Story, by the rule that signs
+ * it: on a Story SF Guard requires (counted.mjs presenceRequires), every record its family counts as a person's
+ * (presence/person-steps.mjs signNewPersonRecords). It is signed with the approver's Touch ID, which only their own
+ * terminal takes, so no chat records it.
+ */
+function guardSigns(workflow, list, effect) {
+  return presenceRequires(workflow) && PERSON_STEP_FAMILIES.some((family) => family.list === list && family.isPerson(effect));
+}
+
+/**
+ * A "still holds" row's yes and no in a /sf-decide chat [owner, 2026-11-14]: each the row's own revalidate command, at
+ * the person's reason, which the answer binding holds to what they typed. Under SF Guard none: the row is signed in the
+ * approver's own terminal, and the chat only points there.
+ */
+function stillHoldsChat(workflow, blocker) {
+  const effect = { kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase };
+  const form = /--outcome <unchanged\|return> --reason "<why>"/u;
+  const signed = guardSigns(workflow, 'amendmentRevalidations', effect);
+  const chat = (outcome) => (!signed && form.test(blocker.command ?? '')
+    ? { chat: { command: blocker.command.replace(form, `--outcome ${outcome} --reason "<REASON>"`) } } : {});
+  return { signed, chat };
+}
+
+/**
  * A step that read an earlier document an amendment changed [UIF-M3, SCS:REQ-022]: its own approvers say
  * it still holds, which binds its approval to the amended generation, or return the Story to it, as a
  * rejection does. A conformance step's approver confirms its report or returns it for a new one. Recorded
- * here with `upstream-issue revalidate`'s own function; never a chat turn's to answer.
+ * here with `upstream-issue revalidate`'s own function, and in a /sf-decide chat as a yes or no with that
+ * same command (stillHoldsChat), unless SF Guard signs it.
  */
 /**
  * D1 [CIC:REQ-021]: why a kept step's approvers are recommended to say it still holds, or to redo it, in one line: its
@@ -889,12 +915,13 @@ function revalidationItem(workflow, context, blocker) {
   if (blocker.reason === 'prompt-held') return stillHoldsItem(workflow, context, blocker, name, producer);
   const report = isConformancePhase(workflow.phases?.[blocker.phase]);
   const effect = (outcome) => [{ kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase, outcome }];
+  const { signed, chat } = stillHoldsChat(workflow, blocker);
   // Only a step's own approvers answer its row. "Still holds" may be one answer, with one reason, for every row
   // this person approves, worded alike on each host; each row keeps its own record. A return is row by row.
-  const shared = (built) => ({ ...built, sharedLabel: 'Still holds' });
-  const own = (built) => ({ ...built, oneByOne: true });
+  const shared = (built) => ({ ...built, sharedLabel: 'Still holds', ...chat('unchanged') });
+  const own = (built) => ({ ...built, oneByOne: true, ...chat('return') });
   return {
-    kind: 'revalidation', title: `Revalidate ${name} after ${blocker.amendment}`,
+    kind: 'revalidation', title: `Revalidate ${name} after ${blocker.amendment}`, ...(signed ? { guardSigns: true } : {}),
     why: `${name} read ${producer} before ${blocker.amendment} amended it. ${report
       ? `Its approvers confirm the report still holds under the amended ${producer}, or return it for a new report.`
       : `Its approvers say it still holds under the amended ${producer}, which keeps its approval, or return the Story to it.`}`,
@@ -921,15 +948,16 @@ function stillHoldsItem(workflow, context, blocker, name, producer) {
   const clauses = listWords((blocker.clauses ?? []).map((id) => clauseName(workflow, id)));
   const waits = (blocker.consumers ?? []).length ? `the approval of ${listWords(blocker.consumers.map((id) => stepName(workflow, id)))} and the Story's end wait` : 'the Story\'s end waits';
   const effect = (outcome) => [{ kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase, outcome }];
+  const { signed, chat } = stillHoldsChat(workflow, blocker);
   return {
-    kind: 'revalidation', title: `Say whether ${name} still holds after ${blocker.amendment}`,
+    kind: 'revalidation', title: `Say whether ${name} still holds after ${blocker.amendment}`, ...(signed ? { guardSigns: true } : {}),
     why: `${blocker.amendment} kept ${name}'s approval: its document cites none of the changed clauses, but its prompt held ${clauses}. `
       + `Its approvers say it still holds under the amended ${producer}, or return the Story to it; until then ${waits} for it.`,
     options: [
       { ...option(workflow, context, { id: 'still-holds', label: `${name} still holds`, words: `Its approval stands, bound to the amended ${producer}.`, effects: effect('unchanged'),
-        needs: { reason: textNeed(`${name} still holds under ${blocker.amendment}: it does not rely on what changed in ${clauses}.`, REASON) } }), sharedLabel: 'Still holds' },
+        needs: { reason: textNeed(`${name} still holds under ${blocker.amendment}: it does not rely on what changed in ${clauses}.`, REASON) } }), sharedLabel: 'Still holds', ...chat('unchanged') },
       { ...option(workflow, context, { id: 'return-step', label: `Redo ${name}: return the Story to it`,
-        words: `${name} runs again against the amended ${producer}, and the steps after it with it.`, effects: effect('return'), needs: { reason: textNeed('', REASON) } }), oneByOne: true }
+        words: `${name} runs again against the amended ${producer}, and the steps after it with it.`, effects: effect('return'), needs: { reason: textNeed('', REASON) } }), oneByOne: true, ...chat('return') }
     ],
     details: { code: blocker.code, amendment: blocker.amendment, phase: blocker.phase, producer: blocker.producer ?? null, reason: 'prompt-held',
       clauses: blocker.clauses ?? [], recommend: blocker.recommend ?? 'unchanged', ...(blocker.namedPaths?.length ? { namedPaths: blocker.namedPaths } : {}),
@@ -1765,7 +1793,9 @@ function laterWords(items, { others = false } = {}) {
 /**
  * Where an item can be answered, said on the item itself [decision map, finding 11]: in a /sf-decide chat (an option a
  * turn may record, bound to the person's own answer), on the Decide card or in the person's terminal (a choice this
- * list records), only in the person's own terminal (their own command), or by the step's author.
+ * list records), only in the person's own terminal (their own command), or by the step's author. `also` is what a
+ * Decide card adds beside the row, where it can be answered besides the card: yes or no in chat, or, for a row SF Guard
+ * signs, the person's own terminal.
  */
 function itemAnswer(item, workId) {
   const live = item.options.filter((entry) => entry.available !== false);
@@ -1774,12 +1804,17 @@ function itemAnswer(item, workId) {
   // One place: the Decide card holds every person decision, and /sf-decide opens it [owner, 2026-11-13]. A yes-or-no
   // item may still be answered in chat, bound to the person's own typed answer; a step SF Guard signs, in their terminal.
   const card = `Answer it on the Decide card: /sf-decide ${workId} opens it`;
+  if (item.guardSigns) {
+    const also = `SF Guard signs it, so it is recorded in your own terminal (singularity-flow decisions record ${workId}), never in chat.`;
+    return { where: 'terminal', words: `${card}. ${also}`, also };
+  }
   const yesNo = item.yesNo ? `, or answer yes or no in chat (${item.yesNo.route})` : '';
-  if (live.some((entry) => DECISION_LIST_CHAT_OPTIONS.includes(entry.id) || entry.chat)) return { where: 'chat', words: `${card}${yesNo}.` };
+  const also = item.yesNo ? { also: `Or answer yes or no in chat (${item.yesNo.route}).` } : {};
+  if (live.some((entry) => DECISION_LIST_CHAT_OPTIONS.includes(entry.id) || entry.chat)) return { where: 'chat', words: `${card}${yesNo}.`, ...also };
   if (live.some((entry) => (entry.recordable !== false && !entry.action) || entry.action?.humanReview)) {
     return { where: 'card', words: `${card}. A chat turn cannot record it; when SF Guard signs it, the card opens your own terminal.` };
   }
-  return { where: 'terminal', words: `Start it from the Decide card (/sf-decide ${workId}): it runs in your own terminal${yesNo}.` };
+  return { where: 'terminal', words: `Start it from the Decide card (/sf-decide ${workId}): it runs in your own terminal${yesNo}.`, ...also };
 }
 
 /**

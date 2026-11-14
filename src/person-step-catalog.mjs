@@ -107,8 +107,8 @@ export const OWN_TERMINAL_STEPS = Object.freeze([
   // witnessed: a sign-off on evidence, like decision witness. A chat approval's receipt never bound
   // that list, and its Copilot route dropped the flag and looped (2026-10-29).
   ['approval-evidence-confirmation', ([command], options) => command === 'approve' && options['confirm-evidence'] === true],
-  // `upstream-issue decide` for the bound Story is a /sf-decide turn's own; an amendment is not.
-  ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && ['decide-amendment', 'revalidate'].includes(sub)],
+  // `upstream-issue decide` and `revalidate` (a "still holds" yes or no) for the bound Story are a /sf-decide turn's own; an amendment is not [owner, 2026-11-14].
+  ['upstream-amendment-decision', ([command, sub]) => command === 'upstream-issue' && sub === 'decide-amendment'],
   ['environment-binding', ([command, sub]) => command === 'env' && ['bind', 'unbind'].includes(sub)],
   // Which agents a repository runs; APM's own --dry-run preview stays open to a turn [APM A2].
   ['apm-install', ([command, sub], options) => command === 'apm' && ['install', 'update'].includes(sub) && options['dry-run'] !== true],
@@ -234,7 +234,7 @@ export const PERSON_STEPS = Object.freeze([
   // rejection is its own record (`decision departure`); an acceptance is the record its kind already has.
   { id: 'departure', guard: 'decision:story-decision', effect: 'departure', review: { kind: 'departure', entry: safe({ departures: 'departure_recorded', departureDecisions: 'departure_decided' }) },
     family: { list: 'departureDecisions', action: 'decision.departure', label: 'Departure decision', isPerson: always } },
-  { id: 'amendment-revalidation', guard: 'own:upstream-amendment-decision', effect: 'amendment-revalidation', review: { kind: 'forward-amendment', entry: safe({ amendmentRevalidations: 'amendment_revalidated' }) },
+  { id: 'amendment-revalidation', guard: 'turn:upstream-issue-decision', effect: 'amendment-revalidation', review: { kind: 'forward-amendment', entry: safe({ amendmentRevalidations: 'amendment_revalidated' }) },
     family: { list: 'amendmentRevalidations', action: 'decision.revalidate', label: 'Amendment revalidation', isPerson: always } },
   // SPEC-PSS-v1 §10.12: an intent amendment's or a skill version's decision sits inside its summary. The
   // command signs it before it is written; here it is read so every check counts it like the rest.

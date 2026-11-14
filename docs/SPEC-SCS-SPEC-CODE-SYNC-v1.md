@@ -165,7 +165,8 @@ The list never writes over a draft someone changed.
 Built 2026-11-09 for `[SCS:REQ-022]` (owner decisions 15 and 16). Approving a qualifying amendment resets nothing and
 asks for no acknowledgement. Each approved step that read the scope, and the waiting report, gets a revalidation
 row (the forward-amendment revalidation records), answered on the card, the Copilot CLI forms or the terminal
-table by that step's approvers. "Still holds" binds the step's input record to the amended scope generation and
+table by that step's approvers, and since 2026-11-14 as a yes or no in a /sf-decide chat unless SF Guard signs it
+(SPEC-CIC v1.1 section 9a, decision 3). "Still holds" binds the step's input record to the amended scope generation and
 carries its evidence across the revision; "return" is the ordinary return (the report's own is a return for a new
 report). Any other intent amendment reopens the later steps, as before.
 

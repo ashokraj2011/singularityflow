@@ -193,7 +193,7 @@ Everything below applies only to a Story whose pinned spec policy has `observedD
 - **D1 (REQ-021).** A step rule E8 keeps whose record holds an `input` edge for a changed clause (one its prompt held and its document does not cite) gets a row on the Story's revalidation list: the amendment's `revalidate`, with `reason: prompt-held`, the clauses, and a recommendation. The recommendation is "still holds" when the step's document names neither those clauses nor any path they expect, otherwise "redo" (return the Story to it).
   - The card says why in one line, on the terminal, the VS Code Decide card and the Copilot CLI card alike.
   - The row is never settled for the person: the "settled for you" route does not take revalidation items.
-  - It is answered on the Decide card or in the person's own terminal (`upstream-issue revalidate`). It is not offered as a chat yes or no: its two answers are "still holds" and "redo", neither a reject, and the chat answer binding admits decision commands only.
+  - It is answered on the Decide card or in the person's own terminal (`upstream-issue revalidate`), and since 2026-11-14 also as a yes or no in a /sf-decide chat (section 9a, decision 3).
 - **Where an unanswered question waits:**
   - the approval of the step it is about, and of each step that reads it as an input;
   - for a step that completes at its submission (approval `none`, or a waiver), that submission;
@@ -243,6 +243,12 @@ v1.0's CIC:AC-011 (a session with no recorded clause set) is retired: a Story ha
 
 1. **Stage 4 takes the recommended defaults** (section 7.3).
 2. **Supporting changes count as covered when the plan lists them.** A changed path named as a supporting change in an approved plan row or approved plan amendment (`PAM-NNN`, add-supporting) counts as covered and depends on no clause; any other changed path no clause claims stays `unclaimed-paths`, and the record is unresolved (REQ-005).
+3. **A "still holds" row may be answered yes or no in chat.** This covers the D1 rows (`reason: prompt-held`) and the older SCS revalidation rows alike.
+   - Yes is "still holds" (`unchanged`); no is "redo", which returns the Story to that step. Each answer is the row's own `upstream-issue revalidate` command, run by the /sf-decide turn for the bound Story only.
+   - The command is held to the person's own typed reason by the chat answer binding, as `upstream-issue decide` is: a host's auto-reply, a declined question, or a reason they did not type is refused.
+   - The question names the recommended answer and why, in one line. The row is never settled for the person.
+   - Only the step's own approvers may answer; the command checks this as before. `decide-amendment`, a forward amendment's own approval, stays the approvers' own terminal step.
+   - Where SF Guard requires the Story's person steps, the row is signed in the approver's own terminal. The chat does not ask it then; every host says so.
 
 ## 10. Validation boundary
 

@@ -59,6 +59,13 @@ function howWords(item, packet) {
     const phase = item.details?.phase ?? packet?.phase;
     return `Review its documents and approve with /sf-approve${phase ? ` ${phase}` : ''} --work-id ${packet?.workId}${command ? `; or in your terminal: \`${command}\`` : ''}`;
   }
+  const words = rowHowWords(item);
+  // Where else its decider may answer it: yes or no in chat, or their own terminal when SF Guard signs it [owner, 2026-11-14].
+  const also = item.answer?.also;
+  return also ? (words ? `${words.replace(/[.!?]+$/u, '')}. ${also}` : also) : words;
+}
+
+function rowHowWords(item) {
   // Every step that stays in the person's terminal, as the VS Code card shows them: a row with a form hid
   // "Fix the code", and an amendment's row showed only its first command.
   const own = ownSteps(item);

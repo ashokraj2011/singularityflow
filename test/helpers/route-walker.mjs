@@ -262,7 +262,8 @@ function storyMark(story) {
  * - `scenario.writes`: { [refusal code or skill]: { path: contents } }; applied once, when that step comes up.
  * - `scenario.answers`: { [placeholder]: value } for what a person would give; `scenario.personFlags` their confirmation.
  * - `scenario.reasons`: { [code]: { mustMatch?, mustNotMatch?, because } }, for a stated reason a test can check.
- * - `scenario.guard`: { prompt, toolName, toolArgs } in place of `start`, for a call the host's hook answers first.
+ * - `scenario.guard`: { prompt, toolName, toolArgs, answered } in place of `start`, for a call the host's hook answers first;
+ *   `answered` is what the person typed to the turn's question (ask_user), handed to the post-tool hook before the call.
  *
  * It ends at the outcome, at a person's command that really runs, on the third identical refusal,
  * or when a route moves the Story on without what was asked: following that route lost the person's goal.
@@ -339,7 +340,7 @@ async function walkRoutes(story, scenario, { maxSteps = 24 } = {}, reads = []) {
     if (parsed) { try { parsed = completeAgentResult(parsed); } catch { /* the view is what it returned */ } }
     return { output, parsed, filled };
   };
-  const guardCall = ({ prompt, toolName = 'bash', toolArgs, sessionId = `walk-${scenario.id}` }) => {
+  const guardCall = ({ prompt, toolName = 'bash', toolArgs, answered = null, sessionId = `walk-${scenario.id}` }) => {
     const hook = (event, payload) => {
       const result = spawnSync(process.execPath, [CLI, 'hook', event], { cwd: story.root, encoding: 'utf8', input: JSON.stringify(payload), timeout: childTimeout(60_000),
         env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: IDENTITY,
@@ -349,6 +350,12 @@ async function walkRoutes(story, scenario, { maxSteps = 24 } = {}, reads = []) {
       return JSON.parse(result.stdout || '{}');
     };
     hook('boundary-turn', { cwd: story.root, sessionId, prompt });
+    // The person's own answer, as Copilot CLI and VS Code's agent host hand a question's result to the post-tool hook.
+    if (answered !== null) {
+      const question = { cwd: story.root, sessionId, toolName: 'ask_user', toolArgs: { question: 'Your answer?' } };
+      hook('boundary-guard', question);
+      hook('boundary-after', { ...question, toolResult: { textResultForLlm: `User responded: ${answered}`, resultType: 'success' } });
+    }
     return hook('boundary-guard', { cwd: story.root, sessionId, toolName, toolArgs: { ...toolArgs, cwd: story.root } });
   };
 

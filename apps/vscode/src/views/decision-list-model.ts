@@ -52,8 +52,11 @@ export interface DecisionOptionPacket {
 
 export interface DecisionItemPacket {
   id: string; kind: string; title: string; why: string;
-  /** What it holds back and where it is answered, worded by the engine [decision map, findings 1 and 11]. */
-  holdsWords?: string; answer?: { where?: string; words?: string };
+  /**
+   * What it holds back and where it is answered, worded by the engine [decision map, findings 1 and 11]; `also` is where else
+   * than the card: yes or no in chat, or the person's own terminal for a row SF Guard signs.
+   */
+  holdsWords?: string; answer?: { where?: string; words?: string; also?: string };
   options: DecisionOptionPacket[];
   decidedBy: DecisionDecidedBy;
   details?: Record<string, unknown>;

@@ -768,7 +768,7 @@ test('an authoring turn may raise an upstream issue but never decide one', async
   }
   const decided = await shell('singularity-flow upstream-issue decide UPI-001 --outcome dismiss --reason "The agent thinks it is fine."');
   assert.equal(decided.permissionDecision, 'deny');
-  assert.match(decided.permissionDecisionReason, /PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step's approvers/);
+  assert.match(decided.permissionDecisionReason, /PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue is decided by the earlier step's approvers, and whether a step still holds after an amendment by its own, in \/sf-decide or their own terminal, not by this turn/);
   const kernel = await f.enter('/sf-recover', 'kernel');
   const kernelDecide = await mutationToolGuard({ ...kernel, toolName: 'bash', toolArgs: {
     command: 'singularity-flow upstream-issue decide UPI-001 --outcome dismiss --reason "Not an agent decision at all."', cwd: f.root } });
@@ -934,8 +934,8 @@ test('every step only a person takes in their own terminal is refused in every t
       'singularity-flow spec author discard SPEC-CHK-004'],
     'spec-slice-change': ['singularity-flow spec attach PMC-1 --drop SPEC-CHK-004:REQ-001 --reason "Delivered by another Story."'],
     'spec-split-publication': ['singularity-flow spec split SPEC-CHK-004@1 --publish'],
-    'upstream-amendment-decision': ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "The amendment is right." --confirm FAM-001',
-      'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
+    // A "still holds" row's `revalidate` is a /sf-decide turn's own, held to the person's answer [owner, 2026-11-14]: not listed here.
+    'upstream-amendment-decision': ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "The amendment is right." --confirm FAM-001'],
     'environment-binding': ['singularity-flow env bind staging --stdin', 'singularity-flow env unbind staging --json'],
     'apm-install': ['singularity-flow apm install acme/review-pack', 'singularity-flow apm install --dev ../local-pack --json',
       'singularity-flow apm update', 'singularity-flow apm update reviewer@acme-catalog --json'],
@@ -1683,7 +1683,8 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-nextsteps': [[/^sync$/u, 'lists the returned actions; /sf-next runs them']],
   'sflow-reject': [[/^story intent-amendment propose$/u, 'names the nextsteps action; its full command is checked']],
   'sflow-decide': [[/^upstream-issue decide$/u, 'names the family in its turn boundary; its full `upstream-issue decide <UPI-ID> --work-id` step is checked'],
-    [/^upstream-issue raise$/u, 'names the returned route it runs; the full raise with --work-id, --phase, --about and --problem is checked in the /sf-decide turn test']],
+    [/^upstream-issue raise$/u, 'names the returned route it runs; the full raise with --work-id, --phase, --about and --problem is checked in the /sf-decide turn test'],
+    [/^upstream-issue revalidate$/u, 'names the family in its turn boundary; a "still holds" row\'s full command, with --work-id, --amendment, --outcome and --reason, is checked in the still-holds yes-or-no test']],
   'sflow-workflow-rules': [[/^approve$/u, 'says who may approve; an approval is recorded only in an /sf-approve turn']],
   'sflow-sgos-create': [[/^(?:process (?:start|step|run)|intent (?:ratify|compile))\b/u, 'named only as commands it never runs']],
   'sflow-auto': [[/^auto flight-step\b/u, 'named only as a command it never invokes directly']],
@@ -3169,6 +3170,61 @@ test('VS Code\'s own chat: an answer that arrives binds the command, and with no
   const skipped = await f.enter('/sf-decide PMC-1', 'local-skipped');
   await said(skipped, { Reason: { selected: [], freeText: null, skipped: true } });
   assert.match((await run(skipped, CHOOSE)).permissionDecisionReason, /No person answered/u);
+});
+
+// A "still holds" row answered yes or no in /sf-decide [owner, 2026-11-14]: its own revalidate command for the bound Story,
+// held to the person's answer the way `upstream-issue decide` is; a forward amendment's own approval stays their terminal's.
+test('a "still holds" yes or no runs in /sf-decide only with what the person typed, on both hosts, and nothing wider', async t => {
+  const f = await fixture(t);
+  const run = (payload, command) => repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const YES = 'singularity-flow upstream-issue revalidate custom-step --work-id PMC-1 --amendment AMD-001 --outcome unchanged --reason "It does not rely on the changed wording."';
+  const NO = 'singularity-flow upstream-issue revalidate custom-step --work-id PMC-1 --amendment FAM-001 --outcome return --reason "It relies on the changed wording."';
+  // Nobody answered: refused, with the card as the way through, and the turn carries on.
+  const unasked = await f.enter('/sf-decide PMC-1', 'still-holds-unasked');
+  const refused = await run(unasked, YES);
+  assert.match(refused.permissionDecisionReason, UNBOUND);
+  assert.match(refused.permissionDecisionReason, /No person answered a question in this turn/u);
+  assert.equal(refused.recoverable, true);
+  assert.match(refused.next?.[0]?.copilotCommand ?? '', /^\/sf-decide\b/u);
+  assert.match(refused.next?.[0]?.command ?? '', /^singularity-flow decisions\b/u);
+  // The host's auto-reply and a declined question are nobody's answer.
+  const canned = await f.enter('/sf-decide PMC-1', 'still-holds-canned');
+  await repositoryPostToolGuard({ ...canned, toolName: 'ask_user', toolArgs: {}, toolResult: { textResultForLlm: AGENT_HOST_REPLY, resultType: 'success' } });
+  assert.match((await run(canned, YES)).permissionDecisionReason, /The host answered the question itself/u);
+  const declined = await f.enter('/sf-decide PMC-1', 'still-holds-declined');
+  await repositoryPostToolGuard({ ...declined, toolName: 'ask_user', toolArgs: {}, toolResult: { textResultForLlm: 'User declined to answer', resultType: 'success' } });
+  assert.match((await run(declined, YES)).permissionDecisionReason, /No person answered/u);
+  // Copilot CLI and the agent host: their yes, with their reason, runs; a reason they did not type does not.
+  const yes = await f.enter('/sf-decide PMC-1', 'still-holds-yes');
+  await personSaid(yes, 'Yes', 'It does not rely on the changed wording.');
+  assert.deepEqual(await run(yes, YES), {});
+  assert.match((await run(yes, YES.replace('It does not rely on the changed wording.', 'The model thinks it holds.'))).permissionDecisionReason,
+    /is not what the person answered\. Run it again with exactly their words/u);
+  const no = await f.enter('/sf-decide PMC-1', 'still-holds-no');
+  await personSaid(no, 'No', 'It relies on the changed wording.');
+  assert.deepEqual(await run(no, NO), {});
+  // VS Code's own chat (vscode_askQuestions): the same.
+  const local = (payload, fields) => ({ session_id: payload.sessionId, cwd: payload.cwd, hook_event_name: fields.tool_response === undefined ? 'PreToolUse' : 'PostToolUse', ...fields });
+  const asked = await f.enter('/sf-decide PMC-1', 'still-holds-local');
+  await repositoryPostToolGuard(local(asked, { tool_name: 'vscode_askQuestions', tool_input: { questions: [] }, tool_use_id: 't1',
+    tool_response: JSON.stringify({ answers: { 'Still holds?': { selected: ['Yes'], freeText: null, skipped: false }, Reason: { selected: [], freeText: 'It does not rely on the changed wording.', skipped: false } } }) }));
+  const localRun = (command) => repositoryToolGuard(local(asked, { tool_name: 'run_in_terminal', tool_input: { command, cwd: f.root } }));
+  assert.notEqual((await localRun(YES)).permissionDecision, 'deny');
+  assert.match((await localRun(YES.replace('It does not rely on the changed wording.', 'My own idea of it.'))).permissionDecisionReason, UNBOUND);
+  // Only the bound Story, its two answers and one command at a time; the amendment's own approval stays the approvers' own terminal step.
+  for (const command of [YES.replace(' --work-id PMC-1', ''), YES.replace('--work-id PMC-1', '--work-id OTHER'), YES.replace('--outcome unchanged', '--outcome dismiss'),
+    YES.replace('--amendment AMD-001 ', ''), `${YES} && ${NO}`]) {
+    assert.equal((await run(yes, command)).permissionDecision, 'deny', command);
+  }
+  const amendment = await run(yes, 'singularity-flow upstream-issue decide-amendment FAM-001 --work-id PMC-1 --decision approve --reason "It does not rely on the changed wording." --confirm FAM-001');
+  assert.match(amendment.permissionDecisionReason, /an amendment of an earlier step is decided by that step's approvers in their own terminal, not by this turn/u);
+  // Outside /sf-decide it stays a person's decision, routed to /sf-decide.
+  const authoring = await f.enter('/sf-phase', 'still-holds-authoring');
+  await personSaid(authoring, 'Yes', 'It does not rely on the changed wording.');
+  assert.equal((await run(authoring, YES)).permissionDecision, 'deny');
+  const plain = await run({ cwd: f.root, sessionId: 'still-holds-no-turn' }, YES);
+  assert.match(plain.permissionDecisionReason, /whether a step still holds after an amendment by its own, in \/sf-decide or their own terminal/u);
+  assert.equal(plain.next?.[0]?.copilotCommand?.split(' ')[0], '/sf-decide');
 });
 
 test('only the turns that own these decisions are held to it, and only these commands', async t => {

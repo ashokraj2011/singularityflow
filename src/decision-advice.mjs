@@ -294,6 +294,10 @@ export function itemRecommendation(workflow, item) {
  * records with the person's own typed answer (`chat.command`, bound by copilot-answer-binding.mjs), it needs only a
  * reason, and it is one choice (yes, or leave it) or an accept beside a reject (yes or no). A generation rollover is
  * asked by its step's own skill, as it is today. Anything else is answered on the Decide card.
+ *
+ * An amendment's "still holds" row, an SCS revalidation or a CIC D1 question [owner, 2026-11-14]: yes is "still holds"
+ * (`unchanged`) and no is "redo" (`return`), each with its own revalidate command; the question says which answer is
+ * recommended and why, in one line. A row SF Guard signs carries no chat command, so it is never asked here.
  */
 export function yesNoOf(workflow, item) {
   if (item.settled || item.machine) return null;
@@ -301,6 +305,7 @@ export function yesNoOf(workflow, item) {
     const start = item.options.find((entry) => entry.id === 'start-next-generation' && entry.available !== false);
     return start && item.details?.chatRoute ? { question: `${start.label}?`, yes: start.id, no: null, route: item.details.chatRoute } : null;
   }
+  if (item.kind === 'revalidation') return stillHoldsYesNo(workflow, item);
   if (['approval', 'routing-decision', 'convergence-item', 'convergence-answer', 'convergence-settled', 'scope-completeness'].includes(item.kind)) return null;
   const options = live(item);
   if (!options.length || options.length > 2 || !options.every((entry) => entry.chat?.command)) return null;
@@ -309,6 +314,18 @@ export function yesNoOf(workflow, item) {
   const yes = options.find((entry) => entry.id !== 'reject');
   const no = options.find((entry) => entry.id === 'reject') ?? null;
   return { question: `${yes.label.replace(/[.!?]+$/u, '')}?`, yes: yes.id, no: no?.id ?? null, route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
+}
+
+function stillHoldsYesNo(workflow, item) {
+  const options = live(item);
+  const outcome = (entry) => (entry.effects ?? []).find((effect) => effect.kind === 'amendment-revalidation')?.outcome;
+  const yes = options.find((entry) => outcome(entry) === 'unchanged');
+  const no = options.find((entry) => outcome(entry) === 'return');
+  if (options.length !== 2 || !yes?.chat?.command || !no?.chat?.command) return null;
+  const advice = itemRecommendation(workflow, item);
+  const said = advice.option === yes.id ? `Recommended: yes. ${advice.why}` : advice.option === no.id ? `Recommended: no, redo it. ${advice.why}` : advice.words;
+  return { question: `Does ${stepName(workflow, item.details?.phase)} still hold after ${item.details?.amendment}? ${said}`, yes: yes.id, no: no.id,
+    route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
 }
 
 /**

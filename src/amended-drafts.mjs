@@ -7,7 +7,8 @@
  * reason (inject.mjs supersedePromptGeneration); its open code generation is closed, so the next `phase begin` opens one
  * under the amended scope; and its draft as it stood is copied, read only, beside them. Publication of that generation
  * then refuses, by records and never by times, a draft whose code generation or composed prompt started under an
- * earlier scope (generation-boundary.mjs generationScope), or whose authored bytes are the old draft's, unchanged.
+ * earlier scope (generation-boundary.mjs generationScope), and an agent's document not composed again since. A text
+ * that still holds may be published unchanged (owner, 2026-11-14): its approvers approve it again either way.
  * The way out is in the same step: open it again under the amended scope and write it; the recomposed prompt names
  * the old draft as a read-only reference. A later step the amendment resets is pinned the same way when it still holds
  * unpublished work from before it; a step the amendment kept is never pinned. Loaded only by the approval, the
@@ -92,10 +93,12 @@ function startsUnder(workflow, pin, scope) {
 }
 
 /**
- * At publication [CIC:REQ-009]: refuse the pinned generation of a reopened step when its code generation, its composed
- * prompt or its draft is from before the amendment. Nothing is rebased; the refusal names the step's own way out.
+ * At publication [CIC:REQ-009]: refuse the pinned generation of a reopened step when its code generation or its composed
+ * prompt is from before the amendment, or when an agent wrote its document without composing it again since. A person's
+ * own text, and an agent's composed again, may be the old draft's unchanged (owner, 2026-11-14). Nothing is rebased;
+ * the refusal names the step's own way out.
  */
-export async function assertDraftPostdatesAmendment(root, workflow, phase, { itemRelative }) {
+export async function assertDraftPostdatesAmendment(root, workflow, phase, { itemRelative, producer = 'legacy-unspecified' }) {
   const pin = phase?.scopePin;
   const generation = nextPhaseGeneration(phase);
   if (!pin || Number(pin.generation) !== generation) return;
@@ -105,17 +108,17 @@ export async function assertDraftPostdatesAmendment(root, workflow, phase, { ite
   if (code && !(intent?.status === 'open' && Number(intent.generation) === generation && startsUnder(workflow, pin, intent.scopeRevision))) reasons.push('generation');
   const receipt = await readFile(path.join(root, itemRelative, 'context', `${phase.id}-gen${generation}.json`), 'utf8').then(JSON.parse, () => null);
   if (receipt ? !startsUnder(workflow, pin, receipt.scopeRevision) : Boolean(pin.setAside?.prompt)) reasons.push('prompt');
-  if (!code && pin.draft) {
-    const text = await readFile(path.join(root, pin.draft.artifact), 'utf8').catch(() => null);
-    if (text !== null && authoredArtifactFingerprint(text) === pin.draft.sha256) reasons.push('draft');
-  }
+  // A model's document reads the amended scope only through a prompt composed under it (state.mjs modelAssisted).
+  else if (!receipt && !code && MODEL_ASSISTED.has(producer)) reasons.push('uncomposed');
   if (reasons.length) throw preAmendmentDraftRefusal(workflow, phase, pin, reasons);
 }
+
+const MODEL_ASSISTED = new Set(['governed-agent', 'legacy-unspecified']);
 
 const REASON_WORDS = Object.freeze({
   generation: 'its code generation was opened before',
   prompt: 'its prompt was composed before',
-  draft: 'its document is the draft as it stood before'
+  uncomposed: 'it has not been composed again since'
 });
 
 /** The refusal, with the step's own way out [PHR:REQ-006]: open it again under the amended scope, in this step. */
@@ -132,7 +135,7 @@ export function preAmendmentDraftRefusal(workflow, phase, pin, reasons) {
   const scope = `${pin.amendment} amended the scope${pin.revision ? ` (scope revision ${pin.revision})` : ''}`;
   return new SingularityFlowError(`${phase.id} cannot publish this draft: ${reasons.map((reason) => REASON_WORDS[reason]).join(', and ')} ${scope}. `
     + `Write it again here, in ${phase.id}, under the amended scope: ${actions.map((action) => action.command).join(', then ')}.`
-    + `${pin.draft ? ` The earlier draft is kept read only at ${pin.draft.path}; never publish it, or copy it over the document, as it is.` : ''}`, {
+    + `${pin.draft ? ` The earlier draft is kept read only at ${pin.draft.path}; keep from it only what still holds under the amended scope.` : ''}`, {
     code: 'PHASE_DRAFT_PREDATES_AMENDMENT',
     details: { workId, phase: phase.id, amendment: pin.amendment, revision: pin.revision, reasons, readOnlyDraft: pin.draft?.path ?? null,
       ...(code ? { codeStep: true } : {}), actions, nextAction: { command: actions[0].command, ...(actions[0].skill ? { skill: actions[0].skill } : {}), label: actions[0].detail } }
@@ -141,12 +144,12 @@ export function preAmendmentDraftRefusal(workflow, phase, pin, reasons) {
 
 /**
  * The recomposed prompt's read-only reference to the old draft [CIC:REQ-008]: its exact path, marked as written before
- * the amendment, never to be published or copied over as is. Empty when the step is not pinned or has no old draft.
+ * the amendment, kept only where it still holds under the amended scope. Empty when the step is not pinned or has no old draft.
  */
 export function preAmendmentDraftSection(workflow, phase) {
   const pin = phase?.scopePin;
   if (!refusesPreAmendmentDrafts(workflow) || !pin?.draft || Number(pin.generation) !== nextPhaseGeneration(phase)) return '';
   return [`## Draft written before ${pin.amendment} (read only)`, '',
     `\`${pin.draft.path}\` is this step's draft as it stood when ${pin.amendment} amended the scope${pin.revision ? ` (scope revision ${pin.revision})` : ''}. `
-    + 'Read it only as a reference: write this step against the amended scope, and never publish it, or copy it over the document, as it is.', ''].join('\n');
+    + 'Read it only as a reference: write this step against the amended scope, and keep from it only what still holds under it.', ''].join('\n');
 }

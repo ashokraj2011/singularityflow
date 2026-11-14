@@ -17,7 +17,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { preAmendmentDraftRefusal, preAmendmentDraftSection, refusesPreAmendmentDrafts } from '../src/amended-drafts.mjs';
+import { assertDraftPostdatesAmendment, preAmendmentDraftRefusal, preAmendmentDraftSection, refusesPreAmendmentDrafts } from '../src/amended-drafts.mjs';
 import { normalizeSpecPolicy } from '../src/specifications.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
@@ -39,14 +39,37 @@ test('the refusal names its way out in the same step, and the recomposed prompt 
     scopePin: { amendment: 'AMD-001', generation: 2, revision: 2, draft: { path: 'singularity/work-items/W-1/context/superseded/design-gen2-before-AMD-001/design.md' } } };
   const section = preAmendmentDraftSection(workflow, design);
   assert.equal(section, '## Draft written before AMD-001 (read only)\n\n`singularity/work-items/W-1/context/superseded/design-gen2-before-AMD-001/design.md` is this step\'s draft '
-    + 'as it stood when AMD-001 amended the scope (scope revision 2). Read it only as a reference: write this step against the amended scope, and never publish it, or copy it over the document, as it is.\n');
+    + 'as it stood when AMD-001 amended the scope (scope revision 2). Read it only as a reference: write this step against the amended scope, and keep from it only what still holds under it.\n');
   assert.ok(Buffer.byteLength(section) < 512, `it adds ${Buffer.byteLength(section)} bytes to the prompt`);
   assert.equal(preAmendmentDraftSection({ ...workflow, resolution: { spec: {} } }, design), '', 'nothing on a Story without the switch');
   assert.equal(preAmendmentDraftSection(workflow, { ...design, generation: 2 }), '', 'nothing once the pinned generation is published');
-  const refusal = preAmendmentDraftRefusal(workflow, design, design.scopePin, ['draft']);
+  const refusal = preAmendmentDraftRefusal(workflow, design, design.scopePin, ['uncomposed']);
   assert.equal(refusal.code, 'PHASE_DRAFT_PREDATES_AMENDMENT');
-  assert.match(refusal.message, /^design cannot publish this draft: its document is the draft as it stood before AMD-001 amended the scope \(scope revision 2\)\. Write it again here, in design, under the amended scope: singularity-flow phase enter design --work-id W-1 --compose --for-agent --json\. The earlier draft is kept read only at /u);
+  assert.match(refusal.message, /^design cannot publish this draft: it has not been composed again since AMD-001 amended the scope \(scope revision 2\)\. Write it again here, in design, under the amended scope: singularity-flow phase enter design --work-id W-1 --compose --for-agent --json\. The earlier draft is kept read only at \S+; keep from it only what still holds under the amended scope\.$/u);
   assert.deepEqual(refusal.details.actions.map((action) => action.command), ['singularity-flow phase enter design --work-id W-1 --compose --for-agent --json']);
+});
+
+test('a reopened document step may keep its old text: a person publishes it as is, an agent once it is composed again under the amended scope (owner, 2026-11-14) [CIC:REQ-009]', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cic-same-text-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const digest = (letter) => `sha256:${letter.repeat(64)}`;
+  const workflow = { workItem: { id: 'W-1' }, resolution: { spec: { preAmendmentDrafts: 'refuse' } }, phases: {},
+    scopeRevisions: [{ revision: 1, revisionSha256: digest('a') }, { revision: 2, revisionSha256: digest('b') }],
+    intentAmendments: [{ id: 'AMD-001', status: 'approved' }] };
+  const design = { id: 'design', generation: 1, requiredArtifact: { kind: 'design' },
+    scopePin: { amendment: 'AMD-001', generation: 2, revision: 2, revisionSha256: digest('b'), draft: { path: 'w/context/superseded/design-gen2-before-AMD-001/design.md' } } };
+  const check = (producer) => assertDraftPostdatesAmendment(root, workflow, design, { itemRelative: 'w', producer });
+  const reasons = async (producer) => { try { await check(producer); return []; } catch (error) { assert.equal(error.code, 'PHASE_DRAFT_PREDATES_AMENDMENT'); return error.details.reasons; } };
+  assert.deepEqual(await reasons('human'), [], 'a person\'s own text, composed or not, unchanged or not');
+  assert.deepEqual(await reasons('governed-agent'), ['uncomposed'], 'an agent reads the amended scope only through a prompt composed under it');
+  assert.deepEqual(await reasons('legacy-unspecified'), ['uncomposed']);
+  await mkdir(path.join(root, 'w/context'), { recursive: true });
+  const receipt = (letter) => writeFile(path.join(root, 'w/context/design-gen2.json'), JSON.stringify({ scopeRevision: { revision: letter === 'b' ? 2 : 1, revisionSha256: digest(letter), amendment: letter === 'b' ? 'AMD-001' : null } }));
+  await receipt('b');
+  assert.deepEqual(await reasons('governed-agent'), [], 'composed again under the amended scope, its text may be the old draft\'s');
+  await receipt('a');
+  assert.deepEqual(await reasons('governed-agent'), ['prompt']);
+  assert.deepEqual(await reasons('human'), ['prompt'], 'a prompt composed under the earlier scope is refused whoever publishes');
 });
 
 async function fixture(t, { refuse }) {
@@ -223,7 +246,7 @@ test('a code step reopened with a draft written before the amendment cannot publ
     await same('after the reopened step is published');
   });
 
-test('a document step reopened by an amendment cannot republish its old draft unchanged; changed, it publishes [CIC:REQ-009]', slowLane({ timeout: 900_000 }), async (t) => {
+test('a document step reopened by an amendment: an agent\'s publication waits until it is composed again, and a person may publish the old text unchanged [CIC:REQ-009]', slowLane({ timeout: 900_000 }), async (t) => {
   const f = await fixture(t, { refuse: true });
   await f.scoped('PD-2');
   await f.designed('PD-2');
@@ -235,11 +258,13 @@ test('a document step reopened by an amendment cannot republish its old draft un
   assert.equal(story.currentPhase, 'fix-design');
   assert.equal(story.phases['fix-design'].scopePin.draft.path, 'singularity/work-items/PD-2/context/superseded/fix-design-gen2-before-AMD-001/fix-design.md');
   f.sflow('prepare', 'fix-design');
-  const unchanged = f.run(['phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place', '--json']);
-  assert.notEqual(unchanged.status, 0);
-  assert.equal(refusedCode(unchanged), 'PHASE_DRAFT_PREDATES_AMENDMENT', unchanged.stdout || unchanged.stderr);
-  assert.match(unchanged.stdout, /its document is the draft as it stood before AMD-001/u);
-  await writeFile(f.item('PD-2', 'artifacts/fix-design/fix-design.md'), f.designText('PD-2').replace('keeps the module to a single export', 'keeps exactly one named export'));
+  // A publication that may be a model's (no --authored) has read nothing composed under the amended scope.
+  const uncomposed = f.run(['phase', 'publish', 'fix-design', '--json']);
+  assert.notEqual(uncomposed.status, 0);
+  assert.equal(refusedCode(uncomposed), 'PHASE_DRAFT_PREDATES_AMENDMENT', uncomposed.stdout || uncomposed.stderr);
+  assert.match(uncomposed.stdout, /it has not been composed again since AMD-001 amended the scope/u);
+  // The person finds the design still holds: the same text (nothing here writes it after the approval) publishes as
+  // theirs, and its approvers approve it again.
   f.sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
   assert.equal((await f.workflow('PD-2')).phases['fix-design'].generation, 2);
 });

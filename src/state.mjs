@@ -3761,7 +3761,8 @@ export async function publishGeneration(root, config, workflow, {
   }
   // SPEC-CIC switch 2 [CIC:REQ-009]: a reopened step's draft from before the amendment is refused, and written again in this step.
   if (phase.scopePin && workflow.resolution?.spec?.preAmendmentDrafts === 'refuse') {
-    await (await import('./amended-drafts.mjs')).assertDraftPostdatesAmendment(root, workflow, phase, { itemRelative: workDirRelative(config, workflow.workItem.id) });
+    await (await import('./amended-drafts.mjs')).assertDraftPostdatesAmendment(root, workflow, phase,
+      { itemRelative: workDirRelative(config, workflow.workItem.id), producer: authorship?.producer ?? 'legacy-unspecified' });
   }
   const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
   assertRequiredAssignment(workflow, phase);

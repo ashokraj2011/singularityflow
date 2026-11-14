@@ -1436,7 +1436,7 @@
             "additionalProperties": false
           },
           "scopePin": {
-            "description": "SPEC-CIC switch 2 [CIC:REQ-008, REQ-009]: the step an approved intent amendment reopened in place, pinned to the amended scope. Its generation publishes only a draft whose code generation and composed prompt started under this scope revision or a later one (and, for a document step, whose authored bytes are not the kept draft's); its earlier prompt pair and open code generation, closed as superseded, are kept under setAside and its draft read only under draft.",
+            "description": "SPEC-CIC switch 2 [CIC:REQ-008, REQ-009]: the step an approved intent amendment reopened in place, pinned to the amended scope. Its generation publishes only a draft whose code generation and composed prompt started under this scope revision or a later one (and, for a document step an agent may have written, that was composed again under it; its text may be the kept draft's unchanged); its earlier prompt pair and open code generation, closed as superseded, are kept under setAside and its draft read only under draft.",
             "type": "object",
             "required": ["amendment", "generation", "revision", "revisionSha256", "at"],
             "properties": {

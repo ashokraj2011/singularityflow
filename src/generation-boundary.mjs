@@ -254,7 +254,7 @@ function closedByAmendment(workflow, phase, intent) {
   const kept = phase.scopePin?.draft?.path;
   return new SingularityFlowError(`${phase.id} cannot publish this draft: its code generation was closed when ${intent.supersededBy} amended the scope${phase.scopePin?.revision ? ` (scope revision ${phase.scopePin.revision})` : ''}. `
     + `Write it again here, in ${phase.id}, under the amended scope: ${actions.map((action) => action.command).join(', then ')}.`
-    + `${kept ? ` The earlier draft is kept read only at ${kept}; never publish it, or copy it over the document, as it is.` : ''}`, {
+    + `${kept ? ` The earlier draft is kept read only at ${kept}; keep from it only what still holds under the amended scope.` : ''}`, {
     code: 'PHASE_DRAFT_PREDATES_AMENDMENT',
     details: { workId, phase: phase.id, amendment: intent.supersededBy, revision: phase.scopePin?.revision ?? null, reasons: ['generation'],
       readOnlyDraft: kept ?? null, codeStep: true, actions, nextAction: { command: actions[0].command, skill: '/sf-code', label: actions[0].detail } }

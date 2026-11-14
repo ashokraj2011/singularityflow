@@ -2592,6 +2592,8 @@ const OWNER_STEP_STRATEGIES = Object.freeze({
   // acknowledged it: a person decides or acknowledges it on the card, and nothing is repaired [owner, 2026-11-13].
   INTENT_AMENDMENT_PENDING_PAUSE: 'person-decides-in-step',
   INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'person-decides-in-step',
+  // An approval waits for a kept step's approvers to say it still holds, on the Decide card [CIC:REQ-021].
+  AMENDMENT_STILL_HOLDS_REQUIRED: 'person-decides-in-step',
   WITNESS_DEFERRAL_INVALID: 'person-decides-in-step',
   VISUAL_RISK_INVALID: 'person-decides-in-step'
 });

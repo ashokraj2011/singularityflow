@@ -13,9 +13,11 @@
  *
  * Coverage (REQ-005) is `resolved` only when the record is complete: a receipt that names the clause
  * revisions and whose prompt matches it, the claim maps it relies on present and matching their digests, and
- * no changed path that no clause claims. Anything else is `unresolved`, with the reasons; a generation with no
- * record (published before the switch, or by a route that writes none) reads as unresolved too. Stage 3
- * changes no outcome: staleness, resets and the amendment preview do not read these records yet.
+ * no changed path that no clause claims, other than a supporting change an approved plan row or plan amendment
+ * names (`supportingPaths`: covered, and depending on no clause; owner, 2026-11-14). Anything else is `unresolved`, with the reasons; a generation with no
+ * record (published before the switch, or by a route that writes none) reads as unresolved too. An intent
+ * amendment's effect reads them (state.mjs intentAmendmentEffect): an unresolved record counts as affected, and a
+ * kept step whose `input` edges hold a changed clause is asked whether it still holds [CIC:REQ-006, REQ-021].
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -113,14 +115,19 @@ export async function recordStepDependencies(root, workflow, phase, { itemRelati
   // path, test, witness, binding: the code-delivery evidence this publication recorded.
   const evidence = code && Number(phase.deliveryEvidence?.generation) === generation ? phase.deliveryEvidence : null;
   const unclaimedPaths = [];
+  const supportingPaths = [];
   if (evidence) {
     const expecting = new Map();
-    for (const [clause, claim] of Object.entries(planned)) {
-      for (const expected of [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]) expecting.set(expected, [...(expecting.get(expected) ?? []), upper(clause)]);
-    }
+    const expect = (clause, paths) => { for (const expected of paths) expecting.set(expected, [...new Set([...(expecting.get(expected) ?? []), upper(clause)])]); };
+    for (const [clause, claim] of Object.entries(planned)) expect(clause, [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]);
+    // An approved plan amendment's added location is its clause's too (decision plan --add-location).
+    const approvedPlans = (records.planned ?? []).filter((record) => record.amendment || workflow.phases?.[record.phase]?.status === 'approved');
+    for (const record of approvedPlans) for (const [clause, paths] of Object.entries(record.accountedPaths ?? {})) expect(clause, paths);
+    // A supporting change an approved plan row or plan amendment names is covered and depends on no clause (owner, 2026-11-14) [CIC:REQ-005].
+    const supporting = new Set(approvedPlans.flatMap((record) => record.supportingFiles ?? []));
     for (const changed of changedPaths(evidence)) {
       const clauses = expecting.get(changed) ?? [];
-      if (!clauses.length) unclaimedPaths.push(changed);
+      if (!clauses.length) (supporting.has(changed) ? supportingPaths : unclaimedPaths).push(changed);
       for (const clause of clauses) add({ kind: 'path', clause, path: changed });
     }
     for (const binding of evidence.acceptanceCriteria?.bindings ?? []) add({ kind: 'test', clause: upper(binding.clauseId), test: binding.testSource });
@@ -156,6 +163,7 @@ export async function recordStepDependencies(root, workflow, phase, { itemRelati
     edges: [...edges.values()].sort((left, right) => EDGE_KINDS.indexOf(left.kind) - EDGE_KINDS.indexOf(right.kind)
       || left.clause.localeCompare(right.clause) || edgeKey(left).localeCompare(edgeKey(right))),
     unclaimedPaths,
+    ...(supportingPaths.length ? { supportingPaths } : {}),
     coverage: { state: reasons.size ? 'unresolved' : 'resolved', reasons: [...reasons].sort() }
   });
   const relative = dependencyRecordPath(itemRelative, phase.id, generation);
@@ -224,7 +232,7 @@ export async function stepDependencies(root, workflow, { step = null } = {}) {
       for (const edge of record.edges ?? []) (byKind[edge.kind] ??= []).push(edge);
       rows.push({ generation, record: entry.path, scopeRevision: record.scopeRevision?.revision ?? null,
         coverage: { state: reasons.size ? 'unresolved' : 'resolved', reasons: [...reasons].sort() },
-        edges: byKind, unclaimedPaths: record.unclaimedPaths ?? [] });
+        edges: byKind, unclaimedPaths: record.unclaimedPaths ?? [], ...(record.supportingPaths?.length ? { supportingPaths: record.supportingPaths } : {}) });
     }
     if (rows.length || step) steps.push({ phase: id, generations: rows });
   }

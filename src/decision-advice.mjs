@@ -270,6 +270,8 @@ export function itemRecommendation(workflow, item) {
     case 'forward-amendment':
       return only ? rec(item, only.id, 'Only an approver of that step decides it; the Story cannot end until they do.') : none('whether the corrected document is right.');
     case 'revalidation':
+      // D1 [CIC:REQ-021]: still holds when its document names neither the changed clauses its prompt held nor their paths, else redo.
+      if (details.reason === 'prompt-held') return rec(item, details.recommend === 'return' ? 'return-step' : 'still-holds', details.because);
       return none(`whether ${stepName(workflow, details.phase)} still holds under the amended document: say it holds if what it was built and checked against reads the same.`);
     case 'appeal':
       return only ? rec(item, only.id, 'An approver of the plan reviews the exact diff; nothing else accounts for the scope.') : none('whether the changes belong in scope.');

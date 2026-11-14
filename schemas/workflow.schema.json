@@ -746,14 +746,14 @@
               "at": { "type": "string", "format": "date-time" },
               "revisionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
               "stale": {
-                "description": "The clauses this revision makes stale, each with its reason: added, revised, or depends on the stale clauses in via [CIC:REQ-002].",
+                "description": "The clauses this revision makes stale, each with its reason: added, revised, depends on the stale or removed clauses in via, or unrecorded when the revision recorded no changes [CIC:REQ-002, REQ-006].",
                 "type": "array",
                 "items": {
                   "type": "object",
                   "required": ["clause", "reason"],
                   "properties": {
                     "clause": { "type": "string", "minLength": 1 },
-                    "reason": { "enum": ["added", "revised", "depends"] },
+                    "reason": { "enum": ["added", "revised", "depends", "unrecorded"] },
                     "via": { "type": "array", "items": { "type": "string", "minLength": 1 } }
                   },
                   "additionalProperties": false

@@ -701,6 +701,8 @@ function effectReason(workflow, reason) {
   if (reason.kind === 'convergence') return 'it compares the code with the scope';
   if (reason.kind === 'after-reset') return `it comes after ${stepName(workflow, reason.phase)}`;
   if (reason.kind === 'not-kept') return NOT_KEPT_WORDS[reason.why] ?? NOT_KEPT_WORDS.changed;
+  // Under SPEC-CIC switch 1 a step whose record does not show what it depended on counts as affected [CIC:REQ-006].
+  if (reason.kind === 'unresolved-record') return `what it depended on is not fully recorded (${(reason.reasons ?? []).join(', ')})`;
   return null;
 }
 
@@ -718,7 +720,10 @@ export function amendmentEffectWords(workflow, effect, { steps: most = 8 } = {})
     const name = stepName(workflow, step.phase);
     const why = [...new Set((step.reasons ?? []).map((reason) => effectReason(workflow, reason)).filter(Boolean))].slice(0, 3).join('; ');
     const held = step.inPrompt?.length ? `, though ${listWords(step.inPrompt.map((id) => clauseName(workflow, id)))} ${step.inPrompt.length === 1 ? 'was' : 'were'} in its prompt` : '';
-    lines.push(step.outcome === 'kept' ? `${name} keeps its approval (rule E8): it cites none of the changed clauses${held}.`
+    // D1 [CIC:REQ-021]: its approvers are asked whether it still holds, with what is recommended.
+    const asked = step.stillHolds ? `; its prompt held ${listWords(step.stillHolds.clauses.map((id) => clauseName(workflow, id)))}, so its approvers say whether it still holds `
+      + `(recommended: ${step.stillHolds.recommend === 'return' ? 'redo it' : 'it still holds'})` : '';
+    lines.push(step.outcome === 'kept' ? `${name} keeps its approval (rule E8): it cites none of the changed clauses${held}${asked}.`
       : step.outcome === 'still-holds' ? `${name}'s approvers say whether it still holds, or return the Story to it.`
         : `${name} ${step.outcome === 'reopened' ? 'is reopened' : 'runs again'}${why ? `: ${why}` : ''}.`);
   }
@@ -866,9 +871,22 @@ function forwardAmendmentItem(workflow, context, blocker) {
  * rejection does. A conformance step's approver confirms its report or returns it for a new one. Recorded
  * here with `upstream-issue revalidate`'s own function; never a chat turn's to answer.
  */
+/**
+ * D1 [CIC:REQ-021]: why a kept step's approvers are recommended to say it still holds, or to redo it, in one line: its
+ * document names neither the changed clauses its prompt held nor any path they expect, or it names one of those paths.
+ */
+export function stillHoldsBecause(workflow, blocker) {
+  const name = stepName(workflow, blocker.phase);
+  const clauses = listWords((blocker.clauses ?? []).map((id) => clauseName(workflow, id)));
+  return blocker.recommend === 'return'
+    ? `${name}'s document names ${listWords(blocker.namedPaths ?? [])}, which ${clauses} ${(blocker.clauses ?? []).length === 1 ? 'expects' : 'expect'}.`
+    : `${name}'s document names neither ${clauses} nor any path ${(blocker.clauses ?? []).length === 1 ? 'it expects' : 'they expect'}.`;
+}
+
 function revalidationItem(workflow, context, blocker) {
   const name = stepName(workflow, blocker.phase);
   const producer = blocker.producer ? stepName(workflow, blocker.producer) : 'the earlier step';
+  if (blocker.reason === 'prompt-held') return stillHoldsItem(workflow, context, blocker, name, producer);
   const report = isConformancePhase(workflow.phases?.[blocker.phase]);
   const effect = (outcome) => [{ kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase, outcome }];
   // Only a step's own approvers answer its row. "Still holds" may be one answer, with one reason, for every row
@@ -890,6 +908,32 @@ function revalidationItem(workflow, context, blocker) {
         effects: effect('return'), needs: { reason: textNeed('', REASON) } }))
     ],
     details: { code: blocker.code, amendment: blocker.amendment, phase: blocker.phase, producer: blocker.producer ?? null, commands: [blocker.command] }
+  };
+}
+
+/**
+ * D1 [CIC:REQ-021]: a step an intent amendment kept (rule E8) whose prompt held a changed clause its document does not
+ * cite. Its own approvers say it still holds, or return the Story to it; the item recommends one, says why in one
+ * line, and is never settled for them. Until it is answered the approval of each step that reads it waits, and so
+ * does the Story's end; nothing else does.
+ */
+function stillHoldsItem(workflow, context, blocker, name, producer) {
+  const clauses = listWords((blocker.clauses ?? []).map((id) => clauseName(workflow, id)));
+  const waits = (blocker.consumers ?? []).length ? `the approval of ${listWords(blocker.consumers.map((id) => stepName(workflow, id)))} and the Story's end wait` : 'the Story\'s end waits';
+  const effect = (outcome) => [{ kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase, outcome }];
+  return {
+    kind: 'revalidation', title: `Say whether ${name} still holds after ${blocker.amendment}`,
+    why: `${blocker.amendment} kept ${name}'s approval: its document cites none of the changed clauses, but its prompt held ${clauses}. `
+      + `Its approvers say it still holds under the amended ${producer}, or return the Story to it; until then ${waits} for it.`,
+    options: [
+      { ...option(workflow, context, { id: 'still-holds', label: `${name} still holds`, words: `Its approval stands, bound to the amended ${producer}.`, effects: effect('unchanged'),
+        needs: { reason: textNeed(`${name} still holds under ${blocker.amendment}: it does not rely on what changed in ${clauses}.`, REASON) } }), sharedLabel: 'Still holds' },
+      { ...option(workflow, context, { id: 'return-step', label: `Redo ${name}: return the Story to it`,
+        words: `${name} runs again against the amended ${producer}, and the steps after it with it.`, effects: effect('return'), needs: { reason: textNeed('', REASON) } }), oneByOne: true }
+    ],
+    details: { code: blocker.code, amendment: blocker.amendment, phase: blocker.phase, producer: blocker.producer ?? null, reason: 'prompt-held',
+      clauses: blocker.clauses ?? [], recommend: blocker.recommend ?? 'unchanged', ...(blocker.namedPaths?.length ? { namedPaths: blocker.namedPaths } : {}),
+      consumers: blocker.consumers ?? [], because: stillHoldsBecause(workflow, blocker), commands: [blocker.command] }
   };
 }
 
@@ -1538,7 +1582,7 @@ const HOLD_KINDS = Object.freeze({
   APPROVAL_INTENT_AMENDMENT_PENDING: 'intent-amendment', INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'intent-amendment', INTENT_AMENDMENT_PENDING_PAUSE: 'intent-amendment',
   DECISION_REQUIRED: 'routing-decision', PHASE_APPEAL_REVIEW_REQUIRED: 'appeal', PHASE_APPEAL_INTEGRITY: 'appeal',
   STORY_PUBLICATION_PENDING: 'story-publication', CONFORMANCE_BLOCKING_VERDICTS: 'conformance-gap', STORY_COMPLETION_REFUSED: 'conformance-gap',
-  DEPARTURES_UNDECIDED: 'departure', INSTRUCTIONS_UNACCOUNTED: 'asked-for'
+  DEPARTURES_UNDECIDED: 'departure', INSTRUCTIONS_UNACCOUNTED: 'asked-for', AMENDMENT_STILL_HOLDS_REQUIRED: 'revalidation'
 });
 
 /**
@@ -1678,6 +1722,11 @@ function itemHolds(workflow, facts, awaiting) {
       // An approved amendment's acknowledgement holds the steps it reopened; a correction of an earlier document, and
       // every owed sign-off, scope statement or evidence row, the Story's end.
       if (item.kind === 'intent-amendment' && item.details?.status === 'approved') return 'later-step';
+      // A "still holds" question holds this step only when it reads the kept step: at its approval, or at its submission when
+      // that completes it [CIC:REQ-021]; otherwise only the Story's end.
+      if (item.kind === 'revalidation' && item.details?.reason === 'prompt-held' && (item.details.consumers ?? []).includes(phaseId)) {
+        return workflow.phases?.[phaseId]?.approvalPolicy?.mode === 'none' ? 'this-step' : 'approval-later';
+      }
       if (['forward-amendment', 'revalidation', 'upstream-issue', 'evidence-obligation'].includes(item.kind)) return 'story-end';
       if (awaiting) return item.kind === 'owed-decision' ? 'story-end' : 'nothing';
       // A pending intent amendment pauses the step it was proposed in until a scope approver decides it [owner, 2026-11-13, D3].
@@ -1797,7 +1846,10 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const heldKinds = new Set(holds.filter((hold) => hold.owner !== 'you-decide').map(holdItemKind));
   const held = (item) => APPROVAL_HOLDING_KINDS.includes(item.kind) || extra.includes(item) || (ending && item.kind === 'owed-decision') || (awaiting && amendmentItem(item))
     || (awaiting && holds.some((hold) => carriesHold(item, hold)))
-    || (awaiting && revalidating.includes(item)) || (awaiting && heldKinds.has(item.kind)
+    // A "still holds" row holds only the approval of the step it is about or one that reads it (CIC:REQ-021); the engine says which.
+    || (awaiting && revalidating.includes(item) && (item.details.reason !== 'prompt-held'
+      || holds.some((hold) => (hold.stillHolds ?? []).some((row) => row.amendment === item.details.amendment && row.phase === item.details.phase))))
+    || (awaiting && heldKinds.has(item.kind) && item.details?.reason !== 'prompt-held'
     && (!item.details?.amendment || holds.some((hold) => String(hold.message ?? hold.summary).includes(item.details.amendment))));
   const built = [...listed, ...extra, ...(pending.transport ?? []).map((entry) => machineItem(workflow, entry))];
   const holdsOf = itemHolds(workflow, facts, awaiting);

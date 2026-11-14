@@ -31,6 +31,7 @@ export function dependencyLines(workflow, result, { step = null } = {}) {
         lines.push(`  ${kind}: ${clauses.slice(0, CLAUSES_SHOWN).join(', ')}${clauses.length > CLAUSES_SHOWN ? ` and ${clauses.length - CLAUSES_SHOWN} more` : ''}`);
       }
       if (row.unclaimedPaths?.length) lines.push(`  changed paths no clause claims: ${row.unclaimedPaths.join(', ')}`);
+      if (row.supportingPaths?.length) lines.push(`  supporting changes the plan lists: ${row.supportingPaths.join(', ')}`);
     }
   }
   return lines;

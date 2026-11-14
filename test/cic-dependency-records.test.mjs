@@ -118,8 +118,10 @@ async function fixture(t, { observed }) {
 function outcome(story, preview) {
   const clauses = (story.scopeRevisions ?? []).at(-1)?.clauses ?? [];
   const staleness = scopeStaleness(story, clauses.map((clause) => ({ ...clause, dependsOn: clause.id.endsWith('AC-001') ? [`${WORK}:AC-002`] : [] })));
+  // Stage 4 reads the records under switch 1 [CIC:REQ-006]: an unresolved record is an extra reason a step is affected,
+  // which here changes no step's outcome. What each step does, and what is stale, is compared whole.
   return {
-    effect: preview.effect,
+    effect: { ...preview.effect, steps: preview.effect.steps.map((step) => [step.phase, step.outcome]) },
     revisions: story.scopeRevisions.map((revision) => [revision.revision, revision.changes, revision.dependentGenerations]),
     stale: [...staleClausesOf(story.scopeRevisions.at(-1), clauses.map((clause) => ({ ...clause, dependsOn: clause.id.endsWith('AC-001') ? [`${WORK}:AC-002`] : [] })))].sort(),
     staleBy: ['fix-design', 'implement'].flatMap((phase) => clauses.map((clause) => [phase, clause.id, staleness.staleBy(clause.id, phase, 1)?.revision ?? null])),
@@ -173,8 +175,13 @@ test('with observed dependencies on, every published generation commits a verifi
     const storyOn = await on.workflow();
     const storyOff = await off.workflow();
 
-    // Identical outcomes: the amendment's effect, the revisions' changes, staleness, the reset and kept steps, and the history.
-    assert.deepEqual(outcome(storyOn, previewOn), outcome(storyOff, previewOff));
+    // Identical outcomes: what the amendment does to each step, the revisions' changes, staleness, the reset and kept steps, and the history.
+    const { observed: _observed, unclaimedClauses: _unclaimed, ...onEffect } = outcome(storyOn, previewOn).effect;
+    assert.deepEqual({ ...outcome(storyOn, previewOn), effect: onEffect }, outcome(storyOff, previewOff));
+    // Under switch 1 the code step's unresolved record is named as a reason it is affected; with it off it is not read.
+    assert.deepEqual(previewOn.effect.steps.find((step) => step.phase === 'implement').reasons.filter((reason) => reason.kind === 'unresolved-record'),
+      [{ kind: 'unresolved-record', reasons: ['receipt-missing'] }]);
+    assert.equal(previewOff.effect.steps.some((step) => step.reasons.some((reason) => reason.kind === 'unresolved-record')), false);
     assert.deepEqual(previewOn.effect.steps.map((step) => [step.phase, step.outcome]), [['fix-design', 'reopened'], ['implement', 'reset'], ['verify', 'reset']]);
 
     // Off: nothing new anywhere [CIC:AC-018].

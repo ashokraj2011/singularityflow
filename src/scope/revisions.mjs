@@ -63,27 +63,30 @@ export function nextScopeRevision(workflow, { clauses, origin, at, dependencies 
     dependentGenerations: Object.fromEntries(order.slice(start + 1).map((id) => [id, Number(workflow.phases?.[id]?.generation ?? 0)])),
     previousRevisionSha256: latest?.revisionSha256 ?? null,
     at,
-    ...(dependencies ? staleReasons(changes, dependencies) : {})
+    ...(dependencies ? staleReasons(changes, dependencies, { held: identity.map((clause) => clause.id) }) : {})
   };
   return { ...core, revisionSha256: `sha256:${recordSha256(core)}` };
 }
 
 /**
  * A v2 revision's stale set with each clause's reason, and the edges the reasons used: what staleClausesOf
- * computes, said per clause (`added`, `revised`, or `depends` on the clauses in `via`). `clauses` are the
- * current clauses with their declared `dependsOn` [CIC:REQ-002].
+ * computes under switch 1, said per clause (`added`, `revised`, `depends` on the clauses in `via`, removed ones
+ * included, or `unrecorded` for every clause `held` by a revision that recorded no changes). `clauses` are the
+ * current clauses with their declared `dependsOn` [CIC:REQ-002, REQ-006].
  */
-export function staleReasons(changes, clauses = []) {
-  const reasons = new Map([...(changes?.added ?? []).map((id) => [id, { clause: id, reason: 'added' }]),
-    ...(changes?.revised ?? []).map((id) => [id, { clause: id, reason: 'revised' }])]);
+export function staleReasons(changes, clauses = [], { held = [] } = {}) {
+  const reasons = new Map(changes ? [...(changes.added ?? []).map((id) => [id, { clause: id, reason: 'added' }]),
+    ...(changes.revised ?? []).map((id) => [id, { clause: id, reason: 'revised' }])]
+    : held.map((id) => [String(id).toUpperCase(), { clause: String(id).toUpperCase(), reason: 'unrecorded' }]));
+  const removed = new Set((changes?.removed ?? []).map((id) => String(id).toUpperCase()));
   const edges = [];
-  let grew = reasons.size > 0;
+  let grew = reasons.size + removed.size > 0;
   while (grew) {
     grew = false;
     for (const clause of clauses) {
       const id = String(clause.id).toUpperCase();
       const via = reasons.has(id) ? [] : [...new Set((clause.dependsOn ?? []).map((dependency) => String(dependency).toUpperCase()))]
-        .filter((dependency) => reasons.has(dependency)).sort();
+        .filter((dependency) => reasons.has(dependency) || removed.has(dependency)).sort();
       if (!via.length) continue;
       reasons.set(id, { clause: id, reason: 'depends', via });
       edges.push(...via.map((dependency) => ({ kind: 'declared', clause: id, dependsOn: dependency })));
@@ -102,20 +105,29 @@ export function recordScopeRevision(workflow, change) {
   return revision;
 }
 
+/** Whether the Story's pinned spec policy turns SPEC-CIC switch 1 on: read from the pinned raw field [CIC:REQ-018]. */
+export const observedDependencies = (workflow) => workflow?.resolution?.spec?.observedDependencies === 'on';
+
 /**
  * The clauses whose evidence a revision makes stale: every clause it added or revised, and every
- * current clause that depends on one of them, directly or through another.
+ * current clause that depends on one of them, directly or through another. With `observed` (switch 1,
+ * CIC:REQ-006), nothing unknown narrows it: a clause depending on one the revision removed is stale, and a
+ * revision that recorded no changes (`changes: null`, the first revision, or one from before E6) makes every
+ * clause it holds stale.
  */
-export function staleClausesOf(revision, clauses = []) {
-  const stale = new Set([...(revision?.changes?.added ?? []), ...(revision?.changes?.revised ?? [])]);
-  let grew = stale.size > 0;
+export function staleClausesOf(revision, clauses = [], { observed = false } = {}) {
+  const stale = new Set(observed && !revision?.changes ? (revision?.clauses ?? []).map((clause) => String(clause.id).toUpperCase())
+    : [...(revision?.changes?.added ?? []), ...(revision?.changes?.revised ?? [])]);
+  const sources = new Set([...stale, ...(observed ? revision?.changes?.removed ?? [] : [])].map((id) => String(id).toUpperCase()));
+  let grew = sources.size > 0;
   while (grew) {
     grew = false;
     for (const clause of clauses) {
       const id = String(clause.id).toUpperCase();
       if (stale.has(id)) continue;
-      if ((clause.dependsOn ?? []).some((dependency) => stale.has(String(dependency).toUpperCase()))) {
+      if ((clause.dependsOn ?? []).some((dependency) => sources.has(String(dependency).toUpperCase()))) {
         stale.add(id);
+        sources.add(id);
         grew = true;
       }
     }
@@ -132,8 +144,20 @@ export function staleClausesOf(revision, clauses = []) {
  * nothing is carried.
  */
 export function scopeStaleness(workflow, clauses = [], { carriers = new Map(), rowCarriers = new Map() } = {}) {
-  const revisions = (workflow?.scopeRevisions ?? []).filter((revision) => revision.changes)
-    .map((revision) => ({ revision, stale: staleClausesOf(revision, clauses) }));
+  const observed = observedDependencies(workflow);
+  const revisions = (workflow?.scopeRevisions ?? []).filter((revision) => observed || revision.changes)
+    .map((revision) => ({ revision, stale: staleClausesOf(revision, clauses, { observed }) }));
+  // Whether a revision reaches a step's evidence at a generation. A step it lists is reached at or below the generation
+  // it had then. Under switch 1 [CIC:REQ-006] a step it does not list is not exempt: the step that made it is reached by
+  // its earlier generations, and any other by every generation not published after the revision.
+  const reaches = (revision, phaseId, generation) => {
+    const listed = revision.dependentGenerations ?? {};
+    if (Object.hasOwn(listed, phaseId)) return Number(generation ?? 0) <= Number(listed[phaseId]);
+    if (!observed) return false;
+    if (revision.origin?.phase === phaseId) return Number(generation ?? 0) < Number(revision.origin.generation ?? 0);
+    const published = (workflow?.phases?.[phaseId]?.generationPublications ?? []).find((entry) => Number(entry.generation) === Number(generation))?.publishedAt;
+    return !(published && Date.parse(published) > Date.parse(revision.at));
+  };
   const carrierOf = (revision, phaseId, generation) => {
     const origin = revision.origin ?? {};
     if (origin.kind !== 'intent-amendment') return null;
@@ -146,12 +170,12 @@ export function scopeStaleness(workflow, clauses = [], { carriers = new Map(), r
   const walk = (clauseId, phaseId, generation) => {
     const id = String(clauseId).toUpperCase();
     const carried = [];
-    // A step that has not published anything yet has no evidence to be stale.
-    if (!(Number(generation ?? 0) > 0)) return { revision: null, carried };
+    // A step that has not published anything yet has no evidence to be stale; under switch 1 evidence that exists at
+    // generation 0 is read like any other [CIC:REQ-006].
+    if (!observed && !(Number(generation ?? 0) > 0)) return { revision: null, carried };
     for (let index = revisions.length - 1; index >= 0; index -= 1) {
       const { revision, stale } = revisions[index];
-      if (!stale.has(id) || !Object.hasOwn(revision.dependentGenerations ?? {}, phaseId)) continue;
-      if (Number(generation ?? 0) > Number(revision.dependentGenerations[phaseId])) continue;
+      if (!stale.has(id) || !reaches(revision, phaseId, generation)) continue;
       const answer = carrierOf(revision, phaseId, generation) ?? rowCarrierOf(revision, phaseId, generation, id);
       if (!answer) return { revision, carried };
       carried.push({ revision: revision.revision, amendment: answer.amendment, phase: phaseId, generation: Number(generation),

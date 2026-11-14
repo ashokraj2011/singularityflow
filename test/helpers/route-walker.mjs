@@ -529,3 +529,64 @@ export async function openConvergenceTemplate(t, { configure = null } = {}) {
   cli('prepare', 'convergence');
   return { parent: directory, root, item: path.relative(root, item), cli };
 }
+
+/**
+ * SPEC-CIC switch 1 [CIC:REQ-021]: an amendment kept an approved design whose prompt held the changed clause, so its
+ * approvers are asked whether it still holds; the code step reads the design and completes at its submission, which
+ * therefore waits for their answer. The Story is left with the code step republished on the amended scope.
+ */
+export async function stillHoldsTemplate(t) {
+  const parent = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-walk-')));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const root = path.join(parent, 'repository');
+  const remote = path.join(parent, 'origin.git');
+  await mkdir(root);
+  const { must, git, cli, write } = helpers(root);
+  git('init', '-q', '-b', 'main'); git('config', 'user.name', IDENTITY); git('config', 'user.email', 'route-walker@example.test');
+  await write('package.json', JSON.stringify({ type: 'module', private: true, scripts: { test: 'node --test' } }));
+  await write('src/value.mjs', 'export const value = 1;\n');
+  await write('test/value.test.mjs', "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\ntest('value', () => assert.equal(value,1));\n");
+  cli('init');
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off'; config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  delete config.phases['fix-design'].clarification;
+  config.spec = { ...config.spec, observedDependencies: 'on' };
+  const quick = config.workTypes['quick-fix'];
+  config.workTypes['quick-design'] = { ...quick, phases: ['intake', 'fix-design', 'implement', 'verify'], sourceReview: { mode: 'off' },
+    phaseOverrides: { ...quick.phaseOverrides, implement: { inputs: ['intake', 'fix-design'] } } };
+  await writeFile(configPath, YAML.stringify(config));
+  git('add', '.'); git('commit', '-qm', 'Initialize the walker fixture');
+  must('git', ['init', '-q', '--bare', '-b', 'main', remote]); git('remote', 'add', 'origin', remote); git('push', '-q', '-u', 'origin', 'main');
+  cli('start', WORK, '--from-branch', 'main', '--work-type', 'quick-design', '--title', 'Use a value', '--description', 'Return 2.');
+  const item = `singularity/work-items/${WORK}`;
+  const intake = (outcome) => [`# ${WORK} — Quick fix scope and plan`, '', '## Problem and fix', '', 'The value must be 2; change the exported constant.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', `| [${WORK}:AC-001] | ${outcome} |`, `| [${WORK}:AC-002] | The value module stays a single export. |`, '',
+    '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
+    `| \`${WORK}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified | The test reads 2. |`,
+    `| \`${WORK}:AC-002\` | \`src/value.mjs\` | \`test/value.test.mjs\` | existing | One export remains. |`, '',
+    '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n');
+  const code = async () => {
+    await write('src/value.mjs', `// @clause:${WORK}:AC-001 the exported value is the number 2\n// @clause:${WORK}:AC-002 the single export stays\nexport const value = 2;\n`);
+    await write('test/value.test.mjs', "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n"
+      + `// @ac:${WORK}:AC-001\ntest('value', () => assert.equal(value,2));\n// @ac:${WORK}:AC-002\ntest('one export', async () => assert.deepEqual(Object.keys(await import('../src/value.mjs')), ['value']));\n`);
+  };
+  cli('prepare', 'intake'); cli('phase', 'enter', 'intake', '--compose', '--json');
+  await write(`${item}/artifacts/intake/intake.md`, intake('The exported value equals 2.'));
+  cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place'); cli('submit', 'intake'); cli('approve', 'intake', '--yes');
+  cli('prepare', 'fix-design'); cli('phase', 'enter', 'fix-design', '--compose', '--json');
+  await write(`${item}/artifacts/fix-design/fix-design.md`, [`# ${WORK} — Fix Design`, '', '## Root cause', '', 'The exported constant holds the old value; nothing computes it.', '',
+    '## Minimal safe change', '', `Change the one literal that holds the value. ${WORK}:AC-002 keeps the module to a single export, so no import changes.`, '',
+    '## Alternatives and regression risk', '', 'A computed value was rejected as unnecessary; the only regression surface is the one test that reads it.', ''].join('\n'));
+  cli('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place'); cli('submit', 'fix-design'); cli('approve', 'fix-design', '--yes');
+  cli('phase', 'begin', 'implement', '--json'); await code(); cli('prepare', 'implement'); cli('phase', 'publish', 'implement', '--authored', 'deterministic');
+  const amended = path.join(parent, 'amended.md');
+  await writeFile(amended, intake('The exported value equals 2 and is a number.'));
+  cli('story', 'intent-amendment', 'propose', '--file', amended, '--reason', 'Say the value is numeric.');
+  cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001');
+  cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
+  cli('resume', WORK); cli('phase', 'begin', 'implement', '--json'); await code(); cli('prepare', 'implement');
+  cli('phase', 'publish', 'implement', '--authored', 'deterministic');
+  return { parent, root, item, cli };
+}

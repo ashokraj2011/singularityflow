@@ -44,7 +44,9 @@ export function pendingAmendmentRevalidations(workflow) {
     .filter((item) => ['approved', 'awaiting_approval'].includes(workflow.phases?.[item.phase]?.status)
       && Number(workflow.phases[item.phase].generation) === Number(item.generation)
       && !decided.has(`${amendment}\u0000${item.phase}`))
-    .map((item) => ({ amendment, phase: item.phase, generation: item.generation, producer }));
+    .map((item) => ({ amendment, phase: item.phase, generation: item.generation, producer,
+      // A step an intent amendment kept while its prompt held a changed clause (D1, CIC:REQ-021), with what to recommend.
+      ...(item.reason ? { reason: item.reason, clauses: item.clauses ?? [], recommend: item.recommend ?? null, namedPaths: item.namedPaths ?? [] } : {}) }));
   return [
     ...countedRecords(workflow, workflow?.forwardAmendmentDecisions).filter((entry) => entry?.decision === 'approved')
       .flatMap((entry) => owed(entry.amendment, entry.phase, entry.revalidate)),

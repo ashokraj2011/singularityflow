@@ -727,6 +727,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   // The step an amendment was proposed from waits while it is pending: a scope approver decides it, on the
   // decisions card or in their own terminal [owner, 2026-11-13, D3].
   INTENT_AMENDMENT_PENDING_PAUSE: 'someone-decides',
+  // A step an amendment kept whose prompt held a changed clause: its own approvers say it still holds, on the Decide card [CIC:REQ-021].
+  AMENDMENT_STILL_HOLDS_REQUIRED: 'someone-decides',
   SPEC_PLANNED_CLAIM_MAP_REQUIRED: 'author-repairs',
   // The scope step's approvers disposition each statement of the Story's sources [PHR:REQ-002].
   SCOPE_ITEMS_UNRESOLVED: 'someone-decides',
@@ -853,6 +855,8 @@ function refusalParty(error, workflow, phase) {
     const scope = details.scopePhase ?? scopeStepOf(workflow)?.id;
     return scope ? { steps: [scope] } : null;
   }
+  // The approvers of each kept step whose "still holds" this approval waits for [CIC:REQ-021].
+  if (code === 'AMENDMENT_STILL_HOLDS_REQUIRED') return details.rows?.length ? { steps: [...new Set(details.rows.map((row) => row.phase))] } : null;
   const renewals = details.testRunRiskRenewals?.map((entry) => entry.phase) ?? (details.testRunRisk ? [details.phase ?? phase.id] : null);
   if (renewals?.length) return { steps: [...new Set(renewals)], testRun: true };
   if (code === 'SPEC_COVERAGE_INCOMPLETE' && details.upstreamDecision?.complete === true) {
@@ -945,6 +949,8 @@ export function approvalHold(error, workflow, phase) {
     // The sign-offs the step answers for: the decision list's own items for them hold this approval [decision map, finding 1].
     ...(error.code === 'EVIDENCE_INSPECTION_MISSING' && error.details?.criteria?.length
       ? { signOffs: error.details.criteria.map((entry) => ({ clauseId: entry.clauseId, slot: entry.slot })) } : {}),
+    // The "still holds" rows this approval waits for, each the decision list's own item [CIC:REQ-021].
+    ...(error.code === 'AMENDMENT_STILL_HOLDS_REQUIRED' && error.details?.rows?.length ? { stillHolds: error.details.rows } : {}),
     // Each held package with its advisory, fixed version, who may accept it and their command [CQF:REQ-052].
     ...(error.code === 'DEPENDENCY_VULNERABILITY_HELD' && error.details?.vulnerabilities?.length ? { vulnerabilities: error.details.vulnerabilities } : {}),
     // Only when these paths are all that holds it: then each is a choice, not a repair.

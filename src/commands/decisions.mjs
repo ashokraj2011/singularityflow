@@ -448,7 +448,9 @@ export function intentAmendmentOutcome(workflow, transition) {
   return { id: proposal.id, decision: 'approved', applied: true, generation: application.toSpecificationGeneration ?? null,
     words: `${proposal.id} is approved: the amended scope is in force${application.revalidate?.length
       ? `, nothing was reset, and ${application.revalidate.map((entry) => phaseWords(workflow, entry.phase)).join(', ')} ${application.revalidate.length === 1 ? 'has a row' : 'each have a row'} on this list for its approvers`
-      : '. Acknowledge it next, on this list or in a terminal'}` };
+      : '. Acknowledge it next, on this list or in a terminal'}${application.stillHolds?.length
+      ? `; ${application.stillHolds.map((entry) => phaseWords(workflow, entry.phase)).join(', ')} ${application.stillHolds.length === 1 ? 'keeps its' : 'keep their'} approval, and ${application.stillHolds.length === 1 ? 'its approvers say' : 'their approvers each say'} on this list whether it still holds`
+      : ''}` };
 }
 
 /**

@@ -208,7 +208,7 @@ import {
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
 import { addMissingSections, artifactTokens, requiredArtifactSections } from './artifact-required-sections.mjs';
-import { acceptedClauses, nextScopeRevision, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
+import { acceptedClauses, nextScopeRevision, observedDependencies, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { amendmentChurn } from './amendment.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
@@ -6320,6 +6320,9 @@ async function submitPhaseTransition(root, config, workflow, {
     }
   }
   if (!reviewableFailure && !applicationReviewPending && (phase.approvalPolicy.mode === 'none' || waiver?.eligible)) {
+    // A step that completes at its submission waits, as an approval would, for the "still holds" of a kept step it reads [CIC:REQ-021].
+    const owed = stillHoldsOwed(workflow, phase);
+    if (owed.length) throw stillHoldsRefusal(workflow, phase, owed);
     phase.status = 'approved';
     phase.approvedAt = phase.submittedAt;
     phase.approvedBy = null;
@@ -6767,6 +6770,12 @@ export async function evaluateApproval(root, config, workflow, {
     await stage('sequence', async () => {
       phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
     }, { foundation: true });
+    await stage('still-holds', async () => {
+      // SPEC-CIC switch 1 [CIC:REQ-021]: a step an amendment kept while its prompt held a changed clause waits for its own
+      // approvers' "still holds" only where its evidence is needed: its own approval, and that of a step that reads it.
+      const rows = stillHoldsOwed(workflow, phase);
+      if (rows.length) throw stillHoldsRefusal(workflow, phase, rows);
+    }, { needs: ['sequence'] });
     await stage('application-review', async () => {
       if (workflow.resolution?.applicationReview?.mode === 'required') {
         await (await import(pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'application-review.mjs')).href)).assertApplicationReviewComplete(root, config, workflow, phase);
@@ -8463,6 +8472,31 @@ export async function rejectPhase(root, config, workflow, {
   };
 }
 
+/**
+ * Under SPEC-CIC switch 1, the unanswered "still holds" rows a step's completion waits for [CIC:REQ-021]: the step's own,
+ * and those of each kept step it reads as an input. None on a Story without the switch.
+ */
+function stillHoldsOwed(workflow, phase) {
+  if (workflow.resolution?.spec?.observedDependencies !== 'on') return [];
+  const reads = new Set(resolvedPhaseInputs(workflow, phase).map(inputProducerId));
+  return pendingAmendmentRevalidations(workflow).filter((entry) => entry.reason === 'prompt-held' && (entry.phase === phase.id || reads.has(entry.phase)));
+}
+
+/** An approval that waits for the "still holds" of the kept steps it reads [CIC:REQ-021]: their approvers answer on the Decide card. */
+function stillHoldsRefusal(workflow, phase, rows) {
+  const workId = workflow.workItem.id;
+  const steps = [...new Set(rows.map((row) => row.phase))];
+  const one = steps.length === 1;
+  return new SingularityFlowError(`${phase.id} waits for ${steps.join(', ')}: ${[...new Set(rows.map((row) => row.amendment))].join(', ')} kept ${one ? 'its' : 'their'} approval while ${one ? 'its' : 'their'} prompt held `
+    + `${[...new Set(rows.flatMap((row) => row.clauses ?? []))].join(', ')}, and ${one ? 'its' : 'their'} approvers have not said whether ${one ? 'it still holds' : 'they still hold'}. `
+    + `They answer on the Decide card (/sf-decide ${workId}), or in their own terminal.`, {
+    code: 'AMENDMENT_STILL_HOLDS_REQUIRED',
+    details: { workId, phase: phase.id, rows: rows.map((row) => ({ amendment: row.amendment, phase: row.phase, generation: row.generation, clauses: row.clauses ?? [] })),
+      actions: [{ command: `singularity-flow decisions ${workId}`, skill: '/sf-decide', detail: `An approver of ${steps.join(' or ')} says whether it still holds, on the Decide card.` },
+        { command: revalidateCommand(workId, rows[0]), detail: 'Or in their own terminal.' }] }
+  });
+}
+
 function intentAmendmentSummary(workflow, proposalId) {
   return (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId) ?? null;
 }
@@ -9001,6 +9035,10 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     workflow.status = 'in_progress';
     if (firstReset != null) delete workflow.completion;
   }
+  // D1 [CIC:REQ-021]: each step kept here whose prompt held a changed clause it does not cite is asked, by its own
+  // approvers on the Decide card, whether it still holds: the rows pendingAmendmentRevalidations lists, never settled.
+  const stillHolds = settles ? [] : effect.steps.filter((step) => step.stillHolds && retainedPhases.includes(step.phase))
+    .map((step) => ({ phase: step.phase, generation: step.generation, reason: 'prompt-held', ...step.stillHolds }));
 
   proposal.status = 'approved';
   proposal.decidedAt = at;
@@ -9017,7 +9055,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     ...(planBindings.length ? { planBindings } : {}),
     // Nothing was reset, so there is no resubmission to acknowledge: each revalidation row is the person's answer.
     acknowledgementRequired: !settles,
-    ...(settles ? { settles, revalidate } : {})
+    ...(settles ? { settles, revalidate } : {}),
+    ...(stillHolds.length ? { stillHolds } : {})
   };
   Object.assign(summary, {
     status: 'approved', decidedAt: at, decision: recorded,
@@ -9031,7 +9070,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     revalidatedPhases: [],
     ...(planBindings.length ? { planBindings } : {}),
     // The rows pendingAmendmentRevalidations lists, read against the scope step (forward-amendments.mjs).
-    ...(settles ? { producer: specification.id, revalidate } : {})
+    ...(settles ? { producer: specification.id, revalidate } : stillHolds.length ? { producer: specification.id, revalidate: stillHolds } : {})
   });
   workflow.history.push({
     at, actor: key, agent, event: 'intent_amendment_approved', phase: specification.id,
@@ -9040,6 +9079,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       + `${staleClauses.size} clause(s) stale, ${standingClauses.length} standing; `
       + `${affectedPhases.length} phase(s) affected and ${proposal.application.preservedEvidence.length} evidence item(s) preserved`
       + `${settles ? `; it updates the spec to the code ${settles.phase} reported, so ${revalidate.map((entry) => entry.phase).join(', ')} revalidate instead of running again` : ''}`
+      + `${stillHolds.length ? `; ${stillHolds.map((entry) => entry.phase).join(', ')} keep their approval until their approvers say they still hold, as their prompt held ${[...new Set(stillHolds.flatMap((entry) => entry.clauses))].join(', ')}` : ''}`
   });
   await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
   return {
@@ -9077,8 +9117,36 @@ async function amendedScopeClauses(root, config, workflow, specification, propos
       origin: { kind: 'intent-amendment', id: proposal.id, phase: specification.id, generation }, at: null });
   }
   const currentClauses = indexes.flatMap((index) => index.clauses ?? []);
-  return { currentClauses, revision, staleClauses: revision ? staleClausesOf(revision, currentClauses)
+  return { currentClauses, revision, records, staleClauses: revision ? staleClausesOf(revision, currentClauses, { observed: observedDependencies(workflow) })
     : new Set([...(proposal.diff?.added ?? []), ...(proposal.diff?.revised ?? [])]) };
+}
+
+/**
+ * Under SPEC-CIC switch 1, each published step's dependency record as it reads now (dependency-records.mjs), by step
+ * and generation, and the planned claims: an unresolved or missing record counts as affected, never as unaffected
+ * [CIC:REQ-006], and a kept step whose prompt held a changed clause is asked whether it still holds (D1, REQ-021).
+ */
+async function observedRecords(root, workflow, records) {
+  const { stepDependencies } = await import('./dependency-records.mjs');
+  const rows = new Map();
+  for (const entry of (await stepDependencies(root, workflow)).steps) {
+    for (const row of entry.generations) rows.set(`${entry.phase}\u0000${row.generation}`, row);
+  }
+  return { rows, planned: mergePlannedClaimRecords(records.planned ?? []) };
+}
+
+/**
+ * D1 [CIC:REQ-021]: the changed clauses a kept step's prompt held (its record's input edges) though its document
+ * cites none of them, and what to recommend its approvers: "still holds" when the document names neither those
+ * clauses nor any path they expect, otherwise "redo" (return the Story to it). `namedPaths` are the paths it names.
+ */
+async function stillHoldsQuestion(root, phase, row, held, planned) {
+  const clauses = [...new Set((row?.edges?.input ?? []).map((edge) => String(edge.clause).toUpperCase()).filter((id) => held.has(id)))].sort();
+  if (!clauses.length) return null;
+  const expected = [...new Set(clauses.flatMap((id) => [...(planned[id]?.expectedPaths ?? []), ...(planned[id]?.tests ?? [])]))];
+  const texts = await Promise.all((phase.artifacts ?? []).map((artifact) => readFile(path.join(root, artifact.path), 'utf8').catch(() => '')));
+  const namedPaths = expected.filter((candidate) => texts.some((text) => text.includes(candidate))).sort();
+  return { clauses, recommend: namedPaths.length ? 'return' : 'unchanged', ...(namedPaths.length ? { namedPaths } : {}) };
 }
 
 /**
@@ -9144,11 +9212,14 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
   const candidates = settles ? new Map() : await amendmentRetentionCandidates(root, config,
     { ...workflow, planAmendments: decidedOver.length ? decidedOver : undefined }, specification,
     { addsClauses: (diff.added ?? []).length > 0, correctedPlans: new Set(carriedRows.keys()) });
-  const { staleClauses, currentClauses, revision } = await amendedScopeClauses(root, config, workflow, specification, proposal, proposedText);
+  const { staleClauses, currentClauses, revision, records } = await amendedScopeClauses(root, config, workflow, specification, proposal, proposedText);
   // An artifact is affected when it cites a stale clause, or a removed one, by exact ID.
   const cited = new Set([...staleClauses, ...(diff.removed ?? [])]);
   const changed = new Set([...(diff.added ?? []), ...(diff.revised ?? [])].map(upper));
   const added = new Set((diff.added ?? []).map(upper));
+  const observed = observedDependencies(workflow) ? await observedRecords(root, workflow, records) : null;
+  // The changed clauses no planned claim names: no record of a step that did not rule them out keeps it [CIC:REQ-006].
+  const unclaimedClauses = observed ? [...new Set([...changed, ...(diff.removed ?? []).map(upper)])].filter((id) => !observed.planned[id]).sort() : [];
   const evidencePaths = new Set([...(proposal.radius?.artifacts ?? []), ...(proposal.radius?.tests ?? [])].map(posix));
   const reached = Number(proposal.radius?.totals?.affected ?? 0);
   const currentIndex = order.indexOf(workflow.currentPhase);
@@ -9178,6 +9249,11 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
       artifacts.push({ path: artifact.path, affected: reason !== null });
       if (reason) reasons.push(reason);
     }
+    // Under switch 1 a published step whose record does not resolve what it depended on counts as affected [CIC:REQ-006].
+    const row = observed && Number(phase.generation ?? 0) > 0 ? observed.rows.get(`${phase.id}\u0000${Number(phase.generation)}`) ?? null : null;
+    if (observed && Number(phase.generation ?? 0) > 0 && row?.coverage?.state !== 'resolved') {
+      reasons.push({ kind: 'unresolved-record', reasons: row?.coverage?.reasons ?? ['no-record'] });
+    }
     const step = { phase: phase.id, status: phase.status, generation: Number(phase.generation ?? 0), affected: reasons.length > 0, reasons, artifacts };
     if (settles) {
       const asked = index <= currentIndex && (phase.id === settles.phase || (phase.status === 'approved'
@@ -9190,8 +9266,10 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
     if (retaining && !step.affected && candidates.has(phase.id)) {
       const later = candidates.laterDecisions?.get(phase.id) ?? [];
       // Its prompt held every clause of the steps before it (predecessorSpecClauses), so every changed one that
-      // existed then; shown until owner decision D1 asks its approvers whether it still holds.
-      steps.push({ ...step, outcome: 'kept', rule: 'E8', inPrompt: [...cited].filter((id) => !added.has(upper(id))).sort(),
+      // existed then. Under switch 1 its record says which, and its approvers are asked whether it still holds (D1).
+      const held = new Set([...cited].filter((id) => !added.has(upper(id))).map(upper));
+      const question = observed ? await stillHoldsQuestion(root, phase, row, held, observed.planned) : null;
+      steps.push({ ...step, outcome: 'kept', rule: 'E8', ...(observed ? (question ? { stillHolds: question } : {}) : { inPrompt: [...held].sort() }),
         ...(carriedRows.has(phase.id) ? { carriesRows: true } : {}), ...(later.length ? { laterDecisions: later } : {}) });
       continue;
     }
@@ -9211,7 +9289,8 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
     standingClauses: currentClauses.map((clause) => upper(clause.id)).filter((id) => !staleClauses.has(id)).sort(),
     firstReset: firstReset == null ? null : order[firstReset],
     steps,
-    repeats: amendmentRepeats(workflow, diff.changed ?? [], revision)
+    repeats: amendmentRepeats(workflow, diff.changed ?? [], revision),
+    ...(observed ? { observed: true, unclaimedClauses } : {})
   };
 }
 
@@ -9513,11 +9592,17 @@ export async function revalidateAfterForwardAmendment(root, config, workflow, {
     }
     const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory, itemRelative, generation: phase.generation });
     const amended = inputs.records.find((entry) => entry.phase === owed.producer);
-    if (!amended || amended.status !== 'captured' || !phase.inputContext?.sha256) {
+    const reads = amended && amended.status === 'captured' && phase.inputContext?.sha256;
+    // D1 [CIC:REQ-021]: a kept step whose prompt held the scope's clauses without reading the scope as an input is bound
+    // to the amended scope generation and bytes themselves.
+    if (!reads && owed.reason !== 'prompt-held') {
       forwardAmendmentRefusal(`${phaseId} cannot read the approved ${owed.producer}; return the Story to ${phaseId} instead.`);
     }
-    binding = { producer: owed.producer, producerGeneration: Number(amended.producerGeneration), producerSha256: amended.sha256,
-      inputRecordSha256: phase.inputContext.sha256 };
+    const producer = workflow.phases[owed.producer];
+    binding = reads ? { producer: owed.producer, producerGeneration: Number(amended.producerGeneration), producerSha256: amended.sha256,
+      inputRecordSha256: phase.inputContext.sha256 }
+      : { producer: owed.producer, producerGeneration: Number(producer.generation),
+        producerSha256: (await repositoryArtifactSnapshot(root, requiredRepoPath(config, workflow, producer))).sha256, inputRecordSha256: null };
   }
   // v2 keeps the person's name beside the key: "still holds" is shown by name, not by Git email.
   const name = typeof actor?.name === 'string' ? actor.name.trim() : '';

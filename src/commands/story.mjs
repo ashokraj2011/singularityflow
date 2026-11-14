@@ -2404,6 +2404,8 @@ export async function previewIntentAmendment(root, config, workflow, proposalId,
     `It ${words.listWords(changes)}.${effect.dependents.length ? ` ${words.listWords(effect.dependents.map(clause))} ${effect.dependents.length === 1 ? 'depends' : 'depend'} on a changed clause, so ${effect.dependents.length === 1 ? 'its' : 'their'} evidence is stale too.` : ''}`,
     ...(proposal.radius?.totals ? [radiusSummary(proposal.radius)] : []),
     ...words.amendmentEffectWords(workflow, effect, { steps: 20 }),
+    // Under SPEC-CIC switch 1 a changed clause no plan claims reaches every step whose record does not rule it out [CIC:REQ-006].
+    ...(effect.unclaimedClauses?.length ? [`No plan claims ${words.listWords(effect.unclaimedClauses.map(clause))}, so every later step whose record does not rule ${effect.unclaimedClauses.length === 1 ? 'it' : 'them'} out counts as affected.`] : []),
     ...words.amendmentRepeatWords(workflow, effect.repeats)
   ];
   const next = proposalId
@@ -2651,6 +2653,13 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     }
     // It updated the spec to the code [SCS:REQ-022]: nothing was reset, so there is nothing to acknowledge.
     // Each step's own approvers answer its row instead: still holds, or return.
+    // D1 [CIC:REQ-021]: a kept step whose prompt held a changed clause waits for its approvers' "still holds".
+    if (application.stillHolds?.length) {
+      console.log(`${application.stillHolds.map((entry) => entry.phase).join(', ')} ${application.stillHolds.length === 1 ? 'keeps its' : 'keep their'} approval, and `
+        + `${application.stillHolds.length === 1 ? 'its' : 'their'} approvers say on the decisions list whether ${application.stillHolds.length === 1 ? 'it still holds' : 'they still hold'}: `
+        + `${application.stillHolds.length === 1 ? 'its' : 'their'} prompt held ${[...new Set(application.stillHolds.flatMap((entry) => entry.clauses))].join(', ')}.`);
+      printCommandRoutes(`singularity-flow decisions ${workflow.workItem.id}`, { label: 'Their approvers answer on the decisions card', skill: '/sf-decide' });
+    }
     if (application.revalidate?.length) {
       console.log(`Nothing was reset. Each of ${application.revalidate.map((entry) => entry.phase).join(', ')} has a row on the decisions list: its own approvers say it still holds, or return the Story to it.`);
       printCommandRoutes(`singularity-flow decisions ${workflow.workItem.id}`, { label: 'Answer each step\'s row', skill: '/sf-decide' });

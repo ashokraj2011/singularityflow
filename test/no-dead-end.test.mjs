@@ -19,7 +19,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { refusalRemediationPlan, KNOWN_REFUSAL_CODES } from '../src/refusal-remediation.mjs';
-import { codeStepTemplate, openConvergenceTemplate, registryReader, releaseDraftTemplate, returnedRoutes, routeEffect, storyCopy, walk, WORK } from './helpers/route-walker.mjs';
+import { codeStepTemplate, openConvergenceTemplate, registryReader, releaseDraftTemplate, returnedRoutes, routeEffect, stillHoldsTemplate, storyCopy, walk, WORK } from './helpers/route-walker.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -135,6 +135,12 @@ const SCENARIOS = Object.freeze([
   { id: 'convergence-with-items-open', meets: 'ask-person', real: 'open items at convergence wait for a person, on /sf-converge', template: 'convergence', phase: 'convergence',
     start: 'singularity-flow phase prepublish convergence --for-agent --json --publish-if-ready', reached: published,
     answers: { choice: 'deferred', reason: 'The person keeps this for a later Story.' } },
+  // SPEC-CIC switch 1 [CIC:REQ-021]: the code step reads a design an amendment kept, so its completion waits for the design's
+  // approvers to say it still holds; the refusal names the Decide card and their own command, and nothing loops back.
+  { id: 'code-step-waits-for-still-holds', meets: 'AMENDMENT_STILL_HOLDS_REQUIRED', real: 'CIC stage 4: a kept design whose prompt held the amended clause',
+    template: 'stillHolds', phase: 'implement', start: `singularity-flow submit implement --work-id ${WORK} --json`,
+    reached: (result) => result?.status === 'approved' || result?.phase?.status === 'approved' || result?.data?.status === 'approved',
+    answers: { choice: 'unchanged', why: 'The design does not rely on the numeric wording of the value criterion.' } },
   { id: 'ending-with-items-open', meets: 'STORY_TERMINAL_READINESS_REFUSED', real: 'STORY_TERMINAL_READINESS_REFUSED: 3 hits, 2 stopped, 0 advanced', template: 'ending', phase: 'convergence',
     setup: (story) => {
       for (const item of JSON.parse(story.cli('story', 'adjudications', '--json').stdout).items) story.cli('story', 'adjudicate', item.id, '--disposition', 'deferred', '--reason', 'The person keeps this for a later Story.');
@@ -178,7 +184,8 @@ test('every walk reaches its outcome or a person, or its dead end is on the list
   const build = (name, make) => (needed.has(name) ? make() : null);
   const templates = { code: await build('code', () => codeStepTemplate(t)), convergence: await build('convergence', () => openConvergenceTemplate(t)),
     ending: await build('ending', () => openConvergenceTemplate(t, { configure: endAtConvergence })),
-    release: await build('release', () => releaseDraftTemplate(t)), releasePartial: await build('releasePartial', () => releaseDraftTemplate(t, { verdict: 'partial' })) };
+    release: await build('release', () => releaseDraftTemplate(t)), releasePartial: await build('releasePartial', () => releaseDraftTemplate(t, { verdict: 'partial' })),
+    stillHolds: await build('stillHolds', () => stillHoldsTemplate(t)) };
   // A person fixing one route walks only that one: WALK_ONLY=a,b. The full list is what the suite holds.
   const only = process.env.WALK_ONLY?.split(',');
   for (const scenario of SCENARIOS.filter((entry) => !only || only.includes(entry.id))) {

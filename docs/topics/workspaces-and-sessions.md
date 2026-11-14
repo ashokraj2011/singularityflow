@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 27
+version: 28
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -99,7 +99,7 @@ overrides win, then the most specific matching workspace, then user defaults.
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
-For a large delivery repository, configure its clone strategy while mapping the capability. `blobless` keeps the full checkout but fetches historical file bytes on demand. `blobless-sparse` also materializes only the declared cone directories; Singularity Flow automatically includes `singularity/` and `.github/agents/`. The default fallback is `refuse`: a server that ignores `filter=blob:none` cannot silently turn a planned partial clone into a full monorepo download. Choose the explicit `full` fallback only when that cost is acceptable.
+For a large delivery repository, configure its clone strategy while mapping the capability. `blobless` keeps the full checkout but fetches historical file bytes on demand. `blobless-sparse` also materializes only the declared cone directories; Singularity Flow automatically includes `singularity/`, which holds its agents, and `.github/agents/` for a repository whose agents have not moved there yet. The default fallback is `refuse`: a server that ignores `filter=blob:none` cannot silently turn a planned partial clone into a full monorepo download. Choose the explicit `full` fallback only when that cost is acceptable.
 
 Before any workspace exists, use `sflow workspace prepare <REMOTE> --id <ID> --base <DIRECTORY>` to record and preflight a resumable setup. It creates no destination. Continue only with the returned `workspace bootstrap resume` command and exact workspace-ID confirmation. An interrupted setup remains addressable by its `bst_…` ID.
 

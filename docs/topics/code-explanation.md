@@ -26,7 +26,7 @@ related:
   - delivery-and-proof
   - model-independence
   - world-model
-version: 14
+version: 15
 ---
 ## Purpose and prerequisites
 
@@ -37,8 +37,8 @@ command once, and relays its result without reading or summarizing source files 
 Run it from a selected Git repository. A ready Story session improves the available grounding but
 the computed layer remains explicit about every unavailable join.
 
-Explanations cover application code only. Singularity Flow's own files (`singularity/`,
-`.github/agents/`, every root `singularity/workflow.yml` configures, and `.singularity-flow/`
+Explanations cover application code only. Singularity Flow's own files (`singularity/`, including
+its agents in `singularity/agents/`, `.github/agents/`, every root `singularity/workflow.yml` configures, and `.singularity-flow/`
 state such as Story worktrees) are never shown as changes. They are counted instead: the headline
 says how many were left out, and the JSON reports them under `scope`.
 

@@ -21,7 +21,7 @@ already exist.
 | **Flow Ledger** | capability ledger, governance ledger, state branch | The orphan `state` / `sflow/state` branch and the `ledger` command family. |
 | **Flow Policy** | governance policy, governance rules, rules | `singularity/workflow.yml`, `approvalAuthorities`, the `constitution` files and their keys. The **Constitution** keeps its name: it is the part of the Flow Policy people write as prose. |
 | **Approval group** | approval authority, authority group | The `approvalAuthorities` key and `--authority` style flags. The people in it give a **sign-off**; the button that records one says **Approve…**. |
-| **Agent** | governed agent | `.github/agents/*.agent.md` and the `agents` commands. Write **Flow agent** only where other Copilot agents appear beside it. |
+| **Agent** | governed agent | `singularity/agents/*.agent.md` (`.github/agents/` before a repository's agents move) and the `agents` commands. Write **Flow agent** only where other Copilot agents appear beside it. |
 | **Land as a Story** | governed landing | `singularity-flow land` and the `adhoc` command family. |
 | **Ad hoc work** | ungoverned work, ad-hoc mode | The `adhoc` command family. The alternative is a **Story**, not a mode: the product already has Auto mode, model mode and Copilot mode. |
 | **Evidence**, **receipt** | governance evidence, governed evidence, delivery receipt | Directory and record names such as `generation-start/` and `submissions/`. No prefix: they are already unambiguous. |
@@ -54,7 +54,7 @@ renaming would break repositories that already exist. Architecture documents may
 | Workflow | The ordered phase graph and Flow Policy applied to a work type | `singularity/workflow.yml`; resolved snapshot in active state | Phase order, templates, inputs, Flow Gates, checks, and sign-off requirements |
 | Phase contract | The instructions and deterministic requirements for one workflow phase | Workflow definition, templates, and generated phase context | What the phase must read, produce, check, and submit |
 | Artifact template | The configurable Markdown structure for a generated deliverable | `singularity/templates/` | Required headings and managed output shape |
-| Agent (Flow agent) | A software execution contract for Copilot: purpose, instructions, tools, and phases | `.github/agents/*.agent.md` | How Copilot approaches the active phase |
+| Agent (Flow agent) | A software execution contract for Copilot: purpose, instructions, tools, and phases | `singularity/agents/*.agent.md` | How Copilot approaches the active phase |
 | Human identity | The real contributor or approver | Git identity, GitHub login, and configured approval groups | Attribution and who may sign off |
 | Skill | A user-invoked Copilot playbook such as `/sf-submit`; it calls deterministic CLI commands and explains what Copilot may author | Installed plugin/personal skill directory; optional repository skills | How a named Copilot interaction is carried out |
 | Prompt | A reusable Markdown instruction fragment | `singularity/prompts/` or repository configuration | Additional authoring rules supplied to composition |

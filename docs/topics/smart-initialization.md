@@ -13,7 +13,7 @@ related:
   - workspaces-and-sessions
   - capability-management
   - recovery
-version: 5
+version: 6
 ---
 Smart initialization turns a fresh local Git repository into an explicitly accepted Singularity
 Flow repository without asking people to hand-author commands or capability maps. It is a bounded,
@@ -119,6 +119,11 @@ failing existing unit test is reported and routed to a Bug-fix Story. After a se
 and confirm a new plan because the base identity changed.
 
 ## State and safety
+
+Smart init proposes SFlow's agents in `singularity/agents/` and records that in
+`singularity/workflow.yml` (`agentPromptsRoot: singularity/agents`). It never writes to
+`.github/agents/`, so a team agent already there, with any name, stays as it is and does not
+make the proposal fail or ask for a new one.
 
 Dry-run does not write files, Git state, logs, or receipts. Activation is subject-locked and
 revalidates its exact ref, commit, manifests, and absent targets immediately before writing. A known

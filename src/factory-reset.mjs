@@ -1404,17 +1404,18 @@ async function factoryResetRepositoryLocked(root, {
     // bytes outside the active discovery root before validation. Content-addressing makes a retry
     // idempotent and prevents one recovery from overwriting another file with the same name.
     for (const recovery of finalPlan.customAgentRecoveries ?? []) {
-      // On the agents home the source moved with singularity/ into the backup above.
-      const source = agentsRoot === LEGACY_AGENTS_ROOT || !recovery.sourcePath.startsWith('singularity/')
-        ? path.join(repository, ...recovery.sourcePath.split('/'))
-        : path.join(backupControl, ...recovery.sourcePath.split('/').slice(1));
+      // On the agents home the source moved with singularity/ into the backup above: its bytes are
+      // read there and nothing more is moved, so the backup stays exactly what was staged.
+      const insideControl = agentsRoot !== LEGACY_AGENTS_ROOT && recovery.sourcePath.startsWith('singularity/');
+      const source = path.join(repository, ...recovery.sourcePath.split('/'));
       const target = path.join(repository, ...recovery.recoveryPath.split('/'));
       const record = {
         ...recovery,
         label: recovery.sourcePath,
         logical: recovery.sourcePath,
         current: source,
-        backup: path.join(backup, 'recovered-agent-sources', recovery.sha256.slice(7), path.basename(source)),
+        backup: insideControl ? path.join(backupControl, ...recovery.sourcePath.split('/').slice(1))
+          : path.join(backup, 'recovered-agent-sources', recovery.sha256.slice(7), path.basename(source)),
         moved: false,
         replacementInstalled: false,
         targetCreated: false,
@@ -1424,19 +1425,21 @@ async function factoryResetRepositoryLocked(root, {
       record.guardRelative = path.posix.dirname(recovery.sourcePath);
       record.guardLabel = 'Recovered custom-agent source';
       recoveredAgents.push(record);
-      await refreshRecordParentGuard(record);
-      record.before = await snapshotPath(source, recovery.sourcePath);
-      if (!sameSnapshot(record.before, recovery.sourceSnapshot, { identity: true })) {
-        throw resetCollision(
-          `Custom agent changed after the reset boundary was validated: ${recovery.sourceDisplay}`,
-          { path: source, expected: recovery.sourceSnapshot, current: record.before }
-        );
+      if (!insideControl) {
+        await refreshRecordParentGuard(record);
+        record.before = await snapshotPath(source, recovery.sourcePath);
+        if (!sameSnapshot(record.before, recovery.sourceSnapshot, { identity: true })) {
+          throw resetCollision(
+            `Custom agent changed after the reset boundary was validated: ${recovery.sourceDisplay}`,
+            { path: source, expected: recovery.sourceSnapshot, current: record.before }
+          );
+        }
+        // Stage the source first. Recovery is then copied from the verified, private inode rather
+        // than from an active path an editor can replace between the read and the copy.
+        await stageVerifiedMove(record, {
+          fault, stage: `custom-agent-source:${recovery.sha256.slice(7, 19)}`
+        });
       }
-      // Stage the source first. Recovery is then copied from the verified, private inode rather
-      // than from an active path an editor can replace between the read and the copy.
-      await stageVerifiedMove(record, {
-        fault, stage: `custom-agent-source:${recovery.sha256.slice(7, 19)}`
-      });
       const sourceBytes = await readFile(record.backup);
       const actualSha256 = `sha256:${createHash('sha256').update(sourceBytes).digest('hex')}`;
       if (actualSha256 !== recovery.sha256 || sourceBytes.length !== recovery.bytes) {

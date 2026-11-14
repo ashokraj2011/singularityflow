@@ -35,7 +35,7 @@ import {
   AGENT_LOCK_PATH, AGENT_MAPPING_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference, parseAttachedSkills,
   portableVendoredPath, repositoryAgentsRoot, validateAgentCatalog
 } from './agents.mjs';
-import { agentPathIn, agentsRootOf } from './configuration-assets.mjs';
+import { agentPathIn, agentsRootOf, LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 import {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, parseImportsLedger, renderImportsLedger
 } from './imports-ledger.mjs';
@@ -1219,9 +1219,11 @@ async function readAgentLock(root, { optional = true } = {}) {
 /** Whether an import record describes something a bundle carries: a file, or a generated artifact's agent. */
 function describesCarried(record, assets) {
   if (!plainObject(record?.target)) return false;
+  // An agent's record names it where its repository keeps it; the bundle names it by the portable path.
+  const carried = agentPathIn(LEGACY_AGENTS_ROOT, record.target.path);
   return record.kind === 'generated'
     ? assets.some((asset) => asset.kind === 'agent' && asset.id === record.target.agent)
-    : assets.some((asset) => asset.path === record.target.path);
+    : assets.some((asset) => asset.path === carried);
 }
 
 async function readImportsLedger(root) {
@@ -1592,6 +1594,8 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
     .filter((key) => describesCarried(ledger.imports[key], assets))
     .map((key) => {
       const record = clone(ledger.imports[key]);
+      // A bundle carries agents at their portable path, wherever this repository keeps them [AGH:REQ-024].
+      if (record.target?.path) record.target.path = agentPathIn(LEGACY_AGENTS_ROOT, record.target.path);
       if (record.kind === 'agent') {
         const original = discovered.find((agent) => agent.id === record.target.id);
         const exported = assets.find((asset) => asset.kind === 'agent' && asset.id === record.target.id);

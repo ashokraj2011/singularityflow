@@ -1101,12 +1101,13 @@ async function packagedAssets(templatesRoot, agentsRoot) {
 }
 
 /** Smart init keeps omitted starters omitted, but an explicitly adopted starter keeps its closure. */
-async function selectedSmartDependencyAssets(root, workflow, assets) {
+async function selectedSmartDependencyAssets(root, workflow, assets, { movedFrom = new Map() } = {}) {
   const selected = new Set(); const agents = new Set(); const skills = new Set();
   const agentsRoot = agentsRootOf(workflow);
   const phases = new Set(Object.keys(workflow.phases ?? {}));
   const applies = (entry) => !entry.phases.length || entry.phases.some((id) => phases.has(id));
-  const localText = async (relative) => readFile(await assertSafeTarget(root, relative), 'utf8')
+  // An agent this candidate moves is read where it still is [AGH:REQ-012].
+  const localText = async (relative) => readFile(await assertSafeTarget(root, movedFrom.get(relative) ?? relative), 'utf8')
     .catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
   for (const [relative, bytes] of assets) {
     if (!relative.startsWith(`${agentsRoot}/`)) continue;
@@ -1549,7 +1550,8 @@ export async function refreshPackagedConfiguration(root, {
     ...assets.keys(), ...Object.keys(priorAssets)
   ]);
   const selectedDependencies = preserveSmartInitSelections
-    ? await selectedSmartDependencyAssets(root, merged.value, assets) : new Set();
+    ? await selectedSmartDependencyAssets(root, merged.value, assets, { movedFrom: new Map(migratingAgents
+      ? [...agentsHome.moves, ...agentsHome.completed].map((move) => [move.to, move.from]) : []) }) : new Set();
   const conflicts = [...merged.conflicts];
   const changedFiles = new Set();
   const removedFiles = new Set();

@@ -169,8 +169,10 @@ export async function captureWorkflowCompilerContext(root) {
     const assetPolicy = freeze(structuredClone(ownerPolicy));
     const before = await approvedBytes(sourceRoot, 'singularity/workflow.yml');
     const definition = structuredClone(await loadDefinition(root));
-    // Runtime discovery fields contain local/temporary paths and are not workflow.yml policy.
-    delete definition.agents; delete definition.agentCatalog; delete definition.agentPromptsRoot;
+    // Runtime discovery fields contain local/temporary paths and are not workflow.yml policy. The
+    // agents root is policy when workflow.yml records it [AGH:REQ-002], so an emitted candidate keeps it.
+    delete definition.agents; delete definition.agentCatalog;
+    if (!Object.hasOwn(YAML.parse(before.toString('utf8')) ?? {}, 'agentPromptsRoot')) delete definition.agentPromptsRoot;
     const agents = await discoverAgents(root);
     const environmentCapture = await captureEnvironmentDeclaration(sourceRoot, { optional: true });
     const files = new Map([['singularity/workflow.yml', before]]);
@@ -226,7 +228,7 @@ function assertExactReplacementCapture(captured) {
   const normalized = applyWorkflowCompatibility(YAML.parse(captured.exactFiles.get('singularity/workflow.yml').toString('utf8')));
   normalized.agentCatalog = captured.agents; normalized.agents = Object.fromEntries(captured.agents.map((agent) => [agent.id, agent]));
   validateDefinition(normalized);
-  delete normalized.agentCatalog; delete normalized.agents; delete normalized.agentPromptsRoot;
+  delete normalized.agentCatalog; delete normalized.agents;
   const projected = withEnvironmentWorldModelExclusions(normalized, captured.environmentDeclaration);
   if (canonicalJson(projected) !== canonicalJson(captured.definition)) fail('Approved configuration policy differs from its retained exact Git bytes.', 'WCA_COMPILER_SOURCE_UNAVAILABLE');
 }

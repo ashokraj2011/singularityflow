@@ -80,6 +80,8 @@ function classify(relative, overrides) {
 
 /** A few modules whose names mislead the rules, with the reason kept beside them. */
 const OVERRIDES = {
+  // Moves SFlow's agents inside a refresh candidate of the approved configuration [SPEC-AGH].
+  'agents-home-migration.mjs': 'shared-state',
   // Creates workspaces and clones their repositories; the registry it also writes is a local locator.
   'workspace.mjs': 'source-control',
   'workspace-manifest.mjs': 'projection',

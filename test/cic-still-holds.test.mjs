@@ -50,7 +50,11 @@ test('under switch 1 nothing unknown narrows staleness; with it off staleness is
   // (c) generation 0, a step the revision does not list, and the step that made the revision.
   const revised = { ...removal, changes: { added: [], revised: ['W-1:AC-001'], removed: [] }, dependentGenerations: { design: 0, code: 0 } };
   assert.equal(scopeStaleness(story(false, [revised]), clauses).staleBy('W-1:AC-001', 'code', 0), null);
-  assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'code', 0)?.revision, 2, 'evidence at generation 0 is read like any other');
+  // A step that never published holds no evidence: a Story's first revision (changes: null) marks nothing stale for it.
+  assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'code', 0), null, 'a step that never published has no evidence');
+  assert.equal(scopeStaleness(story(true, [unrecorded]), clauses).staleBy('W-1:AC-003', 'code', 0), null, 'nor after the first revision');
+  const publishedCode = (revisions) => { const workflow = story(true, revisions); workflow.phases.code = { generation: 1 }; return workflow; };
+  assert.equal(scopeStaleness(publishedCode([revised]), clauses).staleBy('W-1:AC-001', 'code', 0)?.revision, 2, 'evidence at generation 0 from a published step is read like any other');
   assert.equal(scopeStaleness(story(false, [revised]), clauses).staleBy('W-1:AC-001', 'before', 1), null);
   assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'before', 1)?.revision, 2, 'an unlisted step published before the revision');
   assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'before', 2), null, 'an unlisted step published after it');

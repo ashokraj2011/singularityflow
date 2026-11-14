@@ -170,9 +170,11 @@ export function scopeStaleness(workflow, clauses = [], { carriers = new Map(), r
   const walk = (clauseId, phaseId, generation) => {
     const id = String(clauseId).toUpperCase();
     const carried = [];
-    // A step that has not published anything yet has no evidence to be stale; under switch 1 evidence that exists at
-    // generation 0 is read like any other [CIC:REQ-006].
-    if (!observed && !(Number(generation ?? 0) > 0)) return { revision: null, carried };
+    // A step that has not published anything yet has no evidence to be stale. Under switch 1, evidence at generation 0
+    // from a step that has published (an unknown generation) is read like any other [CIC:REQ-006].
+    const step = workflow?.phases?.[phaseId];
+    const published = Number(step?.generation ?? 0) > 0 || (step?.generationPublications ?? []).length > 0;
+    if (!(Number(generation ?? 0) > 0) && (!observed || !published)) return { revision: null, carried };
     for (let index = revisions.length - 1; index >= 0; index -= 1) {
       const { revision, stale } = revisions[index];
       if (!stale.has(id) || !reaches(revision, phaseId, generation)) continue;

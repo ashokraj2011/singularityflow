@@ -740,6 +740,12 @@ committed records only and runs nothing. A passing module command is module-obse
 tests make a criterion inconclusive, and the completion line reads Incomplete until a final
 evaluation is recorded. Use `--row`, `--result`, `--facet NAME=VALUE`, `--page` and `--format json|csv`.
 
+`spec.changeImpact: on` turns on observed dependencies and the sizes of an intent amendment together: each
+amendment is editorial, a refinement or material by registered rules, an editorial one carries the evidence of the
+clauses it rewords, and a material one is approved by `spec.scopeChangeAuthority` (an approval group), or else by the
+scope step's approvers. It is off by default and pinned when a Story starts. See
+[Changing requirements during a Story](docs/topics/changing-requirements.md).
+
 Acceptance commands are explicit argv arrays allowlisted in
 `spec.testCommands`. `--dry-run` only displays those commands; it never executes
 them. Indexes, claims, acceptance records, selected-input provenance, and clause

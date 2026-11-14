@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "e0815f5237608aa32c36cf327dd5db321ce6a27e",
+  "sourceCommit": "e73d759e6c3cead15f8ce5c6ac851f4a44a59f55",
   "topicCount": 93,
-  "contentSha256": "e2b0ee7fb56d59df5fd8af412bef8700a5fc88b50368363ae6bd91049b2c91ae",
+  "contentSha256": "e52f45ccb674863f278b9a2f3fbd737201babf6909d1dac05aa38db9a1209d0c",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 20,
-      "sha256": "cb2fcd72074e4cc9b4e30bf16411db0e7ec4539bed708748d6e36ebdef03e021",
+      "version": 21,
+      "sha256": "20d0fbf200b24946643b50c561ff6f8a23c3bfaadc7465fdde9d194df0d31c8b",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -704,8 +704,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 101,
-      "sha256": "ce48202911d491690ea9ab652573898508aa2a2f23f7fe57c926bdc99a6e9ae0",
+      "version": 102,
+      "sha256": "c8f0aa949d1bd49c53ab53c9ebb168bb9c6aeb736d84f5934b8eea57228872f6",
       "routingSha256": "be98a071d40a55c131a7558d42e420e145bd1da91ab66d7e4c15e1924ffe1797",
       "file": "workflow-authoring.md"
     },

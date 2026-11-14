@@ -175,7 +175,7 @@ async function writeChain(root, chain, options, summary, deps, stamps = []) {
 
 function writtenLines(result, { chain = true, stamps = 0 } = {}) {
   if (result?.reviewRequired) return [`Proposed for review as ${result.branch}. It takes effect once approved: singularity-flow configuration approve ${result.branch}`];
-  const files = [...(chain ? [PRESENCE_CHAIN_PATH] : []), ...(stamps ? ['the stamped agent files in .github/agents'] : [])];
+  const files = [...(chain ? [PRESENCE_CHAIN_PATH] : []), ...(stamps ? ['the stamped agent files'] : [])];
   return [`Written to ${files.join(' and ')}. Review the diff and commit ${stamps ? 'them' : 'it'} with the rest of the configuration.`];
 }
 

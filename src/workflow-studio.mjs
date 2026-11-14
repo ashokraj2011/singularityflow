@@ -14,6 +14,7 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { phaseTopologyFindings } from './phase-semantics.mjs';
 import path from 'node:path';
+import { agentsRootOf, isAgentFilePath } from './configuration-assets.mjs';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -713,6 +714,8 @@ function stepDescription(value, name) {
 class StudioCandidate {
   constructor(sources, finalPhases = null) {
     this.sources = sources;
+    // New agent files go in the root this configuration records [AGH:REQ-022].
+    this.agentsRoot = agentsRootOf(sources.raw ?? {});
     // The steps each workflow lists once the whole change set is applied (finalWorkflowPhases).
     this.finalPhases = finalPhases;
     this.document = YAML.parseDocument(sources.definitionText);
@@ -819,7 +822,7 @@ class StudioCandidate {
     // A bundled agent becomes a repository copy the moment it is changed: repository agents win
     // discovery by ID, so the copy replaces it everywhere, and the change lands in this repository.
     agent.touched = true;
-    if (!agent.relative) agent.relative = posix(path.join('.github', 'agents', agent.fileName));
+    if (!agent.relative) agent.relative = posix(path.join(this.agentsRoot, agent.fileName));
     return agent;
   }
 
@@ -1812,7 +1815,7 @@ class StudioCandidate {
       document.deleteIn(['metadata', 'sflow-default-for']);
       text = `---\n${renderPreservingFormatting(header, document)}---\n${body}`;
     }
-    const relative = existing?.relative ?? posix(path.join('.github', 'agents', `${agentId}.agent.md`));
+    const relative = existing?.relative ?? posix(path.join(this.agentsRoot, `${agentId}.agent.md`));
     const parsed = parseAgentDependencies(text, { source: relative });
     this.agents.set(agentId, {
       id: agentId, scope: 'repository', text, relative, fileName: path.basename(relative),
@@ -2125,7 +2128,7 @@ class StudioCandidate {
     const starter = instructions != null ? (source ? starterInstructions(String(instructions)) : instructions)
       : source ? starterInstructions(this.agentBody(source)) : preset.instructions;
     this.agents.set(agentId, {
-      id: agentId, scope: 'repository', text: null, relative: posix(path.join('.github', 'agents', `${agentId}.agent.md`)),
+      id: agentId, scope: 'repository', text: null, relative: posix(path.join(this.agentsRoot, `${agentId}.agent.md`)),
       fileName: `${agentId}.agent.md`, label: name, description: what, tools: toolList,
       views: [...new Set((views ?? preset.views).map(String))], phases: [], defaultFor: [],
       body: newAgentBody(name, starter), touched: true, created: true
@@ -2160,7 +2163,7 @@ class StudioCandidate {
     for (const file of files) this.vendored.set(file.path, file.bytes);
     this.vendored.set(manifest.path, manifest.bytes);
     this.agents.set(name, {
-      id: name, scope: 'repository', relative: posix(path.join('.github', 'agents', `${name}.agent.md`)), fileName: `${name}.agent.md`,
+      id: name, scope: 'repository', relative: posix(path.join(this.agentsRoot, `${name}.agent.md`)), fileName: `${name}.agent.md`,
       text: userDefinedAgentHeader({ name, label, description, manifestSha256: change.manifestSha256 }),
       // The repository boundary every agent carries, then the main file's own instructions unchanged.
       label, description, tools, views: [], phases: [], defaultFor: [], touched: true, created: true,
@@ -3355,7 +3358,7 @@ async function validateStudioCandidate(sources, files, inspect = null) {
   const before = { story: sources.raw, initiative: sources.portfolioText ? parseYamlText(sources.portfolioText) : {} };
   const after = { story: readCandidate(WORKFLOW_PATH, before.story), initiative: readCandidate(PORTFOLIO_PATH, before.initiative) };
   const afterAgents = new Map(sources.agents.map((agent) => [agent.id, agent]));
-  for (const file of files.filter((entry) => entry.path.startsWith('.github/agents/'))) {
+  for (const file of files.filter((entry) => isAgentFilePath(entry.path))) {
     if (file.after == null) {
       for (const [id, agent] of afterAgents) if (agent.relative === file.path || agent.source === file.path) afterAgents.delete(id);
       continue;

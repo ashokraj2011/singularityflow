@@ -746,7 +746,7 @@ async function agentMappingFindings(problems, { model, definition, locate, confi
       candidates = kind ? draftedBy(model.phases.filter((phase) => definition.phases?.[phase.id]?.artifact?.kind === kind)) : [];
       if (!candidates.length) candidates = draftedBy(usedBy.flatMap((workflow) => workflow.steps));
     }
-    const where = (agent) => agent.path ?? 'a packaged agent; Workflow Studio copies it into .github/agents';
+    const where = (agent) => agent.path ?? `a packaged agent; Workflow Studio copies it into ${definition.agentPromptsRoot ?? '.github/agents'}`;
     const named = candidates.map((agent) => `${agent.label ?? agent.id} (${where(agent)})`);
     const others = model.agents.filter((agent) => agent.scope === 'repository' && agent.path).slice(0, 6).map((agent) => agent.path);
     const one = problem.code !== 'AGENT_PHASE_DEFAULT_AMBIGUOUS' && candidates.length === 1 ? candidates[0] : null;

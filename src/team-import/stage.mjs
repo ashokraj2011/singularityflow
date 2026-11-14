@@ -143,7 +143,8 @@ export async function stageCandidate(root, candidate, { completed = new Map(), s
     }
     // Rendered as Workflow Studio's agent.create writes a new agent (src/agent-file.mjs): the team's
     // instructions between the shared boundary and clarification sentences. No tools listed stays none listed.
-    await put(`.github/agents/${agent.id}.agent.md`, newAgentFile({
+    // A new configuration keeps its agents in the agents home [AGH:REQ-022].
+    await put(`singularity/agents/${agent.id}.agent.md`, newAgentFile({
       id: agent.id, label: agent.label, description: agent.description, tools: agent.tools?.length ? [...agent.tools] : null,
       phases: [...new Set([...defaultFor, ...reviews])], defaultFor, instructions: agent.body, starter: true,
       extraMetadata: {

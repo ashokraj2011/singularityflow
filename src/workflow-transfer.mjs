@@ -33,8 +33,9 @@ import {
 } from './configuration-assets.mjs';
 import {
   AGENT_LOCK_PATH, AGENT_MAPPING_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference, parseAttachedSkills,
-  portableVendoredPath, validateAgentCatalog
+  portableVendoredPath, repositoryAgentsRoot, validateAgentCatalog
 } from './agents.mjs';
+import { agentPathIn, agentsRootOf } from './configuration-assets.mjs';
 import {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, parseImportsLedger, renderImportsLedger
 } from './imports-ledger.mjs';
@@ -2011,7 +2012,10 @@ function linkedDependencyKind(governs, section) {
 }
 
 function targetTemplatePath(asset, storyValue, initiativeValue) {
-  if (['agent', 'vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'skill-package-file'].includes(asset.kind)) return asset.path;
+  // A bundle names its agents by the portable `.github/agents/<id>.agent.md`; import places each in
+  // the target's own agents root [AGH:REQ-024].
+  if (asset.kind === 'agent') return agentPathIn(agentsRootOf(storyValue ?? {}), asset.path);
+  if (['vendored', 'user-defined', 'skill', 'instruction', 'constitution', 'skill-package-file'].includes(asset.kind)) return asset.path;
   const governs = asset.governs;
   const targetRoot = configuredTemplateRoot(
     governs === 'story' ? storyValue : initiativeValue, governs, storyValue
@@ -2054,10 +2058,12 @@ function mergedConfigurationValue(existing, bundle, governs, replaced = new Set(
 /** `extended` maps a reused agent to its file with the steps the import adds to it. */
 async function mergedImportAgentCatalog(root, bundle, kept = new Set(), extended = new Map()) {
   const catalog = new Map((await discoverAgents(root)).map((agent) => [agent.id, agent]));
+  const agentsRoot = await repositoryAgentsRoot(root);
   for (const asset of bundle.assets.filter((candidate) => candidate.kind === 'agent' && !kept.has(candidate.id))) {
-    const parsed = parseAgentDependencies(asset.content, { source: asset.path, agentId: asset.id });
+    const relative = agentPathIn(agentsRoot, asset.path);
+    const parsed = parseAgentDependencies(asset.content, { source: relative, agentId: asset.id });
     catalog.set(asset.id, {
-      ...parsed, scope: 'repository', file: path.join(root, asset.path), text: asset.content,
+      ...parsed, scope: 'repository', file: path.join(root, relative), text: asset.content,
       sha256: asset.sha256.replace(/^sha256:/, '')
     });
   }
@@ -2444,7 +2450,7 @@ async function importNaming(target, bundle, values, agents) {
   // server's descriptor, or a template.
   const occupied = async (kind, id) => {
     if (taken.get(kind)?.has(id)) return true;
-    const relative = kind === 'agent' ? `.github/agents/${id}.agent.md`
+    const relative = kind === 'agent' ? `${agentsRootOf(values.story)}/${id}.agent.md`
       : kind === 'mcp-server' ? mcpDescriptorPath(id) : kind === 'skill' ? librarySkillPath(id) : kind === 'instruction' ? instructionPath(id)
         : kind === 'template-file' ? id : null;
     return relative != null && (await portableTargetState(target.root, relative)).exists;

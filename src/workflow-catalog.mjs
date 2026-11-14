@@ -271,7 +271,8 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
     if (agent.defaultFor.some((phase) => phaseIds.has(phase))) {
       agentIds.add(agent.id);
       agentSkills.push(...agent.librarySkills);
-      files.push({ source, target: path.join(root, '.github', 'agents', entry.name), overwrite: false });
+      // In the root this repository's workflow.yml records [AGH:REQ-022].
+      files.push({ source, target: path.join(root, ...(installed.agentPromptsRoot ?? '.github/agents').split('/'), entry.name), overwrite: false });
     }
   }
   const copied = [];

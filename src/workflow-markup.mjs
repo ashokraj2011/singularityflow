@@ -475,7 +475,11 @@ async function compileCapturedMarkup(source, { out, catalog, designReview, inspe
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-markup-'));
   try {
     await initializeDefinition(scratch);
-    if (catalog) for (const [relative, contents] of catalog.files) {
+    const { agentPathIn } = await import('./configuration-assets.mjs');
+    // The scratch is a new repository, so its agents live in the agents home [AGH:REQ-022]; a
+    // catalog captured from a legacy repository names its agents in .github/agents.
+    if (catalog) for (const [captured, contents] of catalog.files) {
+      const relative = agentPathIn('singularity/agents', captured);
       const target = path.join(scratch, ...relative.split('/'));
       if (path.isAbsolute(relative) || relative.split(/[\\/]/u).includes('..') || !target.startsWith(scratch + path.sep)) markupError('Catalog asset is not a safe relative source path.');
       await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, contents, 'utf8');
@@ -513,7 +517,7 @@ async function compileCapturedMarkup(source, { out, catalog, designReview, inspe
     }
     for (const agent of lowered.agents) {
       const selected = Object.entries(lowered.phaseAgents).filter(([, id]) => id === agent.id).map(([phase]) => phase);
-      await put(`.github/agents/${agent.id}.agent.md`, front({ name: agent.id, description: agent.description, tools: agent.tools,
+      await put(`singularity/agents/${agent.id}.agent.md`, front({ name: agent.id, description: agent.description, tools: agent.tools,
         metadata: { 'sflow-phases': selected.join(', '), 'sflow-default-for': selected.join(', '), ...(agent.views?.length ? { 'sflow-world-model-views': agent.views.join(', ') } : {}) } }) + agent.instructions + '\n');
     }
     for (const skill of lowered.skills) await put(`singularity/skill-library/${skill.id}/SKILL.md`, librarySkillText(skill));

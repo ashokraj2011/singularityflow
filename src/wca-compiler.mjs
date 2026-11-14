@@ -4,6 +4,7 @@ import { readFile, lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
+import { agentsRootOf } from './configuration-assets.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { configurationReadRoot, configurationReadScope, configurationReadSnapshot } from './configuration-read-scope.mjs';
 import { captureVerifiedConfigurationAssetBytes, inspectApprovedSkillPackage } from './configuration-branch.mjs';
@@ -853,8 +854,8 @@ function compileOwnerWorkflowDraftPackage({ context, source } = {}, finalization
     const reviewedSkillAgent = phases.some((phaseId) => symbols.phases.get(phaseId)?.kind === 'skill')
       ? renderWorkflowSkillCandidateAgent(JSON.parse(canonicalJson({ request,
         assets: draft.assets.map((asset) => ({ path: asset.path, bytes: asset.content.length,
-          sha256: bytesDigest(asset.content), contentBase64: asset.content.toString('base64') })) })), key) : null;
-    const sourcePath = reviewedSkillAgent?.path ?? `.github/agents/${request.id}-${key}.agent.md`;
+          sha256: bytesDigest(asset.content), contentBase64: asset.content.toString('base64') })) })), key, agentsRootOf(captured.rawDefinition)) : null;
+    const sourcePath = reviewedSkillAgent?.path ?? `${agentsRootOf(captured.rawDefinition)}/${request.id}-${key}.agent.md`;
     const content = reviewedSkillAgent?.text ?? `---\n${YAML.stringify({ name: key, description: value.description, tools: [], metadata: { 'sflow-phases': phases.join(','), 'sflow-default-for': phases.join(',') } })}---\n${prompt}\n`;
     const parsed = parseAgentDependencies(content, { source: sourcePath, agentId: key }); agents.push({ ...parsed, text: content, scope: 'repository' }); emit(sourcePath, content);
   });

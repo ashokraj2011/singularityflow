@@ -547,7 +547,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     if (relative === 'singularity/workflow.yml' || relative === 'singularity/portfolio.yml') return true;
     // Files a workflow check can point at: skills, instructions, the attachments file and agents.
     if (/^singularity\/(?:skill-library\/[a-z0-9][a-z0-9-]*\/SKILL\.md|instruction-library\/[a-z0-9][a-z0-9-]*\/INSTRUCTIONS\.md|skill-library\/attachments\.yml)$/.test(relative)) return true;
-    if (/^\.github\/agents\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(relative)) return true;
+    // Agents live in singularity/agents, or in .github/agents on the legacy layout (SPEC-AGH).
+    if (/^(?:\.github|singularity)\/agents\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(relative)) return true;
     const root = typeof this.model?.templatesRoot === 'string' && this.model.templatesRoot ? this.model.templatesRoot : 'singularity/templates';
     return relative.startsWith(`${root}/`) && /^[A-Za-z0-9][A-Za-z0-9._/-]*\.md$/.test(relative.slice(root.length + 1));
   }

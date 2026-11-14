@@ -144,8 +144,8 @@ async function previewOf(workflow, packet, plan) {
   const command = plan.steps.length ? decisionRecordCommand(packet.workId, {
     phaseId: packet.record.interactive.includes(' --phase ') ? packet.phase : null, ...chosen
   }) : null;
-  // An agent may record only options that write upstream-issue records, in a /sf-decide turn.
-  const recordInChat = plan.steps.every((step) => ISSUE_ONLY_OPTIONS.includes(step.option));
+  // An agent may record only options that write upstream-issue records, in a /sf-decide turn; under SF Guard none [owner, 2026-11-14].
+  const recordInChat = plan.steps.every((step) => ISSUE_ONLY_OPTIONS.includes(step.option) && !listedItem(packet, step.item).guardSigns);
   // Choices that each hold the step's approval, made by one of its approvers, go in the approval commit [SPEC-OAP M4].
   const approval = packet.items.find((item) => item.kind === 'approval');
   const withApproval = command && approval?.decidedBy?.allowed && !plan.refused.length && plan.steps.every((step) => {

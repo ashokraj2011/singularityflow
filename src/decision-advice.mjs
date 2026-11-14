@@ -313,7 +313,16 @@ export function yesNoOf(workflow, item) {
   if (options.length === 2 && !options.some((entry) => entry.id === 'reject')) return null;
   const yes = options.find((entry) => entry.id !== 'reject');
   const no = options.find((entry) => entry.id === 'reject') ?? null;
-  return { question: `${yes.label.replace(/[.!?]+$/u, '')}?`, yes: yes.id, no: no?.id ?? null, route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
+  // The question names its row, as the answer binding reads it (a departure's ID, a responsibility, a path), and says how
+  // long a reason the command takes [owner, 2026-11-14].
+  return { question: `${String(item.title ?? '').replace(/[.!?]+$/u, '')}. ${yes.label.replace(/[.!?]+$/u, '')}?${reasonWords(options)}`, yes: yes.id, no: no?.id ?? null,
+    route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
+}
+
+/** " Say why in at least 20 characters.": the longest minimum the answers' reasons take, or '' when none needs one. */
+function reasonWords(options) {
+  const minimum = Math.max(0, ...options.map((entry) => Number(entry.needs?.reason?.minimum ?? 0)));
+  return minimum ? ` Say why in at least ${minimum} characters.` : '';
 }
 
 function stillHoldsYesNo(workflow, item) {
@@ -324,7 +333,12 @@ function stillHoldsYesNo(workflow, item) {
   if (options.length !== 2 || !yes?.chat?.command || !no?.chat?.command) return null;
   const advice = itemRecommendation(workflow, item);
   const said = advice.option === yes.id ? `Recommended: yes. ${advice.why}` : advice.option === no.id ? `Recommended: no, redo it. ${advice.why}` : advice.words;
-  return { question: `Does ${stepName(workflow, item.details?.phase)} still hold after ${item.details?.amendment}? ${said}`, yes: yes.id, no: no.id,
+  // The step by its name, and by its ID where the name does not say it, so the answer binding reads which row this is.
+  const phase = String(item.details?.phase ?? '');
+  const name = stepName(workflow, phase);
+  const plain = (text) => String(text).toLowerCase().replace(/[-_\s]+/gu, ' ').trim();
+  const shown = plain(name).includes(plain(phase)) ? name : `${name} (${phase})`;
+  return { question: `Does ${shown} still hold after ${item.details?.amendment}? ${said.replace(/\s*$/u, '')}${reasonWords(options)}`, yes: yes.id, no: no.id,
     route: `/sf-decide ${workflow?.workItem?.id ?? '<WORK-ID>'}` };
 }
 

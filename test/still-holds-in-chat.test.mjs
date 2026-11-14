@@ -7,9 +7,12 @@
  * The guard and the answer binding are held in phase-mutation-contract.test.mjs; the hook on a real Story in no-dead-end.test.mjs.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import { REASON_RULES } from '../src/copilot-answer-binding.mjs';
 import { decisionChatSteps, decisionPacket } from '../src/decision-list.mjs';
+import { DEPARTURE_REASON } from '../src/departures.mjs';
 import { packetText } from '../src/commands/decisions.mjs';
 import { registerPersonCounts, presencePinKey } from '../src/presence/counted.mjs';
 import { revalidateAfterForwardAmendment } from '../src/state.mjs';
@@ -49,7 +52,9 @@ test('a "still holds" row is a yes or no in chat: yes still holds, no redoes it,
   assert.equal(row.chatYesNo, true);
   assert.deepEqual({ yes: row.yesNo.yes, no: row.yesNo.no, route: row.yesNo.route }, { yes: 'still-holds', no: 'return-step', route: '/sf-decide D-1' });
   // The question names the recommended answer and why, in one line.
-  assert.equal(row.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: yes. Fix design\'s document names neither AC-001 nor any path it expects.');
+  // It says how long a reason the command takes, from the option's own need [owner, 2026-11-14].
+  assert.equal(row.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: yes. Fix design\'s document names neither AC-001 nor any path it expects. Say why in at least 20 characters.');
+  assert.equal(row.options.find((entry) => entry.id === 'still-holds').needs.reason.minimum, 20);
   assert.doesNotMatch(row.yesNo.question, /\n/u);
   const command = (id) => row.options.find((entry) => entry.id === id).chat.command;
   assert.equal(command('still-holds'), 'singularity-flow upstream-issue revalidate fix-design --work-id D-1 --amendment AMD-001 --outcome unchanged --reason "<REASON>"');
@@ -60,7 +65,11 @@ test('a "still holds" row is a yes or no in chat: yes still holds, no redoes it,
   assert.deepEqual(decisionChatSteps(packet, [{ item: row.id, option: 'still-holds', values: {} }]), [], 'no reason, nothing to run');
   // Its document names a path the changed clause expects: redo it, and the question says so.
   const redo = rowOf(packetOf(story(), { recommend: 'return', namedPaths: ['src/value.mjs'] }));
-  assert.equal(redo.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: no, redo it. Fix design\'s document names src/value.mjs, which AC-001 expects.');
+  assert.equal(redo.yesNo.question, 'Does Fix design still hold after AMD-001? Recommended: no, redo it. Fix design\'s document names src/value.mjs, which AC-001 expects. Say why in at least 20 characters.');
+  // A step whose name does not say its ID is named by both, so the answer binding reads which row a reply is for.
+  const renamed = story();
+  renamed.phases['fix-design'].label = 'Design notes';
+  assert.match(rowOf(packetOf(renamed)).yesNo.question, /^Does Design notes \(fix-design\) still hold after AMD-001\?/u);
   // An SCS row: the same yes and no; SFlow has no recommendation, and the question says what to weigh.
   const scs = rowOf(packetOf(story(), { held: false }));
   assert.equal(scs.chatYesNo, true);
@@ -121,4 +130,27 @@ test('only the step\'s own approvers answer it: the list says who, and revalidat
   await assert.rejects(revalidateAfterForwardAmendment('/nonexistent', {}, workflow, { amendmentId: 'AMD-001', phaseId: 'fix-design', outcome: 'unchanged',
     reason: 'It does not rely on the numeric wording of the value.', actor: OTHER, at: AT }), { code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED' });
   assert.equal((workflow.amendmentRevalidations ?? []).length, 0);
+});
+
+test('a chat reason is held to the length its own command takes, as the list asks for it [owner, 2026-11-14]', async () => {
+  // The answer binding's rule for each command is the command's own check, read here from the command itself.
+  const source = (file) => readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8');
+  const says = { 'upstream-issue revalidate': ['state.mjs', 'Say why in 20 to 1000 characters with --reason.'], 'upstream-issue decide': ['upstream-issues.mjs', 'Say why in 20 to 1000 characters with --reason.'],
+    'decision applicability': ['evidence/applicability.mjs', 'Say why it does not apply in 20 to 1000 characters with --reason.'],
+    'decision plan': ['plan-amendments.mjs', 'Say why the plan changes in 20 to 1000 characters with --reason.'], 'decision scope': ['scope/decisions.mjs', 'Say why in 20 to 1000 characters with --reason.'],
+    'decision completeness': ['scope/decisions.mjs', 'Say what you assessed in 20 to 1000 characters with --reason.'] };
+  for (const [command, [file, words]] of Object.entries(says)) {
+    assert.deepEqual(REASON_RULES[command].reason, [20, 1000], command);
+    assert.ok(source(file).includes(words), `${command}: ${file} no longer says "${words}"`);
+  }
+  assert.deepEqual(REASON_RULES['decision departure'].reason, [DEPARTURE_REASON.minimum, DEPARTURE_REASON.maximum]);
+  assert.deepEqual(REASON_RULES['decision plan']['supporting-reason'], [10, 500]);
+  assert.ok(source('plan-amendments.mjs').includes('changes in 10 to 500 characters with --supporting-reason.'));
+  // Revalidate itself, at the edge: 19 characters are refused, 20 reach its authority check.
+  const at = (reason) => revalidateAfterForwardAmendment('/nonexistent', {}, story(), { amendmentId: 'AMD-001', phaseId: 'fix-design', outcome: 'unchanged', reason, actor: OTHER, at: AT });
+  await assert.rejects(at('x'.repeat(19)), { code: 'FORWARD_AMENDMENT_INVALID' });
+  await assert.rejects(at('x'.repeat(20)), { code: 'APPROVAL_IDENTITY_NOT_AUTHORIZED' });
+  // The list asks each yes or no for the same minimum its command takes.
+  const row = rowOf(packetOf(story()));
+  assert.ok(row.options.every((entry) => entry.needs.reason.minimum === REASON_RULES['upstream-issue revalidate'].reason[0]));
 });

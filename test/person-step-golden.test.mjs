@@ -39,11 +39,13 @@ const COMMANDS = Object.freeze({
     'singularity-flow approve custom-step --work-id PMC-1 --selection-receipt tok-1 --for-agent --json', 'sflow approve custom-step'],
   reject: ['singularity-flow reject custom-step --work-id PMC-1 --reason "Wrong."', 'singularity-flow reject custom-step --work-id PMC-1 --selection-receipt tok-1 --reason "Wrong." --json'],
   // PERSON_DECISIONS.
+  // Each reason as long as its command takes (copilot-answer-binding.mjs REASON_RULES); the scope one is shorter, so its refusal is held too.
   'story-decision': ['singularity-flow decision scope PMC-1 --item SRI-0123456789ab --as excluded --reason "Out of scope."',
-    'singularity-flow decision applicability PMC-1 --clause PMC-1:REQ-001 --as not-applicable --reason "No UI."',
-    'singularity-flow decision completeness PMC-1 --reason "Complete."', 'singularity-flow decision choose PMC-1 --choice O1 --reason "Simpler."',
-    'singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --reason "Also here."',
-    'singularity-flow decision plan PMC-1 --add-supporting src/b.mjs=test-support --supporting-reason "A helper." --reason "Accounted for here."',
+    'singularity-flow decision scope PMC-1 --item SRI-0123456789ab --as excluded --reason "It is outside the scope of this Story."',
+    'singularity-flow decision applicability PMC-1 --clause PMC-1:REQ-001 --as not-applicable --reason "This Story changes no user interface."',
+    'singularity-flow decision completeness PMC-1 --reason "Every statement is linked or decided."', 'singularity-flow decision choose PMC-1 --choice O1 --reason "Simpler."',
+    'singularity-flow decision plan PMC-1 --add-location PMC-1:AC-001=src/a.mjs --reason "The helper implements this clause too."',
+    'singularity-flow decision plan PMC-1 --add-supporting src/b.mjs=test-support --supporting-reason "A test helper the suite needs." --reason "The helper is accounted for in the plan."',
     // A person's decision on a code step's departure [CQF:REQ-024]: a /sf-decide turn's, held to their answer.
     'singularity-flow decision departure PMC-1 --fetch --departure DEP-001 --as accepted --reason "The page ships with this code."',
     'singularity-flow decision departure PMC-1 --fetch --departure DEP-002 --as rejected --reason "Not part of this Story."'],
@@ -92,6 +94,7 @@ const COMMANDS = Object.freeze({
   'spec-split-publication': ['singularity-flow spec split SPEC-CHK-004@1 --publish'],
   // A "still holds" row's yes or no is a /sf-decide turn's own, held to the person's answer [owner, 2026-11-14]; for no Story named, it is not.
   'upstream-issue-decision': ['singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Already handled."',
+    'singularity-flow upstream-issue decide UPI-002 --work-id PMC-1 --outcome dismiss --reason "It was already handled by the plan."',
     'singularity-flow upstream-issue revalidate custom-step --work-id PMC-1 --amendment AMD-001 --outcome unchanged --reason "It still holds under the amended scope."',
     'singularity-flow upstream-issue revalidate custom-step --work-id PMC-1 --amendment FAM-001 --outcome return --reason "It relies on what the amendment changed."',
     'singularity-flow upstream-issue revalidate custom-step --amendment FAM-001 --outcome unchanged --reason "Still holds."'],
@@ -217,7 +220,9 @@ async function answeredTurns(t, status) {
   const turnOf = { 'story-decision': '/sf-decide PMC-1', 'convergence-adjudication': '/sf-converge', 'upstream-issue-decision': '/sf-decide PMC-1', 'decision-list-record-chat': '/sf-decide PMC-1' };
   for (const [id, turn] of Object.entries(turnOf)) {
     for (const command of COMMANDS[id]) {
-      const words = [...command.matchAll(/--(?:supporting-)?reason "([^"]+)"/gu)].map((match) => match[1]).join(' ') || 'yes, record it';
+      // A yes or no a command records is the person's answer to its row's question, then their reason [owner, 2026-11-14].
+      const side = /--as rejected|--outcome return/u.test(command) ? 'No. ' : /--as accepted|--outcome unchanged/u.test(command) ? 'Yes. ' : '';
+      const words = `${side}${[...command.matchAll(/--(?:supporting-)?reason "([^"]+)"/gu)].map((match) => match[1]).join(' ')}` || 'yes, record it';
       const payload = await enter(turn, `answered-${rows.length}`);
       await mutationPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question: 'Why?' }, toolResult: { textResultForLlm: `User responded: ${words}` } });
       rows.push({ id, command, turn, outcome: outcome(await repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: root } }), root) });

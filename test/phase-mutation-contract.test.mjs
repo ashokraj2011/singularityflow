@@ -612,7 +612,7 @@ const personSaid = (payload, ...words) => mutationPostToolGuard({ ...payload, to
 
 test('/sf-decide turns permit only the bound decision commands its skill runs', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-decide PMC-1');
-  await personSaid(payload, 'The browser runner needs it', 'The person chose to ship', 'Skip ahead', 'Covered by the parent', 'Out of scope', 'Reviewed', 'Belongs to AC-001', 'The test script needs it', 'The test script needs this entry', 'The person dismissed it', 'The tests are the whole delivery');
+  await personSaid(payload, 'The browser runner needs it', 'The person chose to ship', 'Skip ahead', 'Covered by the parent', 'It is outside this Story\'s scope', 'Every statement was reviewed', 'It belongs to the AC-001 delivery', 'The test script needs it', 'The test script needs this entry', 'The person dismissed it', 'The tests are the whole delivery');
   assert.equal(mutationTurnMode('sf-decide'), 'decision-only');
   assert.equal(mutationTurnMode('sflow-decide'), 'decision-only');
   assert.equal(f.contract('decision-only').allow.application, false);
@@ -624,9 +624,9 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
     choose,
     'singularity-flow decision choose PMC-1 --fetch --to release --reason "Skip ahead." --expected k1',
     'singularity-flow decision applicability PMC-1 --fetch --responsibility scope --reason "Covered by the parent."',
-    'singularity-flow decision scope PMC-1 --fetch --item S-1 --as excluded --reason "Out of scope."',
-    `singularity-flow decision completeness PMC-1 --fetch --confirm ${'b'.repeat(64)} --article completeness=satisfied --reason "Reviewed."`,
-    'singularity-flow decision plan PMC-1 --fetch --add-location PMC-1:AC-001=src/App.jsx --reason "Belongs to AC-001."',
+    'singularity-flow decision scope PMC-1 --fetch --item S-1 --as excluded --reason "It is outside this Story\'s scope."',
+    `singularity-flow decision completeness PMC-1 --fetch --confirm ${'b'.repeat(64)} --article completeness=satisfied --reason "Every statement was reviewed."`,
+    'singularity-flow decision plan PMC-1 --fetch --add-location PMC-1:AC-001=src/App.jsx --reason "It belongs to the AC-001 delivery."',
     // The other choice a plan-accounting item offers, as its `chat.command` writes it.
     'singularity-flow decision plan PMC-1 --fetch --add-supporting package.json=build-configuration --supporting-reason "The test script needs it." --reason "The test script needs this entry."',
     // One choice for a whole test setup, as its `chat.command` writes it.
@@ -1021,9 +1021,10 @@ test('every step only a person takes in their own terminal is refused in every t
   }
   // What a /sf-decide turn may record keeps its route there; asking for a test command stays the agent's.
   const decide = await f.enter('/sf-decide PMC-1', 'own-terminal-decider');
-  await personSaid(decide, 'Yes, record it', 'Already handled.');
+  await personSaid(decide, 'Yes, record it', 'Already handled in the approved plan.');
   const chat = `singularity-flow decisions record PMC-1 --choose d1=dismiss --choose d2=return --confirm ${digest}`;
-  const issue = 'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Already handled."';
+  // A reason the command takes (20 to 1000 characters): a shorter one is refused before it runs, with the way to ask again.
+  const issue = 'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Already handled in the approved plan."';
   for (const command of [chat, issue]) {
     assert.deepEqual([ownTerminalStep(command), skillForCommandLine(command)], [null, 'sf-decide'], command);
   }
@@ -3183,34 +3184,26 @@ test('a "still holds" yes or no runs in /sf-decide only with what the person typ
   const unasked = await f.enter('/sf-decide PMC-1', 'still-holds-unasked');
   const refused = await run(unasked, YES);
   assert.match(refused.permissionDecisionReason, UNBOUND);
-  assert.match(refused.permissionDecisionReason, /No person answered a question in this turn/u);
+  assert.match(refused.permissionDecisionReason, /the person gave none for it in this turn\. Ask them that row's yes-or-no question \(Yes, No, Not now\)/u);
   assert.equal(refused.recoverable, true);
   assert.match(refused.next?.[0]?.copilotCommand ?? '', /^\/sf-decide\b/u);
   assert.match(refused.next?.[0]?.command ?? '', /^singularity-flow decisions\b/u);
   // The host's auto-reply and a declined question are nobody's answer.
   const canned = await f.enter('/sf-decide PMC-1', 'still-holds-canned');
   await repositoryPostToolGuard({ ...canned, toolName: 'ask_user', toolArgs: {}, toolResult: { textResultForLlm: AGENT_HOST_REPLY, resultType: 'success' } });
-  assert.match((await run(canned, YES)).permissionDecisionReason, /The host answered the question itself/u);
+  assert.match((await run(canned, YES)).permissionDecisionReason, UNBOUND);
   const declined = await f.enter('/sf-decide PMC-1', 'still-holds-declined');
   await repositoryPostToolGuard({ ...declined, toolName: 'ask_user', toolArgs: {}, toolResult: { textResultForLlm: 'User declined to answer', resultType: 'success' } });
-  assert.match((await run(declined, YES)).permissionDecisionReason, /No person answered/u);
-  // Copilot CLI and the agent host: their yes, with their reason, runs; a reason they did not type does not.
+  assert.match((await run(declined, YES)).permissionDecisionReason, /the person gave none for it/u);
+  // Their yes, with their reason, runs; a reason they did not type does not.
   const yes = await f.enter('/sf-decide PMC-1', 'still-holds-yes');
   await personSaid(yes, 'Yes', 'It does not rely on the changed wording.');
   assert.deepEqual(await run(yes, YES), {});
-  assert.match((await run(yes, YES.replace('It does not rely on the changed wording.', 'The model thinks it holds.'))).permissionDecisionReason,
+  assert.match((await run(yes, YES.replace('It does not rely on the changed wording.', 'The model thinks it holds well.'))).permissionDecisionReason,
     /is not what the person answered\. Run it again with exactly their words/u);
   const no = await f.enter('/sf-decide PMC-1', 'still-holds-no');
   await personSaid(no, 'No', 'It relies on the changed wording.');
   assert.deepEqual(await run(no, NO), {});
-  // VS Code's own chat (vscode_askQuestions): the same.
-  const local = (payload, fields) => ({ session_id: payload.sessionId, cwd: payload.cwd, hook_event_name: fields.tool_response === undefined ? 'PreToolUse' : 'PostToolUse', ...fields });
-  const asked = await f.enter('/sf-decide PMC-1', 'still-holds-local');
-  await repositoryPostToolGuard(local(asked, { tool_name: 'vscode_askQuestions', tool_input: { questions: [] }, tool_use_id: 't1',
-    tool_response: JSON.stringify({ answers: { 'Still holds?': { selected: ['Yes'], freeText: null, skipped: false }, Reason: { selected: [], freeText: 'It does not rely on the changed wording.', skipped: false } } }) }));
-  const localRun = (command) => repositoryToolGuard(local(asked, { tool_name: 'run_in_terminal', tool_input: { command, cwd: f.root } }));
-  assert.notEqual((await localRun(YES)).permissionDecision, 'deny');
-  assert.match((await localRun(YES.replace('It does not rely on the changed wording.', 'My own idea of it.'))).permissionDecisionReason, UNBOUND);
   // Only the bound Story, its two answers and one command at a time; the amendment's own approval stays the approvers' own terminal step.
   for (const command of [YES.replace(' --work-id PMC-1', ''), YES.replace('--work-id PMC-1', '--work-id OTHER'), YES.replace('--outcome unchanged', '--outcome dismiss'),
     YES.replace('--amendment AMD-001 ', ''), `${YES} && ${NO}`]) {
@@ -3225,6 +3218,125 @@ test('a "still holds" yes or no runs in /sf-decide only with what the person typ
   const plain = await run({ cwd: f.root, sessionId: 'still-holds-no-turn' }, YES);
   assert.match(plain.permissionDecisionReason, /whether a step still holds after an amendment by its own, in \/sf-decide or their own terminal/u);
   assert.equal(plain.next?.[0]?.copilotCommand?.split(' ')[0], '/sf-decide');
+});
+
+// What each host hands the post-tool hook for a row's yes-or-no question, then its reason (copilot-answer-binding.mjs):
+// Copilot CLI and VS Code's agent host answer `ask_user` with a line; VS Code's own chat answers `vscode_askQuestions`
+// under each question's header.
+const ROW_QUESTION = 'Does custom-step still hold after AMD-001? Recommended: yes. Say why in at least 20 characters.';
+const localPayload = (payload, fields) => ({ session_id: payload.sessionId, cwd: payload.cwd, hook_event_name: fields.tool_response === undefined ? 'PreToolUse' : 'PostToolUse', ...fields });
+const HOSTS = Object.freeze({
+  'Copilot CLI': {
+    said: async (payload, side, reason, question = ROW_QUESTION) => {
+      if (side) await repositoryPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question, choices: ['Yes', 'No', 'Not now'] }, toolResult: { textResultForLlm: `User responded: ${side}`, resultType: 'success' } });
+      if (reason) await repositoryPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs: { question: 'Why?' }, toolResult: { textResultForLlm: `User responded: ${reason}`, resultType: 'success' } });
+    },
+    run: (payload, command, root) => repositoryToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: root } })
+  },
+  'VS Code': {
+    said: (payload, side, reason, question = ROW_QUESTION) => repositoryPostToolGuard(localPayload(payload, { tool_name: 'vscode_askQuestions', tool_use_id: 't1',
+      tool_input: { questions: [...(side ? [{ header: 'Still holds?', question }] : []), { header: 'Reason', question: 'Why?' }] },
+      tool_response: JSON.stringify({ answers: { ...(side ? { 'Still holds?': { selected: [side], freeText: null, skipped: false } } : {}),
+        Reason: { selected: [], freeText: reason ?? null, skipped: !reason } } }) })),
+    run: (payload, command, root) => repositoryToolGuard(localPayload(payload, { tool_name: 'run_in_terminal', tool_input: { command, cwd: root } }))
+  }
+});
+
+test('a yes or no records only the answer the person gave for that row, on both hosts', async t => {
+  const f = await fixture(t);
+  const why = 'It does not rely on the changed wording.';
+  const holds = `singularity-flow upstream-issue revalidate custom-step --work-id PMC-1 --amendment AMD-001 --outcome unchanged --reason "${why}"`;
+  const redo = holds.replace('--outcome unchanged', '--outcome return');
+  for (const [host, { said, run }] of Object.entries(HOSTS)) {
+    const turn = async (side, reason = why) => { const payload = await f.enter('/sf-decide PMC-1', `${host}-${side}-${Math.random()}`); await said(payload, side, reason); return payload; };
+    // Yes is "still holds", No is "redo".
+    assert.deepEqual(await run(await turn('Yes'), holds, f.root), {}, `${host}: yes, unchanged`);
+    assert.deepEqual(await run(await turn('No'), redo, f.root), {}, `${host}: no, return`);
+    const yesRedo = await run(await turn('Yes'), redo, f.root);
+    assert.match(yesRedo.permissionDecisionReason, /The person answered Yes for this row, and this command records No\. Run the command of the answer they gave/u, `${host}: yes, return`);
+    assert.equal(yesRedo.recoverable, true);
+    assert.match((await run(await turn('No'), holds, f.root)).permissionDecisionReason, /The person answered No for this row, and this command records Yes/u, `${host}: no, unchanged`);
+    // Not now records nothing; and a reason with no yes or no is no answer to the row.
+    const later = await turn('Not now', null);
+    for (const command of [holds, redo]) assert.match((await run(later, command, f.root)).permissionDecisionReason, /chose Not now for this row: record nothing for it/u, `${host}: not now`);
+    assert.match((await run(await turn(null), holds, f.root)).permissionDecisionReason, /the person gave none for it in this turn/u, `${host}: no yes or no`);
+  }
+  // One yes carries one row: another row's command finds no answer, and the row the question named keeps its own.
+  const one = await f.enter('/sf-decide PMC-1', 'one-yes');
+  await HOSTS['Copilot CLI'].said(one, 'Yes', why);
+  const other = holds.replace('custom-step', 'later-step');
+  assert.match((await HOSTS['Copilot CLI'].run(one, other, f.root)).permissionDecisionReason, /the person gave none for it/u, 'the question named custom-step');
+  assert.deepEqual(await HOSTS['Copilot CLI'].run(one, holds, f.root), {});
+  const loose = await f.enter('/sf-decide PMC-1', 'one-loose-yes');
+  await HOSTS['Copilot CLI'].said(loose, 'Yes', why, 'Does it still hold?');
+  assert.deepEqual(await HOSTS['Copilot CLI'].run(loose, holds, f.root), {}, 'a question that names no row is the next row\'s');
+  assert.match((await HOSTS['Copilot CLI'].run(loose, other, f.root)).permissionDecisionReason, /the person gave none for it/u, 'and only one');
+  // Two rows answered yes and no in one form, neither named: which is which is asked again.
+  const both = await f.enter('/sf-decide PMC-1', 'both-rows');
+  await repositoryPostToolGuard(localPayload(both, { tool_name: 'vscode_askQuestions', tool_use_id: 't2',
+    tool_input: { questions: [{ header: 'First', question: 'Does it still hold?' }, { header: 'Second', question: 'And this one?' }, { header: 'Reason', question: 'Why?' }] },
+    tool_response: JSON.stringify({ answers: { First: { selected: ['Yes'], freeText: null, skipped: false }, Second: { selected: ['No'], freeText: null, skipped: false },
+      Reason: { selected: [], freeText: why, skipped: false } } }) }));
+  assert.match((await HOSTS['VS Code'].run(both, holds, f.root)).permissionDecisionReason, /answered several rows yes and no together/u);
+  // Typed with the skill, as the list numbers its options.
+  const typed = await f.enter(`/sf-decide PMC-1 d1=return-step ${why}`, 'typed-choice');
+  assert.deepEqual(await HOSTS['Copilot CLI'].run(typed, redo, f.root), {});
+  assert.match((await HOSTS['Copilot CLI'].run(typed, holds, f.root)).permissionDecisionReason, /answered No for this row/u);
+});
+
+test('a departure, an applicability and a plan row asked yes or no are held to it; an upstream issue keeps its own outcome', async t => {
+  const f = await fixture(t);
+  const { said, run } = HOSTS['Copilot CLI'];
+  const why = 'The change belongs in this Story as planned.';
+  const accept = `singularity-flow decision departure PMC-1 --fetch --departure DEP-001 --as accepted --reason "${why}"`;
+  const reject = accept.replace('--as accepted', '--as rejected');
+  const question = 'Say where src/helper.mjs belongs (DEP-001). Accept? Say why in at least 20 characters.';
+  const turn = async (side, ask = question) => { const payload = await f.enter('/sf-decide PMC-1', `departure-${side}-${Math.random()}`); await said(payload, side, why, ask); return payload; };
+  assert.deepEqual(await run(await turn('Yes'), accept, f.root), {});
+  assert.deepEqual(await run(await turn('No'), reject, f.root), {});
+  assert.match((await run(await turn('No'), accept, f.root)).permissionDecisionReason, /answered No for this row, and this command records Yes/u);
+  assert.match((await run(await turn('Yes'), reject, f.root)).permissionDecisionReason, /answered Yes for this row, and this command records No/u);
+  // One choice, whose No records nothing: a question that names the row holds it to that answer.
+  const applicability = `singularity-flow decision applicability PMC-1 --fetch --responsibility scope --reason "${why}"`;
+  const scope = 'Say why scope does not apply. It does not apply to this Story? Say why in at least 20 characters.';
+  assert.deepEqual(await run(await turn('Yes', scope), applicability, f.root), {});
+  assert.match((await run(await turn('No', scope), applicability, f.root)).permissionDecisionReason, /answered No for this row, and this command records Yes\. Run the command of the answer they gave \(No records nothing\)/u);
+  assert.match((await run(await turn('Not now', scope), applicability, f.root)).permissionDecisionReason, /chose Not now/u);
+  const plan = `singularity-flow decision plan PMC-1 --fetch --add-location PMC-1:AC-001=src/helper.mjs --reason "${why}"`;
+  assert.match((await run(await turn('No', 'Say where src/helper.mjs belongs. Add to AC-001? Say why in at least 20 characters.'), plan, f.root)).permissionDecisionReason, /answered No for this row/u);
+  // Asked another way (a pick, or reasons alone), a one-choice command stands on the person's words as before.
+  const reasons = await f.enter('/sf-decide PMC-1', 'reasons-only');
+  await personSaid(reasons, why);
+  assert.deepEqual(await run(reasons, applicability, f.root), {});
+  assert.deepEqual(await run(reasons, plan, f.root), {});
+  // An upstream issue's outcome is no yes or no: it is chosen among several on the card; its reason is still the person's.
+  const issue = await f.enter('/sf-decide PMC-1', 'issue-outcome');
+  await personSaid(issue, 'No', why);
+  assert.deepEqual(await run(issue, `singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "${why}"`, f.root), {});
+});
+
+test('a reason shorter or longer than its command takes is refused before it runs, with the way to ask again', async t => {
+  const f = await fixture(t);
+  const { said, run } = HOSTS['Copilot CLI'];
+  const payload = await f.enter('/sf-decide PMC-1', 'short-reason');
+  await said(payload, 'Yes', 'Fine.');
+  for (const command of ['singularity-flow upstream-issue revalidate custom-step --work-id PMC-1 --amendment AMD-001 --outcome unchanged --reason "Fine."',
+    'singularity-flow decision departure PMC-1 --fetch --departure DEP-001 --as accepted --reason "Fine."',
+    'singularity-flow decision applicability PMC-1 --fetch --responsibility scope --reason "Fine."',
+    'singularity-flow decision plan PMC-1 --fetch --add-location PMC-1:AC-001=src/a.mjs --reason "Fine."',
+    'singularity-flow decision scope PMC-1 --fetch --item S-1 --as excluded --reason "Fine."',
+    'singularity-flow upstream-issue decide UPI-001 --work-id PMC-1 --outcome dismiss --reason "Fine."']) {
+    const refused = await run(payload, command, f.root);
+    assert.match(refused.permissionDecisionReason, /^PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded\. Its --reason has 5 characters, and this command takes 20 to 1000\. Ask the person for a reason of at least 20 characters, then run it again with their words/u, command);
+    assert.equal(refused.recoverable, true, 'the turn carries on');
+    assert.match(refused.next?.[0]?.copilotCommand ?? '', /^\/sf-decide\b/u, 'and names its way through');
+  }
+  const long = 'x'.repeat(501);
+  assert.match((await run(payload, `singularity-flow decision plan PMC-1 --fetch --add-supporting src/b.mjs=test-support --supporting-reason "${long}" --reason "A test helper the suite needs."`, f.root)).permissionDecisionReason,
+    /Its --supporting-reason has 501 characters, and this command takes 10 to 500\. Ask the person for a reason of at most 500 characters/u);
+  // Nothing was written: the turn is not ended, and the person's next, longer answer runs.
+  await said(payload, null, 'It does not rely on the changed wording.');
+  assert.deepEqual(await run(payload, 'singularity-flow upstream-issue revalidate custom-step --work-id PMC-1 --amendment AMD-001 --outcome unchanged --reason "It does not rely on the changed wording."', f.root), {});
 });
 
 test('only the turns that own these decisions are held to it, and only these commands', async t => {

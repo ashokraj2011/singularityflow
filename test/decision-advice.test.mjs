@@ -45,8 +45,7 @@ const packetOf = (workflow, facts) => decisionPacket(workflow, { phaseId: 'imple
   testRisks: [], unavailable: [], state: {}, ...facts }, { authorities: workflow.resolution.approvalAuthorities, actor, at: AT });
 
 /** A list with most kinds on it at once, built from the same facts `decisions` reads. */
-function broadPacket() {
-  const workflow = story();
+function broadPacket(workflow = story()) {
   return packetOf(workflow, {
     testRisks: [{ phase: 'implementation', commandId: 'unit', status: 'failed', exitCode: 1, causeClass: null }],
     testNarrowings: [{ phase: 'implementation', commandId: 'unit', words: 'only test/a.test.mjs ran', reasons: [] }],
@@ -208,6 +207,33 @@ test('only a binary item may be answered yes or no in chat, through the command 
   await noteQuestionAnswered(file, record, { toolName: 'ask_user', toolResult: { textResultForLlm: 'User responded: Yes. The Epic already holds this Story\'s scope.' } });
   assert.equal(await unboundAnswerReason(file, record, { reason: 'The Epic already holds this Story\'s scope.' }), null);
   assert.match(await unboundAnswerReason(file, record, { reason: 'A reason the model wrote for the person.' }), /^PHASE_MUTATION_ANSWER_UNBOUND/u);
+});
+
+test('under SF Guard no row offers chat, and every host says it is recorded in the person\'s own terminal [owner, 2026-11-14]', () => {
+  const open = broadPacket();
+  const guarded = story();
+  guarded.resolution.presence = { status: 'required', chainId: 'chain-1' };
+  const packet = { ...broadPacket(guarded), packetSha256: `sha256:${'a'.repeat(64)}` };
+  const chatRows = open.items.filter((item) => item.answer?.where === 'chat');
+  assert.deepEqual(chatRows.map((item) => item.kind).sort(), ['departure', 'owed-decision', 'owed-decision', 'plan-accounting'], 'an applicability, a scope statement, a departure, a plan row');
+  const own = `SF Guard signs it, so it is recorded in your own terminal (singularity-flow decisions record ${WORK}), never in chat.`;
+  for (const before of chatRows) {
+    const item = packet.items.find((entry) => entry.id === before.id);
+    assert.deepEqual([item.guardSigns, item.chatYesNo, item.options.some((entry) => entry.chat), item.answer.where], [true, false, false, 'terminal'], `${item.kind} ${item.title}`);
+    assert.equal(item.answer.words, `Answer it on the Decide card: /sf-decide ${WORK} opens it. ${own}`);
+    assert.equal(item.recommended.words, before.recommended.words, 'it still recommends');
+  }
+  assert.equal(broadPacket(guarded).packetSha256, open.packetSha256, 'what a person confirms is the same list');
+  // Its step's own skill still asks a rollover, which SF Guard does not sign.
+  assert.equal(packet.items.find((item) => item.kind === 'generation-rollover').chatYesNo, true);
+  for (const [host, text] of [['terminal', packetText(packet)], ['VS Code', decideHtml(packet).replaceAll('&#39;', '\'')], ['Copilot CLI', decisionsTable(packet)]]) {
+    assert.ok(text.includes(own), host);
+    assert.ok(!text.includes(`yes or no in chat (/sf-decide ${WORK})`), host);
+  }
+  // Without SF Guard each yes or no names its row and the reason it takes, as the answer binding reads it.
+  const departure = open.items.find((item) => item.kind === 'departure');
+  assert.equal(departure.yesNo.question, 'DEP-001: package-lock.json changed. Accept? Say why in at least 20 characters.');
+  assert.equal(open.items.find((item) => item.details?.responsibility).yesNo.question, 'Say why scope does not apply. It does not apply to this Story? Say why in at least 20 characters.');
 });
 
 test('every host shows the recommendation and what each choice does; the approval opens its page from the card', async () => {

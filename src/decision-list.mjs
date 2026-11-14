@@ -16,7 +16,7 @@
  * run stays labelled as the step that recorded it. Pure: the facts arrive from decision-list-facts.mjs.
  */
 import { NODE_PIN_CLASS } from './node-pin-names.mjs';
-import { ISSUE_ONLY_OPTIONS, PERSON_STEP_FAMILIES } from './person-step-catalog.mjs';
+import { ISSUE_ONLY_OPTIONS, PERSON_STEPS } from './person-step-catalog.mjs';
 import { presenceRequires } from './presence/counted.mjs';
 import { MAX_PLAN_AMENDMENT_CHANGES, planAuthorities } from './plan-amendments.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
@@ -867,27 +867,35 @@ function forwardAmendmentItem(workflow, context, blocker) {
 }
 
 /**
- * Whether SF Guard signs the record an effect writes to a person family's `list` on this Story, by the rule that signs
- * it: on a Story SF Guard requires (counted.mjs presenceRequires), every record its family counts as a person's
- * (presence/person-steps.mjs signNewPersonRecords). It is signed with the approver's Touch ID, which only their own
- * terminal takes, so no chat records it.
+ * Whether SF Guard signs the record an effect writes, by the rule that signs it: on a Story SF Guard requires (counted.mjs
+ * presenceRequires), each record of a person family (person-step-catalog.mjs PERSON_STEPS, by the effect it records) that
+ * the family counts as a person's (presence/person-steps.mjs signNewPersonRecords). A raised issue is anyone's record, in
+ * no family. Signed with the approver's Touch ID, which only their own terminal takes, it is never recorded in chat.
  */
-function guardSigns(workflow, list, effect) {
-  return presenceRequires(workflow) && PERSON_STEP_FAMILIES.some((family) => family.list === list && family.isPerson(effect));
+function guardSigns(workflow, effect) {
+  return effect?.kind !== 'upstream-issue' && presenceRequires(workflow)
+    && PERSON_STEPS.some((row) => row.family && [row.effect].flat().includes(effect?.kind) && row.family.isPerson({ by: 'person', ...effect }));
+}
+
+/**
+ * Under SF Guard no row offers chat [owner, 2026-11-14]: a row whose chat choice records what SF Guard signs loses every
+ * chat command, so no chat asks it as a yes or no or records it, and every host says it is recorded in the person's own
+ * terminal (itemAnswer). The card still holds it, and hands it to that terminal.
+ */
+function underGuard(workflow, item) {
+  const chat = (entry) => entry.available !== false && (entry.chat || DECISION_LIST_CHAT_OPTIONS.includes(entry.id));
+  if (!item.options.some((entry) => chat(entry) && (entry.effects ?? []).some((effect) => guardSigns(workflow, effect)))) return item;
+  return { ...item, guardSigns: true, options: item.options.map(({ chat: _chat, ...entry }) => entry) };
 }
 
 /**
  * A "still holds" row's yes and no in a /sf-decide chat [owner, 2026-11-14]: each the row's own revalidate command, at
- * the person's reason, which the answer binding holds to what they typed. Under SF Guard none: the row is signed in the
- * approver's own terminal, and the chat only points there.
+ * the person's reason, which the answer binding holds to what they typed and to the yes or no they gave. Under SF Guard
+ * none (underGuard): the row is signed in the approver's own terminal, and the chat only points there.
  */
-function stillHoldsChat(workflow, blocker) {
-  const effect = { kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase };
+function stillHoldsChat(blocker) {
   const form = /--outcome <unchanged\|return> --reason "<why>"/u;
-  const signed = guardSigns(workflow, 'amendmentRevalidations', effect);
-  const chat = (outcome) => (!signed && form.test(blocker.command ?? '')
-    ? { chat: { command: blocker.command.replace(form, `--outcome ${outcome} --reason "<REASON>"`) } } : {});
-  return { signed, chat };
+  return (outcome) => (form.test(blocker.command ?? '') ? { chat: { command: blocker.command.replace(form, `--outcome ${outcome} --reason "<REASON>"`) } } : {});
 }
 
 /**
@@ -915,13 +923,13 @@ function revalidationItem(workflow, context, blocker) {
   if (blocker.reason === 'prompt-held') return stillHoldsItem(workflow, context, blocker, name, producer);
   const report = isConformancePhase(workflow.phases?.[blocker.phase]);
   const effect = (outcome) => [{ kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase, outcome }];
-  const { signed, chat } = stillHoldsChat(workflow, blocker);
+  const chat = stillHoldsChat(blocker);
   // Only a step's own approvers answer its row. "Still holds" may be one answer, with one reason, for every row
   // this person approves, worded alike on each host; each row keeps its own record. A return is row by row.
   const shared = (built) => ({ ...built, sharedLabel: 'Still holds', ...chat('unchanged') });
   const own = (built) => ({ ...built, oneByOne: true, ...chat('return') });
   return {
-    kind: 'revalidation', title: `Revalidate ${name} after ${blocker.amendment}`, ...(signed ? { guardSigns: true } : {}),
+    kind: 'revalidation', title: `Revalidate ${name} after ${blocker.amendment}`,
     why: `${name} read ${producer} before ${blocker.amendment} amended it. ${report
       ? `Its approvers confirm the report still holds under the amended ${producer}, or return it for a new report.`
       : `Its approvers say it still holds under the amended ${producer}, which keeps its approval, or return the Story to it.`}`,
@@ -948,9 +956,9 @@ function stillHoldsItem(workflow, context, blocker, name, producer) {
   const clauses = listWords((blocker.clauses ?? []).map((id) => clauseName(workflow, id)));
   const waits = (blocker.consumers ?? []).length ? `the approval of ${listWords(blocker.consumers.map((id) => stepName(workflow, id)))} and the Story's end wait` : 'the Story\'s end waits';
   const effect = (outcome) => [{ kind: 'amendment-revalidation', amendment: blocker.amendment, phase: blocker.phase, outcome }];
-  const { signed, chat } = stillHoldsChat(workflow, blocker);
+  const chat = stillHoldsChat(blocker);
   return {
-    kind: 'revalidation', title: `Say whether ${name} still holds after ${blocker.amendment}`, ...(signed ? { guardSigns: true } : {}),
+    kind: 'revalidation', title: `Say whether ${name} still holds after ${blocker.amendment}`,
     why: `${blocker.amendment} kept ${name}'s approval: its document cites none of the changed clauses, but its prompt held ${clauses}. `
       + `Its approvers say it still holds under the amended ${producer}, or return the Story to it; until then ${waits} for it.`,
     options: [
@@ -1889,11 +1897,13 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const built = [...listed, ...extra, ...(pending.transport ?? []).map((entry) => machineItem(workflow, entry))];
   const holdsOf = itemHolds(workflow, facts, awaiting);
   const items = built.map((item, index) => {
+    // What it holds is read from the item as built; under SF Guard it offers no chat (underGuard).
+    const shown = underGuard(workflow, item);
     // Recommended first, then in the order built.
-    const options = [...item.options].sort((left, right) => Number(right.recommended) - Number(left.recommended));
+    const options = [...shown.options].sort((left, right) => Number(right.recommended) - Number(left.recommended));
     const withOutcomes = options.map((entry) => { const outcome = optionOutcome(item, entry); return { ...entry, outcome, outcomeWords: DECISION_OUTCOMES[outcome] }; });
     // Its recommended answer and what each choice does, on every item and every host [owner, 2026-11-13].
-    const numbered = advisedItem(workflow, { id: `d${index + 1}`, ...item, options: withOutcomes, decidedBy: itemDecidedBy(workflow, options), holdsApproval: held(item) });
+    const numbered = advisedItem(workflow, { id: `d${index + 1}`, ...shown, options: withOutcomes, decidedBy: itemDecidedBy(workflow, options), holdsApproval: held(item) });
     return { ...numbered, ...holdsOf(numbered), answer: itemAnswer(numbered, workflow.workItem.id) };
   });
   const heldHere = items.filter((item) => item.holdsApproval).map((item) => item.id);
@@ -1909,7 +1919,7 @@ export function decisionPacket(workflow, facts, { authorities, actor, at, reques
   const boundItems = items.map((item) => (item.kind === 'approval' ? { ...item, details: { ...item.details, heldBy: heldHere, ready: !heldHere.length } } : item));
   // Nothing waits on these: a review of the scope, and each convergence answer its approvers may change [SCS:REQ-034].
   const offered = [...(facts.completeness ? [completenessItem(workflow, context, facts.completeness)] : []),
-    ...(facts.convergence ? convergenceAnswerItems(workflow, context, facts.convergence) : [])].map((item, index) => advisedItem(workflow, { id: `d${items.length + index + 1}`, ...item,
+    ...(facts.convergence ? convergenceAnswerItems(workflow, context, facts.convergence) : [])].map((item) => underGuard(workflow, item)).map((item, index) => advisedItem(workflow, { id: `d${items.length + index + 1}`, ...item,
     options: item.options.map((entry) => ({ ...entry, outcome: optionOutcome(item, entry), outcomeWords: DECISION_OUTCOMES[optionOutcome(item, entry)] })),
     decidedBy: itemDecidedBy(workflow, item.options), holdsApproval: false, holds: 'nothing', holdsWords: HOLDS_WORDS.nothing }))
     .map((item) => ({ ...item, answer: itemAnswer(item, workflow.workItem.id) }));

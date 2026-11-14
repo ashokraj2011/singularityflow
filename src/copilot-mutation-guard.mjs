@@ -1802,7 +1802,8 @@ async function answerBoundDenial(payload, record) {
     if (!step) continue;
     const binding = await answerBinding();
     if (!binding.answerBoundStep(step)) continue;
-    const reason = await binding.unboundAnswerReason(file, record, parseCli(step.argv).options, { localChat: typeof payload.tool_name === 'string' }).catch(() => null);
+    const { positionals, options } = parseCli(step.argv);
+    const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals }).catch(() => null);
     // The person's own answer is the way through, on the card or in their terminal; the words say the same.
     if (reason) {
       const workId = record.contract?.workId ?? null;

@@ -245,10 +245,13 @@ v1.0's CIC:AC-011 (a session with no recorded clause set) is retired: a Story ha
 2. **Supporting changes count as covered when the plan lists them.** A changed path named as a supporting change in an approved plan row or approved plan amendment (`PAM-NNN`, add-supporting) counts as covered and depends on no clause; any other changed path no clause claims stays `unclaimed-paths`, and the record is unresolved (REQ-005).
 3. **A "still holds" row may be answered yes or no in chat.** This covers the D1 rows (`reason: prompt-held`) and the older SCS revalidation rows alike.
    - Yes is "still holds" (`unchanged`); no is "redo", which returns the Story to that step. Each answer is the row's own `upstream-issue revalidate` command, run by the /sf-decide turn for the bound Story only.
-   - The command is held to the person's own typed reason by the chat answer binding, as `upstream-issue decide` is: a host's auto-reply, a declined question, or a reason they did not type is refused.
-   - The question names the recommended answer and why, in one line. The row is never settled for the person.
+   - The chat answer binding holds the command to the person's own answer. A host's auto-reply, a declined question, or a reason they did not type is refused.
+   - The command must also match the yes or no they gave for that row's question: Yes runs `unchanged`, No runs `return`. A mismatch, no yes or no, or Not now records nothing, and the refusal says to ask again.
+   - One yes or no carries one row. A departure is held the same way (yes accepts, no rejects). An applicability or a plan row whose question names it is held to its Yes, since its No records nothing.
+   - A reason shorter or longer than the command takes is refused before the command runs, with "ask the person for a reason of at least N characters", so the turn goes on. The question states the minimum.
+   - The question names its row and the recommended answer and why, in one line. The row is never settled for the person.
    - Only the step's own approvers may answer; the command checks this as before. `decide-amendment`, a forward amendment's own approval, stays the approvers' own terminal step.
-   - Where SF Guard requires the Story's person steps, the row is signed in the approver's own terminal. The chat does not ask it then; every host says so.
+   - Where SF Guard requires the Story's person steps, no row offers chat: this row, and every other row whose chat choice SF Guard signs. Every host says the row is recorded in the person's own terminal.
 
 ## 10. Validation boundary
 

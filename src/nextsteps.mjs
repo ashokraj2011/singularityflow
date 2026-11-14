@@ -243,7 +243,20 @@ function visualCoverageActions(hold, timing) {
     index ? route.label : hold.reason, { route: 'visual-coverage' }));
 }
 
-export function workflowNextSteps(workflow, {
+/**
+ * The planner's list, one entry per item: the same command for the same reason is said once, where it first stands.
+ * A paid Copilot CLI run (2026-11-14) showed an approval's LATER list with the amendment route twice; every list
+ * (nextsteps, a result's continuation, the Journey's action) is this one.
+ */
+export function workflowNextSteps(workflow, options = {}) {
+  const seen = new Set();
+  return plannedNextSteps(workflow, options).filter((step) => {
+    const key = `${step.command ?? ''}\u0000${step.reason ?? ''}`;
+    return seen.has(key) ? false : Boolean(seen.add(key));
+  });
+}
+
+function plannedNextSteps(workflow, {
   publicationPending = false, recovery = null, prerequisites = [], modelMode = ambientModelMode(), stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null,
   repositoryHost = null, pendingDecisions = undefined, visualCoverageHold = null, mcpHold = null, approvalCheck = null, sheet = null,
   changedAfterPublication = null

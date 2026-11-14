@@ -1,4 +1,12 @@
 import { SingularityFlowError } from '../foundation/failures.mjs';
+import {namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
+
+/** One closure rule for proposed votes and later views. This does not authenticate any record. */
+export function namespaceTerminalEvaluationRequired(workflow,{newWitnessReview=false}={}){
+  return Boolean(newWitnessReview||['namespaceObligationRisks','namespaceTestCohorts','namespaceKnownTestRisks','namespaceSelectiveTestRecoveries']
+    .some(key=>(workflow[key]??[]).length)||(workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)
+    ||Object.values(workflow.phases??{}).some(phase=>(phase.approvals??[]).some(vote=>vote.witnessMappings?.length)));
+}
 
 /** Called at the existing native decision point, after actor authority has been verified. */
 export function rejectionTarget(workflow, phase, target, upstreamIssue = null) {

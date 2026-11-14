@@ -3,6 +3,7 @@ import type {ExecutionUnit,ExecutionUnitManifest,AgentTaskContract,ExecutionDige
 import type {SourceLimits} from '../source.mjs';
 export declare const NODE_CHECK_EXECUTION_PROFILE:'sflow-local-check-execution/v1';
 export declare const NODE_QUALIFIED_CHECK_EXECUTION_PROFILE:'sflow-local-check-execution/v2';
+export declare const NODE_SELECTIVE_CHECK_EXECUTION_PROFILE:'sflow-local-check-execution/v3';
 export declare const NODE_COMMAND_EXECUTION_PROFILE:'sflow-local-command-execution/v1';
 export interface NodeCheckExecutionOptions {
   readonly id:string;readonly version?:string;readonly projectId:string;readonly repositoryId:string;readonly root:string;
@@ -17,7 +18,21 @@ export interface NodeCheckExecutionOptions {
 /** Retains observations only. A result cannot certify a phase or replace its approval policy. */
 export declare function createNodeCheckExecutionUnit(options:NodeCheckExecutionOptions):Promise<ExecutionUnit>;
 /** Captures real executor platform, architecture, runtime, environment and report root. */
-export declare function createEnvironmentQualifiedNodeCheckExecutionUnit(options:NodeCheckExecutionOptions&{readonly hostId:string}):Promise<ExecutionUnit>;
+export interface ObservedNodeCheckExecutionUnit extends ExecutionUnit {
+  /** Reads the real pinned runtime and checkout; does not start the test process. */
+  observeEnvironment(options?:{readonly signal?:AbortSignal|null}):Promise<{
+    readonly schemaVersion:1;readonly profile:'sflow-node-check-environment-observation/v1';
+    readonly qualification:Readonly<Record<string,unknown>>;readonly command:Readonly<Record<string,unknown>>;
+    readonly repository:import('../source.mjs').SourceDescriptor;
+    readonly source:{readonly snapshot:import('../source.mjs').SourceSnapshot;readonly revision:string};
+  }>;
+}
+export interface QualifiedNodeCheckExecutionUnit extends ObservedNodeCheckExecutionUnit {
+  /** SGOS narrows only complete files from this pinned direct Node JUnit command. This grants no lifecycle permission. */
+  selectTestFiles(input:{readonly files:readonly string[];readonly selectionSha256:ExecutionDigest;
+    readonly originalArgumentsSha256:ExecutionDigest}):Promise<ObservedNodeCheckExecutionUnit>;
+}
+export declare function createEnvironmentQualifiedNodeCheckExecutionUnit(options:NodeCheckExecutionOptions&{readonly hostId:string}):Promise<QualifiedNodeCheckExecutionUnit>;
 export interface NodeCommandExecutionOptions extends Omit<NodeCheckExecutionOptions,'report'> {
   readonly commandKind:'compile'|'lint'|'format'|'static-analysis'|'security'|'other';
 }

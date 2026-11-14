@@ -1,5 +1,6 @@
 /** Shared check evidence and report-capture policy. No command execution, storage or host rendering. */
 import {SingularityFlowError} from '../foundation/failures.mjs';
+import {admitRecordSchemaVersion,SELECTIVE_CHECK_SUMMARY_SCHEMA} from '../foundation/record-schema.mjs';
 import {testReceiptPassing} from './test-report-codec.mjs';
 const fail=(message,code='ENGINE_INPUT_INVALID',details=null)=>{throw new SingularityFlowError(message,{code,details});};
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(value);
@@ -70,9 +71,16 @@ export function phaseChecksResult(input,facts) {
     fail('The phase check writer returned malformed observation facts.','ENGINE_PORT_RESULT_INVALID');
   const summary=qualityValidationVerdict(facts.checks,{required:true});
   if(summary.verdict!==facts.verdict)fail('The phase check summary differs from its observed checks.','ENGINE_PORT_RESULT_INVALID');
+  if(facts.execution)try{admitRecordSchemaVersion(SELECTIVE_CHECK_SUMMARY_SCHEMA,facts.execution);}catch{fail(
+    'A selected run must disclose its original decision and unexecuted cases without a full-suite claim.','ENGINE_PORT_RESULT_INVALID');}
+  if(facts.execution&&(facts.execution.profile!=='sflow-selective-check-summary/v1'
+    ||facts.execution.mode!=='reviewed-file-selection'||facts.execution.completeSuiteClaimed!==false||facts.execution.impactComplete!==false||facts.execution.failuresWaived!==false
+    ||facts.execution.decision?.namespace!=='evidence'||!Array.isArray(facts.execution.unexecuted)||facts.execution.unexecuted.length>1024
+    ||facts.execution.unexecuted.some(row=>!id(row.repositoryId)||!id(row.commandId)||!Array.isArray(row.testIds)||row.testIds.length>10000||row.testIds.some(value=>typeof value!=='string'||!value))))
+    fail('A selected run must disclose its original decision and unexecuted cases without a full-suite claim.','ENGINE_PORT_RESULT_INVALID');
   return {status:facts.replayed?'retained':'recorded',subject:{kind:'story',id:input.workId},phase:input.phaseId,
     operationId:input.operationId,generation:facts.generation,record:facts.record,recordedAt:facts.recordedAt,
-    principalId:facts.principalId,checks:facts.checks,verdict:summary.verdict,replayed:facts.replayed,
+    principalId:facts.principalId,checks:facts.checks,verdict:summary.verdict,replayed:facts.replayed,...(facts.execution?{execution:facts.execution}:{}),
     effects:{committed:!facts.replayed,pushed:false,checkResultsRecorded:!facts.replayed,evidenceRetained:true,
       phasePublished:false,approvalRecorded:false,storyAdvanced:false}};
 }

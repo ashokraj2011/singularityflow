@@ -59,7 +59,7 @@ export function createNamespaceKnownTestRiskOwner({observer,scope,workId}){
     const sourceSnapshot=await checks.snapshot(source.content,source.descriptor,signal),facts=rules.observed({workId,phaseId:found.plan.input.phaseId,generation:found.plan.generation,
       repositoryId:step.repositoryId,command:step.command,commands:selected.commands,declaration,snapshot:sourceSnapshot,qualification,parsed,
       reportSha256s:['sha256:'+raw.sha256],at:found.body.recordedAt,configuration:snapshot.configuration,sourceRevision:source.revision,additionalTestInputs});
-    return {facts,exit:output.process.status,references:[raw,output.stdout,output.stderr,output.source.before.content,output.source.after.content,source.content]};
+    return {facts,parsed,qualification,exit:output.process.status,references:[raw,output.stdout,output.stderr,output.source.before.content,output.source.after.content,source.content]};
   }
   async function additionalInputs(snapshot,before,after,{signal}={}){
     const candidates=[];
@@ -227,5 +227,5 @@ export function createNamespaceKnownTestRiskOwner({observer,scope,workId}){
     const proofs=await admitted(snapshot,options),proof=proofs.filter(row=>row.value.phase===phaseId&&row.value.outcome.record.id).at(-1);
     return [...new Set((proof?.source.context.value.baselineTests??[]).filter(row=>row.repositoryId===repositoryId).map(row=>row.path))].sort();
   }
-  return Object.freeze({owner,reader,rules,admitted,context,candidate,baselineTestPaths});
+  return Object.freeze({owner,reader,rules,admitted,context,candidate,baselineTestPaths,observed});
 }

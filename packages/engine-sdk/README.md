@@ -33,8 +33,10 @@ Code uses `test-risk/v2` and explicit recovery-agreement risks use `test-risk/v3
 failed outcomes separately from source coverage and human visual acceptance. `test-cohort.context`
 and `test-cohort.confirm` bind an actual observed suite baseline to a human-selected cohort, with
 fresh receiving execution and original-owner renewal. The pure values are in `testing/recovery`.
-See `docs/ENGINE-SDK-COHORT-AND-CODE-RISKS.md` for contracts, authority and the remaining selective
-recovery/reuse work. Existing artifact-phase and native Git meanings stay unchanged.
+See `docs/ENGINE-SDK-COHORT-AND-CODE-RISKS.md` for those contracts and authority. Independently
+inventoried file execution and current-environment reuse are described in
+`docs/ENGINE-SDK-SELECTIVE-RECOVERY-AND-QUALIFIED-REUSE.md`. Existing artifact-phase and native Git
+meanings stay unchanged.
 
 The `evidence` export also includes witness-exception renewal values with explicit prior-expiry
 and time inputs. They preserve native record meanings and do not authenticate or persist a review.
@@ -490,6 +492,14 @@ own; publication reports preserve the producer and explicitly disclose that dist
 Configured Code checks and recovery agreements that prohibit reuse retain their own contracts.
 The `testing/reuse` export exposes pure bounded helpers, not evidence acceptance or authority.
 See [the reuse profile and qualification](../../docs/ENGINE-SDK-EVIDENCE-REUSE.md).
+
+Hosts may opt into `checks.environmentSensitiveReuse` and provide actual environment-qualified
+Node check bindings. Reuse v2 rechecks the real runtime, environment and retained runner-source
+inputs before publication, submission and approval, while still claiming no receiving execution.
+`test-recovery.select-context` and `test-recovery.select-confirm` supply a separate human-reviewed
+whole-file selection over an independent native Node JUnit inventory. The one `phase.checks.run`
+operation retains actual selected executions and explicitly unexecuted case IDs. See the
+[new profiles, boundaries and takeover contracts](../../docs/ENGINE-SDK-SELECTIVE-RECOVERY-AND-QUALIFIED-REUSE.md).
 
 
 `testing/causes` exposes cause classification and bounded case/suite messages through an explicit

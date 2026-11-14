@@ -20,11 +20,11 @@ const fields=Object.freeze({
   intent:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content'],
   manifest:['projectId','workId','authorityId','epoch','phase','operationId','parametersSha256','content','previousIndexVersion']
 });
-export function phaseCheckRecord(kind,fields){const version=kind==='plan'&&fields.executionProfile?4:kind==='plan'&&fields.recovery?3:kind==='plan'&&fields.testCommands?2:1;return {schemaVersion:version,format:version===1?formats[kind]:'sflow-namespace-phase-check-plan/v'+version,...fields};}
+export function phaseCheckRecord(kind,fields){const version=kind==='plan'&&fields.selection?5:kind==='plan'&&fields.executionProfile?4:kind==='plan'&&fields.recovery?3:kind==='plan'&&fields.testCommands?2:1;return {schemaVersion:version,format:version===1?formats[kind]:'sflow-namespace-phase-check-plan/v'+version,...fields};}
 export function phaseCheckRecordValue(kind,value) {
   try{admitRecordSchemaVersion(NAMESPACE_PHASE_CHECK_SCHEMAS[kind],value);
     const selected=kind==='plan'?namespacePhaseCheckPlanProfile(value):null,amended=selected?.commands;
-    if(value.format!==(amended?selected.format:formats[kind]))throw Error('Another format.');exactObject(value,['schemaVersion','format',...fields[kind],...(amended?['testCommands']:[]),...(selected?.recovery?['recovery']:[]),...(selected?.mixed?['executionProfile']:[])]);
+    if(value.format!==(amended?selected.format:formats[kind]))throw Error('Another format.');exactObject(value,['schemaVersion','format',...fields[kind],...(amended?['testCommands']:[]),...(selected?.recovery?['recovery']:[]),...(selected?.mixed?['executionProfile']:[]),...(selected?.selective?['selection']:[])]);
     if(selected?.mixed&&value.executionProfile!==NAMESPACE_MIXED_CHECK_PROFILE)throw Error('Another mixed-check execution contract.');
   }catch(cause){throw error('The phase-check record has another version or format.',
     ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}

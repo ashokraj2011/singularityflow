@@ -1,4 +1,5 @@
 import {createNamespaceKnownTestRiskOwner} from './namespace-known-test-risk-reader.mjs';
+import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 import {createNamespaceTestCohortOwner} from './namespace-test-cohort-reader.mjs';
 /** Actual decision observations only. No transactions, command rendering or execution. */
 import {canonicalJson,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
@@ -145,6 +146,19 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
           choice=option('review-known-test-risk','test-risk.known-context',inputs,testRunRiskAuthorities(workflow,row.phase),{},false);
         choice.action={operation:'test-risk.known-context',inputs,requiredInputs:[],prerequisites:['review-original-baseline-independent-inventory-and-current-execution']};
         observations.push({kind:'test-run-risk',key:row.id+':'+state,offered:state==='active',options:[choice]});
+      }
+    }
+    if((workflow.namespaceSelectiveTestRecoveries??[]).length){
+      const owner=createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}),proofs=await owner.admitted(snapshot,{signal}),rows=proofs.map(row=>row.value.outcome.record),latest=new Map();
+      source.selectiveTestRecoveries=proofs.map(row=>row.reference);references.push(...source.selectiveTestRecoveries);
+      for(const row of rows)if(row.id)latest.set(row.contextSha256,row);
+      for(const row of latest.values()){
+        const state=owner.rules.state(rows,row,at);if(phaseId!==null&&phaseId!==row.phase&&state==='active')continue;
+        const inputs={workId,phaseId:row.phase,baselineOperationId:row.context.baseline.operationId,
+          selection:row.context.rows.map(value=>({repositoryId:value.repositoryId,commandId:value.commandId,files:value.files}))},
+          choice=option('review-selective-recovery','test-recovery.select-context',inputs,testRunRiskAuthorities(workflow,row.phase),{},false);
+        choice.action={operation:'test-recovery.select-context',inputs,requiredInputs:[],prerequisites:['review-original-independent-inventory-selected-files-and-current-environment']};
+        observations.push({kind:'test-cohort',key:row.id+':'+state,offered:state==='active',options:[choice]});
       }
     }
     if((workflow.namespaceTestCohorts??[]).length){

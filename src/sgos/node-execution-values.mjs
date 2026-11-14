@@ -3,6 +3,17 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {canonicalJson,cloneSgosRecordValue,EXECUTION_UNIT_ABI_SCHEMA} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
+/** Native reporter syntax over an explicitly retained executor root, without looking at this host. */
+export function qualifiedCheckReportRoot(reportRoot){
+  const syntax=reportRoot?.grammar==='win32'?path.win32:reportRoot?.grammar==='posix'?path.posix:null;
+  return Boolean(syntax&&typeof reportRoot.absolute==='string'&&syntax.isAbsolute(reportRoot.absolute));
+}
+export function qualifiedCheckReportLocation(file,reportRoot){
+  const syntax=reportRoot?.grammar==='win32'?path.win32:reportRoot?.grammar==='posix'?path.posix:null;
+  if(!qualifiedCheckReportRoot(reportRoot)||typeof file!=='string'||!syntax.isAbsolute(file))return null;
+  const relative=syntax.relative(reportRoot.absolute,file),parts=relative.split(syntax.sep);
+  return !relative||syntax.isAbsolute(relative)||parts.some(part=>['','..','.'].includes(part))?null:parts.join('/');
+}
 function sha256(value){const bytes=Buffer.isBuffer(value)||value instanceof Uint8Array?Buffer.from(value)
   :typeof value==='string'?value:canonicalJson(cloneSgosRecordValue(value));
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;}

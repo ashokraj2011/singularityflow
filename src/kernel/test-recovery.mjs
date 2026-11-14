@@ -1252,3 +1252,65 @@ export function namespaceTestCohortPolicies(digests){
   }
   return Object.freeze({hash,cases,compare,state,confirm});
 }
+
+/** Explicit reviewed file selection. Excluded cases are unexecuted, never passed or impact-complete. */
+export function namespaceSelectiveTestRecoveryPolicies(port){
+  const hash=value=>'sha256:'+textDigestCapability(port).sha256Utf8(canonicalJson(value)),
+    fail=(message,code='SELECTIVE_TEST_RECOVERY_INVALID',details=null)=>{throw new SingularityFlowError(message,{code,details});};
+  function selection(value){
+    if(!Array.isArray(value)||!value.length||value.length>1024)fail('Select a bounded set of repository/command file inventories.');
+    const seen=new Set();return Array.from(value,row=>{
+      if(!row||typeof row!=='object'||![Object.prototype,null].includes(Object.getPrototypeOf(row))||Reflect.ownKeys(row).some(key=>typeof key!=='string'||!Object.hasOwn(Object.getOwnPropertyDescriptor(row,key),'value'))
+        ||Object.keys(row).sort().join(',')!=='commandId,files,repositoryId'
+        ||['repositoryId','commandId'].some(key=>typeof row[key]!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(row[key]))
+        ||!Array.isArray(row.files)||!row.files.length||row.files.length>256||Array.from(row.files).some(file=>typeof file!=='string'||!file
+          ||file.startsWith('-')||file.startsWith('/')||/[\\:*?\[\]{}\0]/u.test(file)||file.split('/').some(part=>['','..','.'].includes(part)))
+        ||new Set(row.files).size!==row.files.length||seen.has(canonicalJson([row.repositoryId,row.commandId])))fail('Use distinct explicit repository-relative whole test files.');
+      seen.add(canonicalJson([row.repositoryId,row.commandId]));return {repositoryId:row.repositoryId,commandId:row.commandId,files:[...row.files]};
+    });
+  }
+  function narrow(command,declaration,files,{requiredFiles=[]}={}){
+    if(!command||!Array.isArray(command.argv)||command.argv.some(value=>typeof value!=='string')
+      ||command.result?.adapter!=='junit-xml'||!Number.isSafeInteger(command.result.minimumDiscovered)||command.result.minimumDiscovered<1
+      ||!Number.isSafeInteger(command.result.minimumPassed)||command.result.minimumPassed<1
+      ||!Array.isArray(files)||!files.length||new Set(files).size!==files.length||files.some(file=>typeof file!=='string')
+      ||command.argv[0]!=='node'||command.argv[1]!=='--test'||command.argv[2]!=='--test-reporter=junit'
+      ||declaration?.adapter!=='node-test-junit-v1'||declaration.dependencyScope!=='repository-and-node-builtins-only'
+      ||Object.keys(command.env??{}).length||!Array.isArray(declaration.tests)||declaration.tests.some(row=>!row?.path||!row.id)||!declaration.tests.length)
+      fail('Selective recovery needs an independently configured native Node JUnit inventory.','SELECTIVE_TEST_RECOVERY_UNSUPPORTED');
+    const offset=command.argv[3]==='--'?4:3,full=command.argv.slice(offset);
+    if(full.some(file=>file.startsWith('-'))||new Set(full).size!==full.length||files.some(file=>!full.includes(file))
+      ||full.some(file=>!declaration.tests.some(row=>row.path===file))||declaration.tests.some(row=>!full.includes(row.path)))fail('Selection differs from the complete approved command inventory.');
+    if(requiredFiles.some(file=>full.includes(file)&&!files.includes(file)))fail('A planned or changed test file cannot be excluded.','SELECTIVE_TEST_REQUIRED_FILE_EXCLUDED',{
+      paths:requiredFiles.filter(file=>full.includes(file)&&!files.includes(file))});
+    const selectedIds=declaration.tests.filter(row=>files.includes(row.path)).map(row=>row.id),excludedIds=declaration.tests.filter(row=>!files.includes(row.path)).map(row=>row.id);
+    if(!selectedIds.length||new Set(declaration.tests.map(row=>row.id)).size!==declaration.tests.length)fail('The independent case inventory is ambiguous or empty.');
+    return {repositoryMode:'reviewed-file-selection',argv:[...command.argv.slice(0,offset),...files],files:[...files],selectedIds,excludedIds,
+      inventoryIds:declaration.tests.map(row=>row.id),effectiveMinimums:{minimumDiscovered:Math.min(command.result.minimumDiscovered,selectedIds.length),
+        minimumPassed:Math.min(command.result.minimumPassed,selectedIds.length)},impactComplete:false,failuresWaived:false};
+  }
+  function state(rows,record,at){return rows.some(row=>row.revokes===record.id)?'revoked':Date.parse(at)>=Date.parse(record.expiresAt)?'expired':'active';}
+  function confirm(workflow,request,facts,source){
+    if(workflow.status!=='in_progress')fail('Review selective recovery while the Story is in progress.');
+    const rows=workflow.namespaceSelectiveTestRecoveries??[];if(rows.length>=128)fail('Archive the bounded selection history explicitly.','ENGINE_STORAGE_LIMIT');
+    let record;
+    if(request.revoke){if(!rows.some(row=>row.id===request.revoke))fail('The selected recovery decision does not exist.');
+      record={schemaVersion:1,profile:'sflow-namespace-selective-test-recovery/v1',phase:request.phaseId,revokes:request.revoke,reason:request.reason,
+        actor:facts.actorId,authorityGroup:facts.authorityGroup,recordedAt:facts.at};
+    }else{
+      if(request.expectedContext!==source.context.sha256)fail('Review the exact source, baseline, environment and selected files.','SELECTIVE_TEST_RECOVERY_CONTEXT_CHANGED');
+      const expiresAt=/^\d{4}-\d{2}-\d{2}$/u.test(request.expires??'')?request.expires+'T23:59:59.999Z':null;
+      if(!expiresAt||!Number.isFinite(Date.parse(expiresAt))||expiresAt.slice(0,10)!==new Date(expiresAt).toISOString().slice(0,10)
+        ||Date.parse(expiresAt)<=Date.parse(facts.at)||Date.parse(expiresAt)-Date.parse(facts.at)>source.maximumDays*86400000)fail('Select a bounded future expiry allowed by the original risk policy.');
+      if(rows.some(row=>row.id&&row.phase===request.phaseId&&state(rows,row,facts.at)==='active'))fail('Revoke the current selection before replacing its reviewed scope.','SELECTIVE_TEST_RECOVERY_ALREADY_CONFIRMED');
+      record={schemaVersion:1,profile:'sflow-namespace-selective-test-recovery/v1',id:'STR-'+String(rows.filter(row=>row.id).length+1).padStart(3,'0'),
+        phase:request.phaseId,generation:source.generation,context:source.context.value,contextSha256:source.context.sha256,
+        expiresAt,reason:request.reason,followUpOwner:request.followUpOwner,remediationRef:request.remediationRef,
+        actor:facts.actorId,authorityGroup:facts.authorityGroup,recordedAt:facts.at};
+    }
+    const proposed=structuredClone(workflow);proposed.namespaceSelectiveTestRecoveries=[...rows,record];
+    proposed.history.push({at:facts.at,actor:facts.actorId,agent:facts.agentId,event:'selective_test_recovery_decided',phase:record.phase,detail:record.id??record.revokes});
+    return {workflow:proposed,outcome:{currentPhase:workflow.currentPhase,record}};
+  }
+  return Object.freeze({hash,selection,narrow,state,confirm});
+}

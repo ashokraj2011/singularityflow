@@ -1,20 +1,22 @@
 /** Read accepted local check proof without loading a process executor or discovering a checkout. */
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {canonicalJson,namespacePhaseCheckPlanProfile} from '../foundation/record-schema.mjs';
+import {canonicalJson,namespacePhaseCheckPlanProfile,admitRecordSchemaVersion,NODE_CHECK_ENVIRONMENT_OBSERVATION_SCHEMA} from '../foundation/record-schema.mjs';
 import {localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import {qualityValidationVerdict,observedPhaseCheck,observedCommandCheck} from '../kernel/phase-checks.mjs';
+import {namespaceReuseEnvironment} from '../kernel/evidence-reuse.mjs';
 import {projectEnrollmentTimestamp} from '../kernel/project-enrollment.mjs';
 import {normalizeExternalCommand} from '../engine-compatibility/node-configuration-path.mjs';
-import {createNodeTestReportCodec} from '../verification/test-report-reader.mjs';
-import {validateAgentTaskContract,validateExecutionUnitManifest,sha256 as digest} from '../sgos/node-execution-values.mjs';
+import {createNodeTestReportCodec,parseNativeNodeJunitReport} from '../verification/test-report-reader.mjs';
+import {validateAgentTaskContract,validateExecutionUnitManifest,qualifiedCheckReportRoot,qualifiedCheckReportLocation,sha256 as digest} from '../sgos/node-execution-values.mjs';
 import {namespaceScope,exactObject} from '../sda/namespace/values.mjs';
 import {namespaceLimits} from '../sda/namespace/contract.mjs';
 import {contentReference} from '../sda/content/contract.mjs';
 import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
+import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 import {createNamespaceStoryObserver,memoNamespaceObservedEvidence} from './namespace-story-reader.mjs';
 import {createNamespaceLifecycleCodec} from './namespace-lifecycle-codec.mjs';
 import {createNamespacePhaseCheckCodec,phaseCheckRecord,phaseCheckRecordValue,phaseCheckEvidenceBinding,NAMESPACE_PHASE_CHECK_PROFILE,NAMESPACE_MIXED_CHECK_PROFILE} from './namespace-phase-check-contract.mjs';
@@ -24,7 +26,7 @@ const error=(message,code='ENGINE_INPUT_INVALID',details=null,cause=undefined)=>
 const sourceValue=snapshot=>({projectId:snapshot.projectId,repositoryId:snapshot.repositoryId,provider:snapshot.provider,
   selection:snapshot.selection,entries:snapshot.entries});
 
-export function createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer:givenObserver}={}) {
+export function createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer:givenObserver,checks:executors,clock}={}) {
   scope=namespaceScope(scope);const observer=givenObserver??createNamespaceStoryObserver({records,content,scope,workId,authority});
   const limits=namespaceLimits(records.descriptor.limits),codec=createNamespacePhaseCheckCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
   const lifecycle=createNamespaceLifecycleCodec({scope,workId,authority,limits,textDigests:NODE_TEXT_DIGESTS});
@@ -56,6 +58,11 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
       const current=await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(snapshot,{signal});
       if(!same(plan.recovery,{profile:'sflow-namespace-test-recovery-check/v1',agreementSha256:current.agreement.contextSha256,agreements:current.references}))throw error('The check intent changed its confirmed recovery agreement.','ENGINE_STORAGE_CORRUPT');
     }else if(snapshot.workflow.resolution.testRecovery?.enabled)throw error('The check intent needs its original recovery agreement.','ENGINE_STORAGE_CORRUPT');
+    if(namespacePhaseCheckPlanProfile(plan).selective){
+      if(!plan.recovery||plan.selection?.record?.context?.generation!==plan.generation)throw error('The selected check lost its agreement or generation.','ENGINE_STORAGE_CORRUPT');
+      const selected=await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}).current(snapshot,plan.input.phaseId,{signal,bound:plan.selection});
+      if(!same(selected,plan.selection))throw error('The check intent changed its original human file-selection receipt.','ENGINE_STORAGE_CORRUPT');
+    }
     if(Boolean(namespacePhaseCheckPlanProfile(plan).mixed)!==commands.some(command=>command.kind!=='test'))throw error('The check plan changed its command observation profile.','ENGINE_STORAGE_CORRUPT');
     const repositories=basis.state.workflow.sourceBindings?.current?.repositories??[];
     if(commands.length*repositories.length!==plan.steps.length||plan.sources.length!==repositories.length
@@ -67,6 +74,11 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
         ||!same(step.contract.inputs,['sha256:'+plan.draft.bodySha256])||!same(step.command,commands[Math.floor(index/repositories.length)])
       ||step.repositoryId!==repositories[index%repositories.length].id||step.phaseId!==plan.input.phaseId)
         throw error('The check intent changed the pinned command sequence or task binding.','ENGINE_STORAGE_CORRUPT');}
+    for(const step of plan.steps){const selected=plan.selection?.rows.find(row=>row.commandId===step.command.id&&row.repositoryId===step.repositoryId),
+        execution=localCheckExecutionProfile(step.manifest.toolPolicy),policy=step.manifest.toolPolicy;
+      if(Boolean(execution.selective)!==Boolean(selected)||policy.command.argumentsSha256!==digest((selected?.argv??step.command.argv).slice(1))
+        ||selected&&!same(policy.selection,{profile:'sflow-node-check-file-selection/v1',sha256:plan.selection.record.contextSha256,
+          originalArgumentsSha256:digest(step.command.argv.slice(1)),files:selected.files}))throw error('The retained executor changed the exact reviewed file selection.','ENGINE_STORAGE_CORRUPT');}
     return {plan,reference:value.content};
   }
   async function snapshot(reference,descriptor,signal){const data=await observer.bytes(reference,reference.bytes,signal);let value;
@@ -105,7 +117,20 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
         throw error('The check source digest differs from its retained bytes.','ENGINE_STORAGE_CORRUPT');
       const expected=plan.sources.find(item=>item.id===step.repositoryId),original=await snapshot(expected.content,expected.descriptor,signal);
       const sourceMatched=Boolean(after)&&same(sourceValue(before),sourceValue(after))&&same(sourceValue(before),sourceValue(original));
-      checks.push({...((execution.testReport?observedPhaseCheck:observedCommandCheck)(step.command,{process:out.process,tests:parsed?.tests??null,diagnostics:out.diagnostics,sourceMatched})),repositoryId:step.repositoryId});
+      const selected=plan.selection?.rows.find(row=>row.commandId===step.command.id&&row.repositoryId===step.repositoryId);
+      if(selected&&parsed){
+        const native=parseNativeNodeJunitReport(raw[0].contents),qualification=step.manifest.toolPolicy.environmentQualification,
+          seen=new Set();
+        if(!qualifiedCheckReportRoot(qualification.reportRoot)||native.cases.length!==selected.selectedIds.length||native.tests.skipped!==0)
+          throw error('The selected execution omitted, skipped or added independently expected cases.','SELECTIVE_TEST_REPORT_INVALID');
+        for(const row of native.cases){const file=row.file===null&&selected.files.length===1?selected.files[0]
+            :qualifiedCheckReportLocation(row.file,qualification.reportRoot),
+            test=selected.declaration.tests.find(test=>test.path===file&&test.name===row.name);
+          if(!test||!selected.selectedIds.includes(test.id)||seen.has(test.id)||!['passed','failed'].includes(row.outcome))
+            throw error('The selected report has another file, case identity or outcome.','SELECTIVE_TEST_REPORT_INVALID');seen.add(test.id);}
+      }
+      const effective=selected?{...step.command,result:{...step.command.result,...selected.effectiveMinimums}}:step.command;
+      checks.push({...((execution.testReport?observedPhaseCheck:observedCommandCheck)(effective,{process:out.process,tests:parsed?.tests??null,diagnostics:out.diagnostics,sourceMatched})),repositoryId:step.repositoryId});
     }
     return checks;
   }
@@ -201,6 +226,12 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
       if(!same(sourceValue(original),sourceValue(value)))throw error('Source bytes changed after the accepted test run. Run the checks for the current source.',
         'ENGINE_SOURCE_CHANGED',{operation:'phase.checks.run',workId,phase:phaseId,repositoryId:selected.id});
     }
+    if(found.plan.selection){
+      if(typeof clock?.now!=='function')throw error('Fresh selected execution needs its explicit lifecycle clock.','ENGINE_PORT_UNAVAILABLE',{required:['clock']});
+      const selected=await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId,sources,checks:executors}).current(
+        (await observer.capture({signal})).snapshot,phaseId,{signal,at:projectEnrollmentTimestamp(await clock.now())});
+      if(!selected||selected.record.contextSha256!==found.plan.selection.record.contextSha256)throw error('The reviewed selection expired, was revoked or changed before the lifecycle action.','SELECTIVE_TEST_RECOVERY_NOT_CURRENT');
+    }
     return found;
   }
   async function freshObservedSources(binding,phaseId,sources,options={}){
@@ -209,5 +240,23 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
   async function freshSources(binding,phaseId,sources,options={}){
     return compareSources(await assertCurrent(binding,phaseId,options),phaseId,sources,options);
   }
-  return Object.freeze({codec,observer,intent,accepted,observations,snapshot,proof,forDraft,inspectDraft,publication,publicationObservation,readBindings,assertCurrent,currentObservation,freshSources,freshObservedSources});
+  const environmentBindings=new Map();
+  for(const binding of executors?.bindings??[]){const method=Object.getOwnPropertyDescriptor(binding.unit,'observeEnvironment');
+    if(method&&Object.hasOwn(method,'value')&&typeof method.value==='function')environmentBindings.set(
+      JSON.stringify([binding.phaseId,binding.commandId,binding.repositoryId]),method.value.bind(binding.unit));}
+  async function environment(phaseId,command,repository,{signal}={}){
+    const read=environmentBindings.get(JSON.stringify([phaseId,command.id,repository.id]));
+    if(!read)throw error('Bind a qualified check environment reader, or execute the current checks.','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_REQUIRED',{
+      actions:[{operation:'phase.checks.run',inputs:{workId,phaseId},requiredInputs:['operationId']}],repositoryId:repository.id,commandId:command.id});
+    const value=await read({signal}),descriptor=value?.repository,observed=sourceSnapshot(value?.source?.snapshot,descriptor);
+    try{admitRecordSchemaVersion(NODE_CHECK_ENVIRONMENT_OBSERVATION_SCHEMA,value);}catch(cause){throw error(
+      'The environment reader returned an invalid or unsupported observation.','ENGINE_PORT_RESULT_INVALID',null,cause);}
+    if(value.profile!=='sflow-node-check-environment-observation/v1'||descriptor.projectId!==scope.projectId
+      ||descriptor.repositoryId!==repository.id||!same(descriptor.selection,repository.descriptor.selection)
+      ||value.source.revision!=='sha256:'+hash(canonicalJson(observed))||value.command.argumentsSha256!==digest(command.argv.slice(1)))
+      throw error('The environment reader returned another command, repository or source observation.','ENGINE_PORT_RESULT_INVALID');
+    return {identity:namespaceReuseEnvironment(value.qualification,value.command),source:observed};
+  }
+  return Object.freeze({codec,observer,intent,accepted,observations,snapshot,proof,forDraft,inspectDraft,publication,publicationObservation,readBindings,assertCurrent,currentObservation,freshSources,freshObservedSources,
+    environment,environmentSensitiveReuse:executors?.environmentSensitiveReuse===true});
 }

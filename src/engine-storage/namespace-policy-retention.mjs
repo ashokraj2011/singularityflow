@@ -13,9 +13,9 @@ import {artifactBytesAreText} from '../kernel/artifact-content.mjs';
 import {namespaceConvergenceManifest} from './namespace-convergence-policy.mjs';
 import {CONVERGENCE_POLICY_EVIDENCE} from './namespace-convergence-contract.mjs';
 import {namespaceDocumentReviewManifest} from './namespace-document-review.mjs';
-import {EVIDENCE_REUSE_POLICY,namespaceEvidenceReuseManifest} from './namespace-evidence-reuse-reader.mjs';
+import {namespaceEvidenceReuseManifest} from './namespace-evidence-reuse-reader.mjs';
 import {namespaceTestRiskManifest} from './namespace-test-risk-reader.mjs';
-import {TEST_RECOVERY_EVIDENCE,namespaceTestRecoveryManifest} from './namespace-test-recovery-reader.mjs';
+import {namespaceTestRecoveryManifest} from './namespace-test-recovery-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 export function createNamespacePublicationPolicyWriter({observer,content,scope,workId,reader}) {
   const put=content.put.bind(content);
@@ -65,18 +65,18 @@ export function createNamespacePublicationPolicyWriter({observer,content,scope,w
     for(const pending of value.pendingEvidence){const saved=await put(scope,'evidence',pending.bytes,{signal});
       if(!same(contentReference(saved?.reference),pending.reference)||typeof saved.reused!=='boolean')throw new SingularityFlowError(
         'The content store returned another reuse source.',{code:'ENGINE_PORT_RESULT_INVALID'});await observer.bytes(pending.reference,pending.reference.bytes,signal);}
-    const report=await save(value.report,signal),manifest={schemaVersion:1,format:'sflow-namespace-evidence-reuse-policy-manifest/v1',
+    const report=await save(value.report,signal),manifest={schemaVersion:value.report.schemaVersion,format:'sflow-namespace-evidence-reuse-policy-manifest/v'+value.report.schemaVersion,
       ...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},
       basis:{revision:snapshot.revision,head},report};namespaceEvidenceReuseManifest(manifest,{scope,workId,phaseId:publication.phase});
-    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:EVIDENCE_REUSE_POLICY,record:await save(manifest,signal)}),report};
+    return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',kind:'evidence-reuse/v'+value.report.schemaVersion,record:await save(manifest,signal)}),report};
   }
   async function retainRecovery(publication,{snapshot,head,signal}={}){
-    const value=await reader.recoveryCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),manifest={schemaVersion:1,
-      format:'sflow-namespace-test-recovery-policy-manifest/v1',...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
+    const value=await reader.recoveryCandidate(publication,snapshot,{signal}),report=await save(value.report,signal),manifest={schemaVersion:value.report.schemaVersion,
+      format:'sflow-namespace-test-recovery-policy-manifest/v'+value.report.schemaVersion,...namespaceSpecificationIdentity(publication),recordedAt:publication.publishedAt,
       artifact:{key:publication.artifact.sourceKey,content:publication.artifact.content},basis:{revision:snapshot.revision,head},report};
     namespaceTestRecoveryManifest(manifest,{scope,workId,phaseId:publication.phase});
     return {binding:namespacePolicyEvidenceBinding({schemaVersion:1,format:'sflow-namespace-phase-policy-evidence-binding/v1',
-      kind:TEST_RECOVERY_EVIDENCE,record:await save(manifest,signal)}),report};
+      kind:'test-recovery/v'+value.report.schemaVersion,record:await save(manifest,signal)}),report};
   }
   async function retainClarification(publication,{snapshot,head,signal}={}) {
     const value=await reader.clarificationCandidate(publication,snapshot,{signal}),found=value.checkpoint.accepted;

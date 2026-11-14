@@ -10,13 +10,14 @@ import {createNamespaceRecordedMutationReader} from './namespace-recorded-mutati
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {namespaceEvidencePolicyManifest} from './namespace-policy-contract.mjs';
 import {memoNamespaceObservedDecision} from './namespace-story-reader.mjs';
+import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 const rules=namespaceTestRecoveryPolicies(NODE_TEXT_DIGESTS),same=(a,b)=>canonicalJson(a)===canonicalJson(b),
   fail=(message,code='ENGINE_STORAGE_CORRUPT',details=null)=>{throw new SingularityFlowError(message,{code,details});};
 export const TEST_RECOVERY_EVIDENCE='test-recovery/v1';
 export const namespaceTestRecoveryBinding=proof=>({profile:'sflow-namespace-test-recovery-binding/v1',
   agreement:proof.agreement.contextSha256,records:proof.references});
 export const namespaceTestRecoveryManifest=(value,scope)=>namespaceEvidencePolicyManifest(value,{...scope,
-  family:NAMESPACE_TEST_RECOVERY_SCHEMAS.policy,format:'sflow-namespace-test-recovery-policy-manifest/v1'});
+  family:NAMESPACE_TEST_RECOVERY_SCHEMAS.policy,format:'sflow-namespace-test-recovery-policy-manifest/v'+value.schemaVersion});
 export function createNamespaceTestRecoveryOwner({observer,scope,workId}){
   const operation='test-recovery.confirm',commands=createNamespaceTestCommandOwners({observer,scope,workId});let reader;
   async function admitted(snapshot,options={}){
@@ -60,6 +61,14 @@ export function createNamespaceTestRecoveryOwner({observer,scope,workId}){
   reader=createNamespaceRecordedMutationReader({observer,scope,workId,operation,owner,contract:namespaceDecisionContract});
   async function publication(snapshot,phaseId,options={}){
     const source=await current(snapshot,options);
+    if(options.publication?.checks&&(snapshot.workflow.namespaceSelectiveTestRecoveries??[]).length){const checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),
+        checked=await checks.proof(options.publication.checks,phaseId,options),selection=checked.plan.selection;
+      if(selection)return {report:{schemaVersion:2,profile:'sflow-namespace-test-recovery-policy/v2',workId,phaseId,
+        agreement:source.agreement,agreements:source.references,commands:source.context.value.commands,executionMode:'reviewed-file-selection',
+        selection,checks:options.publication.checks,executed:checked.body.checks,
+        excluded:selection.rows.flatMap(row=>row.excludedIds.map(testId=>({repositoryId:row.repositoryId,commandId:row.commandId,testId,outcome:'not-run'}))),
+        impactComplete:false,failuresWaived:false},references:[...source.references,selection.decision],policy:{owners:['test-recovery']}};
+    }
     return {report:{schemaVersion:1,profile:'sflow-namespace-test-recovery-policy/v1',workId,phaseId,
       agreement:source.agreement,agreements:source.references,commands:source.context.value.commands,
       executionMode:'all-configured',failuresWaived:false},references:source.references,policy:{owners:['test-recovery']}};

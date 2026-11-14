@@ -1,5 +1,5 @@
 /** Explicit namespace publication composition. Installed Git hosts never select this writer. */
-import {isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
+import {isNamespaceEvidenceReusePolicy,isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {documentReviewPublicationPolicy,DOCUMENT_REVIEW_OWNERS} from '../kernel/document-review.mjs';
 import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
@@ -44,7 +44,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
   const {records,content,clock,modelEnabled=true,notice=()=>{}}=options;
   const scope=namespaceScope(options.scope),workId=namespaceIdentifier(options.workId,'Story ID'),authority=Object.freeze(structuredClone(options.authority));
   const committer=createNamespaceLifecycleCommitter({records,content,scope,workId,authority}),observer=createNamespaceStoryObserver({records,content,scope,workId,authority});
-  const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer});
+  const checks=createNamespacePhaseCheckReader({records,content,scope,workId,authority,observer,clock,checks:options.checks});
   const publicationReader=createNamespacePublicationReader({observer,scope,workId,checks});
   const specificationWriter=createNamespaceSpecificationWriter({observer,scope,workId,content,reader:publicationReader.specifications});
   const policyWriter=createNamespacePublicationPolicyWriter({observer,scope,workId,content,reader:publicationReader.policies});
@@ -221,7 +221,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             if(s.risk)testRisk=await policyWriter.retainTestRisk(base,{snapshot,head:head.value,signal,checked:s.failedChecks,expected:s.risk.report});
             if(cohortRequired)cohort=await policyWriter.retainCohort({...base,checks:s.checkEvidence??null,...(testRisk?{policyEvidence:[testRisk.binding]}:{})},{snapshot,head:head.value,signal});
             if(s.reuse)reuse=await policyWriter.retainReuse(base,{snapshot,head:head.value,signal,sources,expected:s.reuse.report});
-            if(recoveryRequired)recovery=await policyWriter.retainRecovery(base,{snapshot,head:head.value,signal});
+            if(recoveryRequired)recovery=await policyWriter.retainRecovery({...base,checks:s.checkEvidence??null},{snapshot,head:head.value,signal});
             if(documentReviewPolicy)documentReview=await policyWriter.retainDocumentReview(base,{snapshot,head:head.value,signal});
             if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
             if(clarificationPolicy.mode!=='off')clarification=await policyWriter.retainClarification(base,{snapshot,head:head.value,signal});
@@ -345,7 +345,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
         const retained=(await retainedPublication(s.plan,s,signal)).publication,owners=publicationReader.policies.owners(retained);
         if(retained.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))await publicationReader.policies.freshCohort(retained,s.snapshot,{signal,at:projectEnrollmentTimestamp(await now())});
         if(retained.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))await publicationReader.policies.freshTestRisk(retained,s.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
-        if(retained.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1'))await publicationReader.policies.freshReuseSources(retained,s.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
+        if(retained.policyEvidence?.some(row=>isNamespaceEvidenceReusePolicy(row.kind)))await publicationReader.policies.freshReuseSources(retained,s.snapshot,sources,{signal,at:projectEnrollmentTimestamp(await now())});
         if(!s.checkEvidence&&owners.includes('code-delivery'))await publicationReader.policies.freshCodeSources(retained,sources,{signal});
         if(owners.includes('code-delivery-inputs'))await publicationReader.policies.freshInputSources(retained,sources,{signal});
       },{signal});

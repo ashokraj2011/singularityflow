@@ -24,5 +24,5 @@ test('original check plans retain their profile and recovery plans are explicitl
   assert.deepEqual(namespacePhaseCheckPlanProfile({schemaVersion:3}),{version:3,format:'sflow-namespace-phase-check-plan/v3',commands:true,recovery:true});
   assert.deepEqual(namespacePhaseCheckPlanProfile({schemaVersion:4}),{version:4,format:'sflow-namespace-phase-check-plan/v4',commands:true,mixed:true});
   assert.deepEqual(namespacePhaseCheckPlanProfile({schemaVersion:4,recovery:{}}),{version:4,format:'sflow-namespace-phase-check-plan/v4',commands:true,recovery:true,mixed:true});
-  assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:6}),{code:'SCHEMA_VERSION_FUTURE'});
 });

@@ -14,8 +14,8 @@ import {createFilesystemSourceUnit} from './filesystem-source-unit.mjs';
 import {createExecutionUnitManifest,createExecutionUnitAdapter,executionUnitSha256,
   assertPinnedExecutionExecutable,executePinnedProcess,untilExecutionStopped} from './node-execution-unit.mjs';
 
-import {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
-export {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
+import {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
+export {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
 const MAXIMUM_BYTES=EXECUTION_UNIT_LIMITS.maximumOutputBytes;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fingerprint=info=>[info.dev,info.ino,info.mode,info.size,info.mtimeNs,info.ctimeNs].map(String).join(':');
@@ -132,7 +132,7 @@ async function localCheckExecutionUnit(options,execution){
       return {bytes:Buffer.concat(chunks),fingerprint:fingerprint(initial)};
     }finally{await handle.close();}
   }
-  return createExecutionUnitAdapter(manifest,async(contract,runtime)=>{
+  const adapter=createExecutionUnitAdapter(manifest,async(contract,runtime)=>{
     const signal=runtime.signal,repositoryScope='repository:'+repositoryId,deadline=Math.min(timeoutMs,contract.budgets.activeMinutes*60_000);
     signal.throwIfAborted();
     if(contract.allowedDevices.length||contract.readScope.length!==1||contract.readScope[0]!==repositoryScope
@@ -177,4 +177,30 @@ async function localCheckExecutionUnit(options,execution){
       reports:{adapter:report.adapter,raw,parsed},diagnostics},usage:{modelInvocations:0,assurance:'authorized-local-process'}};
   },async()=>{try{await assertPinnedExecutionExecutable(command);return {status:'ready'};}
     catch(cause){return {status:'unavailable',diagnosticCode:cause.code??'SGOS_CHECK_EXECUTABLE_UNAVAILABLE'};}});
+  if(!selected.qualifiedEnvironment)return adapter;
+  // A read-only observation rechecks the actual executable and checkout. A manifest or a
+  // successful doctor result alone cannot attest to the environment of a later operation.
+  return Object.freeze({...adapter,...(!selected.selective?{async selectTestFiles(input){
+    const request=data(input,['files','selectionSha256','originalArgumentsSha256'],'Reviewed test selection'),args=command.arguments,
+      offset=args[2]==='--'?3:2,full=args.slice(offset);
+    if(args[0]!=='--test'||args[1]!=='--test-reporter=junit'||report.adapter!=='junit-xml'||report.files.length
+      ||Object.keys(command.environment).length||request.originalArgumentsSha256!==policy.command.argumentsSha256
+      ||!/^sha256:[a-f0-9]{64}$/u.test(request.selectionSha256??'')||!Array.isArray(request.files)||!request.files.length
+      ||request.files.length>256||new Set(request.files).size!==request.files.length||request.files.some(file=>!full.includes(file)
+        ||sourceRelativePath(file)!==file||file.startsWith('-'))||full.some(file=>file.startsWith('-')))
+      throw error('Select only explicit complete files of this pinned native Node JUnit command.','SGOS_CHECK_SELECTION_INVALID');
+    return localCheckExecutionUnit({...options,id:id+'-selected-'+request.selectionSha256.slice(7,23),
+      command:{...command,arguments:[...args.slice(0,offset),...request.files]}},{profile:NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,
+        hostId:execution.hostId,selection:{profile:'sflow-node-check-file-selection/v1',sha256:request.selectionSha256,
+          originalArgumentsSha256:request.originalArgumentsSha256,files:request.files}});
+  }}:{}),async observeEnvironment({signal}={}){
+    const active=signal??new AbortController().signal;
+    active.throwIfAborted();
+    await boundedIO(next=>assertPinnedExecutionExecutable(command,next),active,timeoutMs,'environment-executable');
+    if(await realpath(command.executable)!==await realpath(process.execPath))throw error('The native Node runtime changed.','SGOS_CHECK_ENVIRONMENT_CHANGED');
+    const current=await boundedIO(next=>source.capture({signal:next}),active,timeoutMs,'environment-source');
+    return {schemaVersion:1,profile:'sflow-node-check-environment-observation/v1',
+      qualification:structuredClone(policy.environmentQualification),command:structuredClone(policy.command),
+      repository:structuredClone(source.descriptor),source:current};
+  }});
 }

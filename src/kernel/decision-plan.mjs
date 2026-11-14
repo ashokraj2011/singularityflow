@@ -88,6 +88,7 @@ export function standaloneDecisionAdmission(operation, workflow) {
     'test-risk.confirm-recovery':['RISK_STORY_CLOSED','Review exact recovery risks while the Story is in progress.'],
     'test-cohort.confirm':['TEST_COHORT_CLOSED','Confirm observed test cohorts while the Story is in progress.'],
     'test-recovery.confirm':['TEST_RECOVERY_CLOSED','Confirm recovery while the Story is in progress.'],
+    'test-recovery.select-confirm':['TEST_RECOVERY_CLOSED','Review file selection while the Story is in progress.'],
     'convergence.adjudicate':['CONVERGENCE_STORY_CLOSED','Decide convergence findings while the Story is in progress.'],
     'decision.constitution-exception':['CONSTITUTION_EXCEPTION_STORY_CLOSED','Record an exact article exception while the Story is in progress.'],
     'decision.scope':['SCOPE_STORY_CLOSED', `Story ${workId} is ${workflow.status}; its scope is decided while it is in progress.`],
@@ -119,6 +120,15 @@ export function standaloneDecisionAdmission(operation, workflow) {
 /** Normalize domain values only; identity, policy and publication are never request fields. */
 export function standaloneDecisionRequest(operation, input) {
   const reason = input.reason ?? '';
+  if(operation==='test-recovery.select-confirm'){
+    if(typeof reason!=='string'||reason.trim().length<20||reason.length>1000)refused('Explain the reduced file selection in 20 to 1000 characters.','SELECTIVE_TEST_RECOVERY_INVALID');
+    if(['phaseId','baselineOperationId','expectedContext','revoke','expires','followUpOwner','remediationRef'].some(key=>input[key]!=null
+      &&(typeof input[key]!=='string'||!input[key].trim()||input[key].length>512))||!input.revoke&&(!input.phaseId||!input.baselineOperationId||!input.expectedContext||!input.expires||!input.followUpOwner||!input.remediationRef)
+      ||input.revoke&&['baselineOperationId','expectedContext','selection','expires','followUpOwner','remediationRef'].some(key=>input[key]!=null))refused('Use the exact selection review or one original decision to revoke.','SELECTIVE_TEST_RECOVERY_INVALID');
+    return {phaseId:input.phaseId??null,baselineOperationId:input.baselineOperationId??null,selection:input.selection??null,
+      expectedContext:input.expectedContext??null,revoke:input.revoke??null,expires:input.expires??null,reason:reason.trim(),
+      followUpOwner:input.followUpOwner??null,remediationRef:input.remediationRef??null};
+  }
   if(operation==='test-risk.confirm-known'){
     if(typeof reason!=='string'||reason.trim().length<20||reason.length>1000)refused('Explain the exact independently inventoried known failures in 20 to 1000 characters.','TEST_RUN_RISK_INVALID');
     if(['phaseId','baselineOperationId','observedOperationId','expectedContext','revoke','expires','followUpOwner','remediationRef'].some(key=>input[key]!=null

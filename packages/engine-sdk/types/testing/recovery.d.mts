@@ -112,3 +112,18 @@ export interface NamespaceKnownTestRecoveryValues {
 }
 /** These values compare inventories only; original execution and human receipts remain mandatory. */
 export declare function namespaceKnownTestRecoveryPolicies(digests:SpecificationDigests):Readonly<NamespaceKnownTestRecoveryValues>;
+
+export interface SelectiveTestFileSet {readonly repositoryId:string;readonly commandId:string;readonly files:readonly string[]}
+export interface NamespaceSelectiveTestRecoveryValues {
+  hash(value:JsonValue):string;
+  selection(value:readonly SelectiveTestFileSet[]):readonly SelectiveTestFileSet[];
+  narrow(command:JsonValue,declaration:JsonValue,files:readonly string[],options?:{readonly requiredFiles?:readonly string[]}):{
+    readonly repositoryMode:'reviewed-file-selection';readonly argv:readonly string[];readonly files:readonly string[];
+    readonly selectedIds:readonly string[];readonly excludedIds:readonly string[];readonly inventoryIds:readonly string[];
+    readonly effectiveMinimums:{readonly minimumDiscovered:number;readonly minimumPassed:number};readonly impactComplete:false;readonly failuresWaived:false};
+  state(rows:readonly Readonly<Record<string,JsonValue>>[],record:Readonly<Record<string,JsonValue>>,at:string):'active'|'revoked'|'expired';
+  confirm(workflow:Readonly<Record<string,JsonValue>>,request:Readonly<Record<string,JsonValue>>,facts:Readonly<Record<string,JsonValue>>,
+    source:Readonly<Record<string,JsonValue>>):{readonly workflow:Readonly<Record<string,JsonValue>>;readonly outcome:Readonly<Record<string,JsonValue>>};
+}
+/** Selection values never claim dependency-complete impact analysis or authenticate a reviewer. */
+export declare function namespaceSelectiveTestRecoveryPolicies(digests:SpecificationDigests):Readonly<NamespaceSelectiveTestRecoveryValues>;

@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile,namespaceWitnessMappingProfile} from '../foundation/record-schema.mjs';
+import {admitRecordSchemaVersion,NAMESPACE_SELECTIVE_TEST_RECOVERY_CONTEXT_SCHEMA,phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile,namespaceWitnessMappingProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -55,6 +55,8 @@ const APPROVAL_FIELDS = Object.freeze(['workId','phaseId','confirmation','select
 const DECISION_FIELDS = Object.freeze(['workId','phaseId','fetch','answers','confirmation']);
 const CORRECTION_FIELDS=Object.freeze(['ownerPhase','operations','reason','upstreamIssue']);
 const SINGLE_DECISIONS = Object.freeze([
+  ['test-recovery.select-confirm','selective-test-recovery',['phaseId','baselineOperationId','selection','expectedContext','revoke','reason','expires','followUpOwner','remediationRef'],
+    {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','reason'])}],
   ['test-risk.confirm-known','known-test-risk',['phaseId','baselineOperationId','observedOperationId','expectedContext','revoke','reason','expires','followUpOwner','remediationRef'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','reason'])}],
   ['test-risk.confirm-recovery','test-run-risk',['phaseId','commandId','argvSha256','causeClass','cause','reason','expires','expectedRecovery'],
@@ -162,6 +164,9 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestWitnessContext'},
   {id:'test-recovery.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRecoveryContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRecoveryContext'},
+  {id:'test-recovery.select-context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','baselineOperationId','selection']),
+    requiredFields:Object.freeze(['phaseId','baselineOperationId','selection']),port:'selectiveTestRecoveryContext',stages:Object.freeze(['load','read']),
+    validate:'selectiveRecoveryContextInput',execute:'inspectSelectiveRecoveryContext'},
   {id:'source-review.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'sourceReviewContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectSourceReviewContext'},
   {id:'witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','clauseId','slotName','file']),
@@ -822,8 +827,10 @@ async function inspectEvidenceReuseContext(port,input,signal){
     ||facts.testsExecutedByReceiver!==false||!Array.isArray(facts.candidates)||facts.candidates.length>1024||!Array.isArray(facts.decisions)
     ||!Array.isArray(facts.authorities)||!Array.isArray(facts.actions)||facts.candidates.some(row=>typeof row.taskId!=='string'||!row.taskId
       ||!row.publication?.record||!row.submission?.record||!row.checks?.result||!row.command?.id||typeof row.sourceMatches!=='boolean')
-    ||facts.actions.some(row=>row.operation!=='decision.evidence-reuse'||row.inputs?.workId!==binding.workId||row.inputs?.phaseId!==binding.phase
-      ||!facts.candidates.some(candidate=>candidate.sourceMatches&&candidate.taskId===row.inputs.attemptId)))throw new SingularityFlowError(
+    ||profile.version===2&&facts.candidates.some(row=>typeof row.environmentMatches!=='boolean')
+    ||facts.actions.some(row=>row.inputs?.workId!==binding.workId||row.inputs?.phaseId!==binding.phase
+      ||(row.operation==='phase.checks.run'?profile.version!==2:row.operation!=='decision.evidence-reuse'
+        ||!facts.candidates.some(candidate=>candidate.sourceMatches&&(profile.version===1||candidate.environmentMatches)&&candidate.taskId===row.inputs.attemptId))))throw new SingularityFlowError(
       'The reuse context returned another Story, task or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'evidence-reuse.context',subject:binding.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
@@ -865,6 +872,26 @@ async function inspectTestRecoveryContext(port,input,signal){
     throw new SingularityFlowError('The recovery context returned another Story, phase or command agreement.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-recovery.context',subject:binding.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
+}
+function selectiveRecoveryContextInput(value,operation){
+  const input=data(value);if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key))
+    ||['phaseId','baselineOperationId'].some(key=>typeof input[key]!=='string'||!input[key]||input[key].length>512)
+    ||input.workId!=null&&(typeof input.workId!=='string'||!input.workId||input.workId.length>512)
+    ||!Array.isArray(input.selection)||!input.selection.length||input.selection.length>1024)invalid('Use an exact baseline and bounded file selection.');
+  return input;
+}
+async function inspectSelectiveRecoveryContext(port,input,signal){
+  notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
+  const facts=data(await port.read(context,{signal}));notCancelled(signal);
+  try{admitRecordSchemaVersion(NAMESPACE_SELECTIVE_TEST_RECOVERY_CONTEXT_SCHEMA,facts);}catch(cause){throw new SingularityFlowError(
+    'The selection context has an unsupported or invalid version.',{code:'ENGINE_PORT_RESULT_INVALID',cause});}
+  if(facts.profile!=='sflow-namespace-selective-test-recovery-context/v1'||context.subject?.kind!=='story'
+    ||facts.workId!==context.subject.id||facts.phase!==input.phaseId||facts.workId!==context.workflow?.workItem?.id
+    ||!/^sha256:[a-f0-9]{64}$/u.test(facts.expectedContext??'')||facts.executionMode!=='reviewed-file-selection'||facts.testsExecuted!==false
+    ||facts.impactComplete!==false||facts.failuresWaived!==false||!Array.isArray(facts.rows)||!facts.rows.length||facts.rows.length>1024
+    ||!Array.isArray(facts.authorities))throw new SingularityFlowError('The selection context returned another Story or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
+  return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-recovery.select-context',subject:context.subject,manifest:facts,
+    effects:{committed:false,pushed:false,testsRun:false,modelInvocations:0,approvalRecorded:false,storyAdvanced:false}});
 }
 async function inspectTestCommandContext(port,input,signal){
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
@@ -1377,7 +1404,9 @@ function singleDecisionInput(value, operation, {requestOnly=false,intent=false}=
   if(!requestOnly&&!intent&&(operation.requiredFields??[]).some(key=>!Object.hasOwn(input,key)||input[key]==null))invalid('Supply every required field for this standalone operation.');
   for (const [key,value] of Object.entries(input)) {
     if (value==null) continue;
-    if (['fetch','notApplicable','open','fromArtifact'].includes(key)) {if(typeof value!=='boolean')invalid(`Decision ${key} must be a boolean.`);}
+    if(key==='selection'&&operation.id==='test-recovery.select-confirm'){
+      if(!Array.isArray(value)||!value.length||value.length>1024||value.some(row=>!row||typeof row!=='object'||Array.isArray(row)))invalid('Use bounded repository/command file selection records.');
+    }else if (['fetch','notApplicable','open','fromArtifact'].includes(key)) {if(typeof value!=='boolean')invalid(`Decision ${key} must be a boolean.`);}
     else if (['clauseIds','transitions','sourceRoots'].includes(key)) {
       if(!Array.isArray(value)||value.some(item=>typeof item!=='string'))invalid(`Decision ${key} must be an array of strings.`);
     } else if (key==='checklist') {
@@ -1979,7 +2008,7 @@ export function createEngine(options = {}) {
   return createEngineRuntime(options, {
     enrollmentInput, enrollProject, configurationApprovalInput, approveConfiguration,storyCreationInput,createStory,
     clarificationInput,inspectClarification,recordClarification,
-    inspectTestRiskContext,inspectTestWitnessContext,inspectEvidenceReuseContext,inspectTestRecoveryContext,inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseRepairInput,runPhaseRepair,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
+    selectiveRecoveryContextInput,inspectSelectiveRecoveryContext,inspectTestRiskContext,inspectTestWitnessContext,inspectEvidenceReuseContext,inspectTestRecoveryContext,inspectTestCommandContext,inspectSourceReviewContext,inspectConvergenceContext,witnessContextInput,inspectWitnessContext,planCorrectionContextInput,inspectPlanCorrectionContext,constitutionExceptionContextInput,inspectConstitutionExceptionContext,sourceBindingInput,bindSources,phaseRepairInput,runPhaseRepair,phaseChecksInput,runPhaseChecks,sourceInspectionInput,deliveryInspectionInput,inspectPhaseSources,sourceRetentionInput,outputRetentionInput,baselineRetentionInput,retainPhaseSources,
     draftReadInput,draftMutationInput,readPhaseDraft,mutatePhaseDraft,
     advanceConvergence, approvalInput, approve, beginPhase, correctPlan, decisionInput,
     documentReadInput, contextReadInput,readPhaseContext,enterPhase, inspectPhaseCheck, inspectPhaseReview, inspectPhaseReviewResources, inspectDecisionContext, inspectDecisionList, inspectStoryGuide, inspectStoryNext,

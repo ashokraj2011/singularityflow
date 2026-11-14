@@ -9,7 +9,10 @@ export interface NamespaceCheckBinding {
   readonly executable:string;readonly executableSha256:ExecutionDigest;
   readonly environment:Readonly<Record<string,string>>;readonly unit:ExecutionUnit;
 }
-export interface NamespaceChecksBindings {readonly mode?:never;readonly owner:ExecutionOwner;readonly bindings:readonly NamespaceCheckBinding[]}
+export interface NamespaceChecksBindings {readonly mode?:never;readonly owner:ExecutionOwner;readonly bindings:readonly NamespaceCheckBinding[];
+  /** Opt-in reuse v2: current SGOS runtime/environment/source observation is mandatory. */
+  readonly environmentSensitiveReuse?:boolean;
+}
 export type NamespacePhaseChecksOptions=Omit<NamespaceEngineOptions,'working'>&{
   readonly localRecords?:NamespaceStore|null;readonly localContent?:ContentStore|null;
 };

@@ -3,8 +3,8 @@ import {namespacePhaseCheckFixture} from './namespace-phase-check-fixture.mjs';
 import {createNamespaceEngine} from '../../src/engine-storage/namespace-engine.mjs';
 import {createNamespaceStoryObserver} from '../../src/engine-storage/namespace-story-reader.mjs';
 export const reuseReason='The exact same passing command and unchanged source stand for this later document phase; its original producer remains explicit.';
-export async function namespaceEvidenceReuseFixture(t,{backend='filesystem',failing=false,configure=()=>{},run=true}={}){
-  const f=await namespacePhaseCheckFixture(t,{backend,failing,configure(source){
+export async function namespaceEvidenceReuseFixture(t,{backend='filesystem',failing=false,configure=()=>{},run=true,beforePrepare=null}={}){
+  const f=await namespacePhaseCheckFixture(t,{backend,failing,beforePrepare,configure(source){
     source.definition.approvalAuthorities.reviewers.members.push({email:'independent@example.test'},{email:'author@example.test'});
     const intake=source.definition.phases.intake;intake.approval={...intake.approval,allowSelfApproval:false};
     source.definition.phases.assess={...structuredClone(intake),label:'Assessment',artifact:{path:'artifacts/assess/report.md'}};

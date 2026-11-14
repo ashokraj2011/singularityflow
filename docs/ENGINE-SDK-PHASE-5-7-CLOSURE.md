@@ -5,11 +5,26 @@ remain historical evidence. Neither phase is complete until its remaining owners
 cross-agent journeys are qualified. Phase 8 authority migration and Phase 9 production cutover,
 obsolete-access removal and final distribution remain separate.
 
-The latest slice adds [reviewed source adoption and rollover](ENGINE-SDK-SOURCE-OPENINGS.md),
-including exact source confirmation, retained successors, original repair scopes and fresh
-execution through Verification and Release. The preceding known-failure owner remains delivered;
-selective execution, environment-sensitive reuse, live application review and the other owners
-below remain open.
+The latest slice adds [independent selective recovery and qualified reuse](ENGINE-SDK-SELECTIVE-RECOVERY-AND-QUALIFIED-REUSE.md).
+It binds reviewed whole-file execution to an actual original native Node JUnit inventory,
+preserves unexecuted cases, renews original-owner permission through Verification/Release and
+rechecks actual runner/runtime/dependency inputs for artifact-phase reuse. The preceding
+[source adoption and rollover](ENGINE-SDK-SOURCE-OPENINGS.md) delivery remains unchanged.
+Generalized impact selection, Code/recovery receiving reuse, live application review and the
+other owners below remain open.
+
+This slice passes 474 distinct affected Mac checks across 60 files, including 117 architecture
+guards, 35 native parity cases and the unchanged 34-check package qualifier. The final qualifier
+ran alone in 41.6 seconds within its original 120/60-second limits. Source validation passes
+4,417 checks; VS Code types, the unchanged 2,011-site Git audit and all 13 original bundle ceilings
+pass. Gateway remains 852/852 modules (6,944,369 bytes). The vocabulary now has 97 operations,
+with 42 native and 91 namespace bindings before optional execution.
+
+Concurrent test/build qualification exposed one intermittent cancellation/quiescence-record
+failure whose cause is not established. The isolated cancellation test, 12 additional real-process
+probes and the complete serial execution suite passed. No negative quiescence receipt was waived
+or relabelled as confirmed termination. Final combined qualification remains open with the other
+unchecked owners; neither phase is marked complete. No Windows or production installation ran.
 
 The source-opening delivery passes 289 distinct affected Mac checks across 37 files, including
 the unchanged 34-check package qualifier, run alone in 50.5 seconds within its original 120/60
@@ -51,7 +66,10 @@ Neither phase is marked complete while its remaining owners below are open.
 - [x] Add source-bound, human-authorized artifact-phase reuse without claiming a receiving execution.
 - [x] Add retained environment-risk publication, independent approval and shared-only replay for artifact phases.
 - [x] Add observed-suite baseline/cohort selection, Code environment risks and explicit recovery-risk ceremonies.
-- [ ] Finish independent selective recovery and environment-sensitive cross-execution reuse.
+- [x] Add independently inventoried native Node whole-file recovery and environment-qualified
+  artifact-phase reuse, preserving real execution, human review and shared-only replay.
+- [ ] Finish generalized impact/adapter selection and Code/recovery receiving-reuse owners;
+  those combinations must preserve their original source, evidence and authority contracts.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through explicit
   execution and evidence ports. Configured requirements cannot become successful flags.

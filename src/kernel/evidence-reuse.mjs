@@ -15,6 +15,15 @@ export function evidenceReuseExpiry(expires,at){
   return expiry.toISOString();
 }
 export const NAMESPACE_EVIDENCE_REUSE_PROFILE='sflow-namespace-evidence-reuse/v1';
+/** Exact qualified-environment equality. Paths stay in provenance, not in compatibility. */
+export function namespaceReuseEnvironment(qualification,command){
+  if(qualification?.profile!=='sflow-node-check-environment/v1'||!qualification.hostId||!qualification.platform||!qualification.arch
+    ||qualification.runtimeSha256!==command?.executableSha256||qualification.environmentSha256!==command?.environmentSha256
+    ||![qualification.runtimeSha256,qualification.environmentSha256,command?.argumentsSha256].every(value=>/^sha256:[a-f0-9]{64}$/u.test(value??'')))
+    fail('Reuse needs actual SGOS-qualified Node environment evidence. Run the current checks.','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_REQUIRED');
+  return {profile:'sflow-evidence-reuse-environment/v1',hostId:qualification.hostId,platform:qualification.platform,arch:qualification.arch,
+    runtimeSha256:qualification.runtimeSha256,environmentSha256:qualification.environmentSha256,argumentsSha256:command.argumentsSha256};
+}
 /** This first portable profile does not replace Code execution or a recovery agreement's no-reuse contract. */
 export function namespaceEvidenceReusePhase(workflow,phaseId){
   const phase=workflow.phases?.[phaseId];
@@ -52,8 +61,10 @@ export function namespaceEvidenceReusePlan(workflow,request,facts,source){
     const standing=rows.find(row=>row.id&&row.phase===request.phaseId&&row.producer.repositoryId===candidate.producer.repositoryId
       &&row.producer.command.id===candidate.producer.command.id&&namespaceEvidenceReuseState(workflow,row,{at:facts.at})==='active');
     if(standing)fail(standing.id+' already accounts for that receiving command and repository.','EVIDENCE_REUSE_ALREADY_RECORDED',{phase:request.phaseId});
-    record={schemaVersion:1,profile:NAMESPACE_EVIDENCE_REUSE_PROFILE,id:'ERU-'+String(rows.filter(row=>row.id).length+1).padStart(3,'0'),
+    const version=source.environments?2:1;
+    record={schemaVersion:version,profile:'sflow-namespace-evidence-reuse/v'+version,id:'ERU-'+String(rows.filter(row=>row.id).length+1).padStart(3,'0'),
       phase:request.phaseId,producer:structuredClone(candidate.producer),observations:structuredClone(source.observations),
+      ...(source.environments?{environments:structuredClone(source.environments)}:{}),
       reason,expiresAt:evidenceReuseExpiry(request.expires,facts.at),actor:facts.actorId,authorityGroup:facts.authorityGroup,at:facts.at};
   }
   proposed.namespaceEvidenceReuses=[...rows,record];

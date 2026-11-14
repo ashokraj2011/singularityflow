@@ -26,7 +26,7 @@ test('operation selections cannot contain unknown IDs, duplicates or operations 
 test('namespace composition exposes its real operation owners without opening the stores',async t=>{
   const f=await namespaceEngineFixture(t,{working:false}),engine=f.make({records:{...f.records,read:forbidden,transact:forbidden},content:{...f.content,read:forbidden,put:forbidden}}),
     bound=new Set(engine.capabilities.boundOperations.map(row=>row.id));
-  for(const id of ['test-risk.known-context','test-risk.confirm-known','test-cohort.context','test-cohort.confirm','test-risk.confirm-recovery','test-risk.context','decision.test-risk','evidence-reuse.context','decision.evidence-reuse','test-recovery.context','test-recovery.confirm','constitution.exception.context','decision.constitution-exception','source-review.context','source-review.record','phase.assign','decision.scope','decision.plan','plan.correction.record','decision.witness','upstream.raise','test-command.context','test-command.request','test-command.decide','forward-amendment.propose','forward-amendment.decide','forward-amendment.revalidate'])assert.ok(bound.has(id),id);
+  for(const id of ['test-recovery.select-context','test-recovery.select-confirm','test-risk.known-context','test-risk.confirm-known','test-cohort.context','test-cohort.confirm','test-risk.confirm-recovery','test-risk.context','decision.test-risk','evidence-reuse.context','decision.evidence-reuse','test-recovery.context','test-recovery.confirm','constitution.exception.context','decision.constitution-exception','source-review.context','source-review.record','source-review.decide','phase.assign','decision.scope','decision.plan','plan.correction.record','decision.witness','upstream.raise','test-command.context','test-command.request','test-command.decide','forward-amendment.propose','forward-amendment.decide','forward-amendment.revalidate'])assert.ok(bound.has(id),id);
   assert.ok(bound.has('decisions.record'));
   assert.ok(bound.has('decision.risk'));
   if(engine.capabilities.boundOperations.some(row=>row.id==='phase.begin'))assert.ok(bound.has('phase.rollover'));
@@ -47,5 +47,5 @@ test('native Git binding exposes its actual decision implementations without dis
     {tmpdir}=await import('node:os'),engine=createGitEngine({root:resolve(tmpdir(),'native-binding-inspection-not-a-checkout')}).engine,
     ids=new Set(engine.capabilities.boundOperations.map(row=>row.id));
   for(const id of ['decision.scope','decision.risk','decision.witness','forward-amendment.decide','phase.publish'])assert.ok(ids.has(id),id);
-  for(const id of ['phase.assign','source-review.record','source-review.decide','plan.correction.record','story.create'])assert.equal(ids.has(id),false,id);
+  for(const id of ['test-recovery.select-context','test-recovery.select-confirm','phase.assign','source-review.record','source-review.decide','plan.correction.record','story.create'])assert.equal(ids.has(id),false,id);
 });

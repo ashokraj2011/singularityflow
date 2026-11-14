@@ -12,7 +12,7 @@ export const CODE_REWORK_EVIDENCE='code-delivery/v2';
 const codeEvidenceKinds=Object.freeze(Array.from({length:NAMESPACE_PHASE_POLICY_SCHEMAS.code.maximumReadableVersion},(_,index)=>'code-delivery/v'+(index+1)));
 export const isCodePolicyEvidence=kind=>codeEvidenceKinds.includes(kind);
 export const CODE_INPUT_EVIDENCE='approved-code-inputs/v1';
-export const isCodeInputEvidence=kind=>[CODE_INPUT_EVIDENCE,'approved-code-inputs/v2'].includes(kind);
+export const isCodeInputEvidence=kind=>[CODE_INPUT_EVIDENCE,'approved-code-inputs/v2','approved-code-inputs/v3'].includes(kind);
 export const CONFORMANCE_EVIDENCE='conformance/v1';
 export const isConformanceEvidence=kind=>[CONFORMANCE_EVIDENCE,'conformance/v2','conformance/v3','conformance/v4'].includes(kind);
 const evidence=value=>{if(contentReference(value).namespace!=='evidence')throw Error('Policy evidence requires shared immutable content.');};

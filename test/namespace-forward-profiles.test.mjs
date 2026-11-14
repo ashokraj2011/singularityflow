@@ -27,5 +27,5 @@ test('Code v1 through v27 retain their pre-amendment meanings',()=>{
   assert.equal(namespaceCodePolicyProfile('code',{schemaVersion:32}).executionRisk,true);
   assert.equal(namespaceCodePolicyProfile('code',{schemaVersion:32}).humanAcceptance,undefined,'the evidence profile is explicit, not inherited numerically');
   assert.equal(namespaceCodePolicyProfile('code',{schemaVersion:33}).knownFailureRisk,true);
-  assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:38}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:39}),{code:'SCHEMA_VERSION_FUTURE'});
 });

@@ -2,6 +2,7 @@
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {canonicalJson} from '../foundation/record-schema.mjs';
+import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 import {plannedClaimAllocatedTo,acceptanceTagBindings} from '../kernel/specification-policy.mjs';
 import {SPECIFICATION_CLAIM_TIMESTAMP_REQUEST} from '../kernel/specification-values.mjs';
 import {namespaceCodeDeliveryPreflightReplay,codeDeliveryCandidateScope,isExecutableTestSourceCandidate,isConfigurationPath,isAllowedTestAutomationPath,
@@ -40,6 +41,7 @@ function codePreflightReader(options,requireCurrentIndices){
     clauses=createNamespaceSourceClauseReader({observer,scope,workId,retention:changes,baseline,checks,controlReader}),
     files=createNamespaceCodeSourceReader({observer,retention:changes,baseline,requireCurrentIndices}),outputsReader=createNamespaceOutputRetentionReader({...options,observer,sourceReader:changes});
   let knownRiskOwner;const knownRisks=()=>knownRiskOwner??=createNamespaceKnownTestRiskOwner({observer,scope,workId});
+  let selectiveOwner;const selective=()=>selectiveOwner??=createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId});
   async function inspect(snapshot,phaseId,identity,{signal,binding=null,policyTraversal}={}){
     const workflow=snapshot.workflow,commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(snapshot,phaseId,{signal,policyTraversal}),
       phase={...workflow.phases[phaseId],qualityCommands:commandProof.commands},definition=(await observer.approved(snapshot,{signal})).compiled.definition;
@@ -145,8 +147,9 @@ function codePreflightReader(options,requireCurrentIndices){
               const current=await readBytes(candidate);if(current&&current.length===old.size&&hash(current)===old.sha256)paths.push(candidate);
             }return paths;
           }
-          case 'reviewed-baseline-tests':return (workflow.namespaceKnownTestRisks??[]).length
-            ?knownRisks().baselineTestPaths(snapshot,phaseId,id,{signal}):[];
+          case 'reviewed-baseline-tests':return [...(workflow.namespaceKnownTestRisks??[]).length
+            ?await knownRisks().baselineTestPaths(snapshot,phaseId,id,{signal}):[],...(workflow.namespaceSelectiveTestRecoveries??[]).length
+            ?await selective().baselineTestPaths(snapshot,phaseId,id,{signal}):[]];
           case 'allocated-obligations':return obligations;
           case 'working-path-facts':return pathFacts(request.candidate);
           case 'working-path-bytes':return readBytes(request.candidate);

@@ -52,10 +52,13 @@ export async function verifyCodePolicyInTraversal(reader,observer,publication,bi
   }catch(cause){entry.key=null;entry.pending=null;throw cause;}
 }
 function reportValue(value){
-  try{const wire=namespaceCodePolicyProfile('codeReport',value),profile=wire.executionRisk?namespaceCodePolicyProfile('codeReport',{schemaVersion:value.evidenceVersion}):wire;
+  try{const wire=namespaceCodePolicyProfile('codeReport',value),profile=wire.executionRisk||wire.selectiveRecovery?namespaceCodePolicyProfile('codeReport',{schemaVersion:value.evidenceVersion}):wire;
+    if(wire.selectiveRecovery&&(!Number.isInteger(value.evidenceVersion)||value.evidenceVersion<1||value.evidenceVersion>35
+      ||[32,33].includes(value.evidenceVersion)||!value.checks||value.selectiveRecovery?.profile!=='sflow-namespace-code-selective-execution/v1'
+      ||value.selectiveRecovery.failuresWaived!==false||value.selectiveRecovery.impactComplete!==false))throw Error('Another selective execution contract.');
     if(wire.executionRisk&&(!namespaceCodeExecutionRiskEvidenceAllowed(wire,value.evidenceVersion)||value.checks!==null
       ||value.executionException?.profile!==(wire.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1')||wire.knownFailureRisk&&value.executionException.failedAcceptanceWaived!==false||value.executionException.testsPassed!==false))throw Error('Another execution exception.');
-    exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance',...(wire.executionRisk?['evidenceVersion','executionException']:[])]);
+    exactObject(value,['schemaVersion','format','preflight','control','checks','repositories','acceptance',...(wire.executionRisk?['evidenceVersion','executionException']:[]),...(wire.selectiveRecovery?['evidenceVersion','selectiveRecovery']:[])]);
     if(value.format!==wire.format||!Array.isArray(value.repositories)||!Array.isArray(value.acceptance))throw Error('Another Code report.');
     const p=value.preflight;exactObject(p,['profile','source','baseline','plan','repositories',...((profile.optionalHistory?Boolean(p.history):profile.rework)?['history']:[]),
       ...((profile.optionalPredecessors?Boolean(p.priorCode):profile.predecessors)?['priorCode']:[]),...((profile.optionalOutputs?Boolean(p.outputs):profile.outputs)?['outputs']:[]),...((profile.repositoryCoverage||profile.optionalRepositoryCoverage&&p.repositoryScope)?['repositoryScope']:[])]);
@@ -178,7 +181,10 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
       }
     }
     const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31,34:35}[preflightVersion]??7):preflightVersion;
-    const riskProfile=risk?namespaceCodeExecutionRiskProfile(risk.report,{evidenceVersion:version}):null,report=reportValue({schemaVersion:riskProfile?.version??version,format:riskProfile?.format??'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
+    const selection=tested?.plan.selection;if(selection&&risk)missing('selective-recovery-execution-risk-combination');
+    const riskProfile=risk?namespaceCodeExecutionRiskProfile(risk.report,{evidenceVersion:version}):null,report=reportValue({schemaVersion:selection?38:riskProfile?.version??version,format:selection?'sflow-namespace-code-policy-report/v38':riskProfile?.format??'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
+      ...(selection?{evidenceVersion:version,selectiveRecovery:{profile:'sflow-namespace-code-selective-execution/v1',decision:selection.decision,
+        excluded:selection.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,testIds:row.excludedIds,outcome:'not-run'})),impactComplete:false,failuresWaived:false}}:{}),
       ...(risk?{evidenceVersion:version,executionException:{profile:riskProfile.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1',...(riskProfile.knownFailureRisk?{failedAcceptanceWaived:false}:{}),checks:risk.binding,testsPassed:false,policy:publication.policyEvidence?.find(row=>isNamespaceTestRiskPolicy(row.kind)&&row.kind!=='test-risk/v1')??null}}:{})});
     return {report,source,policy};
   }

@@ -24,6 +24,7 @@ import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceSourceRetentionReader} from './namespace-source-retention-reader.mjs';
 import {createNamespaceCodeHistoryReader} from './namespace-code-history.mjs';
+import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 export {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
@@ -44,12 +45,15 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
   const units=new Map(),sourceUnits=new Map(),contexts=new WeakMap(),prepared=new WeakMap(),completed=new WeakMap(),executionSignals=new Map();
   for(const source of sources){const descriptor=validateSourceUnit(source);sourceUnits.set(descriptor.repositoryId,{descriptor,capture:source.capture.bind(source)});}
   const history=createNamespaceSgosOperationalStore({records,content,scope,storeId:'phase-checks-'+hash(canonicalJson(codec.binding)).slice(0,48)});
+  const selective=createNamespaceSelectiveTestRecoveryOwner({...options,observer,scope,workId}),selectedUnits=new Map();
+  const durable=unit=>createDurableExecutionUnit({unit:{...unit,start:contract=>unit.start(contract,{signal:executionSignals.get(contract.contractSha256)??null})},
+    store:history,content,scope,owner:checks.owner,clock});
   for(const binding of checks.bindings??[]){const identity=JSON.stringify([binding.phaseId,binding.commandId,binding.repositoryId]);
     if(units.has(identity))throw error('Phase/check/repository bindings must be distinct.');
     const unit=captureExecutionUnit(binding.unit);
+    const selector=Object.getOwnPropertyDescriptor(binding.unit,'selectTestFiles');
     units.set(identity,{...binding,environment:namespaceJson(binding.environment??{}),unit,
-      runtime:createDurableExecutionUnit({unit:{...unit,start:contract=>unit.start(contract,{signal:executionSignals.get(contract.contractSha256)??null})},
-        store:history,content,scope,owner:checks.owner,clock})});}
+      select:selector&&Object.hasOwn(selector,'value')&&typeof selector.value==='function'?selector.value.bind(binding.unit):null,runtime:durable(unit)});}
   const select=context=>{const found=contexts.get(context);if(!found)throw error('Use the issued phase-check context.');return found;};
   const parameters=input=>hash(canonicalJson({input,binding:codec.binding,recordsId:records.descriptor.id,contentId:content.descriptor.id}));
   async function authorize(expected,signal,identityOnly=false){cancelled(signal);const identity=phaseAccessIdentity(namespaceJson(await current({projectId:scope.projectId,workId,operation:'phase.checks.run',signal})),scope.projectId);
@@ -58,8 +62,15 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
     const saved=await put(scope,namespace,data,{signal});if(!same(contentReference(saved?.reference),expected)||typeof saved.reused!=='boolean')throw error('The content port acknowledged other check bytes.','ENGINE_PORT_RESULT_INVALID');
     await observer.bytes(expected,expected.bytes,signal);return expected;}
   function checked(plan,s){if(plan&&(plan.parametersSha256!==s.parameters||!same(plan.input,s.input)))throw error('This operation ID belongs to another check request.','ENGINE_OPERATION_ID_REUSED');return plan;}
-  function binding(step){const found=units.get(JSON.stringify([step.phaseId,step.command.id,step.repositoryId]));
-    if(!found)throw error('Bind an explicit executor for every selected command and repository.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.checks.run',commandId:step.command.id,repositoryId:step.repositoryId});return found;}
+  async function binding(step,selection=null){const found=units.get(JSON.stringify([step.phaseId,step.command.id,step.repositoryId]));
+    if(!found)throw error('Bind an explicit executor for every selected command and repository.','ENGINE_PORT_UNAVAILABLE',{operation:'phase.checks.run',commandId:step.command.id,repositoryId:step.repositoryId});
+    const selected=selection?.rows.find(row=>row.commandId===step.command.id&&row.repositoryId===step.repositoryId);
+    if(!selected)return found;
+    const key=hash(canonicalJson({selection:selection.decision,selected}));if(selectedUnits.has(key))return selectedUnits.get(key);
+    if(!found.select)throw error('Bind the explicit native Node whole-file selection executor, or revoke the selection and run all configured checks.','ENGINE_PORT_UNAVAILABLE',{
+      required:['selective-test-executor'],commandId:step.command.id,repositoryId:step.repositoryId});
+    const unit=captureExecutionUnit(await found.select({files:selected.files,selectionSha256:selection.record.contextSha256,originalArgumentsSha256:digest(step.command.argv.slice(1))})),
+      value={...found,unit,runtime:durable(unit)};selectedUnits.set(key,value);return value;}
   async function captureSources(repositories,signal){const captured=[];
     for(const repo of repositories){const source=sourceUnits.get(repo.id);if(!source||!same(source.descriptor,repo.descriptor))throw error('Bind the selected repository source observation port.','ENGINE_SOURCE_UNIT_UNAVAILABLE',{repositoryId:repo.id});
       const found=await source.capture({signal});sourceSnapshot(found.snapshot,source.descriptor);const data=Buffer.from(canonicalJson(found.snapshot));
@@ -69,7 +80,9 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
   async function fresh(s,signal){await runtime.revalidateDraft(s.admission,{signal});await authorize(s.plan.actor,signal);
     const captured=await captureSources(s.plan.sources.map(item=>({id:item.id,descriptor:item.descriptor})),signal);
     if(captured.some((item,index)=>item.revision!==s.plan.sources[index].revision))throw error('Source bytes changed after the check plan. Retained attempts are preserved.','ENGINE_SOURCE_CHANGED',{
-      operation:'phase.checks.run',newOperationRequired:true});}
+      operation:'phase.checks.run',newOperationRequired:true});
+    if(s.plan.selection){const selected=await selective.current((await observer.capture({signal})).snapshot,s.plan.input.phaseId,{signal,at:projectEnrollmentTimestamp(await now())});
+      if(!same(selected,s.plan.selection))throw error('The reviewed selection expired, was revoked or changed.','SELECTIVE_TEST_RECOVERY_NOT_CURRENT');}}
   async function acknowledged(s,signal){const accepted=await reader.accepted(s.input,{signal});if(!accepted)return null;
     checked(accepted.plan,s);await authorize(accepted.plan.actor,signal,true);return {...accepted,replayed:true};}
   return {
@@ -100,6 +113,13 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
         const recoveryProof=captured.snapshot.workflow.resolution.testRecovery?.enabled?await createNamespaceTestRecoveryOwner({observer,scope,workId}).current(captured.snapshot,{signal}):null;
         const commandProof=await createNamespaceTestCommandOwners({observer,scope,workId}).commands(captured.snapshot,phase.id,{signal}),
           commands=commandProof.commands,repositories=captured.snapshot.workflow.sourceBindings?.current?.repositories;
+        const selection=(captured.snapshot.workflow.namespaceSelectiveTestRecoveries??[]).length
+          ?await selective.current(captured.snapshot,phase.id,{signal,at:projectEnrollmentTimestamp(await now())}):null;
+        if(selection&&selection.record.context.generation!==facts.payload.generation)throw error(
+          'This selection belongs to an earlier generation. Revoke it with its human authority, then run the complete configured checks for this generation.',
+          'SELECTIVE_TEST_RECOVERY_CONTEXT_CHANGED',{generation:facts.payload.generation,selectedGeneration:selection.record.context.generation,
+            actions:[{operation:'test-recovery.select-confirm',inputs:{workId,revoke:selection.record.id},requiredInputs:['operationId','reason'],prerequisites:['authenticated-test-risk-authority']},
+              {operation:'phase.checks.run',inputs:{workId,phaseId:phase.id},requiredInputs:['operationId'],prerequisites:['revoked-earlier-generation-selection','rebased-current-draft','retained-current-source']}]});
         if(!commands.length)throw error('The pinned phase has no configured checks.','ENGINE_CHECKS_NOT_CONFIGURED');
         const required=[];for(const command of commands){
           if(!command.argv||command.command)required.push('structured-argv');if(command.kind==='test'&&!command.result)required.push('structured-test-result');if(command.kind!=='test'&&command.result)required.push('non-test-report-contract');
@@ -110,12 +130,14 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
         const sourceProof=await observer.accepted(captured.snapshot.workflow.sourceBindings.current.operationId,{signal});
         if(!same(sourceProof.state.workflow.sourceBindings?.current,captured.snapshot.workflow.sourceBindings.current))throw error('The source selection differs from its accepted binding.','ENGINE_STORAGE_CORRUPT');
         const steps=[],seen=new Set();for(const command of commands){if(seen.has(command.id))throw error('Configured check IDs must be unique.','ENGINE_INPUT_INVALID');seen.add(command.id);
-          for(const repo of repositories){const selection={phaseId:s.input.phaseId,command,repositoryId:repo.id},bound=binding(selection);
+          for(const repo of repositories){const stepSelection={phaseId:s.input.phaseId,command,repositoryId:repo.id},bound=await binding(stepSelection,selection),
+            selected=selection?.rows.find(row=>row.commandId===command.id&&row.repositoryId===repo.id),argv=selected?.argv??command.argv;
             const manifest=validateExecutionUnitManifest(bound.unit.descriptor()),policy=manifest.toolPolicy,execution=localCheckExecutionProfile(policy);
             if(execution.testReport!==(command.kind==='test')||!execution.testReport&&execution.commandKind!==command.kind||manifest.provider!=='authorized-local-check'||policy.repository.projectId!==scope.projectId
               ||policy.repository.repositoryId!==repo.id||!same(policy.repository.selection,repo.descriptor.selection)
               ||bound.executable!==command.argv[0]||bound.executableSha256!==policy.command.executableSha256
-              ||policy.command.argumentsSha256!==digest(command.argv.slice(1))||policy.command.environmentSha256!==digest(bound.environment)
+              ||Boolean(execution.selective)!==Boolean(selected)||selected&&(!same(policy.selection,{profile:'sflow-node-check-file-selection/v1',sha256:selection.record.contextSha256,originalArgumentsSha256:digest(command.argv.slice(1)),files:selected.files}))
+              ||policy.command.argumentsSha256!==digest(argv.slice(1))||policy.command.environmentSha256!==digest(bound.environment)
               ||Object.entries(command.env??{}).some(([key,value])=>bound.environment[key]!==value)
               ||policy.report.adapter!==(command.result?.adapter??null)||!same(policy.report.files,command.kind!=='test'||qualityReportUsesStdout(command,path.basename)?[]:[command.result.path]))
               throw error('The selected executor differs from the pinned command, report or source selection.','ENGINE_CHECK_BINDING_CHANGED',{commandId:command.id,repositoryId:repo.id});
@@ -126,7 +148,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
               inputs:['sha256:'+facts.bodySha256],readScope:['repository:'+repo.id],writeScope:['repository:'+repo.id],forbiddenScope:['.git'],allowedDevices:[],
               environmentManifestSha256:policy.command.environmentSha256,candidatePolicy:'immutable-snapshot',outputSchema:{type:'object'},requiredEvidence:[execution.testReport?'test-report':'process-result'],
               budgets:{activeMinutes:Math.max(1,Math.ceil((command.timeoutMs??policy.timeoutMs)/60_000)),modelInvocations:0,touchedResources:100_000},stopConditions:[],
-              executionUnitManifestSha256:manifest.manifestSha256});steps.push({...selection,manifest,contract});}}
+              executionUnitManifestSha256:manifest.manifestSha256});steps.push({...stepSelection,manifest,contract});}}
         if(steps.length>1024)throw error('The check set exceeds its bounded execution profile.','ENGINE_STORAGE_LIMIT');
         const actor={actor:facts.actor,agentId:facts.agentId};
         const observedSources=await captureSources(repositories,signal);
@@ -134,7 +156,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
           throw error('The application changed after its admitted repair scope. Retain the current source and check it again.','ENGINE_SOURCE_CHANGED',{
             operation:'phase.source.retain',workId,phaseId:phase.id});
         const mixed=commands.some(command=>command.kind!=='test');
-        s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,...(mixed?{executionProfile:NAMESPACE_MIXED_CHECK_PROFILE}:{}),...(mixed||commandProof.identity.receipts.length||recoveryProof?{testCommands:commandProof.identity}:{}),...(recoveryProof?{recovery:{profile:'sflow-namespace-test-recovery-check/v1',agreementSha256:recoveryProof.agreement.contextSha256,agreements:recoveryProof.references}}:{}),binding:codec.binding,input:s.input,parametersSha256:s.parameters,
+        s.plan=phaseCheckRecord('plan',{profile:NAMESPACE_PHASE_CHECK_PROFILE,...(selection?{selection}:{}),...(mixed?{executionProfile:NAMESPACE_MIXED_CHECK_PROFILE}:{}),...(selection||mixed||commandProof.identity.receipts.length||recoveryProof?{testCommands:commandProof.identity}:{}),...(recoveryProof?{recovery:{profile:'sflow-namespace-test-recovery-check/v1',agreementSha256:recoveryProof.agreement.contextSha256,agreements:recoveryProof.references}}:{}),binding:codec.binding,input:s.input,parametersSha256:s.parameters,
           generation:facts.payload.generation,draft:runtime.draftIdentity(draft),artifact:facts.payload.artifact.current,actor,
           basis:{authorityVersion:captured.basis.authorityVersion,headVersion:captured.basis.headVersion,configurationVersion:captured.basis.configurationVersion,
             configuration:captured.snapshot.configuration,head:captured.basis.head},
@@ -149,7 +171,7 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
     },
     async execute(context,token,{signal}={}) {
       if(prepared.get(token)!==context)throw error('Use the issued phase-check preparation.');const s=select(context),results=[];
-      for(const step of s.plan.steps){cancelled(signal);await runtime.revalidateDraft(s.admission,{signal});const bound=binding(step);
+      for(const step of s.plan.steps){cancelled(signal);await runtime.revalidateDraft(s.admission,{signal});const bound=await binding(step,s.plan.selection);
         if(!same(validateExecutionUnitManifest(bound.unit.descriptor()),step.manifest))throw error('The executor changed after preparation.','ENGINE_CHECK_BINDING_CHANGED');
         executionSignals.set(step.contract.contractSha256,signal??null);
         let handle;try{handle=await bound.runtime.start(step.contract);}catch(cause){executionSignals.delete(step.contract.contractSha256);cancelled(signal);throw cause;}
@@ -184,7 +206,10 @@ export function createNamespacePhaseChecksPort(options={},runtime=null) {
     },
     async finish(context,accepted){const s=select(context);if(!accepted?.record||!same(accepted.plan.input,s.input))throw error('Use the accepted check receipt.','ENGINE_PORT_RESULT_INVALID');
       return {workId,phase:s.input.phaseId,operationId:s.input.operationId,generation:accepted.plan.generation,record:accepted.record,
-        recordedAt:accepted.body.recordedAt,principalId:accepted.plan.actor.actor.principalId,checks:accepted.body.checks,verdict:accepted.body.verdict,replayed:accepted.replayed};}
+        recordedAt:accepted.body.recordedAt,principalId:accepted.plan.actor.actor.principalId,checks:accepted.body.checks,verdict:accepted.body.verdict,replayed:accepted.replayed,
+        ...(accepted.plan.selection?{execution:{schemaVersion:1,profile:'sflow-selective-check-summary/v1',mode:'reviewed-file-selection',decision:accepted.plan.selection.decision,
+          unexecuted:accepted.plan.selection.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,testIds:row.excludedIds})),
+          completeSuiteClaimed:false,impactComplete:false,failuresWaived:false}}:{})};}
   };
 }
 

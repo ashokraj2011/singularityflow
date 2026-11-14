@@ -20,7 +20,8 @@ function inputReport(value){
   try{const profile=namespaceCodeInputPolicyProfile('codeInputReport',value);
     exactObject(value,['schemaVersion','format','testEvidenceFrom','inputs','currentSources']);
     if(value.format!==profile.format||!Array.isArray(value.inputs)||!Array.isArray(value.currentSources)
-      ||Boolean(profile.knownFailureInputs)!==value.inputs.some(row=>row.executionRisk))throw Error('Invalid Code input report.');
+      ||!profile.selectiveInputs&&Boolean(profile.knownFailureInputs)!==value.inputs.some(row=>row.executionRisk)
+      ||Boolean(profile.selectiveInputs)!==value.inputs.some(row=>row.testSelection))throw Error('Invalid Code input report.');
   }catch(cause){throw error('The retained Code input report has an invalid or unsupported contract.',
     ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}
   return value;
@@ -45,7 +46,7 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
       for(const [index,id]of selected.entries()){
         const proof=proofs[index],code=proof&&packets.publicationCodeEvidence(proof.published);
         if(!code)throw error('The approved Code producer needs its actual source and execution proof.','ENGINE_PORT_UNAVAILABLE',{phase:id,required:['retained-code-policy']});
-        const tests=[];let executionRisk=null,riskObservations=null;
+        const tests=[];let executionRisk=null,riskObservations=null,testSelection=null;
         if(id===policy.testSource){
           let found;
           if(proof.published.checks)found=await checks.publication(proof.published,{signal});
@@ -67,6 +68,14 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
               status:check.status,disposition:observation?.disposition??'passed',failedCases:observation?.failedCases??[]}: {})});
           }
           if(code.sources.some(source=>!tests.some(row=>row.repositoryId===source.repository.id)))throw error('The approved producer has no actual test execution for every selected repository.','PRIOR_CODE_TEST_EVIDENCE_REQUIRED',{sourcePhase:id});
+          if(found.plan.selection){const selection=found.plan.selection;
+            const permission=(await packets.publicationReader.policies.executionDispositions(proof.published,snapshot,{signal,at:publication.publishedAt}))
+              .find(row=>row.policy.kind==='test-recovery/v2');
+            if(!permission||permission.disposition==='uncovered')throw error('Renew the original file-selection permission or restore full execution evidence.','SELECTIVE_TEST_RECOVERY_NOT_CURRENT',{
+              phase:publication.phase,sourcePhase:id,actions:permission?.actions??[]});
+            testSelection={profile:'sflow-selective-code-input/v1',checks:proof.published.checks,decision:selection.decision,
+              executionMode:'reviewed-file-selection',excluded:selection.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,testIds:row.excludedIds,outcome:'not-run'})),
+              permission:{decisions:permission.decisions,references:permission.references},receiverExecuted:false,impactComplete:false,failuresWaived:false};}
         }
         const row={phase:id,generation:proof.value.generation,publication:proof.value.publication,submission:proof.binding,
           approvals:(workflow.phases[id].approvals??[]).filter(vote=>!vote.invalidatedAt&&vote.decision==='approved'&&vote.generation===proof.value.generation).map(vote=>vote.namespaceVote),
@@ -74,12 +83,13 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
           repositories:code.report.repositories,sources:code.sources.map(source=>({id:source.repository.id,descriptor:source.repository.descriptor,
             content:source.observed.content,revision:source.observed.revision}))};
         if(executionRisk)row.executionRisk=executionRisk;
+        if(testSelection)row.testSelection=testSelection;
         if(row.approvals.some(value=>!value))throw error('The Code input lost an original human approval receipt.');
         inputs.push(row);
         for(const source of row.sources){const previous=current.get(source.id),position=workflow.phaseOrder.indexOf(id);
           if(id===policy.testSource||!previous||previous.phase!==policy.testSource&&position>workflow.phaseOrder.indexOf(previous.phase))current.set(source.id,{phase:id,generation:row.generation,...source});}
       }
-      const profile=namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:inputs.some(row=>row.executionRisk)?2:1}),
+      const profile=namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:inputs.some(row=>row.testSelection)?3:inputs.some(row=>row.executionRisk)?2:1}),
         report=inputReport({schemaVersion:profile.version,format:profile.format,testEvidenceFrom:policy.testSource,
         inputs,currentSources:[...current.values()].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0)});
       const value={report,policy,workflow,definition:(await scoped.approved(snapshot,{signal})).compiled.definition};
@@ -98,7 +108,7 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
   }
   function proof(publication){const found=verified.get(publication);return found?.identity===canonicalJson(publication)&&found.sha256===hash(canonicalJson(found.value))?found.value:null;}
   const originalEvidence=report=>report.inputs.flatMap(row=>[row.publication.record,row.submission.record,...row.approvals.map(vote=>vote.record),row.code.record,row.report,
-    ...(row.executionRisk?[row.executionRisk.policy.record,row.executionRisk.report,...row.executionRisk.references]:[])]);
+    ...(row.executionRisk?[row.executionRisk.policy.record,row.executionRisk.report,...row.executionRisk.references]:[]),...(row.testSelection?[row.testSelection.decision,...row.testSelection.permission.references]:[])]);
   function sourceEvidence(value){if(candidates.get(value)!==hash(canonicalJson(value)))throw error('Use the original Code input computation.','ENGINE_INPUT_INVALID');return originalEvidence(value.report);}
   function evidence(value){return [value.binding.record,value.manifest.report,...originalEvidence(value.report)];}
   async function freshSources(publication,units,{signal}={}){

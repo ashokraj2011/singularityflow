@@ -30,6 +30,7 @@ function allowedSource(relative) {
 }
 
 function inputType(operation, field) {
+  if(operation.id.startsWith('test-recovery.select-')&&field==='selection')return 'readonly {readonly repositoryId:string;readonly commandId:string;readonly files:readonly string[]}[]';
   if(operation.id==='forward-amendment.propose'&&field==='content')return 'ContentReference';
   if(operation.id==='convergence.adjudicate')return field==='clauseIds'?'readonly string[]':field==='disposition'?'ConvergenceDisposition':field==='fetch'?'boolean | null':'string';
   if(['constitution.exception.context','decision.constitution-exception'].includes(operation.id))return field==='expires'?'string | null':'string';

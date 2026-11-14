@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {canonicalJson,NAMESPACE_EVIDENCE_REUSE_SCHEMAS,namespaceEvidenceReuseRecordProfile} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
-import {namespaceEvidenceReusePhase,namespaceEvidenceReuseState,namespaceEvidenceReusePlan,NAMESPACE_EVIDENCE_REUSE_PROFILE} from '../kernel/evidence-reuse.mjs';
+import {namespaceEvidenceReusePhase,namespaceEvidenceReuseState,namespaceEvidenceReusePlan,namespaceReuseEnvironment,NAMESPACE_EVIDENCE_REUSE_PROFILE} from '../kernel/evidence-reuse.mjs';
 import {evidenceReuseAuthorities} from '../kernel/approval-fallback.mjs';
 import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
 import {standaloneDecisionAdmission} from '../kernel/decision-plan.mjs';
@@ -21,9 +21,9 @@ const same=(a,b)=>canonicalJson(a)===canonicalJson(b),hash=value=>createHash('sh
   unique=values=>[...new Map(values.map(value=>[canonicalJson(value),value])).values()];
 export const EVIDENCE_REUSE_POLICY='evidence-reuse/v1';
 export const namespaceEvidenceReuseManifest=(value,scope)=>namespaceEvidencePolicyManifest(value,{...scope,
-  family:NAMESPACE_EVIDENCE_REUSE_SCHEMAS.policy,format:'sflow-namespace-evidence-reuse-policy-manifest/v1'});
-export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources=[]}){
-  const operation='decision.evidence-reuse',sourceBindings=createNamespaceSourceObservations({observer,scope}),checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer}),
+  family:NAMESPACE_EVIDENCE_REUSE_SCHEMAS.policy,format:namespaceEvidenceReuseRecordProfile('policy',value).profile});
+export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources=[],checks:bindings,environmentChecks=null}){
+  const operation='decision.evidence-reuse',sourceBindings=createNamespaceSourceObservations({observer,scope}),checks=createNamespacePhaseCheckReader({...observer.evidenceReads,observer,checks:bindings}),
     packets=createNamespaceSubmissionReader({observer,scope,workId,checks}),commands=createNamespaceTestCommandOwners({observer,scope,workId});let reader;
   async function json(reference,signal){const bytes=await observer.bytes(reference,reference.bytes,signal);
     try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch(cause){throw new SingularityFlowError(
@@ -65,7 +65,8 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
         const producer={phase:prior[index],generation:proof.value.generation,publication:proof.value.publication,submission:proof.binding,
           checks:proof.published.checks,taskId:step.contract.taskId,repositoryId:step.repositoryId,command:step.command,
           tests,completedAt:tested.body.recordedAt,executionSha256:'sha256:'+hash(canonicalJson(tested.body.results[offset]))};
-        candidates.push({taskId:step.contract.taskId,producer,sources:tested.plan.sources});
+        candidates.push({taskId:step.contract.taskId,producer,sources:tested.plan.sources,
+          qualification:step.manifest.toolPolicy.environmentQualification??null,command:step.manifest.toolPolicy.command});
       }
     }
     if(candidates.length>1024)fail('The reuse candidate inventory exceeds its explicit bound.','ENGINE_STORAGE_LIMIT');
@@ -104,6 +105,21 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
     }
     return true;
   }
+  const environmentReader=environmentChecks??checks;
+  async function environment(snapshot,phaseId,candidate,observed,{signal,bound=null}={}){
+    const expected=namespaceReuseEnvironment(candidate.qualification,candidate.command),repository=snapshot.workflow.sourceBindings.current.repositories.find(row=>row.id===candidate.producer.repositoryId),
+      source=candidate.sources.find(row=>row.id===repository.id),original=sourceSnapshot(await json(source.content,signal),source.descriptor),
+      fingerprint=value=>'sha256:'+hash(canonicalJson({selection:value.selection,entries:value.entries})),expectedInputs=fingerprint(original);let current;
+    if(bound!==null){if(!Array.isArray(bound)||bound.length!==1)fail('The qualified reuse environment is incomplete.');current=bound[0];}
+    else{
+      const found=await environmentReader.environment(phaseId,candidate.producer.command,repository,{signal}),inventorySha256=fingerprint(found.source);
+      current={repositoryId:repository.id,commandId:candidate.producer.command.id,identity:found.identity,inventorySha256};
+    }
+    if(!same(current,{repositoryId:repository.id,commandId:candidate.producer.command.id,identity:expected,inventorySha256:expectedInputs}))fail(
+      'The receiving environment or its dependency/source inputs differ from the original execution. Run current checks.','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_CHANGED',{
+        repositoryId:repository.id,commandId:candidate.producer.command.id,actions:[{operation:'phase.checks.run',inputs:{workId,phaseId},requiredInputs:['operationId']}]});
+    return [current];
+  }
   const owner={
     agentPhase:snapshot=>snapshot.workflow.currentPhase,
     async read(snapshot,request,options={}){
@@ -122,8 +138,10 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
       const observed=await observations(snapshot,values.repositories,{...options,bound:options.bound?.observations??null});
       if(!await matches(snapshot,candidate,observed.rows,options))fail('Source or test inputs changed after the original execution. Run current checks.','ENGINE_SOURCE_CHANGED',{
         actions:[{operation:'phase.checks.run',inputs:{workId,phaseId:request.phaseId},requiredInputs:['operationId']}]});
-      return {generation:phase.generation,candidate,observations:observed.rows,identity:{profile:NAMESPACE_EVIDENCE_REUSE_PROFILE,
-        candidate:candidate.producer,commands:values.commandIdentity,observations:observed.rows},
+      const qualified=options.bound?Object.hasOwn(options.bound,'environments'):environmentReader.environmentSensitiveReuse,
+        environments=qualified?await environment(snapshot,request.phaseId,candidate,observed.rows,{...options,bound:options.bound?.environments??null}):null;
+      return {generation:phase.generation,candidate,observations:observed.rows,...(qualified?{environments}:{}),identity:{profile:qualified?'sflow-namespace-evidence-reuse/v2':NAMESPACE_EVIDENCE_REUSE_PROFILE,
+        candidate:candidate.producer,commands:values.commandIdentity,observations:observed.rows,...(qualified?{environments}:{})},
         pendingEvidence:observed.pendingEvidence,references:unique([...previous.map(row=>row.reference),...values.references,...observed.rows.map(row=>row.content)])};
     },
     authority(workflow,request,actor){
@@ -136,7 +154,9 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
     async fresh(snapshot,request,source,{signal}={}){if(request.revoke)return;
       const selected=await observations(snapshot,snapshot.workflow.sourceBindings.current.repositories,{signal});
       if(!same(selected.rows.map(row=>({id:row.id,inventorySha256:row.inventorySha256})),source.observations.map(row=>({id:row.id,inventorySha256:row.inventorySha256}))))fail(
-        'Source bytes changed while recording reuse.','ENGINE_SOURCE_CHANGED');}
+        'Source bytes changed while recording reuse.','ENGINE_SOURCE_CHANGED');
+      if(source.environments&&!same(source.environments,await environment(snapshot,request.phaseId,source.candidate,selected.rows,{signal})))fail(
+        'The receiving environment changed while recording reuse.','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_CHANGED');}
   };
   reader=createNamespaceRecordedMutationReader({observer,scope,workId,operation,owner,contract:namespaceDecisionContract});
   async function publication(snapshot,phaseId,{signal,at,bound=null,units=sources,policyTraversal}={}){
@@ -144,13 +164,17 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
       .filter(row=>row.record.id&&row.record.phase===phaseId);
     if(!rows.length)return null;
     const values=await inventory(snapshot,phaseId,{signal,policyTraversal}),observed=await observations(snapshot,values.repositories,{signal,bound:bound?.sources??null,units}),
-      selected=[],missing=[],lapsed=[];
+      selected=[],missing=[],lapsed=[],environments=[];
     for(const command of values.commands)for(const repository of values.repositories){
       const matching=rows.filter(row=>row.record.producer.repositoryId===repository.id&&row.record.producer.command.id===command.id);
       let chosen=null;
       for(const row of matching.toReversed()){
         const state=namespaceEvidenceReuseState(snapshot.workflow,row.record,{at}),candidate=values.candidates.find(value=>same(value.producer,row.record.producer));
-        if(state==='active'&&candidate&&same(candidate.producer.command,command)&&await matches(snapshot,candidate,observed.rows,{signal})){chosen=row;break;}
+        if(state==='active'&&candidate&&same(candidate.producer.command,command)&&await matches(snapshot,candidate,observed.rows,{signal})){
+          if(namespaceEvidenceReuseRecordProfile('record',row.record).environmentQualified){const current=await environment(snapshot,phaseId,candidate,observed.rows,{signal,bound:bound?row.record.environments:null});
+            if(!same(current,row.record.environments))fail('Qualified reuse changed its reviewed environment.');environments.push(...current);}
+          else if(!bound&&environmentReader.environmentSensitiveReuse)fail('Authorize environment-qualified reuse for this receiving host, or execute current checks.','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_REQUIRED');
+          chosen=row;break;}
         lapsed.push({id:row.record.id,state:state!=='active'?state:!candidate?'producer-or-command-changed':'source-changed'});
       }
       if(chosen)selected.push({decision:chosen.reference,record:chosen.record});else missing.push({commandId:command.id,repositoryId:repository.id});
@@ -158,19 +182,27 @@ export function createNamespaceEvidenceReuseOwner({observer,scope,workId,sources
     if(!values.commands.length||missing.length)fail('Reused tests do not cover the current exact command and repository inventory. Run current checks or review its reuse decisions.',
       'ENGINE_EVIDENCE_REUSE_INCOMPLETE',{phase:phaseId,missing,lapsed,actions:[{operation:'evidence-reuse.context',inputs:{workId,phaseId}},
         {operation:'phase.checks.run',inputs:{workId,phaseId},requiredInputs:['operationId']}]});
-    return {report:{schemaVersion:1,profile:'sflow-namespace-evidence-reuse-policy/v1',workId,phaseId,commands:values.commandIdentity,
-      reused:selected,sources:observed.rows,testsExecutedByReceiver:false,environmentRechecked:false,failuresWaived:false},
+    const version=environments.length?2:1;
+    if(version===2&&selected.some(row=>!namespaceEvidenceReuseRecordProfile('record',row.record).environmentQualified))fail('A qualified reuse set requires qualified decisions for every receiving command and repository.','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_REQUIRED');
+    return {report:{schemaVersion:version,profile:'sflow-namespace-evidence-reuse-policy/v'+version,workId,phaseId,commands:values.commandIdentity,
+      reused:selected,sources:observed.rows,...(version===2?{environments}:{}),testsExecutedByReceiver:false,environmentRechecked:version===2,failuresWaived:false},
       references:unique([...proofs.map(proof=>proof.reference),...values.references,...observed.rows.map(row=>row.content)]),
       pendingEvidence:observed.pendingEvidence,policy:{owners:['check-execution']}};
   }
   async function context(snapshot,phaseId,{signal,at}={}){
     const proofs=await admitted(snapshot,{signal}),values=await inventory(snapshot,phaseId,{signal}),observed=await observations(snapshot,values.repositories,{signal}),candidates=[];
-    for(const candidate of values.candidates)candidates.push({...candidate.producer,sourceMatches:await matches(snapshot,candidate,observed.rows,{signal})});
-    return {schemaVersion:1,profile:'sflow-namespace-evidence-reuse-context/v1',workId,phase:phaseId,revision:snapshot.revision,candidates,
+    const version=environmentReader.environmentSensitiveReuse?2:1;
+    for(const candidate of values.candidates){const sourceMatches=await matches(snapshot,candidate,observed.rows,{signal});let environmentMatches=false,environmentIssue=null;
+      if(version===2&&sourceMatches)try{await environment(snapshot,phaseId,candidate,observed.rows,{signal});environmentMatches=true;}
+      catch(cause){if(!['ENGINE_EVIDENCE_REUSE_ENVIRONMENT_CHANGED','ENGINE_EVIDENCE_REUSE_ENVIRONMENT_REQUIRED'].includes(cause.code))throw cause;
+        environmentIssue={code:cause.code,message:cause.message,details:cause.details??null};}
+      candidates.push({...candidate.producer,sourceMatches,...(version===2?{environmentMatches,environmentIssue}:{})});}
+    return {schemaVersion:version,profile:'sflow-namespace-evidence-reuse-context/v'+version,workId,phase:phaseId,revision:snapshot.revision,candidates,
       decisions:proofs.filter(row=>row.value.phase===phaseId).map(row=>({record:row.value.outcome.record,reference:row.reference,
         state:row.value.outcome.record.revokes?'revocation':namespaceEvidenceReuseState(snapshot.workflow,row.value.outcome.record,{at})})),
       authorities:evidenceReuseAuthorities(snapshot.workflow,phaseId),testsExecutedByReceiver:false,
-      actions:candidates.filter(row=>row.sourceMatches).map(row=>({operation,inputs:{workId,phaseId,attemptId:row.taskId},requiredInputs:['reason']}))};
+      actions:[...candidates.filter(row=>row.sourceMatches&&(version===1||row.environmentMatches)).map(row=>({operation,inputs:{workId,phaseId,attemptId:row.taskId},requiredInputs:['reason']})),
+        ...(version===2?[{operation:'phase.checks.run',inputs:{workId,phaseId},requiredInputs:['operationId'],prerequisites:['authored-current-phase-draft','explicit-check-execution-bindings']}]:[])]};
   }
   return Object.freeze({owner,reader,admitted,inventory,context,publication});
 }

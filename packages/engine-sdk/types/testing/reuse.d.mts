@@ -13,6 +13,15 @@ export interface NamespaceReusedExecution {
   readonly observations:readonly {readonly id:string;readonly descriptor:JsonValue;readonly content:ContentReference;readonly inventorySha256:string}[];
   readonly reason:string;readonly expiresAt:string|null;readonly actor:string;readonly authorityGroup:string;readonly at:string;
 }
+export interface NamespaceQualifiedReusedExecution extends Omit<NamespaceReusedExecution,'schemaVersion'|'profile'> {
+  readonly schemaVersion:2;readonly profile:'sflow-namespace-evidence-reuse/v2';
+  readonly environments:readonly {readonly repositoryId:string;readonly commandId:string;
+    readonly inventorySha256:string;readonly identity:ReuseEnvironmentIdentity}[];
+}
+export interface ReuseEnvironmentIdentity {readonly profile:'sflow-evidence-reuse-environment/v1';readonly hostId:string;
+  readonly platform:string;readonly arch:string;readonly runtimeSha256:string;readonly environmentSha256:string;readonly argumentsSha256:string}
+/** Equality projection only; this function never establishes that a supplied environment was observed. */
+export declare function namespaceReuseEnvironment(qualification:unknown,command:unknown):ReuseEnvironmentIdentity;
 /** Lifecycle status only; an active result does not establish current source, execution or human acceptance. */
-export declare function namespaceEvidenceReuseState(workflow:Readonly<Record<string,unknown>>,decision:NamespaceReusedExecution,
+export declare function namespaceEvidenceReuseState(workflow:Readonly<Record<string,unknown>>,decision:NamespaceReusedExecution|NamespaceQualifiedReusedExecution,
   options:{readonly at:string}):'active'|'revoked'|'expired'|'superseded';

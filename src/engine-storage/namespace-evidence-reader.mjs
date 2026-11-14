@@ -1,5 +1,6 @@
+import {namespaceTerminalEvaluationRequired} from '../kernel/approval-policy.mjs';
 /** Reconstruct an evidence view from actual accepted publications, checks and human receipts. No effects. */
-import {isNamespaceTestRiskPolicy,canonicalJson,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
+import {isNamespaceTestRiskPolicy,canonicalJson} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {NODE_TEXT_DIGESTS,NODE_TEXT_VALUE_SYNTAX} from '../records.mjs';
@@ -41,9 +42,7 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
     for(const [index,id]of approved.entries()){
       const proof=votes[index];if(!proof)fail('An approved phase has no actual submitted and approved delivery.');
       references.push(proof.binding.record,...(workflow.phases[id].approvals??[]).filter(row=>row.namespaceVote).map(row=>row.namespaceVote.record));
-      if(workflow.status==='closed'&&workflow.currentPhase===null&&((workflow.namespaceObligationRisks??[]).length
-        ||(workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)||(workflow.namespaceTestCohorts??[]).length||(workflow.namespaceKnownTestRisks??[]).length
-        ||Object.values(workflow.phases).some(phase=>phase.approvals?.some(row=>row.witnessMappings?.length)))){
+      if(workflow.status==='closed'&&workflow.currentPhase===null&&namespaceTerminalEvaluationRequired(workflow)){
         for(const row of workflow.phases[id].approvals.filter(row=>row.namespaceVote&&!row.invalidatedAt)){
           const vote=await json(row.namespaceVote.record,signal);if(!vote.terminalEvidence)continue;
           // inspectApprovedMany already authenticated this vote and recomputed its original terminal proposal.
@@ -62,6 +61,7 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       const execution=await publications.policies.executionDispositions(publication,snapshot,{signal,at});
       executionPolicies.push(...execution);references.push(...execution.flatMap(row=>row.references));
       if(publication.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))excluded.push({phase:id,generation:phase.generation,reason:publication.policyEvidence.some(row=>row.kind==='known-test-risk/v1')?'known-baseline-failures-remain-failed':'failed-tests-with-accepted-environment-risk-are-not-passing-evidence'});
+      if(publication.policyEvidence?.some(row=>row.kind==='test-recovery/v2'))excluded.push({phase:id,generation:phase.generation,reason:'reviewed-unselected-baseline-cases-are-not-executed'});
       if(publication.specifications){
         const manifest=namespaceSpecificationManifest(await json(publication.specifications.record,signal),{scope,workId,phaseId:id});
         if(manifest.index)records.indexes.push(await json(manifest.index,signal));

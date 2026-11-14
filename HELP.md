@@ -2435,8 +2435,8 @@ Example: Story PAY-1 has the steps Intake (the scope), Design, Implement and Ver
 says a failed payment is retried up to 3 times. Design cites it, and Implement is half done. The
 business now wants 5 retries, and no retry after a fraud decline.
 
-1. Draft, preview and propose AMD-001: AC-001 revised, AC-003 added. Copilot:
-   `/sf-reject intent-amendment propose`. Shell: `singularity-flow story intent-amendment draft --clause PAY-1:AC-001`,
+1. Draft, preview and propose AMD-001: AC-001 revised, AC-003 added. Copilot: `/sf-amend propose`
+   (`/sf-reject intent-amendment propose` still works). Shell: `singularity-flow story intent-amendment draft --clause PAY-1:AC-001`,
    edit the file it names, then `singularity-flow story intent-amendment preview --file <DRAFT>` and
    `singularity-flow story intent-amendment propose --file <DRAFT> --reason "<why>" --authored human`.
    The preview records nothing; here it says Design is reopened because it cites AC-001. Implement pauses
@@ -3093,6 +3093,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-submit` | Submit the current generated phase |
 | `/sf-approve` | Explicitly review and approve a submitted phase |
 | `/sf-reject` | Explicitly reject to an allowed earlier phase |
+| `/sf-amend` | Change a Story's requirements after its scope is approved: draft, preview and propose an intent amendment. A scope approver decides it on the decisions card (`/sf-decide`), never Copilot |
 | `/sf-cancel` | Cancel active work, preserve its evidence, and move it to Archived |
 | `/sf-status` | Show detailed work-item state and warnings |
 | `/sf-progress` | Show deterministic phase completion |

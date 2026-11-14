@@ -63,12 +63,12 @@ export function intentAmendmentDraftPath(gitDirectory, workflow) {
  * clarification file while the step's checkpoint is on, and the Story's intent-amendment draft once the
  * step may propose one (the person says an approved requirement changed: the turn drafts and proposes
  * it, never edits the approved scope [owner, 2026-11-13]); a source-review turn gets the report file
- * unless the reviewer would review its own work; a /sf-reject turn gets the Story's intent-amendment
- * draft, whatever the step's status (its skill drafts the amended scope there and proposes it; the
- * scope's approvers decide it). Every other turn gets none.
+ * unless the reviewer would review its own work; a /sf-reject or /sf-amend turn gets the Story's
+ * intent-amendment draft, whatever the step's status (its skill drafts the amended scope there and
+ * proposes it; the scope's approvers decide it). Every other turn gets none.
  */
 export function phaseStagingPaths({ gitDirectory, definition, workflow, phase = workflow?.phases?.[workflow?.currentPhase], turnMode, skill = null }) {
-  if (turnMode === 'approval-only' && /^\/?(?:sf|sflow)-reject$/u.test(String(skill ?? '')) && gitDirectory && workflow?.workItem?.id) {
+  if (turnMode === 'approval-only' && /^\/?(?:sf|sflow)-(?:reject|amend)$/u.test(String(skill ?? '')) && gitDirectory && workflow?.workItem?.id) {
     return [intentAmendmentDraftPath(gitDirectory, workflow)];
   }
   if (!gitDirectory || !phase?.id || phase.status !== 'in_progress' || workflow?.currentPhase !== phase.id) return [];

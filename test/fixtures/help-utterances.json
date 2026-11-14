@@ -34,7 +34,10 @@
     { "question": "requirements changed", "status": "resolved", "topic": "changing-requirements", "intent": "concept" },
     { "question": "intent amendment", "status": "resolved", "topic": "changing-requirements", "intent": "concept" },
     { "question": "Why can't I publish after an amendment?", "status": "resolved", "topic": "changing-requirements", "intent": "diagnose" },
-    { "question": "How do I change the acceptance criteria after the scope is approved?", "status": "resolved", "topic": "changing-requirements", "intent": "procedure" }
+    { "question": "How do I change the acceptance criteria after the scope is approved?", "status": "resolved", "topic": "changing-requirements", "intent": "procedure" },
+    { "question": "How do I change the acceptance criteria?", "status": "resolved", "topic": "changing-requirements", "intent": "procedure" },
+    { "question": "requirements", "status": "resolved", "topic": "evidence-matrix", "intent": "concept" },
+    { "question": "requirement", "status": "resolved", "topic": "evidence-matrix", "intent": "concept" }
   ],
   "actionImperatives": [
     "Submit this phase",

@@ -20,6 +20,8 @@ questions:
   - Why is my draft refused after an amendment?
 keywords:
   - acceptance criteria
+  - change
+  - changed
 commands:
   - decisions
   - story
@@ -30,7 +32,8 @@ related:
   - approvals
   - phase-appeals
   - rejection-and-rework
-version: 1
+  - evidence-matrix
+version: 2
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 

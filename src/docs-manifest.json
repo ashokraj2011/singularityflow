@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "6385ecc38403a72715b9d2b9fb33a6f65720f582",
+  "sourceCommit": "e0815f5237608aa32c36cf327dd5db321ce6a27e",
   "topicCount": 93,
-  "contentSha256": "c185baa9e416b392be4969a4a06039b856e34ed65fb68b4076bc4b420755f4f9",
+  "contentSha256": "e2b0ee7fb56d59df5fd8af412bef8700a5fc88b50368363ae6bd91049b2c91ae",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -104,9 +104,9 @@
     {
       "id": "changing-requirements",
       "title": "Changing requirements during a Story",
-      "version": 1,
+      "version": 2,
       "sha256": "163b617a8ed30b9c747e79bf82a99f230ec996b45bcbedfc7dd0b5febda6fd84",
-      "routingSha256": "78268adb097ec90eda043eae536257b49cdf76d12e8db3ba96ee480fc625e01c",
+      "routingSha256": "85b8a26231aa239290306ff06343905ac68146094a0e75d6ba66c4c78b78af7c",
       "file": "changing-requirements.md"
     },
     {
@@ -232,9 +232,9 @@
     {
       "id": "evidence-matrix",
       "title": "Evidence matrix for requirements and acceptance criteria",
-      "version": 35,
-      "sha256": "9a9640c0f9ad01b5f030223919884d365d334253da7324254d8b600f2f0aa365",
-      "routingSha256": "1ac630e7dfdfbe2a92bf3ce0b059e2e77bbcee7d68307e9575047cac45b60332",
+      "version": 36,
+      "sha256": "044c0ef739abbc3f954a959df531d639e2ff3ed4cc28a4de39fdd146bb49679a",
+      "routingSha256": "761b11f1f6d8631724a9bde3bd6e402e7d9841bd2a9a456c226a69984f1c1f6d",
       "file": "evidence-matrix.md"
     },
     {

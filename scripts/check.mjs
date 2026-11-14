@@ -1095,7 +1095,7 @@ checked.push('templates/portfolio.yml');
  * command or subcommand the CLI does not have.
  */
 {
-  const { loadTopics, aliasTable } = await import('../src/docs-topics.mjs');
+  const { loadTopics, aliasTable, synopsisFirstSlots } = await import('../src/docs-topics.mjs');
   const { COMMAND_REGISTRY } = await import('../src/command-registry.mjs');
   const { HELP } = await import('../src/help-text.mjs');
 
@@ -1114,15 +1114,8 @@ checked.push('templates/portfolio.yml');
     }
 
     // Subcommands come from the synopsis, which is already the single source of usage truth. A
-    // `<PLACEHOLDER>` or `[optional]` token is an argument, not a subcommand, so neither counts.
-    const subcommands = new Map();
-    for (const line of HELP.split('\n')) {
-      const match = /^\s{2}(?:singularity-flow|sflow|sf-[a-z-]+)\s+([a-z][a-z-]*)\s+([a-z][a-z-]*)/.exec(line);
-      if (!match) continue;
-      if (!commandNames.has(match[1])) continue;
-      if (!subcommands.has(match[1])) subcommands.set(match[1], new Set());
-      subcommands.get(match[1]).add(match[2]);
-    }
+    // command whose first slot also takes an argument (`prepare [PHASE]`) cannot be checked there.
+    const { subcommands, open: openFirstSlot } = synopsisFirstSlots(HELP, commandNames);
 
     // Direction one: no topic invents a command.
     const invented = [];
@@ -1138,7 +1131,7 @@ checked.push('templates/portfolio.yml');
           continue;
         }
         const known = subcommands.get(command);
-        if (!known) continue;
+        if (!known || openFirstSlot.has(command)) continue;
         // Only the first level. The synopsis is parsed one subcommand deep, so `story interval
         // reconcile` can be checked as far as `story interval` and no further — and a check that
         // pretended to verify the third token would reject correct documentation, which is a worse

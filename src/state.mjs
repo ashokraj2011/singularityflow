@@ -3759,6 +3759,10 @@ export async function publishGeneration(root, config, workflow, {
       { code: 'GENERATION_INTENT_ALREADY_CONSUMED', details: { nextAction: `singularity-flow phase rollover ${phase.id}` } }
     );
   }
+  // SPEC-CIC switch 2 [CIC:REQ-009]: a reopened step's draft from before the amendment is refused, and written again in this step.
+  if (phase.scopePin && workflow.resolution?.spec?.preAmendmentDrafts === 'refuse') {
+    await (await import('./amended-drafts.mjs')).assertDraftPostdatesAmendment(root, workflow, phase, { itemRelative: workDirRelative(config, workflow.workItem.id) });
+  }
   const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
   assertRequiredAssignment(workflow, phase);
   const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
@@ -9034,6 +9038,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     workflow.currentPhase = workflow.phaseOrder[firstReset ?? nextIndex];
     workflow.status = 'in_progress';
     if (firstReset != null) delete workflow.completion;
+  }
+  // SPEC-CIC switch 2 [CIC:REQ-008]: the step reopened in place, and a later reset step holding unpublished work, is pinned to
+  // the amended scope; its earlier prompt and code generation are set aside and its draft kept read only.
+  if (firstReset != null && workflow.resolution?.spec?.preAmendmentDrafts === 'refuse') {
+    await (await import('./amended-drafts.mjs')).pinResetSteps(root, workflow, workflow.phaseOrder.slice(firstReset),
+      { amendment: proposal.id, revision: scopeRevision, itemRelative: workDirRelative(config, workflow.workItem.id), at });
   }
   // D1 [CIC:REQ-021]: each step kept here whose prompt held a changed clause it does not cite is asked, by its own
   // approvers on the Decide card, whether it still holds: the rows pendingAmendmentRevalidations lists, never settled.

@@ -100,13 +100,17 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
       && Number(phase.generationIntent.generation) === Number(phase.generation);
     if (phase.status === 'awaiting_approval' && !consumed) return null;
     let baseCommit;
+    let closed = false;
     if (consumed) {
       baseCommit = publishedGenerationCommit(root, workflow, phase, phase.generation);
       if (!baseCommit) return null;
     } else {
       await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id,
         itemDirectory: path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id) });
-      const intent = await verifyOpenGenerationIntent(root, workflow, phase);
+      // A generation an approved amendment closed unpublished (SPEC-CIC switch 2): what it changed is in scope from its
+      // baseline until `phase begin` opens the next one, which carries it (generation-boundary.mjs).
+      closed = phase.generationIntent?.status === 'superseded' && Number(phase.generationIntent.generation) === nextPhaseGeneration(phase);
+      const intent = closed ? phase.generationIntent : await verifyOpenGenerationIntent(root, workflow, phase);
       baseCommit = intent?.baseline?.commit;
       if (!baseCommit) return null;
     }
@@ -127,7 +131,7 @@ export async function inspectPhaseWorktreeScope(root, config, workflow, phase) {
         !protectedPaths.has(candidate) && !outsideBoundaryPaths.has(candidate)))
       .map(entry => entry.newPath).sort();
     const excludedChanges = await unreconciledCandidatePaths(root, config, workflow, phase);
-    return { status: 'verified', basis: consumed ? 'published-generation' : 'open-generation', excludedChanges,
+    return { status: 'verified', basis: consumed ? 'published-generation' : closed ? 'closed-generation' : 'open-generation', excludedChanges,
       phaseId: phase.id, generation: nextPhaseGeneration(phase), baseCommit,
       changeSetDigest: changeSet.digest, paths,
       protectedPaths: [...protectedPaths].sort(), outsideBoundaryPaths: [...outsideBoundaryPaths].sort(),

@@ -542,7 +542,15 @@ export async function openConvergenceTemplate(t, { configure = null } = {}) {
  * approvers are asked whether it still holds; the code step reads the design and completes at its submission, which
  * therefore waits for their answer. The Story is left with the code step republished on the amended scope.
  */
-export async function stillHoldsTemplate(t) {
+export const stillHoldsTemplate = (t) => amendedStoryTemplate(t, { observed: true });
+
+/**
+ * SPEC-CIC switch 2 [CIC:REQ-009]: the code step was begun, written and composed, and then an amendment changed the
+ * clause it implements. The Story is left with that step reopened in place, its draft from before the amendment unpublished.
+ */
+export const preAmendmentDraftTemplate = (t) => amendedStoryTemplate(t, { draftOnly: true });
+
+async function amendedStoryTemplate(t, { observed = false, draftOnly = false }) {
   const parent = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-walk-')));
   t.after(() => rm(parent, { recursive: true, force: true }));
   const root = path.join(parent, 'repository');
@@ -559,7 +567,7 @@ export async function stillHoldsTemplate(t) {
   config.worldModel.grounding = 'off'; config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   delete config.phases['fix-design'].clarification;
-  config.spec = { ...config.spec, observedDependencies: 'on' };
+  if (observed) config.spec = { ...config.spec, observedDependencies: 'on' };
   const quick = config.workTypes['quick-fix'];
   config.workTypes['quick-design'] = { ...quick, phases: ['intake', 'fix-design', 'implement', 'verify'], sourceReview: { mode: 'off' },
     phaseOverrides: { ...quick.phaseOverrides, implement: { inputs: ['intake', 'fix-design'] } } };
@@ -587,13 +595,17 @@ export async function stillHoldsTemplate(t) {
     '## Minimal safe change', '', `Change the one literal that holds the value. ${WORK}:AC-002 keeps the module to a single export, so no import changes.`, '',
     '## Alternatives and regression risk', '', 'A computed value was rejected as unnecessary; the only regression surface is the one test that reads it.', ''].join('\n'));
   cli('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place'); cli('submit', 'fix-design'); cli('approve', 'fix-design', '--yes');
-  cli('phase', 'begin', 'implement', '--json'); await code(); cli('prepare', 'implement'); cli('phase', 'publish', 'implement', '--authored', 'deterministic');
+  cli('phase', 'begin', 'implement', '--json'); await code(); cli('prepare', 'implement');
+  if (draftOnly) cli('phase', 'enter', 'implement', '--compose', '--json');
+  else cli('phase', 'publish', 'implement', '--authored', 'deterministic');
   const amended = path.join(parent, 'amended.md');
   await writeFile(amended, intake('The exported value equals 2 and is a number.'));
   cli('story', 'intent-amendment', 'propose', '--file', amended, '--reason', 'Say the value is numeric.');
   cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001');
   cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
-  cli('resume', WORK); cli('phase', 'begin', 'implement', '--json'); await code(); cli('prepare', 'implement');
+  cli('resume', WORK);
+  if (draftOnly) return { parent, root, item, cli };
+  cli('phase', 'begin', 'implement', '--json'); await code(); cli('prepare', 'implement');
   cli('phase', 'publish', 'implement', '--authored', 'deterministic');
   return { parent, root, item, cli };
 }

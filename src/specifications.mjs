@@ -28,10 +28,8 @@ const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
 export const SPECIFICATION_DEFINITION_KINDS = Object.freeze(['requirements', 'implementation-spec']);
 const SPECIFICATION_DEFINITION_KIND_SET = new Set(SPECIFICATION_DEFINITION_KINDS);
-// Work IDs may be mixed case. Clause identity is nevertheless canonical and
-// case-insensitive: every parsed namespace is normalized to upper case. This
-// keeps starter templates valid for IDs such as `work-1` without creating two
-// different clauses for `Work-1:AC-001` and `WORK-1:AC-001`.
+// Work IDs may be mixed case; clause identity is not: a parsed namespace is upper-cased, so
+// `Work-1:AC-001` and `WORK-1:AC-001` are one clause and starter templates stay valid for `work-1`.
 const NAMESPACE = '[A-Za-z0-9][A-Za-z0-9._-]{0,63}';
 const ANCHOR = new RegExp(`\\[(${NAMESPACE}):(${GOVERNED_CLAUSE_TYPE_PATTERN})-(\\d{3})\\]`, 'gi');
 const DEFAULT_LIMITS = Object.freeze({
@@ -117,7 +115,7 @@ export function normalizeSpecPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError('spec must be an object.');
   }
-  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'conformanceDifferences', 'testCommands', 'excludes', 'limits', 'compositionCache', 'observedDependencies']);
+  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'conformanceDifferences', 'testCommands', 'excludes', 'limits', 'compositionCache', 'observedDependencies', 'preAmendmentDrafts']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`spec contains unknown field '${key}'.`);
   const mode = value.mode ?? 'off';
   if (!['off', 'record', 'enforce'].includes(mode)) throw new SingularityFlowError('spec.mode must be off, record, or enforce.');
@@ -179,11 +177,13 @@ export function normalizeSpecPolicy(value = {}) {
   }
   const compositionCache = value.compositionCache ?? 'local';
   if (!['off', 'local'].includes(compositionCache)) throw new SingularityFlowError('spec.compositionCache must be off or local.');
-  // SPEC-CIC switch 1 [CIC:REQ-018], pinned only when on; readers check the pinned raw field.
+  // SPEC-CIC switches 1 (pinned only when on) and 2 (new Stories pin `refuse`), read from the pinned raw field [CIC:REQ-018].
   const observed = value.observedDependencies ?? 'off';
   if (!['off', 'on'].includes(observed)) throw new SingularityFlowError('spec.observedDependencies must be off or on.');
+  const preAmendmentDrafts = value.preAmendmentDrafts ?? 'refuse';
+  if (!['legacy', 'refuse'].includes(preAmendmentDrafts)) throw new SingularityFlowError('spec.preAmendmentDrafts must be legacy or refuse.');
   return { mode, namespace, coverage, acceptance, conformanceRows, conformanceDifferences, testCommands, excludes, limits, compositionCache,
-    ...(observed === 'on' ? { observedDependencies: observed } : {}) };
+    preAmendmentDrafts, ...(observed === 'on' ? { observedDependencies: observed } : {}) };
 }
 
 function lineNumber(text, offset) {
@@ -381,9 +381,8 @@ export function extractClauses(markdown, {
     if (seen.has(id)) throw new SingularityFlowError(`Clause ${id} is duplicated at lines ${seen.get(id)} and ${lineNumber(markdown, entry.index)}. Brackets define a clause, once; cite it elsewhere as \`${id}\` in backticks, without brackets.`);
     const line = lineNumber(markdown, entry.index);
     seen.set(id, line);
-    // Line numbers and source hashes come from the complete published artifact, but the body is the
-    // clause's own statement and contains only producer-authored bytes: managed input envelopes,
-    // comments and fenced code are masked before the statement is read.
+    // Line numbers and hashes come from the whole published artifact; the body is the clause's own
+    // statement, producer-authored bytes only: input envelopes, comments and fenced code are masked.
     const body = statements[index];
     const dependsOn = dependencies(body).filter((candidate) => candidate !== id);
     if (dependsOn.length > limits.maxDependenciesPerClause) {
@@ -1704,10 +1703,8 @@ export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, 
 }
 
 export function predecessorSpecClauses(records, workflow, phaseId) {
-  // Current records carry phaseOrder. Legacy/ad-hoc fixtures may only carry the pinned resolution
-  // or phase map; they still need a deterministic, non-throwing continuity projection. When no
-  // predecessor order can be proven, treating no phase as a predecessor is safer than importing a
-  // current/later clause.
+  // Current records carry phaseOrder; legacy fixtures only the pinned resolution or phase map. With no
+  // provable order, no phase is a predecessor: safer than importing a current or later clause.
   const phaseOrder = Array.isArray(workflow?.phaseOrder)
     ? workflow.phaseOrder
     : Array.isArray(workflow?.resolution?.phases)

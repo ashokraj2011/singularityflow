@@ -101,6 +101,8 @@ const FAMILIES = Object.freeze([
     'amendment-plan-corrections.mjs',
     // A generation's dependency record, written at publication under SPEC-CIC switch 1 and read by `spec dependencies`.
     'dependency-records.mjs', 'commands/spec-dependencies.mjs',
+    // A reopened step's pin, set at an amendment's approval and checked at publication (SPEC-CIC switch 2).
+    'amended-drafts.mjs',
     // A criterion's own failing test, named with its repair at a code step's test runs [PHR:REQ-002].
     'criterion-test-failures.mjs',
     // The specification acceptance the ending judges, judged at the last code step's submission [PHR:REQ-007].

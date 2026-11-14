@@ -29,6 +29,7 @@ import { storyEpicContext } from './story-epic-context.mjs';
 import { renderPromptInputsBlock } from './prompt-input-projection.mjs';
 import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { generationScope } from './generation-boundary.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
@@ -1104,6 +1105,8 @@ export async function compose(root, options, {
     { executionEvidence, visualReviews: visualReviews?.projection ?? null }) : null;
   // The rules this Story was pinned to at start, exactly those bytes, or their identities when absent.
   const constitution = workflow ? await constitutionPromptContext(root, workflow) : { text: '', record: null };
+  // A step an approved amendment reopened sees its earlier draft only as a read-only reference (SPEC-CIC switch 2) [CIC:REQ-008].
+  const preAmendmentDraft = workflow && phase?.scopePin ? (await import('./amended-drafts.mjs')).preAmendmentDraftSection(workflow, phase) : '';
   const promptCompilation = compilePromptSections([
     { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
     { id: 'approved-phase-inputs', text: inputEvidence, mandatory: true, priority: 0 },
@@ -1116,6 +1119,7 @@ export async function compose(root, options, {
     { id: 'user-defined-folder', text: userFolder, mandatory: true, priority: 0 },
     { id: 'mcp-policy', text: mcpPolicy, mandatory: true, priority: 0 },
     { id: 'pinned-constitution', text: constitution.text, mandatory: true, priority: 0 },
+    { id: 'pre-amendment-draft', text: preAmendmentDraft, mandatory: true, priority: 0 },
     { id: 'design-sources', text: designSources.markdown, mandatory: true, priority: 5 },
     { id: 'world-model-grounding', text: repositoryBrief.text, mandatory: false, priority: 40 },
     // This is a small deterministic navigation overlay, not a second model build. Keep it mandatory
@@ -1332,6 +1336,8 @@ export async function compose(root, options, {
         renderer: preview.renderer, truncated: preview.truncated
       })),
       compositionCache: { key: cached.key, hit: cached.hit },
+      // The scope this generation is composed under, checked at its publication (SPEC-CIC switch 2) [CIC:REQ-008].
+      scopeRevision: workflow.resolution?.spec?.preAmendmentDrafts === 'refuse' ? generationScope(workflow) : null,
       promptBudget: promptComposition,
       persistedGrounding: null,
       tokenReduction: tokenReductionReceipt,

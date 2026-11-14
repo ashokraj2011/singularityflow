@@ -60,6 +60,17 @@ async function verifiedIntentRecord(root, workflow, phase, intent) {
 }
 
 /**
+ * The scope a generation starts under: the latest scope revision and the last approved intent amendment. Recorded on a
+ * code generation's start and a composed prompt's receipt when the Story's pinned spec policy refuses drafts written
+ * before an approved amendment (SPEC-CIC switch 2), and checked at its publication [CIC:REQ-008, REQ-009].
+ */
+export function generationScope(workflow) {
+  const latest = workflow?.scopeRevisions?.at(-1) ?? null;
+  const amendment = (workflow?.intentAmendments ?? []).filter((entry) => ['approved', 'revalidated'].includes(entry?.status)).at(-1)?.id ?? null;
+  return { revision: latest?.revision ?? 0, revisionSha256: latest?.revisionSha256 ?? null, amendment };
+}
+
+/**
  * Establish the immutable authoring boundary. Repeating begin for the same open generation is a
  * read-equivalent operation and returns the existing intent.
  */
@@ -132,8 +143,12 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
       outsideSourceBoundaryPaths
     }
   };
+  // A generation an approved amendment closed unpublished (SPEC-CIC switch 2) changed code inside governance: the next
+  // one, from the same baseline, carries it, never as work from before the first begin [CIC:REQ-009].
+  const closed = phase.generationIntent;
+  const carried = closed?.status === 'superseded' && Number(closed.generation) === generation && closed.baseline?.commit === baselineCommit ? closed.id : null;
   const initialAdoptionBlocked = !previousGenerationCommit
-    && dirtyPolicy !== 'allow-explicit-adoption';
+    && dirtyPolicy !== 'allow-explicit-adoption' && !carried;
   if (existing.length && (protectedPaths.length || outsideSourceBoundaryPaths.length)) {
     throw new SingularityFlowError(
       `Code changed outside the phase's allowed source scope before generation begin. `
@@ -141,7 +156,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
       { code: 'GENERATION_DIRTY_START', details: dirtyDetails }
     );
   }
-  if (existing.length && !adoptExisting) {
+  if (existing.length && !adoptExisting && !carried) {
     if (initialAdoptionBlocked) {
       throw new SingularityFlowError(
         `Code already changed before the first generation began (${changedPaths.length} path(s)). `
@@ -194,8 +209,9 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
       commit: baselineCommit,
       tree: changeSet.base.tree,
       initialChangeSetDigest: applicationChangeSet.digest,
-      mode: existing.length ? 'adopted' : 'clean',
-      previousGenerationCommit
+      mode: existing.length ? (carried && !adoptExisting ? 'carried' : 'adopted') : 'clean',
+      previousGenerationCommit,
+      ...(carried ? { carriedFrom: carried } : {})
     },
     grounding: {
       compositionSha256: phase.grounding?.compositionSha256 ?? null,
@@ -203,6 +219,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     },
     inputs: { renderedSha256: inputRenderedSha256 ?? phase.inputContext?.renderedSha256 ?? null },
     sourceBoundary: phase.sourceBoundary ?? 'unrestricted',
+    ...(workflow.resolution?.spec?.preAmendmentDrafts === 'refuse' ? { scopeRevision: generationScope(workflow) } : {}),
     startedAt,
     startedBy: { actor, agent },
     telemetryCursor: { key: `${workflow.workItem.id}:${phase.id}:${generation}`, startedAt: telemetry.startedAt },
@@ -218,10 +235,30 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     baseline: receipt.baseline,
     startedAt,
     startedBy: receipt.startedBy,
+    ...(receipt.scopeRevision ? { scopeRevision: receipt.scopeRevision } : {}),
     publication: null
   };
   if (persist) await writeJson(path.join(root, receiptPath), receipt);
   return phase.generationIntent;
+}
+
+/**
+ * A code generation an approved amendment closed before it published (SPEC-CIC switch 2, amended-drafts.mjs): its draft
+ * is from before the amended scope, and its way out is in this step: begin it again, then compose it again [CIC:REQ-009].
+ */
+function closedByAmendment(workflow, phase, intent) {
+  const workId = workflow.workItem.id;
+  const actions = [
+    { command: `singularity-flow phase begin ${phase.id} --work-id ${workId} --json`, skill: '/sf-code', detail: `Open ${phase.id}'s code generation again under the amended scope.` },
+    { command: `singularity-flow phase enter ${phase.id} --work-id ${workId} --compose --for-agent --json`, detail: `Compose ${phase.id} again under the amended scope, and write it from that prompt.` }];
+  const kept = phase.scopePin?.draft?.path;
+  return new SingularityFlowError(`${phase.id} cannot publish this draft: its code generation was closed when ${intent.supersededBy} amended the scope${phase.scopePin?.revision ? ` (scope revision ${phase.scopePin.revision})` : ''}. `
+    + `Write it again here, in ${phase.id}, under the amended scope: ${actions.map((action) => action.command).join(', then ')}.`
+    + `${kept ? ` The earlier draft is kept read only at ${kept}; never publish it, or copy it over the document, as it is.` : ''}`, {
+    code: 'PHASE_DRAFT_PREDATES_AMENDMENT',
+    details: { workId, phase: phase.id, amendment: intent.supersededBy, revision: phase.scopePin?.revision ?? null, reasons: ['generation'],
+      readOnlyDraft: kept ?? null, codeStep: true, actions, nextAction: { command: actions[0].command, skill: '/sf-code', label: actions[0].detail } }
+  });
 }
 
 export function requireOpenGenerationIntent(workflow, phase) {
@@ -229,6 +266,7 @@ export function requireOpenGenerationIntent(workflow, phase) {
   if (!phaseRequiresCodeDelivery(phase) || !required) return null;
   const expectedGeneration = nextPhaseGeneration(phase);
   const intent = phase.generationIntent;
+  if (intent?.status === 'superseded' && Number(intent.generation) === expectedGeneration) throw closedByAmendment(workflow, phase, intent);
   if (!intent || intent.status !== 'open' || Number(intent.generation) !== expectedGeneration) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' requires an open generation intent. Run singularity-flow phase begin ${phase.id} before changing source.`,

@@ -1435,6 +1435,30 @@
             },
             "additionalProperties": false
           },
+          "scopePin": {
+            "description": "SPEC-CIC switch 2 [CIC:REQ-008, REQ-009]: the step an approved intent amendment reopened in place, pinned to the amended scope. Its generation publishes only a draft whose code generation and composed prompt started under this scope revision or a later one (and, for a document step, whose authored bytes are not the kept draft's); its earlier prompt pair and open code generation, closed as superseded, are kept under setAside and its draft read only under draft.",
+            "type": "object",
+            "required": ["amendment", "generation", "revision", "revisionSha256", "at"],
+            "properties": {
+              "amendment": { "type": "string", "pattern": "^AMD-[0-9]{3,}$" },
+              "generation": { "type": "integer", "minimum": 1 },
+              "revision": { "type": ["integer", "null"], "minimum": 1 },
+              "revisionSha256": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+              "at": { "type": "string", "format": "date-time" },
+              "setAside": {
+                "type": "object",
+                "properties": { "prompt": { "type": "string", "minLength": 1 }, "intent": { "type": "string", "minLength": 1 } },
+                "additionalProperties": false
+              },
+              "draft": {
+                "type": "object",
+                "required": ["path", "artifact", "sha256"],
+                "properties": { "path": { "type": "string", "minLength": 1 }, "artifact": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "minLength": 1 } },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
           "skippedAt": { "type": "string" },
           "skippedBy": {
             "type": "object",

@@ -2594,6 +2594,8 @@ const OWNER_STEP_STRATEGIES = Object.freeze({
   INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'person-decides-in-step',
   // An approval waits for a kept step's approvers to say it still holds, on the Decide card [CIC:REQ-021].
   AMENDMENT_STILL_HOLDS_REQUIRED: 'person-decides-in-step',
+  // A reopened step's draft from before an approved amendment: its author writes it again, in this step [CIC:REQ-009].
+  PHASE_DRAFT_PREDATES_AMENDMENT: 'author-repairs-in-step',
   WITNESS_DEFERRAL_INVALID: 'person-decides-in-step',
   VISUAL_RISK_INVALID: 'person-decides-in-step'
 });

@@ -2401,7 +2401,7 @@ async function validateAcceptedTestCommandEvidence(root, config, workId, {
     const expectedPath = storyRelative(config, workId, `context/generation-start/${phase.id}-gen1.json`);
     const expectedIntent = { id: receipt.generationIntentId, generation: 1, status: 'open', path: expectedPath,
       receiptSha256, baseline: receipt.baseline, startedAt: receipt.startedAt,
-      startedBy: receipt.startedBy, publication: null };
+      startedBy: receipt.startedBy, scopeRevision: receipt.scopeRevision, publication: null };
     if (intentPath !== expectedPath || receipt.kind !== 'generation-start' || receipt.task !== 'code'
         || receipt.workId !== workId || receipt.phase !== phase.id || receipt.generation !== 1
         || receipt.status !== 'open' || receiptSha256 !== testCommandAmendmentDigest(content)

@@ -769,9 +769,8 @@ export async function recordInjection(root, workflow, phase, injection, {
     tokenReduction,
     repositoryBrief: structuredClone(injection.repositoryBrief ?? null),
     remoteSkills: structuredClone(injection.remoteSkills ?? []),
-    // Omission on a snapshot-backed Story is not evidence that mutable live instructions were
-    // used. Current composers provide the exact identity; older/custom adapters remain honestly
-    // unproven instead of acquiring a false legacy-live label.
+    // Omission on a snapshot-backed Story is no evidence that live instructions were used: current
+    // composers give the exact identity; older adapters stay unproven, never mislabelled legacy-live.
     executionContext: structuredClone(injection.executionContext ?? {
       mode: workflow.workflowSnapshot ? 'historical-unproven' : 'legacy-live'
     }),
@@ -779,6 +778,7 @@ export async function recordInjection(root, workflow, phase, injection, {
       key: injection.compositionCache.key,
       promptSha256: renderedSha256
     } : null,
+    ...(injection.scopeRevision ? { scopeRevision: injection.scopeRevision } : {}),
     promptPath: location.promptPath,
     files: injection.sections.map((section) => ({
       path: section.path, sha256: section.sha256, bytes: section.bytes,

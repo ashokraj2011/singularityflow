@@ -106,7 +106,7 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 
 **[CIC:REQ-009]** At publication, a generation composed against an earlier scope revision than the step's pin MUST be refused with a typed code naming the revision and the amendment; it is not rebased (owner default). The refusal's route composes the step again on the current scope.
 
-**[CIC:REQ-010]** The mutation guard MUST NOT import the check. It reads one flag computed at refresh ("this step's draft predates the scope it is pinned to") and denies further Story-owned writes from that draft, returning the step's re-entry route. Reads remain allowed. Work already produced is retained under CON-005.
+**[CIC:REQ-010]** The mutation guard MUST NOT import the check. A code step's application writes from the draft are denied because REQ-008 closes its generation, which the guard already requires open; the denial returns the step's re-entry route (`phase begin`). A document step's writes are how it is written again, so they stay allowed, and REQ-009 refuses its publication until it is. Reads remain allowed. Work already produced is retained under CON-005. (Built in stage 5 without the flag first planned here: section 7.4.)
 
 **[CIC:REQ-011]** A step rule E8 keeps is not touched: its approval and its published generation stand, and nothing is set aside.
 
@@ -157,7 +157,7 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 | 2 | The shared effect function used by `decideIntentAmendment` itself, `story intent-amendment preview`, the decisions card's exact effect on every host, and `/sf-reject` showing the preview before it proposes; REQ-020 | Preview, then propose and approve on a fixture: the applied reset, kept and "still holds" sets equal the previewed ones, and the preview recorded nothing |
 | 3 | Records: `scope-revision/v2` storing the stale set and the edges it used, hash-chain verification, and per-generation dependency records from claim maps, the code-delivery change set, traceability bindings, witnesses, implementation bindings and citations, with coverage state; no outcome changes | Records present on a fixture Story; staleness results identical |
 | 4 | Behind switch 1: fail-closed widening (REQ-005, 006), D1 (REQ-021), the union (REQ-003) and the file closure (REQ-004) | An uncited dependency and an unclaimed path both produce stale evidence; D1's question appears once per step and change |
-| 5 | Behind switch 2: the reopened step's pin, the publication check, and setting aside its prompt; the guard reads one flag computed at refresh | A draft from before the amendment cannot be published; a kept step is untouched |
+| 5 | Behind switch 2: the reopened step's pin, the publication check, and setting aside its prompt and closing its code generation; the guard is unchanged | A draft from before the amendment cannot be published; a kept step is untouched |
 | 6 | Behind switch 3: classes, the scope-change authority and the chat entry | The three classes behave as specified on fixtures |
 | 7 | Counts (REQ-017), then one real Story with a change mid-flight | Report of cone size, widened share, churn and rework |
 
@@ -204,6 +204,33 @@ Everything below applies only to a Story whose pinned spec policy has `observedD
 - **Found:** quick-fix's code step has approval `none` and completes at its submission. "Its own approval" therefore means its submission, which is where that step waits.
 - **Supporting changes:** a changed path an approved plan row or plan amendment names as supporting is covered (`supportingPaths`), depends on no clause, and leaves the record resolved.
 
+### 7.4 What stage 5 built, and what building it found
+
+- **Switch 2** is `spec.preAmendmentDrafts: refuse | legacy` in the workflow definition's `spec` block. Unlike switch 1, it is pinned for every new Story, as `refuse` unless the workflow says `legacy` (owner, 2026-11-14). A Story pinned before the field has no value, reads as `legacy`, and keeps main's behaviour. Readers check the pinned raw field.
+- **What approval does (REQ-008, `src/amended-drafts.mjs`, loaded only by the approval, the publication and the composer).** `decideIntentAmendment` pins the step it reopens in place to the amended scope as `phase.scopePin`: the amendment, the generation, and the scope revision and its digest. Then:
+  - it sets aside the step's pending prompt pair for that generation, with the amendment as the reason (`supersedePromptGeneration`);
+  - it closes the step's open code generation as `superseded`, keeping its start receipt beside the draft;
+  - it copies the step's draft, read only, to `context/superseded/<step>-gen<N>-before-<AMD>/`.
+- **Records, not times (REQ-009).** Under switch 2 each code generation's start receipt (`generation-start`) and each composed prompt's receipt record `scopeRevision`: the latest revision, its digest, and the last approved amendment. The reopened generation publishes only if both its code generation and its composed prompt started under the pinned revision or a later one, compared by the revision's place in `scopeRevisions` by digest. A document step's authored bytes must also differ from the kept draft's: "never republished as is" (owner). The refusal is `PHASE_DRAFT_PREDATES_AMENDMENT` (author-repairs-in-step). It names the amendment, the revision, the read-only draft, and the routes in the step, in order: `phase begin <step>` for a closed code generation, then `phase enter <step> --compose`. Nothing loops back and nothing else waits. `test/no-dead-end.test.mjs` walks it (`draft-written-before-the-amendment`): publish refused, begin, compose, publish.
+- **Found: the closed generation's code.** It is written inside governance, but with the generation closed it read as code changed before the first `phase begin`. Two consequences followed:
+  - the dirty-start rule blocked the new begin;
+  - the step's entry sent its files to a person to set aside.
+
+  Now a `phase begin` at the same generation and baseline carries that code (`baseline.mode: carried`, `carriedFrom`). The entry scopes it from the closed generation's baseline (`basis: closed-generation`). Protected and out-of-boundary paths still refuse as before.
+- **REQ-010 needs no guard flag.** The guard already denies a code step's application edits without an open generation, and returns `phase begin`. Closing the generation at approval is therefore the flag, and the guard imports nothing new (its closure stays at 68 modules). A document step's artifact edits are how it is written again, so denying them would remove the way out. The publication check covers that step instead. REQ-010 and AC-009 are restated to match.
+- **The old draft, read only, in the recomposed prompt (REQ-008).** The reopened step's next composed prompt carries a mandatory section, "Draft written before AMD-NNN (read only)". It names the copy's exact path, says it was written before the amendment, and says never to publish it or copy it over as it is. It adds 357 to 368 bytes on the fixtures, against an 18,000-token (72,000-byte) prompt limit, and only on the pinned generation.
+- **Found: a later reset step can hold a draft too.** When the first reset step comes before the current step, the current step's draft is reset with it. That step is pinned the same way when it still holds an open code generation or a composed prompt. In practice its code also blocks the earlier document step's publication (an artifact-only step), on main as well, until a person sets the code aside.
+- **REQ-011:** a step rule E8 keeps is never pinned, and nothing of it is set aside.
+- **Hosts:** the refusal reaches no card. It is the publish refusal's plan, shown alike in the terminal, VS Code Copilot and the Copilot CLI, and its routes pass the command crosswalk: `/sf-code` for `phase begin`, the entry's own route for `phase enter --compose`.
+- **Middle states are compared, not only ends.** On the fixtures the same Story is walked with the switch on and off, and compared at each point:
+  - after scope approval;
+  - with the code step drafted;
+  - after the amendment is approved;
+  - after acknowledgement;
+  - before and after the reopened step is published.
+
+  At each point the steps' status and generation, the history, and the decision list are equal. Where the two legitimately differ is asserted explicitly: the pin, the closed generation, the set-aside prompt, the kept draft, the refusal, and the guard's answer.
+
 ## 8. Acceptance
 
 | Case | Priority | Given / when → required observation | Requirements |
@@ -216,7 +243,7 @@ Everything below applies only to a Story whose pinned spec policy has `observedD
 | CIC:AC-006 | P0 | A generation changed a path no clause claims → the whole generation is inside the cone of the next revision. | REQ-006 |
 | CIC:AC-007 | P1 | A cone is computed → every item carries a reason and the widened share is reported. | REQ-007 |
 | CIC:AC-008 | P0 | An amendment reopens a step that held a draft from before it → that draft's publication is refused with the typed code naming the revision. | REQ-008, REQ-009 |
-| CIC:AC-009 | P0 | The reopened step's draft is written to after acknowledgement → the guard denies it and returns the re-entry route; the earlier draft is retained. | REQ-010, CON-005 |
+| CIC:AC-009 | P0 | A reopened code step's draft is edited after acknowledgement → the guard denies it and returns the re-entry route; a reopened document step's draft published unchanged is refused; the earlier draft is retained. | REQ-010, CON-005 |
 | CIC:AC-010 | P1 | A step rule E8 keeps → its approval and generation stand and nothing is set aside. | REQ-011 |
 | CIC:AC-012 | P0 | `story intent-amendment preview` runs for a drafted change, then the change is proposed and approved → the preview recorded no history entry and wrote no file under the Story, and the applied reset, kept and "still holds" sets equal the previewed ones. | REQ-012, CON-006, CON-007 |
 | CIC:AC-013 | P0 | A change to a clause with a bound test is proposed as `editorial` → the rules classify it as a refinement. | REQ-013 |
@@ -252,6 +279,7 @@ v1.0's CIC:AC-011 (a session with no recorded clause set) is retired: a Story ha
    - The question names its row and the recommended answer and why, in one line. The row is never settled for the person.
    - Only the step's own approvers may answer; the command checks this as before. `decide-amendment`, a forward amendment's own approval, stays the approvers' own terminal step.
    - Where SF Guard requires the Story's person steps, no row offers chat: this row, and every other row whose chat choice SF Guard signs. Every host says the row is recorded in the person's own terminal.
+4. **Stage 5: a draft from before an approved amendment is refused, not rebased.** The check is bound to records: the scope revision digest a code generation and a composed prompt started under, never times. Its way out is in the same step: begin and compose the step again. It names its exact commands, loops nothing back and stalls no other step. Switch 2 is on for new Stories (`spec.preAmendmentDrafts: refuse`, pinned), and a Story pinned before keeps main's behaviour. When the step is redone, the recomposed prompt names the old draft read only, at its exact path, marked as written before the amendment and never to be republished or copied over as it is (section 7.4).
 
 ## 10. Validation boundary
 

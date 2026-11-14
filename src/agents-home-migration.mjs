@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { AGENTS_HOME, LEGACY_AGENTS_ROOT, agentsRootOf } from './configuration-assets.mjs';
+import { AGENTS_HOME, LEGACY_AGENTS_ROOT, agentsRootOf, agentsTransportRootOf } from './configuration-assets.mjs';
 import { parseAgentDependencies, withoutSfGuardStampBlock } from './agent-document-parser.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { isKnownPackagedAssetHash } from './packaged-asset-history.mjs';
@@ -93,6 +93,12 @@ async function apmDeployed(root) {
  */
 export async function planAgentsHomeMigration(root, workflow) {
   if (agentsRootOf(workflow) === AGENTS_HOME) return null;
+  // The key already names a transport root of the repository's own; recording the agents home would
+  // drop it, so the move waits for a person to choose [AGH:REQ-018].
+  const transportRoot = agentsTransportRootOf(workflow);
+  if (transportRoot) {
+    return { status: 'held', from: LEGACY_AGENTS_ROOT, to: AGENTS_HOME, transportRoot, moves: [], completed: [], stays: [], conflicts: [], shadowed: [] };
+  }
   const [packaged, referenced, deployed] = await Promise.all([packagedAgents(), referencedAgentIds(root, workflow), apmDeployed(root)]);
   const moves = []; const completed = []; const stays = []; const conflicts = []; const shadowed = [];
   for (const name of await directoryFiles(path.join(root, LEGACY_AGENTS_ROOT))) {
@@ -148,6 +154,11 @@ export function baselineAtAgentsHome(baseline) {
   };
 }
 
+/** Why a move is held for a repository whose workflow.yml names its own agentPromptsRoot. */
+export function transportRootHold({ transportRoot, from, to }) {
+  return `held: workflow.yml agentPromptsRoot names ${transportRoot}, which is carried as configuration. SFlow's agents stay in ${from}. To move them to ${to}, remove that key in sflow/config (${transportRoot} is then no longer carried), then preview again.`;
+}
+
 /** The preview's lines for one repository's migration [SPEC-AGH section 6]; none when there is none. */
 export function agentsHomeLines(agentsHome, indent = '    ') {
   if (!agentsHome) return [];
@@ -158,6 +169,7 @@ export function agentsHomeLines(agentsHome, indent = '    ') {
   for (const conflict of agentsHome.conflicts) {
     lines.push(`${indent}  held: ${conflict.from} and ${conflict.to} differ. Keep one of them in sflow/config, then preview again.`);
   }
+  if (agentsHome.transportRoot) lines.push(`${indent}  ${transportRootHold(agentsHome)}`);
   if (agentsHome.status === 'proposed') lines.push(`${indent}  Stories already running keep their own agents; new Stories use ${agentsHome.to}.`);
   return lines;
 }

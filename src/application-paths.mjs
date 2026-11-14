@@ -68,9 +68,9 @@ function configuredRoots(source) {
   ]);
 }
 
-function declaresAgentsRoot(source) {
+function declaresAgentsHome(source) {
   const direct = object(source);
-  return [direct, object(direct.resolution)].some((owner) => typeof owner.agentPromptsRoot === 'string');
+  return [direct, object(direct.resolution)].some((owner) => owner.agentPromptsRoot === 'singularity/agents');
 }
 
 function configuredPaths(source) {
@@ -120,8 +120,8 @@ export function applicationPathContext(...sources) {
     caseInsensitivePaths,
     governedRoots: Object.freeze(uniquePaths([
       ...GOVERNED_ROOTS, ...sources.flatMap(configuredRoots),
-      // .github/agents is SFlow's only on the legacy layout, or when no source says [AGH:REQ-009].
-      ...(sources.some(declaresAgentsRoot) ? [] : [LEGACY_AGENTS_ROOT])
+      // .github/agents is SFlow's unless a source records the agents home [AGH:REQ-009].
+      ...(sources.some(declaresAgentsHome) ? [] : [LEGACY_AGENTS_ROOT])
     ], { caseInsensitivePaths })),
     governedPaths: Object.freeze(uniquePaths(
       sources.flatMap(configuredPaths), { caseInsensitivePaths }

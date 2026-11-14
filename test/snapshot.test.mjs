@@ -897,8 +897,9 @@ test('visual editor cannot expand a dirty candidate root over application source
     () => saveConfigurationFile(
       root, 'singularity/workflow.yml', YAML.stringify(agentRootCandidate)
     ),
-    // workflow.yml accepts no agents root but SFlow's two [AGH:REQ-002], so it is refused before any escalation check.
-    (error) => /agentPromptsRoot must be singularity\/agents/u.test(error?.message ?? '')
+    (error) => error?.code === 'CONFIGURATION_PATH_SCOPE_ESCALATION'
+      && error?.details?.escalations?.some((entry) =>
+        entry.field === 'agentPromptsRoot' && entry.candidate === 'src')
   );
   const portfolioPath = path.join(root, 'singularity/portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));

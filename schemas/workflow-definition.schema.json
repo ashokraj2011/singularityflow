@@ -6,7 +6,7 @@
   "required": ["version", "git", "templatesRoot", "workTypes", "phases"],
   "properties": {
     "version": { "enum": [2, 3] },
-    "agentPromptsRoot": { "enum": ["singularity/agents", ".github/agents"], "description": "Where this repository keeps SFlow's step agents (SPEC-AGH). Absent is the legacy .github/agents; init writes singularity/agents, and the upgrade's reviewed migration sets it." },
+    "agentPromptsRoot": { "type": "string", "description": "singularity/agents: this repository keeps SFlow's step agents there (SPEC-AGH); init writes it, and the upgrade's reviewed migration sets it. Absent or any other value is the legacy .github/agents, where another value names one more configuration transport root." },
     "repositoryReadiness": {
       "type": "object",
       "properties": {

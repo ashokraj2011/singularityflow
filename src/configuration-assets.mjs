@@ -12,15 +12,15 @@ export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json'
 export const LEGACY_AGENTS_ROOT = '.github/agents';
 export const AGENTS_HOME = 'singularity/agents';
 
-/** The agents root a parsed workflow.yml records, or a refusal for any other value. */
+/** The agents root workflow.yml records; any other value is the legacy layout, as at the baseline [AGH:REQ-002]. */
 export function agentsRootOf(workflow) {
-  const value = workflow && typeof workflow === 'object' ? workflow.agentPromptsRoot : undefined;
-  if (value == null || value === LEGACY_AGENTS_ROOT) return LEGACY_AGENTS_ROOT;
-  if (value === AGENTS_HOME) return AGENTS_HOME;
-  const error = new Error(`workflow.yml agentPromptsRoot must be ${AGENTS_HOME} (or absent for ${LEGACY_AGENTS_ROOT}), not '${value}'.`);
-  error.name = 'SingularityFlowError';
-  error.code = 'AGENT_PROMPTS_ROOT_UNSUPPORTED';
-  throw error;
+  return workflow?.agentPromptsRoot === AGENTS_HOME ? AGENTS_HOME : LEGACY_AGENTS_ROOT;
+}
+
+/** That other value, a transport root of the repository's own [AGH:REQ-005], or null. */
+export function agentsTransportRootOf(workflow) {
+  const value = workflow?.agentPromptsRoot;
+  return typeof value === 'string' && value !== AGENTS_HOME && value !== LEGACY_AGENTS_ROOT ? value : null;
 }
 
 /** An agent file's repository path under either root: `<root>/<file>.md`, no subfolder. */
@@ -99,13 +99,14 @@ export function configurationAssetPolicy(workflow = {}, portfolio = {}) {
   const configuredWorldModelRoot = portablePath(
     workflow.worldModel?.outputDir ?? 'singularity/world-model', 'worldModel.outputDir'
   );
-  // Governed Agent Markdown lives in the root workflow.yml records [AGH:REQ-008]: .github/agents is
-  // configuration only on the legacy layout; on the agents home it is the team's own, apart from the
-  // agents APM deployed there that a step is bound to [AGH:REQ-011].
+  // Agent Markdown is configuration in the root workflow.yml records [AGH:REQ-008]; on the agents
+  // home, .github/agents is the team's own but for APM agents a step is bound to [AGH:REQ-011].
   const agentsRoot = agentsRootOf(workflow);
+  const transportRoot = agentsTransportRootOf(workflow);
   const roots = unique([
     portablePath(workflow.templatesRoot ?? 'singularity/templates', 'templatesRoot'),
     agentsRoot,
+    transportRoot ? portablePath(transportRoot, 'agentPromptsRoot') : null,
     portablePath(portfolio.templatesRoot ?? workflow.templatesRoot ?? 'singularity/templates',
       'portfolio.templatesRoot')
   ]);

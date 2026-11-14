@@ -86,10 +86,14 @@ for (const [route, args] of [['legacy init', ['init']], ['smart init', ['init', 
   });
 }
 
-test('the layout is what workflow.yml records, and nothing else is accepted [AGH:REQ-002]', () => {
+test('the layout is what workflow.yml records, and any other value is the legacy layout it was [AGH:REQ-002, REQ-005]', () => {
   assert.equal(agentsRootOf({}), LEGACY_AGENTS_ROOT);
   assert.equal(agentsRootOf({ agentPromptsRoot: AGENTS_HOME }), AGENTS_HOME);
-  assert.throws(() => agentsRootOf({ agentPromptsRoot: 'agents' }), (error) => error.code === 'AGENT_PROMPTS_ROOT_UNSUPPORTED');
+  assert.equal(agentsRootOf({ agentPromptsRoot: 'governed/agents' }), LEGACY_AGENTS_ROOT);
+  const transport = configurationAssetPolicy({ agentPromptsRoot: 'governed/agents' });
+  assert.equal(isConfigurationAssetPath('governed/agents/x.agent.md', transport), true, 'still a transport root, as at the baseline');
+  assert.equal(isConfigurationAssetPath('.github/agents/x.agent.md', transport), true);
+  assert.ok(applicationPathContext({ agentPromptsRoot: 'governed/agents' }).governedRoots.includes(LEGACY_AGENTS_ROOT));
   assert.equal(isConfigurationAssetPath('.github/agents/x.agent.md', configurationAssetPolicy({})), true);
   assert.equal(isConfigurationAssetPath('.github/agents/x.agent.md', configurationAssetPolicy({ agentPromptsRoot: AGENTS_HOME })), false);
   assert.equal(isConfigurationAssetPath('.github/agents/bound.agent.md',
@@ -162,6 +166,23 @@ test('a destination with other bytes holds the move and names both files [AGH:RE
   assert.equal(agentsRootOf(YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'))), LEGACY_AGENTS_ROOT);
   assert.match(await readFile(path.join(root, '.github/agents/developer.agent.md'), 'utf8'), /sflow-default-for/u, 'nothing moved');
   assert.match(agentsHomeLines(result.agentsHome).join('\n'), /held: .*Keep one of them in sflow\/config, then preview again\./u);
+});
+
+test('a workflow.yml naming its own agentPromptsRoot holds the move, keeps that root carried, and says how to go on [AGH:REQ-005, REQ-018]', async (t) => {
+  const root = await legacyConfiguration(t);
+  const file = path.join(root, 'singularity/workflow.yml');
+  await writeFile(file, (await readFile(file, 'utf8')).replace(/^version: 2\n/u, 'version: 2\nagentPromptsRoot: governed/agents\n'));
+  await mkdir(path.join(root, 'governed/agents'), { recursive: true });
+  await writeFile(path.join(root, 'governed/agents/notes.md'), 'carried as configuration\n');
+  assert.equal((await loadDefinition(root)).agents.developer.source, '.github/agents/developer.agent.md');
+  const before = await tree(path.join(root, '.github/agents'));
+  const result = await refreshPackagedConfiguration(root);
+  assert.equal(result.agentsHome.status, 'held');
+  assert.equal(result.agentsHome.transportRoot, 'governed/agents');
+  assert.deepEqual(await tree(path.join(root, '.github/agents')), before, 'nothing moved');
+  assert.match(await readFile(file, 'utf8'), /^agentPromptsRoot: governed\/agents$/mu, 'the key is kept');
+  assert.match(agentsHomeLines(result.agentsHome).join('\n'),
+    /held: workflow\.yml agentPromptsRoot names governed\/agents.*remove that key in sflow\/config.*then preview again\./u);
 });
 
 test('a team file that shadows a packaged agent stays, and SFlow\'s agent is installed [AGH:AC-009]', async (t) => {

@@ -371,6 +371,8 @@ export interface AgentsHomeMigration {
   stays: Array<{ path: string; reason: string }>;
   conflicts: Array<{ from: string; to: string }>;
   shadowed: string[];
+  /** The repository's own agentPromptsRoot, a transport root the move would drop, so it is held. */
+  transportRoot?: string;
 }
 
 const STAY_REASONS: Record<string, string> = { own: 'your own agent', apm: 'deployed by APM', shadow: 'your own agent; SFlow\'s agent of that name is installed in singularity/agents' };
@@ -380,7 +382,9 @@ export function agentsHomeSummary(move: AgentsHomeMigration | undefined): string
   if (!move || !Array.isArray(move.moves) || !Array.isArray(move.stays)) return [];
   const moved = [...move.moves, ...(move.completed ?? [])];
   return [
-    move.status === 'held' ? `Agents move to ${move.to} is held: a file there already differs.` : `Agents move to ${move.to}: ${moved.length} file(s).`,
+    move.status === 'held'
+      ? `Agents move to ${move.to} is held: ${move.transportRoot ? `agentPromptsRoot names ${move.transportRoot}; remove it in sflow/config, then preview again.` : 'a file there already differs.'}`
+      : `Agents move to ${move.to}: ${moved.length} file(s).`,
     ...moved.map((entry) => `moves: ${entry.from} → ${entry.to}`),
     ...move.stays.map((entry) => `stays: ${entry.path} (${STAY_REASONS[entry.reason] ?? entry.reason})`),
     ...(move.shadowed ?? []).map((entry) => `installs: ${entry} (SFlow's packaged agent)`),

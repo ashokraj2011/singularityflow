@@ -1533,7 +1533,7 @@ export async function bootstrapWorkspacePortfolio(root, {
 }
 
 /** The agents root a loaded or raw definition records [AGH:REQ-002]. */
-const definitionAgentsRootOf = (definition) => (typeof definition?.agentPromptsRoot === 'string' ? definition.agentPromptsRoot : LEGACY_AGENTS_ROOT);
+const definitionAgentsRootOf = (definition) => (definition?.agentPromptsRoot === 'singularity/agents' ? 'singularity/agents' : LEGACY_AGENTS_ROOT);
 
 const EDITOR_CONFIGURATION_ROOTS = Object.freeze({
   templatesRoot: 'singularity/templates',
@@ -1632,7 +1632,7 @@ function editorConfigurationPathAuthority(root, definition, portfolio = null, { 
     const candidate = candidatePaths[field];
     if (previous) directoryRoots.add(previous);
     const reserved = EDITOR_CONFIGURATION_ROOTS[field];
-    // Either agents root is SFlow's own [AGH:REQ-002]; workflow.yml accepts no other.
+    // The agents home is SFlow's own [AGH:REQ-002], like the legacy root it replaces.
     const trusted = pathWithin(candidate, previous) || pathWithin(candidate, reserved)
       || (field === 'agentPromptsRoot' && candidate === 'singularity/agents');
     if (trusted && candidate) directoryRoots.add(candidate);

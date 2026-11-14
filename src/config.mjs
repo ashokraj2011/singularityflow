@@ -940,16 +940,9 @@ export function normalizeModelProviders(value = {}) {
   return { defaultProvider, providers: normalized };
 }
 
-/** The agents root workflow.yml records [AGH:REQ-002], refused as configuration when it is neither. */
-export function definitionAgentsRoot(definition) {
-  try { return agentsRootOf(definition); }
-  catch (error) { throw new SingularityFlowError(error.message, { code: error.code }); }
-}
-
 export function validateDefinition(definition, { storyBootstrap = false } = {}) {
   if (![2, 3].includes(definition?.version)) throw new SingularityFlowError('workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.', { details: { nextAction: { executable: 'singularity-flow', argv: ['factory-reset', '--dry-run'], label: 'Inspect or continue the retained operation; recheck before retrying.' } } });
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError(`Legacy role-prompt configuration is no longer supported. Define Agent Markdown under ${AGENTS_HOME}.`);
-  definitionAgentsRoot(definition);
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
   // Settings of removed features (the registered World Model, its views, CALM architecture intent and
@@ -1505,7 +1498,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
     // Recorded by workflow.yml itself [AGH:REQ-002]: absent is the legacy .github/agents.
-    definition.agentPromptsRoot = definitionAgentsRoot(source.parsed);
+    definition.agentPromptsRoot = agentsRootOf(source.parsed);
     /**
      * Refusing an unknown field is right; refusing it without naming the likely cause is not.
      *
@@ -1777,7 +1770,7 @@ async function initializationAgentsRoot(root) {
   if (!existsSync(file)) return AGENTS_HOME;
   let parsed;
   try { parsed = parseYamlText(await readFile(file, 'utf8')); } catch { parsed = null; }
-  return definitionAgentsRoot(parsed ?? {});
+  return agentsRootOf(parsed ?? {});
 }
 
 export async function initializeDefinition(root, { repositoryHooks = false, agentsRoot: layout = null } = {}) {

@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 101
+version: 102
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1684,6 +1684,15 @@ return is always decided row by row. Any other intent amendment reopens the step
 
 An unplanned row whose files a departure already covers, accepted by a person, counts as decided.
 Under `legacy`, only `partial` and `missing` rows are decided.
+
+`spec.changeImpact` (`off`, the default, or `on`) is one setting for a change of requirements partway through a
+Story. On, a Story records what each published step depended on (`spec.observedDependencies`, which stays valid on
+its own), and each intent amendment gets a size from registered rules: editorial (it only rewords clauses with no bound
+test, no acceptance criterion and no path or test change), a refinement, or material (it adds a clause, adds a path
+outside the plan or under a protected path, or what its clauses are bound to cannot be read). An editorial change resets
+nothing and carries the evidence of the clauses it rewords; a material one is approved by the group
+`spec.scopeChangeAuthority` names, or else by the scope step's own approvers. A proposer may suggest a bigger size and an
+approver may raise it; nobody makes it smaller. See `sflow explain changing-requirements`.
 
 These settings are pinned when a Story starts. Existing published or active
 Stories retain their prior `sourceBindings: off` / `conformanceRows: legacy` /

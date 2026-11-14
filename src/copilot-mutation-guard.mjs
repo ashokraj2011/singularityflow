@@ -16,7 +16,7 @@ export const ANSWER_BOUND_SKILLS = new Set(ANSWER_BOUND_TURNS);
 import { parseArgs, replaceWithSharingRetry } from './util.mjs';
 import { AGENT_OUTPUT_FOLDER, lineRanges, READ_CHUNK_BYTES } from './agent-output-folder.mjs';
 import { canonicalCommand, resolveOperation } from './command-registry.mjs';
-import { adjudicationTableStep, ANSWER_BOUND_TURNS, DECIDE_SKILL_MUTATIONS, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PERSON_DECISIONS, planRowCorrectionStep } from './person-step-catalog.mjs';
+import { adjudicationTableStep, ANSWER_BOUND_TURNS, DECIDE_SKILL_MUTATIONS, DECISION_LIST_CHAT_OPTIONS, liveTerminalReviewStep, OWN_TERMINAL_STEPS, PERSON_DECISIONS, planRowCorrectionStep, PROPOSAL_BOUND_TURNS } from './person-step-catalog.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { CLI_PATH_REFERENCE, safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 import { normalizeConfirmCode, resolveConfirmCode } from './confirm-code.mjs';
@@ -102,7 +102,22 @@ async function derivedDraftStaging(skill, gitDirectory) {
   return [draft];
 }
 const sourceTextRule = files => files.length
-  ? ` Write an Epic source note or answer only at the issued file ${files[0]}, for epic sources note|answer --text-file.` : '';
+  ? ` Write an Epic source note or answer only at the issued file ${files[0]}, for \`singularity-flow epic sources note|answer --text-file ${files[0]}\`.` : '';
+/**
+ * What an /sf-amend turn does [owner, 2026-11-14]: it runs /sf-reject's intent-amendment route on its own, so it is told that
+ * route, never "approval or rejection only". Each command carries the binary, and where change impact is on the proposal waits
+ * for the person's own yes (copilot-answer-binding.mjs). A person decides and acknowledges it, never this turn.
+ */
+function amendTurnSummary(contract) {
+  const workId = contract.workId ?? '<WORK-ID>';
+  const file = contract.allow.staging[0] ?? null;
+  const at = file ?? '<FILE>';
+  return `Intent amendment only: draft the change ${file ? `only at the issued file ${file}` : 'only in the file `singularity-flow story intent-amendment draft` issues'}, `
+    + `show \`singularity-flow story intent-amendment preview --work-id ${workId} --file ${at} --for-agent --json\`, then propose with `
+    + `\`singularity-flow story intent-amendment propose --work-id ${workId} --file ${at} --reason "<why>" --authored governed-agent --channel copilot-host --json\``
+    + `${contract.policy?.changeImpact ? ', only after the person\'s own Yes to "Propose it?", with their words as the reason' : ''}. `
+    + `A person decides and acknowledges it on the Decide card (/sf-decide ${workId}) or in their own terminal, never this turn.`;
+}
 const digest = value => createHash('sha256').update(value).digest('hex');
 const directory = () => path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
 function key(payload) {
@@ -198,9 +213,12 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     // The kernel prepares only this file's parent, as issuance does; the parent grants no edits.
     await mkdir(path.dirname(file), { recursive: true, mode: 0o700 }).catch(() => {});
   }
-  // The one file a /sf-reject or /sf-amend turn may write is named in its rules, so the draft lands there.
-  if (mode === 'approval-only' && contract.allow.staging.length) {
-    contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for story intent-amendment propose --file.`;
+  // The one file a /sf-reject or /sf-amend turn may write is named in its rules, so the draft lands there, with the full
+  // command that proposes it. An /sf-amend turn is told its own route; a paused step keeps the pause's words.
+  if (mode === 'approval-only' && skillName(record.skill) === 'amend' && !contract.policy?.intentAmendmentPause) {
+    contract.summary = amendTurnSummary(contract);
+  } else if (mode === 'approval-only' && contract.allow.staging.length) {
+    contract.summary = `${contract.summary} Draft an intent amendment only at the issued file ${contract.allow.staging.join(', ')}, for \`singularity-flow story intent-amendment propose --work-id ${contract.workId} --file ${contract.allow.staging[0]} --reason "<why>" --authored governed-agent --channel copilot-host --json\`.`;
   }
   const sourceText = await derivedDraftStaging(record.skill, gitIdentity.gitDir);
   contract.summary += sourceTextRule(sourceText);
@@ -252,7 +270,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
 export function turnBoundaryContext(value, presented = mutationContractPresentation(value.contract)) {
   const { contract } = value;
   const volatile = [
-    `SFlow turn boundary (${value.skill}): ${contract.turnMode} turn, ${contract.workId ?? 'no Story'} step ${contract.phaseId ?? 'none'} generation ${contract.generation ?? 'none'}.`,
+    `SFlow turn boundary (${value.skill}): ${contract.turnMode === 'approval-only' && skillName(value.skill) === 'amend' ? 'intent-amendment' : contract.turnMode} turn, ${contract.workId ?? 'no Story'} step ${contract.phaseId ?? 'none'} generation ${contract.generation ?? 'none'}.`,
     contract.authoringSkill ? `Step author: ${contract.authoringSkill}.` : null,
     // Only an authoring turn writes code. Told "Code authoring ready: false" in a /sf-next turn, an agent reported
     // "code authoring is not ready" as a blocker right after planning was approved (office, 2026-11-11).
@@ -341,8 +359,8 @@ export async function captureMutationTurn(payload, record, {
       sessionId: record.sessionId, turnId: record.turnId, skill: record.skill, modeChangedAt: record.modeChangedAt,
       contract: null, repositoryRoot: root, recordedAt: record.recordedAt, ...(draftStaging.length ? { draftStaging } : {}) });
     if (root && draftKind(record.skill)) return { additionalContext: `SFlow turn boundary (${record.skill}): ${mutationTurnMode(record.skill)} turn, no Story. `
-      + `Edit only the exact files this turn's SFlow commands issue (${draftKind(record.skill) === 'repair' ? 'the patch file repair authorize or repair status names'
-        : 'the step outputs initiative phase prepare or draft-check returns'}); no other file.${sourceTextRule(draftStaging)} ${CLI_PATH_REFERENCE}` };
+      + `Edit only the exact files this turn's SFlow commands issue (${draftKind(record.skill) === 'repair' ? 'the patch file `singularity-flow repair authorize` or `singularity-flow repair status` names'
+        : 'the step outputs `singularity-flow initiative phase` or `singularity-flow initiative phase draft-check` returns'}); no other file.${sourceTextRule(draftStaging)} ${CLI_PATH_REFERENCE}` };
   }
 }
 
@@ -1336,6 +1354,18 @@ function personStepOfCall(call, cwd) {
   }
   return null;
 }
+/**
+ * Proposing an intent amendment in chat, as a step held to the person's own yes to its preview under SPEC-CIC switch 3
+ * (the contract's `changeImpact`, computed at refresh) [CIC:REQ-015, owner decision 3], or null.
+ */
+function proposalStepOfCall(call, cwd) {
+  if (!SHELL_INPUT_TOOLS.has(call.name)) return null;
+  const text = [call.args.command, call.args.cmd, call.args.script, call.args.input, call.args.chars].find(value => typeof value === 'string');
+  if (!text || !/singularity-flow|sflow/iu.test(text)) return null;
+  const argv = shellSflowInvocations(text, call.name === 'powershell', call.args.cwd ?? cwd).map(entry => entry.argv)
+    .find(candidate => parseCli(candidate).positionals.slice(0, 3).join(' ') === 'story intent-amendment propose');
+  return argv ? { id: 'intent-amendment-proposal', argv } : null;
+}
 function personStepCall(call, cwd) {
   const step = personStepOfCall(call, cwd);
   return step ? personStepRefusal(step) : null;
@@ -1806,17 +1836,25 @@ async function answerBoundDenial(payload, record) {
     await answerBinding().then(binding => binding.noteQuestionAsked(file, record)).catch(() => {});
     return null;
   }
+  // The turn's contract, read once and only for a proposal: whether change impact holds it to a yes.
+  let contract;
+  const changeImpact = async () => ((contract ??= await currentContract(payload, record, { reclassifyOutputs: false })
+    .then(value => value.contract, () => null))?.policy?.changeImpact === true);
   for (const call of toolCalls) {
-    const step = personStepOfCall(call, payload.cwd);
-    if (!step) continue;
+    const proposal = personStepOfCall(call, payload.cwd) ? null : proposalStepOfCall(call, payload.cwd);
+    const step = personStepOfCall(call, payload.cwd) ?? (proposal && await changeImpact() ? proposal : null);
+    if (!step || (PROPOSAL_BOUND_TURNS.includes(skillName(record.skill)) && step.id !== 'intent-amendment-proposal')) continue;
     const binding = await answerBinding();
     if (!binding.answerBoundStep(step)) continue;
     const { positionals, options } = parseCli(step.argv);
     const reason = await binding.unboundAnswerReason(file, record, options, { localChat: typeof payload.tool_name === 'string', positionals }).catch(() => null);
-    // The person's own answer is the way through, on the card or in their terminal; the words say the same.
+    // The person's own answer is the way through, on the card or in their terminal; the words say the same. A proposal's
+    // is the preview they say yes to, in this same turn.
     if (reason) {
-      const workId = record.contract?.workId ?? null;
-      const routes = [safeCommandGuidance({ argv: ['decisions', ...(workId ? [workId] : [])], skill: '/sf-decide' })].filter(Boolean);
+      const workId = record.contract?.workId ?? contract?.workId ?? null;
+      const routes = [safeCommandGuidance(step.id === 'intent-amendment-proposal'
+        ? { argv: ['story', 'intent-amendment', 'preview', ...(workId ? ['--work-id', workId] : []), ...(typeof options.file === 'string' ? ['--file', options.file] : []), '--for-agent', '--json'] }
+        : { argv: ['decisions', ...(workId ? [workId] : [])], skill: '/sf-decide' })].filter(Boolean);
       return { ...mutationDenial(null, reason, [], { routes }), recoverable: true };
     }
   }

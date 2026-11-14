@@ -1286,7 +1286,7 @@ Copilot custom-agent IDs may map to different governed-agent IDs in `singularity
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1374 body tokens</span>
+          <span class="pill">~1397 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-amend</code></dd></div>
@@ -1319,8 +1319,8 @@ This is the dedicated route for `singularity-flow story intent-amendment`; `/sf-
 
 1. Inspect `singularity-flow status --for-agent --json` and `singularity-flow story intent-amendment status --work-id &lt;WORK-ID&gt; --json`. Confirm the person&#39;s changed intent and reason.
 2. Run `singularity-flow story intent-amendment draft --work-id &lt;WORK-ID&gt; --clause &lt;CLAUSE-ID&gt;` (one `--clause` per changed clause). Write only the changed clauses in the file it issues.
-3. Show the `summary` of `singularity-flow story intent-amendment preview --work-id &lt;WORK-ID&gt; --file &lt;FILE&gt; --for-agent --json`: what runs again and what keeps its approval. It records nothing.
-4. Propose only when `singularity-flow nextsteps --for-agent --json` returns the `singularity-flow story intent-amendment propose` action: run `singularity-flow story intent-amendment propose --work-id &lt;WORK-ID&gt; --file &lt;FILE&gt; --reason &quot;&lt;REASON&gt;&quot; --authored governed-agent --channel copilot-host --json`. Do not invent an `update-intent` convergence finding or change YAML. Otherwise record the change in clarification and revise the scope draft.
+3. Show the `summary` of `singularity-flow story intent-amendment preview --work-id &lt;WORK-ID&gt; --file &lt;FILE&gt; --for-agent --json` in plain words (what changes, its size and why, what is redone or kept, who decides) and ask &quot;Propose it?&quot;. It records nothing.
+4. Propose only on their Yes, and only when `singularity-flow nextsteps --for-agent --json` returns the `singularity-flow story intent-amendment propose` action: run `singularity-flow story intent-amendment propose --work-id &lt;WORK-ID&gt; --file &lt;FILE&gt; --reason &quot;&lt;THEIR WORDS&gt;&quot; --authored governed-agent --channel copilot-host --json`. Do not invent an `update-intent` convergence finding or change YAML. Otherwise record the change in clarification and revise the scope draft.
 5. Show the amendment ID, diff and blast radius. The decision and the acknowledgement are a person&#39;s, never this turn&#39;s: a person who approves the scope decides it on the decisions card, `/sf-decide &lt;WORK-ID&gt;` (Copilot CLI: `/decide &lt;WORK-ID&gt;`), or in their own terminal, and the step it was proposed from pauses until then. They may reject and replace a stale proposal without changing approved intent. Anyone on the Story then acknowledges an approved one on the same card or in their own terminal. Never decide or acknowledge here; waive no tests or approvals. Closed Stories need reviewed reopening.
 </code></pre>
       </div>
@@ -9449,7 +9449,7 @@ prior bytes recovers forward from the verified candidate; never claim rollback.
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1652 body tokens</span>
+          <span class="pill">~1684 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-reject</code></dd></div>
@@ -9489,8 +9489,9 @@ For `singularity-flow story intent-amendment`, use this route, not phase rejecti
 1. Inspect `singularity-flow status --for-agent --json`. Confirm the human&#39;s changed intent and reason.
    Write only the changed clauses in the file `singularity-flow story intent-amendment draft` issues;
    never edit approved intent in place.
-2. Show the `summary` of `singularity-flow story intent-amendment preview --work-id &lt;WORK-ID&gt; --file &lt;FILE&gt; --for-agent --json`, then run
-   `singularity-flow story intent-amendment propose --work-id &lt;WORK-ID&gt; --file &lt;FILE&gt; --reason &quot;&lt;REASON&gt;&quot; --authored governed-agent --channel copilot-host --json`;
+2. Show the `summary` of `singularity-flow story intent-amendment preview --work-id &lt;WORK-ID&gt; --file &lt;FILE&gt; --for-agent --json` in plain words
+   (what changes, its size and why, what is redone or kept, who decides) and ask &quot;Propose it?&quot;. Only on their Yes run
+   `singularity-flow story intent-amendment propose --work-id &lt;WORK-ID&gt; --file &lt;FILE&gt; --reason &quot;&lt;THEIR WORDS&gt;&quot; --authored governed-agent --channel copilot-host --json`;
    do not invent an `update-intent` convergence finding or change YAML. Propose only when nextsteps returns the
    `singularity-flow story intent-amendment propose` action; otherwise record the change in clarification and revise the scope draft.
 3. Show amendment ID, diff and blast radius. Only a human scope authority decides with exact confirmation,

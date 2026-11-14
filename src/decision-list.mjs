@@ -727,6 +727,8 @@ export function amendmentEffectWords(workflow, effect, { steps: most = 8 } = {})
       + `(recommended: ${step.stillHolds.recommend === 'return' ? 'redo it' : 'it still holds'})` : '';
     lines.push(step.outcome === 'kept' ? `${name} keeps its approval (rule E8): it cites none of the changed clauses${held}${asked}.`
       : step.outcome === 'still-holds' ? `${name}'s approvers say whether it still holds, or return the Story to it.`
+        // An editorial change carries the evidence of the clauses it rewords [CIC:REQ-014].
+        : step.outcome === 'carried' ? `${name} ${step.status === 'approved' ? 'keeps its approval' : 'goes on as it is'}, and its evidence of the reworded clauses is carried: the change is editorial.`
         : `${name} ${step.outcome === 'reopened' ? 'is reopened' : 'runs again'}${why ? `: ${why}` : ''}.`);
   }
   return lines.length > most ? [...lines.slice(0, most), `And ${lines.length - most} more steps.`] : lines;
@@ -768,14 +770,17 @@ function amendmentShown(workflow, card) {
     : card.authored === 'human' ? '; a person wrote the wording' : ''}${card.reason ? `: "${statementWords(card.reason)}"` : ''}.` : null;
   const names = (values, more, noun) => (values?.length ? `${noun}: ${listWords([...values, ...(more ? [`${more} more`] : [])])}.` : '');
   // Exactly what approving it does, step by step, or what an approved one did [CIC:REQ-012].
-  const dependents = card.effect?.dependents?.length ? [`${listWords(card.effect.dependents.map((id) => clauseName(workflow, id)))} ${card.effect.dependents.length === 1 ? 'depends' : 'depend'} on a changed clause.`] : [];
+  const dependents = card.effect?.dependents?.length && !card.effect.carried ? [`${listWords(card.effect.dependents.map((id) => clauseName(workflow, id)))} ${card.effect.dependents.length === 1 ? 'depends' : 'depend'} on a changed clause.`] : [];
   const effect = card.effect ? [...dependents, ...amendmentEffectWords(workflow, card.effect), ...amendmentRepeatWords(workflow, card.effect.repeats)]
     : card.applied ? appliedWords(workflow, card.applied) : [];
-  const reach = [card.radius?.summary ?? '', names(card.radius?.artifacts, card.radius?.moreArtifacts, 'Files'), names(card.radius?.tests, card.radius?.moreTests, 'Tests'),
+  // Under SPEC-CIC switch 3, how big it is, why and who decides it, first [CIC:REQ-013, REQ-014].
+  const reach = [...(card.size?.lines ?? []), card.radius?.summary ?? '', names(card.radius?.artifacts, card.radius?.moreArtifacts, 'Files'), names(card.radius?.tests, card.radius?.moreTests, 'Tests'),
     effect.length ? `${card.effect ? 'If it is approved: ' : ''}${effect.join(' ')}` : ''].filter(Boolean).join(' ');
   return { changes: card.changes ?? [], lines: [...lines, ...(card.moreChanges ? [`And ${card.moreChanges} more changed clauses.`] : [])],
     ...(by ? { proposedBy: by } : {}), ...(reach ? { reach } : {}) };
 }
+
+const CLASS_LABEL = Object.freeze({ editorial: 'editorial', refinement: 'a refinement', material: 'a material change' });
 
 /** Why a pending amendment no longer matches the Story, in words; null while it still does. */
 function staleWords(workflow, stale) {
@@ -823,15 +828,19 @@ function intentAmendmentItem(workflow, context, amendment) {
   const carries = plans.length ? ` It carries the rows ${listWords(plans.map((phaseId) => stepName(workflow, phaseId)))} needs for the clauses it adds, removes or revises: `
     + `an approver of ${listWords(plans.map((phaseId) => stepName(workflow, phaseId)))} signs them by deciding it, and ${plans.length === 1 ? 'that plan keeps its' : 'those plans keep their'} approval.` : '';
   const scopeGroups = scope ? approvers(workflow, scope) : [];
-  // Approving takes a scope approver, or an approver of a plan whose rows it carries, as decideIntentAmendment checks; rejecting a scope approver.
-  const approveGroups = [...new Set([...scopeGroups, ...plans.flatMap((phaseId) => approvers(workflow, phaseId))])];
   const card = amendment.card ?? null;
+  // Approving takes a scope approver (for a material change, the scope-change authority), or an approver of a plan whose rows
+  // it carries, as decideIntentAmendment checks; rejecting a scope approver.
+  const plansGroups = plans.flatMap((phaseId) => approvers(workflow, phaseId));
+  const approveGroups = [...new Set([...(card?.size?.groups ?? scopeGroups), ...plansGroups])];
   const stale = staleWords(workflow, card?.stale);
   const counted = amendment.approvals?.reached ? ` ${amendment.approvals.reached} of ${amendment.approvals.required} approvals are recorded`
     + `${amendment.approvals.planSignOffsMissing?.length ? `; an approver of ${listWords(amendment.approvals.planSignOffsMissing.map((phaseId) => stepName(workflow, phaseId)))} still signs the rows it carries` : ''}.` : '';
-  const effect = (decision, groups) => ({ kind: 'intent-amendment-decision', amendment: id, decision, proposalSha256: amendment.proposalSha256 ?? null, groups });
-  const decision = (decisionId, words, groups) => ({ ...option(workflow, context, { id: decisionId, label: `${decisionId === 'approve' ? 'Approve' : 'Reject'} ${id}`, words,
-    effects: [effect(decisionId, groups)], needs: { reason: textNeed('', OPTIONAL_REASON) } }), oneByOne: true, terminal: decide(decisionId) });
+  const effect = (decision, groups, raise = null) => ({ kind: 'intent-amendment-decision', amendment: id, decision, proposalSha256: amendment.proposalSha256 ?? null, groups,
+    ...(raise ? { raise } : {}) });
+  const decision = (decisionId, words, groups, raise = null) => ({ ...option(workflow, context, { id: raise ? `approve-${raise}` : decisionId,
+    label: `${decisionId === 'approve' ? 'Approve' : 'Reject'} ${id}${raise ? ` as ${CLASS_LABEL[raise]}` : ''}`, words,
+    effects: [effect(decisionId, groups, raise)], needs: { reason: textNeed('', OPTIONAL_REASON) } }), oneByOne: true, terminal: `${decide(decisionId)}${raise ? ` --class ${raise}` : ''}` });
   // What its own command would refuse is said here, never offered: an approval already given, the proposer's own
   // where the scope's policy forbids it, and a proposal the Story moved under.
   const mine = (who) => Boolean(who && context.actor && sameApprover(who, context.actor));
@@ -840,7 +849,15 @@ function intentAmendmentItem(workflow, context, amendment) {
   const held = stale ? `It cannot be approved as it is: ${stale}. Refresh it, or reject it.`
     : approvedAlready ? 'You approved it already; another approver decides next.'
       : ownProposal ? `You proposed it, and ${scopeName}'s policy has someone else approve it.` : null;
-  const approve = decision('approve', held ?? `The approved clauses change as shown, so the steps that cite them reopen.${plans.length ? ' Your decision signs the plan rows it carries if you approve that plan.' : ''}`, approveGroups);
+  const signs = plans.length ? ' Your decision signs the plan rows it carries if you approve that plan.' : '';
+  const sized = card?.size?.effective ?? null;
+  const approve = decision('approve', held ?? (sized === 'editorial'
+    ? `The new wording is approved as editorial: no step runs again or is asked, and the evidence of the reworded clauses is carried.${signs}`
+    : `The approved clauses change as shown, so the steps that cite them reopen${sized ? `; you approve it as ${CLASS_LABEL[sized]}` : ''}.${signs}`), approveGroups);
+  // An approver may raise its class while approving, never lower it [owner decision 1]; who decides the stricter class decides that choice.
+  const raises = (card?.size?.raises ?? []).map((entry) => decision('approve', held ?? `Approves it as ${CLASS_LABEL[entry.class]}: ${entry.class === 'material'
+    ? `a material change, which only ${listWords(entry.groups)} ${entry.groups.length === 1 ? 'approves' : 'approve'}` : 'a refinement, so the steps that cite the changed clauses reopen'}.${signs}`,
+  [...new Set([...entry.groups, ...plansGroups])], entry.class));
   const reject = decision('reject', 'The approved clauses stay as they are, and every submission stays valid.', scopeGroups);
   // One choice refreshes a proposal the step moved under: the same change, proposed again against the step as it is now (D3).
   const refresh = stale ? [{ ...option(workflow, context, { id: 'refresh', recommended: true, label: `Refresh ${id} against the step as it is now`,
@@ -850,7 +867,7 @@ function intentAmendmentItem(workflow, context, amendment) {
     kind: 'intent-amendment', title: `Decide intent amendment ${id}`,
     why: `${id} proposes changing ${clauses}. Rejecting it keeps every submission as it is; approving it changes the approved clauses, so the steps that cite them reopen.${carries}${counted}`
       + `${sourcePhase && workflow.phases?.[sourcePhase] ? ` ${stepName(workflow, sourcePhase)} waits until it is decided.` : ''}${stale ? ` It no longer matches the Story: ${stale}.` : ''}`,
-    options: [...refresh, reject, held ? { ...approve, recordable: false, available: false } : approve],
+    options: [...refresh, reject, ...[approve, ...raises].map((entry) => (held ? { ...entry, recordable: false, available: false } : entry))],
     details: { amendment: id, status: 'proposed', scopePhase: scope, ...(sourcePhase ? { sourcePhase } : {}), statusCommand: status, ...shown, ...(stale ? { stale } : {}),
       commands: [decide('approve'), decide('reject')] }
   };
@@ -1717,7 +1734,7 @@ export function optionOutcome(item, entry) {
   if (item.kind === 'settled') return 'undo';
   if (item.kind === 'routing-decision' || /^(?:choose|to)-/u.test(id) || id === 'route') return 'route';
   // Approving an intent amendment changes the approved clauses.
-  if (item.kind === 'intent-amendment' && id === 'approve') return 'change-spec';
+  if (item.kind === 'intent-amendment' && /^approve(?:-|$)/u.test(id)) return 'change-spec';
   if (id === 'accept-risk' || id === 'accept-test-risk' || id.startsWith('accept-obligation-risk-')) return 'accept-risk';
   if (['return', 'return-step', 'return-step-first', 'fix-code', 'rework'].includes(id) || (id === 'reject' && item.kind === 'departure')) return 'return';
   if (['update-spec', 'update-intent'].includes(id)) return 'change-spec';
@@ -2179,7 +2196,7 @@ export function effectWords(workflow, effect, values = {}) {
       : `return the Story to ${stepName(workflow, effect.phase)} after ${effect.amendment} (amendment revalidation and return)`;
   }
   if (effect.kind === 'intent-amendment-decision') {
-    return effect.decision === 'approve' ? `approve ${effect.amendment}: the approved clauses change and the steps that cite them reopen (intent amendment decision)`
+    return effect.decision === 'approve' ? `approve ${effect.amendment}${effect.raise ? ` as ${CLASS_LABEL[effect.raise] ?? effect.raise}` : ''}: the approved clauses change and the steps that cite them reopen (intent amendment decision)`
       : `reject ${effect.amendment}: the approved clauses stay as they are (intent amendment decision)`;
   }
   if (effect.kind === 'intent-amendment-refresh') {

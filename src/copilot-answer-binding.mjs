@@ -134,6 +134,7 @@ export function wordsOfCommand(options) {
 }
 
 const REFUSAL = 'PHASE_MUTATION_ANSWER_UNBOUND: nothing was recorded.';
+const NEVER = /(?!)/u;
 const ROUTES = 'A person can also answer on the decisions card (sflowDecide or sflow_decide with the Story ID) or in their own terminal (singularity-flow decisions record <WORK-ID>).';
 
 /**
@@ -178,6 +179,13 @@ function yesNoCommand([command, sub, third], options) {
       yes: ['accept'], no: ['reject'], typed: { yes: /\bd\d{1,3}=accept[\w-]*/u, no: /\bd\d{1,3}=reject\b/u } } : null;
   }
   if (command === 'decision' && sub === 'applicability') return { records: 'yes', only: true, row: `applicability ${text('responsibility')[0]}`, names: text('responsibility'), yes: [], no: [] };
+  // Proposing an intent amendment from chat, under SPEC-CIC switch 3 [CIC:REQ-015, owner decision 3]: only on the person's own
+  // yes to its preview, their latest yes or no in this turn; a no, Not now or no answer proposes nothing. Never typed ahead.
+  if (command === 'story' && sub === 'intent-amendment' && third === 'propose') {
+    const file = text('file')[0] ?? '<FILE>';
+    return { records: 'yes', proposal: true, row: `propose ${file}`, names: [], ids: NEVER, yes: ['propose it'], no: ['do not propose', "don't propose"],
+      typed: { yes: NEVER, no: NEVER }, terminal: `singularity-flow story intent-amendment propose --work-id ${text('work-id')[0] ?? '<WORK-ID>'} --file "${file}" --reason "<why>" --authored human` };
+  }
   if (command === 'decision' && sub === 'plan' && (options['add-location'] !== undefined || options['add-supporting'] !== undefined)) {
     const paths = [...text('add-location').map((entry) => entry.slice(entry.indexOf('=') + 1)), ...text('add-supporting').map((entry) => entry.split('=')[0])].sort();
     return { records: 'yes', only: true, row: `plan ${paths.join(' ')}`, names: paths, yes: [], no: [] };
@@ -209,6 +217,8 @@ function sideOf(reply, yesNo) {
 function yesNoAnswer(ledger, yesNo) {
   const replies = ledger.replies.map((reply, index) => ({ reply, index, side: sideOf(reply, yesNo) }))
     .filter((entry) => entry.side && (!entry.reply.usedBy || entry.reply.usedBy === yesNo.row));
+  // A proposal stands only on the answer to a question that asked whether to propose it, never on another yes.
+  if (yesNo.proposal) return replies.filter((entry) => /\bpropose\b/u.test(named(entry.reply.asked))).at(-1) ?? { problem: 'none' };
   const names = (entry) => yesNo.names.length && yesNo.names.every((word) => named(entry.reply.asked).includes(named(word)));
   // A one-choice item reads only a question that names it, never one about an amendment or a departure.
   const mine = replies.filter((entry) => names(entry) && !(yesNo.only && /\b(?:fam|amd|dep) \d{3,}\b/u.test(named(entry.reply.asked))));
@@ -228,6 +238,7 @@ function yesNoAnswer(ledger, yesNo) {
 function yesNoProblem(ledger, yesNo, { localChat = false } = {}) {
   const found = yesNoAnswer(ledger, yesNo);
   if (!found) return null;
+  if (yesNo.proposal) return proposalProblem(found, ledger, yesNo, { localChat });
   const records = yesNo.records === 'yes' ? 'Yes' : 'No';
   // VS Code's own chat may never hand this hook the answer: asking again would meet this refusal again.
   if (found.problem === 'none' && localChat && !ledger.delivered) {
@@ -243,6 +254,23 @@ function yesNoProblem(ledger, yesNo, { localChat = false } = {}) {
   if (found.side !== yesNo.records) {
     return `${REFUSAL} The person answered ${found.side === 'yes' ? 'Yes' : 'No'} for this row, and this command records ${records}. Run the command of the answer they gave${yesNo.only ? ' (No records nothing)' : ''}, or ask them again if you are not sure; never record the other answer for them.`;
   }
+  return null;
+}
+
+/**
+ * Why an intent amendment may not be proposed yet [owner decision 3, 2026-11-14]: the person has not said yes to its preview
+ * in this turn, said no or Not now, or their answers do not reach SFlow in this chat (VS Code's own chat), where they propose
+ * it in their own terminal. Each names what to do next in this same turn; none decides or acknowledges anything.
+ */
+function proposalProblem(found, ledger, yesNo, { localChat }) {
+  if (found.problem === 'none' && localChat && !ledger.delivered) {
+    return `${REFUSAL} This chat's answers do not reach SFlow, so the person's yes to proposing it cannot be read here; do not ask again in this chat. They propose it in their own terminal, with their reason: ${yesNo.terminal}`;
+  }
+  if (found.problem === 'none') {
+    return `${REFUSAL} An intent amendment is proposed only on the person's own yes. Show them its preview in plain words (what changes, how big it is and why, what is redone, what is kept, who decides), ask "Propose it?" (Yes, No) with your question tool (ask_user; in VS Code, vscode_askQuestions), and run it again only after their Yes, with their own words as --reason.`;
+  }
+  if (found.problem === 'ambiguous') return `${REFUSAL} The person answered yes and no together; ask "Propose it?" on its own (Yes, No), and propose only after their Yes.`;
+  if (found.side === 'not-now' || found.side === 'no') return `${REFUSAL} The person did not say yes to proposing it: propose nothing, and tell them the draft stays where it is.`;
   return null;
 }
 

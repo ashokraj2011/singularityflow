@@ -451,6 +451,7 @@ async function intentAmendmentCardFacts(root, config, workflow, amendment) {
   const kept = application?.retainedPhases ?? [];
   const reopened = application && !application.settles ? later.find((id) => !kept.includes(id)) ?? null : null;
   const by = proposal.proposedBy ?? amendment.proposedBy ?? null;
+  const size = await classFacts(workflow, scope, effect?.classification ?? null, application);
   return {
     proposer: by?.name ?? by?.login ?? by?.email ?? null,
     authored: proposal.authorship?.producer ?? null,
@@ -461,14 +462,34 @@ async function intentAmendmentCardFacts(root, config, workflow, amendment) {
     radius: radius?.totals ? { summary: radiusSummary(radius),
       artifacts: (radius.artifacts ?? []).slice(0, CARD_NAMES), moreArtifacts: Math.max(0, (radius.artifacts ?? []).length - CARD_NAMES),
       tests: (radius.tests ?? []).slice(0, CARD_NAMES), moreTests: Math.max(0, (radius.tests ?? []).length - CARD_NAMES) } : null,
-    effect: effect ? { firstReset: effect.firstReset, dependents: effect.dependents, repeats: effect.repeats,
+    effect: effect ? { firstReset: effect.firstReset, dependents: effect.dependents, repeats: effect.repeats, ...(effect.carried ? { carried: effect.carried } : {}),
       steps: effect.steps.map(({ phase, outcome, status, generation, reasons, inPrompt, groups }) => ({ phase, outcome, status, generation, reasons,
         ...(inPrompt ? { inPrompt } : {}), ...(groups ? { groups } : {}) })) } : null,
     applied: application ? { kept, reopened, asked: (application.revalidate ?? []).map((entry) => entry.phase),
       reset: reopened ? later.slice(later.indexOf(reopened) + 1).filter((id) => Number(workflow.phases?.[id]?.generation ?? 0) > 0) : [] } : null,
     ...(pending ? { decisions: (proposal.decisions ?? []).map((entry) => ({ decision: entry.decision, actor: entry.actor ?? null })) } : {}),
+    ...(size ? { size } : {}),
     stale: stale ? { cause: stale.cause, phase: stale.phase } : null
   };
+}
+
+/**
+ * Under SPEC-CIC switch 3, how big an amendment is on the card [CIC:REQ-013, REQ-014]: its class, why and who decides it,
+ * in the preview's words, and each stricter class an approver may raise it to with who decides that one. An approved
+ * one says what it was approved as. Null on a Story without the switch.
+ */
+async function classFacts(workflow, scope, classification, application) {
+  if (workflow.resolution?.spec?.changeImpact !== 'on' || (!classification && !application?.class)) return null;
+  const classes = await import('./amendment-class.mjs');
+  const policy = workflow.phases?.[scope]?.approvalPolicy ?? {};
+  const prefix = `${workflow.workItem.id}:`.toUpperCase();
+  const name = (id) => (String(id).toUpperCase().startsWith(prefix) ? String(id).slice(prefix.length) : String(id));
+  if (!classification) return { effective: application.class.effective, carried: application.carried ?? null };
+  const { groups, authority } = classification.decidedBy;
+  return { effective: classification.effective, floor: classification.floor,
+    lines: classes.classWords(classification, { name, scopeName: workflow.phases?.[scope]?.label ?? scope, groups, authority }),
+    groups, raises: classes.AMENDMENT_CLASSES.slice(classes.AMENDMENT_CLASSES.indexOf(classification.effective) + 1)
+      .map((value) => ({ class: value, groups: classes.deciders(workflow, policy, value).groups })) };
 }
 
 /** Everything the decision list of `phaseId` is built from: what blocks it, plus the readers above. */

@@ -54,6 +54,22 @@ export function amendmentRowCarriers(workflow) {
 }
 
 /**
+ * The intent amendments approved as editorial under SPEC-CIC switch 3, by ID [CIC:REQ-014, CON-003, owner decision D2]:
+ * their scope approvers approved the new wording as editorial, so each step's evidence of the clauses they reworded is
+ * carried across their scope revision without per-step "still holds", and the approval record says so (`carried`).
+ * One counts only while its approving decision does (SF Guard, presence/counted.mjs).
+ */
+export function editorialCarriers(workflow) {
+  const carriers = new Map();
+  if (workflow?.resolution?.spec?.changeImpact !== 'on') return carriers;
+  for (const amendment of (workflow?.intentAmendments ?? []).filter((entry) => ['approved', 'revalidated'].includes(entry?.status) && entry.carried === 'editorial')) {
+    const [decision] = countedRecords(workflow, amendment.decision ? [amendment.decision] : []);
+    if (decision) carriers.set(amendment.id, { amendment: amendment.id, editorial: true, actor: decision.actor ?? null, authorityGroup: decision.authorityGroup ?? null, at: decision.at ?? null });
+  }
+  return carriers;
+}
+
+/**
  * Who said it still holds, as a person reads it: the name a v2 answer keeps beside its actor key, else
  * the key itself (a v1 answer, written before names were kept, has none).
  */
@@ -78,5 +94,12 @@ export function carriedEvidence(workflow) {
       return { amendment: answer.amendment, phase: answer.phase, generation: Number(answer.generation), clauses: [...answer.clauses],
         by, authorityGroup: answer.authorityGroup, at: answer.at ?? null,
         words: `${answer.clauses.join(', ') || 'The amended clauses'}: ${step}'s evidence predates ${answer.amendment}'s wording; ${by}, for the ${step} approvers (${answer.authorityGroup}), said it still holds.` };
-    });
+    })
+    // And each amendment approved as editorial, which carried every step's evidence of the clauses it reworded [CIC:REQ-014].
+    .concat([...editorialCarriers(workflow).values()].map((carrier) => {
+      const clauses = [...((workflow.intentAmendments ?? []).find((entry) => entry.id === carrier.amendment)?.staleClauses ?? [])];
+      const by = revalidatorName(carrier);
+      return { amendment: carrier.amendment, phase: null, editorial: true, clauses, by, authorityGroup: carrier.authorityGroup, at: carrier.at,
+        words: `${clauses.join(', ') || 'The amended clauses'}: evidence predates ${carrier.amendment}'s wording; ${by}, for the scope approvers (${carrier.authorityGroup}), approved it as editorial, so every step's evidence of it is carried.` };
+    }));
 }

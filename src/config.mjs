@@ -1125,6 +1125,8 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       workType.references, `Work type '${id}' references`
     );
     workType.spec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
+    const changeAuthority = workType.spec.scopeChangeAuthority;
+    if (changeAuthority && !Object.hasOwn(definition.approvalAuthorities, changeAuthority)) throw new SingularityFlowError(`spec.scopeChangeAuthority references unknown approval authority '${changeAuthority}'.`);
     workType.sourceReview = availableDefaultSourceReview(normalizeSourceReviewPolicy(workType.sourceReview, {
       workTypeId: id, phases: workType.phases
     }), definition.agentCatalog);

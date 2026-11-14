@@ -807,7 +807,7 @@ test('no agent turn decides or acknowledges an intent amendment; reading it stay
   const acknowledge = 'singularity-flow story intent-amendment acknowledge AMD-001 --work-id PMC-1';
   // D1/D2: a person decides it and acknowledges an approved one on the decisions card [owner, 2026-11-13].
   for (const [skill, session] of [['/sf-phase', 'author'], ['/sf-code', 'code'], ['/sf-recover', 'kernel'], ['/sf-next', 'next'],
-    ['/sf-reject', 'reject'], ['/sf-decide PMC-1', 'decider'], ['/sf-approve', 'approver']]) {
+    ['/sf-reject', 'reject'], ['/sf-amend', 'amend'], ['/sf-decide PMC-1', 'decider'], ['/sf-approve', 'approver']]) {
     const payload = await f.enter(skill, session);
     const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
     assert.deepEqual(await shell('singularity-flow story intent-amendment status --work-id PMC-1 --json'), {}, `${skill}: reading is allowed`);
@@ -1683,6 +1683,7 @@ const NOT_RUN_BY_THIS_TURN = Object.freeze({
   'sflow-jira-work': [[/^start PMC-1 --jira\b/u, 'the Shell form of the /sf-start route it offers']],
   'sflow-nextsteps': [[/^sync$/u, 'lists the returned actions; /sf-next runs them']],
   'sflow-reject': [[/^story intent-amendment propose$/u, 'names the nextsteps action; its full command is checked']],
+  'sflow-amend': [[/^story intent-amendment propose$/u, 'names the nextsteps action; its full command is checked']],
   'sflow-decide': [[/^upstream-issue decide$/u, 'names the family in its turn boundary; its full `upstream-issue decide <UPI-ID> --work-id` step is checked'],
     [/^upstream-issue raise$/u, 'names the returned route it runs; the full raise with --work-id, --phase, --about and --problem is checked in the /sf-decide turn test'],
     [/^upstream-issue revalidate$/u, 'names the family in its turn boundary; a "still holds" row\'s full command, with --work-id, --amendment, --outcome and --reason, is checked in the still-holds yes-or-no test']],

@@ -2981,12 +2981,18 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   const scope = await codeCandidateScope(workDir(root, config, workflow.workItem.id), workflow, phase);
   const pathContext = applicationPathContext(config, workflow);
   const excluded = new Set(scope ? discovered.filter((file) => isApplicationPath(file, pathContext) && !scope.allows(file)) : []);
+  // A later code step's code, kept in place for it by an amendment's closure or a return (SPEC-CIC switch 2), is never a
+  // document step's artifact: not registered, never committed.
+  const others = scope ? [] : discovered.filter((file) => !file.startsWith(`${workDirRelative(config, workflow.workItem.id)}/artifacts/`));
+  const kept = others.length ? (await (await import('./amended-drafts.mjs')).withoutHeldCode(root, config, workflow, phase, others)).paths : others;
+  const held = new Set(others.filter((file) => !kept.includes(file)));
+  if (held.size) phase.artifacts = phase.artifacts.filter((artifact) => !held.has(artifact.path));
   if (scope) {
     phase.artifacts = phase.artifacts.filter((artifact) => !excluded.has(artifact.path));
     if (excluded.size) phase.excludedChanges = [...excluded].sort(); else delete phase.excludedChanges;
   }
   for (const file of discovered) {
-    if (excluded.has(file)) continue;
+    if (excluded.has(file) || held.has(file)) continue;
     records.push(await registerArtifact(root, workflow, file, {
       phaseId: phase.id, kind: skillOutputKinds.get(file), config
     }));
@@ -3666,12 +3672,18 @@ export async function assertPhaseChangeScope(root, config, workflow, phase) {
   }
   if ((phase.writeScope ?? 'artifact-only') === 'artifact-only') {
     const allowed = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
-    const outside = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowed));
+    let outside = changed.filter((file) => !ignored(config, workflow, file, { untracked: untracked.has(file) }) && !file.startsWith(allowed));
+    // A later code step's code, kept for it by an amendment's closure or a return, is not this step's (SPEC-CIC switch 2).
+    const drafts = outside.length ? await import('./amended-drafts.mjs') : null;
+    const held = drafts ? await drafts.withoutHeldCode(root, config, workflow, phase, outside) : null;
+    if (held) outside = held.paths;
     if (outside.length) {
       const change = await crossPhaseChange(root, config, workflow, phase, outside);
       const described = describeCrossPhaseChange(change, { code: 'PHASE_ARTIFACT_ONLY_CHANGES', gate: 'submission', workflow, phase });
-      throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`,
-        { code: 'PHASE_ARTIFACT_ONLY_CHANGES', details: { phase: phase.id, changedPaths: outside, crossPhase: change, gate: described.gate } });
+      throw new SingularityFlowError(`Phase ${phase.id} is artifact-only, but files outside its artifacts changed: ${outside.join(', ')}. ${described.text}`
+        + drafts.heldCodeChangedWords(held.changed),
+        { code: 'PHASE_ARTIFACT_ONLY_CHANGES', details: { phase: phase.id, changedPaths: outside, crossPhase: change, gate: described.gate,
+          ...(held.changed.length ? { changedSinceClosure: held.changed.map((entry) => entry.path) } : {}) } });
     }
   } else {
     const allowedArtifact = `${workDirRelative(config, workflow.workItem.id)}/artifacts/${phase.id}/`;
@@ -5773,10 +5785,13 @@ async function submitPhaseTransition(root, config, workflow, {
     const applicationChanges = applicationChangeSetProjection(
       postPublication, applicationPathContext(config, workflow)
     ).entries;
-    if (applicationChanges.length) {
-      const changedPaths = [...new Set(applicationChanges.flatMap((entry) => [
-        entry.oldPath, entry.newPath
-      ]).filter(Boolean))].sort();
+    // A later code step's code, kept for it by an amendment's closure or a return, is not this step's (SPEC-CIC switch 2).
+    const drafts = applicationChanges.length ? await import('./amended-drafts.mjs') : null;
+    const kept = drafts ? await drafts.withoutHeldCode(root, config, workflow, phase, [...new Set(applicationChanges.flatMap((entry) => [
+      entry.oldPath, entry.newPath
+    ]).filter(Boolean))].sort()) : null;
+    if (kept?.paths.length) {
+      const changedPaths = kept.paths;
       const change = await crossPhaseChange(root, config, workflow, phase, changedPaths);
       const described = describeCrossPhaseChange(change, { code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION', gate: 'submission', workflow, phase });
       // No earlier code step owns them, so "move them to the code step" named nothing a person could
@@ -5793,7 +5808,7 @@ async function submitPhaseTransition(root, config, workflow, {
         `Phase '${phase.id}' is artifact-only, but application source or tests changed after generation ${phase.generation} was published: `
         + `${changedPaths.join(', ')}. `
         + (takeOut.length ? `No earlier code step owns them; ${ahead} will deliver them. Take them out of ${phase.id}: ${takeOut.join('; ')}. Then submit the unchanged ${phase.id} generation again.`
-          : `Move them to the code step that owns them, then submit the unchanged ${phase.id} generation again. ${described.text}`),
+          : `Move them to the code step that owns them, then submit the unchanged ${phase.id} generation again. ${described.text}`) + drafts.heldCodeChangedWords(kept.changed),
         {
           code: 'PHASE_SOURCE_CHANGED_AFTER_PUBLICATION',
           details: {
@@ -5804,7 +5819,8 @@ async function submitPhaseTransition(root, config, workflow, {
             changedPaths,
             crossPhase: change,
             gate: described.gate,
-            ...(takeOut.length ? { codeStepAhead: ahead, heldCommits: held.commits, heldUncommitted: held.uncommitted, recoveryCommands: takeOut } : {})
+            ...(takeOut.length ? { codeStepAhead: ahead, heldCommits: held.commits, heldUncommitted: held.uncommitted, recoveryCommands: takeOut } : {}),
+            ...(kept.changed.length ? { changedSinceClosure: kept.changed.map((entry) => entry.path) } : {})
           }
         }
       );
@@ -8413,9 +8429,14 @@ export async function rejectPhase(root, config, workflow, {
   });
   if (budgetPreview) workflow.repairBudgets = budgetPreview.repairBudgets;
   // Approved phases after the target may keep their approval when nothing they decided over changes.
-  for (const id of reopenPhaseRange(workflow, {
+  const reopened = reopenPhaseRange(workflow, {
     targetId, at: timestamp, actor: key, reason: changeRequest.comment, retain: true
-  })) await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
+  });
+  for (const id of reopened) await updateArtifactMetadata(root, config, workflow, workflow.phases[id]);
+  // A code step returned with its generation open keeps its code in place for it (SPEC-CIC switch 2, amended-drafts.mjs).
+  if (workflow.resolution?.spec?.preAmendmentDrafts === 'refuse') {
+    await (await import('./amended-drafts.mjs')).holdReturnedCode(root, config, workflow, reopened, changeRequest.id);
+  }
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
     itemDirectory: workDir(root, config, workflow.workItem.id),
@@ -9044,7 +9065,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   // the amended scope; its earlier prompt and code generation are set aside and its draft kept read only.
   if (firstReset != null && workflow.resolution?.spec?.preAmendmentDrafts === 'refuse') {
     await (await import('./amended-drafts.mjs')).pinResetSteps(root, workflow, workflow.phaseOrder.slice(firstReset),
-      { amendment: proposal.id, revision: scopeRevision, itemRelative: workDirRelative(config, workflow.workItem.id), at });
+      { amendment: proposal.id, revision: scopeRevision, itemRelative: workDirRelative(config, workflow.workItem.id), at, config });
   }
   // D1 [CIC:REQ-021]: each step kept here whose prompt held a changed clause it does not cite is asked, by its own
   // approvers on the Decide card, whether it still holds: the rows pendingAmendmentRevalidations lists, never settled.

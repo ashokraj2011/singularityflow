@@ -550,7 +550,14 @@ export const stillHoldsTemplate = (t) => amendedStoryTemplate(t, { observed: tru
  */
 export const preAmendmentDraftTemplate = (t) => amendedStoryTemplate(t, { draftOnly: true });
 
-async function amendedStoryTemplate(t, { observed = false, draftOnly = false }) {
+/**
+ * SPEC-CIC switch 2 [owner, 2026-11-14]: the code step was begun, written and composed, and then an amendment changed a
+ * clause the design cites. The Story is left at the design, reopened in place, with the code step's unfinished code still
+ * in the working tree, recorded when its generation was closed.
+ */
+export const heldCodeTemplate = (t) => amendedStoryTemplate(t, { draftOnly: true, reopensDesign: true });
+
+async function amendedStoryTemplate(t, { observed = false, draftOnly = false, reopensDesign = false }) {
   const parent = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'sflow-walk-')));
   t.after(() => rm(parent, { recursive: true, force: true }));
   const root = path.join(parent, 'repository');
@@ -599,8 +606,9 @@ async function amendedStoryTemplate(t, { observed = false, draftOnly = false }) 
   if (draftOnly) cli('phase', 'enter', 'implement', '--compose', '--json');
   else cli('phase', 'publish', 'implement', '--authored', 'deterministic');
   const amended = path.join(parent, 'amended.md');
-  await writeFile(amended, intake('The exported value equals 2 and is a number.'));
-  cli('story', 'intent-amendment', 'propose', '--file', amended, '--reason', 'Say the value is numeric.');
+  await writeFile(amended, reopensDesign ? intake('The exported value equals 2.').replace('The value module stays a single export.', 'The value module keeps exactly one named export.')
+    : intake('The exported value equals 2 and is a number.'));
+  cli('story', 'intent-amendment', 'propose', '--file', amended, '--reason', reopensDesign ? 'Tighten the export clause.' : 'Say the value is numeric.');
   cli('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001');
   cli('story', 'intent-amendment', 'acknowledge', 'AMD-001');
   cli('resume', WORK);

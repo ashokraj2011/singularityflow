@@ -11,8 +11,14 @@
  * that still holds may be published unchanged (owner, 2026-11-14): its approvers approve it again either way.
  * The way out is in the same step: open it again under the amended scope and write it; the recomposed prompt names
  * the old draft as a read-only reference. A later step the amendment resets is pinned the same way when it still holds
- * unpublished work from before it; a step the amendment kept is never pinned. Loaded only by the approval, the
- * publication and the composer.
+ * unpublished work from before it; a step the amendment kept is never pinned. Loaded by the approval, the
+ * publication, the composer, and the document-step checks below.
+ *
+ * A later code step's closed generation keeps its code in the working tree, recorded at the closure path by path with
+ * each content digest (owner, 2026-11-14). An earlier document step the amendment reopened does not count exactly that
+ * code against itself while its bytes match the record and the generation stays closed; the code step's next
+ * `phase begin` carries exactly that code. A return to an earlier step records a code step's open, unpublished
+ * generation the same way. Anything else is refused as before.
  */
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile } from 'node:fs/promises';
@@ -22,7 +28,10 @@ import { authoredArtifactFingerprint } from './artifact-review-read.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { supersedePromptGeneration } from './inject.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { buildRepositoryChangeSet, compareRepositoryIdentity, evaluateProtectedPaths, evaluateSourceBoundary } from './repository-change-set.mjs';
+import { isTestAutomationPath } from './source-boundary.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 
 /** Whether the Story's pinned spec policy refuses drafts written before an approved amendment (switch 2) [CIC:REQ-018]. */
 export const refusesPreAmendmentDrafts = (workflow) => workflow?.resolution?.spec?.preAmendmentDrafts === 'refuse';
@@ -34,7 +43,7 @@ const approved = (workflow) => (workflow?.intentAmendments ?? []).filter((entry)
  * close its open code generation, and keep its draft read only. `revision` is the scope revision the amendment
  * recorded (null when the Story records none). Returns the pin, kept on the step as `scopePin`.
  */
-export async function pinReopenedStep(root, workflow, phase, { amendment, revision, itemRelative, at }) {
+export async function pinReopenedStep(root, workflow, phase, { amendment, revision, itemRelative, at, config = null }) {
   const generation = nextPhaseGeneration(phase);
   const workDir = path.join(root, itemRelative);
   const setAside = {};
@@ -49,9 +58,15 @@ export async function pinReopenedStep(root, workflow, phase, { amendment, revisi
     return `${kept}/${name}`;
   };
   const intent = phase.generationIntent;
+  let closedChangeSet = null;
   if (intent?.status === 'open') {
     // Its start receipt is kept beside the draft: the next `phase begin` writes that generation's receipt again.
     const receipt = intent.path && existsSync(path.join(root, intent.path)) ? await keep(path.join(root, intent.path), 'generation-start.json') : intent.path;
+    // The code it holds, as the generation boundary sees it from the same baseline: what stays for this step.
+    if (config && intent.baseline?.commit) {
+      const held = await heldCode(root, config, workflow, phase, intent.baseline.commit);
+      closedChangeSet = { intent: intent.id, baseCommit: intent.baseline.commit, paths: recorded(held) };
+    }
     Object.assign(intent, { status: 'superseded', supersededBy: amendment, supersededAt: at, path: receipt });
     setAside.intent = intent.id;
   }
@@ -62,7 +77,7 @@ export async function pinReopenedStep(root, workflow, phase, { amendment, revisi
     draft = { path: await keep(artifact, path.basename(artifact)), artifact: posix(path.relative(root, artifact)), sha256: authoredArtifactFingerprint(text) };
   }
   phase.scopePin = { amendment, generation, revision: revision?.revision ?? null, revisionSha256: revision?.revisionSha256 ?? null, at,
-    ...(Object.keys(setAside).length ? { setAside } : {}), ...(draft ? { draft } : {}) };
+    ...(Object.keys(setAside).length ? { setAside } : {}), ...(draft ? { draft } : {}), ...(closedChangeSet ? { closedChangeSet } : {}) };
   return phase.scopePin;
 }
 
@@ -77,6 +92,127 @@ export async function pinResetSteps(root, workflow, reset, options) {
       || existsSync(path.join(root, options.itemRelative, 'context', `${id}-gen${nextPhaseGeneration(phase)}.json`));
     if (index === 0 || pending) await pinReopenedStep(root, workflow, phase, options);
   }
+}
+
+/**
+ * The code a code step's generation holds from `baseCommit`, from the change set the generation boundary builds: each
+ * application path it reaches with its content (`missing` where the change removed it). A protected or out-of-boundary
+ * path, or anything but a file or link, is never held, since `phase begin` refuses it; `other` lists those paths.
+ */
+function heldPaths(config, workflow, phase, changeSet) {
+  const guards = [...(config.governance?.protectedPaths ?? []), ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])];
+  const refused = new Set([...evaluateProtectedPaths(changeSet, guards).violations, ...evaluateSourceBoundary(changeSet,
+    phase.sourceBoundary ?? 'unrestricted', { phaseId: phase.id, allowedPath: isTestAutomationPath }).violations].map((entry) => entry.path));
+  const held = new Map();
+  const other = [];
+  for (const entry of changeSet.entries) {
+    const ends = [entry.oldPath, entry.newPath].filter(Boolean);
+    const kind = entry.newContent?.kind ?? 'missing';
+    if (ends.some((file) => refused.has(file)) || !['regular-file', 'symlink', 'missing'].includes(kind)) { other.push(...ends); continue; }
+    if (entry.oldPath && entry.oldPath !== entry.newPath && entry.status !== 'copied') held.set(entry.oldPath, { kind: 'missing', sha256: null });
+    if (entry.newPath) held.set(entry.newPath, { kind, sha256: entry.newContent?.sha256 ?? null });
+  }
+  return { held, other };
+}
+
+async function heldCode(root, config, workflow, phase, baseCommit) {
+  const changeSet = applicationChangeSetProjection(await buildRepositoryChangeSet(root, { baseCommit,
+    subject: { workId: workflow.workItem.id, phase: phase.id, generation: nextPhaseGeneration(phase), generationIntentId: null } }),
+  applicationPathContext(config, workflow));
+  return heldPaths(config, workflow, phase, changeSet).held;
+}
+
+const recorded = (held) => [...held].map(([file, content]) => ({ path: file, ...content })).sort((left, right) => compareRepositoryIdentity(left.path, right.path));
+const sameContent = (left, right) => Boolean(left && right) && left.kind === right.kind && left.sha256 === right.sha256;
+
+/**
+ * The later code steps holding code recorded for them, while the recorded generation is unchanged: one an amendment closed
+ * (`scopePin.closedChangeSet`, still superseded), or one a return to an earlier step left open and unpublished (`heldCode`).
+ */
+function heldCodeRecords(workflow, phase) {
+  const order = workflow.phaseOrder ?? [];
+  return order.slice(order.indexOf(phase.id) + 1).map((id) => workflow.phases?.[id]).flatMap((step) => {
+    const intent = step?.generationIntent;
+    if (!intent || Number(intent.generation) !== nextPhaseGeneration(step)) return [];
+    const record = intent.status === 'superseded' ? step.scopePin?.closedChangeSet : intent.status === 'open' ? step.heldCode : null;
+    return record?.intent === intent.id ? [{ step, record, by: record.by ?? step.scopePin?.amendment }] : [];
+  });
+}
+
+/**
+ * Of the `paths` a document step found changed, those it still answers for [owner, 2026-11-14]: a path recorded for a
+ * later code step, with the same bytes now, while that step's recorded generation is unchanged, is that step's and stays
+ * in place for it. `changed` names the recorded paths whose bytes moved since. Nothing is excluded with switch 2 off,
+ * for a code step, or when the change set cannot be read.
+ */
+export async function withoutHeldCode(root, config, workflow, phase, paths) {
+  if (!refusesPreAmendmentDrafts(workflow) || phaseRequiresCodeDelivery(phase) || !paths.length) return { paths, changed: [] };
+  const excluded = new Set();
+  const changed = [];
+  for (const { step, record, by } of heldCodeRecords(workflow, phase)) {
+    const now = await heldCode(root, config, workflow, step, record.baseCommit).catch(() => new Map());
+    for (const entry of record.paths ?? []) {
+      if (!paths.includes(entry.path)) continue;
+      if (sameContent(now.get(entry.path), entry)) excluded.add(entry.path);
+      else changed.push({ path: entry.path, step: step.id, by });
+    }
+  }
+  return { paths: paths.filter((file) => !excluded.has(file)), changed: changed.filter((entry) => !excluded.has(entry.path)) };
+}
+
+/** Every path the document step `phase` leaves in place for a later code step, as withoutHeldCode reads it. */
+export async function heldCodePaths(root, config, workflow, phase) {
+  const files = [...new Set(heldCodeRecords(workflow, phase).flatMap(({ record }) => (record.paths ?? []).map((entry) => entry.path)))];
+  const { paths } = await withoutHeldCode(root, config, workflow, phase, files);
+  return new Set(files.filter((file) => !paths.includes(file)));
+}
+
+/** The words a document step's refusal adds for recorded code whose bytes moved after it was left in place. */
+export function heldCodeChangedWords(changed) {
+  if (!changed.length) return '';
+  const { step, by } = changed[0];
+  return ` ${changed.map((entry) => entry.path).join(', ')} changed after ${by} left ${step}'s code in place for it, so this step answers for it: `
+    + `put back the bytes recorded then, or set it aside; ${step} picks up only that code.`;
+}
+
+/**
+ * At a return to an earlier step (rejectPhase): each later code step it resets whose generation is open and unpublished
+ * keeps its code in place, recorded as an amendment's closure records it, so an earlier document step is not stalled by
+ * it; the step picks it up in that same open generation when the Story reaches it again [owner, 2026-11-14].
+ */
+export async function holdReturnedCode(root, config, workflow, reopened, by) {
+  if (!refusesPreAmendmentDrafts(workflow)) return;
+  for (const id of reopened.slice(1)) {
+    const phase = workflow.phases[id];
+    const intent = phase?.generationIntent;
+    delete phase.heldCode;
+    if (!phaseRequiresCodeDelivery(phase) || intent?.status !== 'open' || Number(intent.generation) !== nextPhaseGeneration(phase) || !intent.baseline?.commit) continue;
+    const held = await heldCode(root, config, workflow, phase, intent.baseline.commit);
+    if (held.size) phase.heldCode = { by, intent: intent.id, baseCommit: intent.baseline.commit, paths: recorded(held) };
+  }
+}
+
+/**
+ * At `phase begin` of a code step whose generation an amendment closed [owner, 2026-11-14]: it carries exactly the code
+ * the closure recorded, the paths a reopened document step left in place for it, and nothing else unless a person adopts
+ * the whole change set. A path changed since, or new code, is refused here, in this step, with its way out.
+ */
+export function assertCarriesClosedCode(config, workflow, phase, changeSet, details) {
+  const record = phase.scopePin?.closedChangeSet;
+  if (!record || record.intent !== phase.generationIntent?.id) return;
+  const byPath = new Map((record.paths ?? []).map((entry) => [entry.path, entry]));
+  const { held, other } = heldPaths(config, workflow, phase, changeSet);
+  const moved = [...new Set([...other, ...[...held].filter(([file, content]) => !sameContent(byPath.get(file), content)).map(([file]) => file)])].sort();
+  if (!moved.length) return;
+  const adopt = `singularity-flow phase begin ${phase.id} --adopt-existing --confirm ${changeSet.digest}`;
+  throw new SingularityFlowError(`${phase.id} carries only the code its generation held when ${phase.scopePin.amendment} closed it, `
+    + `and ${moved.join(', ')} changed since. Put back the bytes that generation held there, or set them aside with singularity-flow recover ${workflow.workItem.id} --json, then begin again; `
+    + `or, once a person has reviewed the whole change set, adopt it: ${adopt}`, {
+    code: 'GENERATION_DIRTY_START',
+    details: { ...details, phase: phase.id, changedSinceClosure: moved, closedBy: phase.scopePin.amendment,
+      nextAction: { command: `singularity-flow recover ${workflow.workItem.id} --json`, skill: '/sf-recover',
+        label: `Review what changed since ${phase.scopePin.amendment} closed ${phase.id}'s generation, then put it back or set it aside.` } }
+  });
 }
 
 /** Whether a generation's recorded start scope is the pinned one or a later one, by revision digest, else by amendment. */

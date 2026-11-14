@@ -104,7 +104,7 @@ export function describeCrossPhaseChange(change, { code, gate, workflow, phase }
     sentences.push(`Return them to ${change.owners.join(', ')}; no return is permitted from here (${change.returns.map((entry) => entry.reason).join('; ')}), so ask for an authorized workflow return with singularity-flow nextsteps --json.`);
   }
   sentences.push('They stay in your worktree; nothing was reverted or adopted.');
-  if (subjects.length) sentences.push(`They change ${subjects.join(', ')}, owned by ${change.owners.join(', ')}.`);
+  if (subjects.length) sentences.push(`They change ${subjects.join(', ')}${change.owners.length ? `, owned by ${change.owners.join(', ')}` : ''}.`);
   if (change.unplanned.length) {
     sentences.push(`No plan row names ${change.unplanned.join(', ')}: account for each with singularity-flow decision plan --add-location <clause>=<path> --reason <reason>, or move it out of the worktree.`);
   }

@@ -21,7 +21,7 @@ const canonical = async value => keyPath(await realpath(value));
 /** Browsing a catalog/Story list or asking for session choices is not Story execution. */
 export function copilotStoryFollowSkill(skill) {
   return ['sf-phase', 'sf-code', 'sf-next', 'sf-nextsteps', 'sf-inputs', 'sf-review-source',
-    'sf-publish', 'sf-submit', 'sf-approve', 'sf-reject', 'sf-converge', 'sf-recover']
+    'sf-publish', 'sf-submit', 'sf-approve', 'sf-reject', 'sf-amend', 'sf-converge', 'sf-recover']
     .includes(String(skill ?? '').replace(/^sflow-/u, 'sf-'));
 }
 

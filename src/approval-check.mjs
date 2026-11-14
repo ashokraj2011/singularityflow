@@ -1005,9 +1005,9 @@ function decidedAfterSubmission(rejected = []) {
  * Empty on a clean checkout, or when Git cannot say; the door itself still checks.
  */
 async function worktreeRefusals(root, config, workflow) {
-  const { assertLifecycleWorktreeClean, withChangesAfterPublication } = await import('./lifecycle-worktree.mjs');
+  const { assertLifecycleWorktreeClean, heldForLaterCode, withChangesAfterPublication } = await import('./lifecycle-worktree.mjs');
   try {
-    assertLifecycleWorktreeClean(root, config, workflow);
+    assertLifecycleWorktreeClean(root, config, workflow, { held: await heldForLaterCode(root, config, workflow) });
     return [];
   } catch (raised) {
     // The step's own files changed after its publication: the hold's route is its in-step repair (N7).

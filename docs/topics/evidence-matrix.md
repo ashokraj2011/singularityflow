@@ -2,6 +2,8 @@
 id: evidence-matrix
 title: Evidence matrix for requirements and acceptance criteria
 aliases:
+  - requirements
+  - requirement
   - requirement-evidence
   - criterion-status
   - evidence-view
@@ -23,9 +25,10 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 35
+  - changing-requirements
+version: 36
 ---
-The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
+The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call. When a requirement or criterion itself changes after the scope is approved, see `sflow explain changing-requirements`.
 
 ## Purpose and prerequisites
 

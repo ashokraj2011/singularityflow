@@ -917,7 +917,8 @@ test('the common session projection does not import attach, state stores or publ
   // (application-paths.mjs +500), the layout and the transport policy (configuration-assets.mjs +1,643) and moved
   // agents' package history (packaged-asset-history.mjs +226). The migration, its preview and its lines stay lazy
   // (agents-home-migration.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_257_800, `session current loads ${current.bytes} source bytes`);
+  // 4,257,850 (measured 4,257,812): the same, merged with main 153e78d1a (+32 there). No new eager file.
+  assert.ok(current.bytes <= 4_257_850, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

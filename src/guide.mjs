@@ -181,7 +181,7 @@ export function workflowGuide(workflow, { sourceReviewEvidence = null, authoring
       ...nextActions(workflow, active, sourceReviewEvidence, authoringProgress),
       // Offered only where it can succeed: none waits for a decision or an acknowledgement [owner, 2026-11-13].
       ...(intentAmendmentProposable(workflow) ? [copilotAction({
-        skill: '/sflow-reject',
+        skill: '/sflow-amend',
         command: `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file <AMENDED-SPEC.md> --reason <reason>`,
         reason: 'If the approved intent must change, propose a reviewed amendment; no convergence finding or revision loop is required. Existing intent stays approved until the scope authority decides on the decisions card, and this step pauses until then.',
         optional: true

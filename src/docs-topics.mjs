@@ -291,6 +291,38 @@ export function nearestTopicIds(topics, query, limit = 3) {
 }
 
 /**
+ * What the usage synopsis allows as the first word after each command, for checking the
+ * `sflow <command> <word>` spans a topic shows.
+ *
+ * `subcommands` holds every literal word the synopsis offers there: a bare word, each of `a|b|c`,
+ * an optional `[list]` or `[on|off]`, and each value of an enumerated `<a|b>`. `open` holds the
+ * commands whose first slot also takes an argument a lowercase word can be, such as `[PHASE]`,
+ * `[TOPIC|COMMAND]` or `<command>`; there any word may be that argument, so it cannot be checked.
+ * An ID-shaped argument (`<WORK-ID>`, `ENG-142`) leaves the slot checked: a span of lowercase
+ * words cannot be one. Reading only the first `[a-z]` run of each line got all three wrong: it
+ * took `prepare [PHASE]`'s example line `prepare intake` as its only subcommand and refused
+ * `sflow prepare design`, and it kept only `current` from `session current|status|…`.
+ */
+export function synopsisFirstSlots(helpText, commandNames) {
+  const subcommands = new Map();
+  const open = new Set();
+  const words = (command) => subcommands.get(command) ?? subcommands.set(command, new Set()).get(command);
+  for (const line of String(helpText).split('\n')) {
+    const match = /^\s{2}(?:singularity-flow|sflow|sf-[a-z-]+)\s+([a-z][a-z-]*)\s+(\S+)/.exec(line);
+    if (!match || !commandNames.has(match[1])) continue;
+    const [, command, token] = match;
+    if (/^\[?--/.test(token)) continue;
+    const angled = /^<[^>]*>?$/.test(token);
+    const inner = token.replace(/^["[<]+/, '').replace(/[\]>"]+$/, '');
+    const alternatives = inner.split('|').filter(Boolean);
+    if (alternatives.length && alternatives.every((word) => /^[a-z][a-z-]*$/.test(word)) && !(angled && alternatives.length === 1)) {
+      for (const word of alternatives) words(command).add(word);
+    } else if (alternatives.some((word) => !/(?:^|-)ID$|\d/.test(word))) open.add(command);
+  }
+  return { subcommands, open };
+}
+
+/**
  * The docs manifest: what shipped, at which versions, built from which commit `[DOC:REQ-004]`.
  *
  * `doctor` compares this against the topics on disk. A mismatch means the package and its

@@ -5,6 +5,7 @@ aliases:
   - intent-amendment
   - intent-amendments
   - still-holds
+  - amend
 questions:
   - The requirements changed, what do I do?
   - What do I do when the requirements change partway through a Story?
@@ -20,6 +21,8 @@ questions:
   - Why is my draft refused after an amendment?
 keywords:
   - acceptance criteria
+  - change
+  - changed
 commands:
   - decisions
   - story
@@ -30,7 +33,8 @@ related:
   - approvals
   - phase-appeals
   - rejection-and-rework
-version: 1
+  - evidence-matrix
+version: 5
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -58,13 +62,13 @@ Only the first row changes intent. A forward amendment cannot change a step that
 
 ## Use it from each surface
 
-- **Copilot:** `/sf-reject intent-amendment propose` drafts, previews and proposes the change in your words. `/sf-decide WORK-ID` opens the Decide card. Copilot never decides or acknowledges an amendment for you. In Copilot CLI, `/decide WORK-ID` opens the same card.
+- **Copilot:** `/sf-amend` (or `/sf-amend propose`) drafts, previews and proposes the change in your words; `/sf-reject intent-amendment propose` still does the same. `/sf-decide WORK-ID` opens the Decide card. Copilot never decides or acknowledges an amendment for you. In Copilot CLI, `/decide WORK-ID` opens the same card.
 - **Shell:** `sflow story intent-amendment status|draft|preview|propose|decide|acknowledge`, `sflow decisions WORK-ID` and `sflow upstream-issue revalidate`. Run `singularity-flow story --help` for the exact forms.
 - **VS Code:** the Decide card, from the Command Palette: **Singularity Flow: Decide Everything This Step Waits On**. It needs no model. No VS Code form proposes an amendment; use Copilot or the terminal.
 
 | Action | Who | Where |
 |---|---|---|
-| Propose | Anyone on the Story | `/sf-reject intent-amendment propose`, or `story intent-amendment propose` |
+| Propose | Anyone on the Story | `/sf-amend propose` (`/sf-reject intent-amendment propose` still works), or `story intent-amendment propose` |
 | Approve or reject | The scope step's approvers | The Decide card, or `story intent-amendment decide` in your own terminal |
 | Acknowledge | Anyone on the Story | The Decide card, or `story intent-amendment acknowledge` in your own terminal |
 | Say a kept step still holds | That step's approvers | Yes or no in `/sf-decide WORK-ID`, the Decide card, or `upstream-issue revalidate` |
@@ -75,7 +79,7 @@ Story PAY-1, "Retry failed card payments", has four steps: Intake (the scope), D
 
 1. **Choose the route.** AC-001 changes and a new criterion is needed. That is new behaviour: an intent amendment.
 2. **Draft, preview, propose.** Say the change in your own words. The draft is a copy of the approved scope, kept beside the checkout's Git data, never in the Story. Revise AC-001 in its `sflow-draft` slot, and add AC-003 "A fraud decline stops retrying at once." with its plan row. The preview records nothing. Here it says "It adds AC-003 and revises AC-001." and "Design is reopened: it cites AC-001." Implement has never published, so the preview does not name it; it runs again after Design. Then propose it as AMD-001. Implement, the step it was proposed from, pauses until AMD-001 is decided.
-   - Copilot: `/sf-reject intent-amendment propose`
+   - Copilot: `/sf-amend propose` (`/sf-reject intent-amendment propose` still works)
    - Shell: `sflow story intent-amendment draft --clause PAY-1:AC-001 --work-id PAY-1`, edit the file it names, then `sflow story intent-amendment preview --file <DRAFT> --work-id PAY-1` and `sflow story intent-amendment propose --file <DRAFT> --reason "<why>" --authored human --work-id PAY-1`
    - VS Code (model-free): not available
 3. **The scope approvers decide.** The card shows each changed clause, who proposed it and what it reaches. Rejecting keeps the scope and every submission as they are. Approving reopens Design.
@@ -86,11 +90,12 @@ Story PAY-1, "Retry failed card payments", has four steps: Intake (the scope), D
    - Copilot: `/sf-decide PAY-1` opens the card; Copilot cannot acknowledge for you
    - Shell: `sflow story intent-amendment acknowledge AMD-001 --work-id PAY-1`
    - VS Code (model-free): the Decide card
-5. **Design, reopened in place.** The Story resumes at Design (`/sf-resume PAY-1` in another chat or checkout; Shell `sflow resume PAY-1`). Its old text is kept read only in the Story folder at `context/superseded/design-gen2-before-AMD-001/design.md`, and the new prompt names that file. Design publishes no code: while Implement's unfinished code is in the working tree, Design cannot be composed or published (`PHASE_ARTIFACT_ONLY_CHANGES`). Set the code aside first: `/sf-recover` (Shell `sflow recover PAY-1 --phase design --json`) offers it, keeps a private copy, and you run it in your own terminal. Or move the files out yourself and bring them back before Implement starts again. Then compose Design again and write it against the amended scope. A person may publish the old text unchanged if it still holds; an agent's draft must be composed again first. Its approvers approve it again.
+5. **Design, reopened in place.** The Story resumes at Design (`/sf-resume PAY-1` in another chat or checkout; Shell `sflow resume PAY-1`). Its old text is kept read only in the Story folder at `context/superseded/design-gen2-before-AMD-001/design.md`, and the new prompt names that file. Leave Implement's unfinished code where it is. AMD-001 recorded it, file by file, when it closed Implement's code generation. Design does not count that code against itself, and its publication commits none of it. Compose Design again and write it against the amended scope. A person may publish the old text unchanged if it still holds; an agent's draft must be composed again first. Its approvers approve it again. Design still answers for a recorded file changed since, and for new code: put back what was recorded, or set it aside.
    - Copilot: `/sf-phase` (an agent writes it again), or `/sf-publish design` for your own unchanged text; then `/sf-submit` and `/sf-approve design --work-id PAY-1`
    - Shell: `sflow prepare` (it prepares the current step, Design) and `sflow phase enter design --work-id PAY-1 --compose --for-agent --json`; a person's unchanged text: `sflow phase publish design --authored human --channel manual-in-place`; then `sflow submit design` and `sflow approve design --work-id PAY-1 --fetch`
    - VS Code (model-free): `@sflow /submit design`, then `@sflow /approve design --work-id PAY-1`
-6. **Implement, written again.** AMD-001 closed Implement's code generation and set its old prompt aside. Publishing the old draft is refused with `PHASE_DRAFT_PREDATES_AMENDMENT`, naming the way out in this step: `phase begin implement` while its generation is closed, then `phase enter implement --compose`. The code in the working tree is carried into the new generation as its starting point, and the new prompt names the old summary read only. The agent raises the limit to 5, adds the fraud stop and its tests, and publishes. Then submit and approve, and go on to Verify.
+   - Legacy: a Story started before `spec.preAmendmentDrafts` still sets the code aside first. `/sf-recover` (Shell `sflow recover PAY-1 --phase design --json`) offers it and keeps a private copy; bring the code back before Implement starts again.
+6. **Implement, written again.** AMD-001 closed Implement's code generation and set its old prompt aside. Publishing the old draft is refused with `PHASE_DRAFT_PREDATES_AMENDMENT`, naming the way out in this step: `phase begin implement` while its generation is closed, then `phase enter implement --compose`. The code AMD-001 recorded is carried into the new generation as its starting point, and the new prompt names the old summary read only. Only that code is carried: a recorded file changed since, or new code, is refused at `phase begin` (`GENERATION_DIRTY_START`, naming the files). Put back what was recorded, or set it aside with `/sf-recover`, and begin again. The agent raises the limit to 5, adds the fraud stop and its tests, and publishes. Then submit and approve, and go on to Verify.
    - Copilot: `/sf-code`, then `/sf-publish implement`, `/sf-submit` and `/sf-approve implement --work-id PAY-1`
    - Shell: `sflow prepare` (now at Implement, it opens the code generation again) and `sflow phase enter implement --work-id PAY-1 --compose --for-agent --json`, then `sflow phase publish implement --authored deterministic --channel kernel-generator --no-model`, `sflow submit implement` and `sflow approve implement --work-id PAY-1 --fetch`
    - VS Code (model-free): `@sflow /publish implement`, `@sflow /submit implement`, then `@sflow /approve implement --work-id PAY-1`
@@ -155,7 +160,7 @@ Proposing commits the proposal; the approved scope stays as it is until the scop
 - **`INTENT_AMENDMENT_PLAN_UNCORRECTED`:** a separate approved plan would no longer match the clauses. Propose again with the rows the refusal names (`--add-row`, `--remove-row`, `--keep-row`). **`INTENT_AMENDMENT_PLAN_CORRECTION_INVALID`:** correct those row flags and propose again. **`INTENT_AMENDMENT_PLAN_STALE`:** reject it and propose it again with the rows the plan needs now.
 - **`AMENDMENT_REVALIDATION_INVALID`:** a plan cannot still hold while it lacks rows for the amended clauses. Its approvers correct it with `sflow decision plan`, or answer No.
 - **`EVIDENCE_STALE_AFTER_SCOPE_REVISION`:** a step's evidence of a changed clause predates the amendment. A person returns the step to its author, who runs it again.
-- **`PHASE_ARTIFACT_ONLY_CHANGES`:** a document step found code changes in the working tree; set them aside (step 5).
+- **`PHASE_ARTIFACT_ONLY_CHANGES`:** a document step found code changes it answers for: new code, or a file a later code step's record no longer matches. Put back what was recorded, or set it aside with `/sf-recover`. A later step's code an amendment left in place is not counted (step 5), except on a legacy Story, which sets it aside.
 
 ## Related topics
 

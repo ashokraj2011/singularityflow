@@ -112,6 +112,9 @@ const OVERRIDES = {
   'presence/signer.mjs': 'local-operational',
   // A Story's departures (CQF M2): each written in its own Story commit beside the Story's other records.
   'departure-records.mjs': 'shared-state',
+  // Decisions settled for the person: appended to the Story's own records in its transaction. Its one direct write
+  // removes the `.nvmrc` a Node settlement wrote, once that settlement is undone and the file is unchanged.
+  'settled-decisions.mjs': 'shared-state',
   // What a person typed after /sf-code or /sf-phase (SCS M4), kept under the Git directory until prepublish copies it
   // into the Story: until then it is the only copy.
   'asked-for.mjs': 'local-authored',

@@ -117,7 +117,7 @@ test('each step of the pending-amendment plan carries its own routes, and none o
   assert.equal(commandGuidanceText(STATUS), `- Copilot: ${NO_ROUTE}\n- Shell: ${STATUS}\n- VS Code (model-free): not available for this action`);
 });
 
-test('the intent-amendment crosswalk routes only drafting and proposing to /sf-reject', () => {
+test('the intent-amendment crosswalk routes only drafting and proposing, to /sf-amend', () => {
   for (const command of [STATUS, DECIDE, `singularity-flow story intent-amendment --work-id ${WORK}`,
     `singularity-flow story intent-amendment acknowledge AMD-001 --work-id ${WORK}`]) {
     const guidance = safeCommandGuidance(command);
@@ -134,8 +134,11 @@ test('the intent-amendment crosswalk routes only drafting and proposing to /sf-r
   }
   for (const command of [`singularity-flow story intent-amendment draft --work-id ${WORK}`,
     `singularity-flow story intent-amendment propose --work-id ${WORK} --file amended.md --reason x`]) {
-    // /sf-reject's own amendment route, which every surface names the same way [owner, 2026-11-13].
-    assert.equal(safeCommandGuidance(command)?.copilotCommand, '/sf-reject intent-amendment propose', command);
+    // The dedicated /sf-amend route, which every surface names the same way [owner, 2026-11-14].
+    assert.equal(safeCommandGuidance(command)?.copilotCommand, '/sf-amend propose', command);
+    assert.equal(safeCommandGuidance(command)?.skill, '/sf-amend', command);
+    // /sf-reject's own form still drafts and proposes, so a producer naming it is given the dedicated route.
+    assert.equal(copilotCommandForCommand(command, '/sf-reject'), '/sf-amend propose', command);
   }
 });
 

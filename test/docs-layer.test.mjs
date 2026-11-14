@@ -23,7 +23,7 @@ import { COMMAND_REGISTRY } from '../src/command-registry.mjs';
 import { HELP } from '../src/help-text.mjs';
 import {
   DOCS_DEFAULT_PREVIEW_BYTES, DOCS_HARD_MAXIMUM_BYTES, aliasTable, buildManifest, loadTopics,
-  nearestTopicIds, parseTopic, previewTopic, resolveTopic, sectionOf
+  nearestTopicIds, parseTopic, previewTopic, resolveTopic, sectionOf, synopsisFirstSlots
 } from '../src/docs-topics.mjs';
 import {
   HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES, HARNESS_IMPORTS_HARD_MAXIMUM_BYTES
@@ -420,6 +420,44 @@ test('the sflow-docs skill contracts to relay, not to recall', async () => {
   // It is indexed, so its description is part of every session's fixed cost. 15 is the policy cap.
   const description = /^description:\s*(.*)$/m.exec(skill)[1];
   assert.ok(Math.ceil(description.trim().length / 4) <= 15, `description is ${description.length} characters`);
+});
+
+test('a topic span is checked against every first word the synopsis allows, and an argument slot is left open', () => {
+  const names = new Set(['prepare', 'session', 'imports', 'pause', 'hook', 'pr', 'explain', 'start', 'auto', 'resume']);
+  const { subcommands, open } = synopsisFirstSlots([
+    '  singularity-flow prepare [PHASE]',
+    '  singularity-flow prepare intake',
+    '  singularity-flow session current|status|candidates [--json]',
+    '  singularity-flow session attach <WORK-ID>',
+    '  singularity-flow imports [list] [--json]',
+    '  singularity-flow pause [on|off|status]',
+    '  singularity-flow hook <turn-intent|turn-end>',
+    '  singularity-flow pr [WORK-ID] [--json]',
+    '  singularity-flow pr describe [WORK-ID]',
+    '  singularity-flow explain [TOPIC|ALIAS] [--here]',
+    '  singularity-flow explain [code [--hunk H-ID]',
+    '  singularity-flow start <WORK-ID>',
+    '  singularity-flow start ENG-142',
+    '  singularity-flow auto "<REQUIREMENT>"',
+    '  singularity-flow resume <WORK-ID|BRANCH>',
+    '  singularity-flow logs [--tail N]',
+    '  singularity-flow unknown thing'
+  ].join('\n'), names);
+  // `prepare intake` is an example of `prepare [PHASE]`, not prepare's only subcommand: any phase may follow.
+  assert.deepEqual([...open].sort(), ['auto', 'explain', 'prepare', 'resume']);
+  assert.deepEqual([...subcommands.get('session')], ['current', 'status', 'candidates', 'attach']);
+  assert.deepEqual([...subcommands.get('imports')], ['list']);
+  assert.deepEqual([...subcommands.get('pause')], ['on', 'off', 'status']);
+  assert.deepEqual([...subcommands.get('hook')], ['turn-intent', 'turn-end']);
+  // A work ID is never a lowercase word, so `sflow pr bogus` is still refused.
+  assert.deepEqual([...subcommands.get('pr')], ['describe']);
+  assert.equal(open.has('pr') || open.has('start'), false);
+  assert.equal(subcommands.has('start') || subcommands.has('logs') || subcommands.has('unknown'), false);
+
+  // The real synopsis and the real topics: every span checks, prepare takes any phase, session takes each of its forms.
+  const real = synopsisFirstSlots(HELP, new Set(COMMAND_REGISTRY.flatMap((entry) => [entry.name, ...entry.aliases])));
+  assert.ok(real.open.has('prepare'));
+  for (const word of ['current', 'status', 'candidates', 'doctor']) assert.ok(real.subcommands.get('session').has(word), word);
 });
 
 test('the synopsis documents explain, and the boolean option is declared', async () => {

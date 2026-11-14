@@ -55,5 +55,7 @@ export function createNamespaceRecordedMutationReader({observer,scope,workId,ope
       ||!contract.receipts(proof.state.workflow).some(row=>same(row,link)))throw corrupt();
     return {...verified,accepted:proof};
   }
-  return Object.freeze({decode,verify,accepted,proposed,admitAgent});
+  /** Consumers need the authenticated value and owned evidence, not duplicated historical state trees. */
+  async function consumed(link,options){const {value,reference,source}=await accepted(link,options);return {value,reference,source};}
+  return Object.freeze({decode,verify,accepted,consumed,proposed,admitAgent});
 }

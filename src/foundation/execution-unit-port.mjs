@@ -7,8 +7,13 @@ export const NODE_SELECTIVE_CHECK_EXECUTION_PROFILE='sflow-local-check-execution
 export const NODE_SCRIPT_SELECTIVE_CHECK_EXECUTION_PROFILE='sflow-local-check-execution/v4';
 export const NODE_COMMAND_EXECUTION_PROFILE='sflow-local-command-execution/v1';
 export const NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE='sflow-local-command-execution/v2';
+export const EXTERNAL_CHECK_EXECUTION_PROFILE='sflow-external-check-execution/v1';
+export const EXTERNAL_COMMAND_EXECUTION_PROFILE='sflow-external-command-execution/v1';
 /** Separate command observations never claim parsed tests. This is a port format, not authorization. */
 export function localCheckExecutionProfile(policy){
+  if(policy?.profile===EXTERNAL_CHECK_EXECUTION_PROFILE)return Object.freeze({format:EXTERNAL_CHECK_EXECUTION_PROFILE,testReport:true,externalRunner:true});
+  if(policy?.profile===EXTERNAL_COMMAND_EXECUTION_PROFILE&&typeof policy.commandKind==='string'&&policy.commandKind!=='test'
+    &&/^[a-z][a-z0-9-]{0,31}$/u.test(policy.commandKind))return Object.freeze({format:EXTERNAL_COMMAND_EXECUTION_PROFILE,testReport:false,externalRunner:true,commandKind:policy.commandKind});
   if(policy?.profile===NODE_CHECK_EXECUTION_PROFILE)return Object.freeze({format:NODE_CHECK_EXECUTION_PROFILE,testReport:true});
   if(policy?.profile===NODE_QUALIFIED_CHECK_EXECUTION_PROFILE)return Object.freeze({format:NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,testReport:true,qualifiedEnvironment:true});
   if(policy?.profile===NODE_SELECTIVE_CHECK_EXECUTION_PROFILE)return Object.freeze({format:NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,testReport:true,qualifiedEnvironment:true,selective:true});

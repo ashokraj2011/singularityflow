@@ -1,6 +1,6 @@
 # Engine SDK and namespaced storage migration
 
-The latest Phase 5/7 delivery is [source-bound impact selection and combined evidence reuse](ENGINE-SDK-IMPACT-AND-COMBINED-REUSE.md).
+The latest Phase 5/7 delivery is [failure permissions, observed cohorts and external runners](ENGINE-SDK-FAILURE-COHORT-AND-EXTERNAL-RUNNERS.md).
 Its explicit new profiles preserve original agreements and do not finish the remaining owners in
 the [completion ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md).
 

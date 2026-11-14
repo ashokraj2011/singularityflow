@@ -9,6 +9,7 @@ import {createFilesystemSourceUnit} from '../../src/sgos/filesystem-source-unit.
 import {createNamespaceStoryObserver} from '../../src/engine-storage/namespace-story-reader.mjs';
 import {createNamespacePhaseCheckReader} from '../../src/engine-storage/namespace-phase-check-reader.mjs';
 import {createNamespacePublicationReader} from '../../src/engine-storage/namespace-publication-reader.mjs';
+import {createNamespaceCodeInputReader} from '../../src/engine-storage/namespace-code-inputs.mjs';
 import {canonicalJson} from '../../src/foundation/record-schema.mjs';
 import {codeInputPublicationPolicy,primaryDocumentPublicationRequirements} from '../../src/kernel/publication-intent.mjs';
 
@@ -25,6 +26,14 @@ export async function namespaceCodeInputCase(t,backend){
   assert.equal(read.content.kind,'text');assert.deepEqual(JSON.parse(read.content.text),await f.json(codeDocument.content));
   });
   if(backend==='filesystem'){
+    await t.test('ordinary Verification prepublish admits its genuine computed candidate and rejects copied or altered candidates',async()=>{
+      const observer=createNamespaceStoryObserver(f.common),reader=createNamespaceCodeInputReader({observer,scope:f.scope,workId:f.inputs.workId}),
+        value=await reader.candidate({phase:phaseId,publishedAt:await f.clock.now()},await f.capture());
+      await reader.freshEvidence(value,f.sources);
+      await assert.rejects(reader.freshEvidence(structuredClone(value),f.sources),{code:'ENGINE_INPUT_INVALID'});
+      value.report.inputs[0].generation++;await assert.rejects(reader.freshEvidence(value,f.sources),{code:'ENGINE_INPUT_INVALID'});
+      value.report.inputs[0].generation--;await reader.freshEvidence(value,f.sources);assert.equal(f.starts(),starts);
+    });
     await t.test('other semantic owners remain required rather than being discharged by inherited test evidence',async()=>{
       const original=await f.capture();assert.equal(codeInputPublicationPolicy(original.workflow,original.workflow.phases[phaseId]).testSource,'build');
       for(const change of [w=>{w.phases[phaseId].requiredArtifact.kind='conformance-report';},w=>{w.resolution.phases.find(row=>row.id===phaseId).testEvidenceFrom=null;},
@@ -87,7 +96,8 @@ export async function namespaceCodeInputCase(t,backend){
       save=async value=>(await f.content.put(f.scope,'evidence',Buffer.from(canonicalJson(value)))).reference,
       changes=[value=>{value.inputs[0].tests[0].tests.passed=100;},value=>{value.inputs[0].generation++;},value=>{value.inputs[0].approvals=[];},value=>{value.currentSources[0].id='another-repository';}];
     for(const [changed,code]of [...changes.map(change=>{const value=structuredClone(report);change(value);return [value,'ENGINE_STORAGE_CORRUPT'];}),
-      [{...report,schemaVersion:3},'ENGINE_STORAGE_CORRUPT'],[{...report,schemaVersion:4},'ENGINE_STORAGE_CORRUPT'],[{...report,schemaVersion:5},'ENGINE_STORAGE_CORRUPT'],[{...report,schemaVersion:6},'ENGINE_STORAGE_UNSUPPORTED'],[{...report,ready:true},'ENGINE_STORAGE_CORRUPT']]){
+      [{...report,schemaVersion:3},'ENGINE_STORAGE_CORRUPT'],[{...report,schemaVersion:4},'ENGINE_STORAGE_CORRUPT'],[{...report,schemaVersion:5},'ENGINE_STORAGE_CORRUPT'],
+      [{...report,schemaVersion:6},'ENGINE_STORAGE_CORRUPT'],[{...report,schemaVersion:7},'ENGINE_STORAGE_CORRUPT'],[{...report,schemaVersion:8},'ENGINE_STORAGE_UNSUPPORTED'],[{...report,ready:true},'ENGINE_STORAGE_CORRUPT']]){
       const candidate={...manifest,report:await save(changed)},value={...publication,policyEvidence:[{...binding,record:await save(candidate)}]},reference={...phase.publicationBindings[0],record:await save(value)};
       await assert.rejects(reader.read(reference,phaseId),{code});
     }

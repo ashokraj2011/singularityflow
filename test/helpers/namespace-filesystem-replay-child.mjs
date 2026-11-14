@@ -6,15 +6,19 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import * as transitions from '../../src/sda/namespace/state-transition.mjs';
 import {namespaceLimits} from '../../src/sda/namespace/contract.mjs';
-const request=JSON.parse(process.argv[2]);let applications=0,physicalReads=0,denyReads=false;
+const request=JSON.parse(process.argv[2]);let applications=0,physicalReads=0,denyReads=false,activeReads=0,maximumReads=0,errorReads=0;
+const readErrors=new Map(),batching=['batching','ordered-errors'].includes(request.mode);
 mock.module('../../src/sda/namespace/state-transition.mjs',{namedExports:{...transitions,
   applyNamespaceTransaction(...args){applications++;return transitions.applyNamespaceTransaction(...args);}}});
 const {default:_default,...namedExports}=filesystem;
 namedExports.open=async(file,...args)=>{
   if(denyReads&&path.basename(path.dirname(file))==='commits')throw Object.assign(new Error('Warm read denied.'),{code:'EACCES'});
+  if(readErrors.has(path.basename(file))){errorReads++;const failed=readErrors.get(path.basename(file));if(failed.delay)await new Promise(resolve=>setTimeout(resolve,failed.delay));throw failed.error;}
   const handle=await filesystem.open(file,...args);
   return new Proxy(handle,{get(target,key){
-    if(key==='readFile')return async(...values)=>{physicalReads++;return target.readFile(...values);};
+    if(key==='readFile')return async(...values)=>{physicalReads++;const counted=batching&&path.basename(path.dirname(file))==='commits';
+      if(counted){activeReads++;maximumReads=Math.max(maximumReads,activeReads);}
+      try{if(counted)await new Promise(resolve=>setTimeout(resolve,2));return await target.readFile(...values);}finally{if(counted)activeReads--;}};
     const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
   }});
 };
@@ -77,5 +81,16 @@ if(request.mode==='reuse'){
   }
   const before=await journal.read(other),count=applications;assert.deepEqual(await journal.read(other),before);
   assert.ok(applications>count,'over-budget state is revalidated rather than retained indefinitely');
+}else if(request.mode==='batching'){
+  assert.ok(maximumReads>1,'independent real journal reads overlap');assert.ok(maximumReads<=8,'journal read concurrency remains bounded');
+  const old=await journal.read(scope,{through:1});assert.equal(old.sequence,1);assert.equal(old.state.records.size,1);
+  assert.deepEqual(await journal.read(scope),hot);assert.equal(activeReads,0);
+}else if(request.mode==='ordered-errors'){
+  const firstFailure=Object.freeze(Object.assign(Error('Earlier journal read denied.'),{code:'EACCES'})),laterFailure=Object.freeze(Object.assign(Error('Later journal read timed out first.'),{code:'ETIMEDOUT'}));
+  readErrors.set(files[1],{error:firstFailure,delay:20});readErrors.set(files[2],{error:laterFailure});
+  const old=await journal.read(scope,{through:1});assert.equal(old.sequence,1);assert.equal(errorReads,0,'a historical boundary never prefetches later entries');
+  await assert.rejects(journal.read(scope),error=>error.code==='SDA_NAMESPACE_UNAVAILABLE'&&error.cause===firstFailure);
+  const envelope=JSON.parse(await filesystem.readFile(file,'utf8'));envelope.body.transaction.changes[0].value='tampered';await filesystem.writeFile(file,JSON.stringify(envelope)+'\n');
+  await assert.rejects(journal.read(scope),{code:'SDA_NAMESPACE_CORRUPT'});assert.equal(activeReads,0);
 }else throw Error('Unknown replay fixture mode.');
 process.stdout.write(JSON.stringify({ok:true,mode:request.mode,coldApplications,physicalReads,applications}));

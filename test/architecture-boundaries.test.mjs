@@ -729,7 +729,7 @@ test('namespace policy proof is read-only, versioned, and independent of Story c
       const ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true),selected=ast.statements.filter(node=>ts.isImportDeclaration(node)&&node.moduleSpecifier.text==='./namespace-story-reader.mjs');
       assert.equal(selected.length,1);assert.equal(selected[0].importClause?.name,undefined);
       const names=selected[0].importClause?.namedBindings;assert.ok(names&&ts.isNamedImports(names));
-      assert.deepEqual(names.elements.map(node=>[node.propertyName?.text??node.name.text,node.name.text]),file.endsWith('namespace-forward-reader.mjs')?[['namespaceLocalInputBytes','namespaceLocalInputBytes'],['memoNamespaceObservedDecision','memoNamespaceObservedDecision']]:['namespace-evidence-reuse-reader.mjs','namespace-selective-test-recovery-reader.mjs'].some(name=>file.endsWith(name))?[['memoNamespaceObservedDecision','memoNamespaceObservedDecision'],['memoNamespaceObservedCodePolicy','memoNamespaceObservedCodePolicy']]:[['memoNamespaceObservedDecision','memoNamespaceObservedDecision']],
+      assert.deepEqual(names.elements.map(node=>[node.propertyName?.text??node.name.text,node.name.text]),file.endsWith('namespace-forward-reader.mjs')?[['namespaceLocalInputBytes','namespaceLocalInputBytes'],['memoNamespaceObservedDecision','memoNamespaceObservedDecision']]:['namespace-evidence-reuse-reader.mjs','namespace-selective-test-recovery-reader.mjs','namespace-known-test-risk-reader.mjs'].some(name=>file.endsWith(name))?[['memoNamespaceObservedDecision','memoNamespaceObservedDecision'],['memoNamespaceObservedCodePolicy','memoNamespaceObservedCodePolicy']]:[['memoNamespaceObservedDecision','memoNamespaceObservedDecision']],
         file+': decision proofs may reuse only the genuine observer memo; constructing Story admission is still forbidden');continue;
     }
     assert.equal(text.includes('namespace-story-reader.mjs'),false,
@@ -2042,6 +2042,7 @@ test('observed cohorts use actual check and decision readers while the registry 
     allowed=new Set(['../foundation/record-schema.mjs','../foundation/failures.mjs','../records.mjs','../kernel/test-recovery.mjs',
       '../kernel/source-path-policies.mjs','../engine-compatibility/node-configuration-path.mjs','../kernel/approval-fallback.mjs',
       '../kernel/approval-policy.mjs','../kernel/decision-plan.mjs','./namespace-phase-check-reader.mjs','./namespace-recorded-mutation-reader.mjs',
+      './namespace-evidence-reuse-reader.mjs','./namespace-selective-test-recovery-reader.mjs','./namespace-test-recovery-reader.mjs','../sgos/node-execution-values.mjs',
       './namespace-decision-contract.mjs','./namespace-story-reader.mjs','./namespace-policy-contract.mjs','./namespace-test-risk-reader.mjs','./namespace-test-command-reader.mjs']),
     ast=ts.createSourceFile(file,text,ts.ScriptTarget.Latest,true);
   const visit=node=>{

@@ -3,7 +3,7 @@
  * model prose, repository discovery and provider selection never enter this dispatcher.
  */
 import { SingularityFlowError } from '../foundation/failures.mjs';
-import {admitRecordSchemaVersion,namespaceSelectiveTestRecoveryProfile,phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile,namespaceWitnessMappingProfile} from '../foundation/record-schema.mjs';
+import {admitRecordSchemaVersion,namespaceTestCohortRecordProfile,namespaceSelectiveTestRecoveryProfile,phasePublicationBindingValue,namespaceSourceReviewRecordProfile,namespaceWitnessContextProfile,namespacePlanCorrectionRecordProfile,namespaceConstitutionExceptionContextProfile,namespaceStoryCommandRecordProfile,namespaceConvergenceContextProfile,namespaceTestRecoveryRecordProfile,namespaceEvidenceContextProfile,namespaceEvidenceReuseRecordProfile,namespaceTestRiskRecordProfile,namespaceObligationRiskRecordProfile,namespaceWitnessMappingProfile} from '../foundation/record-schema.mjs';
 import { publicationAuthorshipIntent, assertPublicationAuthorshipIntent } from '../kernel/publication-intent.mjs';
 import { submissionDecisionIntent, assertSubmissionIntent, assertConvergenceAdvanceConfirmation } from '../kernel/submission-intent.mjs';
 import { assertApprovalReviewConfirmation, phaseRejectionSelection, phaseRejectionResult } from '../kernel/approval-policy.mjs';
@@ -61,7 +61,7 @@ const SINGLE_DECISIONS = Object.freeze([
     {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','reason'])}],
   ['test-risk.confirm-recovery','test-run-risk',['phaseId','commandId','argvSha256','causeClass','cause','reason','expires','expectedRecovery'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','phaseId','commandId','argvSha256','causeClass','cause','reason','expires','expectedRecovery'])}],
-  ['test-cohort.confirm','test-cohort',['phaseId','baselinePhaseId','baselineOperationId','observedOperationId','expectedContext','revoke','reason','expires'],
+  ['test-cohort.confirm','test-cohort',['phaseId','baselinePhaseId','baselineOperationId','observedPhaseId','observedOperationId','candidateGeneration','expectedContext','revoke','reason','expires'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','reason'])}],
   ['test-recovery.confirm','test-recovery-agreement',['phaseId','expectedContext','reason','reuse'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','expectedContext','reason'])}],
@@ -158,7 +158,7 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRiskContext'},
   {id:'test-risk.known-context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','baselineOperationId','observedOperationId']),
     requiredFields:Object.freeze(['phaseId','baselineOperationId','observedOperationId']),port:'knownTestRiskContext',stages:Object.freeze(['load','read']),validate:'testCohortContextInput',execute:'inspectKnownTestRiskContext'},
-  {id:'test-cohort.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','baselinePhaseId','baselineOperationId','observedOperationId']),
+  {id:'test-cohort.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','baselinePhaseId','baselineOperationId','observedPhaseId','observedOperationId','candidateGeneration']),
     requiredFields:Object.freeze(['phaseId','baselineOperationId','observedOperationId']),port:'testCohortContext',stages:Object.freeze(['load','read']),validate:'testCohortContextInput',execute:'inspectTestCohortContext'},
   {id:'test-witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testWitnessContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestWitnessContext'},
@@ -846,7 +846,7 @@ async function inspectEvidenceReuseContext(port,input,signal){
 }
 function testCohortContextInput(value,operation){
   const input=data(value);if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key))
-    ||Object.values(input).some(value=>value!==null&&(typeof value!=='string'||!value||value.length>512)))invalid('Use exact baseline and candidate check operation identities.');
+    ||Object.entries(input).some(([key,value])=>value!==null&&(key==='candidateGeneration'?(!Number.isSafeInteger(value)||value<1):(typeof value!=='string'||!value||value.length>512))))invalid('Use exact baseline and candidate check operation identities.');
   return input;
 }
 async function inspectKnownTestRiskContext(port,input,signal){
@@ -862,7 +862,10 @@ async function inspectKnownTestRiskContext(port,input,signal){
 async function inspectTestCohortContext(port,input,signal){
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   const facts=data(await port.read(context,{signal}));notCancelled(signal);
-  if(facts.profile!=='sflow-namespace-test-cohort-context/v1'||context.subject?.kind!=='story'||facts.workId!==context.subject.id||facts.phase!==input.phaseId
+  let profile;try{profile=namespaceTestCohortRecordProfile('context',facts);}catch{ /* Reject unsupported transport versions below. */ }
+  if(!profile||facts.profile!==profile.profile||profile.executionBinding&&(!facts.execution||facts.execution.receiverExecuted!==false||!['passed','failed'].includes(facts.execution.verdict)
+      ||!['renew-original-cohort','review-observed-cohort'].includes(facts.purpose)||facts.sourceObservation!==(facts.purpose==='renew-original-cohort'?'retained-original':'recorded-execution'))
+    ||context.subject?.kind!=='story'||facts.workId!==context.subject.id||facts.phase!==input.phaseId
     ||facts.workId!==context.workflow?.workItem?.id||!/^sha256:[a-f0-9]{64}$/u.test(facts.expectedContext??'')||facts.newExecutionClaimed!==false
     ||!Array.isArray(facts.selection)||facts.selection.length>1024||!Array.isArray(facts.authorities))throw new SingularityFlowError('The cohort context returned another Story, phase or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-cohort.context',subject:context.subject,manifest:facts,
@@ -1419,7 +1422,7 @@ function singleDecisionInput(value, operation, {requestOnly=false,intent=false}=
   if(!requestOnly&&!intent&&(operation.requiredFields??[]).some(key=>!Object.hasOwn(input,key)||input[key]==null))invalid('Supply every required field for this standalone operation.');
   for (const [key,value] of Object.entries(input)) {
     if (value==null) continue;
-    if(key==='candidateGeneration'&&operation.id==='test-recovery.select-confirm'){
+    if(key==='candidateGeneration'&&['test-recovery.select-confirm','test-cohort.confirm','test-cohort.context'].includes(operation.id)){
       if(!Number.isSafeInteger(value)||value<1)invalid('Use the actual bounded candidate generation.');
     }else if(key==='selection'&&operation.id==='test-recovery.select-confirm'){
       if(!Array.isArray(value)||!value.length||value.length>1024||value.some(row=>!row||typeof row!=='object'||Array.isArray(row)))invalid('Use bounded repository/command file selection records.');

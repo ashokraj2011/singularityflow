@@ -1,5 +1,5 @@
 /** Read-only candidate inspection. It neither stages publication nor runs or invents checks. */
-import {isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,canonicalJson} from '../foundation/record-schema.mjs';
+import {isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,isNamespaceKnownTestRiskPolicy,namespaceTestRiskRecordProfile,isNamespaceEvidenceReusePolicy,canonicalJson} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {documentReviewPublicationPolicy,DOCUMENT_REVIEW_OWNERS} from '../kernel/document-review.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
@@ -65,9 +65,9 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
       const published=await publications.accepted(bound,phase.id,{signal});fingerprint=published.artifact.fingerprint;producer=published.authorship.producer;
       if(published.checks)requiredTests='retained-passing';
       if(prepublish&&published.policyEvidence?.some(row=>isNamespaceTestCohortPolicy(row.kind)))fresh.push(async()=>publications.policies.freshCohort(published,snapshot,{signal,at:await clock.now()}));
-      if(published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind))){requiredTests=testRisk.report.profile==='sflow-namespace-known-test-risk-policy/v1'?'accepted-known-failures':'accepted-environment-failure';
+      if(published.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind))){requiredTests=published.policyEvidence.some(row=>isNamespaceKnownTestRiskPolicy(row.kind))?'accepted-known-failures':'accepted-environment-failure';
         if(prepublish)fresh.push(async()=>publications.policies.freshTestRisk(published,snapshot,sources,{signal,at:await clock.now()}));}
-      if(published.policyEvidence?.some(row=>row.kind==='evidence-reuse/v1')){requiredTests='reused-not-executed';
+      if(published.policyEvidence?.some(row=>isNamespaceEvidenceReusePolicy(row.kind))){requiredTests='reused-not-executed';
         if(prepublish)fresh.push(async()=>publications.policies.freshReuseSources(published,snapshot,sources,{signal,at:await clock.now()}));}
       if(prepublish){
         if(published.checks)fresh.push(()=>checks.freshSources(published.checks,phase.id,sources,{signal}));
@@ -130,10 +130,10 @@ export function createNamespacePhaseInspectionPorts(options,runtime=null){
               candidate,snapshot,{signal,at:await clock.now(),checked:current,checkInput}));
             if(!reused&&!testRisk)tested=await attempt(()=>checks.forDraft(checkInput,{signal}));}
           candidate.checks=tested;
-          if((workflow.namespaceTestCohorts??[]).some(row=>row.phase===phase.id))await publications.policies.cohortCandidate(candidate,snapshot,{signal,at:await clock.now(),...(testRisk?{riskChecks:testRisk.report.checks}:{})});
+          if((workflow.namespaceTestCohorts??[]).some(row=>row.phase===phase.id))await publications.policies.cohortCandidate(candidate,snapshot,{signal,at:await clock.now(),...(testRisk?{riskChecks:testRisk.report.checks}:{}),...(reused?{reused}:{})});
           if(tested){requiredTests='retained-passing';fresh.push(()=>checks.freshSources(tested,phase.id,sources,{signal}));}
           else if(reused)requiredTests='reused-not-executed';
-          else if(testRisk){requiredTests=testRisk.report.profile==='sflow-namespace-known-test-risk-policy/v1'?'accepted-known-failures':'accepted-environment-failure';
+          else if(testRisk){requiredTests=namespaceTestRiskRecordProfile('report',testRisk.report).knownFailure?'accepted-known-failures':'accepted-environment-failure';
             fresh.push(()=>checks.freshObservedSources(testRisk.report.checks,phase.id,sources,{signal}));}
           else if(commandProof.commands.length)requiredTests='evidence-required';
           if(code){const result=await attempt(()=>publications.policies.codeCandidate(candidate,snapshot,{signal,...(testRisk?{riskChecks:testRisk.report.checks}:{})}));

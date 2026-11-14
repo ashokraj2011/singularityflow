@@ -38,6 +38,13 @@ inventoried file execution and current-environment reuse are described in
 `docs/ENGINE-SDK-SELECTIVE-RECOVERY-AND-QUALIFIED-REUSE.md`. Existing artifact-phase and native Git
 meanings stay unchanged.
 
+Selected failures keep separate failure, omitted-scope and observed-cohort permissions. A failed
+baseline's sentinel cases must still execute. Code v43/v44 and their downstream reports preserve
+actual failures; no permission turns them into a passing test. Cohort contexts may specify
+`observedPhaseId` and numeric `candidateGeneration` to distinguish the original execution from
+its receiving generation. Passing qualified reuse keeps its own independent permission.
+See `docs/ENGINE-SDK-FAILURE-COHORT-AND-EXTERNAL-RUNNERS.md` for exact versions and renewal.
+
 The `evidence` export also includes witness-exception renewal values with explicit prior-expiry
 and time inputs. They preserve native record meanings and do not authenticate or persist a review.
 Namespace exception recording remains separately gated; see `docs/ENGINE-SDK-WITNESS-RENEWAL-VALUES.md`.
@@ -223,6 +230,10 @@ const result = await store.read({ projectId: 'payments' }, 'state', 'stories/exa
 - `testing/execution`: explicitly authorized fixed-command local checks with actual process output,
   raw reports and source observations retained in shared runtime content. Compose it with durable
   execution for at-most-once attempts and takeover. It does not accept phase evidence or approvals.
+  `createExternalCheckExecutionUnit` and `createExternalCommandExecutionUnit` accept pinned external
+  runtimes for complete test and non-test commands. Supply an absolute executable and digest,
+  literal arguments, exact environment, source root, report selection and authorization callback.
+  These adapters do not discover a runtime, narrow a suite or claim qualified toolchain reuse.
 - `hosts/namespace-source`: record actual repository observations through `source.bind`, retaining
   canonical lifecycle reads, original receipts and first source observations across takeover.
 - `hosts/namespace-source-inspection`: compare a private code generation's accepted baseline with

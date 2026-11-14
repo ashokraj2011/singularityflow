@@ -7,6 +7,8 @@ export declare const NODE_SELECTIVE_CHECK_EXECUTION_PROFILE:'sflow-local-check-e
 export declare const NODE_SCRIPT_SELECTIVE_CHECK_EXECUTION_PROFILE:'sflow-local-check-execution/v4';
 export declare const NODE_COMMAND_EXECUTION_PROFILE:'sflow-local-command-execution/v1';
 export declare const NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE:'sflow-local-command-execution/v2';
+export declare const EXTERNAL_CHECK_EXECUTION_PROFILE:'sflow-external-check-execution/v1';
+export declare const EXTERNAL_COMMAND_EXECUTION_PROFILE:'sflow-external-command-execution/v1';
 export interface NodeCheckExecutionOptions {
   readonly id:string;readonly version?:string;readonly projectId:string;readonly repositoryId:string;readonly root:string;
   readonly command:{readonly executable:string;readonly executableSha256:ExecutionDigest;
@@ -40,6 +42,9 @@ export interface NodeCommandExecutionOptions extends Omit<NodeCheckExecutionOpti
 }
 /** Separate non-test observations cannot satisfy an executable-test obligation. */
 export declare function createNodeCommandExecutionUnit(options:NodeCommandExecutionOptions):Promise<ExecutionUnit>;
+/** Full configured commands from explicitly pinned external runtimes. No narrowed or reused test claim. */
+export declare function createExternalCheckExecutionUnit(options:NodeCheckExecutionOptions):Promise<ExecutionUnit>;
+export declare function createExternalCommandExecutionUnit(options:NodeCommandExecutionOptions):Promise<ExecutionUnit>;
 export declare function createEnvironmentQualifiedNodeCommandExecutionUnit(options:NodeCommandExecutionOptions&{readonly hostId:string}):Promise<ObservedNodeCheckExecutionUnit>;
 export interface TestImpactObservation {
   readonly schemaVersion:1;readonly profile:'sflow-test-impact-observation/v1';

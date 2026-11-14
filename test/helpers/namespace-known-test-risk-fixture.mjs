@@ -9,10 +9,12 @@ import {createNamespaceStoryObserver} from '../../src/engine-storage/namespace-s
 const executableSha256='sha256:'+createHash('sha256').update(await readFile(process.execPath)).digest('hex');
 export const legacyTest="import test from 'node:test';import assert from 'node:assert/strict';test('the unchanged legacy failure',()=>assert.equal(2+2,5));test('the existing passing regression',()=>assert.equal(2+2,4));\n";
 export const knownFailureReason='The independently inventoried legacy arithmetic assertion fails identically on the original source; the Story acceptance tests must still pass.';
-export async function namespaceKnownTestRiskFixture(t,{backend='sqlite',newTests=false,configure=()=>{},...extra}={}){
+export async function namespaceKnownTestRiskFixture(t,{backend='sqlite',newTests=false,selective=false,configure=()=>{},...extra}={}){
   let checks,starts=0;
   const f=await namespaceSourceClauseFixture(t,{backend,baselineTestSource:newTests?null:actualWitnessTest,testSource:actualWitnessTest,
-    baselineFiles:{'test/legacy.test.js':legacyTest},retainChanges:false,...extra,
+    baselineFiles:{'test/legacy.test.js':legacyTest,...(selective?{
+      'test/stable-first.test.js':"import test from 'node:test';import assert from 'node:assert/strict';test('stable first',()=>assert.equal(2+2,4));\n",
+      'test/stable-second.test.js':"import test from 'node:test';import assert from 'node:assert/strict';test('stable second',()=>assert.equal(3+3,6));\n"}: {})},retainChanges:false,...extra,
     configure:source=>{
       const primary=source.definition.phases.build.qualityCommands[0];primary.argv=['node','--test','test/converter.test.js'];
       source.definition.phases.build.qualityCommands.push({...structuredClone(primary),id:'legacy-tests',argv:['node','--test','--test-reporter=junit','test/legacy.test.js'],
@@ -20,7 +22,13 @@ export async function namespaceKnownTestRiskFixture(t,{backend='sqlite',newTests
       source.definition.testRecovery={enabled:true,riskAuthorities:['reviewers'],enabledRiskCategories:['known-test-failure'],allowEvidenceReuse:true,maxRiskDays:20,
         caseInventory:[{phaseId:'build',commandId:'legacy-tests',adapter:'node-test-junit-v1',dependencyScope:'repository-and-node-builtins-only',
           baselineMutableRoots:['src'],tests:[{id:'legacy:arithmetic',path:'test/legacy.test.js',name:'the unchanged legacy failure'},
-            {id:'legacy:passing',path:'test/legacy.test.js',name:'the existing passing regression'}]}]};configure(source);
+            {id:'legacy:passing',path:'test/legacy.test.js',name:'the existing passing regression'}]}]};
+      if(selective){source.definition.testRecovery.enabledRiskCategories.push('reduced-coverage');
+        source.definition.phases.build.qualityCommands.push({...structuredClone(primary),id:'stable-tests',argv:['node','--test','--test-reporter=junit','test/stable-first.test.js','test/stable-second.test.js'],
+          result:{adapter:'junit-xml',path:'stable-report.xml',minimumDiscovered:2,minimumPassed:2}});
+        source.definition.testRecovery.caseInventory.push({phaseId:'build',commandId:'stable-tests',adapter:'node-test-junit-v1',dependencyScope:'repository-and-node-builtins-only',baselineMutableRoots:['src'],
+          tests:[{id:'stable:first',path:'test/stable-first.test.js',name:'stable first'},{id:'stable:second',path:'test/stable-second.test.js',name:'stable second'}]});}
+      configure(source);
     },
     beforeSpecification:async f=>{
       f.control.permissions.push('test-recovery.context','test-recovery.confirm');
@@ -29,7 +37,8 @@ export async function namespaceKnownTestRiskFixture(t,{backend='sqlite',newTests
     },
     afterPrepare:async(f,_engine,roots)=>{
       f.control.permissions.push('phase.checks.run','test-risk.known-context','test-risk.confirm-known','phase.prepublish','phase.review','phase.review.resources','story.evidence');
-      const bindings=[];
+      const bindings=[],wrap=unit=>({...unit,start(task){starts++;return unit.start(task);},...(unit.selectTestFiles?{async selectTestFiles(input){return wrap(await unit.selectTestFiles(input));}}:{})});
+      if(selective)f.control.permissions.push('test-recovery.select-context','test-recovery.select-confirm','test-cohort.context','test-cohort.confirm');
       for(const [index,root]of roots.entries()){
         const repositoryId=index?'service-'+index:'app',environment={NODE_OPTIONS:'--test-reporter='+new URL('../../src/verification/node-test-reporter.mjs',import.meta.url).href,
           SINGULARITY_FLOW_NODE_TEST_ROOT:root,SINGULARITY_FLOW_NODE_TEST_TAP:'1'},
@@ -37,8 +46,10 @@ export async function namespaceKnownTestRiskFixture(t,{backend='sqlite',newTests
             command:{executable:process.execPath,executableSha256,arguments:['--test','test/converter.test.js'],environment},report:{adapter:'node-tap',files:[]},authorizeCommand:manifest=>manifest.manifestSha256}),
           legacy=await createEnvironmentQualifiedNodeCheckExecutionUnit({id:'known-legacy-check-'+index,hostId:'known-failure-host',root,projectId:f.scope.projectId,repositoryId,content:f.content,
             command:{executable:process.execPath,executableSha256,arguments:['--test','--test-reporter=junit','test/legacy.test.js'],environment:{}},report:{adapter:'junit-xml',files:[]},authorizeCommand:manifest=>manifest.manifestSha256});
-        for(const [commandId,unit,env]of [['node-tests',primary,environment],['legacy-tests',legacy,{}]])bindings.push({phaseId:'build',commandId,repositoryId,
-          executable:'node',executableSha256,environment:env,unit:{...unit,start(task){starts++;return unit.start(task);}}});
+        const stable=selective?await createEnvironmentQualifiedNodeCheckExecutionUnit({id:'known-stable-check-'+index,hostId:'known-failure-host',root,projectId:f.scope.projectId,repositoryId,content:f.content,
+          command:{executable:process.execPath,executableSha256,arguments:['--test','--test-reporter=junit','test/stable-first.test.js','test/stable-second.test.js'],environment:{}},report:{adapter:'junit-xml',files:[]},authorizeCommand:manifest=>manifest.manifestSha256}):null;
+        for(const [commandId,unit,env]of [['node-tests',primary,environment],['legacy-tests',legacy,{}],...(stable?[['stable-tests',stable,{}]]:[])])bindings.push({phaseId:'build',commandId,repositoryId,
+          executable:'node',executableSha256,environment:env,unit:wrap(unit)});
       }
       checks={owner:createNodeExecutionOwner({hostId:'known-failure-host'}),bindings};
       const options={...f.common,working:{records:f.localRecords,content:f.localContent},sources:[],checks};

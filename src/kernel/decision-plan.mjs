@@ -144,7 +144,9 @@ export function standaloneDecisionRequest(operation, input) {
   if(operation==='test-risk.confirm-recovery'){const {revoke,...request}=standaloneDecisionRequest('decision.test-risk',input);if(revoke)refused('Use the ordinary risk revocation owner for an original decision.','TEST_RUN_RISK_INVALID');return {...request,expectedRecovery:input.expectedRecovery??null};}
   if(operation==='test-cohort.confirm'){
     if(typeof reason!=='string'||reason.trim().length<20||reason.length>1000)refused('Explain the reviewed test cohort in 20 to 1000 characters.','TEST_COHORT_INVALID');
-    return {phaseId:input.phaseId??null,baselinePhaseId:input.baselinePhaseId??input.phaseId??null,baselineOperationId:input.baselineOperationId??null,observedOperationId:input.observedOperationId??null,expectedContext:input.expectedContext??null,revoke:input.revoke??null,expires:input.expires??null,reason:reason.trim()};
+    if(input.candidateGeneration!=null&&(!Number.isSafeInteger(input.candidateGeneration)||input.candidateGeneration<1))refused('Use an actual candidate generation.','TEST_COHORT_INVALID');
+    return {phaseId:input.phaseId??null,baselinePhaseId:input.baselinePhaseId??input.phaseId??null,baselineOperationId:input.baselineOperationId??null,observedOperationId:input.observedOperationId??null,expectedContext:input.expectedContext??null,revoke:input.revoke??null,expires:input.expires??null,reason:reason.trim(),
+      ...(input.observedPhaseId!=null?{observedPhaseId:input.observedPhaseId}:{}),...(input.candidateGeneration!=null?{candidateGeneration:input.candidateGeneration}:{})};
   }
   if(operation==='test-recovery.confirm')return {phaseId:input.phaseId??null,expectedContext:input.expectedContext??null,reason,...(input.reuse!=null?{reuse:input.reuse}:{})};
   if(operation==='source-review.record')return {phaseId:input.phaseId??null,report:input.report??null,expectedContext:input.expectedContext??null};

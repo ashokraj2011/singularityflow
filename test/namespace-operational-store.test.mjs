@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 import {canonicalJson} from '../src/foundation/record-schema.mjs';
 import {createNamespaceSgosOperationalStore,SGOS_NAMESPACE_OPERATIONAL_STORE_PROFILE} from '../src/sgos/namespace-operational-store.mjs';
 import {assertSgosLiveOperationalStoreSelection} from '../src/sgos/operational-store.mjs';
@@ -11,6 +12,19 @@ const make=(f,extra={})=>createNamespaceSgosOperationalStore({records:f.records,
 const changes=value=>[{op:'put',key:'attempt/one',value}];
 const input=(state,value)=>({expectedRevision:state.revision,expectedStateSha256:state.stateSha256,changes:changes(value)});
 const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+
+test('direct append and validated restore preserve the independent native v1 packet hashes',async t=>{
+  const f=await namespaceProjectFixture(t,{backend:'sqlite'}),packet=JSON.parse(await readFile(new URL('./fixtures/sgos-operational-store-packets/native-v1.json',import.meta.url),'utf8')),
+    store=make(f,{storeId:'compatibility-store'});
+  assert.deepEqual(await store.read(),packet.initial);
+  for(const event of packet.backup.events)await store.transact({expectedRevision:event.revision-1,expectedStateSha256:event.beforeStateSha256,changes:event.changes});
+  assert.deepEqual(await store.read(),packet.second);
+  const rollback=await store.planRollback(1);await store.rollback({revision:1,confirmationSha256:rollback.confirmationSha256});
+  assert.deepEqual(await store.read(),packet.afterRollback);
+  const backup=await store.exportBackup(),other=make(f,{storeId:'compatibility-store',scope:{projectId:'restored-history'}}),plan=await other.planRestore(backup);
+  await other.restore({backup,confirmationSha256:plan.confirmationSha256});assert.deepEqual(await other.read(),packet.afterRollback);
+  assert.equal((await other.verify()).eventCount,packet.afterBackup.events.length);
+});
 
 for(const backend of ['filesystem','sqlite','application']) {
   test(`${backend}: namespace operational history passes the unchanged SGOS v1 conformance journey`,async t=>{

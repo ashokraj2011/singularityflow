@@ -11,10 +11,11 @@ import {requireApprovalAuthority} from '../kernel/approval-policy.mjs';
 import {createNamespacePhaseCheckReader} from './namespace-phase-check-reader.mjs';
 import {createNamespaceTestCommandOwners} from './namespace-test-command-reader.mjs';
 import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
+import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 import {createNamespaceSourceObservations} from './namespace-source-observations.mjs';
 import {createNamespaceRecordedMutationReader} from './namespace-recorded-mutation-reader.mjs';
 import {namespaceDecisionContract} from './namespace-decision-contract.mjs';
-import {memoNamespaceObservedDecision} from './namespace-story-reader.mjs';
+import {memoNamespaceObservedDecision,memoNamespaceObservedCodePolicy} from './namespace-story-reader.mjs';
 import {createNamespaceSpecificationReader} from './namespace-specifications.mjs';
 import {plannedClaimAllocatedTo} from '../kernel/specification-policy.mjs';
 import {isExecutableTestSourceCandidate} from '../engine-compatibility/node-source-policy.mjs';
@@ -33,7 +34,7 @@ export function createNamespaceKnownTestRiskOwner({observer,scope,workId}){
     for(const row of rows){admitRecordSchemaVersion(NAMESPACE_KNOWN_TEST_RISK_SCHEMAS.record,row);
       if(row.profile!=='sflow-namespace-known-test-run-risk/v1')fail('The known-failure record has another profile.');}
     const proofs=[];for(const link of links)proofs.push(await memoNamespaceObservedDecision(observer,{profile:'sflow-namespace-known-test-risk-proof/v1',record:link.record},
-      ()=>reader.accepted(link,options),options));
+      ()=>reader.consumed(link,options),options));
     if(!same(rows,proofs.map(row=>row.value.outcome.record)))fail('The known-failure inventory differs from its actual conditional receipts.');return proofs;
   }
   async function observed(found,index,snapshot,selected,{signal,additionalTestInputs=[]}={}){
@@ -93,7 +94,7 @@ export function createNamespaceKnownTestRiskOwner({observer,scope,workId}){
     }
     return {inputs,references};
   }
-  async function context(snapshot,request,options={}){
+  async function calculateContext(snapshot,request,options={}){
     const policy=snapshot.workflow.resolution.testRecovery;
     if(policy?.enabled!==true||policy.allowEvidenceReuse!==true||!policy.enabledRiskCategories.includes('known-test-failure'))fail(
       'The approved workflow must explicitly enable independently inventoried known-failure review.','KNOWN_TEST_RISK_DISABLED');
@@ -161,6 +162,13 @@ export function createNamespaceKnownTestRiskOwner({observer,scope,workId}){
     return {context:{value,sha256,reference},packet:{reference,bytes},generation:after.plan.generation,maximumDays:policy.maxRiskDays,
       references:unique(references.filter(row=>row.namespace==='evidence'))};
   }
+  async function context(snapshot,request,options={}){
+    // This comparison uses retained records only. Candidate expiry, current authority and
+    // actual source/environment admission remain outside this invocation-local result.
+    return memoNamespaceObservedCodePolicy(observer,{profile:'sflow-retained-known-failure-context/v1',snapshotSha256:rules.hash(snapshot),
+      phaseId:request.phaseId,baselineOperationId:request.baselineOperationId,observedOperationId:request.observedOperationId,at:options.at??null},
+      ()=>calculateContext(snapshot,request,options),options);
+  }
   const owner={agentPhase:snapshot=>snapshot.workflow.currentPhase,
     async read(snapshot,request,options={}){
       const prior=await admitted(snapshot,options),phase=snapshot.workflow.phases[request.phaseId];if(!phase)fail('Name a phase of this Story.','ENGINE_PHASE_UNAVAILABLE');
@@ -217,9 +225,12 @@ export function createNamespaceKnownTestRiskOwner({observer,scope,workId}){
         cause:{category:'known-test-failure',baseline:row.projection.baseline.recordSha256},decision:{record,reference:original.reference},
         failedCases:row.projection.observation.cases.filter(row=>row.outcome==='failed'),disposition:'accepted-known-failures'});
     }
-    return {report:{schemaVersion:1,profile:'sflow-namespace-known-test-risk-policy/v1',workId,phaseId:publication.phase,checks:checked.binding,
+    const selection=checked.found.plan.selection??null,version=selection?2:1;
+    if(selection)await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}).permission(snapshot,selection,{signal,at});
+    return {report:{schemaVersion:version,profile:'sflow-namespace-known-test-risk-policy/v'+version,workId,phaseId:publication.phase,checks:checked.binding,
+      ...(selection?{selection,scopePermissionRequired:true}:{}),
       baseline:record.context.baseline,scopeSha256:record.scopeSha256,decision:{record,reference:original.reference},observations,
-      testsPassed:false,codeFailuresWaived:false,crossPhaseReuse:false,executionMode:'all-configured',sourceRechecked:true},
+      testsPassed:false,codeFailuresWaived:false,crossPhaseReuse:false,executionMode:selection?'reviewed-file-selection':'all-configured',sourceRechecked:true},
       references:unique([...source.references,original.reference,active.reference,original.source.context.reference,active.source.context.reference]),policy:{owners:['check-execution']}};
   }
   async function baselineTestPaths(snapshot,phaseId,repositoryId,options={}){

@@ -29,7 +29,7 @@ import {createNamespaceTestRecoveryOwner,namespaceTestRecoveryManifest} from './
 import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 import {selectiveTestRecoveryReviewInput} from '../kernel/evidence-reuse.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
-const selectiveRecovery=value=>isNamespaceTestRecoveryPolicy(value.binding.kind)&&['reviewed-file-selection','changed-and-affected','reused-selected-execution'].includes(value.report.executionMode);
+const selectiveRecovery=value=>isNamespaceTestRecoveryPolicy(value.binding.kind)&&['reviewed-file-selection','changed-and-affected','reused-selected-execution','selected-with-execution-risk'].includes(value.report.executionMode);
 const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function reportVersion(profile,value){
@@ -72,7 +72,9 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   }
   async function freshTestRisk(publication,snapshot,units,{signal,at}={}){
     const retained=proofs(publication).find(row=>isNamespaceTestRiskPolicy(row.binding.kind));if(!retained)return;
-    const current=await riskReader().fresh({...publication,riskChecks:retained.report.checks},snapshot,units,{signal,at,bound:retained.report});
+    if(!checks)throw error('Fresh risk evidence needs the lifecycle check reader.','ENGINE_PORT_UNAVAILABLE',{required:['phase-check-reader']});
+    await checks.freshObservedSources(retained.report.checks,publication.phase,units,{signal});
+    const current=await riskReader().publication({...publication,riskChecks:retained.report.checks},snapshot,{signal,at,bound:retained.report});
     if(!same(current.report,retained.report))throw error('The accepted environment risk or command changed after publication.','TEST_RUN_RISK_NOT_COVERED',{
       actions:[{operation:'test-risk.context',inputs:{workId,phaseId:publication.phase}},{operation:'phase.checks.run',inputs:{workId,phaseId:publication.phase},requiredInputs:['operationId']}]});
   }
@@ -142,6 +144,8 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   async function freshSelective(publication,units,{signal}={}){
     if(!proofs(publication).some(selectiveRecovery))return;
     if(!checks)throw error('Selected execution needs its actual check-proof reader.','ENGINE_PORT_UNAVAILABLE');
+    if(!publication.checks&&publication.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind))){
+      const risk=await riskReader().forPublication(publication,null,{signal});await checks.freshObservedSources(risk.binding,publication.phase,units,{signal});return;}
     const reused=publication.checks?null:await reuseReader().forPublication(publication,{signal}),binding=publication.checks??reused.checks;
     await checks.freshSources(binding,reused?.found.plan.input.phaseId??publication.phase,units,{signal});
   }

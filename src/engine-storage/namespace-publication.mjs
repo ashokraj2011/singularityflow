@@ -1,5 +1,5 @@
 /** Explicit namespace publication composition. Installed Git hosts never select this writer. */
-import {isNamespaceEvidenceReusePolicy,isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
+import {isNamespaceEvidenceReusePolicy,isNamespaceTestCohortPolicy,isNamespaceTestRiskPolicy,isNamespaceKnownTestRiskPolicy,canonicalJson,PHASE_PUBLICATION_SCHEMAS,phasePublicationBindingValue} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {documentReviewPublicationPolicy,DOCUMENT_REVIEW_OWNERS} from '../kernel/document-review.mjs';
 import {createNamespaceForwardAmendmentOwners} from './namespace-forward-reader.mjs';
@@ -219,9 +219,9 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             const head=await observer.record('state',namespaceLifecycleStoryKey(workId),false,signal);
             if(head.version!==snapshot.revision)throw error('The Story changed before specification retention.','ENGINE_CONTEXT_CHANGED');
             if(s.risk)testRisk=await policyWriter.retainTestRisk(base,{snapshot,head:head.value,signal,checked:s.failedChecks,expected:s.risk.report});
-            if(cohortRequired)cohort=await policyWriter.retainCohort({...base,checks:s.checkEvidence??null,...(testRisk?{policyEvidence:[testRisk.binding]}:{})},{snapshot,head:head.value,signal});
             if(s.reuse)reuse=await policyWriter.retainReuse(base,{snapshot,head:head.value,signal,sources,expected:s.reuse.report});
-            if(recoveryRequired)recovery=await policyWriter.retainRecovery({...base,checks:s.checkEvidence??null,...(reuse?{policyEvidence:[reuse.binding]}:{})},{snapshot,head:head.value,signal});
+            if(cohortRequired)cohort=await policyWriter.retainCohort({...base,checks:s.checkEvidence??null,...((testRisk||reuse)?{policyEvidence:[...(testRisk?[testRisk.binding]:[]),...(reuse?[reuse.binding]:[])]}:{})},{snapshot,head:head.value,signal});
+            if(recoveryRequired)recovery=await policyWriter.retainRecovery({...base,checks:s.checkEvidence??null,...((testRisk||reuse)?{policyEvidence:[...(testRisk?[testRisk.binding]:[]),...(reuse?[reuse.binding]:[])]}:{})},{snapshot,head:head.value,signal});
             if(documentReviewPolicy)documentReview=await policyWriter.retainDocumentReview(base,{snapshot,head:head.value,signal});
             if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
             if(clarificationPolicy.mode!=='off')clarification=await policyWriter.retainClarification(base,{snapshot,head:head.value,signal});
@@ -271,7 +271,7 @@ export function createNamespacePublicationPort(options={},runtime=null) {
                 locality:'project',status:'active',aliases:[],content:member.content});}}
           if(testRisk)snapshot.workflow.namespaceDocuments.push({id:'TEST-RISK-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-test-risk-gen'+generation+'.json',
-            role:'file',name:testRisk.binding.kind==='known-test-risk/v1'?'Actual failed tests and exact known-failure review':'Actual failed tests and accepted environment risk',kind:'test-run-risk',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:testRisk.report});
+            role:'file',name:isNamespaceKnownTestRiskPolicy(testRisk.binding.kind)?'Actual failed tests and exact known-failure review':'Actual failed tests and accepted environment risk',kind:'test-run-risk',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:testRisk.report});
           if(reuse)snapshot.workflow.namespaceDocuments.push({id:'EVIDENCE-REUSE-'+s.phaseId+'-GEN-'+generation,phase:s.phaseId,generation,
             sourceKey:(observed.definition.workItemRoot??'singularity/work-items')+'/'+workId+'/context/'+s.phaseId+'-evidence-reuse-gen'+generation+'.json',
             role:'file',name:'Reused tests and original execution attribution',kind:'evidence-reuse',mimeType:'application/json',encoding:'utf8',locality:'project',status:'active',aliases:[],content:reuse.report});

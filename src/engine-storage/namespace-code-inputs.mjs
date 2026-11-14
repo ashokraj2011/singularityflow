@@ -2,7 +2,7 @@
 import {createNamespaceEvidenceReuseOwner} from './namespace-evidence-reuse-reader.mjs';
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
-import {isNamespaceTestRecoveryPolicy,canonicalJson,namespaceCodeInputPolicyProfile,namespaceCodePolicyProfile} from '../foundation/record-schema.mjs';
+import {isNamespaceTestRecoveryPolicy,canonicalJson,namespaceCodeInputPolicyProfile,namespaceCodePolicyProfile,namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
 import {sourceSnapshot,validateSourceUnit} from '../foundation/source-snapshot.mjs';
 import {exactObject} from '../sda/namespace/values.mjs';
 import {codeInputPublicationPolicy,conformancePublicationPolicy,codePublicationInputPhases} from '../kernel/publication-intent.mjs';
@@ -21,8 +21,9 @@ function inputReport(value){
   try{const profile=namespaceCodeInputPolicyProfile('codeInputReport',value);
     exactObject(value,['schemaVersion','format','testEvidenceFrom','inputs','currentSources']);
     if(value.format!==profile.format||!Array.isArray(value.inputs)||!Array.isArray(value.currentSources)
-      ||!profile.selectiveInputs&&!profile.reusedInputs&&Boolean(profile.knownFailureInputs)!==value.inputs.some(row=>row.executionRisk)
-      ||Boolean(profile.selectiveInputs)!==value.inputs.some(row=>row.testSelection)||Boolean(profile.reusedInputs)!==value.inputs.some(row=>row.testReuse))throw Error('Invalid Code input report.');
+      ||!profile.environmentFailureInputs&&!profile.selectiveInputs&&!profile.reusedInputs&&Boolean(profile.knownFailureInputs)!==value.inputs.some(row=>row.executionRisk)
+      ||profile.environmentFailureInputs&&!value.inputs.some(row=>row.executionRisk?.profile==='sflow-environment-failure-code-input/v1')
+      ||!profile.optionalSelectiveInputs&&Boolean(profile.selectiveInputs)!==value.inputs.some(row=>row.testSelection)||Boolean(profile.reusedInputs)!==value.inputs.some(row=>row.testReuse))throw Error('Invalid Code input report.');
   }catch(cause){throw error('The retained Code input report has an invalid or unsupported contract.',
     ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}
   return value;
@@ -57,10 +58,15 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
               permission:await owner.permission(proof.published,snapshot,{signal,at:publication.publishedAt}),receiverExecuted:false};
           }else if(namespaceCodePolicyProfile('codeReport',code.report).knownFailureRisk){
             const risks=createNamespaceTestRiskOwner({observer:scoped,scope,workId}),actual=await risks.forPublication(proof.published,snapshot,{signal});
-            if(!actual||actual.policyBinding.kind!=='known-test-risk/v1')throw error('Known-failure Code inputs need their original execution and human permission.');
+            if(!actual||!namespaceTestRiskRecordProfile('report',actual.report).knownFailure)throw error('Known-failure Code inputs need their original execution and human permission.');
             const active=await risks.publication({...proof.published,riskChecks:actual.binding},snapshot,{signal,at:publication.publishedAt,bound:actual.report});
             found=actual.found;riskObservations=active.report.observations;executionRisk={profile:'sflow-known-failure-code-input/v1',policy:actual.policyBinding,report:actual.manifest.report,
               checks:actual.binding,decision:actual.report.decision,testsPassed:false,failedAcceptanceWaived:false,references:active.references};
+          }else if(namespaceCodePolicyProfile('codeReport',code.report).executionRisk){
+            const risks=createNamespaceTestRiskOwner({observer:scoped,scope,workId}),actual=await risks.forPublication(proof.published,snapshot,{signal}),
+              active=await risks.publication({...proof.published,riskChecks:actual.binding},snapshot,{signal,at:publication.publishedAt,bound:actual.report});
+            found=actual.found;riskObservations=active.report.observations;executionRisk={profile:'sflow-environment-failure-code-input/v1',policy:actual.policyBinding,report:actual.manifest.report,
+              checks:actual.binding,testsPassed:false,failedAcceptanceWaived:false,causeClasses:[...new Set(riskObservations.flatMap(row=>row.cause?[row.cause.class]:[]))],references:active.references};
           }else throw error('The selected Code producer has no retained test execution.','PRIOR_CODE_TEST_EVIDENCE_REQUIRED',{phase:publication.phase,sourcePhase:id});
           const minimum=workflow.resolution.codeDelivery?.tests??{};
           for(const [position,step]of found.plan.steps.entries())if(step.command.kind==='test'){
@@ -68,9 +74,10 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
             if(!testReceiptPassing({status:check.status,exitCode:process?.status,timedOut:process?.timedOut,skipped:false,suppressed:false,tests:check.tests},
               minimum.minimumDiscovered??1,minimum.minimumPassed??1)&&!executionRisk)throw error('The approved producer does not retain passing structured tests.','PRIOR_CODE_TEST_EVIDENCE_REQUIRED',{sourcePhase:id,commandId:step.command.id});
             const observation=riskObservations?.find(row=>row.taskId===step.contract.taskId&&row.repositoryId===step.repositoryId&&row.commandId===step.command.id);
-            if(executionRisk&&(!observation||!same(observation.tests,check.tests)||check.status!=='passed'&&observation.disposition!=='accepted-known-failures'))throw error('The actual failed Code input has no exact known-failure disposition.');
+            const environmentRisk=executionRisk?.profile==='sflow-environment-failure-code-input/v1';
+            if(executionRisk&&(!observation||!same(observation.tests,check.tests)||check.status!=='passed'&&(environmentRisk?!observation.decision||observation.cause?.category!=='environment':observation.disposition!=='accepted-known-failures')))throw error('The actual failed Code input has no exact original human disposition.');
             tests.push({repositoryId:step.repositoryId,commandId:step.command.id,tests:check.tests,...(executionRisk?{
-              status:check.status,disposition:observation?.disposition??'passed',failedCases:observation?.failedCases??[]}: {})});
+              status:check.status,disposition:environmentRisk&&check.status!=='passed'?'accepted-environment-failure':observation?.disposition??'passed',failedCases:observation?.failedCases??[]}: {})});
           }
           if(code.sources.some(source=>!tests.some(row=>row.repositoryId===source.repository.id)))throw error('The approved producer has no actual test execution for every selected repository.','PRIOR_CODE_TEST_EVIDENCE_REQUIRED',{sourcePhase:id});
           if(found.plan.selection){const selection=found.plan.selection;
@@ -78,7 +85,7 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
               .find(row=>isNamespaceTestRecoveryPolicy(row.policy.kind)&&row.kind==='test-cohort');
             if(!permission||permission.disposition==='uncovered')throw error('Renew the original file-selection permission or restore full execution evidence.','SELECTIVE_TEST_RECOVERY_NOT_CURRENT',{
               phase:publication.phase,sourcePhase:id,actions:permission?.actions??[]});
-            testSelection={profile:'sflow-selective-code-input/v1',checks:proof.published.checks??testReuse?.checks,decision:selection.decision,
+            testSelection={profile:'sflow-selective-code-input/v1',checks:proof.published.checks??testReuse?.checks??executionRisk?.checks,decision:selection.decision,
               executionMode:'reviewed-file-selection',excluded:selection.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,testIds:row.excludedIds,outcome:'not-run'})),
               permission:{decisions:permission.decisions,references:permission.references},receiverExecuted:false,impactComplete:false,failuresWaived:false};}
         }
@@ -95,11 +102,11 @@ export function createNamespaceCodeInputReader({observer,scope,workId}){
         for(const source of row.sources){const previous=current.get(source.id),position=workflow.phaseOrder.indexOf(id);
           if(id===policy.testSource||!previous||previous.phase!==policy.testSource&&position>workflow.phaseOrder.indexOf(previous.phase))current.set(source.id,{phase:id,generation:row.generation,...source});}
       }
-      const profile=namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:inputs.some(row=>row.testReuse&&row.testSelection)?5:inputs.some(row=>row.testReuse)?4:inputs.some(row=>row.testSelection)?3:inputs.some(row=>row.executionRisk)?2:1}),
+      const profile=namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:inputs.some(row=>row.executionRisk?.profile==='sflow-environment-failure-code-input/v1')?6:inputs.some(row=>row.executionRisk&&row.testSelection)?7:inputs.some(row=>row.testReuse&&row.testSelection)?5:inputs.some(row=>row.testReuse)?4:inputs.some(row=>row.testSelection)?3:inputs.some(row=>row.executionRisk)?2:1}),
         report=inputReport({schemaVersion:profile.version,format:profile.format,testEvidenceFrom:policy.testSource,
         inputs,currentSources:[...current.values()].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0)});
       const value={report,policy,workflow,definition:(await scoped.approved(snapshot,{signal})).compiled.definition};
-      return conformance?issue(value):value;
+      return issue(value);
     });
   }
   async function verify(publication,binding,{signal,policyTraversal}={}){

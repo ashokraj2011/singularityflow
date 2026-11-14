@@ -14,6 +14,7 @@ import { NAMESPACE_JOURNAL_PORT } from './namespace/journal-contract.mjs';
 
 const FORMAT = 'sflow-filesystem-namespace/v1';
 const MAX_FILE_BYTES = 1_048_576;
+const READ_BATCH_SIZE = 8;
 const FILE = /^([0-9]{20})\.json$/u;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -204,51 +205,59 @@ export async function openFilesystemNamespaceJournal({ root, binding, create = f
       if (cached) state = cached.state;
       const revisions = new Set(cached?.revisions ?? []), fingerprints = [];
       let observedBytes = 0;
-      for (const file of files) {
-        if (through !== null && sequence >= through) break;
-        if (Number(FILE.exec(file)[1]) !== sequence + 1) throw corrupt('The namespace journal has a missing or invalid sequence.');
-        const bytes = await readJsonBytes(path.join(paths.commits, file));
-        observedBytes += bytes.byteLength;
-        const fingerprint = hash(bytes);
-        if (files.length <= maximumReplayFiles) fingerprints.push(fingerprint);
-        if (cached && sequence < cached.sequence) {
-          if (fingerprint !== cached.fingerprints[sequence]) {
-            forgetReplay(projectId);
-            // Preserve existing interpretation of changed valid bytes; never serve the old view.
-            return await readVerified(scope, through, false);
+      const selectedFiles = through === null ? files : files.slice(0, through);
+      for (let offset = 0; offset < selectedFiles.length; offset += READ_BATCH_SIZE) {
+        // File I/O is independent. Interpret each result in sequence so the original
+        // first integrity/read error, digest chain and snapshot boundary stay exact.
+        const batch = await Promise.allSettled(selectedFiles.slice(offset, offset + READ_BATCH_SIZE)
+          .map(file => readJsonBytes(path.join(paths.commits, file))));
+        for (const [index, observed] of batch.entries()) {
+          const file = selectedFiles[offset + index];
+          if (Number(FILE.exec(file)[1]) !== sequence + 1) throw corrupt('The namespace journal has a missing or invalid sequence.');
+          if (observed.status === 'rejected') throw observed.reason;
+          const bytes = observed.value;
+          observedBytes += bytes.byteLength;
+          const fingerprint = hash(bytes);
+          if (files.length <= maximumReplayFiles) fingerprints.push(fingerprint);
+          if (cached && sequence < cached.sequence) {
+            if (fingerprint !== cached.fingerprints[sequence]) {
+              forgetReplay(projectId);
+              // Preserve existing interpretation of changed valid bytes; never serve the old view.
+              return await readVerified(scope, through, false);
+            }
+            sequence += 1;
+            if (sequence === cached.sequence) sha256 = cached.sha256;
+            continue;
           }
-          sequence += 1;
-          if (sequence === cached.sequence) sha256 = cached.sha256;
-          continue;
-        }
-        const envelope = parseJsonBytes(bytes);
-        let applied;
-        try {
-          exactObject(envelope, ['body', 'sha256']);
-          const { body } = envelope;
-          exactObject(body, ['schemaVersion', 'storeId', 'binding', 'scope', 'sequence', 'previousSha256', 'revision', 'transaction']);
-          if (envelope.sha256 !== hash(JSON.stringify(body))) throw new Error('Journal digest mismatch.');
-          admitNamespaceStorageSchema('entry', body);
-          if (body.storeId !== manifest.storeId
-            || !same(namespaceBinding(body.binding), normalizedBinding) || !same(namespaceScope(body.scope), normalizedScope)
-            || body.sequence !== sequence + 1 || body.previousSha256 !== sha256
-            || typeof body.revision !== 'string' || !body.revision.startsWith('fs:') || !UUID.test(body.revision.slice(3))
-            || revisions.has(body.revision)) throw new Error('Journal integrity or binding mismatch.');
-          const transaction = namespaceTransaction(body.transaction, limits);
-          for (const item of [...transaction.preconditions, ...transaction.changes, ...transaction.events]) {
-            assertNamespaceBinding({ binding: normalizedBinding }, item.namespace);
+          const envelope = parseJsonBytes(bytes);
+          let applied;
+          try {
+            exactObject(envelope, ['body', 'sha256']);
+            const { body } = envelope;
+            exactObject(body, ['schemaVersion', 'storeId', 'binding', 'scope', 'sequence', 'previousSha256', 'revision', 'transaction']);
+            if (envelope.sha256 !== hash(JSON.stringify(body))) throw new Error('Journal digest mismatch.');
+            admitNamespaceStorageSchema('entry', body);
+            if (body.storeId !== manifest.storeId
+              || !same(namespaceBinding(body.binding), normalizedBinding) || !same(namespaceScope(body.scope), normalizedScope)
+              || body.sequence !== sequence + 1 || body.previousSha256 !== sha256
+              || typeof body.revision !== 'string' || !body.revision.startsWith('fs:') || !UUID.test(body.revision.slice(3))
+              || revisions.has(body.revision)) throw new Error('Journal integrity or binding mismatch.');
+            const transaction = namespaceTransaction(body.transaction, limits);
+            for (const item of [...transaction.preconditions, ...transaction.changes, ...transaction.events]) {
+              assertNamespaceBinding({ binding: normalizedBinding }, item.namespace);
+            }
+            const identity = namespaceTransactionIdentity(normalizedScope, transaction, limits);
+            applied = applyNamespaceTransaction(state, normalizedScope, transaction, {
+              revision: body.revision, requestDigest: hash(identity), limits
+            });
+            if (applied.replayed) throw new Error('A duplicate operation was appended as another transaction.');
+            revisions.add(body.revision);
+          } catch (cause) {
+            if (cause.code === 'SDA_NAMESPACE_UNSUPPORTED') throw cause;
+            throw corrupt('The namespace journal failed integrity or transaction validation.', cause);
           }
-          const identity = namespaceTransactionIdentity(normalizedScope, transaction, limits);
-          applied = applyNamespaceTransaction(state, normalizedScope, transaction, {
-            revision: body.revision, requestDigest: hash(identity), limits
-          });
-          if (applied.replayed) throw new Error('A duplicate operation was appended as another transaction.');
-          revisions.add(body.revision);
-        } catch (cause) {
-          if (cause.code === 'SDA_NAMESPACE_UNSUPPORTED') throw cause;
-          throw corrupt('The namespace journal failed integrity or transaction validation.', cause);
+          state = applied.state; sequence += 1; sha256 = envelope.sha256;
         }
-        state = applied.state; sequence += 1; sha256 = envelope.sha256;
       }
       if (through !== null && sequence !== through) throw corrupt('The requested namespace snapshot is no longer present.');
       if (through === null) {

@@ -14,7 +14,7 @@ export const SGOS_NAMESPACE_OPERATIONAL_STORE_PROFILE='namespace-runtime-v1';
 const profile=SGOS_NAMESPACE_OPERATIONAL_STORE_PROFILE;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const digest=value=>'sha256:'+hash(canonicalJson(value));
-const {fail,exact,clone,bounded,normalizedChanges,apply,event,replay,validateBackup,sealed}=createSgosOperationalCodec({digest});
+const {fail,exact,clone,bounded,normalizedChanges,apply,event,state,replay,validateBackup,sealed}=createSgosOperationalCodec({digest});
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
 const failure=(message,code='SGOS_OPERATIONAL_STORE_CORRUPT',cause=undefined)=>new SingularityFlowError(message,{code,cause});
 const headFields=['format','formatVersion','projectId','storeId','profile','revision','stateSha256','eventSha256','lineage'];
@@ -120,8 +120,7 @@ export function createNamespaceSgosOperationalStore(options={}) {
         revision:next.revision,stateSha256:next.stateSha256,
         ...(reconciliationFailure?.code?{reconciliationErrorCode:reconciliationFailure.code}:{})}});
   }
-  async function publish(before,events,references) {
-    const next=replay(storeId,events).head;
+  async function publish(before,references,next) {
     const lineage=await put({format:'sflow.sgos.namespace-operational-lineage',formatVersion:1,storeId,events:references});
     const value={format:'sflow.sgos.namespace-operational-head',formatVersion:1,projectId:scope.projectId,storeId,profile,
       revision:next.revision,stateSha256:next.stateSha256,eventSha256:next.eventSha256,lineage};
@@ -157,7 +156,9 @@ export function createNamespaceSgosOperationalStore(options={}) {
     const nextEvent=event(storeId,loaded.head,operation,changes,entries,operation==='rollback'?{rollbackRevision}:{});
     bounded(nextEvent,MAXIMUM_BYTES,'Operational event');
     const reference=await put(nextEvent);
-    return publish(loaded,[...loaded.events,nextEvent],[...loaded.references,reference]);
+    // load() already verified the complete prefix; this event and its entries were produced
+    // above by the same codec. Do not replay that prefix a second time before the exact CAS.
+    return publish(loaded,[...loaded.references,reference],state(storeId,nextEvent.revision,nextEvent.eventSha256,entries));
   }
   function restorePlan(loaded,backup) {
     const candidate=validateBackup(backup,storeId,profile);
@@ -199,7 +200,7 @@ export function createNamespaceSgosOperationalStore(options={}) {
       if(plan.mode==='fast-forward') {
         const references=[...loaded.references];
         for(const nextEvent of plan.candidate.backup.events.slice(loaded.events.length))references.push(await put(nextEvent));
-        after=await publish(loaded,plan.candidate.backup.events,references);
+        after=await publish(loaded,references,plan.candidate.replayed.head);
       }
       return Object.freeze({restored:plan.mode!=='noop',mode:plan.mode,storeId,profile,revision:after.revision,
         stateSha256:after.stateSha256,planSha256:plan.confirmationSha256});

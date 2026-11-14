@@ -1,5 +1,5 @@
 /** Shared TRP schemas, record identity and gate evaluation over explicit evidence/authority verifiers. */
-import {canonicalJson,textDigestCapability,REPAIR_BUDGET_STATE_SCHEMA} from '../foundation/record-schema.mjs';
+import {canonicalJson,textDigestCapability,REPAIR_BUDGET_STATE_SCHEMA,namespaceTestCohortRecordProfile} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {TRP_RISK_CATEGORIES} from './configuration-path-policies.mjs';
 /** Value-only budget selection; native wrappers retain their original command presentation. */
@@ -1183,7 +1183,7 @@ export function testNarrowingPolicies(port){
 
 /** Admitted Code failures keep their actual witness result; an environment decision only names an exception. */
 export function namespaceCodeEnvironmentRiskCoverage(matches,repositoryId,report,{enforceAssertionAdequacy=false}={}){
-  if(!report||!['sflow-namespace-test-risk-policy/v2','sflow-namespace-test-risk-policy/v3'].includes(report.profile)||!matches.length)return null;
+  if(!report||!['sflow-namespace-test-risk-policy/v2','sflow-namespace-test-risk-policy/v3','sflow-namespace-test-risk-policy/v4'].includes(report.profile)||!matches.length)return null;
   const ids=[];
   for(const {witness,result}of matches){
     if(result.status==='met'&&!result.shortfall)continue;
@@ -1196,6 +1196,10 @@ export function namespaceCodeEnvironmentRiskCoverage(matches,repositoryId,report
   return ids.length?{profile:'sflow-namespace-code-execution-exception/v1',decisions:[...new Set(ids)].sort(),testsPassed:false}:null;
 }
 
+/** Original cohort review routing, including the actual producer and receiving generation. */
+export function namespaceTestCohortReviewInput(record){const context=record.context;return {phaseId:record.phase,
+  baselinePhaseId:context.baseline.phase,baselineOperationId:context.baseline.checks.operationId,observedOperationId:context.observed.operationId,
+  ...(namespaceTestCohortRecordProfile('contextValue',context).executionBinding?{observedPhaseId:context.execution.phase,candidateGeneration:context.generation}:{})};}
 /** Scope of actually observed test cohorts, separate from execution success and human authentication. */
 export function namespaceTestCohortPolicies(digests){
   const hash=value=>'sha256:'+textDigestCapability(digests).sha256Utf8(canonicalJson(value)),
@@ -1215,12 +1219,13 @@ export function namespaceTestCohortPolicies(digests){
     }
     return rows.sort((a,b)=>a.id.localeCompare(b.id));
   }
-  function compare(baseline,current){
+  function compare(baseline,current,{retainFailures=false}={}){
     if(baseline.length!==current.length)fail('The baseline and candidate need the same configured command and repository inventory.','TEST_COHORT_PIN_CHANGED');
     return baseline.map(base=>{
       const now=current.find(row=>row.repositoryId===base.repositoryId&&row.commandId===base.commandId);
       if(!now||now.pinSha256!==base.pinSha256)fail('The runner, command, configuration or environment differs from the retained baseline.','TEST_COHORT_PIN_CHANGED');
-      const baselineIds=base.cases.filter(row=>row.outcome==='passed').map(row=>row.id),baselineSet=new Set(baselineIds),selectedIds=now.cases.filter(row=>['passed','failed'].includes(row.outcome)).map(row=>row.id),selected=new Set(selectedIds);
+      const baselineIds=base.cases.filter(row=>row.outcome==='passed'||retainFailures&&row.outcome==='failed').map(row=>row.id),baselineSet=new Set(baselineIds),selectedIds=now.cases.filter(row=>['passed','failed'].includes(row.outcome)).map(row=>row.id),selected=new Set(selectedIds);
+      if(retainFailures&&base.cases.some(row=>row.outcome==='failed'&&!selected.has(row.id)))fail('Known failed baseline cases must remain executed; cohort approval cannot omit their sentinels.','TEST_COHORT_REQUIRED_FAILURE_SENTINEL');
       return {repositoryId:base.repositoryId,commandId:base.commandId,pinSha256:base.pinSha256,baselineIds,selectedIds,
         excludedIds:baselineIds.filter(id=>!selected.has(id)),newIds:selectedIds.filter(id=>!baselineSet.has(id))};
     });
@@ -1244,7 +1249,8 @@ export function namespaceTestCohortPolicies(digests){
       if((reduced&&!expiry)||expiry&&(!/^\d{4}-\d{2}-\d{2}$/u.test(request.expires)||!Number.isFinite(expiry.getTime())
         ||expiry.toISOString().slice(0,10)!==request.expires||expiry<=new Date(facts.at)||expiry-new Date(facts.at)>90*86400000))
         fail('A reduced cohort needs an expiry within the next 90 days.');
-      record={schemaVersion:1,profile:'sflow-namespace-test-cohort-decision/v1',id:'TCO-'+String(rows.filter(row=>row.id).length+1).padStart(3,'0'),phase:request.phaseId,
+      const version=namespaceTestCohortRecordProfile('contextValue',source.context.value).version;
+      record={schemaVersion:version,profile:'sflow-namespace-test-cohort-decision/v'+version,id:'TCO-'+String(rows.filter(row=>row.id).length+1).padStart(3,'0'),phase:request.phaseId,
         generation:source.context.value.generation,context:source.context.value,contextSha256:source.context.sha256,
         selectionSha256:hash({baseline:source.context.value.baseline,selection:source.context.value.selection}),
         expiresAt:expiry?.toISOString()??null,reason:request.reason,actor:facts.actorId,authorityGroup:facts.authorityGroup,recordedAt:facts.at};

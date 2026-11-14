@@ -25,8 +25,8 @@ test('new record meanings have separate closed versions and leave the old agreem
   assert.deepEqual(namespacePhaseCheckPlanProfile({schemaVersion:3}),{version:3,format:'sflow-namespace-phase-check-plan/v3',commands:true,recovery:true});
   assert.equal(namespacePhaseCheckPlanProfile({schemaVersion:5,recovery:{}}).selective,true);assert.equal(namespacePhaseCheckPlanProfile({schemaVersion:5,recovery:{}}).mixed,undefined);
   assert.throws(()=>namespacePhaseCheckPlanProfile({schemaVersion:7}),{code:'SCHEMA_VERSION_FUTURE'});
-  assert.equal(namespaceCodePolicyProfile('code',{schemaVersion:38}).selectiveRecovery,true);assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:43}),{code:'SCHEMA_VERSION_FUTURE'});
-  assert.equal(namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:3}).selectiveInputs,true);assert.throws(()=>namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:6}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.equal(namespaceCodePolicyProfile('code',{schemaVersion:38}).selectiveRecovery,true);assert.throws(()=>namespaceCodePolicyProfile('code',{schemaVersion:45}),{code:'SCHEMA_VERSION_FUTURE'});
+  assert.equal(namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:3}).selectiveInputs,true);assert.throws(()=>namespaceCodeInputPolicyProfile('codeInputReport',{schemaVersion:8}),{code:'SCHEMA_VERSION_FUTURE'});
   for(const kind of ['record','context','policy','report']){assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:1}).version,1);assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:2}).version,2);
     assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:1}).environmentQualified,undefined);assert.equal(namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:2}).environmentQualified,true);
     assert.throws(()=>namespaceEvidenceReuseRecordProfile(kind,{schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});}

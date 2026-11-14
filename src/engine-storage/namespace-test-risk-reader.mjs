@@ -1,6 +1,7 @@
 import {createNamespaceKnownTestRiskOwner} from './namespace-known-test-risk-reader.mjs';
 /** Authentic human risk receipts and actual failed SGOS observations. Never executes or fabricates a pass. */
 import {createNamespaceTestRecoveryOwner} from './namespace-test-recovery-reader.mjs';
+import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 import {isNamespaceTestRiskPolicy,canonicalJson,NAMESPACE_TEST_RISK_SCHEMAS,NAMESPACE_KNOWN_TEST_RISK_SCHEMAS,namespaceTestRiskRecordProfile,namespaceTestRiskPolicyKind} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
@@ -42,7 +43,7 @@ export function createNamespaceTestRiskOwner({observer,scope,workId}){
       'The retained risk has an unsupported schema.',{code:['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',cause});}
       if(row.profile!==profile.profile)fail('The risk decision has another profile.');}
     const proofs=[];for(const link of links)proofs.push(await memoNamespaceObservedDecision(observer,{profile:'sflow-namespace-test-run-risk/v1',record:link.record},
-      ()=>readers.get(link.operation).accepted(link,options),options));
+      ()=>readers.get(link.operation).consumed(link,options),options));
     if(!same(rows,proofs.map(proof=>proof.value.outcome.record)))fail('The risk inventory differs from its original accepted decisions.');
     return proofs;
   }
@@ -88,7 +89,8 @@ export function createNamespaceTestRiskOwner({observer,scope,workId}){
       authorities:testRunRiskAuthorities(snapshot.workflow,phaseId),testsPassed:false,executionObserved:false};
   }
   async function candidate(publication,snapshot,{signal,at,checked,bound=null}={}){
-    if(bound?.profile==='sflow-namespace-known-test-risk-policy/v1'||!bound&&(snapshot.workflow.namespaceKnownTestRisks??[]).some(row=>row.id&&row.phase===publication.phase))return known.candidate(publication,snapshot,{signal,at,checked,bound});
+    if(bound&&!Array.isArray(bound.observations))fail('Use the original test-risk report when binding a retained risk.','ENGINE_STORAGE_CORRUPT');
+    if(bound&&namespaceTestRiskRecordProfile('report',bound).knownFailure||!bound&&(snapshot.workflow.namespaceKnownTestRisks??[]).some(row=>row.id&&row.phase===publication.phase))return known.candidate(publication,snapshot,{signal,at,checked,bound});
     phase(snapshot.workflow,publication.phase);const agreement=snapshot.workflow.resolution.testRecovery?.enabled?await recovery.current(snapshot,{signal}):null;
     if(agreement&&!snapshot.workflow.resolution.testRecovery.enabledRiskCategories.includes('validation-unavailable'))fail('The pinned recovery policy does not enable environment-risk acceptance.','TEST_RUN_RISK_NOT_ELIGIBLE');
     if(!checked?.binding||!checked.found)fail('An actual retained failed check is required.','ENGINE_CHECK_EVIDENCE_REQUIRED');
@@ -134,9 +136,11 @@ export function createNamespaceTestRiskOwner({observer,scope,workId}){
         cause,decision:{record:decision.record,reference:decision.reference}});
     }
     if(!rows.some(row=>row.decision))fail('Passing checks do not need a test risk.','TEST_RUN_RISK_NOT_ELIGIBLE');
-    const version=agreement?3:phaseRequiresCodeDelivery(snapshot.workflow.phases[publication.phase])?2:1;
+    const selection=found.plan.selection??null;
+    if(selection)await createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}).permission(snapshot,selection,{signal,at});
+    const version=selection?4:agreement?3:phaseRequiresCodeDelivery(snapshot.workflow.phases[publication.phase])?2:1;
     return {report:{schemaVersion:version,profile:'sflow-namespace-test-risk-policy/v'+version,...(agreement?{recovery:{agreementSha256:agreement.agreement.contextSha256,agreements:agreement.references}}:{}),workId,phaseId:publication.phase,checks:binding,commands:selected.identity,
-      observations:rows,testsPassed:false,codeFailuresWaived:false,crossPhaseReuse:false,freshness:'same-draft-retained-run',sourceRechecked:true},references:unique(references.filter(row=>row.namespace==='evidence')),policy:{owners:['check-execution']}};
+      ...(selection?{selection,scopePermissionRequired:true}:{}),observations:rows,testsPassed:false,codeFailuresWaived:false,crossPhaseReuse:false,freshness:'same-draft-retained-run',sourceRechecked:true},references:unique([...references,...(selection?[selection.decision]:[])].filter(row=>row.namespace==='evidence')),policy:{owners:['check-execution']}};
   }
   async function draftCandidate(value,snapshot,options={}){
     try{return await candidate(value,snapshot,options);}catch(cause){
@@ -172,9 +176,5 @@ export function createNamespaceTestRiskOwner({observer,scope,workId}){
     return {found:await checks.publicationObservation({...value,checks:report.checks},{signal}),report,binding:report.checks,
       policyBinding:binding,manifest,references:proof.references};
   }
-  async function fresh(value,snapshot,units,{signal,at,bound=null}={}){
-    await checks.freshObservedSources(value.riskChecks,value.phase,units,{signal});
-    return publication(value,snapshot,{signal,at,bound});
-  }
-  return Object.freeze({owner,reader:readers.get(operation),admitted,context,candidate,draftCandidate,publication,forPublication,fresh,readBindings:checks.readBindings});
+  return Object.freeze({owner,reader:readers.get(operation),admitted,context,candidate,draftCandidate,publication,forPublication,readBindings:checks.readBindings});
 }

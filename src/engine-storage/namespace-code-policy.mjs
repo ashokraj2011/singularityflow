@@ -1,5 +1,5 @@
 /** Recompute Code publication from original source, approved claims and actual check receipts. */
-import {namespaceCodeExecutionRiskProfile,namespaceCodeExecutionRiskEvidenceAllowed,isNamespaceTestRiskPolicy,canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch,namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
+import {namespaceCodeExecutionRiskProfile,namespaceCodeExecutionRiskEvidenceAllowed,namespaceTestRiskRecordProfile,isNamespaceTestRiskPolicy,canonicalJson,admitRecordSchemaVersion,NAMESPACE_PHASE_POLICY_SCHEMAS,namespaceCodePolicyProfile,namespaceCodePolicyVersionsMatch,namespaceCodePreflightVersion} from '../foundation/record-schema.mjs';
 import {createNamespaceEvidenceReuseOwner} from './namespace-evidence-reuse-reader.mjs';
 import {createNamespaceTestRiskOwner} from './namespace-test-risk-reader.mjs';
 import {namespaceCodeEnvironmentRiskCoverage} from '../kernel/test-recovery.mjs';
@@ -58,7 +58,7 @@ function reportValue(value){
       ||value.checks!==null||value.reusedExecution?.profile!=='sflow-namespace-code-reused-execution/v1'||value.reusedExecution.receiverExecuted!==false
       ||value.reusedExecution.policy?.kind!==(wire.combinedReuse?'evidence-reuse/v4':'evidence-reuse/v3')||!value.reusedExecution.checks))throw Error('Another qualified reuse contract.');
     if(wire.selectiveRecovery&&(!Number.isInteger(value.evidenceVersion)||value.evidenceVersion<1||value.evidenceVersion>35
-      ||[32,33].includes(value.evidenceVersion)||!wire.reusedExecution&&!value.checks||value.selectiveRecovery?.profile!==(wire.impactSelection?'sflow-namespace-code-selective-execution/v2':'sflow-namespace-code-selective-execution/v1')
+      ||[32,33].includes(value.evidenceVersion)||!wire.reusedExecution&&!wire.combinedRisk&&!value.checks||value.selectiveRecovery?.profile!==(wire.impactSelection?'sflow-namespace-code-selective-execution/v2':'sflow-namespace-code-selective-execution/v1')
       ||value.selectiveRecovery.failuresWaived!==false||value.selectiveRecovery.impactComplete!==false))throw Error('Another selective execution contract.');
     if(wire.executionRisk&&(!namespaceCodeExecutionRiskEvidenceAllowed(wire,value.evidenceVersion)||value.checks!==null
       ||value.executionException?.profile!==(wire.knownFailureRisk?'sflow-namespace-code-execution-risk/v2':'sflow-namespace-code-execution-risk/v1')||wire.knownFailureRisk&&value.executionException.failedAcceptanceWaived!==false||value.executionException.testsPassed!==false))throw Error('Another execution exception.');
@@ -186,11 +186,9 @@ export function createNamespaceCodePolicyReader({observer,scope,workId,checks}){
       }
     }
     const extended=acceptance.some(row=>row.contract),preflightVersion=namespaceCodePreflightVersion(preflight),version=extended?({8:9,10:11,12:13,14:15,16:17,18:19,20:21,22:23,28:29,30:31,34:35}[preflightVersion]??7):preflightVersion;
-    const selection=tested?.plan.selection;if(selection&&risk)throw error('This selected failed execution needs its separate combined-risk owner; restore full configured execution in this phase.',
-      'ENGINE_PORT_UNAVAILABLE',{required:['selective-recovery-execution-risk-combination'],actions:[
-        {operation:'test-recovery.select-confirm',inputs:{workId,revoke:selection.record.id},requiredInputs:['operationId','reason'],prerequisites:['authenticated-original-test-risk-authority']},
-        {operation:'phase.checks.run',inputs:{workId,phaseId:publication.phase},requiredInputs:['operationId'],prerequisites:['revoked-selection','rebased-current-draft','retained-current-source']}]});
-    const impactSelection=Boolean(selection&&(reused||selection.record.context.impact||selection.rows.some(row=>row.declaration.adapter==='node-script-junit-v1'))),selectionVersion=reused?41:impactSelection?40:38,reuseVersion=reused?.binding.kind==='evidence-reuse/v4'?42:39,
+    const selection=tested?.plan.selection;
+    if(selection&&risk&&(!['sflow-namespace-test-risk-policy/v4','sflow-namespace-known-test-risk-policy/v2'].includes(risk.report.profile)||!same(risk.report.selection,selection)))throw error('Selected failed execution needs its exact scope and actual failure-risk proof.','TEST_RUN_RISK_NOT_ELIGIBLE');
+    const impactSelection=Boolean(selection&&(risk||reused||selection.record.context.impact||selection.rows.some(row=>row.declaration.adapter==='node-script-junit-v1'))),selectionVersion=risk?(namespaceTestRiskRecordProfile('report',risk.report).knownFailure?44:43):reused?41:impactSelection?40:38,reuseVersion=reused?.binding.kind==='evidence-reuse/v4'?42:39,
       riskProfile=risk?namespaceCodeExecutionRiskProfile(risk.report,{evidenceVersion:version}):null,report=reportValue({schemaVersion:selection?selectionVersion:reused?reuseVersion:riskProfile?.version??version,format:selection?'sflow-namespace-code-policy-report/v'+selectionVersion:reused?'sflow-namespace-code-policy-report/v'+reuseVersion:riskProfile?.format??'sflow-namespace-code-policy-report/v'+version,preflight,control:controlBinding(controls,selected),checks:publication.checks??null,repositories,acceptance,
       ...(reused?{evidenceVersion:version,reusedExecution:{profile:'sflow-namespace-code-reused-execution/v1',policy:reused.binding,report:reused.manifest.report,checks:reused.checks,receiverExecuted:false}}:{}),
       ...(selection?{evidenceVersion:version,selectiveRecovery:{profile:'sflow-namespace-code-selective-execution/v'+(impactSelection?2:1),decision:selection.decision,...(impactSelection?{impact:selection.record.context.impact??null}:{}),

@@ -6,29 +6,33 @@ import {namespacePreparationFixture} from './namespace-preparation-fixture.mjs';
 import {createNamespacePhaseChecksEngine} from '../../src/engine-storage/namespace-phase-checks.mjs';
 import {createNamespaceSourceEngine} from '../../src/engine-storage/namespace-source.mjs';
 import {createFilesystemSourceUnit} from '../../src/sgos/filesystem-source-unit.mjs';
-import {createNodeCheckExecutionUnit} from '../../src/sgos/node-check-execution-unit.mjs';
+import {createNodeCheckExecutionUnit,createExternalCheckExecutionUnit,createExternalCommandExecutionUnit} from '../../src/sgos/node-check-execution-unit.mjs';
 import {createNodeExecutionOwner} from '../../src/sgos/node-execution-owner.mjs';
 import {createNamespaceLifecycleObserver} from '../../src/engine-storage/namespace-lifecycle-reader.mjs';
 const executableSha256='sha256:'+createHash('sha256').update(await readFile(process.execPath)).digest('hex');
 const command={id:'node-tests',argv:['node','--test','--test-reporter=tap','case.test.mjs'],kind:'test',modelPolicy:'never',
   result:{adapter:'node-tap',path:'results/tests.tap'}};
 const input={operationId:'check-one',workId:'portable-story',phaseId:'intake'};
-export async function namespacePhaseCheckFixture(t,{backend='filesystem',failing=false,modify=()=>{},configure=()=>{},beforePrepare=null}={}) {
-  const f=await namespacePreparationFixture(t,{backend,configure:source=>{source.definition.phases.intake.qualityCommands=[structuredClone(command)];configure(source);}});
+export async function namespacePhaseCheckFixture(t,{backend='filesystem',failing=false,modify=()=>{},configure=()=>{},beforePrepare=null,external=null}={}) {
+  const configured=external?.command??command,
+    f=await namespacePreparationFixture(t,{backend,configure:source=>{source.definition.phases.intake.qualityCommands=[structuredClone(configured)];configure(source);}});
   const root=path.join(f.directory,'checkout');await mkdir(root);
   await writeFile(path.join(root,'case.test.mjs'),"import test from 'node:test';import assert from 'node:assert/strict';test('actual pinned check',()=>assert.equal(2+2,"+(failing?'5':'4')+"));");
-  const source=await createFilesystemSourceUnit({root,id:'app-checkout',projectId:f.scope.projectId,repositoryId:'app'});
+  if(external)for(const [file,text]of Object.entries(external.files)){await mkdir(path.dirname(path.join(root,file)),{recursive:true});await writeFile(path.join(root,file),text);}
+  const source=await createFilesystemSourceUnit({root,id:'app-checkout',projectId:f.scope.projectId,repositoryId:'app',...(external?{excludePaths:external.report?.files??[]}: {})});
   const options={records:f.records,content:f.content,localRecords:f.localRecords,localContent:f.localContent,scope:f.scope,
     workId:f.inputs.workId,authority:f.authority,access:f.access,clock:f.clock,sources:[source]};
   await createNamespaceSourceEngine(options).run('source.bind',{operationId:'source-for-checks',workId:f.inputs.workId,
     expectedRevision:f.story.revision,repositories:['app'],reason:'Select the real repository for phase checks.'});
   const control={starts:0};
-  const raw=await createNodeCheckExecutionUnit({id:'node-phase-check',root,projectId:f.scope.projectId,repositoryId:'app',content:f.content,
-    command:{executable:process.execPath,executableSha256,arguments:command.argv.slice(1),environment:{}},
-    report:{adapter:'node-tap',files:[]},authorizeCommand:manifest=>manifest.manifestSha256});
+  const environment=external?.environment??{},binary=external?.runtime??{executable:process.execPath,executableSha256},
+    factory=external?configured.kind==='test'?createExternalCheckExecutionUnit:createExternalCommandExecutionUnit:createNodeCheckExecutionUnit,
+    raw=await factory({id:'node-phase-check',root,projectId:f.scope.projectId,repositoryId:'app',content:f.content,timeoutMs:configured.timeoutMs??300000,
+    command:{...binary,arguments:configured.argv.slice(1),environment},
+    ...(configured.kind==='test'?{report:external?.report??{adapter:'node-tap',files:[]}}:{commandKind:configured.kind}),authorizeCommand:manifest=>manifest.manifestSha256});
   const unit={...raw,start(task){control.starts++;return raw.start(task);}};
-  const owner=createNodeExecutionOwner({hostId:'phase-check-host'}),checks={owner,bindings:[{phaseId:'intake',commandId:command.id,repositoryId:'app',
-    executable:'node',executableSha256,environment:{},unit}]};
+  const owner=createNodeExecutionOwner({hostId:'phase-check-host'}),checks={owner,bindings:[{phaseId:'intake',commandId:configured.id,repositoryId:'app',
+    executable:configured.argv[0],executableSha256:binary.executableSha256,environment,unit}]};
   modify({checks,options,control});f.control.permissions.push('phase.checks.run');
   const make=extra=>createNamespacePhaseChecksEngine({...options,checks,...extra}),engine=make();
   if(beforePrepare)await beforePrepare({...f,options,checks});

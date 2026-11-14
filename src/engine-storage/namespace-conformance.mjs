@@ -50,11 +50,12 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
         code:'conformance.upstream-producer-stale',clauseId:null,line:null,message:issue.id+' names another producer generation.'});
       if(result.findings.length)throw error('Repair the conformance rows against their exact approved evidence.','ARTIFACT_AUTHORING_INCOMPLETE',{
         phase:publication.phase,findings:result.findings,operation:'phase.draft.write'});
-      const known=code.report.inputs.filter(row=>row.executionRisk),
-        profile=namespaceConformancePolicyProfile('conformanceReport',{schemaVersion:known.length?(v2?4:3):(v2?2:1)});
+      const known=code.report.inputs.filter(row=>row.executionRisk),environment=known.some(row=>row.executionRisk.profile==='sflow-environment-failure-code-input/v1'),
+        profile=namespaceConformancePolicyProfile('conformanceReport',{schemaVersion:environment?(v2?6:5):known.length?(v2?4:3):(v2?2:1)});
       const value={code,policy:code.policy,report:{schemaVersion:profile.version,format:profile.format,inputs:code.report,definitions,rows:result.rows,gaps:result.gaps,...(v2?{upstream,issueEvidence}:{}),
-        ...(profile.knownFailureInputs?{executionExceptions:known.map(row=>({phase:row.phase,generation:row.generation,checks:row.executionRisk.checks,
-          policy:row.executionRisk.policy,testsPassed:false,failedAcceptanceWaived:false,receiverExecuted:false}))}:{})}};
+        ...(profile.knownFailureInputs||profile.environmentFailureInputs?{executionExceptions:known.map(row=>({phase:row.phase,generation:row.generation,checks:row.executionRisk.checks,
+          policy:row.executionRisk.policy,testsPassed:false,failedAcceptanceWaived:false,receiverExecuted:false,...(profile.environmentFailureInputs?{
+            kind:row.executionRisk.profile==='sflow-environment-failure-code-input/v1'?'environment':'known-failure',causeClasses:row.executionRisk.causeClasses??[]}: {})}))}:{})}};
       candidates.set(value,hash(value));return value;
     });
   }
@@ -65,7 +66,7 @@ export function createNamespaceConformanceReader({observer,scope,workId}){
     const report=await json(manifest.report,signal),profile=namespaceConformancePolicyProfile('conformance',manifest);let reportProfile;
     try{reportProfile=namespaceConformancePolicyProfile('conformanceReport',report);
       if(reportProfile.version!==profile.version)throw error('Conformance manifest and report need the same supported version.','ENGINE_STORAGE_UNSUPPORTED');
-      exactObject(report,['schemaVersion','format','inputs','definitions','rows','gaps',...(profile.issueLinks?['upstream','issueEvidence']:[]),...(profile.knownFailureInputs?['executionExceptions']:[])]);
+      exactObject(report,['schemaVersion','format','inputs','definitions','rows','gaps',...(profile.issueLinks?['upstream','issueEvidence']:[]),...(profile.knownFailureInputs||profile.environmentFailureInputs?['executionExceptions']:[])]);
       if(report.format!==reportProfile.format||binding.kind!==profile.kind)throw Error('Another conformance format.');
     }catch(cause){throw error('The conformance report has an invalid or unsupported contract.',
       ['SCHEMA_VERSION_FUTURE','SCHEMA_VERSION_ARCHIVED','ENGINE_STORAGE_UNSUPPORTED'].includes(cause.code)?'ENGINE_STORAGE_UNSUPPORTED':'ENGINE_STORAGE_CORRUPT',null,cause);}

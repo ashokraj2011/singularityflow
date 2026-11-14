@@ -8,7 +8,9 @@ test('risk schema capabilities are centralized while original profile metadata s
     const original=namespaceTestRiskRecordProfile(kind,{schemaVersion:1});assert.deepEqual(Object.keys(original),['version','profile']);assert.ok(Object.isFrozen(original));
     assert.equal(namespaceTestRiskRecordProfile(kind,{schemaVersion:2}).executionRisk,true);assert.equal(namespaceTestRiskRecordProfile(kind,{schemaVersion:2}).recoveryRisk,undefined);
     assert.equal(namespaceTestRiskRecordProfile(kind,{schemaVersion:3}).recoveryRisk,true);
-    assert.throws(()=>namespaceTestRiskRecordProfile(kind,{schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
+    const selected=['policy','report'].includes(kind);
+    if(selected)assert.equal(namespaceTestRiskRecordProfile(kind,{schemaVersion:4}).selectedExecution,true);
+    assert.throws(()=>namespaceTestRiskRecordProfile(kind,{schemaVersion:selected?5:4}),{code:'SCHEMA_VERSION_FUTURE'});
   }
 });
 test('cohort identities require complete portable unambiguous observations, rather than passing counts',()=>{

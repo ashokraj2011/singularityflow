@@ -1,6 +1,7 @@
 /** Original recovery agreements and command inventories. This owner cannot execute or write. */
-import {canonicalJson,NAMESPACE_TEST_RECOVERY_SCHEMAS,namespaceTestRecoveryRecordProfile} from '../foundation/record-schema.mjs';
+import {canonicalJson,isNamespaceTestRiskPolicy,NAMESPACE_TEST_RECOVERY_SCHEMAS,namespaceTestRecoveryRecordProfile} from '../foundation/record-schema.mjs';
 import {createNamespaceEvidenceReuseOwner} from './namespace-evidence-reuse-reader.mjs';
+import {createNamespaceTestRiskOwner} from './namespace-test-risk-reader.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {NODE_TEXT_DIGESTS} from '../records.mjs';
 import {namespaceTestRecoveryPolicies} from '../kernel/test-recovery.mjs';
@@ -62,6 +63,15 @@ export function createNamespaceTestRecoveryOwner({observer,scope,workId}){
   reader=createNamespaceRecordedMutationReader({observer,scope,workId,operation,owner,contract:namespaceDecisionContract});
   async function publication(snapshot,phaseId,options={}){
     const source=await current(snapshot,options),qualified=namespaceTestRecoveryRecordProfile('agreement',source.agreement).qualifiedReuse===true;
+    const failed=options.publication?.policyEvidence?.find(row=>isNamespaceTestRiskPolicy(row.kind));
+    if(failed){const risk=await createNamespaceTestRiskOwner({observer,scope,workId}).forPublication(options.publication,snapshot,options),selection=risk.found.plan.selection;
+      if(selection)return {report:{schemaVersion:6,profile:'sflow-namespace-test-recovery-policy/v6',workId,phaseId,
+        agreement:source.agreement,agreements:source.references,commands:source.context.value.commands,executionMode:'selected-with-execution-risk',
+        riskKind:failed.kind.startsWith('known-test-risk/')?'known-test-failure':'environment',
+        selection,checks:risk.binding,executionRisk:failed,executed:risk.found.body.checks,testsPassed:false,
+        excluded:selection.rows.flatMap(row=>row.excludedIds.map(testId=>({repositoryId:row.repositoryId,commandId:row.commandId,testId,outcome:'not-run'}))),
+        impactComplete:false,failuresWaived:false},references:[...source.references,selection.decision,...risk.references],policy:{owners:['test-recovery']}};
+    }
     if(options.publication?.policyEvidence?.some(row=>['evidence-reuse/v3','evidence-reuse/v4'].includes(row.kind))){
       if(!['environment-qualified-exact','environment-qualified-selected'].includes(source.agreement.context.reuse))fail('The original full-command agreement forbids reuse.','ENGINE_EVIDENCE_REUSE_AGREEMENT_REQUIRED');
       const reused=await createNamespaceEvidenceReuseOwner({observer,scope,workId}).forPublication(options.publication,options);

@@ -1,7 +1,7 @@
 /** Reconstruct an evidence view from actual accepted publications, checks and human receipts. No effects. */
 import {createNamespaceEvidenceReuseOwner} from './namespace-evidence-reuse-reader.mjs';
 import {namespaceTerminalEvaluationRequired} from '../kernel/approval-policy.mjs';
-import {isNamespaceTestRiskPolicy,canonicalJson} from '../foundation/record-schema.mjs';
+import {isNamespaceTestRiskPolicy,isNamespaceKnownTestRiskPolicy,canonicalJson} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {NODE_TEXT_DIGESTS,NODE_TEXT_VALUE_SYNTAX} from '../records.mjs';
@@ -61,7 +61,7 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       references.push(binding.record,publication.artifact.content,...publications.policies.evidence(publication),...publications.specifications.evidence(publication));
       const execution=await publications.policies.executionDispositions(publication,snapshot,{signal,at});
       executionPolicies.push(...execution);references.push(...execution.flatMap(row=>row.references));
-      if(publication.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))excluded.push({phase:id,generation:phase.generation,reason:publication.policyEvidence.some(row=>row.kind==='known-test-risk/v1')?'known-baseline-failures-remain-failed':'failed-tests-with-accepted-environment-risk-are-not-passing-evidence'});
+      if(publication.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))excluded.push({phase:id,generation:phase.generation,reason:publication.policyEvidence.some(row=>isNamespaceKnownTestRiskPolicy(row.kind))?'known-baseline-failures-remain-failed':'failed-tests-with-accepted-environment-risk-are-not-passing-evidence'});
       if(execution.some(row=>row.kind==='test-cohort'&&row.policy.kind.startsWith('test-recovery/')))excluded.push({phase:id,generation:phase.generation,reason:'reviewed-unselected-baseline-cases-are-not-executed'});
       if(publication.specifications){
         const manifest=namespaceSpecificationManifest(await json(publication.specifications.record,signal),{scope,workId,phaseId:id});

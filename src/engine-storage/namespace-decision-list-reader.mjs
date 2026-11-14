@@ -12,7 +12,7 @@ import {CLAUSE_LINKED_DISPOSITIONS} from '../kernel/scope-statements.mjs';
 import {endpointTaken,omissionAuthorities} from '../kernel/applicability.mjs';
 import {upstreamIssueAuthorities,upstreamIssueStates} from '../kernel/upstream-issues.mjs';
 import {testRunRiskAuthorities} from '../kernel/approval-fallback.mjs';
-import {storyTestCommandPolicies} from '../kernel/test-recovery.mjs';
+import {storyTestCommandPolicies,namespaceTestCohortReviewInput} from '../kernel/test-recovery.mjs';
 import {selectiveTestRecoveryReviewInput} from '../kernel/evidence-reuse.mjs';
 import {phaseNeedsGeneration} from '../kernel/phase-policy.mjs';
 import {routingChoiceSelection} from '../kernel/routed-approval.mjs';
@@ -167,8 +167,7 @@ export function createNamespaceDecisionListReader({observer,scope,workId,runtime
       for(const row of rows)if(row.id)latest.set(row.selectionSha256,row);
       for(const row of latest.values()){
         const state=owner.rules.state(rows,row,at);if(phaseId!==null&&phaseId!==row.phase&&state==='active')continue;
-        const input={workId,phaseId:row.phase,baselinePhaseId:row.context.baseline.phase,
-          baselineOperationId:row.context.baseline.checks.operationId,observedOperationId:row.context.observed.operationId},
+        const input={workId,...namespaceTestCohortReviewInput(row)},
           choice=option('review-observed-cohort','test-cohort.context',input,testRunRiskAuthorities(workflow,row.phase),{},false);
         choice.action={operation:'test-cohort.context',inputs:input,requiredInputs:[],prerequisites:['review-original-baseline-and-observed-execution']};
         observations.push({kind:'test-cohort',key:row.id+':'+state,offered:state==='active',options:[choice]});

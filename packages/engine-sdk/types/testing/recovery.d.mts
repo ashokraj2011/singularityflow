@@ -80,11 +80,11 @@ export interface NamespaceTestCohortValues {
   hash(value:JsonValue):string;
   cases(tests:{readonly discovered:number}|null,occurrences:readonly {readonly file:string;readonly name:string;readonly ancestorTitles:readonly string[];
     readonly framework?:string|null;readonly outcome:ObservedCohortCase['outcome']}[]|null):readonly ObservedCohortCase[];
-  compare(baseline:readonly ObservedCohortCommand[],current:readonly ObservedCohortCommand[]):readonly ObservedCohortSelection[];
+  compare(baseline:readonly ObservedCohortCommand[],current:readonly ObservedCohortCommand[],options?:{readonly retainFailures?:boolean}):readonly ObservedCohortSelection[];
   state(rows:readonly CohortPermission[],record:CohortPermission,at:string):'active'|'revoked'|'expired';
   confirm(workflow:Readonly<Record<string,JsonValue>>,request:{readonly phaseId:string;readonly expectedContext?:string;readonly revoke?:string|null;
     readonly reason:string;readonly expires?:string|null},facts:{readonly actorId:string;readonly agentId:string|null;readonly at:string;readonly authorityGroup:string},
-    source:{readonly context:{readonly sha256:string;readonly value:{readonly generation:number;readonly baseline:JsonValue;readonly selection:readonly ObservedCohortSelection[]}}}):
+    source:{readonly context:{readonly sha256:string;readonly value:{readonly schemaVersion?:1|2;readonly generation:number;readonly baseline:JsonValue;readonly selection:readonly ObservedCohortSelection[]}}}):
     {readonly workflow:Readonly<Record<string,JsonValue>>;readonly outcome:{readonly currentPhase:string|null;readonly record:Readonly<Record<string,JsonValue>>}};
 }
 /** Observed report identities describe scope; they neither authenticate people nor invent execution. */

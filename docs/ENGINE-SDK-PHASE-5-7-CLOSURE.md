@@ -5,15 +5,46 @@ remain historical evidence. Neither phase is complete until its remaining owners
 cross-agent journeys are qualified. Phase 8 authority migration and Phase 9 production cutover,
 obsolete-access removal and final distribution remain separate.
 
-The latest slice adds [source-bound impact selection and combined evidence reuse](ENGINE-SDK-IMPACT-AND-COMBINED-REUSE.md).
+The latest slice connects [failure permissions, observed cohorts and external runners](ENGINE-SDK-FAILURE-COHORT-AND-EXTERNAL-RUNNERS.md).
+Selected environment and independently known failures retain separate scope, failure and cohort
+permissions, original failed counts and exact source bindings. Verification and Release retain
+producer attribution, current permissions and honest partial acceptance. Original-owner renewal
+works from shared records without a checkout or another execution. A receiving generation stays
+distinct from the observed execution's generation.
+
+Explicit external test/non-test adapters share SGOS process, source, report and quiescence
+ownership. Real Python execution qualifies their complete-command path; no external selector,
+qualified toolchain or acceptance identity is inferred. Current permissions remain fresh while
+authenticated consuming projections avoid duplicating historical state trees.
+
+Remaining native extraction, live application review, document/evidence exceptions, framework-
+specific qualification and required evidence/execution ports still keep Phases 5 and 7 open.
+Production cutover, installed authority and main are unchanged.
+
+This slice passes 969 distinct affected Mac checks across 118 files, with no skips or cancellations:
+117 architecture guards, 37 native SDK/CLI parity cases, nine additional installed consumers and
+the unchanged 34-check original package qualifier. The final qualifier ran alone in 24.5 seconds under
+its original 120/60-second deadlines. The full two-repository filesystem/SQLite/application
+matrix retains real execution and separate human approvals through Release. Its qualification
+record distinguishes the plain-consumer harness correction from the product's journal batching
+and removed duplicate replay.
+
+Source validation passes 4,448 checks; VS Code types, the unchanged 2,011-site Git audit and all
+13 original bundle ceilings pass. Gateway remains 852/852 modules and 6,947,836 bytes; the
+vocabulary remains 97 operations. The schema owner dispatches original and combined cohort
+versions; the affected 233 checks and original package qualifier were repeated after that
+boundary correction. No Windows, live provider, installation mutation or main merge ran.
+
+The preceding slice adds [source-bound impact selection and combined evidence reuse](ENGINE-SDK-IMPACT-AND-COMBINED-REUSE.md).
 It binds a host AST observation to actual source bytes, derives transitive cross-repository impact,
 expands uncertain selections and supports a separately admitted pinned-script selector. Explicit
 combined reuse retains actual selected execution and mixed passing compile/test results, with
 separate scope and reuse permissions and original-owner renewal. Decisions preserve the exact
-impact mode and successor generation. The remaining external adapters and failed-risk/cohort
-combinations stay open; neither phase is marked complete.
+impact mode and successor generation. Its then-open failed-risk/cohort combinations and initial
+external full-command adapters are delivered by the newer slice above; further framework-specific
+qualification remains separate. Neither phase is marked complete.
 
-This slice passes 850 distinct affected Mac checks across 104 files, including 117 architecture
+That preceding slice passed 850 distinct affected Mac checks across 104 files, including 117 architecture
 guards, 37 native SDK/CLI parity cases, eight additional installed consumers and the unchanged
 34-check package qualifier. The qualifier ran alone in 52.1 seconds within its original
 120/60-second limits. Source validation passes 4,437 checks; VS Code types, the unchanged
@@ -289,9 +320,9 @@ custom phases, expiry/renewal, interruption and offline shared-only replay are q
   retain their delivered qualification records.
 - Namespace live application review/comparison and Story-wide document/evidence risk owners.
   Exact clause-obligation and supported test-risk decisions are already delivered.
-- Independently inventoried selective recovery and environment-sensitive cross-execution reuse.
-  The full-command agreement, command amendment, bounded repair and supported native Node
-  known-failure owner are delivered; further adapter meanings need their own qualification.
+- Additional framework-specific selected execution and toolchain-qualified reuse. Supported
+  native Node full/selected/combined reuse, separate risk/cohort permissions and explicit external
+  full-command execution are delivered; further adapter meanings need their own qualification.
 - Required grounding, external design, skill/MCP host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through actual evidence ports.
 - Final qualification of those profiles and their cross-agent application journeys. Phases 8 and

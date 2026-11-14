@@ -14,8 +14,9 @@ import {createFilesystemSourceUnit} from './filesystem-source-unit.mjs';
 import {createExecutionUnitManifest,createExecutionUnitAdapter,executionUnitSha256,
   assertPinnedExecutionExecutable,executePinnedProcess,untilExecutionStopped} from './node-execution-unit.mjs';
 
-import {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_SCRIPT_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
+import {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_SCRIPT_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE,EXTERNAL_CHECK_EXECUTION_PROFILE,EXTERNAL_COMMAND_EXECUTION_PROFILE,localCheckExecutionProfile} from '../foundation/execution-unit-port.mjs';
 export {NODE_CHECK_EXECUTION_PROFILE,NODE_QUALIFIED_CHECK_EXECUTION_PROFILE,NODE_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_SCRIPT_SELECTIVE_CHECK_EXECUTION_PROFILE,NODE_COMMAND_EXECUTION_PROFILE,NODE_QUALIFIED_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
+export {EXTERNAL_CHECK_EXECUTION_PROFILE,EXTERNAL_COMMAND_EXECUTION_PROFILE} from '../foundation/execution-unit-port.mjs';
 const MAXIMUM_BYTES=EXECUTION_UNIT_LIMITS.maximumOutputBytes;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const fingerprint=info=>[info.dev,info.ino,info.mode,info.size,info.mtimeNs,info.ctimeNs].map(String).join(':');
@@ -41,6 +42,17 @@ async function boundedIO(work,signal,timeoutMs,stage) {
 /** The host selects actual command, checkout, environment and report destinations before task admission. */
 export async function createNodeCheckExecutionUnit(options={}) {
   return localCheckExecutionUnit(options,{profile:NODE_CHECK_EXECUTION_PROFILE});
+}
+/** Python, JVM and other runners use an explicit pinned executable and structured report.
+ * Host PATH discovery and toolchain-equivalence claims are deliberately outside this adapter. */
+export async function createExternalCheckExecutionUnit(options={}){
+  return localCheckExecutionUnit(options,{profile:EXTERNAL_CHECK_EXECUTION_PROFILE});
+}
+export async function createExternalCommandExecutionUnit(options={}){
+  if(!options||typeof options!=='object'||Object.hasOwn(options,'report'))throw error('Command checks do not accept a test report selection.');
+  const {commandKind,...binding}=options;
+  localCheckExecutionProfile({profile:EXTERNAL_COMMAND_EXECUTION_PROFILE,commandKind});
+  return localCheckExecutionUnit({...binding,report:{adapter:null,files:[]}},{profile:EXTERNAL_COMMAND_EXECUTION_PROFILE,commandKind});
 }
 /** Opt-in environment evidence is captured by SGOS, never asserted by a lifecycle request. */
 export async function createEnvironmentQualifiedNodeCheckExecutionUnit(options={}){

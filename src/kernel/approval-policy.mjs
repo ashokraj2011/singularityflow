@@ -3,7 +3,7 @@ import {namespaceTestRiskRecordProfile} from '../foundation/record-schema.mjs';
 
 /** One closure rule for proposed votes and later views. This does not authenticate any record. */
 export function namespaceTerminalEvaluationRequired(workflow,{newWitnessReview=false}={}){
-  return Boolean(newWitnessReview||['namespaceObligationRisks','namespaceTestCohorts','namespaceKnownTestRisks','namespaceSelectiveTestRecoveries']
+  return Boolean(newWitnessReview||(workflow.namespaceEvidenceReuses??[]).some(row=>row.id&&row.profile==='sflow-namespace-evidence-reuse/v3')||['namespaceObligationRisks','namespaceTestCohorts','namespaceKnownTestRisks','namespaceSelectiveTestRecoveries']
     .some(key=>(workflow[key]??[]).length)||(workflow.namespaceTestRunRisks??[]).some(row=>row.id&&namespaceTestRiskRecordProfile('record',row).executionRisk)
     ||Object.values(workflow.phases??{}).some(phase=>(phase.approvals??[]).some(vote=>vote.witnessMappings?.length)));
 }

@@ -9,7 +9,7 @@ import {createNodeExecutionOwner} from '../../src/sgos/node-execution-owner.mjs'
 import {createNamespaceStoryObserver} from '../../src/engine-storage/namespace-story-reader.mjs';
 const executableSha256='sha256:'+createHash('sha256').update(await readFile(process.execPath)).digest('hex');
 export const selectionReason='Run the selected independent legacy regression and all Story acceptance tests; the other unchanged baseline regression stays explicitly unexecuted.';
-export async function namespaceSelectiveTestRecoveryFixture(t,{backend='sqlite',configure=()=>{},...extra}={}){
+export async function namespaceSelectiveTestRecoveryFixture(t,{backend='sqlite',reuse='never',configure=()=>{},...extra}={}){
   let checks,starts=0,deadlines={};
   const f=await namespaceSourceClauseFixture(t,{backend,baselineTestSource:actualWitnessTest,testSource:actualWitnessTest,retainChanges:false,...extra,
     baselineFiles:{'test/first.test.js':"import test from 'node:test';import assert from 'node:assert/strict';test('first stable regression',()=>assert.equal(2+2,4));\n",
@@ -25,8 +25,8 @@ export async function namespaceSelectiveTestRecoveryFixture(t,{backend='sqlite',
     },
     beforeSpecification:async f=>{
       f.control.permissions.push('test-recovery.context','test-recovery.confirm');
-      const engine=createNamespaceEngine({...f.common,working:{records:f.localRecords,content:f.localContent}}),view=await engine.run('test-recovery.context',{});
-      await engine.run('test-recovery.confirm',{operationId:'original-full-recovery',phaseId:'intake',expectedContext:view.manifest.expectedContext,reason:selectionReason});
+      const engine=createNamespaceEngine({...f.common,working:{records:f.localRecords,content:f.localContent}}),query=reuse==='never'?{}:{reuse},view=await engine.run('test-recovery.context',query);
+      await engine.run('test-recovery.confirm',{operationId:'original-full-recovery',phaseId:'intake',expectedContext:view.manifest.expectedContext,reason:selectionReason,...query});
     },
     afterPrepare:async(f,_engine,roots)=>{
       f.control.permissions.push('phase.checks.run','test-recovery.select-context','test-recovery.select-confirm','phase.prepublish','phase.review','phase.review.resources','story.evidence');

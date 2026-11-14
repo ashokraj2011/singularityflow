@@ -16,18 +16,19 @@ export function createNamespaceTestRecoveryPorts(options){
       captured=await observer.capture({signal}),phaseId=input.phaseId??captured.snapshot.workflow.currentPhase,
       value={subject:{kind:'story',id:workId},workflow:captured.snapshot.workflow,phase:captured.snapshot.workflow.phases[phaseId]};
     if(!value.phase)fail('Name a phase of this Story.','ENGINE_PHASE_UNAVAILABLE');
-    contexts.set(value,{captured,phaseId,principal});return value;
+    contexts.set(value,{captured,phaseId,principal,reuse:input.reuse??null});return value;
   },async read(context,{signal}={}){
     const state=contexts.get(context);if(!state)fail('Use the issued recovery context.','ENGINE_INPUT_INVALID');
-    const value=await owned.context(state.captured.snapshot,{signal});
+    const value=await owned.context(state.captured.snapshot,{signal,...(state.reuse?{reuse:state.reuse}:{})});
     phaseTransitionAccess(await access.current({projectId:scope.projectId,workId,operation,signal}),scope.projectId,operation,{expected:state.principal});
     const fresh=await observer.capture({signal});
     if(fresh.snapshot.revision!==state.captured.snapshot.revision||fresh.basis.authorityVersion!==state.captured.basis.authorityVersion)fail(
       'Recovery authority or the Story changed during reading.','ENGINE_CONTEXT_CHANGED');
-    return {schemaVersion:1,profile:'sflow-namespace-test-recovery-review/v1',workId,phase:state.phaseId,revision:state.captured.snapshot.revision,
+    const version=value.context.value.reuse==='never'?1:2;
+    return {schemaVersion:version,profile:'sflow-namespace-test-recovery-review/v'+version,workId,phase:state.phaseId,revision:state.captured.snapshot.revision,
       expectedContext:value.context.sha256,agreement:value.context.value,previous:value.previous,
       authorities:testRunRiskAuthorities(context.workflow,state.phaseId),
-      actions:[{operation:'test-recovery.confirm',inputs:{workId,phaseId:state.phaseId,expectedContext:value.context.sha256},requiredInputs:['operationId','reason']}]};
+      actions:[{operation:'test-recovery.confirm',inputs:{workId,phaseId:state.phaseId,expectedContext:value.context.sha256,...(state.reuse?{reuse:state.reuse}:{})},requiredInputs:['operationId','reason']}]};
   }};
   const decision=createNamespaceRecordedMutationPort(options,{operation:'test-recovery.confirm',explicitIdentity:true,
     request:input=>standaloneDecisionRequest('test-recovery.confirm',input),owner:owned.owner,contract:namespaceDecisionContract,

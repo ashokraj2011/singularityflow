@@ -221,12 +221,12 @@ export function createNamespacePublicationPort(options={},runtime=null) {
             if(s.risk)testRisk=await policyWriter.retainTestRisk(base,{snapshot,head:head.value,signal,checked:s.failedChecks,expected:s.risk.report});
             if(cohortRequired)cohort=await policyWriter.retainCohort({...base,checks:s.checkEvidence??null,...(testRisk?{policyEvidence:[testRisk.binding]}:{})},{snapshot,head:head.value,signal});
             if(s.reuse)reuse=await policyWriter.retainReuse(base,{snapshot,head:head.value,signal,sources,expected:s.reuse.report});
-            if(recoveryRequired)recovery=await policyWriter.retainRecovery({...base,checks:s.checkEvidence??null},{snapshot,head:head.value,signal});
+            if(recoveryRequired)recovery=await policyWriter.retainRecovery({...base,checks:s.checkEvidence??null,...(reuse?{policyEvidence:[reuse.binding]}:{})},{snapshot,head:head.value,signal});
             if(documentReviewPolicy)documentReview=await policyWriter.retainDocumentReview(base,{snapshot,head:head.value,signal});
             if(specificationPolicy)specifications=await specificationWriter.retain(base,{snapshot,head:head.value,signal});
             if(clarificationPolicy.mode!=='off')clarification=await policyWriter.retainClarification(base,{snapshot,head:head.value,signal});
             if(analysisPolicy)analysis=await policyWriter.retain(clarification?{...base,policyEvidence:[clarification]}:base,{snapshot,head:head.value,signal});
-            if(codePolicy){codeEvidence=await policyWriter.retainCode({...base,checks:s.checkEvidence??null,...(testRisk?{policyEvidence:[testRisk.binding]}:{})},{snapshot,head:head.value,signal});
+            if(codePolicy){codeEvidence=await policyWriter.retainCode({...base,checks:s.checkEvidence??null,...((testRisk||reuse)?{policyEvidence:[...(testRisk?[testRisk.binding]:[]),...(reuse?[reuse.binding]:[])]}:{})},{snapshot,head:head.value,signal});
               if(!same(codeEvidence.sourceBinding,s.codeSource))throw error(
                 'Code source evidence changed while preparing publication. Reinspect its retained candidate.','ENGINE_CONTEXT_CHANGED');}
             if(codeInputsPolicy)codeInputs=await policyWriter.retainCodeInputs({...base,checks:s.checkEvidence??null},{snapshot,head:head.value,signal});

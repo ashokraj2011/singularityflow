@@ -12,6 +12,8 @@ export interface NamespaceCheckBinding {
 export interface NamespaceChecksBindings {readonly mode?:never;readonly owner:ExecutionOwner;readonly bindings:readonly NamespaceCheckBinding[];
   /** Opt-in reuse v2: current SGOS runtime/environment/source observation is mandatory. */
   readonly environmentSensitiveReuse?:boolean;
+  /** Opt-in v3: exact qualified Code/recovery reuse still needs its genuine human decisions. */
+  readonly codeRecoveryReuse?:boolean;
 }
 export type NamespacePhaseChecksOptions=Omit<NamespaceEngineOptions,'working'>&{
   readonly localRecords?:NamespaceStore|null;readonly localContent?:ContentStore|null;

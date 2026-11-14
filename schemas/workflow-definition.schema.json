@@ -338,6 +338,7 @@
         "maxRiskDays": { "type": "integer", "minimum": 1, "maximum": 30 },
         "maxDistinctAutomaticAttempts": { "type": "integer", "minimum": 0, "maximum": 3 },
         "allowEvidenceReuse": { "type": "boolean", "default": false },
+        "reuseProfile": { "enum": ["environment-qualified-exact/v1"] },
         "maxEvidenceAgeSeconds": { "type": "integer", "minimum": 1, "maximum": 2592000 },
         "caseInventory": {
           "description": "Independent approved test identities, never report-discovered inventory. Native adapters authenticate exact reports and declared runtime dependencies. This is not a sandbox attestation.",
@@ -393,6 +394,10 @@
       },
       "allOf": [
         {
+          "if": { "required": ["reuseProfile"] },
+          "then": { "required": ["enabled", "allowEvidenceReuse"], "properties": { "enabled": { "const": true }, "allowEvidenceReuse": { "const": true } } }
+        },
+        {
           "if": { "required": ["enabledRiskCategories"], "properties": { "enabledRiskCategories": { "minItems": 1 } } },
           "then": { "required": ["riskAuthorities"], "properties": { "riskAuthorities": { "minItems": 1 } } }
         },
@@ -401,7 +406,7 @@
           "then": { "required": ["caseInventory", "allowEvidenceReuse"], "properties": { "allowEvidenceReuse": { "const": true } } }
         },
         {
-          "if": { "required": ["allowEvidenceReuse"], "properties": { "allowEvidenceReuse": { "const": true } } },
+          "if": { "required": ["allowEvidenceReuse"], "not": { "required": ["reuseProfile"] }, "properties": { "allowEvidenceReuse": { "const": true } } },
           "then": { "required": ["enabledRiskCategories"], "properties": { "enabledRiskCategories": { "contains": { "enum": ["new-test-failure", "known-test-failure", "reduced-coverage"] } } } }
         },
         {

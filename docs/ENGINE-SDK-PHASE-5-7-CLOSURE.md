@@ -5,22 +5,40 @@ remain historical evidence. Neither phase is complete until its remaining owners
 cross-agent journeys are qualified. Phase 8 authority migration and Phase 9 production cutover,
 obsolete-access removal and final distribution remain separate.
 
-The latest slice adds [independent selective recovery and qualified reuse](ENGINE-SDK-SELECTIVE-RECOVERY-AND-QUALIFIED-REUSE.md).
+The latest slice adds [cancellation fencing and Code/recovery receiving reuse](ENGINE-SDK-CODE-RECOVERY-REUSE.md).
+It carries cancellation through asynchronous ownership claims, retains bounded terminal event
+suffixes and preserves negative quiescence failures. Explicit qualified full-execution reuse now
+reaches independently approved Code, Verification and Release, with original-owner renewal and
+shared-only replay across all three stores. Receiving publications do not claim another test run.
+The original no-reuse agreement and legacy configuration rule bodies remain unchanged.
+The other unfinished owners below still keep both phases open.
+
+This delivery passes 621 distinct affected Mac tests across 82 files, including 117 architecture
+guards, 37 native SDK/CLI parity cases and the unchanged 34-check package qualifier. The qualifier
+ran alone in 72.2 seconds within its original 120/60-second limits. Another 30 repeated
+cancellation/termination checks pass during validation. Source validation passes 4,426 checks;
+VS Code types, the unchanged 2,011-site Git audit and all thirteen original bundle ceilings pass.
+Gateway remains 852/852 modules (6,946,411 bytes); the vocabulary remains 97 operations. The
+[delivery record](ENGINE-SDK-CODE-RECOVERY-REUSE.md) distinguishes the reproduced fixes from the
+unestablished origin of earlier load-only symptoms. No Windows, production installation or main
+merge ran.
+
+The preceding slice adds [independent selective recovery and qualified reuse](ENGINE-SDK-SELECTIVE-RECOVERY-AND-QUALIFIED-REUSE.md).
 It binds reviewed whole-file execution to an actual original native Node JUnit inventory,
 preserves unexecuted cases, renews original-owner permission through Verification/Release and
 rechecks actual runner/runtime/dependency inputs for artifact-phase reuse. The preceding
 [source adoption and rollover](ENGINE-SDK-SOURCE-OPENINGS.md) delivery remains unchanged.
-Generalized impact selection, Code/recovery receiving reuse, live application review and the
+Generalized impact selection, further combined reuse/risk profiles, live application review and the
 other owners below remain open.
 
-This slice passes 474 distinct affected Mac checks across 60 files, including 117 architecture
+That preceding slice passed 474 distinct affected Mac checks across 60 files, including 117 architecture
 guards, 35 native parity cases and the unchanged 34-check package qualifier. The final qualifier
 ran alone in 41.6 seconds within its original 120/60-second limits. Source validation passes
 4,417 checks; VS Code types, the unchanged 2,011-site Git audit and all 13 original bundle ceilings
 pass. Gateway remains 852/852 modules (6,944,369 bytes). The vocabulary now has 97 operations,
 with 42 native and 91 namespace bindings before optional execution.
 
-Concurrent test/build qualification exposed one intermittent cancellation/quiescence-record
+That preceding concurrent test/build qualification exposed one intermittent cancellation/quiescence-record
 failure whose cause is not established. The isolated cancellation test, 12 additional real-process
 probes and the complete serial execution suite passed. No negative quiescence receipt was waived
 or relabelled as confirmed termination. Final combined qualification remains open with the other
@@ -48,6 +66,8 @@ Neither phase is marked complete while its remaining owners below are open.
 - [x] Finish exact witness-mapping approval and original-phase exception renewal.
 - [x] Extract native narrowed-run values with independent original outcomes and installed contracts.
 - [ ] Finish the remaining evidence/test risk and cohort-reuse ceremonies.
+- [x] Connect qualified complete-execution Code/recovery reuse, original-owner renewal and
+  downstream evidence without claiming another execution or loosening old agreements.
 - [x] Connect upstream issues, forward amendments, their list query and recorded decision batches.
 - [ ] Qualify final decisions, approval, rejection and continuation through the single registry.
 
@@ -68,7 +88,9 @@ Neither phase is marked complete while its remaining owners below are open.
 - [x] Add observed-suite baseline/cohort selection, Code environment risks and explicit recovery-risk ceremonies.
 - [x] Add independently inventoried native Node whole-file recovery and environment-qualified
   artifact-phase reuse, preserving real execution, human review and shared-only replay.
-- [ ] Finish generalized impact/adapter selection and Code/recovery receiving-reuse owners;
+- [x] Connect qualified complete-execution Code/recovery receiving reuse and its original
+  producer/source/environment/authority proofs through downstream phases and offline consumers.
+- [ ] Finish generalized impact/adapter selection and further combined risk/reuse profiles;
   those combinations must preserve their original source, evidence and authority contracts.
 - [ ] Connect required grounding, external design, skill-host, person-presence, architecture,
   assurance, signing, integration and automated-execution owners through explicit

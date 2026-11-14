@@ -20,7 +20,7 @@ test('Story command context and replacement versions reject unknown future meani
 test('recovery records and conditional budgets have central, closed schema meanings',()=>{
   for(const kind of ['agreement','context','policy','report','attempt','result','budget']){
     const profile=namespaceTestRecoveryRecordProfile(kind,{schemaVersion:1});assert.equal(profile.version,1);assert.ok(Object.isFrozen(profile));
-    assert.throws(()=>namespaceTestRecoveryRecordProfile(kind,{schemaVersion:['policy','report'].includes(kind)?3:2}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceTestRecoveryRecordProfile(kind,{schemaVersion:['policy','report'].includes(kind)?4:['agreement','context'].includes(kind)?3:2}),{code:'SCHEMA_VERSION_FUTURE'});
     assert.throws(()=>namespaceTestRecoveryRecordProfile(kind,{schemaVersion:0}),{code:'SCHEMA_VERSION_MISSING'});
   }
   assert.throws(()=>namespaceTestRecoveryRecordProfile('invented',{schemaVersion:1}),{code:'SCHEMA_FAMILY_UNKNOWN'});

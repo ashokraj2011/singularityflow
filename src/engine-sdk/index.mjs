@@ -63,7 +63,7 @@ const SINGLE_DECISIONS = Object.freeze([
     {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','phaseId','commandId','argvSha256','causeClass','cause','reason','expires','expectedRecovery'])}],
   ['test-cohort.confirm','test-cohort',['phaseId','baselinePhaseId','baselineOperationId','observedOperationId','expectedContext','revoke','reason','expires'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,allowRetained:true,requiredFields:Object.freeze(['operationId','reason'])}],
-  ['test-recovery.confirm','test-recovery-agreement',['phaseId','expectedContext','reason'],
+  ['test-recovery.confirm','test-recovery-agreement',['phaseId','expectedContext','reason','reuse'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','expectedContext','reason'])}],
   ['convergence.adjudicate','convergence-adjudication',['phaseId','itemId','disposition','clauseIds','reason','expectedContext'],
     {phaseBinding:'requested-target',keepsCurrentPhase:true,requiredFields:Object.freeze(['operationId','phaseId','itemId','disposition','expectedContext'])}],
@@ -84,7 +84,7 @@ const SINGLE_DECISIONS = Object.freeze([
     {phaseBinding:'requested-target',keepsCurrentPhase:true}]
 ].map(([id,recordKind,fields,options={}])=>Object.freeze({id,recordKind,requestFields:Object.freeze(fields),...options})));
 const TEST_DECISIONS = Object.freeze([
-  ['decision.evidence-reuse','evidence-reuse',['phaseId','attemptId','revoke','reason','expires'],['phaseId','attemptId','revoke','reason','expires']],
+  ['decision.evidence-reuse','evidence-reuse',['phaseId','attemptId','revoke','reason','expires','producerPhaseId','producerOperationId'],['phaseId','attemptId','revoke','reason','expires','producerPhaseId','producerOperationId']],
   ['decision.visual-profile','visual-profile',['phaseId','profileId','notApplicable','revoke','reason'],['phaseId','profileId','revoke','reason']],
   ['decision.test-narrowing','test-narrowing',['phaseId','commandId','revoke','reason','expires'],['phaseId','commandId','revoke','reason','expires']],
   ['decision.test-risk','test-run-risk',['phaseId','commandId','argvSha256','causeClass','cause','revoke','reason','expires'],['phaseId','commandId','argvSha256','causeClass','cause','revoke','reason','expires']],
@@ -152,7 +152,7 @@ const definitions = [
     stages:Object.freeze(['load','read']),validate:'storyGuideInput',execute:'inspectScopeContext'},
   {id:'test-command.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testCommandContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestCommandContext'},
-  {id:'evidence-reuse.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'evidenceReuseContext',
+  {id:'evidence-reuse.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','producerPhaseId','producerOperationId']),port:'evidenceReuseContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectEvidenceReuseContext'},
   {id:'test-risk.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRiskContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRiskContext'},
@@ -162,7 +162,7 @@ const definitions = [
     requiredFields:Object.freeze(['phaseId','baselineOperationId','observedOperationId']),port:'testCohortContext',stages:Object.freeze(['load','read']),validate:'testCohortContextInput',execute:'inspectTestCohortContext'},
   {id:'test-witness.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testWitnessContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestWitnessContext'},
-  {id:'test-recovery.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId']),port:'testRecoveryContext',
+  {id:'test-recovery.context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','reuse']),port:'testRecoveryContext',
     stages:Object.freeze(['load','read']),validate:'phaseReviewInput',execute:'inspectTestRecoveryContext'},
   {id:'test-recovery.select-context',version:1,effect:'read',humanDecision:false,inputFields:Object.freeze(['workId','phaseId','baselineOperationId','selection']),
     requiredFields:Object.freeze(['phaseId','baselineOperationId','selection']),port:'selectiveTestRecoveryContext',stages:Object.freeze(['load','read']),
@@ -826,11 +826,13 @@ async function inspectEvidenceReuseContext(port,input,signal){
     ||facts.workId!==binding.workId||facts.phase!==binding.phase||typeof facts.revision!=='string'||!facts.revision
     ||facts.testsExecutedByReceiver!==false||!Array.isArray(facts.candidates)||facts.candidates.length>1024||!Array.isArray(facts.decisions)
     ||!Array.isArray(facts.authorities)||!Array.isArray(facts.actions)||facts.candidates.some(row=>typeof row.taskId!=='string'||!row.taskId
-      ||!row.publication?.record||!row.submission?.record||!row.checks?.result||!row.command?.id||typeof row.sourceMatches!=='boolean')
-    ||profile.version===2&&facts.candidates.some(row=>typeof row.environmentMatches!=='boolean')
+      ||(!(profile.codeRecoveryReuse&&row.retainedExecution===true)&&(!row.publication?.record||!row.submission?.record))||!row.checks?.result||!row.command?.id||typeof row.sourceMatches!=='boolean')
+    ||profile.environmentQualified&&facts.candidates.some(row=>typeof row.environmentMatches!=='boolean')
+    ||profile.codeRecoveryReuse&&(!['renew-original-permission','review-receiving-reuse'].includes(facts.purpose)
+      ||facts.sourceObservation!==(facts.purpose==='renew-original-permission'?'retained-original':'fresh'))
     ||facts.actions.some(row=>row.inputs?.workId!==binding.workId||row.inputs?.phaseId!==binding.phase
-      ||(row.operation==='phase.checks.run'?profile.version!==2:row.operation!=='decision.evidence-reuse'
-        ||!facts.candidates.some(candidate=>candidate.sourceMatches&&(profile.version===1||candidate.environmentMatches)&&candidate.taskId===row.inputs.attemptId))))throw new SingularityFlowError(
+      ||(row.operation==='phase.checks.run'?!profile.environmentQualified:row.operation!=='decision.evidence-reuse'
+        ||!facts.candidates.some(candidate=>candidate.sourceMatches&&(profile.version===1||candidate.environmentMatches)&&candidate.evidenceAge?.eligible!==false&&candidate.taskId===row.inputs.attemptId))))throw new SingularityFlowError(
       'The reuse context returned another Story, task or execution claim.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'evidence-reuse.context',subject:binding.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
@@ -863,12 +865,12 @@ async function inspectTestRecoveryContext(port,input,signal){
   notCancelled(signal);const context=await port.load(input,{signal});notCancelled(signal);
   const binding=data({subject:context?.subject,workId:context?.workflow?.workItem?.id,phase:context?.phase?.id}),
     facts=data(await port.read(context,{signal}));notCancelled(signal);
-  namespaceTestRecoveryRecordProfile('context',facts);
+  const profile=namespaceTestRecoveryRecordProfile('context',facts);
   if(binding.subject?.kind!=='story'||binding.subject.id!==binding.workId||input.workId!=null&&input.workId!==binding.workId
-    ||input.phaseId!=null&&input.phaseId!==binding.phase||facts.profile!=='sflow-namespace-test-recovery-review/v1'
+    ||input.phaseId!=null&&input.phaseId!==binding.phase||facts.profile!==profile.profile
     ||facts.workId!==binding.workId||facts.phase!==binding.phase||typeof facts.revision!=='string'||!facts.revision
     ||!/^sha256:[a-f0-9]{64}$/u.test(facts.expectedContext??'')||facts.agreement?.workId!==binding.workId
-    ||facts.agreement.executionMode!=='all-configured'||facts.agreement.reuse!=='never'||!Array.isArray(facts.authorities)||!Array.isArray(facts.actions))
+    ||facts.agreement.executionMode!=='all-configured'||facts.agreement.reuse!==(profile.version===1?'never':'environment-qualified-exact')||!Array.isArray(facts.authorities)||!Array.isArray(facts.actions))
     throw new SingularityFlowError('The recovery context returned another Story, phase or command agreement.',{code:'ENGINE_PORT_RESULT_INVALID'});
   return data({schemaVersion:1,contract:ENGINE_CONTRACT,operation:'test-recovery.context',subject:binding.subject,manifest:facts,
     effects:{committed:false,pushed:false,approvalRecorded:false,storyAdvanced:false}});
@@ -1229,6 +1231,8 @@ function phaseReviewInput(value,operation) {
   const input=data(value);
   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!operation.inputFields.includes(key)))invalid('Unknown phase review input field.');
   for(const value of Object.values(input))if(value!=null&&typeof value!=='string')invalid('Phase review identifiers must be strings or null.');
+  if(operation.id==='evidence-reuse.context'&&input.producerPhaseId!=null&&!input.producerOperationId)invalid('An exact producer phase needs its retained check operation ID.');
+  if(operation.id==='evidence-reuse.context'&&['producerPhaseId','producerOperationId'].some(key=>input[key]!=null&&(!input[key].trim()||input[key].length>512)))invalid('Use exact nonempty bounded producer identifiers.');
   return input;
 }
 

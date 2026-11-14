@@ -31,10 +31,10 @@ export function createNamespaceEvidenceReusePorts(options){
     const principal=phaseTransitionAccess(await access.current({projectId:scope.projectId,workId,operation:contextOperation,signal}),scope.projectId,contextOperation),
       captured=await observer.capture({signal}),phaseId=input.phaseId??captured.snapshot.workflow.currentPhase,
       value={subject:{kind:'story',id:workId},workflow:captured.snapshot.workflow,phase:captured.snapshot.workflow.phases[phaseId]};
-    if(!value.phase)fail('Name a phase of this Story.','ENGINE_PHASE_UNAVAILABLE');contexts.set(value,{captured,principal});return value;
+    if(!value.phase)fail('Name a phase of this Story.','ENGINE_PHASE_UNAVAILABLE');contexts.set(value,{captured,principal,input});return value;
   },async read(context,{signal}={}){
     const state=contexts.get(context);if(!state)fail('Use the issued reuse context.','ENGINE_INPUT_INVALID');
-    const value=await owned.context(state.captured.snapshot,context.phase.id,{signal,at:projectEnrollmentTimestamp(await clock.now())});
+    const value=await owned.context(state.captured.snapshot,context.phase.id,{signal,at:projectEnrollmentTimestamp(await clock.now()),...(state.input.producerOperationId?{producerOperationId:state.input.producerOperationId,producerPhaseId:state.input.producerPhaseId??context.phase.id}:{})});
     phaseTransitionAccess(await access.current({projectId:scope.projectId,workId,operation:contextOperation,signal}),scope.projectId,contextOperation,{expected:state.principal});
     const fresh=await observer.capture({signal});
     if(fresh.snapshot.revision!==state.captured.snapshot.revision||fresh.basis.authorityVersion!==state.captured.basis.authorityVersion)fail(

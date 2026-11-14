@@ -28,6 +28,7 @@ import {createNamespaceTestRiskOwner,namespaceTestRiskManifest} from './namespac
 import {createNamespaceTestRecoveryOwner,namespaceTestRecoveryManifest} from './namespace-test-recovery-reader.mjs';
 import {createNamespaceSelectiveTestRecoveryOwner} from './namespace-selective-test-recovery-reader.mjs';
 const same=(a,b)=>canonicalJson(a)===canonicalJson(b);
+const selectiveRecovery=value=>isNamespaceTestRecoveryPolicy(value.binding.kind)&&value.report.executionMode==='reviewed-file-selection';
 const hashContext=value=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 const error=(message,code,details=null,cause=undefined)=>new SingularityFlowError(message,{code,details,cause});
 function reportVersion(profile,value){
@@ -97,7 +98,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
       }
       rows.push(value);
     }
-    const selected=proofs(publication).find(row=>row.binding.kind==='test-recovery/v2');
+    const selected=proofs(publication).find(selectiveRecovery);
     if(selected){const source=selected.report.selection,owned=createNamespaceSelectiveTestRecoveryOwner({observer,scope,workId}),
         accepted=await owned.admitted(snapshot,{signal}),records=accepted.map(row=>row.value.outcome.record),
         active=accepted.toReversed().find(row=>row.value.outcome.record.id&&row.value.phase===publication.phase
@@ -107,6 +108,13 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
         disposition:active?'active':'uncovered',references:[...selected.references,...(active?[active.reference]:[])],
         actions:active?[]:[{operation:'test-recovery.select-context',inputs:{workId,phaseId:publication.phase,baselineOperationId:source.record.context.baseline.operationId,
           selection:source.rows.map(row=>({repositoryId:row.repositoryId,commandId:row.commandId,files:row.files}))},prerequisites:['authenticated-original-test-risk-authority']}]});
+    }
+    const reused=proofs(publication).find(row=>row.binding.kind==='evidence-reuse/v3');
+    if(reused){let permission=null,actions=[];
+      try{permission=await reuseReader().permission(publication,snapshot,{signal,at});}catch(cause){if(cause.code!=='ENGINE_EVIDENCE_REUSE_NOT_CURRENT')throw cause;actions=cause.details?.actions??[];}
+      rows.push({profile:'sflow-namespace-execution-permission/v2',kind:'evidence-reuse',phaseId:publication.phase,generation:publication.generation,
+        publication:{baseRevision:publication.baseRevision,artifact:publication.artifact.content},policy:reused.binding,
+        decisions:(permission?.references??[]).map(row=>row.sha256),disposition:permission?'active':'uncovered',references:[...reused.references,...(permission?.references??[])],actions});
     }
     return rows;
   }
@@ -126,13 +134,13 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
   async function freshReuseSources(publication,snapshot,units,{signal,at}={}){
     const retained=proofs(publication).find(row=>isNamespaceEvidenceReusePolicy(row.binding.kind));if(!retained)return;
     const expected=await reuseCandidate(publication,snapshot,{signal,at,units});
-    const identity=report=>({commands:report.commands,reused:report.reused,...(report.environments?{environments:report.environments}:{}),sources:report.sources.map(row=>({id:row.id,inventorySha256:row.inventorySha256}))});
+    const identity=report=>({commands:report.commands,reused:namespaceEvidenceReuseRecordProfile('report',report).codeRecoveryReuse?report.reused.map(row=>({producer:row.record.producer})):report.reused,...(report.environments?{environments:report.environments}:{}),sources:report.sources.map(row=>({id:row.id,inventorySha256:row.inventorySha256}))});
     if(!expected||!same(identity(expected.report),identity(retained.report)))throw error(
       'Reused tests no longer match the current source, command or human decision. Reinspect this phase.','ENGINE_EVIDENCE_REUSE_INCOMPLETE',{
-        actions:[{operation:'evidence-reuse.context',inputs:{workId,phaseId:publication.phase}},{operation:'phase.checks.run',inputs:{workId,phaseId:publication.phase},requiredInputs:['operationId']}]});
+        actions:[{operation:'evidence-reuse.context',inputs:{workId,phaseId:publication.phase,...(retained.report.reused[0]?.record.producerRequest??{})}},{operation:'phase.checks.run',inputs:{workId,phaseId:publication.phase},requiredInputs:['operationId']}]});
   }
   async function freshSelective(publication,units,{signal}={}){
-    if(!proofs(publication).some(row=>row.binding.kind==='test-recovery/v2'))return;
+    if(!proofs(publication).some(selectiveRecovery))return;
     if(!publication.checks||!checks)throw error('Selected execution needs its actual check-proof reader.','ENGINE_PORT_UNAVAILABLE');
     await checks.freshSources(publication.checks,publication.phase,units,{signal});
   }
@@ -285,7 +293,7 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     &&found.values.every(value=>isCodePolicyEvidence(value.binding.kind)?codeReader().proof(publication)===value
       :isConformanceEvidence(value.binding.kind)?conformanceReader().proof(publication)===value:!isCodeInputEvidence(value.binding.kind)||inputReader().proof(publication)===value)?found.values:[];}
   function owners(publication) {return proofs(publication).flatMap(value=>(isNamespaceTestCohortPolicy(value.binding.kind)||isNamespaceTestRiskPolicy(value.binding.kind)||isNamespaceEvidenceReusePolicy(value.binding.kind)||isNamespaceTestRecoveryPolicy(value.binding.kind)||isDocumentReviewEvidence(value.binding.kind)||value.binding.kind===CONVERGENCE_POLICY_EVIDENCE||value.binding.kind===CONSTITUTION_POLICY_EVIDENCE||value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE||isCodePolicyEvidence(value.binding.kind)||isCodeInputEvidence(value.binding.kind)||value.binding.kind===ARTIFACT_SET_EVIDENCE||isConformanceEvidence(value.binding.kind))?value.policy.owners:[value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis']);}
-  function evidence(publication) {return proofs(publication).flatMap(value=>isDocumentReviewEvidence(value.binding.kind)?documentReader().evidence(value):value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?convergenceReader().evidence(value):(isNamespaceTestRiskPolicy(value.binding.kind)||['test-cohort/v1','test-cohort/v2','evidence-reuse/v1','evidence-reuse/v2','test-recovery/v1','test-recovery/v2',PHASE_ASSIGNMENT_EVIDENCE].includes(value.binding.kind))?[value.binding.record,value.manifest.report,...value.references]:value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.evidence(value):isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):isCodeInputEvidence(value.binding.kind)?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
+  function evidence(publication) {return proofs(publication).flatMap(value=>isDocumentReviewEvidence(value.binding.kind)?documentReader().evidence(value):value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?convergenceReader().evidence(value):(isNamespaceTestRiskPolicy(value.binding.kind)||isNamespaceTestCohortPolicy(value.binding.kind)||isNamespaceEvidenceReusePolicy(value.binding.kind)||isNamespaceTestRecoveryPolicy(value.binding.kind)||value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE)?[value.binding.record,value.manifest.report,...value.references]:value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.evidence(value):isConformanceEvidence(value.binding.kind)?conformanceReader().evidence(value):isCodePolicyEvidence(value.binding.kind)?codeReader().evidence(value):isCodeInputEvidence(value.binding.kind)?inputReader().evidence(value):value.binding.kind===CLARIFICATION_EVIDENCE
     ?[value.binding.record,...(value.response?[value.response.reference]:[])]:[value.binding.record,value.manifest.report,...(value.manifest.previous?[value.manifest.previous.record]:[])]).map(value=>({...value}));}
   function resources(publication) {return proofs(publication).flatMap(value=>value.binding.kind===ARTIFACT_SET_EVIDENCE?artifactSets.resources(value):[{kind:isNamespaceTestCohortPolicy(value.binding.kind)?'test-cohort':isNamespaceTestRiskPolicy(value.binding.kind)?'test-run-risk':isNamespaceEvidenceReusePolicy(value.binding.kind)?'evidence-reuse':isNamespaceTestRecoveryPolicy(value.binding.kind)?'test-recovery':isDocumentReviewEvidence(value.binding.kind)?'document-review':value.binding.kind===CONVERGENCE_POLICY_EVIDENCE?'convergence-projection':value.binding.kind===CONSTITUTION_POLICY_EVIDENCE?'constitution-policy':value.binding.kind===PHASE_ASSIGNMENT_EVIDENCE?'phase-assignment':isConformanceEvidence(value.binding.kind)?'conformance':isCodePolicyEvidence(value.binding.kind)?'code-delivery':isCodeInputEvidence(value.binding.kind)?'code-inputs':value.binding.kind===CLARIFICATION_EVIDENCE?'clarification-record':'specification-analysis',
     reference:{...(value.binding.kind===CLARIFICATION_EVIDENCE?value.response?.reference??value.binding.record:value.manifest.report)}},
@@ -315,14 +323,14 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
     freshConformanceCandidate:(...args)=>conformanceReader().freshCandidate(...args),
     freshInputSources:(publication,...args)=>proofs(publication).some(value=>value.binding.kind===CONVERGENCE_POLICY_EVIDENCE)?convergenceReader().freshSources(publication,...args):proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))
       ?conformanceReader().freshSources(publication,...args):inputReader().freshSources(publication,...args),
-    requiresDisposition:(publication,options)=>proofs(publication).some(value=>(value.binding.kind==='test-recovery/v2'||isNamespaceTestCohortPolicy(value.binding.kind)||isNamespaceTestRiskPolicy(value.binding.kind)||isNamespaceEvidenceReusePolicy(value.binding.kind)))&&options?.reached!==false&&!options?.reworkTarget
+    requiresDisposition:(publication,options)=>proofs(publication).some(value=>(selectiveRecovery(value)||isNamespaceTestCohortPolicy(value.binding.kind)||isNamespaceTestRiskPolicy(value.binding.kind)||isNamespaceEvidenceReusePolicy(value.binding.kind)))&&options?.reached!==false&&!options?.reworkTarget
       ||Boolean(manualAcceptance(publication)&&options?.reached!==false&&!options?.reworkTarget)
       ||proofs(publication).some(value=>value.binding.kind===CONSTITUTION_POLICY_EVIDENCE)&&options?.reached!==false&&!options?.reworkTarget
       ||publication.policyEvidence?.some(value=>isConformanceEvidence(value.kind))===true&&proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))&&conformanceReader().requiresDisposition(publication,options),
     assertApproval:async(publication,options)=>{const result=proofs(publication).some(value=>isConformanceEvidence(value.binding.kind))?await conformanceReader().assertApproval(publication,options):[];
       if(options.reached!==false&&!options.reworkTarget)result.push(...await freshCohort(publication,options.snapshot,{signal:options.signal,at:options.at}));
-      if(options.reached!==false&&!options.reworkTarget&&proofs(publication).some(value=>value.binding.kind==='test-recovery/v2')){
-        const current=(await executionDispositions(publication,options.snapshot,{signal:options.signal,at:options.at})).find(row=>row.policy.kind==='test-recovery/v2');
+      if(options.reached!==false&&!options.reworkTarget&&proofs(publication).some(value=>selectiveRecovery(value))){
+        const current=(await executionDispositions(publication,options.snapshot,{signal:options.signal,at:options.at})).find(row=>isNamespaceTestRecoveryPolicy(row.policy.kind)&&row.kind==='test-cohort');
         if(!current||current.disposition==='uncovered')throw error('Renew the original selective-test permission or restore full execution evidence.','SELECTIVE_TEST_RECOVERY_NOT_CURRENT',{actions:current?.actions??[]});
         result.push(...current.references);
       }
@@ -334,9 +342,13 @@ export function createNamespacePublicationPolicyReader({observer,scope,workId,ch
       }
       const reused=proofs(publication).find(row=>isNamespaceEvidenceReusePolicy(row.binding.kind));
       if(reused&&options.reached!==false&&!options.reworkTarget){
-        const current=await reuseCandidate(publication,options.snapshot,{signal:options.signal,at:options.at,bound:reused.report});
-        if(!current||!same(current.report,reused.report))throw error('Reuse was revoked, expired or changed before this approval.','ENGINE_EVIDENCE_REUSE_INCOMPLETE');
-        result.push(...current.references);
+        if(namespaceEvidenceReuseRecordProfile('report',reused.report).codeRecoveryReuse){
+          const current=await reuseReader().permission(publication,options.snapshot,{signal:options.signal,at:options.at});result.push(...current.references);
+        }else{
+          const current=await reuseCandidate(publication,options.snapshot,{signal:options.signal,at:options.at,bound:reused.report});
+          if(!current||!same(current.report,reused.report))throw error('Reuse was revoked, expired or changed before this approval.','ENGINE_EVIDENCE_REUSE_INCOMPLETE');
+          result.push(...current.references);
+        }
       }
       const manual=manualAcceptance(publication);if(manual)result.push(...await witnessReader().assertAcceptance(options.snapshot,publication,manual,options));
       if(proofs(publication).some(value=>value.binding.kind===CONSTITUTION_POLICY_EVIDENCE)&&options.reached!==false&&!options.reworkTarget)

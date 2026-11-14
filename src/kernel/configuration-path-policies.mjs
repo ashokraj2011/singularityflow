@@ -1044,7 +1044,17 @@ function normalizeTestRecoveryPolicy(value) {
     ...(caseInventory ? { caseInventory } : {}), ...(documentObligations ? { documentObligations } : {})
   };
 }
-    return { normalizeTestRecoveryPolicy, fail };
+/** Explicit new reuse vocabulary; the original normalizer above stays byte-for-byte unchanged. */
+function normalizeQualifiedTestRecoveryPolicy(value) {
+  if(value?.reuseProfile===undefined)return normalizeTestRecoveryPolicy(value);
+  if(!value||typeof value!=='object'||Array.isArray(value)||value.reuseProfile!=='environment-qualified-exact/v1'
+    ||value.enabled!==true||value.allowEvidenceReuse!==true)fail('The qualified reuse profile requires enabled recovery and explicit allowEvidenceReuse.');
+  const {reuseProfile,...legacy}=value,
+    originalRisk=Array.isArray(value.enabledRiskCategories)&&value.enabledRiskCategories.some(category=>['new-test-failure','known-test-failure','reduced-coverage'].includes(category)),
+    policy=normalizeTestRecoveryPolicy({...legacy,allowEvidenceReuse:originalRisk});
+  return {...policy,allowEvidenceReuse:true,reuseProfile};
+}
+    return { normalizeTestRecoveryPolicy:normalizeQualifiedTestRecoveryPolicy, fail };
   });
 }
 

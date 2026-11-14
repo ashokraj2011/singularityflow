@@ -130,7 +130,7 @@ test('inherited known-failure evidence uses separate Code-input and conformance 
     assert.deepEqual(namespaceCodeInputPolicyProfile(kind,{schemaVersion:1}),{version:1,kind:'approved-code-inputs/v1',
       format:'sflow-namespace-code-input-policy'+(kind==='codeInputReport'?'-report':'')+'/v1'});
     assert.equal(namespaceCodeInputPolicyProfile(kind,{schemaVersion:2}).knownFailureInputs,true);
-    assert.throws(()=>namespaceCodeInputPolicyProfile(kind,{schemaVersion:4}),{code:'SCHEMA_VERSION_FUTURE'});
+    assert.throws(()=>namespaceCodeInputPolicyProfile(kind,{schemaVersion:5}),{code:'SCHEMA_VERSION_FUTURE'});
   }
   for(const kind of ['conformance','conformanceReport'])for(const version of [1,2,3,4]){
     const p=namespaceConformancePolicyProfile(kind,{schemaVersion:version});assert.equal(p.issueLinks,[2,4].includes(version));

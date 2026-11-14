@@ -8,6 +8,7 @@ import {storyActorValue} from './story-creation.mjs';
 import {projectEnrollmentTimestamp} from './project-enrollment.mjs';
 import {utf8Bytes} from './artifact-content.mjs';
 import {sourceRelativePath} from '../foundation/source-snapshot.mjs';
+import {namespaceTestRecoveryRecordProfile} from '../foundation/record-schema.mjs';
 
 const text=value=>typeof value==='string'&&value.length>0&&value.length<=4096;
 const count=value=>Number.isSafeInteger(value)&&value>=0;
@@ -34,9 +35,13 @@ export function phasePreparationCatalogAdmission(definition,w,phase,agentId,{tes
     const skillHost=skillPhaseHostRequirement(w,phase);
     if(skillHost)throw admissionError('The qualified skill containment and delivery host is not installed for this phase.','SKP_HOST_ENFORCEMENT_UNAVAILABLE',skillHost);
     const agreement=testRecovery?.agreement,context=testRecovery?.context;
-    const recoveryAdmitted=agreement?.profile==='sflow-namespace-test-recovery-agreement/v1'
-      &&context?.value?.profile==='sflow-namespace-test-recovery-context/v1'&&agreement.contextSha256===context.sha256
+    const recoveryVersion=['sflow-namespace-test-recovery-agreement/v1','sflow-namespace-test-recovery-agreement/v2'].includes(agreement?.profile)
+      ?namespaceTestRecoveryRecordProfile('agreement',agreement):null;
+    const recoveryAdmitted=recoveryVersion&&agreement.profile===recoveryVersion.profile
+      &&context?.value?.profile==='sflow-namespace-test-recovery-context/v'+recoveryVersion.version&&agreement.contextSha256===context.sha256
       &&agreement.context.workId===w.workItem.id&&agreement.context.executionMode==='all-configured'
+      &&(recoveryVersion.qualifiedReuse?agreement.context.reuse==='environment-qualified-exact'
+        &&w.resolution.testRecovery?.reuseProfile==='environment-qualified-exact/v1'&&w.resolution.testRecovery.allowEvidenceReuse:true)
       &&JSON.stringify(agreement.context.policy)===JSON.stringify(w.resolution.testRecovery);
     if(phaseRequiresCodeDelivery(phase)&&w.resolution.testRecovery?.enabled&&!recoveryAdmitted)throw admissionError('The code phase needs its retained test-recovery agreement and verified readiness on this backend.',
       w.resolution.testRecoveryAgreement?'TRP_READINESS_EVIDENCE_REQUIRED':'TRP_AGREEMENT_REQUIRED');

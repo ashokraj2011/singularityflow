@@ -143,7 +143,7 @@ export function standaloneDecisionRequest(operation, input) {
     if(typeof reason!=='string'||reason.trim().length<20||reason.length>1000)refused('Explain the reviewed test cohort in 20 to 1000 characters.','TEST_COHORT_INVALID');
     return {phaseId:input.phaseId??null,baselinePhaseId:input.baselinePhaseId??input.phaseId??null,baselineOperationId:input.baselineOperationId??null,observedOperationId:input.observedOperationId??null,expectedContext:input.expectedContext??null,revoke:input.revoke??null,expires:input.expires??null,reason:reason.trim()};
   }
-  if(operation==='test-recovery.confirm')return {phaseId:input.phaseId??null,expectedContext:input.expectedContext??null,reason};
+  if(operation==='test-recovery.confirm')return {phaseId:input.phaseId??null,expectedContext:input.expectedContext??null,reason,...(input.reuse!=null?{reuse:input.reuse}:{})};
   if(operation==='source-review.record')return {phaseId:input.phaseId??null,report:input.report??null,expectedContext:input.expectedContext??null};
   if(operation==='convergence.adjudicate')return {phaseId:input.phaseId??null,itemId:input.itemId??null,disposition:input.disposition??null,
     clauseIds:input.clauseIds??[],reason,expectedContext:input.expectedContext??null};
@@ -192,8 +192,14 @@ export function standaloneDecisionRequest(operation, input) {
       'WITNESS_EXCEPTION_RENEWAL_INVALID');
     return {phaseId:input.phaseId,mappingSha256:input.mappingSha256,expires:input.expires??null,reason};
   }
-  if (operation === 'decision.evidence-reuse') return {phaseId:input.phaseId ?? null,attemptId:input.attemptId ?? null,
-    revoke:input.revoke ?? null,expires:input.expires ?? null,reason};
+  if (operation === 'decision.evidence-reuse') {
+    if(['producerPhaseId','producerOperationId'].some(key=>input[key]!=null&&(typeof input[key]!=='string'||!input[key].trim()||input[key].length>512)))refused(
+      'Use exact nonempty bounded producer identifiers.','EVIDENCE_REUSE_INVALID');
+    if(input.producerPhaseId!=null&&!input.producerOperationId||input.revoke&&(input.producerPhaseId!=null||input.producerOperationId!=null))refused(
+      'Select one exact retained producer operation, or revoke an existing permission without selecting another producer.','EVIDENCE_REUSE_INVALID');
+    return {phaseId:input.phaseId ?? null,attemptId:input.attemptId ?? null,
+      revoke:input.revoke ?? null,expires:input.expires ?? null,reason,...(input.producerPhaseId!=null?{producerPhaseId:input.producerPhaseId}:{}),...(input.producerOperationId!=null?{producerOperationId:input.producerOperationId}:{})};
+  }
   if (operation === 'decision.visual-profile') return {phaseId:input.phaseId ?? null,profileId:input.profileId ?? null,
     notApplicable:input.notApplicable === true,revoke:input.revoke ?? null,reason};
   if (operation === 'decision.test-narrowing') return {phaseId:input.phaseId ?? null,commandId:input.commandId ?? null,

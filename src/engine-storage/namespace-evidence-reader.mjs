@@ -1,5 +1,6 @@
-import {namespaceTerminalEvaluationRequired} from '../kernel/approval-policy.mjs';
 /** Reconstruct an evidence view from actual accepted publications, checks and human receipts. No effects. */
+import {createNamespaceEvidenceReuseOwner} from './namespace-evidence-reuse-reader.mjs';
+import {namespaceTerminalEvaluationRequired} from '../kernel/approval-policy.mjs';
 import {isNamespaceTestRiskPolicy,canonicalJson} from '../foundation/record-schema.mjs';
 import {createHash} from 'node:crypto';
 import {SingularityFlowError} from '../foundation/failures.mjs';
@@ -61,7 +62,7 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       const execution=await publications.policies.executionDispositions(publication,snapshot,{signal,at});
       executionPolicies.push(...execution);references.push(...execution.flatMap(row=>row.references));
       if(publication.policyEvidence?.some(row=>isNamespaceTestRiskPolicy(row.kind)))excluded.push({phase:id,generation:phase.generation,reason:publication.policyEvidence.some(row=>row.kind==='known-test-risk/v1')?'known-baseline-failures-remain-failed':'failed-tests-with-accepted-environment-risk-are-not-passing-evidence'});
-      if(publication.policyEvidence?.some(row=>row.kind==='test-recovery/v2'))excluded.push({phase:id,generation:phase.generation,reason:'reviewed-unselected-baseline-cases-are-not-executed'});
+      if(execution.some(row=>row.kind==='test-cohort'&&row.policy.kind.startsWith('test-recovery/')))excluded.push({phase:id,generation:phase.generation,reason:'reviewed-unselected-baseline-cases-are-not-executed'});
       if(publication.specifications){
         const manifest=namespaceSpecificationManifest(await json(publication.specifications.record,signal),{scope,workId,phaseId:id});
         if(manifest.index)records.indexes.push(await json(manifest.index,signal));
@@ -79,7 +80,7 @@ export function createNamespaceEvidenceReader({observer,scope,workId}){
       }
       const code=publications.policies.codeEvidence(publication);if(!code)fail('A Code phase needs its actual accepted source and execution evidence.','ENGINE_PORT_UNAVAILABLE',{required:['retained-code-policy'],phase:id});
       const plan=await publications.specifications.sourcePlan(snapshot,id,{signal}),risk=code.report.executionException,
-        tested=publication.checks?await checks.publication(publication,{signal}):risk?await checks.publicationObservation({...publication,checks:risk.checks},{signal}):null,
+        tested=publication.checks?await checks.publication(publication,{signal}):risk?await checks.publicationObservation({...publication,checks:risk.checks},{signal}):code.report.reusedExecution?(await createNamespaceEvidenceReuseOwner({observer,scope,workId}).forPublication(publication,{signal})).found:null,
         acceptedCriteria=new Set(code.report.acceptance.map(row=>row.clauseId)),
         delivered={phaseId:id,generation:phase.generation,status:'ready',testRecovery:null,acceptanceCriteria:{bindings:[],witnesses:[],unattachedTags:[]},
           receipt:{status:'ready'},executions:[],preflight:[],testsOnly:true,testPaths:[]};

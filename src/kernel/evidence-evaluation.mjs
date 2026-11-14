@@ -1,5 +1,5 @@
 /** Shared evidence rules over explicit observations. Authentication, time and presentation belong to adapters. */
-import {canonicalJson,textDigestCapability} from '../foundation/record-schema.mjs';
+import {namespaceExecutionPermissionProfile,canonicalJson,textDigestCapability} from '../foundation/record-schema.mjs';
 import {SingularityFlowError} from '../foundation/failures.mjs';
 import {approvalRequirementsMet} from './approval-policy.mjs';
 import {qualifiedClauseIds} from '../foundation/traceability-ids.mjs';
@@ -228,7 +228,7 @@ function evidenceGraph({ workflow, records, deliveries = [], inspections = [], w
 
 function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requiredAssurance = DEFAULT_REQUIRED_ASSURANCE, at, admission = {} } = {}) {
   if(graph.executionPolicies!==undefined&&(!Array.isArray(graph.executionPolicies)||graph.executionPolicies.length>512||graph.executionPolicies.some(row=>
-    row.profile!=='sflow-namespace-execution-permission/v1'||!['test-cohort','test-run-risk'].includes(row.kind)||typeof row.phaseId!=='string'
+    !namespaceExecutionPermissionProfile(row)||typeof row.phaseId!=='string'
     ||!['active','uncovered','restored-baseline'].includes(row.disposition)||!Array.isArray(row.actions)||!Array.isArray(row.references))))
     throw new SingularityFlowError('Execution permissions require bounded original-owner observations.',{code:'ENGINE_INPUT_INVALID'});
   if(admission.witnessMappings!==undefined&&(!Array.isArray(admission.witnessMappings)||admission.witnessMappings.length>1000))
@@ -744,12 +744,12 @@ function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requi
   // Scope reductions and accepted environment failures stay visible through the actual closing vote.
   // They have their own owners and cannot be replaced by a second generic obligation-risk decision.
   const executionRows=(graph.executionPolicies??[]).map(row=>{
-    const covered=row.disposition!=='uncovered',result=covered?row.disposition==='restored-baseline'?'satisfied':'satisfied-with-exception':'pending';
+    const covered=row.disposition!=='uncovered',fullExecution=namespaceExecutionPermissionProfile(row).fullExecution,ordinary=fullExecution||row.disposition==='restored-baseline',result=covered?ordinary?'satisfied':'satisfied-with-exception':'pending';
     return {id:row.kind+':'+row.phaseId+':'+row.generation,type:'EXECUTION-POLICY',definedIn:row.phaseId,source:row.policy,
       result,assurance:row.kind==='test-run-risk'?'declared':'not-applicable',plan:null,implementation:null,verification:null,
       obligations:[{id:row.kind+':'+row.phaseId+':'+row.generation,responsibility:'verify',subject:'story',owningSteps:[row.phaseId],
-        status:covered?row.disposition==='restored-baseline'?'met':'excepted':'pending',facets:{coverage:'not-applicable',execution:'not-applicable',
-          assurance:'declared',review:'decided',freshness:covered?'current':'stale',exception:covered&&row.disposition!=='restored-baseline'?'accepted-risk':'none'}}],
+        status:covered?ordinary?'met':'excepted':'pending',facets:{coverage:'not-applicable',execution:'not-applicable',
+          assurance:'declared',review:'decided',freshness:covered?'current':'stale',exception:covered&&!ordinary?'accepted-risk':'none'}}],
       findings:covered?[]:[finding('EXECUTION_PERMISSION_NOT_CURRENT','Renew the original permission or restore its required execution evidence.')],
       actions:row.actions,executionPolicy:row};
   });
@@ -770,7 +770,7 @@ function evaluateEvidence(graph, { boundary = 'view', mode = 'projection', requi
   })));
   return {
     schemaVersion: 1, // schema-transient: computed evaluation, never persisted by this version
-    profile:graph.executionPolicies!==undefined?'sflow-evidence-evaluation/v4':admission.witnessMappings!==undefined?'sflow-evidence-evaluation/v3':admission.riskBindings===undefined?EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v2',
+    profile:graph.executionPolicies?.some(row=>namespaceExecutionPermissionProfile(row).fullExecution)?'sflow-evidence-evaluation/v5':graph.executionPolicies!==undefined?'sflow-evidence-evaluation/v4':admission.witnessMappings!==undefined?'sflow-evidence-evaluation/v3':admission.riskBindings===undefined?EVIDENCE_EVALUATION_PROFILE:'sflow-evidence-evaluation/v2',
     workId,
     ...(localIntegrationRuns.length ? { localIntegrationRuns } : {}),
     title: workflow.workItem.title ?? null,

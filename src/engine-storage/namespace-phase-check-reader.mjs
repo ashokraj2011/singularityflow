@@ -258,5 +258,5 @@ export function createNamespacePhaseCheckReader({records,content,scope,workId,au
     return {identity:namespaceReuseEnvironment(value.qualification,value.command),source:observed};
   }
   return Object.freeze({codec,observer,intent,accepted,observations,snapshot,proof,forDraft,inspectDraft,publication,publicationObservation,readBindings,assertCurrent,currentObservation,freshSources,freshObservedSources,
-    environment,environmentSensitiveReuse:executors?.environmentSensitiveReuse===true});
+    environment,codeRecoveryReuse:executors?.codeRecoveryReuse===true,environmentSensitiveReuse:executors?.environmentSensitiveReuse===true});
 }

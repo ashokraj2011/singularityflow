@@ -710,13 +710,15 @@ return Object.freeze({TRP_EVALUATOR_VERSION,TRP_INTEGRITY_CATEGORIES,TRP_STALE_C
 export function namespaceTestRecoveryPolicies(port) {
   const hash=value=>'sha256:'+textDigestCapability(port).sha256Utf8(canonicalJson(value));
   const fail=(message,code='TEST_RECOVERY_INVALID',details=null)=>{throw new SingularityFlowError(message,{code,details});};
-  function context(workflow,configuration,commands,previous=null){
+  function context(workflow,configuration,commands,previous=null,{reuse='never'}={}){
     const policy=workflow.resolution.testRecovery;
     if(policy?.enabled!==true)fail('This Story has not enabled test recovery.','TEST_RECOVERY_DISABLED');
     if(!Array.isArray(commands)||commands.length!==workflow.phaseOrder.length
       ||commands.some((row,index)=>row.phaseId!==workflow.phaseOrder[index]||!Array.isArray(row.commands)))fail('The agreement needs the entire pinned command inventory.');
-    const value={schemaVersion:1,profile:'sflow-namespace-test-recovery-context/v1',workId:workflow.workItem.id,
-      configuration,policy,commands,previous,executionMode:'all-configured',reuse:'never',
+    if(!['never','environment-qualified-exact'].includes(reuse))fail('Use never or the explicit environment-qualified-exact reuse agreement.');
+    if(reuse!=='never'&&(policy.allowEvidenceReuse!==true||policy.reuseProfile!=='environment-qualified-exact/v1'))fail('The approved recovery policy does not allow evidence reuse.','TEST_RECOVERY_REUSE_DISABLED');
+    const version=reuse==='never'?1:2,value={schemaVersion:version,profile:'sflow-namespace-test-recovery-context/v'+version,workId:workflow.workItem.id,
+      configuration,policy,commands,previous,executionMode:'all-configured',reuse,
       maximumAutomaticAttempts:policy.maxDistinctAutomaticAttempts,failures:'retain-and-repair'};
     if(!Number.isSafeInteger(value.maximumAutomaticAttempts)||value.maximumAutomaticAttempts<0||value.maximumAutomaticAttempts>3)
       fail('The automatic repair limit must be the pinned zero-to-three attempt budget.');
@@ -730,7 +732,7 @@ export function namespaceTestRecoveryPolicies(port) {
     const prior=workflow.namespaceTestRecoveryAgreements??[],last=prior.at(-1);
     if(prior.length>=64)fail('The Story reached its bounded recovery-agreement history. Preserve its current records for explicit migration.','ENGINE_STORAGE_LIMIT');
     if(last&&sameRecoveryInventory(last.context,source.context.value))fail('This exact recovery agreement is already confirmed.','TEST_RECOVERY_ALREADY_CONFIRMED');
-    const record={schemaVersion:1,profile:'sflow-namespace-test-recovery-agreement/v1',phase:request.phaseId,revision:prior.length+1,
+    const version=source.context.value.reuse==='never'?1:2,record={schemaVersion:version,profile:'sflow-namespace-test-recovery-agreement/v'+version,phase:request.phaseId,revision:prior.length+1,
       previous:last?hash(last):null,context:structuredClone(source.context.value),contextSha256:source.context.sha256,
       actor:facts.actorId,authorityGroup:facts.authorityGroup,recordedAt:facts.at,reason:request.reason.trim()};
     const proposed=structuredClone(workflow);proposed.namespaceTestRecoveryAgreements=[...prior,record];
@@ -740,7 +742,7 @@ export function namespaceTestRecoveryPolicies(port) {
   }
   function sameRecoveryInventory(left,right){return canonicalJson({...left,previous:null})===canonicalJson({...right,previous:null});}
   function current(record,expected){
-    if(!record||record.profile!=='sflow-namespace-test-recovery-agreement/v1'||record.contextSha256!==hash(record.context)
+    if(!record||record.profile!==('sflow-namespace-test-recovery-agreement/v'+(record.context?.reuse==='environment-qualified-exact'?2:1))||record.contextSha256!==hash(record.context)
       ||!sameRecoveryInventory(record.context,expected.value))fail('Confirm the current commands and pinned recovery policy before execution.','TEST_RECOVERY_AGREEMENT_REQUIRED',{
         operation:'test-recovery.context',expectedContext:expected.sha256});
     return record;

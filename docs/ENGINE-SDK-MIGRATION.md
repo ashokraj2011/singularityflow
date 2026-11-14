@@ -1,5 +1,9 @@
 # Engine SDK and namespaced storage migration
 
+The latest Phase 5/7 delivery is [cancellation fencing and Code/recovery receiving reuse](ENGINE-SDK-CODE-RECOVERY-REUSE.md).
+Its explicit new profiles preserve original agreements and do not finish the remaining owners in
+the [completion ledger](ENGINE-SDK-PHASE-5-7-CLOSURE.md).
+
 The target is a portable Node runtime with an embeddable engine. CLI, VS Code, MCP and Copilot
 adapters consume the same versioned operation vocabulary. An application can persist SFlow's
 logical data through Git, files or its own database implementation.

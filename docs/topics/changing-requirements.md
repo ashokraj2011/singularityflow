@@ -19,10 +19,16 @@ questions:
   - What does still holds mean?
   - Why can't I publish after an amendment?
   - Why is my draft refused after an amendment?
+  - How big is a requirement change?
+  - What is an editorial change?
+  - Who approves a material change?
+  - What does change impact do?
 keywords:
   - acceptance criteria
   - change
   - changed
+  - change impact
+  - editorial
 commands:
   - decisions
   - story
@@ -34,7 +40,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 5
+version: 6
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -118,6 +124,32 @@ A chat records only the yes or no the person gave for that row, with the reason 
 
 An amendment that only brings the scope in line with what a conformance report found resets nothing and needs no acknowledgement. Each step that read the scope gets a "still holds" row instead (`sflow explain workflow-authoring`).
 
+## How big is the change
+
+With change impact on (below), every amendment has a size, set by rules and never by a model:
+
+| Size | When | What approving it does | Who approves |
+|---|---|---|---|
+| Editorial | It only rewords clauses that have no bound test, are no acceptance criterion, and change no expected path or test | Nothing runs again and no step is asked "still holds": the evidence of the reworded clauses is carried, and the record says it was carried as editorial | The scope step's approvers |
+| Refinement | It removes a clause, or changes one with a bound test, an acceptance criterion, or its expected paths or tests | What the rest of this topic describes | The scope step's approvers |
+| Material | It adds a clause, adds a path outside what the Story's plan admits or under a protected path, or what its clauses are bound to cannot be read | The same as a refinement | The scope-change authority: `spec.scopeChangeAuthority`, or else the scope step's approvers |
+
+- The preview and the Decide card say the size and why, each reason with its rule (for example `tested-clause`), and who decides.
+- Whoever proposes may suggest a bigger size with `--class` (in chat, ask `/sf-amend` for it). A smaller one is raised to what the rules say, and the preview says why. It is never refused for that.
+- An approver may raise the size while approving: **Approve AMD-001 as a material change** on the Decide card, or `sflow story intent-amendment decide AMD-001 --decision approve --confirm AMD-001 --class material`. Nobody can make it smaller.
+- Someone outside the scope-change authority who approves a material change is refused (`INTENT_AMENDMENT_MATERIAL_AUTHORITY`). The refusal names who decides it; they approve it on the Decide card or in their own terminal.
+- In chat, `/sf-amend propose` (or `/sf-reject intent-amendment propose`) drafts the change from your words and shows you its preview: what changes, how big it is and why, what runs again, what is kept and who decides. It proposes it only after your own yes. A No, Not now or no answer proposes nothing. Copilot never decides or acknowledges it.
+
+### Change impact
+
+`spec.changeImpact: on`, in the workflow configuration's `spec` block, turns on observed dependencies (below) and the sizes above together. It is off by default and pinned when a Story starts, so a Story started before keeps its behaviour. To name who approves a material change, add `spec.scopeChangeAuthority: <approval group>`.
+
+```yaml
+spec:
+  changeImpact: on
+  scopeChangeAuthority: product-owners
+```
+
 ## Drafts written before the amendment
 
 New Stories pin `spec.preAmendmentDrafts: refuse`. Stories started before it keep the old behaviour.
@@ -128,7 +160,7 @@ New Stories pin `spec.preAmendmentDrafts: refuse`. Stories started before it kee
 
 ## Observed dependencies
 
-`spec.observedDependencies: on`, in the workflow configuration's `spec` block, is off by default and pinned when a Story starts. With it on:
+`spec.observedDependencies: on`, in the workflow configuration's `spec` block, is off by default and pinned when a Story starts. `spec.changeImpact: on` turns it on too. With it on:
 
 - Each published generation records what it depended on: the clauses its prompt held, claims, changed paths, bound tests, witnesses, bindings and citations.
 - A step whose record is missing or incomplete counts as affected, so rule E8 never keeps it. A step published without a composed prompt has no complete record, so expect more steps to run again.
@@ -154,6 +186,9 @@ Proposing commits the proposal; the approved scope stays as it is until the scop
 - **`INTENT_AMENDMENT_PENDING_PAUSE`:** the step it was proposed from waits. A scope approver decides it on the Decide card (`/sf-decide WORK-ID`), or rejects it: `sflow story intent-amendment decide AMD-001 --decision reject --confirm AMD-001 --work-id WORK-ID`.
 - **`APPROVAL_INTENT_AMENDMENT_PENDING`:** a submitted step's approval waits for an amendment proposed after its submission. Decide the amendment first; rejecting it lets the step be approved as submitted.
 - **`INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED`:** someone acknowledges it on the Decide card, or with `sflow story intent-amendment acknowledge AMD-001 --work-id WORK-ID`.
+- **`INTENT_AMENDMENT_MATERIAL_AUTHORITY`:** a material change is approved by the scope-change authority. A person in the group the refusal names approves it on the Decide card or in their own terminal; you may still reject it.
+- **`INTENT_AMENDMENT_CLASS_LOWERED`:** a size can be raised, never lowered. Approve it at the size it has, or a bigger one.
+- **`INTENT_AMENDMENT_CLASS_UNAVAILABLE`:** this Story started without change impact, so its amendments have no size. Run the command without `--class`.
 - **`AMENDMENT_STILL_HOLDS_REQUIRED`:** an approver of the kept step answers its row on the Decide card, or with `sflow upstream-issue revalidate`.
 - **`PHASE_DRAFT_PREDATES_AMENDMENT`:** write the step again where it is. Run what the refusal names: `sflow phase begin <step> --work-id WORK-ID --json` for a closed code generation, then `sflow phase enter <step> --work-id WORK-ID --compose --for-agent --json`. In Copilot, `/sf-code` or the step's own skill.
 - **`INTENT_AMENDMENT_SOURCE_STALE` or `INTENT_AMENDMENT_STALE`:** the Story moved after the proposal. A scope approver chooses **Refresh** on the Decide card, which rejects it and proposes the same change again, or rejects it and proposes afresh.

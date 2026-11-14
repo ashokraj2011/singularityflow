@@ -136,8 +136,10 @@ export const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 
 /** Options that write only upstream-issue records (a raise needs no authority; a decision needs its step's approvers). */
 export const ISSUE_ONLY_OPTIONS = DECISION_LIST_CHAT_OPTIONS;
 /** The turns whose decision commands are held to what the person answered, and the steps it holds (copilot-answer-binding.mjs); approvals keep their own typed confirmation. */
-export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge']);
-export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record']);
+export const ANSWER_BOUND_TURNS = Object.freeze(['decide', 'converge', 'reject', 'amend']);
+// Change impact on: a chat proposal waits for the person's yes, the one step held there [CIC:REQ-015].
+export const PROPOSAL_BOUND_TURNS = Object.freeze(['reject', 'amend']);
+export const ANSWER_BOUND_STEPS = Object.freeze(['story-decision', 'convergence-adjudication', 'upstream-issue-decision', 'decision-list-record', 'intent-amendment-proposal']);
 
 const EPIC_COMMANDS = new Set(['initiative', 'epic']);
 const HOST_POLICY_ASSERTIONS = ['confirm-protected', 'confirm-push-policy', 'confirm-pin-retention'];

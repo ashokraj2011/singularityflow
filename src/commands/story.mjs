@@ -2058,6 +2058,21 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
 }
 
 /**
+ * The class `--class` asks for [CIC:REQ-013]: a proposer's suggestion, an approver's raise. A Story started without change
+ * impact (SPEC-CIC switch 3) classes no amendment, so the flag is refused there and the command runs without it.
+ */
+async function classSuggestion(workflow, options, who = null) {
+  const value = optionString(options, 'class');
+  if (value == null) return null;
+  if (workflow.resolution?.spec?.changeImpact !== 'on') {
+    throw new SingularityFlowError(`Story ${workflow.workItem.id} was started without change impact (spec.changeImpact), so its intent amendments have no class. Run the command again without --class.`,
+      { code: 'INTENT_AMENDMENT_CLASS_UNAVAILABLE', details: { workId: workflow.workItem.id } });
+  }
+  const named = (await import('../amendment-class.mjs')).requestedClass(value);
+  return who ? { class: named, ...who } : named;
+}
+
+/**
  * `given` is a refresh's proposal of a stale one's exact bytes, reason, authorship, proposer and carried
  * rows, bound to the step as it is now [owner, 2026-11-13]; null reads all of them from the command's
  * options. `dryRun` checks everything a proposal checks and writes nothing: a refresh rejects the stale
@@ -2187,6 +2202,13 @@ async function proposeIntentAmendment(root, config, workflow, options, { given =
     })();
   assertProducerAllowed(specification, authorship.producer);
   const proposedBy = structuredClone(given?.proposedBy ?? actor);
+  // Under SPEC-CIC switch 3 its class [CIC:REQ-013]: the floor registered rules compute, and the proposer's suggestion, which can
+  // only make it stricter: one below the floor is raised to it and the words say why, never refused. A refresh keeps the suggestion.
+  const suggestedClass = given ? given.classification?.suggested ?? null : await classSuggestion(workflow, options, { by: actorKey(proposedBy), authored: authorship.producer });
+  const classification = workflow.resolution?.spec?.changeImpact === 'on'
+    ? (({ floor, reasons, suggested, effective }) => ({ floor, reasons, ...(suggested ? { suggested } : {}), effective }))(await (await import('../state.mjs')).intentAmendmentClass(root, config, workflow,
+      { diff, planCorrections, classification: suggestedClass ? { floor: 'editorial', suggested: suggestedClass } : null, decisions: [] }, { proposedText, records }))
+    : null;
   const core = {
     schemaVersion: currentSchemaVersion('intent-amendment-proposal'),
     resultType: 'intent-amendment-proposal',
@@ -2211,6 +2233,7 @@ async function proposeIntentAmendment(root, config, workflow, options, { given =
     diff,
     radius,
     ...(planCorrections.length ? { planCorrections } : {}),
+    ...(classification ? { classification } : {}),
     decisions: []
   };
   const proposal = { ...core, proposalSha256: proposalDigest(core), recordPath };
@@ -2228,6 +2251,7 @@ async function proposeIntentAmendment(root, config, workflow, options, { given =
     changedClauses: diff.changed,
     findingIds: proposal.convergence?.findingIds ?? [],
     affectedClaims: radius.totals.affected,
+    ...(classification ? { class: classification.effective } : {}),
     acknowledgementRequired: false,
     ...(planCorrections.length ? { planCorrections: planCorrections.map((entry) => ({ ownerPhase: entry.ownerPhase,
       addsRows: entry.operations.filter((operation) => operation.op === 'add-row').map((operation) => operation.clauseId),
@@ -2371,6 +2395,11 @@ export async function previewIntentAmendment(root, config, workflow, proposalId,
   if (proposalId) {
     const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
     if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`, { code: 'INTENT_AMENDMENT_UNKNOWN' });
+    // A pending one's class is what it was proposed as; an approver raises it when deciding (decide --class).
+    if (await classSuggestion(workflow, options)) {
+      throw new SingularityFlowError(`${proposalId}'s class is raised by an approver when they decide it (story intent-amendment decide --class); preview it without --class.`,
+        { code: 'INTENT_AMENDMENT_CLASS_INVALID', details: { workId, amendment: proposalId } });
+    }
     if (summary.status !== 'proposed') {
       throw new SingularityFlowError(`${proposalId} is ${summary.status}, so approving it does nothing more; its record says what it did (story intent-amendment status).`,
         { code: 'INTENT_AMENDMENT_NOT_PENDING' });
@@ -2399,9 +2428,14 @@ export async function previewIntentAmendment(root, config, workflow, proposalId,
   const clause = (id) => words.clauseName(workflow, id);
   const changes = [['adds', 'added'], ['revises', 'revised'], ['removes', 'removed']]
     .filter(([, kind]) => effect.changes[kind].length).map(([verb, kind]) => `${verb} ${words.listWords(effect.changes[kind].map(clause))}`);
+  // Under SPEC-CIC switch 3, how big it is, why, and who decides it [CIC:REQ-013, REQ-014].
+  const decidedBy = effect.classification?.decidedBy ?? null;
+  const sized = effect.classification ? (await import('../amendment-class.mjs')).classWords(effect.classification,
+    { name: clause, scopeName: words.stepName(workflow, effect.scope.phase), groups: decidedBy.groups, authority: decidedBy.authority }) : [];
   const lines = [
     `${proposalId ? `If ${proposalId} is approved` : `If ${file} is proposed (as ${proposal.id}) and approved`} as the Story is now. This preview records nothing.`,
-    `It ${words.listWords(changes)}.${effect.dependents.length ? ` ${words.listWords(effect.dependents.map(clause))} ${effect.dependents.length === 1 ? 'depends' : 'depend'} on a changed clause, so ${effect.dependents.length === 1 ? 'its' : 'their'} evidence is stale too.` : ''}`,
+    `It ${words.listWords(changes)}.${effect.dependents.length && !effect.carried ? ` ${words.listWords(effect.dependents.map(clause))} ${effect.dependents.length === 1 ? 'depends' : 'depend'} on a changed clause, so ${effect.dependents.length === 1 ? 'its' : 'their'} evidence is stale too.` : ''}`,
+    ...sized,
     ...(proposal.radius?.totals ? [radiusSummary(proposal.radius)] : []),
     ...words.amendmentEffectWords(workflow, effect, { steps: 20 }),
     // Under SPEC-CIC switch 1 a changed clause no plan claims reaches every step whose record does not rule it out [CIC:REQ-006].
@@ -2409,7 +2443,7 @@ export async function previewIntentAmendment(root, config, workflow, proposalId,
     ...words.amendmentRepeatWords(workflow, effect.repeats)
   ];
   const next = proposalId
-    ? { command: `singularity-flow decisions ${workId}`, skill: '/sf-decide', label: `A scope approver decides ${proposalId} on the decisions card` }
+    ? { command: `singularity-flow decisions ${workId}`, skill: '/sf-decide', label: `${decidedBy ? `A person in ${words.listWords(decidedBy.groups)}` : 'A scope approver'} decides ${proposalId} on the decisions card` }
     : { command: `singularity-flow story intent-amendment propose --work-id ${workId} --file "${file}" --reason "<why the specification changes>"`, label: 'Propose it' };
   return { resultType: 'intent-amendment-preview', workId, recorded: false, amendment: proposal.id, source: proposalId ? 'proposal' : 'draft',
     summary: lines, next, effect, radius: proposal.radius?.totals ?? null };
@@ -2430,7 +2464,8 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
       { code: 'INTENT_AMENDMENT_CONFIRMATION_REQUIRED' }
     );
   }
-  return recordIntentAmendmentDecision(root, config, workflow, proposalId, { decision, reason: optionString(options, 'reason'), channel: 'terminal' });
+  return recordIntentAmendmentDecision(root, config, workflow, proposalId, { decision, reason: optionString(options, 'reason'), channel: 'terminal',
+    raise: await classSuggestion(workflow, options) });
 }
 
 /**
@@ -2440,7 +2475,7 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
  * one commit with the review-safe subject, and the amended step's session bound again. `channel` says where
  * the person decided it: `terminal`, or `decisions-card` for VS Code's and Copilot CLI's card.
  */
-export async function recordIntentAmendmentDecision(root, config, workflow, proposalId, { decision, reason = null, channel = 'terminal' } = {}) {
+export async function recordIntentAmendmentDecision(root, config, workflow, proposalId, { decision, reason = null, channel = 'terminal', raise = null } = {}) {
   const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
   if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
   const proposal = readRecord('intent-amendment-proposal', await readJson(path.join(root, summary.recordPath))).record;
@@ -2467,7 +2502,8 @@ export async function recordIntentAmendmentDecision(root, config, workflow, prop
           channel,
           actionContext: activeActionContext(),
           actor: actionActor(root),
-          agent: null
+          agent: null,
+          ...(raise ? { raise } : {})
         });
         return transition;
       },
@@ -2525,7 +2561,8 @@ export async function refreshIntentAmendment(root, config, workflow, proposalId,
   }
   const next = `AMD-${String((workflow.intentAmendments ?? []).length + 1).padStart(3, '0')}`;
   const given = { refreshes: proposalId, proposedText, reason: proposal.reason, departure: summary.departure ?? null,
-    authorship: proposal.authorship ?? null, proposedBy: proposal.proposedBy ?? null, planCorrections: proposal.planCorrections ?? [] };
+    authorship: proposal.authorship ?? null, proposedBy: proposal.proposedBy ?? null, planCorrections: proposal.planCorrections ?? [],
+    classification: proposal.classification ?? null };
   try {
     await proposeIntentAmendment(root, config, workflow, {}, { given, dryRun: true });
   } catch (error) {
@@ -2609,6 +2646,13 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     const result = await proposeIntentAmendment(root, config, workflow, options);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; committed${result.publication.pushed ? ' and pushed' : ''}.`);
+    // Under SPEC-CIC switch 3, how big it is and who decides it [CIC:REQ-013, REQ-014].
+    if (result.proposal.classification) {
+      const classes = await import('../amendment-class.mjs');
+      const scope = scopeStepOf(workflow);
+      const { groups, authority } = classes.deciders(workflow, scope?.approvalPolicy, result.proposal.classification.effective);
+      for (const line of classes.classWords(result.proposal.classification, { scopeName: scope?.label ?? scope?.id, groups, authority })) console.log(line);
+    }
     for (const carried of result.proposal.planCorrections ?? []) {
       console.log(`It carries ${carried.ownerPhase}'s rows (${carried.operations.map((operation) => `${operation.op === 'add-row' ? 'adds' : operation.op === 'remove-row' ? 'removes' : operation.op === 'keep-row' ? 'keeps' : 'updates'} ${operation.clauseId}`).join(', ')}): `
         + `an approver of ${carried.ownerPhase} signs them by deciding it, and ${carried.ownerPhase} keeps its approval.`);
@@ -2637,6 +2681,12 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     }
     console.log(`Approved ${proposalId}; specification generation ${result.transition.proposal.application.toSpecificationGeneration} is active.`);
     const application = result.transition.proposal.application;
+    // Approved as editorial [CIC:REQ-014]: nothing was reset or asked, and the record says the evidence was carried that way.
+    if (application.carried === 'editorial') {
+      console.log(`Approved as editorial: no step runs again or is asked whether it still holds, and the evidence of ${application.staleClauses.join(', ') || 'the reworded clauses'} is carried, as the approval records.`);
+      return;
+    }
+    if (application.class) console.log(`Approved as ${application.class.effective === 'material' ? 'a material change' : 'a refinement'}.`);
     if (application.scopeRevision) {
       console.log(`Scope revision ${application.scopeRevision.revision} changed ${application.staleClauses.length} clause(s) (${application.staleClauses.join(', ') || 'none'}): evidence of them produced before this revision is stale${
         application.revalidate?.length ? ' until its step\'s approvers say it still holds' : ''}. ${application.standingClauses.length} clause(s) are unaffected.`);

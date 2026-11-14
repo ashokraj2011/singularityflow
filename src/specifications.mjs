@@ -115,7 +115,7 @@ export function normalizeSpecPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError('spec must be an object.');
   }
-  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'conformanceDifferences', 'testCommands', 'excludes', 'limits', 'compositionCache', 'observedDependencies', 'preAmendmentDrafts']);
+  const allowed = new Set(['mode', 'namespace', 'coverage', 'acceptance', 'conformanceRows', 'conformanceDifferences', 'testCommands', 'excludes', 'limits', 'compositionCache', 'observedDependencies', 'preAmendmentDrafts', 'changeImpact', 'scopeChangeAuthority']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`spec contains unknown field '${key}'.`);
   const mode = value.mode ?? 'off';
   if (!['off', 'record', 'enforce'].includes(mode)) throw new SingularityFlowError('spec.mode must be off, record, or enforce.');
@@ -177,13 +177,22 @@ export function normalizeSpecPolicy(value = {}) {
   }
   const compositionCache = value.compositionCache ?? 'local';
   if (!['off', 'local'].includes(compositionCache)) throw new SingularityFlowError('spec.compositionCache must be off or local.');
-  // SPEC-CIC switches 1 (pinned only when on) and 2 (new Stories pin `refuse`), read from the pinned raw field [CIC:REQ-018].
-  const observed = value.observedDependencies ?? 'off';
+  // SPEC-CIC switches 1 and 3 (pinned only when on) and 2 (new Stories pin `refuse`), read from the pinned raw field [CIC:REQ-018].
+  // Switch 3 is `changeImpact: on`, one setting that pins switch 1 with it; an authority it names approves material changes.
+  const impact = value.changeImpact ?? 'off';
+  if (!['off', 'on'].includes(impact)) throw new SingularityFlowError('spec.changeImpact must be off or on.');
+  const observed = value.observedDependencies ?? impact;
   if (!['off', 'on'].includes(observed)) throw new SingularityFlowError('spec.observedDependencies must be off or on.');
+  if (impact === 'on' && observed !== 'on') throw new SingularityFlowError('spec.changeImpact on records observed dependencies too; remove spec.observedDependencies: off.');
+  const authority = value.scopeChangeAuthority ?? null;
+  if (authority != null && (impact !== 'on' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(authority))) {
+    throw new SingularityFlowError('spec.scopeChangeAuthority names the approval authority group that approves a material change, under spec.changeImpact: on.');
+  }
   const preAmendmentDrafts = value.preAmendmentDrafts ?? 'refuse';
   if (!['legacy', 'refuse'].includes(preAmendmentDrafts)) throw new SingularityFlowError('spec.preAmendmentDrafts must be legacy or refuse.');
   return { mode, namespace, coverage, acceptance, conformanceRows, conformanceDifferences, testCommands, excludes, limits, compositionCache,
-    preAmendmentDrafts, ...(observed === 'on' ? { observedDependencies: observed } : {}) };
+    preAmendmentDrafts, ...(observed === 'on' ? { observedDependencies: observed } : {}), ...(impact === 'on' ? { changeImpact: impact } : {}),
+    ...(authority ? { scopeChangeAuthority: authority } : {}) };
 }
 
 function lineNumber(text, offset) {

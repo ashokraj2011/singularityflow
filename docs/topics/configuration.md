@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 21
+version: 22
 commands:
   - configuration
   - workflow
@@ -197,6 +197,15 @@ next publication tries again. `ledger.configurationHistory.autoClear: false` tur
 `keepRecent` (1-100) changes the count kept; the manual command stays for a one-off cleanup.
 
 These commands can change repository or machine-local state: `configuration`, `workflow`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+
+### Change impact
+
+`spec.changeImpact: on` in the workflow's `spec` block is the one setting for how SFlow handles a change of requirements
+partway through a Story. It turns on observed dependencies (each published step records what it depended on) and the
+sizes of an intent amendment together: editorial, refinement or material, set by rules. An editorial change carries the
+evidence of the clauses it rewords, and a material one is approved by `spec.scopeChangeAuthority`, an approval group, or
+else by the scope step's own approvers. It is off by default and pinned when a Story starts: a Story started before keeps
+its behaviour, and nothing it recorded is rewritten. See `sflow explain changing-requirements`.
 
 ## Change agents, skills and instructions
 

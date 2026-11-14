@@ -16,7 +16,7 @@ import { countedApprovals } from '../presence/counted.mjs';
 import { qualifiedClauseIds } from '../traceability-ids.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords, plannedProductSourcePaths, testOnlyClaimEvidence } from '../specifications.mjs';
-import { amendmentRowCarriers, revalidationCarriers, revalidatorName } from '../scope/carried-evidence.mjs';
+import { amendmentRowCarriers, editorialCarriers, revalidationCarriers, revalidatorName } from '../scope/carried-evidence.mjs';
 import { scopeStaleness } from '../scope/revisions.mjs';
 import { scopeDecisionArgv, scopeDecisionCommandLine } from '../scope/extract.mjs';
 import { riskDecisionState, riskEligibility } from './risk-decisions.mjs';
@@ -272,7 +272,7 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
   };
   const plannedFrom = provenance(records.planned ?? []);
   const observedFrom = provenance(records.observed ?? []);
-  const staleness = scopeStaleness(workflow, clauses, { carriers: revalidationCarriers(workflow), rowCarriers: amendmentRowCarriers(workflow) });
+  const staleness = scopeStaleness(workflow, clauses, { carriers: revalidationCarriers(workflow), rowCarriers: amendmentRowCarriers(workflow), editorial: editorialCarriers(workflow) });
   const atGeneration = (ids) => ids.map((phaseId) => ({ phaseId, generation: phases[phaseId]?.generation ?? 0 }));
   const submittedCode = codePhaseIds.length > 0 && codePhaseIds.every((id) =>
     phaseFinished(phases[id]) || deliveries.some((delivery) => delivery.phaseId === id && delivery.receipt?.status === 'ready'));
@@ -554,9 +554,12 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
     }
     for (const group of Map.groupBy(carried, (carrier) => `${carrier.amendment}\u0000${carrier.phase}`).values()) {
       const [first] = group;
-      rowFindings.push(finding('EVIDENCE_CARRIED_BY_REVALIDATION',
-        `${id}: its ${[...new Set(group.map((carrier) => carrier.responsibility))].join(', ')} evidence predates ${first.amendment}'s wording; ${revalidatorName(first)}, for the ${phases[first.phase]?.label ?? first.phase} approvers (${first.authorityGroup}), said it still holds.`,
-        { obligationIds: [...new Set(group.map((carrier) => carrier.obligationId))], blocking: false }));
+      const what = `${id}: its ${[...new Set(group.map((carrier) => carrier.responsibility))].join(', ')} evidence predates ${first.amendment}'s wording`;
+      rowFindings.push(finding('EVIDENCE_CARRIED_BY_REVALIDATION', first.editorial
+        // Carried because the scope's approvers approved the new wording as editorial [CIC:REQ-014].
+        ? `${what}; ${revalidatorName(first)}, for the scope approvers (${first.authorityGroup}), approved it as editorial, so it is carried.`
+        : `${what}; ${revalidatorName(first)}, for the ${phases[first.phase]?.label ?? first.phase} approvers (${first.authorityGroup}), said it still holds.`,
+      { obligationIds: [...new Set(group.map((carrier) => carrier.obligationId))], blocking: false }));
     }
     // Governed risk acceptance [E2G-025]: an active decision carries an open obligation at the
     // transition it names, and what was observed stays visible. One that expired, was revoked, does

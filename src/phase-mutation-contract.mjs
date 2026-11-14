@@ -181,7 +181,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
         : !editable
           ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes; inspect the reviewed successor or return route.')]
           : [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', generationSkillForPhase(phase, workflow))];
-  const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`story intent-amendment status\` and \`draft\`, stay open.`
+  const summary = paused ? `${intentAmendmentPauseReason(workflow, pause)}. Reads, and \`singularity-flow story intent-amendment status\` and \`singularity-flow story intent-amendment draft\`, stay open.`
     : turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
     : turnMode !== 'authoring' ? `${turnMode}: no direct repository edits; only explicitly issued staging files and permitted kernel operations.`
       : !editable || (deterministic && !code) ? 'No direct edits to this retained or deterministic generation. Use the returned kernel/recovery action.'
@@ -196,7 +196,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     repositoryRoot,
     policy: { writeScope: phase?.writeScope ?? 'artifact-only', sourceBoundary: phase?.sourceBoundary ?? 'unrestricted',
       requiresOpenGeneration: code, openGeneration, editable, supportingChangesOnly: !code && !ownsCode,
-      ...(pause ? { intentAmendmentPause: { id: pause.id, phaseId: phase.id } } : {}) },
+      ...(pause ? { intentAmendmentPause: { id: pause.id, phaseId: phase.id } } : {}),
+      // SPEC-CIC switch 3: a proposal in chat waits for the person's yes (copilot-answer-binding.mjs) [CIC:REQ-015].
+      ...(workflow?.resolution?.spec?.changeImpact === 'on' ? { changeImpact: true } : {}) },
     allow: { artifacts: turnMode === 'authoring' && editable && !deterministic && !pause ? artifacts : [], application, staging },
     deny: { protectedPaths: [...new Set([...(definition?.governance?.protectedPaths ?? []),
       ...(workflow?.resolution?.governance?.protectedPaths ?? []),

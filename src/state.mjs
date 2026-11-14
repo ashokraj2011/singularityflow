@@ -7370,7 +7370,7 @@ export async function evaluateApproval(root, config, workflow, {
       const bindingReview = reviewBindings(submittedBindings, bindingDecisions);
       // What this approval decides over, so rework can retain it when none of it changes [E2G-021, D16].
       const upstream = await phaseUpstream(root, config, workflow, phase).catch(() => null);
-      const carriedApprovalEvidence = (workflow.amendmentRevalidations ?? []).length
+      const carriedApprovalEvidence = (workflow.amendmentRevalidations ?? []).length || (workflow.intentAmendments ?? []).some((entry) => entry.carried === 'editorial')
         ? (await import('./scope/carried-evidence.mjs')).carriedEvidence(workflow) : [];
       decision = {
         decision: 'approved',
@@ -8666,7 +8666,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   channel = 'terminal',
   actionContext = null,
   actor = identity(root),
-  agent = null
+  agent = null,
+  raise = null
 } = {}) {
   if (!['approve', 'reject'].includes(decision)) {
     throw new SingularityFlowError("Intent-amendment decision must be 'approve' or 'reject'.", {
@@ -8701,6 +8702,11 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   if (stale) throw new SingularityFlowError(stale.message, { code: stale.code, details: staleProposalDetails });
   const decisions = [...(proposal.decisions ?? [])];
   const authorities = workflow.resolution.approvalAuthorities ?? config.approvalAuthorities;
+  // Under SPEC-CIC switch 3 an approval approves the amendment's class, which this approver may raise and nobody may
+  // lower, and a material one is the scope-change authority's [CIC:REQ-013, REQ-014]; without it, as before.
+  const classing = workflow.resolution?.spec?.changeImpact === 'on' ? await decisionClass(root, config, workflow, specification, proposal, { decision, raise }) : null;
+  const policy = classing?.policy ?? specification.approvalPolicy;
+  const counts = classing?.counts ?? (() => true);
   // The rows an amendment carries for a separate plan are signed by an approver of that plan, in their own
   // decision on the amendment [PHR:REQ-008]. One who approves only the plan signs them and is no approver
   // of the scope: their decision does not count toward the scope's approval.
@@ -8710,19 +8716,23 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   let planOnly = false;
   let authority;
   try {
-    authority = requireApprovalAuthority(authorities, specification.approvalPolicy, actor,
-      { preferredAuthorities: decision === 'approve' ? remainingRequiredAuthorities(specification.approvalPolicy, scopeDecisions) : [] });
+    authority = requireApprovalAuthority(authorities, policy, actor,
+      { preferredAuthorities: decision === 'approve' ? remainingRequiredAuthorities(policy, scopeDecisions.filter(counts)) : [] });
   } catch (error) {
+    if (!planSigning.length && classing?.approves === 'material' && String(error.code).startsWith('APPROVAL_IDENTITY')) {
+      throw (await import('./amendment-class.mjs')).materialAuthorityRefusal(error, { authority: classing.authority, groups: classing.groups,
+        eligible: error.details?.eligibleApprovers ?? [], anyIdentity: error.details?.anyIdentity === true, amendment: proposal.id, workId: workflow.workItem.id });
+    }
     if (!planSigning.length) throw error;
     planOnly = true;
     authority = planSigning[0].authority;
   }
   const key = actorKey(actor);
-  if (decision === 'approve' && decisions.some((entry) => sameApprover(entry.actor, actor))) {
+  if (decision === 'approve' && decisions.some((entry) => sameApprover(entry.actor, actor) && counts(entry))) {
     throw new SingularityFlowError(`${key} already decided intent amendment ${proposal.id}; decisions require distinct identities.`);
   }
   const selfApproval = sameApprover(proposal.proposedBy ?? {}, actor);
-  if (decision === 'approve' && selfApproval && !planOnly && specification.approvalPolicy.allowSelfApproval === false) {
+  if (decision === 'approve' && selfApproval && !planOnly && policy.allowSelfApproval === false) {
     throw new SingularityFlowError(
       `Specification policy prohibits the proposer from approving intent amendment '${proposal.id}'. Ask another authorized Git identity.`
     );
@@ -8742,6 +8752,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     reason: reason?.trim() || null,
     selfApproval,
     ...(planOnly ? { scope: 'plan-correction' } : {}),
+    ...(classing && !planOnly ? { class: classing.approves, ...(classing.raise ? { raise: classing.raise } : {}) } : {}),
     ...(actionContext ? { actionContext } : {})
   };
   // Each approver's decision proves the carried rows against the plans as they are now, then records the ones it signs.
@@ -8777,14 +8788,15 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     };
   }
 
-  const approvals = decisions.filter((entry) => entry.decision === 'approved' && entry.scope !== 'plan-correction');
-  const minimum = specification.approvalPolicy.minimum ?? 1;
+  // An approval of a lower class than the amendment now has no longer counts toward it.
+  const approvals = decisions.filter((entry) => entry.decision === 'approved' && entry.scope !== 'plan-correction' && counts(entry));
+  const minimum = policy.minimum ?? 1;
   const planSignOffsMissing = carried ? carried.unsignedPlanCorrections(workflow, proposal).map((entry) => entry.ownerPhase) : [];
   proposal.approvals = { reached: approvals.length, required: minimum,
-    missingAuthorities: remainingRequiredAuthorities(specification.approvalPolicy, approvals),
+    missingAuthorities: remainingRequiredAuthorities(policy, approvals),
     ...((proposal.planCorrections ?? []).length ? { planSignOffsMissing } : {}) };
   Object.assign(summary, { approvals: proposal.approvals });
-  if (!approvalRequirementsMet(specification.approvalPolicy, approvals) || planSignOffsMissing.length) {
+  if (!approvalRequirementsMet(policy, approvals) || planSignOffsMissing.length) {
     proposal.status = 'proposed';
     await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
     return {
@@ -8803,6 +8815,8 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   // path [SCS:REQ-022], rule E8's kept steps, the stale clauses and each later step's evidence.
   const effect = await intentAmendmentEffect(root, config, workflow, proposal, { proposedText: amendmentCandidate.proposedText });
   const settles = effect.settles;
+  // Approved as editorial [CIC:REQ-014, D2]: the evidence of the clauses it rewords is carried, so no step is reset or asked.
+  const editorial = effect.carried === 'editorial';
   const planBindings = [];
   const { specificationPath, specificationFile, proposedText, proposedSnapshot, amendmentAuthorship } = amendmentCandidate;
   await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
@@ -8977,7 +8991,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   const revalidate = [];
   let retaining = true;
   let firstReset = null;
-  for (const step of effect.steps) {
+  for (const step of editorial ? [] : effect.steps) {
     const index = workflow.phaseOrder.indexOf(step.phase);
     const phase = workflow.phases[step.phase];
     // A step the rows revalidate keeps its records exactly as reviewed: its row is what says it still holds.
@@ -9056,7 +9070,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     await updateArtifactMetadata(root, config, workflow, phase)
       .catch((error) => { if (!['EACCES', 'EPERM', 'EISDIR'].includes(error?.code)) throw error; });
   }
-  if (!settles) {
+  if (!settles && !editorial) {
     workflow.currentPhase = workflow.phaseOrder[firstReset ?? nextIndex];
     workflow.status = 'in_progress';
     if (firstReset != null) delete workflow.completion;
@@ -9069,7 +9083,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   }
   // D1 [CIC:REQ-021]: each step kept here whose prompt held a changed clause it does not cite is asked, by its own
   // approvers on the Decide card, whether it still holds: the rows pendingAmendmentRevalidations lists, never settled.
-  const stillHolds = settles ? [] : effect.steps.filter((step) => step.stillHolds && retainedPhases.includes(step.phase))
+  const stillHolds = settles || editorial ? [] : effect.steps.filter((step) => step.stillHolds && retainedPhases.includes(step.phase))
     .map((step) => ({ phase: step.phase, generation: step.generation, reason: 'prompt-held', ...step.stillHolds }));
 
   proposal.status = 'approved';
@@ -9086,9 +9100,12 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     preservedEvidence: [...new Set(preservedEvidence)].sort(),
     ...(planBindings.length ? { planBindings } : {}),
     // Nothing was reset, so there is no resubmission to acknowledge: each revalidation row is the person's answer.
-    acknowledgementRequired: !settles,
+    acknowledgementRequired: !settles && !editorial,
     ...(settles ? { settles, revalidate } : {}),
-    ...(stillHolds.length ? { stillHolds } : {})
+    ...(stillHolds.length ? { stillHolds } : {}),
+    // Its class and why, the suggestion and each raise; an editorial one says the evidence was carried that way [CIC:REQ-014].
+    ...(effect.classification ? { class: classRecord(effect.classification) } : {}),
+    ...(editorial ? { carried: 'editorial', carriedPhases: effect.steps.filter((step) => step.outcome === 'carried').map((step) => step.phase) } : {})
   };
   Object.assign(summary, {
     status: 'approved', decidedAt: at, decision: recorded,
@@ -9097,9 +9114,11 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     staleClauses: proposal.application.staleClauses,
     standingClauses,
     preservedEvidence: proposal.application.preservedEvidence,
-    acknowledgementRequired: !settles,
+    acknowledgementRequired: !settles && !editorial,
     acknowledgedAt: null,
     revalidatedPhases: [],
+    ...(effect.classification ? { class: effect.classification.effective } : {}),
+    ...(editorial ? { carried: 'editorial' } : {}),
     ...(planBindings.length ? { planBindings } : {}),
     // The rows pendingAmendmentRevalidations lists, read against the scope step (forward-amendments.mjs).
     ...(settles ? { producer: specification.id, revalidate } : stillHolds.length ? { producer: specification.id, revalidate: stillHolds } : {})
@@ -9112,6 +9131,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       + `${affectedPhases.length} phase(s) affected and ${proposal.application.preservedEvidence.length} evidence item(s) preserved`
       + `${settles ? `; it updates the spec to the code ${settles.phase} reported, so ${revalidate.map((entry) => entry.phase).join(', ')} revalidate instead of running again` : ''}`
       + `${stillHolds.length ? `; ${stillHolds.map((entry) => entry.phase).join(', ')} keep their approval until their approvers say they still hold, as their prompt held ${[...new Set(stillHolds.flatMap((entry) => entry.clauses))].join(', ')}` : ''}`
+      + `${editorial ? `; approved as editorial, so the evidence of ${[...staleClauses].sort().join(', ')} is carried and no step runs again` : effect.classification ? `; approved as ${effect.classification.effective}` : ''}`
   });
   await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
   return {
@@ -9204,6 +9224,40 @@ function amendmentRepeats(workflow, changed, revision) {
 /** Why the first step rule E8 cannot keep runs again, from phase-retention.mjs's own reason. */
 const NOT_KEPT = Object.freeze(['not-approved', 'code', 'decision', 'skill', 'plans-new-clause', 'approvals', 'changed']);
 
+/** What a decision under switch 3 approves, and the policy that decides it (amendment-class.mjs classedApproval). */
+async function decisionClass(root, config, workflow, specification, proposal, { decision, raise }) {
+  const classes = await import('./amendment-class.mjs');
+  const asked = classes.requestedClass(raise);
+  const ids = { decision, raise: asked, amendment: proposal.id, workId: workflow.workItem.id };
+  if (decision !== 'approve') return asked ? classes.classedApproval(workflow, specification.approvalPolicy, null, ids) : null;
+  // The candidate's own inspection refuses bytes that cannot be read; until then, the policy as before.
+  const proposedText = await readFile(path.join(root, proposal.specification?.proposedPath ?? ''), 'utf8').catch(() => null);
+  if (proposedText == null) return null;
+  return classes.classedApproval(workflow, specification.approvalPolicy, await intentAmendmentClass(root, config, workflow, proposal, { proposedText }), ids);
+}
+
+/** The class an approval applied, as its record keeps it: the floor and its rule IDs, the suggestion, each raise, the result. */
+const classRecord = ({ floor, reasons, suggested, raises, effective }) => ({ floor, rules: reasons.map((reason) => reason.rule),
+  ...(suggested ? { suggested } : {}), ...(raises ? { raises } : {}), effective });
+
+/**
+ * Under SPEC-CIC switch 3, an intent amendment's class as it stands [CIC:REQ-013]: the floor registered rules compute from
+ * what its clauses are bound to now (never below the one recorded when it was proposed), the proposer's suggestion, each
+ * approver's raise, and who decides it (amendment-class.mjs). Null on a Story without the switch.
+ */
+export async function intentAmendmentClass(root, config, workflow, proposal, { proposedText, records = null }) {
+  if (workflow.resolution?.spec?.changeImpact !== 'on') return null;
+  const specification = scopeStepOf(workflow);
+  const classes = await import('./amendment-class.mjs');
+  const computed = await classes.amendmentClassification(workflow, proposal, { scopePhase: specification.id,
+    records: records ?? await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow),
+    protectedPaths: [...(config.governance?.protectedPaths ?? []), ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])],
+    plannedAfter: () => assertAmendedPlannedClaims(root, config, workflow, specification, proposedText, extractClauses(proposedText).map((clause) => clause.id)) });
+  const current = classes.effectiveClass(computed, { stored: proposal.classification ?? null, decisions: proposal.decisions ?? [] });
+  const { groups, authority } = classes.deciders(workflow, specification.approvalPolicy, current.effective);
+  return { ...current, decidedBy: { groups, authority } };
+}
+
 /**
  * What approving `proposal` does to the Story, computed once from the Story as it is and the proposed bytes,
  * before anything changes [CIC:REQ-012, CON-007]. decideIntentAmendment applies exactly this, and `story
@@ -9245,13 +9299,17 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
     { ...workflow, planAmendments: decidedOver.length ? decidedOver : undefined }, specification,
     { addsClauses: (diff.added ?? []).length > 0, correctedPlans: new Set(carriedRows.keys()) });
   const { staleClauses, currentClauses, revision, records } = await amendedScopeClauses(root, config, workflow, specification, proposal, proposedText);
+  // Its class under switch 3: an editorial change carries the evidence of the clauses it rewords, so nothing after the
+  // scope runs again or is asked whether it still holds [CIC:REQ-014, CON-003]; the others take the route below.
+  const classification = await intentAmendmentClass(root, config, workflow, proposal, { proposedText, records });
+  const editorial = !settles && classification?.effective === 'editorial';
   // An artifact is affected when it cites a stale clause, or a removed one, by exact ID.
   const cited = new Set([...staleClauses, ...(diff.removed ?? [])]);
   const changed = new Set([...(diff.added ?? []), ...(diff.revised ?? [])].map(upper));
   const added = new Set((diff.added ?? []).map(upper));
   const observed = observedDependencies(workflow) ? await observedRecords(root, workflow, records) : null;
   // The changed clauses no planned claim names: no record of a step that did not rule them out keeps it [CIC:REQ-006].
-  const unclaimedClauses = observed ? [...new Set([...changed, ...(diff.removed ?? []).map(upper)])].filter((id) => !observed.planned[id]).sort() : [];
+  const unclaimedClauses = observed && !editorial ? [...new Set([...changed, ...(diff.removed ?? []).map(upper)])].filter((id) => !observed.planned[id]).sort() : [];
   const evidencePaths = new Set([...(proposal.radius?.artifacts ?? []), ...(proposal.radius?.tests ?? [])].map(posix));
   const reached = Number(proposal.radius?.totals?.affected ?? 0);
   const currentIndex = order.indexOf(workflow.currentPhase);
@@ -9260,6 +9318,11 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
   let firstReset = null;
   for (let index = nextIndex; index < order.length; index += 1) {
     const phase = workflow.phases[order[index]];
+    const generation = Number(phase.generation ?? 0);
+    if (editorial) {
+      steps.push({ phase: phase.id, status: phase.status, generation, affected: false, reasons: [], artifacts: [], outcome: generation > 0 ? 'carried' : 'unchanged' });
+      continue;
+    }
     const reasons = [];
     if (isConvergencePhase(phase)) reasons.push({ kind: 'convergence' });
     if (phaseRequiresCodeDelivery(phase) && reached > 0) reasons.push({ kind: 'code-step', claims: reached });
@@ -9322,7 +9385,8 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
     firstReset: firstReset == null ? null : order[firstReset],
     steps,
     repeats: amendmentRepeats(workflow, diff.changed ?? [], revision),
-    ...(observed ? { observed: true, unclaimedClauses } : {})
+    ...(observed ? { observed: true, unclaimedClauses } : {}),
+    ...(classification ? { classification, ...(editorial ? { carried: 'editorial' } : {}) } : {})
   };
 }
 

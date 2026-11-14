@@ -911,6 +911,12 @@ test('the common session projection does not import attach, state stores or publ
   // also where a route arrives without its model-free field [owner, 2026-11-13] (model-free-commands.mjs +678). No new eager file.
   // 4,252,450 (measured 4,252,428): both of the above together on one branch, each one's growth as measured (+1,656 and
   // +678); the card's advice (decision-advice.mjs) and the settled list stay lazy. No new eager file.
+  // 4,253,612 (measured): SPEC-CIC stage 6's one change impact setting and the scope-change authority it names are
+  // normalized and checked where the spec block already is (specifications.mjs +941, config.mjs +277); the class rules,
+  // the card's class and the chat entry stay lazy (amendment-class.mjs). No new eager file.
+  // 4,253,836 (measured): the chat entry's two turns and its one step in the person-step catalog, which every hook reads
+  // (person-step-catalog.mjs +224); its check stays in the lazily loaded answer binding. No new eager file.
+  // 4,253,868 (measured on the merge with main 153e78d1a): main's own growth since (+32) on top of the two above.
   // 4,257,800 (measured 4,257,780): the agents home [SPEC-AGH, owner 2026-11-14]: the layout signal read
   // where configuration loads, and init's layout (config.mjs +1,678), the init mappings for either layout
   // (initialization-assets.mjs +1,305), the legacy root governed only when no source records a layout
@@ -918,7 +924,9 @@ test('the common session projection does not import attach, state stores or publ
   // agents' package history (packaged-asset-history.mjs +226). The migration, its preview and its lines stay lazy
   // (agents-home-migration.mjs). No new eager file.
   // 4,257,850 (measured 4,257,812): the same, merged with main 153e78d1a (+32 there). No new eager file.
-  assert.ok(current.bytes <= 4_257_850, `session current loads ${current.bytes} source bytes`);
+  // 4,258,950 (measured 4,258,907): the agents home above, merged with main 7f0d9b738 and its SPEC-CIC stage 6
+  // (4,253,868 there): +5,039 for the agents home on that base [2026-11-15]. No new eager file.
+  assert.ok(current.bytes <= 4_258_950, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

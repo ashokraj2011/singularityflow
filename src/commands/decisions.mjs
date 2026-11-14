@@ -445,6 +445,11 @@ export function intentAmendmentOutcome(workflow, transition) {
   }
   if (!transition.applied) return { id: proposal.id, decision: 'rejected', words: `${proposal.id} is rejected: the approved clauses stay as they are, and every submission stays valid` };
   const application = proposal.application ?? {};
+  // Approved as editorial [CIC:REQ-014]: nothing was reset or asked, so there is nothing to acknowledge.
+  if (application.carried === 'editorial') {
+    return { id: proposal.id, decision: 'approved', applied: true, generation: application.toSpecificationGeneration ?? null, carried: 'editorial',
+      words: `${proposal.id} is approved as editorial: the amended wording is in force, no step runs again or is asked, and the evidence of the reworded clauses is carried` };
+  }
   return { id: proposal.id, decision: 'approved', applied: true, generation: application.toSpecificationGeneration ?? null,
     words: `${proposal.id} is approved: the amended scope is in force${application.revalidate?.length
       ? `, nothing was reset, and ${application.revalidate.map((entry) => phaseWords(workflow, entry.phase)).join(', ')} ${application.revalidate.length === 1 ? 'has a row' : 'each have a row'} on this list for its approvers`
@@ -482,7 +487,7 @@ async function applyEffect(root, config, workflow, effect, step, produced, { act
         words: `${effect.amendment} is rejected and proposed again as ${refreshed.proposed}, against the step as it is now; the scope's approvers decide ${refreshed.proposed}` };
     }
     const { transition } = await story.recordIntentAmendmentDecision(root, config, workflow, effect.amendment,
-      { decision: effect.decision, reason: step.values.reason || null, channel });
+      { decision: effect.decision, reason: step.values.reason || null, channel, ...(effect.raise ? { raise: effect.raise } : {}) });
     return intentAmendmentOutcome(workflow, transition);
   }
   if (effect.kind === 'intent-amendment-acknowledge') {

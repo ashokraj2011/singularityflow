@@ -643,6 +643,35 @@ function rejectionTarget(detail) {
 }
 
 /**
+ * Under SPEC-CIC switch 3, how often the Story's requirements changed [CIC:REQ-016, owner decision D4]: the approved
+ * intent amendments by class, each clause changed more than once with how often, and each clause that went back to a
+ * statement an earlier scope revision held (or came back after a revision removed it), with how often. Shown, never
+ * limited. Null without the switch or without an approved amendment.
+ */
+export function requirementChanges(workflow) {
+  const approved = (workflow?.intentAmendments ?? []).filter((entry) => ['approved', 'revalidated'].includes(entry?.status));
+  if (workflow?.resolution?.spec?.changeImpact !== 'on' || !approved.length) return null;
+  const changed = new Map();
+  for (const id of approved.flatMap((entry) => entry.changedClauses ?? [])) changed.set(id, (changed.get(id) ?? 0) + 1);
+  const held = new Map();
+  const reversed = new Map();
+  for (const revision of workflow.scopeRevisions ?? []) {
+    const now = new Map((revision.clauses ?? []).map((clause) => [clause.id, clause.bodySha256]));
+    for (const [id, body] of now) {
+      const past = held.get(id) ?? [];
+      if (past.length && past.at(-1) !== body && past.includes(body)) reversed.set(id, (reversed.get(id) ?? 0) + 1);
+      if (past.at(-1) !== body) held.set(id, [...past, body]);
+    }
+    for (const [id, past] of held) if (!now.has(id) && past.at(-1) !== null) held.set(id, [...past, null]);
+  }
+  const counted = (map, least) => [...map].filter(([, times]) => times >= least).map(([clause, times]) => ({ clause, times }))
+    .sort((left, right) => right.times - left.times || left.clause.localeCompare(right.clause));
+  const byClass = {};
+  for (const entry of approved) if (entry.class) byClass[entry.class] = (byClass[entry.class] ?? 0) + 1;
+  return { amendments: approved.length, byClass, churn: counted(changed, 2), reversed: counted(reversed, 1) };
+}
+
+/**
  * `copilotChat` is this computer's Copilot Chat requests for the Story's branch, and
  * `copilotSessions` the model calls Copilot's session logs hold for it
  * (src/copilot-session-usage.mjs). Both are read by the caller; a work command passes neither.
@@ -803,6 +832,7 @@ export function deriveReport(workflow, {
     rejections: phases.flatMap((phase) => phase.rejections.map((item) => ({ phase: phase.id, ...item }))),
     selfApprovals: phases.reduce((sum, phase) => sum + phase.selfApprovals, 0),
     sequenceOverrides: workflow.sequenceOverrides ?? [],
+    ...(requirementChanges(workflow) ? { requirementChanges: requirementChanges(workflow) } : {}),
     tokens: {
       total: phases.reduce((sum, phase) => sum + phase.tokens, 0),
       exactRecords: workflow.usage?.exactRecords ?? null,
@@ -1141,6 +1171,13 @@ export function renderMarkdown(report) {
   lines.push(...sessionsMarkdown(report));
   if (report.selfApprovals) lines.push(`**Sign-off note:** ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.`, '');
   if (report.sequenceOverrides.length) lines.push(`**Sign-off note:** ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}; review the audit details below.`, '');
+  if (report.requirementChanges) {
+    const changes = report.requirementChanges;
+    const classes = Object.entries(changes.byClass).map(([name, count]) => `${count} ${name}`).join(', ');
+    lines.push('## Requirement changes', '', `- ${changes.amendments} intent amendment${changes.amendments === 1 ? '' : 's'} approved${classes ? `: ${classes}` : ''}.`,
+      ...changes.churn.map((entry) => `- \`${entry.clause}\` changed ${entry.times} times.`),
+      ...changes.reversed.map((entry) => `- \`${entry.clause}\` went back to an earlier statement ${entry.times === 1 ? 'once' : `${entry.times} times`}.`), '');
+  }
   if (report.rejections.length) {
     lines.push('## Rework history', '');
     for (const rejection of report.rejections) lines.push(`- ${rejection.at} — \`${rejection.phase}\` rejected by ${rejection.actor} (agent ${rejection.agent ?? 'unavailable'}): ${rejection.detail}`);
@@ -1323,6 +1360,10 @@ export function renderHtml(report) {
   ].join('');
   const overrideRows = report.sequenceOverrides.map((override) => `<tr><td>${escapeHtml(override.at)}</td><td>${escapeHtml(override.gate)}</td><td>${escapeHtml(override.action)}</td><td>${escapeHtml(override.requestedPhase ?? override.before?.currentPhase ?? '—')}</td><td>${escapeHtml(actorLabel(override.actor))} / ${escapeHtml(override.agent ?? 'unknown')}</td><td>${escapeHtml(override.reason ?? '—')}</td></tr>`).join('');
   const copilotSection = copilotHtml(report);
+  const changes = report.requirementChanges;
+  const changesHtml = changes ? `<h2>Requirement changes</h2>\n<ul><li>${changes.amendments} intent amendment${changes.amendments === 1 ? '' : 's'} approved${Object.keys(changes.byClass).length
+    ? `: ${escapeHtml(Object.entries(changes.byClass).map(([name, count]) => `${count} ${name}`).join(', '))}` : ''}.</li>${changes.churn.map((entry) => `<li><code>${escapeHtml(entry.clause)}</code> changed ${entry.times} times.</li>`).join('')}${
+    changes.reversed.map((entry) => `<li><code>${escapeHtml(entry.clause)}</code> went back to an earlier statement ${entry.times === 1 ? 'once' : `${entry.times} times`}.</li>`).join('')}</ul>` : '';
   const overrideTable = overrideRows ? `<h2>Soft sequence overrides</h2>\n<table><thead><tr><th>Time</th><th>Gate</th><th>Action</th><th>Phase</th><th>Actor / agent</th><th>Reason</th></tr></thead><tbody>${overrideRows}</tbody></table>` : '';
   return `<!doctype html>
 <html lang="en">
@@ -1354,7 +1395,7 @@ ${tokenChart}
 ${modelTable}
 ${copilotSection}
 ${sessionsHtml(report)}
-${overrideTable}
+${changesHtml ? `${changesHtml}\n` : ''}${overrideTable}
 <footer>Durations are wall-clock elapsed time, including nights and weekends. Generated ${escapeHtml(report.generatedAt)} by singularity-flow.</footer>
 </body>
 </html>

@@ -164,7 +164,7 @@ function askedForOf(workflow, phase) {
 function carriedOf(workflow) {
   const entries = carriedEvidence(workflow);
   if (!entries.length) return null;
-  return { words: 'Counted on a person\'s word, not a new run: tests and reviews that predate the amended wording, kept because the step\'s own approvers said it still holds.',
+  return { words: `Counted on a person's word, not a new run: tests and reviews that predate the amended wording, kept because the step's own approvers said it still holds${entries.some((entry) => entry.editorial) ? ', or the scope\'s approvers approved the new wording as editorial' : ''}.`,
     entries: entries.slice(0, SHOWN), ...(entries.length > SHOWN ? { more: entries.length - SHOWN } : {}) };
 }
 

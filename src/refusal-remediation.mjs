@@ -2599,6 +2599,10 @@ const OWNER_STEP_STRATEGIES = Object.freeze({
   AMENDMENT_STILL_HOLDS_REQUIRED: 'person-decides-in-step',
   // A reopened step's draft from before an approved amendment: its author writes it again, in this step [CIC:REQ-009].
   PHASE_DRAFT_PREDATES_AMENDMENT: 'author-repairs-in-step',
+  // A material change approved outside the scope-change authority, or a class lowered: a person in that authority decides
+  // it on the Decide card or in their own terminal, or the approver decides it at its class [CIC:REQ-013, REQ-014].
+  INTENT_AMENDMENT_MATERIAL_AUTHORITY: 'person-decides-in-step',
+  INTENT_AMENDMENT_CLASS_LOWERED: 'person-decides-in-step',
   WITNESS_DEFERRAL_INVALID: 'person-decides-in-step',
   VISUAL_RISK_INVALID: 'person-decides-in-step'
 });

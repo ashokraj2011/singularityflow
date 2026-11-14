@@ -17,7 +17,9 @@ const CLAUSES_SHOWN = 12;
 /** The read, in a person's words: one line per generation, and with a step named, its edges by kind. */
 export function dependencyLines(workflow, result, { step = null } = {}) {
   const on = workflow.resolution?.spec?.observedDependencies === 'on';
-  const lines = [`${workflow.workItem.id}: observed dependencies are ${on ? 'on' : 'off'} for this Story.`
+  // Change impact (spec.changeImpact) pins observed dependencies with the amendment classes [CIC:REQ-018].
+  const impact = workflow.resolution?.spec?.changeImpact === 'on';
+  const lines = [`${workflow.workItem.id}: ${impact ? 'change impact is on, so ' : ''}observed dependencies are ${on ? 'on' : 'off'} for this Story.`
     + ` Scope revisions: ${result.chain.revisions}, ${result.chain.verified ? 'chain verified' : `chain broken (${result.chain.problems.map((problem) => `revision ${problem.revision}: ${problem.problem}`).join('; ')})`}.`];
   for (const entry of result.steps) {
     if (!entry.generations.length) lines.push(`${entry.phase}: nothing published.`);
@@ -49,7 +51,7 @@ export async function specDependenciesCommand(positionals, options) {
   const summary = dependencyLines(workflow, result, { step });
   if (optionBoolean(options, 'json')) {
     return console.log(JSON.stringify({ resultType: 'spec-dependencies', workId: workflow.workItem.id, recorded: false, summary,
-      observedDependencies: workflow.resolution?.spec?.observedDependencies === 'on', records: posix(path.join(itemRelative, 'context', 'dependencies')),
+      observedDependencies: workflow.resolution?.spec?.observedDependencies === 'on', ...(workflow.resolution?.spec?.changeImpact === 'on' ? { changeImpact: true } : {}), records: posix(path.join(itemRelative, 'context', 'dependencies')),
       ...result }, null, 2));
   }
   for (const line of summary) console.log(line);

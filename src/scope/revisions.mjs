@@ -140,10 +140,11 @@ export function staleClausesOf(revision, clauses = [], { observed = false } = {}
  * that makes that step's evidence of that clause stale, or null when the evidence is current.
  * `carriedBy` returns the "still holds" answers that kept it current across an intent amendment's
  * revision (`carriers`, from scope/carried-evidence.mjs): the answer must name that revision's
- * amendment and the scope generation it made, for that step at that generation. Without `carriers`
+ * amendment and the scope generation it made, for that step at that generation. `editorial` carries
+ * every step's evidence across the revision of an amendment approved as editorial. Without them
  * nothing is carried.
  */
-export function scopeStaleness(workflow, clauses = [], { carriers = new Map(), rowCarriers = new Map() } = {}) {
+export function scopeStaleness(workflow, clauses = [], { carriers = new Map(), rowCarriers = new Map(), editorial = new Map() } = {}) {
   const observed = observedDependencies(workflow);
   const revisions = (workflow?.scopeRevisions ?? []).filter((revision) => observed || revision.changes)
     .map((revision) => ({ revision, stale: staleClausesOf(revision, clauses, { observed }) }));
@@ -178,10 +179,13 @@ export function scopeStaleness(workflow, clauses = [], { carriers = new Map(), r
     for (let index = revisions.length - 1; index >= 0; index -= 1) {
       const { revision, stale } = revisions[index];
       if (!stale.has(id) || !reaches(revision, phaseId, generation)) continue;
-      const answer = carrierOf(revision, phaseId, generation) ?? rowCarrierOf(revision, phaseId, generation, id);
+      // Or the amendment itself was approved as editorial (scope/carried-evidence.mjs editorialCarriers) [CIC:CON-003].
+      const answer = carrierOf(revision, phaseId, generation) ?? rowCarrierOf(revision, phaseId, generation, id)
+        ?? (revision.origin?.kind === 'intent-amendment' ? editorial.get(revision.origin.id) ?? null : null);
       if (!answer) return { revision, carried };
       carried.push({ revision: revision.revision, amendment: answer.amendment, phase: phaseId, generation: Number(generation),
-        actor: answer.actor ?? null, actorName: answer.actorName ?? null, authorityGroup: answer.authorityGroup, at: answer.at ?? null });
+        actor: answer.actor ?? null, actorName: answer.actorName ?? null, authorityGroup: answer.authorityGroup, at: answer.at ?? null,
+        ...(answer.editorial ? { editorial: true } : {}) });
     }
     return { revision: null, carried };
   };

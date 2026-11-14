@@ -23,7 +23,7 @@ const deferred = () => {
 };
 
 test('only bound Story skills follow; listing, selection questions and ordinary chat do not', () => {
-  for (const skill of ['sf-phase', 'sf-code', 'sflow-phase', 'sflow-next', 'sf-review-source', 'sf-publish']) {
+  for (const skill of ['sf-phase', 'sf-code', 'sflow-phase', 'sflow-next', 'sf-review-source', 'sf-publish', 'sf-reject', 'sf-amend']) {
     assert.equal(copilotStoryFollowSkill(skill), true, skill);
   }
   for (const skill of ['sf-stories', 'sf-session', 'sflow-session', 'sf-workflows', 'sf-workspace', null, 'hello']) {

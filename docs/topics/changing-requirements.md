@@ -5,6 +5,7 @@ aliases:
   - intent-amendment
   - intent-amendments
   - still-holds
+  - amend
 questions:
   - The requirements changed, what do I do?
   - What do I do when the requirements change partway through a Story?
@@ -33,7 +34,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 4
+version: 5
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -61,13 +62,13 @@ Only the first row changes intent. A forward amendment cannot change a step that
 
 ## Use it from each surface
 
-- **Copilot:** `/sf-reject intent-amendment propose` drafts, previews and proposes the change in your words. `/sf-decide WORK-ID` opens the Decide card. Copilot never decides or acknowledges an amendment for you. In Copilot CLI, `/decide WORK-ID` opens the same card.
+- **Copilot:** `/sf-amend` (or `/sf-amend propose`) drafts, previews and proposes the change in your words; `/sf-reject intent-amendment propose` still does the same. `/sf-decide WORK-ID` opens the Decide card. Copilot never decides or acknowledges an amendment for you. In Copilot CLI, `/decide WORK-ID` opens the same card.
 - **Shell:** `sflow story intent-amendment status|draft|preview|propose|decide|acknowledge`, `sflow decisions WORK-ID` and `sflow upstream-issue revalidate`. Run `singularity-flow story --help` for the exact forms.
 - **VS Code:** the Decide card, from the Command Palette: **Singularity Flow: Decide Everything This Step Waits On**. It needs no model. No VS Code form proposes an amendment; use Copilot or the terminal.
 
 | Action | Who | Where |
 |---|---|---|
-| Propose | Anyone on the Story | `/sf-reject intent-amendment propose`, or `story intent-amendment propose` |
+| Propose | Anyone on the Story | `/sf-amend propose` (`/sf-reject intent-amendment propose` still works), or `story intent-amendment propose` |
 | Approve or reject | The scope step's approvers | The Decide card, or `story intent-amendment decide` in your own terminal |
 | Acknowledge | Anyone on the Story | The Decide card, or `story intent-amendment acknowledge` in your own terminal |
 | Say a kept step still holds | That step's approvers | Yes or no in `/sf-decide WORK-ID`, the Decide card, or `upstream-issue revalidate` |
@@ -78,7 +79,7 @@ Story PAY-1, "Retry failed card payments", has four steps: Intake (the scope), D
 
 1. **Choose the route.** AC-001 changes and a new criterion is needed. That is new behaviour: an intent amendment.
 2. **Draft, preview, propose.** Say the change in your own words. The draft is a copy of the approved scope, kept beside the checkout's Git data, never in the Story. Revise AC-001 in its `sflow-draft` slot, and add AC-003 "A fraud decline stops retrying at once." with its plan row. The preview records nothing. Here it says "It adds AC-003 and revises AC-001." and "Design is reopened: it cites AC-001." Implement has never published, so the preview does not name it; it runs again after Design. Then propose it as AMD-001. Implement, the step it was proposed from, pauses until AMD-001 is decided.
-   - Copilot: `/sf-reject intent-amendment propose`
+   - Copilot: `/sf-amend propose` (`/sf-reject intent-amendment propose` still works)
    - Shell: `sflow story intent-amendment draft --clause PAY-1:AC-001 --work-id PAY-1`, edit the file it names, then `sflow story intent-amendment preview --file <DRAFT> --work-id PAY-1` and `sflow story intent-amendment propose --file <DRAFT> --reason "<why>" --authored human --work-id PAY-1`
    - VS Code (model-free): not available
 3. **The scope approvers decide.** The card shows each changed clause, who proposed it and what it reaches. Rejecting keeps the scope and every submission as they are. Approving reopens Design.

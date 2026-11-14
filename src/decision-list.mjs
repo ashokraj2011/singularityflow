@@ -237,7 +237,7 @@ function differenceItem(workflow, context, group) {
     const scopeName = stepName(workflow, update.owner);
     const propose = `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file "${draft.path}" --reason "<why the specification changes>"`;
     const words = `The draft is at ${draft.path}. Write ${clauses.length === 1 ? 'the clause' : 'each clause'} in place of its sflow-draft slot and delete the closing line, `
-      + `or ask the Story's agent (/sf-reject intent-amendment propose); then propose it. ${scopeName}'s approvers decide it.`;
+      + `or ask the Story's agent (/sf-amend propose); then propose it. ${scopeName}'s approvers decide it.`;
     const step = personalStep({ id: 'update-spec', label: 'Update the spec: write the draft and propose it', command: propose, words,
       does: `Proposes the drafted change to ${scopeName}'s spec once you write it; ${scopeName}'s approvers decide it, and nothing is rewound until they do.`,
       decidedBy: anyone(`Anyone working on this Story may write and propose it; ${scopeName}'s approvers decide it.`) });

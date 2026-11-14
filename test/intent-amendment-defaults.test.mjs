@@ -38,7 +38,7 @@ test('every packaged and example workflow defaults to amendments in every active
         assert.equal(intentAmendmentSource(workflow), true, `${id}/${phaseId}`);
         const action = workflowGuide(workflow).nextActions.find(entry => entry.command.includes('intent-amendment propose'));
         assert.ok(action, `${id}/${phaseId} offers no amendment route`);
-        assert.equal(action.skill, '/sf-reject');
+        assert.equal(action.skill, '/sf-amend');
         assert.equal(action.optional, true);
         covered.add(`${id}/${phaseId}`);
         workflow.phases[phaseId].status = 'awaiting_approval';

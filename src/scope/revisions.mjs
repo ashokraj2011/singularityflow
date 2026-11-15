@@ -150,12 +150,19 @@ export function scopeStaleness(workflow, clauses = [], { carriers = new Map(), r
     .map((revision) => ({ revision, stale: staleClausesOf(revision, clauses, { observed }) }));
   // Whether a revision reaches a step's evidence at a generation. A step it lists is reached at or below the generation
   // it had then. Under switch 1 [CIC:REQ-006] a step it does not list is not exempt: the step that made it is reached by
-  // its earlier generations, and any other by every generation not published after the revision.
+  // its earlier generations, and any other by every generation not published after the revision. A step before the one
+  // that made it is the exception (2026-11-15): it reads only steps before it, so it never read the change. Its evidence of
+  // a later step's clause is only its holding a responsibility, as a plan step ahead of a later definition step does, and
+  // reaching it would hold the Story's last approval for a step that cannot repair it. A step whose place is not known
+  // in the phase order is still reached.
+  const order = workflow?.phaseOrder ?? [];
   const reaches = (revision, phaseId, generation) => {
     const listed = revision.dependentGenerations ?? {};
     if (Object.hasOwn(listed, phaseId)) return Number(generation ?? 0) <= Number(listed[phaseId]);
     if (!observed) return false;
     if (revision.origin?.phase === phaseId) return Number(generation ?? 0) < Number(revision.origin.generation ?? 0);
+    const place = order.indexOf(phaseId);
+    if (place >= 0 && place < order.indexOf(revision.origin?.phase)) return false;
     const published = (workflow?.phases?.[phaseId]?.generationPublications ?? []).find((entry) => Number(entry.generation) === Number(generation))?.publishedAt;
     return !(published && Date.parse(published) > Date.parse(revision.at));
   };

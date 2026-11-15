@@ -429,3 +429,39 @@ test('no next-step list holds the same item twice, wherever its entries come fro
   const doubled = workflowNextSteps(state, { prerequisites: [{ timing: 'optional', skill: own.skill, command: own.command, reason: own.reason }] });
   assert.equal(doubled.filter((step) => step.command === own.command && step.reason === own.reason).length, 1);
 });
+
+test('an approval followed by a step nobody approves prints each next step once, whichever lists its result joins [paid run, 2026-11-15]', async () => {
+  const { attachContinuation } = await import('../src/narration/continuation.mjs');
+  const { commandResult, effects, plannedAction, succeeded } = await import('../src/narration/command-result.mjs');
+  const { renderCommandResult } = await import('../src/narration/render-terminal.mjs');
+  // A quick-design Story: the scope (intake) approved, the design just approved, and the code step after it, which nobody approves.
+  const phase = (id, label, status, generation, approvalPolicy = { agents: ['architect'], minimum: 1 }) => ({
+    id, label, status, generation, requiredArtifact: { path: `artifacts/${id}/${id}.md` }, defaultAgent: 'architect', approvalPolicy });
+  const story = (current, statuses) => ({
+    workItem: { id: 'QD-1', branch: 'QD-1', workType: 'quick-design', workTypeLabel: 'Quick design', source: { type: 'manual' } },
+    status: 'in_progress', currentPhase: current, phaseOrder: ['intake', 'fix-design', 'implement', 'verify'], history: [],
+    resolution: { obligationGraph: { nodes: [{ id: 'intake', responsibilities: ['scope'] }] } },
+    phases: { intake: phase('intake', 'Intake', 'approved', 1), 'fix-design': phase('fix-design', 'Fix design', statuses[0], 1),
+      implement: phase('implement', 'Implement', statuses[1], 0, { mode: 'none' }), verify: phase('verify', 'Verify', 'not_started', 0, { mode: 'none' }) } });
+  const after = story('implement', ['approved', 'in_progress']);
+  const before = story('fix-design', ['awaiting_approval', 'not_started']);
+  const AMEND = /If the approved intent must change, propose a reviewed amendment/gu;
+  const asNext = (steps) => steps.map((step, index) => plannedAction({ id: `step-${index}`, label: step.reason, command: step.command,
+    rank: { now: 'NOW', then: 'SOON', alternative: 'LATER' }[step.timing] ?? 'LATER', kind: 'workflow' }, step.skill));
+  // The approval's own list and the list of the step after it, joined into one result: each item once, wherever it stood.
+  const joined = [...asNext(workflowNextSteps(before)), ...asNext(workflowNextSteps(after))];
+  assert.ok(joined.filter((entry) => AMEND.test(entry.label)).length >= 2, 'the shape joins the amendment route twice');
+  const result = commandResult({ operation: { id: 'approve', classification: 'mutation' }, subject: { kind: 'story', id: 'QD-1' },
+    outcome: succeeded('approve.succeeded', { phase: 'fix-design', next: 'implement', reached: true }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), next: joined, data: {} });
+  assert.equal((renderCommandResult(result).match(AMEND) ?? []).length, 1, renderCommandResult(result));
+  const keys = result.next.map((entry) => `${entry.command}|${entry.label}`);
+  assert.equal(new Set(keys).size, keys.length);
+  // The approval's own continuation, from the Story as it is after it: the same.
+  const continued = attachContinuation(commandResult({ operation: { id: 'approve', classification: 'mutation' }, subject: { kind: 'story', id: 'QD-1' },
+    outcome: succeeded('approve.succeeded', { phase: 'fix-design', next: 'implement', reached: true }),
+    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }), data: {} }), { postState: after, modelMode: { enabled: false } });
+  const printed = renderCommandResult(continued);
+  assert.equal((printed.match(AMEND) ?? []).length, 1, printed);
+  assert.match(printed, /After implement submission completes its no-approval phase, generate and publish Verify/u);
+});

@@ -99,11 +99,15 @@ The channel is web. Check existing behavior first; a web Story closes after a hu
   const unasked = run(process.execPath, [path.join(ROOT, 'bin/singularity-flow.mjs'), '--no-model', 'submit', PHASES[0]], { allowFailure: true });
   assert.match(unasked.stderr + unasked.stdout, /--decision channel=<web\|mobile>/u, 'the step that knows the channel records it');
   cli('submit', PHASES[0], '--decision', 'channel=web');
-  // The step that defines the scope is approved once each statement is dispositioned [PHR:REQ-002].
-  for (const item of JSON.parse(cli('evidence', 'scope', '--json')).data.scope.items.filter((entry) => entry.disposition === 'unresolved')) {
-    cli('decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'REUSE-1:AC-001',
+  // The step that defines the scope is approved once each statement is dispositioned [PHR:REQ-002]. Its short clause ID
+  // names the one clause it ends with, recorded in full (stage 7 run, 2026-11-15: `--clause REQ-001` was refused).
+  const unresolved = JSON.parse(cli('evidence', 'scope', '--json')).data.scope.items.filter((entry) => entry.disposition === 'unresolved');
+  assert.ok(unresolved.length, 'the scope step has a statement to disposition');
+  for (const item of unresolved) {
+    cli('decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'AC-001',
       '--reason', 'The requested title check is carried by the exact approved title acceptance criterion.');
   }
+  assert.deepEqual([...new Set((await readState()).scopeDispositions.flatMap((entry) => entry.clauseIds))], ['REUSE-1:AC-001']);
   cli('approve', PHASES[0], '--yes');
   assert.equal((await readState()).currentPhase, PHASES[1]);
   // A person published intake with a recorded answer: the gate re-checks that bound record too, and

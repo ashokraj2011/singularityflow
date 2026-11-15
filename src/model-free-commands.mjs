@@ -19,20 +19,23 @@ export const VSCODE_DECIDE_CARD = 'Command Palette: Singularity Flow: Decide Eve
 const decideCard = (t) => t[0] === 'decisions' && /^(?: --work-id)? [A-Za-z0-9][\w.-]*$|^$/u.test(t.slice(t[1] === 'record' ? 2 : 1)
   .filter((v) => !['--fetch', '--for-agent'].includes(v)).map((v) => ` ${v}`).join(''));
 
-/** A person's own step the card records as the same decision [owner, 2026-11-13]: Copilot and VS Code open the card. */
-export const decideCardStep = ([top, sub, verb] = []) => (top === 'story' && sub === 'intent-amendment' && ['decide', 'acknowledge'].includes(verb))
-  || (top === 'decisions' && sub === 'undo');
+/**
+ * A person's own step the Decide card records or opens [owner, 2026-11-13 and 2026-11-15]: an amendment's decision or
+ * acknowledgement, a settled one's undo, an accepted risk, test-run risk or test command, and a sign-off. Its Copilot route is the card, which /sf-decide opens; no turn runs the command, which stays the person's.
+ */
+export const decideCardStep = ([top, sub, verb, ...rest] = []) => (top === 'story' && sub === 'intent-amendment' && ['decide', 'acknowledge'].includes(verb))
+  || (top === 'decisions' && sub === 'undo') || (top === 'decision' && ![verb, ...rest].includes('--revoke')
+    && (['risk', 'test-risk', 'test-narrowing', 'evidence-reuse', 'visual-profile', 'witness'].includes(sub) || (sub === 'test-command' && [verb, ...rest].includes('--accept'))));
 /** Its Copilot route: /sf-decide with the Story it names. */
 export function decideCardCopilotCommand(argv) {
-  const named = argv.includes('--work-id') ? argv[argv.indexOf('--work-id') + 1] : argv[1] === 'undo' ? argv[2] : null;
+  const named = argv.includes('--work-id') ? argv[argv.indexOf('--work-id') + 1] : ['decision', 'decisions'].includes(argv[0]) ? argv[2] : null;
   return `/sf-decide${ID.test(named ?? '') ? ` ${named}` : ''}`;
 }
 // What the card records with no model, as decision-list.mjs EFFECT_ORDER (paid run, 2026-11-14); a plan's row
-// correction is a live terminal review, and a test command's revocation is not on the card.
+// correction is a live terminal review, and a revocation is not on the card.
 const cardRecords = (t) => decideCardStep(t) || (t[0] === 'upstream-issue' && ['decide', 'revalidate'].includes(t[1]))
   || (t[0] === 'story' && t[1] === 'adjudicate' && /^[A-Za-z]/u.test(t[2] ?? '') && !t.includes('--answers'))
-  || (t[0] === 'decision' && (['choose', 'applicability', 'scope', 'completeness', 'plan', 'departure', 'risk', 'test-risk', 'test-narrowing',
-    'evidence-reuse', 'visual-profile'].includes(t[1]) || (t[1] === 'test-command' && t.includes('--accept')))
+  || (t[0] === 'decision' && ['choose', 'applicability', 'scope', 'completeness', 'plan', 'departure'].includes(t[1])
     && !t.some((v) => /^--(?:add-row|remove-row|set-fulfillment|(?:add|remove|replace)-test|(?:remove|replace)-location)\b/u.test(v)));
 /** A sign-off's VS Code route: the review page that shows the evidence and records it. */
 export const VSCODE_WITNESS_REVIEW = 'Command Palette: Singularity Flow: Review Story Evidence and Sign Off';
@@ -40,8 +43,8 @@ export const VSCODE_WITNESS_REVIEW = 'Command Palette: Singularity Flow: Review 
 export function modelFreeCommandForArgv(argv) {
   if (!Array.isArray(argv) || argv.some((value) => typeof value !== 'string')) return null;
   const tokens = argv.filter((value) => value !== '--json');
-  if (decideCard(tokens) || cardRecords(tokens)) return VSCODE_DECIDE_CARD;
   if (tokens[0] === 'decision' && tokens[1] === 'witness') return VSCODE_WITNESS_REVIEW;
+  if (decideCard(tokens) || cardRecords(tokens)) return VSCODE_DECIDE_CARD;
   const [top, operation] = tokens;
   const exact = (expected) => tokens.length === expected.length && tokens.every((value, i) => value === expected[i]);
   for (const [route, expected] of [
@@ -80,9 +83,12 @@ export function modelFreeCommandForArgv(argv) {
 }
 
 export function modelFreeCommandForCommand(command) {
-  // Strict literal grammar here. The shared safe-command boundary handles quoted argv separately.
-  if (typeof command !== 'string' || !/^(?:singularity-flow|sflow)\s+[A-Za-z0-9._ -]+$/u.test(command)) return null;
-  return modelFreeCommandForArgv(command.trim().split(/\s+/u).slice(1));
+  // Strict literal grammar here. The shared safe-command boundary handles quoted argv separately. The card's routes name
+  // no argument, so a quoted reason does not hide them.
+  if (typeof command !== 'string' || !/^(?:singularity-flow|sflow)\s/u.test(command)) return null;
+  const argv = command.trim().split(/\s+/u).slice(1);
+  if (/^(?:singularity-flow|sflow)\s+[A-Za-z0-9._ -]+$/u.test(command)) return modelFreeCommandForArgv(argv);
+  return argv[0] === 'decision' && argv[1] === 'witness' ? VSCODE_WITNESS_REVIEW : cardRecords(argv) ? VSCODE_DECIDE_CARD : null;
 }
 
 /** Layout only: callers still validate untrusted routes and retain their existing execution gates. */

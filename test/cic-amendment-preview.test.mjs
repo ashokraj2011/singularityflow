@@ -20,6 +20,7 @@ import YAML from 'yaml';
 import { loadActiveSpecRecords } from '../src/specifications.mjs';
 import { staleClausesOf } from '../src/scope/revisions.mjs';
 import { amendmentEffectWords, amendmentRepeatWords } from '../src/decision-list.mjs';
+import { resolveClauseIds, unresolvedClauseWords } from '../src/clause-id-resolution.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 
@@ -72,7 +73,7 @@ async function fixture(t) {
     `| \`${id}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified | The test reads 2. |`,
     `| \`${id}:AC-002\` | \`src/value.mjs\` | \`test/value.test.mjs\` | existing | One export remains. |`, '',
     '## Out of scope', '', 'Nothing else changes in the module or its interface.', ''].join('\n');
-  const designed = async (id) => {
+  const designed = async (id, { approve = true } = {}) => {
     sflow('start', id, '--from-branch', 'main', '--work-type', 'quick-design', '--title', 'Change the value', '--description', 'Return 2.');
     sflow('prepare', 'intake');
     await writeFile(itemPath(id, 'artifacts/intake/intake.md'), intake(id));
@@ -86,7 +87,7 @@ async function fixture(t) {
       '## Alternatives and regression risk', '', 'A computed value was rejected as unnecessary; the only regression surface is the one test that reads it.', ''].join('\n'));
     sflow('phase', 'publish', 'fix-design', '--authored', 'human', '--channel', 'manual-in-place');
     sflow('submit', 'fix-design');
-    sflow('approve', 'fix-design', '--yes');
+    if (approve) sflow('approve', 'fix-design', '--yes');
   };
   const workflow = async (id) => JSON.parse(await readFile(itemPath(id, 'workflow.json'), 'utf8'));
   // Every file under the Story with its bytes' digest, and the checkout's commit and status: what a read must leave as it was.
@@ -128,6 +129,48 @@ test('every surface says the effect in one set of words: why a step is reopened 
 });
 
 /** What approving did to each step after the scope, as the Story records it, in the preview's own terms. */
+// The stage 7 Copilot CLI run (2026-11-15): `intent-amendment draft --work-id RTY-1 --clause REQ-001` was refused with
+// "The approved specification has no clause REQ-001", though RTY-1:REQ-001 is the Story's own clause.
+test('a short clause ID names the one clause it ends with; one that names several, or none, is refused with the full IDs it could mean', () => {
+  const known = ['RTY-1:REQ-001', 'RTY-1:REQ-002', 'TOY-1:REQ-002'];
+  assert.deepEqual(resolveClauseIds(['REQ-001', 'rty-1:req-002', 'RTY-1:REQ-001'], known), { resolved: ['RTY-1:REQ-001', 'RTY-1:REQ-002'], unresolved: [] });
+  const { resolved, unresolved } = resolveClauseIds(['REQ-002', 'REQ-009', 'XX-1:REQ-001'], known);
+  assert.deepEqual(resolved, []);
+  assert.deepEqual(unresolved, [{ id: 'REQ-002', candidates: ['RTY-1:REQ-002', 'TOY-1:REQ-002'] }, { id: 'REQ-009', candidates: [] },
+    { id: 'XX-1:REQ-001', candidates: ['RTY-1:REQ-001'] }], 'a full ID of another namespace is never taken for this one');
+  assert.equal(unresolvedClauseWords(unresolved, known, { what: 'the approved specification' }),
+    'REQ-002 could mean RTY-1:REQ-002 or TOY-1:REQ-002; name it in full. REQ-009 is not a clause of the approved specification. '
+    + 'XX-1:REQ-001 could mean RTY-1:REQ-001; name it in full. Its clauses: RTY-1:REQ-001, RTY-1:REQ-002, TOY-1:REQ-002.');
+});
+
+test('drafting and proposing take the short clause ID of the Story\'s own clause, and an unknown one is refused with its clauses [CIC:REQ-015]', slowLane({ timeout: 600_000 }), async (t) => {
+  const f = await fixture(t);
+  await f.designed('RTY-1');
+  const drafted = JSON.parse(f.sflow('story', 'intent-amendment', 'draft', '--work-id', 'RTY-1', '--clause', 'AC-001', '--json'));
+  assert.deepEqual(drafted.clauses, ['RTY-1:AC-001']);
+  assert.match(await readFile(drafted.path, 'utf8'), /RTY-1:AC-001/u);
+  // One that names no clause: refused, nothing drafted, with the clauses there are.
+  const unknown = f.run(process.execPath, [cli, '--no-model', 'story', 'intent-amendment', 'draft', '--work-id', 'RTY-1', '--clause', 'AC-009', '--json']);
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stdout + unknown.stderr, /INTENT_AMENDMENT_DRAFT_CLAUSE_UNKNOWN/u);
+  assert.match(unknown.stdout + unknown.stderr, /AC-009 is not a clause of the approved specification\. Its clauses: RTY-1:AC-001, RTY-1:AC-002\./u);
+  // A full ID of another namespace names the Story's own clause it could mean, as the route to run.
+  const foreign = f.run(process.execPath, [cli, '--no-model', 'story', 'intent-amendment', 'draft', '--work-id', 'RTY-1', '--clause', 'RTY-9:AC-002', '--json']);
+  assert.notEqual(foreign.status, 0);
+  assert.match(foreign.stdout + foreign.stderr, /RTY-9:AC-002 could mean RTY-1:AC-002; name it in full\. Run singularity-flow story intent-amendment draft --work-id RTY-1 --clause RTY-1:AC-002\./u);
+  // Proposed with the short ID of the clause it changes.
+  const draft = path.join(f.base, 'RTY-1-amended.md');
+  await writeFile(draft, (await readFile(f.itemPath('RTY-1', 'artifacts/intake/intake.md'), 'utf8'))
+    .replace('The exported value equals 2, in', 'The exported value equals 2 and is a number, in'));
+  const proposed = JSON.parse(f.sflow('story', 'intent-amendment', 'propose', '--work-id', 'RTY-1', '--file', draft, '--clause', 'AC-001',
+    '--reason', 'Say the value is numeric.', '--json'));
+  assert.deepEqual(proposed.proposal.requiredClauses, ['RTY-1:AC-001']);
+  // A change request names the clause the same way: returning the submitted design cites the clause it must answer.
+  await f.designed('RTY-2', { approve: false });
+  f.sflow('reject', 'fix-design', '--work-id', 'RTY-2', '--to', 'fix-design', '--clause', 'AC-002', '--reason', 'The design must say the export stays single.');
+  assert.deepEqual((await f.workflow('RTY-2')).changeRequests.at(-1).clauseIds, ['RTY-2:AC-002']);
+});
+
 function applied(story, scope = 'intake') {
   const order = story.phaseOrder.slice(story.phaseOrder.indexOf(scope) + 1);
   return order.map((phase) => [phase, story.phases[phase].retention?.rule === 'E8' ? 'kept'

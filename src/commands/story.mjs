@@ -1687,6 +1687,26 @@ export async function recordConvergenceAnswers(root, config, { workId, answers, 
 }
 
 /** The one write of a person's adjudications: named on the command line, or answered on a table bound to `expect`. */
+/**
+ * Each adjudication's clauses as the Story's specification writes them: a short ID (`--clause REQ-001`) is the one
+ * clause it ends with, and one ending several is refused with their full IDs (stage 7 run, 2026-11-15). Any other ID
+ * is kept as typed; `intent-amendment draft` names the clauses there are when it meets one the scope lacks.
+ */
+async function adjudicatedClauses(root, config, workflow, decisions) {
+  if (!decisions.some((decision) => (decision.clauseIds ?? []).some((id) => !String(id).includes(':')))) return decisions;
+  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const known = [...new Set((records.indexes ?? []).flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))];
+  const { resolveClauseIds, unresolvedClauseWords } = await import('../clause-id-resolution.mjs');
+  return decisions.map((decision) => {
+    const { resolved, unresolved } = resolveClauseIds(decision.clauseIds, known);
+    const unclear = unresolved.filter((entry) => entry.candidates.length && !entry.id.includes(':'));
+    if (unclear.length) {
+      throw new SingularityFlowError(`${decision.itemId}: ${unresolvedClauseWords(unclear, known, { what: 'the approved specification' })}`, { code: 'ADJUDICATION_CLAUSE_AMBIGUOUS', details: { itemId: decision.itemId, unresolved: unclear } });
+    }
+    return { ...decision, clauseIds: [...resolved, ...unresolved.map((entry) => entry.id)] };
+  });
+}
+
 function writeAdjudications(root, config, options, { answers, itemIds, expect }) {
   return withConvergenceDraft(
     root,
@@ -1719,10 +1739,10 @@ function writeAdjudications(root, config, options, { answers, itemIds, expect })
 
       const at = nowIso();
       const actor = authority.actor;
-      const decisions = (answers ?? itemIds.map((itemId) => ({ itemId, disposition: optionString(options, 'disposition'),
+      const decisions = await adjudicatedClauses(root, config, workflow, (answers ?? itemIds.map((itemId) => ({ itemId, disposition: optionString(options, 'disposition'),
         classification: optionString(options, 'classification') ?? null, reason: optionString(options, 'reason'), clauseIds: optionStrings(options, 'clause') })))
         .map((entry) => ({ itemId: entry.itemId, disposition: entry.disposition, classification: entry.classification ?? null,
-          reason: entry.reason, clauseIds: entry.clauseIds ?? [], actor: actorKey(actor), at }));
+          reason: entry.reason, clauseIds: entry.clauseIds ?? [], actor: actorKey(actor), at })));
       const earlier = new Map((existing.findings ?? []).map((finding) => [finding.itemId, findingAdjudication(finding)]));
       // The same answer again records nothing: a second run used to replace the first and say "Recorded".
       const known = new Map([...(existing.facts ?? []), ...(existing.settledByPlan ?? []), ...(existing.candidateSnapshot ?? [])].map((item) => [item.id, item]));
@@ -1932,7 +1952,26 @@ export async function draftIntentAmendment(root, config, workflow, options, { ro
     if (!revisions.has(id)) revisions.set(id, []);
     if (why) revisions.get(id).push(why);
   };
-  for (const clauseId of optionStrings(options, 'clause')) revise(clauseId);
+  // A short clause ID names the one clause it ends with; one that names none, or several, is refused with the full IDs.
+  const typedClauses = optionStrings(options, 'clause');
+  if (typedClauses.length) {
+    const { resolveClauseIds, unresolvedClauseWords } = await import('../clause-id-resolution.mjs');
+    const known = clauses.map((clause) => clause.id);
+    const { resolved, unresolved } = resolveClauseIds(typedClauses, known);
+    if (unresolved.length) {
+      // One route for each full ID a short one could mean, the others as they resolved; none for an ID that names no clause.
+      const out = optionString(options, 'out');
+      const route = (ids) => ['singularity-flow story intent-amendment draft', `--work-id ${workId}`, ...ids.map((id) => `--clause ${id}`), ...(out ? [`--out ${/\s/u.test(out) ? JSON.stringify(out) : out}`] : [])].join(' ');
+      const choices = typedClauses.map((typed) => unresolved.find((entry) => entry.id === String(typed).trim())?.candidates ?? resolveClauseIds([typed], known).resolved);
+      const actions = choices.every((ids) => ids.length)
+        ? choices.reduce((sets, ids) => sets.flatMap((set) => ids.map((id) => [...set, id])), [[]]).slice(0, 6)
+          .map((ids) => ({ command: route([...new Set(ids)]), label: `Draft it for ${[...new Set(ids)].join(', ')}.` })) : [];
+      throw new SingularityFlowError(`${unresolvedClauseWords(unresolved, known, { what: 'the approved specification' })}`
+        + `${actions.length ? ` Run ${actions.map((action) => action.command).join(', or ')}.` : ''}`, {
+        code: 'INTENT_AMENDMENT_DRAFT_CLAUSE_UNKNOWN', details: { workId, unresolved, actions } });
+    }
+    for (const clauseId of resolved) revise(clauseId);
+  }
   // A row's verdict, what differs and the person's reason go into its slot, redacted first [SCS:CON-006].
   const rowContext = new Map();
   if (rows.length) {
@@ -2160,7 +2199,11 @@ async function proposeIntentAmendment(root, config, workflow, options, { given =
     { afterClauses, diff, options, operations: given ? planRows.carriedOperations(given.planCorrections) : null, proposalId: id, reason, file: candidate });
   if (uncovered.length) throw planRows.uncorrectedPlanRefusal(workflow, uncovered, { file: candidate });
   // A refresh discloses the clauses the same bytes change against the scope as it is now.
-  const requiredClauses = intentAmendmentClauses(diff, given ? [] : optionStrings(options, 'clause'));
+  // A short clause ID names the one changed or amended clause it ends with (clause-id-resolution.mjs).
+  const typedClauses = given ? [] : optionStrings(options, 'clause');
+  const namedClauses = typedClauses.length ? (await import('../clause-id-resolution.mjs')).resolveClauseIds(typedClauses,
+    [...diff.changed, ...afterClauses.map((clause) => clause.id), ...beforeClauses.map((clause) => clause.id)]) : null;
+  const requiredClauses = intentAmendmentClauses(diff, namedClauses ? [...namedClauses.resolved, ...namedClauses.unresolved.map((entry) => entry.id)] : []);
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
   const radius = intentAmendmentBlastRadius(diff, records);
   // Proposals carry Git identity and exact reviewed bytes. Only the scope's existing authorized

@@ -123,6 +123,37 @@ test('/sf-amend holds its proposal to the person\'s yes the same way, on both ho
     'singularity-flow story intent-amendment acknowledge AMD-001 --work-id CHAT-1']) assert.equal((await f.run(yes, command)).permissionDecision, 'deny', command);
 });
 
+// A real Copilot CLI /sf-amend (stage 7, 2026-11-15) asked "Propose it?" as chat text and ended its turn. Asked with
+// ask_user, Copilot CLI sends the preview's summary as `message` with a Yes/No form, and hands back "User responded: Yes".
+test('/sf-amend\'s "Propose it?" asked with Copilot CLI\'s ask_user form proposes on its Yes in that same turn, and a typed reply still does [CIC:AC-015]', async (t) => {
+  const f = await fixture(t);
+  const REASON = 'Retries go to five; the business wants it.';
+  const ask = { message: 'This changes CHAT-1:REQ-001: retries go from three to five. Small, one clause: design is redone, intake is kept, and a scope approver decides. Propose it?',
+    requestedSchema: { properties: { choice: { type: 'string', enum: ['Yes', 'No'] } } } };
+  const asked = async (payload, toolArgs, reply) => {
+    assert.notEqual((await repositoryToolGuard({ ...payload, toolName: 'ask_user', toolArgs })).permissionDecision, 'deny', 'asking is never refused');
+    await repositoryPostToolGuard({ ...payload, toolName: 'ask_user', toolArgs, toolResult: { textResultForLlm: reply, resultType: 'success' } });
+  };
+  const yes = await f.enter(`/sf-amend CHAT-1 ${REASON}`, 'amend-form-yes');
+  await asked(yes, ask, 'User responded: Yes');
+  assert.deepEqual(await f.run(yes, PROPOSE), {});
+  // The same form handed as JSON text reads the same.
+  const text = await f.enter(`/sf-amend CHAT-1 ${REASON}`, 'amend-form-text');
+  await asked(text, JSON.stringify(ask), 'User responded: Yes');
+  assert.deepEqual(await f.run(text, PROPOSE), {});
+  // Its No proposes nothing, and a Yes to another question is no yes to proposing.
+  const no = await f.enter(`/sf-amend CHAT-1 ${REASON}`, 'amend-form-no');
+  await asked(no, ask, 'User responded: No');
+  assert.match((await f.run(no, PROPOSE)).permissionDecisionReason ?? '', /did not say yes to proposing it: propose nothing/u);
+  const other = await f.enter(`/sf-amend CHAT-1 ${REASON}`, 'amend-form-other');
+  await asked(other, { ...ask, message: 'Is CHAT-1 the right Story?' }, 'User responded: Yes');
+  assert.match((await f.run(other, PROPOSE)).permissionDecisionReason ?? '', /proposed only on the person's own yes/u);
+  // Asked in chat text after all, the person's typed Yes is their next prompt: that plain follow-up still proposes.
+  await f.enter(`/sf-amend CHAT-1 ${REASON}`, 'amend-typed');
+  const typed = await f.enter('Yes', 'amend-typed');
+  assert.deepEqual(await f.run(typed, PROPOSE), {});
+});
+
 test('VS Code\'s own chat, whose answers may not reach SFlow, is told to propose in the person\'s own terminal [CIC:AC-015]', async (t) => {
   const f = await fixture(t);
   const payload = await f.enter('/sf-reject intent-amendment propose CHAT-1', 'local');
@@ -154,9 +185,11 @@ test('deciding and acknowledging stay the person\'s in the chat entry, and witho
 
 test('both skills show the preview in plain words, ask, and propose only after the person\'s own yes [CIC:AC-015, REQ-015]', async () => {
   const reject = await readFile(new URL('../plugin/skills/sflow-reject/SKILL.md', import.meta.url), 'utf8');
-  assert.match(reject, /in plain words\n\s+\(what changes, its size and why, what is redone or kept, who decides\) and ask "Propose it\?"\. Only on their Yes run/u);
+  assert.match(reject, /in plain words\n\s+\(what changes, its size and why, what is redone or kept, who decides\) and `ask_user` "Propose it\?" \(Yes, No\)\. On their Yes, in this turn, run/u);
   const amend = await readFile(new URL('../plugin/skills/sflow-amend/SKILL.md', import.meta.url), 'utf8');
-  assert.match(amend, /in plain words \(what changes, its size and why, what is redone or kept, who decides\) and ask "Propose it\?"\. It records nothing\.\n4\. Propose only on their Yes/u);
+  // Asked with the question tool in the preview's own response, never as chat text that ends the turn [stage 7 run, 2026-11-15].
+  assert.match(amend, /in plain words \(what changes, its size and why, what is redone or kept, who decides\) and, in the same response, `ask_user` "Propose it\?" \(Yes, No\), never as chat text\. It records nothing\.\n4\. Propose only on their Yes, in this same turn,/u);
+  for (const skill of [reject, amend]) assert.match(skill, /Where the steps say ask_user, use your host's question tool: ask_user in the Copilot CLI, vscode_askQuestions in VS Code/u);
   for (const skill of [reject, amend]) {
     assert.match(skill, /--reason "<THEIR WORDS>"/u);
     assert.match(skill, /[Nn]ever decide or acknowledge here/u);

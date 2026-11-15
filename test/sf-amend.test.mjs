@@ -151,7 +151,8 @@ test('drafting and proposing route to /sf-amend propose; reading, deciding and a
   for (const command of [`singularity-flow story intent-amendment status --work-id ${WORK} --json`, `singularity-flow story intent-amendment preview AMD-001 --work-id ${WORK}`,
     `singularity-flow story intent-amendment --work-id ${WORK}`, DECIDE, ACKNOWLEDGE]) {
     assert.equal(commandLineWithoutSkill(command), true, command);
-    assert.equal(copilotCommandForCommand(command, '/sf-amend'), null, command);
+    // Deciding and acknowledging are the person's on the Decide card, which /sf-decide opens; a supplied skill changes nothing.
+    assert.equal(copilotCommandForCommand(command, '/sf-amend'), [DECIDE, ACKNOWLEDGE].includes(command) ? `/sf-decide ${WORK}` : null, command);
   }
   // nextsteps and the guide offer the dedicated route wherever proposing can succeed.
   const offered = workflowGuide(story()).nextActions.find((action) => action.command.includes('intent-amendment propose'));

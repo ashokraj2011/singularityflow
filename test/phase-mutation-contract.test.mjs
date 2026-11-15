@@ -707,7 +707,7 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
     assert.equal(denied.permissionDecision, 'deny', command);
   }
   const reuse = await shell(decide, `singularity-flow decisions record PMC-1 --choose d1=reuse --confirm ${digest}`);
-  assert.match(reuse.permissionDecisionReason, /recording the decision list is the person's own step: they run the exact decisions record command in their own terminal/u);
+  assert.match(reuse.permissionDecisionReason, /recording the decision list is the person's own step: they record it on the Decide card \(\/sf-decide PMC-1 opens it\) or run the exact decisions record command in their own terminal/u);
   for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel']]) {
     const payload = await f.enter(skill, mode ?? undefined);
     assert.deepEqual(await shell(payload, 'singularity-flow decisions PMC-1 --json'), {}, `${skill} may read the list`);
@@ -796,7 +796,7 @@ test('no agent turn accepts that a step\'s tests cannot run here or ran narrowed
     for (const command of [accept, revoke, drift, reuse, unreuse, notApplicable, applicable, narrowed, unnarrowed]) {
       const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
-      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);
+      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal or, where the Decide card lists it, on the card \(\/sf-decide PMC-1 opens it\), not by this turn/u, skill);
     }
   }
 });
@@ -866,7 +866,7 @@ test('an agent may request a Story-only test command, but only a person who appr
     for (const command of [accept, revoke]) {
       const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
-      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);
+      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal or, where the Decide card lists it, on the card \(\/sf-decide PMC-1 opens it\), not by this turn/u, skill);
     }
   }
 });
@@ -3069,9 +3069,11 @@ test('a person\'s own step that a turn refuses shows that exact command for thei
   const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   assert.equal(denied.permissionDecision, 'deny');
   assert.equal(denied.next.length, 1);
-  assert.equal(denied.next[0].copilotCommand, null);
+  // An accepted risk is the Decide card's [owner, 2026-11-15]: /sf-decide opens it, and the same line stays theirs in a terminal.
+  assert.equal(denied.next[0].copilotCommand, '/sf-decide PMC-1');
   assert.match(denied.next[0].command, /^singularity-flow decision risk PMC-1 /u);
-  assert.match(denied.permissionDecisionReason, /- Copilot: no verified equivalent\n- Shell: singularity-flow decision risk PMC-1/u);
+  assert.match(denied.permissionDecisionReason, /- Copilot: \/sf-decide PMC-1\n- Shell: singularity-flow decision risk PMC-1/u);
+  assert.match(denied.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: [^]*for an accepted risk, on the Decide card \(\/sf-decide PMC-1 opens it\)/u);
   // A witness has a page: /sf-decide opens it, and the same line stays theirs in a terminal.
   const witness = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow decision witness PMC-1 --criterion PMC-1:AC-001 --slot screen --file evidence/screen.png --confirm states-the-outcome --reason "Looked at it."', cwd: f.root } });
   assert.equal(witness.permissionDecision, 'deny');

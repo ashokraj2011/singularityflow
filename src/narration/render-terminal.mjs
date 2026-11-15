@@ -6,7 +6,7 @@
  * a reassuring sentence that its own effects contradict.
  */
 import { MESSAGES, REASONS } from './messages.mjs';
-import { preservedEverything } from './command-result.mjs';
+import { distinctNext, preservedEverything } from './command-result.mjs';
 import { approvalChainText } from '../approval-chain.mjs';
 import { matrixText } from '../evidence/matrix.mjs';
 import { contextXrayText } from '../context-xray.mjs';
@@ -64,7 +64,7 @@ function nextLines(result) {
   const order = { NOW: 0, SOON: 1, LATER: 2 };
   // Within a rank the producer's order stands (the sort is stable): a planner lists publish,
   // submit, then approve, and sorting by id put approve first and "Cancel this Story" before all.
-  return [...result.next]
+  return distinctNext([...result.next])
     .sort((a, b) => order[a.rank] - order[b.rank])
     // Every continuation names its supported entry points. Keeping the labels explicit prevents a
     // terminal command from being mistaken for the only supported route, and prevents Copilot from

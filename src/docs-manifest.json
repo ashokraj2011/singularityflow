@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "271f902a32bee9764cc03d96fa7caf76ad0b0866",
+  "sourceCommit": "b98049548d873c76ee994c5f58c755307382c7e0",
   "topicCount": 93,
-  "contentSha256": "ae542ecb8639e639040eca9ce7a1635f667326b6f7ed72b43deb605b8c7fdd2f",
+  "contentSha256": "df7e4b39e81e5a4f7a7515f077c2a7603b00a5bba861a8a6afccc70d7dd07171",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -104,8 +104,8 @@
     {
       "id": "changing-requirements",
       "title": "Changing requirements during a Story",
-      "version": 10,
-      "sha256": "34810281d9d55ccd50180d21db019d025cd251c5696c9a338275199e944087f1",
+      "version": 11,
+      "sha256": "02a8e18b70aeb4e1da765aba4d025fe684b662ea7b9f4ff6caa2adc8fec72940",
       "routingSha256": "64314b6dc7f635ef14f41c4b145a9d5963f640824e91d54eb0ca92815f6c0ff5",
       "file": "changing-requirements.md"
     },
@@ -152,8 +152,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 38,
-      "sha256": "6151a8b4ee52e5c7d2b9cf9e564d848d7656a05373c30875ff9fe606b1a70123",
+      "version": 39,
+      "sha256": "9320e696eb73b3244187009b752c87bce0c022defd20bdf5557c7600262882d8",
       "routingSha256": "14011e1a77264ded7e0f568428968ef1c70e1e606771a4e8fffe05b437ea112c",
       "file": "copilot-and-surfaces.md"
     },
@@ -232,8 +232,8 @@
     {
       "id": "evidence-matrix",
       "title": "Evidence matrix for requirements and acceptance criteria",
-      "version": 36,
-      "sha256": "044c0ef739abbc3f954a959df531d639e2ff3ed4cc28a4de39fdd146bb49679a",
+      "version": 37,
+      "sha256": "8f56c2192863669d75febf38d70c9ef15383cb5fc60669b466507c99f1b0b48d",
       "routingSha256": "761b11f1f6d8631724a9bde3bd6e402e7d9841bd2a9a456c226a69984f1c1f6d",
       "file": "evidence-matrix.md"
     },
@@ -664,16 +664,16 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 43,
-      "sha256": "3ea010a681d6c57559504b46c299eebdd9086da4f4d85d51a710016da6d93bd8",
+      "version": 44,
+      "sha256": "c8b2dec268ab3f2e178ed64d3e285f2fe0471122de51f3eeef6407aa6b37bc68",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },
     {
       "id": "visual-verification",
       "title": "Visual verification for mobile",
-      "version": 5,
-      "sha256": "d85ee8a84999f12aae3405d74d24cf98708c2901d740bd4a5dc1a9fb0a02daee",
+      "version": 6,
+      "sha256": "06dd92d2a7707a1dc937b26cdb8a00bd81e512970714f1580e55a21158a0ef72",
       "routingSha256": "2e2011faa98461dbf16f975ee882a4539944aba6dfb1ed908f47f4b825aaf423",
       "file": "visual-verification.md"
     },

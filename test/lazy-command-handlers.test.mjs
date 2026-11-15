@@ -614,7 +614,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-lifecycle.mjs +273), an acknowledgement is a person's own step (person-step-catalog.mjs, source-review-policy.mjs),
     // /sf-reject's propose route and the authoring draft (copilot-guidance.mjs, phase-staging-paths.mjs, upstream-routes.mjs).
     // 9,663,250 (measured 9,663,230, commands/phase-lifecycle.mjs): the three above together, set once at the combined measurement.
-    assert.ok(closure.bytes <= 9_663_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,664,300 (measured 9,664,296): SPEC-CIC stage 7's default and the Decide card's Copilot routes for a person's own
+    // steps, measured together where both land (2026-11-15). No new eager file.
+    assert.ok(closure.bytes <= 9_664_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -918,10 +920,15 @@ test('the common session projection does not import attach, state stores or publ
   // as its VS Code route, and an intent amendment's decision or acknowledgement and a settled one's undo the card as their
   // Copilot route too, read wherever a route is shown (model-free-commands.mjs +1,751, safe-command-guidance.mjs +366)
   // (paid run, 2026-11-14), on top of the 4,253,868 above. No new eager file.
-  // 4,257,100 (measured 4,257,085): SPEC-CIC stage 7 turns change impact on by default and pins it either way, and a work
+  // SPEC-CIC stage 7 turns change impact on by default and pins it either way, and a work
   // type opts out over its repository by the same rule (specifications.mjs +1,134, config.mjs -34; owner, 2026-11-15);
   // the counts and the report section stay lazy (change-impact-counts.mjs). No new eager file.
-  assert.ok(current.bytes <= 4_257_100, `session current loads ${current.bytes} source bytes`);
+  // The person's own steps the Decide card records (an accepted risk, test-run risk or
+  // test command, a reused run, a screen size, a sign-off) have the card as their Copilot route too, wherever a route
+  // is derived (model-free-commands.mjs +629, copilot-guidance.mjs +409, person-step-catalog.mjs +70) [owner, 2026-11-15].
+  // No new eager file.
+  // 4,258,200 (measured 4,258,193): the two above together, measured where both land (2026-11-15).
+  assert.ok(current.bytes <= 4_258_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

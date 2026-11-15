@@ -62,8 +62,10 @@ export function recordScopeDecision(workflow, {
     if (unknown.length) {
       // Say where it looked: "defines no clause" alone read as a broken publication to an agent, which
       // then asked the person to retype the command and got a commit hash as the clause (2026-10-26).
-      throw new SingularityFlowError(`${unknown.join(', ')} ${unknown.length === 1 ? 'is not a clause' : 'are not clauses'} of this Story's approved, submitted or open-draft specification; name clause IDs as it writes them, such as ${knownClauseIds[0] ?? 'STORY:AC-001'}.`, {
-        code: 'SCOPE_CLAUSE_UNKNOWN', details: { unknown, known: knownClauseIds.slice(0, 20) } });
+      // A short ID that names several clauses says which it could mean (clause-id-resolution.mjs resolves one that names one).
+      const could = unknown.map((id) => [id, knownClauseIds.filter((known) => !id.includes(':') && known.toUpperCase().endsWith(`:${id.toUpperCase()}`))]).filter(([, ids]) => ids.length);
+      throw new SingularityFlowError(`${unknown.join(', ')} ${unknown.length === 1 ? 'is not a clause' : 'are not clauses'} of this Story's approved, submitted or open-draft specification; name clause IDs as it writes them, such as ${knownClauseIds[0] ?? 'STORY:AC-001'}.${could.map(([id, ids]) => ` ${id} could mean ${ids.join(' or ')}.`).join('')}`, {
+        code: 'SCOPE_CLAUSE_UNKNOWN', details: { unknown, known: knownClauseIds.slice(0, 20), ...(could.length ? { candidates: Object.fromEntries(could) } : {}) } });
     }
   } else if (linked.length) {
     throw new SingularityFlowError(`A ${disposition} statement is not carried by clauses; leave out --clause.`, { code: 'SCOPE_CLAUSES_UNEXPECTED' });

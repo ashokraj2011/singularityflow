@@ -2085,7 +2085,10 @@ export function parseDecisionAnswers({ choose = [], reason = [], expires = [], c
 function namedClauses(item, text, known) {
   const named = String(text ?? '').split(/[\s,]+/u).filter(Boolean).map((entry) => {
     const upper = entry.toUpperCase();
-    return known.find((id) => id === upper || id.endsWith(`:${upper}`)) ?? upper;
+    // A short ID is the one clause it ends with; one ending several is never guessed (stage 7 run, 2026-11-15).
+    const ending = known.includes(upper) ? [upper] : upper.includes(':') ? [] : known.filter((id) => id.endsWith(`:${upper}`));
+    if (ending.length > 1) refused(`${item.id} names ${entry}, which could mean ${ending.join(' or ')}; name it in full.`, 'DECISIONS_ANSWER_INVALID', { item: item.id, candidates: ending });
+    return ending[0] ?? upper;
   });
   if (!named.length) refused(`Name the clauses that carry ${item.id}.`, 'DECISIONS_ANSWER_INVALID', { item: item.id });
   const unknown = known.length ? named.filter((id) => !known.includes(id)) : [];

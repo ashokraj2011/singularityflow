@@ -40,7 +40,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 6
+version: 7
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -86,7 +86,7 @@ Story PAY-1, "Retry failed card payments", has four steps: Intake (the scope), D
 1. **Choose the route.** AC-001 changes and a new criterion is needed. That is new behaviour: an intent amendment.
 2. **Draft, preview, propose.** Say the change in your own words. The draft is a copy of the approved scope, kept beside the checkout's Git data, never in the Story. Revise AC-001 in its `sflow-draft` slot, and add AC-003 "A fraud decline stops retrying at once." with its plan row. The preview records nothing. Here it says "It adds AC-003 and revises AC-001." and "Design is reopened: it cites AC-001." Implement has never published, so the preview does not name it; it runs again after Design. Then propose it as AMD-001. Implement, the step it was proposed from, pauses until AMD-001 is decided.
    - Copilot: `/sf-amend propose` (`/sf-reject intent-amendment propose` still works)
-   - Shell: `sflow story intent-amendment draft --clause PAY-1:AC-001 --work-id PAY-1`, edit the file it names, then `sflow story intent-amendment preview --file <DRAFT> --work-id PAY-1` and `sflow story intent-amendment propose --file <DRAFT> --reason "<why>" --authored human --work-id PAY-1`
+   - Shell: `sflow story intent-amendment draft --clause PAY-1:AC-001 --work-id PAY-1` (`--clause AC-001` names the same clause; a short ID that could mean several is refused with their full IDs), edit the file it names, then `sflow story intent-amendment preview --file <DRAFT> --work-id PAY-1` and `sflow story intent-amendment propose --file <DRAFT> --reason "<why>" --authored human --work-id PAY-1`
    - VS Code (model-free): not available
 3. **The scope approvers decide.** The card shows each changed clause, who proposed it and what it reaches. Rejecting keeps the scope and every submission as they are. Approving reopens Design.
    - Copilot: `/sf-decide PAY-1` opens the Decide card; Copilot cannot decide for you

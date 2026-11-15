@@ -8323,12 +8323,15 @@ export async function rejectPhase(root, config, workflow, {
   }
   const targetId = target ?? phase.id; if (!upstreamIssue && !phaseCorrectionTargets(phase).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${phaseCorrectionTargets(phase).join(', ')}.`);
   const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
-  const requestedClauses = [...new Set(clauseIds)];
+  let requestedClauses = [...new Set(clauseIds)];
   if (requestedClauses.length) {
     const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
-    const known = new Set(records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)));
-    const unknown = requestedClauses.filter((id) => !known.has(id));
-    if (unknown.length) throw new SingularityFlowError(`Change request references unknown specification clause(s): ${unknown.join(', ')}.`);
+    const known = [...new Set(records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))];
+    // A short clause ID is the one clause it ends with; one that names none, or several, is refused with the full IDs.
+    const { resolveClauseIds, unresolvedClauseWords } = await import('./clause-id-resolution.mjs');
+    const { resolved, unresolved } = resolveClauseIds(requestedClauses, known);
+    if (unresolved.length) throw new SingularityFlowError(`Change request references unknown specification clause(s): ${unresolved.map((entry) => entry.id).join(', ')}. ${unresolvedClauseWords(unresolved, known, { what: 'this Story\'s specification' })}`);
+    requestedClauses = resolved;
   }
   /**
    * Surgical reopen `[SPK:REQ-111]`.

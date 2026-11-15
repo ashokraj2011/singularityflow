@@ -221,6 +221,26 @@ test('failed-start rollback removes a launch checkout that holds only SFlow\'s o
   await assert.rejects(access(worktree), { code: 'ENOENT' });
 });
 
+// The workspaces analysis's finding 2 (WS-2, SCF:REQ-021): a clone directly in the home folder put new Story checkouts in
+// SFlow's own state folder, which a reset clears. No new one is made there.
+test('no new Story checkout is made inside the state folder for a clone directly in the home folder [SCF:REQ-021, WS-2]', async (t) => {
+  const { root } = await repository(t);
+  // The clone sits directly in the home folder, beside SFlow's state folder.
+  const previous = process.env.SINGULARITY_FLOW_HOME;
+  process.env.SINGULARITY_FLOW_HOME = path.join(path.dirname(root), '.singularity-flow');
+  t.after(() => { if (previous === undefined) delete process.env.SINGULARITY_FLOW_HOME; else process.env.SINGULARITY_FLOW_HOME = previous; });
+  const state = path.join(await realpath(path.dirname(root)), '.singularity-flow');
+  await assert.rejects(() => prepareStoryWorktree(root, 'ISO-HOME', { base: 'main' }), (error) => {
+    assert.equal(error.code, 'STORY_WORKTREE_IN_STATE_FOLDER', error.message);
+    assert.match(error.message, /inside Singularity Flow's state folder .*A reset clears that folder, so no checkout is made there/su);
+    assert.equal(error.details.stateFolder, state);
+    assert.equal(error.details.actions.length, 2);
+    return true;
+  });
+  await assert.rejects(access(path.join(state, 'story-worktrees')), { code: 'ENOENT' });
+  assert.equal(git(root, ['branch', '--list', 'sflow-start-*']), '', 'no launch branch was left');
+});
+
 test('failed-start rollback retries one transient worktree lock without discarding work', async (t) => {
   const { root } = await repository(t);
   const prepared = await prepareStoryWorktree(root, 'ISO-TRANSIENT-LOCK', { base: 'main' });

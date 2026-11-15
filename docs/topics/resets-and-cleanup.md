@@ -19,7 +19,7 @@ related:
   - installation-and-upgrades
   - recovery
   - secrets
-version: 11
+version: 12
 ---
 Reset commands have deliberately different scopes. Preview the exact scope and use the confirmation printed by that same mode.
 
@@ -106,6 +106,8 @@ Forget-only removes the workspace registry and active selection, capability lead
 Destructive local reset retains the existing stricter boundary: run it outside every workspace it will delete, and each existing registration must have an exact matching regular workspace manifest. Both modes reject symlink targets and dangerously broad custom directories, stage renames before committing, and roll back moved targets if application fails.
 
 A pending publication is the only record of a commit the remote does not hold yet, and a backup never carries it. `factory-reset`, `reset-all`, destructive `local-reset` and the `fresh-install` reset each refuse while one waits in what they would delete (`FACTORY_RESET_PUBLICATION_PENDING`). The preview names each one, with the clone it waits in and its sync. Run that sync in the named clone, or preview and reset with `--discard-pending-publications` to delete them with the reset. Forget-only deletes no clone, so it never refuses.
+
+Story checkouts are never deleted by `reset-all`, `local-reset` or the `fresh-install` reset. Each preview lists them: the Story worktrees in every workspace, each one the Story index names, and those an earlier build made in `~/.singularity-flow/story-worktrees` for a clone sitting directly in the home folder, a folder the reset otherwise clears. The reset refuses while one holds changed or new files, or commits no remote has yet (`RESET_STORY_CHECKOUT_HAS_WORK`), because afterwards nothing records where it is: commit and publish the work there (`singularity-flow sync <WORK-ID>` in that checkout), or remove what is not needed, then preview again. A Story checkout inside a workspace that destructive `local-reset` or `fresh-install` deletes goes with its clone once it holds no such work. New Story checkouts are never made in the state folder: starting an isolated Story from a clone directly in the home folder is refused (`STORY_WORKTREE_IN_STATE_FOLDER`); move the clone into a folder of its own, or start the Story in the clone itself.
 
 Product uninstall is separate from both reset modes. Uninstall removes executable product surfaces
 and preserves local registrations and bytes; forget-only removes registrations and

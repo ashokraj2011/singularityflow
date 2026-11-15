@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "171eed28031be5b0dd6a05c013e8ab182554f261",
+  "sourceCommit": "5b1fb1ffce5d72136298e19724df392ee998f94c",
   "topicCount": 93,
-  "contentSha256": "5bb2ce467af52d4d09ed79da3aec9d3094468e1153e71eb1037f174f03378edd",
+  "contentSha256": "5c7ab0be6392391e6644ff79f6415ca220083816f0b6ee7fb14864f4f95c4613",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -520,8 +520,8 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 11,
-      "sha256": "5524e58be4055e455f88b780b1860d2dcd8f07da07811c2c2769d2df26a5160b",
+      "version": 12,
+      "sha256": "36c921db602f391f654b8399fb33d4df4c56b254738dd1751d03d24d73402db7",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },

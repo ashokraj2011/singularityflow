@@ -1002,9 +1002,10 @@
     },
     "src/factory-reset.mjs": {
       "counts": {
-        "command-run": 7
+        "command-git": 6,
+        "command-run": 8
       },
-      "digest": "d1844060c44d2669c0e3131c505b3c766b879d6c3a4930b576d34f04c063d863"
+      "digest": "6250dcc7b2a6d06ac07a22b97aef53db8b3d30a19b0a780632ec1019c61fac7e"
     },
     "src/fault-repair.mjs": {
       "counts": {

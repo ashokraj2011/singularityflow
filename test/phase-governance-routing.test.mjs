@@ -39,12 +39,12 @@ test('every eligible seeded downstream step routes pending acknowledgement befor
           assert.equal(readiness.lifecycleReady, false, `${id}/${phaseId}/${status}`);
           assert.equal(readiness.nextCommand, hold.actions[0].command);
           // A person acknowledges it on the decisions card, which /sf-decide opens; the exact command is
-          // theirs in a terminal, with no Copilot route, since no agent turn runs it [owner, 2026-11-13].
+          // theirs in a terminal, whose Copilot route is the same card, since no agent turn runs it [owner, 2026-11-13, 2026-11-15].
           assert.equal(readiness.nextSkill, '/sf-decide');
           assert.deepEqual([hold.actions[0].command, hold.actions[0].skill, hold.actions[0].copilotCommand],
             ['singularity-flow decisions ACK-1', '/sf-decide', '/sf-decide ACK-1']);
           assert.deepEqual([hold.actions[1].command, hold.actions[1].copilotCommand, hold.actions[1].optional],
-            ['singularity-flow story intent-amendment acknowledge AMD-001 --work-id ACK-1', null, true]);
+            ['singularity-flow story intent-amendment acknowledge AMD-001 --work-id ACK-1', '/sf-decide ACK-1', true]);
           assert.equal(workflowGuide(workflow).nextActions[0].command, hold.actions[0].command);
           assert.throws(() => assertIntentAmendmentAcknowledged(workflow), { code: hold.code });
           assert.throws(() => assertPhaseGovernanceMayAdvance(workflow, phase), { code: hold.code });

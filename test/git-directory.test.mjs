@@ -88,11 +88,13 @@ printf '%s\\n' '{"login":"octocat","name":"The Octocat"}'
   assert.equal((await readFile(calls, 'utf8')).trim().split('\n').length, 1,
     'the second lookup in the same worktree must be answered from the cache');
 
-  // The main checkout and every other worktree share the one answer.
-  const main = identity(root, { env: { ...env, PATH: process.env.PATH }, offline: true });
+  // The main checkout and every other worktree share the one answer, for the same environment.
+  const main = identity(root, { env, offline: true });
   assert.equal(main.login, 'octocat');
   assert.equal(main.githubLookup, GITHUB_LOOKUP.RESOLVED);
   const cached = JSON.parse(await readFile(
     path.join(root, '.git', 'singularity-flow', 'github-account.json'), 'utf8'));
-  assert.equal(JSON.parse(cached.stdout).login, 'octocat');
+  assert.equal(JSON.parse(cached.entries[0].stdout).login, 'octocat');
+  // Another `gh` is another environment: it is not handed this one's account.
+  assert.equal(identity(root, { env: { ...env, PATH: process.env.PATH }, offline: true }).login, null);
 });

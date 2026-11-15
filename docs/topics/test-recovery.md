@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 43
+version: 44
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -244,13 +244,13 @@ Every failed or blocked run is classified by what stopped it, read from its exit
 
 A code marker wins over an environment one. A run in which tests executed is an environment cause only when every failed test failed from one; a suite whose every test hit a refused database connection is `service-unreachable`. The class is recorded as `cause` on the run's attempt, and the refusal names it: an environment cause with the way out in `error.details.testRunRisk` (with `causeClass`), a code cause as never covered.
 
-Fix the environment and run it again where you can. Where you cannot, a person who approves the step accepts that cause in their own terminal:
+Fix the environment and run it again where you can. Where you cannot, a person who approves the step accepts that cause on the Decide card (`/sf-decide <WORK-ID>` in Copilot, **Singularity Flow: Decide Everything This Step Waits On** in VS Code) or in their own terminal:
 
 ```text
 singularity-flow decision test-risk <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --cause-class <CLASS> --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires YYYY-MM-DD
 ```
 
-- **Who:** someone in an approval group of that step. A step nobody approves (quick-fix's implement) is answered for by the next step on the route that has approvers. An agent turn is refused; it shows the command and stops.
+- **Who:** someone in an approval group of that step. A step nobody approves (quick-fix's implement) is answered for by the next step on the route that has approvers. An agent turn is refused; it shows the card and the command, and stops. The card opened from /sf-decide records it as the person's, never the turn's.
 - **What it needs:** a recorded run of that command that failed or was blocked from an environment cause. `--cause-class` is taken from that run, and must match it when given; an approver whose checkout has no record of the run names the class and the `--argv-sha256` digest the refusal gave. The cause is 10 to 300 characters, the reason 20 to 1000, and the expiry at most 90 days ahead.
 - **What it allows:** the tests still run at every publication and submission. Only a later run of the same command whose cause is the same class is let through. A compile, syntax or import error the change introduces, a failed assertion, a timeout or another environment cause is never covered, and a changed command needs a new decision. Decisions on different classes of one command stand side by side.
 - **How long:** the step then carries through approval, later steps and Story completion while the decision is active. The evidence matrix shows its criteria as satisfied with an exception, never as passed. Once the decision expires or is revoked (`decision test-risk --revoke TRR-001 --reason TEXT`), the next gate refuses again; a new decision on the same command and class carries the runs an earlier one let through.
@@ -283,7 +283,7 @@ For a genuine change, request the new pin:
 
 ```text
 singularity-flow decision test-command <WORK-ID> --phase <PHASE> --repin <COMMAND-ID> --reason "<why the test command changed>"
-singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step, in their own terminal)
+singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step, on the Decide card or in their own terminal)
 ```
 
 The request records the exact new pin by digest and what changed. Anyone working on the Story may request it; only a person who approves the step accepts it (an agent is refused).
@@ -305,7 +305,7 @@ A gate run proves a module only when it ran the module's tests. Each gate run re
 - **skipped:** any skipped test (a test-policy agreement's accepted reduced coverage is judged by that agreement);
 - **below-baseline:** fewer tests discovered than the first passing run of the same pin in this Story.
 
-Remove the narrowing and run it again, or a person who approves the step accepts it with a reason, in their own terminal or from the decision list:
+Remove the narrowing and run it again, or a person who approves the step accepts it with a reason, on the Decide card (`/sf-decide <WORK-ID>`) or in their own terminal:
 
 ```text
 singularity-flow decision test-narrowing <WORK-ID> --phase <PHASE> [--command <COMMAND-ID>] --reason "<why the narrowed run is enough for this step>" [--expires YYYY-MM-DD]
@@ -323,7 +323,7 @@ Publication refuses with `CODE_DELIVERY_TEST_COMMAND_REQUIRED` when no test comm
 ```text
 singularity-flow decision test-command <WORK-ID> --phase <PHASE> --use <SUGGESTION-ID> --reason "<why this command tests the step>"
 singularity-flow decision test-command <WORK-ID> --phase <PHASE> --id <ID> --argv '<JSON ARRAY>' --working-directory <DIR> --affected-root <DIR> --adapter <ADAPTER> --report <PATH> --reason "<why>"
-singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step, in their own terminal)
+singularity-flow decision test-command <WORK-ID> --accept TCD-001        (a person who approves the step, on the Decide card or in their own terminal)
 singularity-flow decision test-command <WORK-ID> --revoke TCD-001 --reason "<why>"
 ```
 
@@ -339,7 +339,7 @@ A step whose output is test evidence may record no run of its own: its retained 
 singularity-flow decision evidence-reuse <WORK-ID> --phase <PHASE> --from-attempt <TA-ID> --reason "<why the recorded run stands for this step>" [--expires YYYY-MM-DD]
 ```
 
-- **Who:** someone in an approval group of the reusing step (as for `decision test-risk`). An agent turn is refused; it shows the command and stops.
+- **Who:** someone in an approval group of the reusing step (as for `decision test-risk`), on the Decide card or in their own terminal. An agent turn is refused; it shows the card and the command, and stops.
 - **Which run:** only a passed, structured attempt that an earlier, approved step's submission retained, read at that submission's commit and matching the digest it bound, with counts that meet the Story's minimums and no skipped test. A preflight attempt, a run kept only in one checkout, a failed run or a run a test-run risk let through cannot be named.
 - **Source binding:** the decision binds the attempt ID, its record digest, its source commit and the application source tree digest it ran on (every path except the Story's own records; separately hashed test inputs included). It is refused with `EVIDENCE_REUSE_SOURCE_CHANGED` while any of that differs, naming the changed paths, with two ways forward: repair (return the change to the step that ran the tests) or a fresh recorded run. A decision recorded on an unchanged source lapses by itself as soon as the source or the attempt record changes, or the step that recorded the run is reopened; nothing is written when it does.
 - **How it reads:** everywhere it is shown (the step's review, the retained execution evidence a later step and the conformance step receive) it reads `reused: <TA-ID> recorded by <step> at <commit>; approved for <PHASE> by <who> (ERU-NNN), not a run by <PHASE>`. A lapsed one says why it no longer applies. Revoke one with `decision evidence-reuse --revoke ERU-001 --reason TEXT`.

@@ -493,8 +493,9 @@ test('an evidence item is the person\'s own step: the list shows its commands an
   const now = workflowNextSteps(workflow, { pendingDecisions: { count: 1, headline: 'Release can\'t be approved yet: 1 decision needed.', personal: true,
     command: witness, listCommand: 'singularity-flow decisions BIN-501', skill: null, copilotCommand: null } }).find((action) => action.timing === 'now');
   assert.equal(now.command, witness);
-  assert.equal(now.copilotCommand ?? null, null, JSON.stringify(now));
-  assert.match(now.reason, /Only you record it, in your own terminal, after looking at the evidence yourself; `singularity-flow decisions BIN-501` shows its other choice/u);
+  // Still only the person's: its Copilot route is the card that takes it [owner, 2026-11-15].
+  assert.equal(now.copilotCommand, '/sf-decide BIN-501', JSON.stringify(now));
+  assert.match(now.reason, /Only you record it, on the Decide card \(\/sf-decide BIN-501 opens it\) or in your own terminal, after looking at the evidence yourself; `singularity-flow decisions BIN-501` shows its other choice/u);
   // While a decision the list records is open too (the story's gap), /sf-decide is still the way to it.
   const mixed = packetOf(workflow, { evidence });
   assert.ok(mixed.items.some((entry) => entry.kind === 'conformance-gap'), JSON.stringify(mixed.items.map((entry) => entry.kind)));

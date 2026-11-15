@@ -1,7 +1,7 @@
 /** Explicit-turn interception. Ordinary chat/pause never loads Story policy. */
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { COMMAND_PRESENTATION_CONTRACT, formatCommandRouteLines } from './model-free-commands.mjs';
+import { COMMAND_PRESENTATION_CONTRACT, decideCardStep, formatCommandRouteLines } from './model-free-commands.mjs';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -788,7 +788,9 @@ export function argvAllowed(argv, mode, value) {
   // The /sf-build-workflow turn: its build commands are reads; finishing is its one mutation.
   if (mode === 'build-workflow') return positionals[0] === 'workflow' && positionals[1] === 'build'
     && positionals[2] === 'finish' && positionals.length === 3;
-  // The /sf-fix-workflow turn: its one mutation proposes the issued change set draft for review.
+  // The /sf-fix-workflow turn: it proposes the issued change set draft for review, or finishes the
+  // build that applies `workflow assess`'s suggestions (SPEC-WIA), as the build-workflow turn does.
+  if (mode === 'fix-workflow' && positionals[0] === 'workflow' && positionals[1] === 'build') return positionals[2] === 'finish' && positionals.length === 3;
   if (mode === 'fix-workflow') return positionals[0] === 'workflow' && positionals[1] === 'studio'
     && positionals[2] === 'apply' && positionals.length === 3 && options.propose === true
     && Object.keys(options).every(key => ['change-set', 'propose', 'json'].includes(key))
@@ -1168,7 +1170,8 @@ function commandUnderAnotherNode(call, contract) {
 function personRoute(call, value) {
   const safe = verifiedShellForm(call, value);
   const guidance = safe ? safeCommandGuidance({ argv: safe.argv }) : null;
-  return { routes: guidance ? [{ ...guidance, skill: null, copilotCommand: null }] : [] };
+  // One the Decide card records keeps the card, which /sf-decide opens, as its Copilot route [owner, 2026-11-15].
+  return { routes: guidance ? [decideCardStep(safe.argv) ? guidance : { ...guidance, skill: null, copilotCommand: null }] : [] };
 }
 
 /*
@@ -1667,8 +1670,10 @@ async function importTeamGuard(payload, record, toolCalls) {
 
 /**
  * /sf-fix-workflow: reads (`workflow validate`, `workflow check --change-set`, `workflow studio apply
- * --dry-run`), edits to exactly the change set draft `workflow validate` issued to this turn, and one
- * mutation: `workflow studio apply --change-set <that draft> --propose`, a configuration proposal a
+ * --dry-run`, `workflow assess` and its build), edits to exactly the files issued to this turn (the
+ * change set draft `workflow validate` issued, an assess build's proposal file, Copilot's findings file
+ * `workflow assess` issued), and two mutations: `workflow studio apply --change-set <that draft>
+ * --propose`, and `workflow build finish` of the assess build; each is a configuration proposal a
  * person reviews. It needs no Story, edits no repository file and does not delegate.
  */
 async function fixWorkflowGuard(payload, record, toolCalls) {
@@ -1685,7 +1690,7 @@ async function fixWorkflowGuard(payload, record, toolCalls) {
       const draft = unissuedDraftOption(call, scope, 'fix-workflow', 'fixStaging',
         (positionals, options) => positionals[0] === 'workflow' ? options['change-set'] : null);
       if (draft) return deny(`FIX_WORKFLOW_DRAFT_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow workflow validate --json standalone in this turn first, for the same workflow: it issues the same change set file at fixDraft.changeSetPath and leaves what is in it unchanged. Then run this command again`);
-      return deny('FIX_WORKFLOW_OPERATION_NOT_ALLOWED: run one standalone read command (workflow validate, workflow check --change-set, workflow studio apply --dry-run) or singularity-flow workflow studio apply --change-set <issued draft> --propose; no other mutations, chains or wrappers, and never approve or activate');
+      return deny('FIX_WORKFLOW_OPERATION_NOT_ALLOWED: run one standalone read command (workflow validate, workflow check --change-set, workflow studio apply --dry-run, workflow assess, workflow build), singularity-flow workflow studio apply --change-set <issued draft> --propose, or singularity-flow workflow build finish; no other mutations, chains or wrappers, and never approve or activate');
     }
     if (!isEdit(call.name)) continue;
     const paths = targets(call.args);
@@ -2175,7 +2180,7 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it', [], own());
         if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL, [], own());
         if (decisionListRecord(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest', [], own());
+          `PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person's own step: they record it on the Decide card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it) or run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest`, [], own());
         if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL, [], own());
         if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL, [], own());
         const amendmentStep = intentAmendmentPersonCall(call, value);
@@ -2196,10 +2201,10 @@ async function mutationToolDecision(payload, record) {
           const witness = witnessPageRoute(verifiedShellForm(call, value)?.argv);
           if (witness) return mutationDenial(contract, `${OWN_STEP_DENIALS.witness}. Do not retry it`, [], { routes: [witness] });
           return mutationDenial(contract,
-            'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it', [], own());
+            `PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion's evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal or, for an accepted risk, on the Decide card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it); an agent never signs off its own work. Show the user the command and stop; do not retry it`, [], own());
         }
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it', [], own());
+          `PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step's tests cannot run here or ran narrowed, reusing an earlier step's recorded run for it, that one of its screen sizes does not apply, or how a closed Story's drifted clause is resolved, is decided by a person who approves that step, in their own terminal or, where the Decide card lists it, on the card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it), not by this turn. Show the user the command and stop; do not retry it`, [], own());
         const ownStep = ownTerminalStepCall(call, value);
         if (ownStep === 'settled-undo') {
           // The card is the person's route for an undo, as for an intent amendment's decision [owner, 2026-11-13].

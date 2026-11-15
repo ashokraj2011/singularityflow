@@ -8,7 +8,7 @@ import { normalizeSessionPolicy } from './config.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { phaseKernelOwned } from './code-delivery-policy.mjs';
-import { excludeAlwaysLocalNames, identity, gitDir } from './git.mjs';
+import { accountEnvironmentDigest, excludeAlwaysLocalNames, identity, gitDir, rememberedActor } from './git.mjs';
 import { inReadScope } from './read-scope.mjs';
 
 const SESSION_FAMILY = 'session-registry';
@@ -149,6 +149,7 @@ export async function setAgentSession(root, definition, actor, agent, workId = n
     nativeCopilotAgent: nativeCopilotAgent ?? existing?.nativeCopilotAgent ?? null,
     phaseCompatibilityOverride: compatible ? null : { phase: phaseId, agent, warnedAt: selectedAt },
     actor,
+    actorEnvironment: accountEnvironmentDigest(),
     workId,
     phaseId,
     selectedAt,
@@ -174,7 +175,7 @@ export async function setNativeCopilotAgentSession(root, resolved, actor = null)
     ...(resolved.agent && !readOnly ? { agent: resolved.agent.id, agentSource: resolved.agent.scope, agentSha256: resolved.agent.sha256 } : {}),
     agentSelectedAt: nowIso()
   };
-  if (actor && !record.actor) record.actor = actor;
+  if (actor && !record.actor) Object.assign(record, { actor, actorEnvironment: accountEnvironmentDigest() });
   return writeLocalJson(sessionPath(root), SESSION_FAMILY, record);
 }
 
@@ -184,7 +185,13 @@ export async function loadSession(root, { required = true } = {}) {
     if (required) throw new SingularityFlowError('No active agent session. Run singularity-flow resume <WORK-ID>.', { details: { nextAction: 'singularity-flow resume <WORK-ID>' } });
     return null;
   }
-  return readRecord(SESSION_FAMILY, await readFile(file)).record;
+  return actorHere(root, readRecord(SESSION_FAMILY, await readFile(file)).record);
+}
+
+// The actor this environment recorded, else the person here (see `rememberedActor`).
+function actorHere(root, record) {
+  const actor = rememberedActor(root, record?.actor, record?.actorEnvironment);
+  return actor === record?.actor ? record : { ...record, actor };
 }
 
 export async function restoreAgentSession(root, record) {

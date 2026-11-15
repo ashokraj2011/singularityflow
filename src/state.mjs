@@ -8323,12 +8323,15 @@ export async function rejectPhase(root, config, workflow, {
   }
   const targetId = target ?? phase.id; if (!upstreamIssue && !phaseCorrectionTargets(phase).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${phaseCorrectionTargets(phase).join(', ')}.`);
   const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
-  const requestedClauses = [...new Set(clauseIds)];
+  let requestedClauses = [...new Set(clauseIds)];
   if (requestedClauses.length) {
     const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
-    const known = new Set(records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)));
-    const unknown = requestedClauses.filter((id) => !known.has(id));
-    if (unknown.length) throw new SingularityFlowError(`Change request references unknown specification clause(s): ${unknown.join(', ')}.`);
+    const known = [...new Set(records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))];
+    // A short clause ID is the one clause it ends with; one that names none, or several, is refused with the full IDs.
+    const { resolveClauseIds, unresolvedClauseWords } = await import('./clause-id-resolution.mjs');
+    const { resolved, unresolved } = resolveClauseIds(requestedClauses, known);
+    if (unresolved.length) throw new SingularityFlowError(`Change request references unknown specification clause(s): ${unresolved.map((entry) => entry.id).join(', ')}. ${unresolvedClauseWords(unresolved, known, { what: 'this Story\'s specification' })}`);
+    requestedClauses = resolved;
   }
   /**
    * Surgical reopen `[SPK:REQ-111]`.
@@ -9105,7 +9108,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     ...(stillHolds.length ? { stillHolds } : {}),
     // Its class and why, the suggestion and each raise; an editorial one says the evidence was carried that way [CIC:REQ-014].
     ...(effect.classification ? { class: classRecord(effect.classification) } : {}),
-    ...(editorial ? { carried: 'editorial', carriedPhases: effect.steps.filter((step) => step.outcome === 'carried').map((step) => step.phase) } : {})
+    ...(editorial ? { carried: 'editorial', carriedPhases: effect.steps.filter((step) => step.outcome === 'carried').map((step) => step.phase) } : {}),
+    // What the Story's change impact counts cannot work out later [CIC:REQ-017]: step IDs and counts only.
+    ...(impactCounted(workflow) ? { impactCounts: impactCounts(workflow, effect, { editorial, amendment: proposal.id, reset: firstReset == null ? [] : workflow.phaseOrder.slice(firstReset) }) } : {})
   };
   Object.assign(summary, {
     status: 'approved', decidedAt: at, decision: recorded,
@@ -9120,6 +9125,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     ...(effect.classification ? { class: effect.classification.effective } : {}),
     ...(editorial ? { carried: 'editorial' } : {}),
     ...(planBindings.length ? { planBindings } : {}),
+    ...(proposal.application.impactCounts ? { impactCounts: proposal.application.impactCounts } : {}),
     // The rows pendingAmendmentRevalidations lists, read against the scope step (forward-amendments.mjs).
     ...(settles ? { producer: specification.id, revalidate } : stillHolds.length ? { producer: specification.id, revalidate: stillHolds } : {})
   });
@@ -9236,6 +9242,23 @@ async function decisionClass(root, config, workflow, specification, proposal, { 
   return classes.classedApproval(workflow, specification.approvalPolicy, await intentAmendmentClass(root, config, workflow, proposal, { proposedText }), ids);
 }
 
+/** Whether an approval keeps the stage 7 counts record: on a Story with any of SPEC-CIC switches 1 to 3 pinned on [CIC:REQ-017, REQ-019]. */
+const impactCounted = (workflow) => ['observedDependencies', 'changeImpact'].some((key) => workflow.resolution?.spec?.[key] === 'on') || workflow.resolution?.spec?.preAmendmentDrafts === 'refuse';
+
+/**
+ * What an approval records for the counts (change-impact-counts.mjs), each part under its own switch: the steps reached
+ * only because what they depended on is not fully recorded (switch 1), the reset steps whose unpublished work their pin set
+ * aside (switch 2), and the evidence an editorial change carried (switch 3). Its presence says the counts are kept.
+ */
+const impactCounts = (workflow, effect, { editorial, amendment, reset }) => ({ schema: 'impact-counts/v1',
+  ...(effect.observed ? { widened: effect.steps.filter((step) => step.affected && step.generation > 0 && step.reasons.every((reason) => reason.kind === 'unresolved-record')).map((step) => step.phase) } : {}),
+  ...(workflow.resolution?.spec?.preAmendmentDrafts === 'refuse' ? { setAside: reset.filter((id) => workflow.phases[id]?.scopePin?.amendment === amendment && workflow.phases[id].scopePin.setAside) } : {}),
+  ...(editorial ? { carriedEvidence: effect.steps.filter((step) => step.outcome === 'carried')
+    .reduce((total, step) => total + (workflow.phases[step.phase]?.artifacts ?? []).filter((artifact) => artifact.exists !== false).length, 0) } : {}),
+  // A kept plan whose record is incomplete, carried by the rows its approvers signed, not widened (owner, 2026-11-15).
+  ...(effect.steps.some((step) => step.signedRows) ? { carried: effect.steps.filter((step) => step.signedRows === 'signed' && step.outcome === 'kept')
+    .map((step) => ({ phase: step.phase, reason: 'signed-plan-rows' })) } : {}) });
+
 /** The class an approval applied, as its record keeps it: the floor and its rule IDs, the suggestion, each raise, the result. */
 const classRecord = ({ floor, reasons, suggested, raises, effective }) => ({ floor, rules: reasons.map((reason) => reason.rule),
   ...(suggested ? { suggested } : {}), ...(raises ? { raises } : {}), effective });
@@ -9272,7 +9295,9 @@ export async function intentAmendmentClass(root, config, workflow, proposal, { p
  * and `unchanged` for a step not run yet. A reason is `cites` (its artifact cites a stale or removed clause),
  * `radius` (a path in the claim-map radius), `unreadable` (fail closed, CIC:REQ-020), `code-step` (the radius
  * affects claims), `convergence`, or, for a step not affected itself, `after-reset` or `not-kept` with
- * phase-retention.mjs's reason. `repeats` says which changed clauses the Story changed before (D4). Reads only.
+ * phase-retention.mjs's reason. `repeats` says which changed clauses the Story changed before (D4). A plan whose rows the
+ * amendment carries is not widened for an incomplete record while its approvers' signature on them counts or is still to come
+ * (`signedRows`, owner 2026-11-15: signed rows win). Reads only.
  */
 export async function intentAmendmentEffect(root, config, workflow, proposal, { proposedText }) {
   const specification = scopeStepOf(workflow);
@@ -9308,6 +9333,9 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
   const changed = new Set([...(diff.added ?? []), ...(diff.revised ?? [])].map(upper));
   const added = new Set((diff.added ?? []).map(upper));
   const observed = observedDependencies(workflow) ? await observedRecords(root, workflow, records) : null;
+  // Signed rows win (owner, 2026-11-15): a plan whose rows this amendment carries, signed by its own approvers in their decision
+  // on it, has answered for the amended clauses itself, so an incomplete record does not reset it; an uncounted signature does.
+  const rowSigning = observed && carriedRows.size ? (await import('./amendment-plan-corrections.mjs')).carriedRowSigning(workflow, proposal) : null;
   // The changed clauses no planned claim names: no record of a step that did not rule them out keeps it [CIC:REQ-006].
   const unclaimedClauses = observed && !editorial ? [...new Set([...changed, ...(diff.removed ?? []).map(upper)])].filter((id) => !observed.planned[id]).sort() : [];
   const evidencePaths = new Set([...(proposal.radius?.artifacts ?? []), ...(proposal.radius?.tests ?? [])].map(posix));
@@ -9346,7 +9374,8 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
     }
     // Under switch 1 a published step whose record does not resolve what it depended on counts as affected [CIC:REQ-006].
     const row = observed && Number(phase.generation ?? 0) > 0 ? observed.rows.get(`${phase.id}\u0000${Number(phase.generation)}`) ?? null : null;
-    if (observed && Number(phase.generation ?? 0) > 0 && row?.coverage?.state !== 'resolved') {
+    const signedRows = ['signed', 'unsigned'].includes(rowSigning?.get(phase.id)) ? rowSigning.get(phase.id) : null;
+    if (observed && Number(phase.generation ?? 0) > 0 && row?.coverage?.state !== 'resolved' && !signedRows) {
       reasons.push({ kind: 'unresolved-record', reasons: row?.coverage?.reasons ?? ['no-record'] });
     }
     const step = { phase: phase.id, status: phase.status, generation: Number(phase.generation ?? 0), affected: reasons.length > 0, reasons, artifacts };
@@ -9365,7 +9394,8 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
       const held = new Set([...cited].filter((id) => !added.has(upper(id))).map(upper));
       const question = observed ? await stillHoldsQuestion(root, phase, row, held, observed.planned) : null;
       steps.push({ ...step, outcome: 'kept', rule: 'E8', ...(observed ? (question ? { stillHolds: question } : {}) : { inPrompt: [...held].sort() }),
-        ...(carriedRows.has(phase.id) ? { carriesRows: true } : {}), ...(later.length ? { laterDecisions: later } : {}) });
+        ...(carriedRows.has(phase.id) ? { carriesRows: true } : {}), ...(later.length ? { laterDecisions: later } : {}),
+        ...(signedRows && row?.coverage?.state !== 'resolved' ? { signedRows } : {}) });
       continue;
     }
     const why = step.affected ? null : !retaining ? { kind: 'after-reset', phase: order[firstReset] }

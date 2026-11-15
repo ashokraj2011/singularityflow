@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
-import { branch, fetchRemote, gitDir, identity } from './git.mjs';
+import { branch, fetchRemote, gitCommitIdentity, gitDir, identity } from './git.mjs';
 import { loadWorkflow } from './story-workflow-read.mjs';
 import { approvePhase, commitAndPublish, loadConfig, rejectPhase } from './state-stores.mjs';
 import { loadInitiative } from './state-stores.mjs';
@@ -68,9 +68,11 @@ async function prepareReviewClone(root, initiative, story) {
   if (localChanges.length) {
     throw new SingularityFlowError(`Isolated review checkout for '${story.repository}' has local changes; inspect ${clone}.`);
   }
-  const actor = identity(root);
-  if (actor.name) git(clone, ['config', 'user.name', actor.name]);
-  if (actor.email) git(clone, ['config', 'user.email', actor.email]);
+  // The person reviewing now, never the last one: their Git identity, and no email when they have none.
+  // A GitHub account is the clone's own lookup, for this environment.
+  const { name, email } = gitCommitIdentity(root);
+  git(clone, ['config', 'user.name', name]);
+  git(clone, email ? ['config', 'user.email', email] : ['config', '--unset-all', 'user.email'], { allowFailure: !email });
   await fetchRemote(clone, 'origin', { transportRemote: approvedUrl });
   return clone;
 }

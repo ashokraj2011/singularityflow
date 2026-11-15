@@ -614,7 +614,13 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // phase-lifecycle.mjs +273), an acknowledgement is a person's own step (person-step-catalog.mjs, source-review-policy.mjs),
     // /sf-reject's propose route and the authoring draft (copilot-guidance.mjs, phase-staging-paths.mjs, upstream-routes.mjs).
     // 9,663,250 (measured 9,663,230, commands/phase-lifecycle.mjs): the three above together, set once at the combined measurement.
-    assert.ok(closure.bytes <= 9_663_250, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,664,300 (measured 9,664,296): SPEC-CIC stage 7's default and the Decide card's Copilot routes for a person's own
+    // steps, measured together where both land (2026-11-15). No new eager file.
+    // 9,667,450 (measured 9,667,440): with each person's own GitHub account (git.mjs, session.mjs) and workflow assess
+    // also landed, measured together for the stable build (2026-11-15). No new eager file.
+    // 9,667,550 (measured 9,667,528, commands/phase-lifecycle.mjs): SPEC-SCF stage 1 on top of the stable build (+88),
+    // measured on the merge with main 4ac5c5c40 (2026-11-15). No new eager file.
+    assert.ok(closure.bytes <= 9_667_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -712,7 +718,8 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 866,100 (measured 866,068): `decisions undo`, a person's undo of what was settled for them, is a registered
   // mutation (command-registry.mjs +195) [owner, 2026-11-13]. No new eager file.
   // 866,450 (measured 866,429): the window heartbeat is machine-local upkeep, a third command class (command-registry.mjs
-  // OPERATION_CLASSES, cli-entry.mjs) [SPEC-SCF stage 1d, 2026-11-15]. No new eager file.
+  // OPERATION_CLASSES, cli-entry.mjs) [SPEC-SCF stage 1d, 2026-11-15]. No new eager file. Still holds on the merge with
+  // main 4ac5c5c40 (measured 866,439: `workflow assess` is a registered read, +10).
   assert.ok(root.bytes <= 866_450, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
@@ -920,10 +927,24 @@ test('the common session projection does not import attach, state stores or publ
   // as its VS Code route, and an intent amendment's decision or acknowledgement and a settled one's undo the card as their
   // Copilot route too, read wherever a route is shown (model-free-commands.mjs +1,751, safe-command-guidance.mjs +366)
   // (paid run, 2026-11-14), on top of the 4,253,868 above. No new eager file.
-  // 4,256,350 (measured 4,256,301): the upkeep class (command-registry.mjs) [SPEC-SCF stage 1d, 2026-11-15]. No new eager file.
-  // 4,257,400 (measured 4,257,378): configuration commits name the person, read past a transport's hidden Git
-  // configuration (git.mjs configurationCommitIdentity, +1,077) [SPEC-SCF stage 1b, 2026-11-15]. No new eager file.
-  assert.ok(current.bytes <= 4_257_400, `session current loads ${current.bytes} source bytes`);
+  // SPEC-CIC stage 7 turns change impact on by default and pins it either way, and a work
+  // type opts out over its repository by the same rule (specifications.mjs +1,134, config.mjs -34; owner, 2026-11-15);
+  // the counts and the report section stay lazy (change-impact-counts.mjs). No new eager file.
+  // The person's own steps the Decide card records (an accepted risk, test-run risk or
+  // test command, a reused run, a screen size, a sign-off) have the card as their Copilot route too, wherever a route
+  // is derived (model-free-commands.mjs +629, copilot-guidance.mjs +409, person-step-catalog.mjs +70) [owner, 2026-11-15].
+  // No new eager file.
+  // 4,258,200 (measured 4,258,193): the two above together, measured where both land (2026-11-15).
+  // A cached GitHub account answers only the environment and Git email it was resolved
+  // for, and an agent session's actor only the environment that chose it (git.mjs +2,141, session.mjs +438) (real run,
+  // 2026-11-15: one person's login and name were on another person's records). No new eager file.
+  // 4,260,800 (measured 4,260,782): the three above together with workflow assess, measured for the stable build (2026-11-15).
+  // SPEC-SCF stage 1 [2026-11-15]: the upkeep class (command-registry.mjs, +316) [1d], and configuration commits name
+  // the person, read past a transport's hidden Git configuration (git.mjs configurationCommitIdentity, +1,077) [1b].
+  // No new eager file.
+  // 4,262,200 (measured 4,262,175): stage 1 on top of the stable build's 4,260,782, measured on the merge with main
+  // 4ac5c5c40 (2026-11-15).
+  assert.ok(current.bytes <= 4_262_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

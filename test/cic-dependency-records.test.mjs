@@ -62,7 +62,8 @@ async function fixture(t, { observed }) {
   delete config.phases['fix-design'].clarification;
   config.workTypes['quick-design'] = { ...config.workTypes['quick-fix'], phases: ['intake', 'fix-design', 'implement', 'verify'] };
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
-  if (observed) config.spec = { ...config.spec, observedDependencies: 'on' };
+  // Switch 1 alone, or every switch off but drafts: written before change impact defaulted on, so it is set off here.
+  config.spec = { ...config.spec, changeImpact: 'off', ...(observed ? { observedDependencies: 'on' } : {}) };
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Dependency record fixture']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);
@@ -159,9 +160,11 @@ test('a v2 revision chains after v1 and states each stale clause\'s reason; a ta
   assert.deepEqual(staleReasons(null, indexed), { stale: [], edges: [] });
 });
 
-test('the switch is a pinned spec field: on is pinned, off and absent pin nothing, and any other value is refused', () => {
+test('the switch is a pinned spec field: on is pinned, off pins nothing of it, and any other value is refused', () => {
   assert.equal(normalizeSpecPolicy({ observedDependencies: 'on' }).observedDependencies, 'on');
-  assert.equal(Object.hasOwn(normalizeSpecPolicy({}), 'observedDependencies'), false);
+  // Change impact, on by default since 2026-11-15, pins it on; turned off, nothing of switch 1 is pinned.
+  assert.equal(normalizeSpecPolicy({}).observedDependencies, 'on');
+  assert.equal(Object.hasOwn(normalizeSpecPolicy({ changeImpact: 'off' }), 'observedDependencies'), false);
   assert.equal(Object.hasOwn(normalizeSpecPolicy({ observedDependencies: 'off' }), 'observedDependencies'), false);
   assert.throws(() => normalizeSpecPolicy({ observedDependencies: 'yes' }), /spec\.observedDependencies must be off or on/u);
 });
@@ -240,14 +243,17 @@ test('with observed dependencies on, every published generation commits a verifi
     t.diagnostic(`record bytes: ${Object.entries(records).map(([phase, record]) => `${phase} ${Buffer.byteLength(`${JSON.stringify(record, null, 2)}\n`)}`).join(', ')}`);
     t.diagnostic(`publish ms on: ${on.timings.map((entry) => `${entry.step} ${entry.ms.toFixed(0)}`).join(', ')}; off: ${off.timings.map((entry) => `${entry.step} ${entry.ms.toFixed(0)}`).join(', ')}`);
 
-    // The read: edges by kind and coverage per generation; the amendment's scope generation has no record.
+    // The read: edges by kind and coverage per generation.
     const read = JSON.parse(on.sflow('spec', 'dependencies', '--json'));
     assert.equal(read.chain.verified, true);
     assert.deepEqual(read.steps.map((step) => [step.phase, step.generations.map((row) => [row.generation, row.coverage.state])]),
-      [['intake', [[1, 'resolved'], [2, 'unresolved']]], ['fix-design', [[1, 'resolved']]], ['implement', [[1, 'unresolved']]]]);
-    // The amendment published the scope's second generation from its approved bytes, with no prompt behind it.
-    assert.deepEqual(read.steps[0].generations[1].coverage.reasons, ['receipt-missing']);
+      [['intake', [[1, 'resolved'], [2, 'resolved']]], ['fix-design', [[1, 'resolved']]], ['implement', [[1, 'unresolved']]]]);
+    // The amendment published the scope's second generation from its approved bytes, with no prompt behind it by design: its
+    // record reads the proposal its approvers decided instead (stage 7, E5), and no step before the scope defines a clause.
+    assert.deepEqual(read.steps[0].generations[1].coverage.reasons, []);
     assert.deepEqual(read.steps[0].generations[1].scopeRevision, 2);
+    const amended = JSON.parse(await readFile(path.join(on.root, storyOn.phases.intake.dependencyRecords[1].path), 'utf8'));
+    assert.deepEqual([amended.receipt.kind, amended.receipt.amendment], ['intent-amendment', 'AMD-001']);
     const words = on.sflow('spec', 'dependencies', 'fix-design');
     assert.match(words, /fix-design generation 1: resolved; 2 input, 1 citation\./u);
     assert.match(words, /\n {2}input: DEP-1:AC-001, DEP-1:AC-002\n/u);

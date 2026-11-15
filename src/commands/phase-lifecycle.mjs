@@ -78,6 +78,31 @@ export async function run(argv, { positionals, options }) {
 }
 
 export async function phaseCommand(positionals, options) {
+  try {
+    return await phaseSubcommand(positionals, options);
+  } catch (error) {
+    // A publication refused because its draft predates an amendment is counted [CIC:REQ-017]; the refusal is unchanged.
+    if (positionals[1] === 'publish' && error?.code === 'PHASE_DRAFT_PREDATES_AMENDMENT') await countRefusedPublication(error.details).catch(() => {});
+    throw error;
+  }
+}
+
+/**
+ * One refused publication, by amendment, step and generation, and nothing of the draft: kept in the Story's draft state
+ * after the refused publication rolled back, for its next governed commit to carry, as `phase begin` keeps a generation.
+ */
+async function countRefusedPublication({ workId = null, phase: phaseId = null, amendment = null } = {}) {
+  const root = repoRoot();
+  const { definition, workflow } = await loadAcceptedStoryExecution(root, workId);
+  const phase = workflow.phases?.[phaseId];
+  if (!phase || workflow.resolution?.spec?.preAmendmentDrafts !== 'refuse') return;
+  await storyDraftTransaction(root, definition, workflow, `publication-refused:${phase.id}`, async () => {
+    (workflow.refusedPublications ??= []).push({ amendment: amendment ?? phase.scopePin?.amendment ?? null, phase: phase.id, generation: nextPhaseGeneration(phase) });
+    await saveStoryDraft(root, definition, workflow);
+  });
+}
+
+async function phaseSubcommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
   if (subcommand === 'prepublish' && options['publish-if-ready'] === true) return (await import('./phase-publish-if-ready.mjs')).run({ positionals, options });
   if (subcommand === 'show') return (await import('./phase-show.mjs')).phaseShowCommand(positionals, options);

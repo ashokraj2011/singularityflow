@@ -743,8 +743,10 @@ evaluation is recorded. Use `--row`, `--result`, `--facet NAME=VALUE`, `--page` 
 `spec.changeImpact: on` turns on observed dependencies and the sizes of an intent amendment together: each
 amendment is editorial, a refinement or material by registered rules, an editorial one carries the evidence of the
 clauses it rewords, and a material one is approved by `spec.scopeChangeAuthority` (an approval group), or else by the
-scope step's approvers. It is off by default and pinned when a Story starts. See
-[Changing requirements during a Story](docs/topics/changing-requirements.md).
+scope step's approvers. It is on by default, applied in code, so no shipped or new workflow writes the setting (an
+older SFlow build still loads them); Workflow Studio and `workflow check` show "Change impact: on (default)". `off`
+turns it off, and so does `spec.observedDependencies: off` with no `spec.changeImpact`. It is pinned when a Story starts, so a Story
+already running keeps its behaviour. See [Changing requirements during a Story](docs/topics/changing-requirements.md).
 
 Acceptance commands are explicit argv arrays allowlisted in
 `spec.testCommands`. `--dry-run` only displays those commands; it never executes
@@ -2469,7 +2471,7 @@ AMD-001?", yes or no in `/sf-decide PAY-1`, on the card, or with
 `singularity-flow upstream-issue revalidate design --amendment AMD-001 --outcome unchanged|return --reason "<why>"`.
 Implement, which reads Design, cannot complete until they answer.
 
-With `spec.changeImpact: on`, every amendment also has a size set by rules: editorial (it only rewords clauses with no
+With `spec.changeImpact: on`, the default, every amendment also has a size set by rules: editorial (it only rewords clauses with no
 bound test and no acceptance criterion: nothing runs again and their evidence is carried), a refinement (the route
 above), or material (it adds a clause, for example: approved by `spec.scopeChangeAuthority`, or else the scope step's
 approvers). The preview and the Decide card say the size, why and who decides; an approver may raise it with
@@ -2501,6 +2503,13 @@ singularity-flow report WORK-123 --format html --out workflow-report.html
 ```
 
 Reports show phase duration, active time, approval waiting, open approval latency, generations, rework, rejections, self-approvals, provider/model identity, exact tokens with per-model totals, optional cost, quality-check duration, and the largest approval-latency bottleneck.
+
+Once a Story has an intent amendment, its report also has a **Change impact** section: for each approved
+amendment and for the Story, its size, cone size, widened share, evidence kept, "still holds" questions and
+answers, steps reset, generations published again, publications refused and clause churn, each marked as
+recorded or derived. Only counts are kept, with the amendment, step and generation IDs: no clause text, file
+contents or paths. `--format json` carries the same counts as `changeImpact`
+(`singularity-flow explain changing-requirements`).
 
 In VS Code, open **Singularity Flow: Story Analytics** for the same
 report as an operational dashboard. It includes a phase rail, completion percentage,
@@ -3282,6 +3291,7 @@ uses JSON-aware and textual secret redaction before content-addressed storage. U
 singularity-flow workflow list
 singularity-flow workflow validate
 singularity-flow workflow walk quick-fix
+singularity-flow workflow assess customer-onboarding
 singularity-flow workflow fix customer-onboarding --write
 singularity-flow workflow simulate figma-mobile
 singularity-flow workflow diff figma-mobile
@@ -3357,6 +3367,13 @@ packages, and capture drift.
 `workflow walk [WORKFLOW]` is the dry run beside it: with no model, it drives a throwaway Story through
 every step on an isolated copy and lists each step's person steps and every stop no person decision
 clears, with its likely cause (exit 1 on a stop); see the workflow-authoring topic.
+
+`workflow assess [WORKFLOW]` says what each step's agent is told: every layer it receives (its agent
+file, the step's template, its skills and instructions, the workflow's own guidance and the platform's
+rules) with its size, then what in them is repeated, contradicts the step's settings, the platform or
+another rule, or is longer or vaguer than it needs to be, each quoted at its file and line with the
+change that fixes it and what it saves. It uses no model and changes nothing; `workflow build start
+--assess <WORKFLOW>` offers its changes for you to accept, each checked on the result first.
 
 `workflow validate [TYPE]` proves every code phase has an authoritative clause source and an earlier
 reviewed planned-claim owner, and that every route guarantees scope, plan, implementation,

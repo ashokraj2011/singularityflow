@@ -366,7 +366,7 @@ test('a template fix is placeholders the step\'s author fills for each Story, an
 test('the skills walk the person through simplify and never ask for template wording', async () => {
   const build = await readFile(path.join(packageRoot, 'plugin/skills/sflow-build-workflow/SKILL.md'), 'utf8');
   const fix = await readFile(path.join(packageRoot, 'plugin/skills/sflow-fix-workflow/SKILL.md'), 'utf8');
-  for (const pattern of [/--simplify <ID>\] \[--folder/u, /`--simplify <ID>` makes a simpler copy \(step 8\)/u, /take `candidates` one at a time/u, /ask with `ask_user`: accept, or decline with a reason; record exactly that with `build decide`/u,
+  for (const pattern of [/--simplify <ID> \| --assess <ID>\] \[--folder/u, /`--simplify <ID>` makes a simpler copy, `--assess <ID>` applies the assessment's suggestions in place \(step 8\)/u, /take `candidates` one at a time/u, /ask with `ask_user`: accept, or decline with a reason; record exactly that with `build decide`/u,
     /`singularity-flow workflow build verify --build <ID> --json`/u, /offer finishing only once the person explicitly accepts each as it is, then add `--accept-problem <id>` for each/u,
     /never changing the original workflow/u, /One with a `move`: propose that move \(`--by copilot`\), asking nothing/u, /A template fix is placeholders, never wording asked of the person/u]) {
     assert.match(build, pattern);
@@ -374,8 +374,12 @@ test('the skills walk the person through simplify and never ask for template wor
   for (const pattern of [/With `simplify` it is correct but heavy: name `simplify\.found` and offer `simplify\.nextAction`/u,
     /With `fixDraft\.fixCommand`, run it: it writes every change it drafts to `fixDraft\.changeSetPath`, asking nothing; ask only its `questions`, one at a time, with `ask_user`, and write each answer into that draft/u,
     /Keep every fix in one change set/u,
-    /Never ask for template content/u, /say in one line that it adds placeholders each Story's author fills/u]) {
+    /Never ask for template content/u, /say in one line that it adds placeholders each Story's author fills/u,
+    // SPEC-WIA: after the fixes, every step's instructions are assessed and Copilot's own findings are checked in the same turn.
+    /6\. Assess what each step's agent is told: `singularity-flow workflow assess <WORKFLOW> --json`/u,
+    /repair each `refused` as its `repair` says and verify again in this turn/u, /accept all SFlow's own \(`singularity-flow workflow build decide --build <ID> --accept --all --json`\)/u]) {
     assert.match(fix, pattern);
   }
+  assert.match(build, /write your own findings, each quote exact, to `build\.assess\.findingsPath`, verify them/u);
   assert.doesNotMatch(fix, /wording of requirements/u, 'the person is never asked for requirement wording');
 });

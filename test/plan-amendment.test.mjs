@@ -162,7 +162,10 @@ test('unplanned code is refused before it is committed, accounted for by a plan 
   assert.equal(open.record.copilotCommand, `/sf-decide ${W}`);
   assert.equal(JSON.parse(cli('decisions', W, '--no-card', '--json').stdout).data.record.copilotCommand, `/sf-decide ${W}`, 'a /sf-decide turn records these itself, card or not');
 
-  cli('decision', 'plan', '--add-location', `${W}:AC-001=src/helper.mjs`, '--reason', 'The helper holds the approved value the module returns.');
+  // The row's short clause ID is the one row it ends with, recorded in full (stage 7 run, 2026-11-15).
+  cli('decision', 'plan', '--add-location', 'AC-001=src/helper.mjs', '--reason', 'The helper holds the approved value the module returns.');
+  assert.deepEqual(JSON.parse(await readFile(path.join(root, 'singularity/work-items', W, 'workflow.json'), 'utf8')).planAmendments.at(-1).changes
+    .map((change) => [change.clauseId, change.path]), [[`${W}:AC-001`, 'src/helper.mjs']]);
   const noteRecovery = JSON.parse(cli('recover', W, '--json').stdout);
   const preserveNote = noteRecovery.actions.find(action => action.id === 'set-aside-worktree');
   assert.deepEqual(preserveNote.paths, ['NOTES.md']);

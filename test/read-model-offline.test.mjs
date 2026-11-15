@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -25,9 +25,28 @@ async function repository() {
 
 const cacheFile = (root) => path.join(root, '.git', 'singularity-flow', 'github-account.json');
 
-async function seedAccount(root, { login, name, at = Date.now() }) {
-  await mkdir(path.dirname(cacheFile(root)), { recursive: true });
-  await writeFile(cacheFile(root), JSON.stringify({ at, stdout: JSON.stringify({ login, name }) }));
+/**
+ * An environment whose `gh` (a stub on PATH, never the real one) answers as `login`. The account is
+ * cached only by a real lookup, for this environment; `at` then ages the entry.
+ */
+async function seedAccount(root, { login, name, at = null }) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-offline-gh-'));
+  await mkdir(path.join(directory, 'bin'));
+  await mkdir(path.join(directory, 'gh-config'));
+  await writeFile(path.join(directory, 'gh-config', 'hosts.yml'), 'git.example.invalid:\n  user: stub\n');
+  await writeFile(path.join(directory, 'bin', 'gh'), `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({ login, name })}'\n`);
+  await chmod(path.join(directory, 'bin', 'gh'), 0o755);
+  const env = { ...process.env, PATH: `${path.join(directory, 'bin')}${path.delimiter}${process.env.PATH}`,
+    GH_CONFIG_DIR: path.join(directory, 'gh-config') };
+  delete env.SINGULARITY_FLOW_NO_NETWORK;
+  delete env.SINGULARITY_FLOW_TEST_IDENTITY;
+  assert.equal(identity(root, { env }).login, login);
+  if (at !== null) {
+    const cached = JSON.parse(await readFile(cacheFile(root), 'utf8'));
+    for (const entry of cached.entries) entry.at = at;
+    await writeFile(cacheFile(root), JSON.stringify(cached));
+  }
+  return env;
 }
 
 test('a cold read declares that it did not look, rather than that nobody is signed in', async () => {
@@ -49,25 +68,36 @@ test('commit authorship never performs or claims a GitHub account lookup', async
   });
 });
 
-test('a warm read is free and still names the real account', async () => {
+test('a warm read is free and still names the real account', { skip: process.platform === 'win32' }, async () => {
   const root = await repository();
-  await seedAccount(root, { login: 'octocat', name: 'The Octocat' });
-  const resolved = identity(root, { offline: true });
+  const env = await seedAccount(root, { login: 'octocat', name: 'The Octocat' });
+  const resolved = identity(root, { offline: true, env });
   assert.equal(resolved.login, 'octocat');
   assert.equal(resolved.githubLookup, GITHUB_LOOKUP.RESOLVED);
   // The cached display name wins over the local Git one, exactly as it does online.
   assert.equal(resolved.name, 'The Octocat');
 });
 
-test('an expired cache degrades to not-checked instead of to a stale login', async () => {
+test('an expired cache degrades to not-checked instead of to a stale login', { skip: process.platform === 'win32' }, async () => {
   const root = await repository();
-  await seedAccount(root, { login: 'octocat', name: 'The Octocat', at: Date.now() - (60 * 60 * 1000) });
-  const resolved = identity(root, { offline: true });
+  const env = await seedAccount(root, { login: 'octocat', name: 'The Octocat', at: Date.now() - (60 * 60 * 1000) });
+  const resolved = identity(root, { offline: true, env });
   assert.equal(resolved.login, null, 'an hour-old answer is not evidence of who is signed in now');
   assert.equal(resolved.githubLookup, GITHUB_LOOKUP.NOT_CHECKED);
   // The local Git identity is unaffected: it is read from config and is always current.
   assert.equal(resolved.name, 'Read Model');
   assert.equal(resolved.email, 'read@example.invalid');
+});
+
+test('a cache written before entries named who they were for is a miss, not an account', async () => {
+  const root = await repository();
+  // The shape every cache had until 2026-11-15: one answer for the whole repository, whoever asked.
+  await mkdir(path.dirname(cacheFile(root)), { recursive: true });
+  await writeFile(cacheFile(root), JSON.stringify({ at: Date.now(), stdout: JSON.stringify({ login: 'octocat', name: 'The Octocat' }) }));
+  const resolved = identity(root, { offline: true });
+  assert.equal(resolved.login, null);
+  assert.equal(resolved.githubLookup, GITHUB_LOOKUP.NOT_CHECKED);
+  assert.equal(resolved.name, 'Read Model', 'the earlier answer\'s display name is not borrowed either');
 });
 
 test('a refused network is not-checked, never unavailable', async () => {

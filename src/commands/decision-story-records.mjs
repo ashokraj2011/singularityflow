@@ -74,6 +74,11 @@ export async function commitScopeDecision(root, config, workflow, { item, dispos
     throw new SingularityFlowError('The scope inventory of this Story cannot be built; see singularity-flow evidence scope.', { code: 'SCOPE_INVENTORY_UNAVAILABLE' });
   }
   const knownClauseIds = [...new Set([...(graph.records.indexes ?? []).flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)), ...preview.clauseIds])];
+  // A short clause ID names the one clause it ends with; one it cannot is refused below, with the clauses there are.
+  if (clauseIds.length) {
+    const { resolved, unresolved } = (await import('../clause-id-resolution.mjs')).resolveClauseIds(clauseIds, knownClauseIds);
+    clauseIds = [...resolved, ...unresolved.map((entry) => entry.id)];
+  }
   const groups = scopeAuthorities(workflow);
   if (!groups.length) {
     throw new SingularityFlowError('No step of this Story defines its scope with an approval group, so nobody can decide it.', { code: 'SCOPE_AUTHORITY_UNAVAILABLE' });

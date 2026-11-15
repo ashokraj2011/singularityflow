@@ -9,6 +9,7 @@ import { readStorySeed } from './pull-request.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { resolveGitCommitIdentity } from './git.mjs';
 import {
   configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference
 } from './git-remote-diagnostics.mjs';
@@ -86,6 +87,8 @@ export async function syncStoryStack(root, initiativeId) {
   if (!repositoryIds.length) throw new SingularityFlowError(`${initiativeId} has no Story repositories to receive a merge stack.`);
 
   const publications = [];
+  // Committed as the person synchronizing, not as whoever last materialized into the managed clone.
+  const commitIdentity = resolveGitCommitIdentity(root);
   for (const repositoryId of repositoryIds) {
     const repository = initiative.resolution.repositories?.[repositoryId] ?? portfolio.repositories?.[repositoryId];
     if (!repository) throw new SingularityFlowError(`Merge stack references unknown repository '${repositoryId}'.`);
@@ -95,7 +98,8 @@ export async function syncStoryStack(root, initiativeId) {
       clone,
       repositoryLedgerConfig(clone, repositoryStories),
       { [storyStackPath(initiativeId)]: contents },
-      `[${initiativeId}][stack] synchronize Story merge sequence`
+      `[${initiativeId}][stack] synchronize Story merge sequence`,
+      { commitIdentity }
     );
     publications.push({ repository: repositoryId, clone, ...publication });
   }

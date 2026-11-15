@@ -211,6 +211,19 @@ export function validateCommandResult(result, { requireEnvelope = false } = {}) 
   return result;
 }
 
+/**
+ * A result's next steps, each said once where it first stands: the same command for the same label, however many lists
+ * were joined into it (an approval's own and the step after it, D4 of the paid run, 2026-11-14). Every printed "next
+ * steps" list goes through this (commandResult, attachContinuation and the terminal renderer).
+ */
+export function distinctNext(next) {
+  const seen = new Set();
+  return next.filter((entry) => {
+    const key = `${entry?.command ?? ''}\u0000${entry?.label ?? entry?.reason ?? ''}`;
+    return seen.has(key) ? false : Boolean(seen.add(key));
+  });
+}
+
 export function commandResult({
   operation,
   subject = null,
@@ -241,7 +254,7 @@ export function commandResult({
     outcome: Object.freeze({ status: outcome.status, messageId: outcome.messageId, slots: outcome.slots ?? {} }),
     effects: Object.freeze({ ...declared }),
     why: Object.freeze(why.map((entry) => Object.freeze({ ...entry }))),
-    next: Object.freeze(next.map((entry) => Object.freeze({ ...entry }))),
+    next: Object.freeze(distinctNext(next).map((entry) => Object.freeze({ ...entry }))),
     restState,
     data
   });

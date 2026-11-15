@@ -14,7 +14,7 @@
 import { generationSkillForPhase } from '../code-delivery-policy.mjs';
 import { directCopilotSkill } from '../copilot-guidance.mjs';
 import { workflowNextSteps } from '../nextsteps.mjs';
-import { action, plannedAction } from './command-result.mjs';
+import { action, distinctNext, plannedAction } from './command-result.mjs';
 import { contextBoundaryPresentation, pendingContextBoundary } from '../context-policy.mjs';
 
 /** The skill that drafts a Story step, when the result knows the Story; null otherwise. */
@@ -120,13 +120,13 @@ export function attachContinuation(result, { postState = null, publicationPendin
   const boundary = !publicationPending && !stepActionHold?.missing?.length && !postState?.pendingDecision
     ? contextBoundaryPresentation(pendingContextBoundary(postState)) : null;
   if (boundary) result = { ...result, data: { ...result.data, contextBoundary: result.data?.contextBoundary ?? boundary } };
-  if (result.next.length || result.restState) return result;
+  if (result.next.length || result.restState) return result.next.length ? { ...result, next: Object.freeze(distinctNext(result.next)) } : result;
 
   const remediation = remediationActions(result, postState);
   if (remediation.length) return { ...result, next: Object.freeze(remediation) };
 
   if (result.subject?.kind === 'story' && postState) {
-    const planned = fromWorkflowPlanner(postState, { publicationPending, modelMode, stepActionHold });
+    const planned = distinctNext(fromWorkflowPlanner(postState, { publicationPending, modelMode, stepActionHold }));
     if (planned.length) return { ...result, next: Object.freeze(planned) };
   }
 

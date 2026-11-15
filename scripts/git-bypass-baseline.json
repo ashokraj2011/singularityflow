@@ -986,7 +986,7 @@
         "command-git": 8,
         "command-run": 1
       },
-      "digest": "17b418afff2476a53c7a9bb8cbed07ed1e6e1d5aa99adbc6142f6ef185691cbc"
+      "digest": "dc399b05604685064f521b0c2013c94cd703c3b2333db63b6a9384ad5ebcaf16"
     },
     "src/evidence-packet.mjs": {
       "counts": {

@@ -199,31 +199,15 @@ export function fetchMissingBlobs(root, commit, wanted, { limit = 20000 } = {}) 
 export { gitDir };
 
 /**
- * How long a resolved GitHub account is reused from disk. `[perf]`
- *
- * `gh api user` is a ~460 ms network round trip, and a process memo cannot help the VS Code
- * extension: every refresh is a brand-new CLI process, so it paid the full cost on each of its 25
- * refresh triggers.
- *
- * Caching rather than going offline was the original choice, and the reasoning still holds: passing
- * `{ offline: true }` on its own would have made `identities.github` null — turning a slow but
- * truthful disclosure into a fast and wrong one, on a surface reviewers use to see who is acting.
- *
- * What that reasoning missed is that the two are not exclusive. A read path can consult the cache and
- * decline to *populate* it, which is fast and truthful together: warm, the login is real and free;
- * cold, the login is null and the record says the lookup was never attempted. The one case the cache
- * could never fix was the cold one, and that is precisely when a person is sitting in front of an
- * empty sidebar waiting — measured at 965 ms on this machine.
+ * How long a resolved GitHub account is reused from disk. `[perf]` `gh api user` is a ~460 ms
+ * network round trip, and every VS Code refresh is a new CLI process. A read path consults the cache
+ * and never populates it: warm, the login is real and free; cold, it is null and declared not checked.
  */
 const GITHUB_ACCOUNT_TTL_MS = 10 * 60 * 1000;
 
 /**
- * A failed lookup, remembered by this process only and only briefly.
- *
- * A failure is never written to disk (one offline moment must not look like a signed-out account
- * for ten minutes), but one Story start asked five times and paid for every failure: no `gh`, a
- * signed-out account or no network answers the same within one command. A minute bounds a long
- * running host such as the VS Code extension.
+ * A failed lookup, remembered by this process only, for a minute. Never written to disk: one offline
+ * moment must not look like a signed-out account for ten minutes.
  */
 const GITHUB_FAILURE_TTL_MS = 60 * 1000;
 const githubLookupFailures = new Map();
@@ -247,34 +231,73 @@ function githubAccountCacheFile(root) {
   return repositoryGitPath(root, 'singularity-flow', 'github-account.json');
 }
 
+// What chooses who this environment is: gh's configuration, host and tokens, Git's configuration files.
+const ACCOUNT_ENVIRONMENT = ['HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'APPDATA', 'GH_CONFIG_DIR', 'GH_HOST', 'GH_TOKEN',
+  'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM',
+  'GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'SINGULARITY_FLOW_GITHUB_ACTOR'];
+
 /**
- * `gh api user`, reused from disk while fresh. Shaped like a `run()` result, plus how it was obtained.
+ * Who this environment is, as a digest of those variables (and each GIT_CONFIG_KEY_n/VALUE_n) and of
+ * gh's hosts.yml, which sign-in, sign-out and account switches rewrite. Tokens enter only the digest.
+ * Keyed by its file alone, the account cache put one person's login and name on every later record
+ * in the repository, other people's and signed-out ones included (2026-11-15).
+ */
+export function accountEnvironmentDigest(env = process.env) {
+  // gh's order: GH_CONFIG_DIR, XDG_CONFIG_HOME/gh, %AppData%\GitHub CLI on Windows, ~/.config/gh.
+  const config = env.GH_CONFIG_DIR || (env.XDG_CONFIG_HOME ? path.join(env.XDG_CONFIG_HOME, 'gh')
+    : process.platform === 'win32' && env.APPDATA ? path.join(env.APPDATA, 'GitHub CLI')
+      : path.join(env.HOME || env.USERPROFILE || os.homedir(), '.config', 'gh'));
+  let hosts = '\0absent';
+  try { hosts = readFileSync(path.join(config, 'hosts.yml'), 'utf8'); } catch { /* Signed out. */ }
+  const pairs = Array.from({ length: Math.min(Math.max(Number.parseInt(env.GIT_CONFIG_COUNT, 10) || 0, 0), 100) },
+    (_, n) => `${env[`GIT_CONFIG_KEY_${n}`]}=${env[`GIT_CONFIG_VALUE_${n}`]}`);
+  return createHash('sha256').update([...ACCOUNT_ENVIRONMENT.map((name) => `${name}=${env[name] ?? ''}`), ...pairs,
+    env.NODE_ENV === 'test' ? env.SINGULARITY_FLOW_TEST_IDENTITY ?? '' : '', config, hosts].join('\0')).digest('hex');
+}
+
+/** The `gh` PATH runs: another one (a stub, a wrapper) is asked afresh. */
+function ghExecutable(env) {
+  for (const directory of String(env.PATH ?? env.Path ?? '').split(path.delimiter).filter(Boolean)) {
+    for (const name of process.platform === 'win32' ? ['gh.exe', 'gh.cmd', 'gh.bat', 'gh'] : ['gh']) {
+      try { if (statSync(path.join(directory, name)).isFile()) return path.join(directory, name); } catch { /* Next. */ }
+    }
+  }
+  return '';
+}
+
+/**
+ * `gh api user`, reused from disk while fresh, only by who it was resolved for: the same `gh`,
+ * environment and Git email. Anything else is a miss, as is a cache from before entries had keys.
+ * Shaped like a `run()` result, plus how it was obtained.
  *
  * `cacheOnly` is the read-model contract: answer from the cache if it is fresh, and otherwise return
  * "not checked" rather than spawning. No read path may put a network round trip in front of a person.
  */
-function cachedGithubAccount(root, { cacheOnly = false, env = process.env } = {}) {
+function cachedGithubAccount(root, { cacheOnly = false, env = process.env, email = '' } = {}) {
   const file = githubAccountCacheFile(root);
+  const key = createHash('sha256').update([accountEnvironmentDigest(env), ghExecutable(env), email].join('\0')).digest('hex');
+  const now = Date.now();
+  let entries = [];
   try {
-    const cached = JSON.parse(readFileSync(file, 'utf8'));
-    if (Date.now() - cached.at < GITHUB_ACCOUNT_TTL_MS) return { status: 0, stdout: cached.stdout, lookup: GITHUB_LOOKUP.RESOLVED };
-  } catch { /* No cache, unreadable, or unparseable is simply a miss. */ }
+    entries = JSON.parse(readFileSync(file, 'utf8')).entries.filter((entry) => typeof entry?.stdout === 'string'
+      && now - entry.at >= 0 && now - entry.at < GITHUB_ACCOUNT_TTL_MS);
+  } catch { /* No cache, unreadable, unparseable or from before keys is simply a miss. */ }
+  const hit = entries.find((entry) => entry.key === key);
+  if (hit) return { status: 0, stdout: hit.stdout, lookup: GITHUB_LOOKUP.RESOLVED };
   if (cacheOnly) return { status: 1, stdout: '', lookup: GITHUB_LOOKUP.NOT_CHECKED };
-  // Anything that chooses which `gh` runs or which account it asks for is part of the key.
-  const failureKey = [file, ...['PATH', 'HOME', 'XDG_CONFIG_HOME', 'GH_CONFIG_DIR', 'GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN']
-    .map((name) => `${name}=${env[name] ?? ''}`)].join('\0');
+  const failureKey = `${file}\0${key}`;
   const failed = githubLookupFailures.get(failureKey);
-  if (failed && Date.now() - failed.at < GITHUB_FAILURE_TTL_MS) return failed.result;
+  if (failed && now - failed.at < GITHUB_FAILURE_TTL_MS) return failed.result;
 
   const result = run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], {
     cwd: root, env, allowFailure: true
   });
-  // Only a success is written. Caching a failure would make one offline moment look like a
-  // signed-out account for the next ten minutes.
+  // Only a success is written, beside the other environments' answers (a few, newest first).
   if (result.status === 0) {
     try {
       mkdirSync(path.dirname(file), { recursive: true });
-      writeFileSync(file, JSON.stringify({ at: Date.now(), stdout: result.stdout }));
+      writeFileSync(file, JSON.stringify({ entries: [{ key, at: Date.now(), stdout: result.stdout },
+        ...entries.filter((entry) => entry.key !== key)].slice(0, 8) }));
     } catch { /* An unwritable .git is not a reason to fail a read. */ }
   }
   /**
@@ -761,18 +784,17 @@ export function identity(root, { offline = false, env = process.env } = {}) {
    * here is an authorization bug, not a stale label.
    *
    * The expense was never these two `git config` reads (~23 ms); it was the `gh` call below, which
-   * is cached on disk where the value really is stable.
+   * is cached on disk for this environment and this Git email only.
    */
   const user = gitUserConfiguration(root, { env });
   const name = user.get('user.name')?.trim() ?? '';
   const email = user.get('user.email')?.trim() ?? '';
-  /**
-   * `offline` no longer means "pretend there is no account". It means "do not dial out for one" —
-   * a fresh cache still answers, and only a cold one degrades to a declared non-answer.
-   */
-  const github = cachedGithubAccount(root, { cacheOnly: offline, env });
+  // `offline` means "do not dial out": a fresh cache still answers; a cold one is declared not checked.
+  const github = cachedGithubAccount(root, { cacheOnly: offline, env, email });
   let account = {};
   if (github.status === 0) { try { account = JSON.parse(github.stdout); } catch { account = {}; } }
+  // An account's name travels only with its login, so a record never pairs one person's name with another's.
+  if (!account?.login) account = {};
   const resolved = {
     name: account.name || name || env.USER || env.USERNAME || 'unknown-user',
     email: email || null,
@@ -780,6 +802,16 @@ export function identity(root, { offline = false, env = process.env } = {}) {
     githubLookup: github.lookup
   };
   return resolved;
+}
+
+/**
+ * A remembered actor (an agent session's) speaks only for the environment that recorded it. Anyone
+ * else, or an actor recorded without one, acts as themselves, known without dialing out.
+ */
+export function rememberedActor(root, actor, recordedEnvironment) {
+  if (!actor || (recordedEnvironment && recordedEnvironment === accountEnvironmentDigest())) return actor;
+  const login = process.env.SINGULARITY_FLOW_GITHUB_ACTOR;
+  return login ? { name: login, login, email: null } : identity(root, { offline: true });
 }
 
 /**

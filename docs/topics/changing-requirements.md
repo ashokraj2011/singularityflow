@@ -23,6 +23,7 @@ questions:
   - What is an editorial change?
   - Who approves a material change?
   - What does change impact do?
+  - What does the Change impact section of the report count?
 keywords:
   - acceptance criteria
   - change
@@ -40,7 +41,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 6
+version: 11
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -86,7 +87,7 @@ Story PAY-1, "Retry failed card payments", has four steps: Intake (the scope), D
 1. **Choose the route.** AC-001 changes and a new criterion is needed. That is new behaviour: an intent amendment.
 2. **Draft, preview, propose.** Say the change in your own words. The draft is a copy of the approved scope, kept beside the checkout's Git data, never in the Story. Revise AC-001 in its `sflow-draft` slot, and add AC-003 "A fraud decline stops retrying at once." with its plan row. The preview records nothing. Here it says "It adds AC-003 and revises AC-001." and "Design is reopened: it cites AC-001." Implement has never published, so the preview does not name it; it runs again after Design. Then propose it as AMD-001. Implement, the step it was proposed from, pauses until AMD-001 is decided.
    - Copilot: `/sf-amend propose` (`/sf-reject intent-amendment propose` still works)
-   - Shell: `sflow story intent-amendment draft --clause PAY-1:AC-001 --work-id PAY-1`, edit the file it names, then `sflow story intent-amendment preview --file <DRAFT> --work-id PAY-1` and `sflow story intent-amendment propose --file <DRAFT> --reason "<why>" --authored human --work-id PAY-1`
+   - Shell: `sflow story intent-amendment draft --clause PAY-1:AC-001 --work-id PAY-1` (`--clause AC-001` names the same clause; a short ID that could mean several is refused with their full IDs), edit the file it names, then `sflow story intent-amendment preview --file <DRAFT> --work-id PAY-1` and `sflow story intent-amendment propose --file <DRAFT> --reason "<why>" --authored human --work-id PAY-1`
    - VS Code (model-free): not available
 3. **The scope approvers decide.** The card shows each changed clause, who proposed it and what it reaches. Rejecting keeps the scope and every submission as they are. Approving reopens Design.
    - Copilot: `/sf-decide PAY-1` opens the Decide card; Copilot cannot decide for you
@@ -142,7 +143,7 @@ With change impact on (below), every amendment has a size, set by rules and neve
 
 ### Change impact
 
-`spec.changeImpact: on`, in the workflow configuration's `spec` block, turns on observed dependencies (below) and the sizes above together. It is off by default and pinned when a Story starts, so a Story started before keeps its behaviour. To name who approves a material change, add `spec.scopeChangeAuthority: <approval group>`.
+`spec.changeImpact`, in the workflow configuration's `spec` block, turns on observed dependencies (below) and the sizes above together. It is on by default (since 2026-11-15), applied in code: `sflow init` and the shipped workflows write no setting, so an older SFlow build still loads them, and Workflow Studio, the builder and `sflow workflow check` show "Change impact: on (default)". `spec.changeImpact: off` turns both off, and so does `spec.observedDependencies: off` with no `spec.changeImpact`. It is pinned when a Story starts, so a Story started before keeps its behaviour. To name who approves a material change, add `spec.scopeChangeAuthority: <approval group>`.
 
 ```yaml
 spec:
@@ -160,14 +161,35 @@ New Stories pin `spec.preAmendmentDrafts: refuse`. Stories started before it kee
 
 ## Observed dependencies
 
-`spec.observedDependencies: on`, in the workflow configuration's `spec` block, is off by default and pinned when a Story starts. `spec.changeImpact: on` turns it on too. With it on:
+`spec.observedDependencies`, in the workflow configuration's `spec` block, is on with change impact (the default) and pinned when a Story starts. It stays valid on its own: `changeImpact: off` with `observedDependencies: on` keeps it without the sizes. With it on:
 
 - Each published generation records what it depended on: the clauses its prompt held, claims, changed paths, bound tests, witnesses, bindings and citations.
 - A step whose record is missing or incomplete counts as affected, so rule E8 never keeps it. A step published without a composed prompt has no complete record, so expect more steps to run again.
+- Except a separate plan whose rows the amendment carries: once an approver of that plan signs them in their own decision on the amendment, they are its answer, and it keeps its approval even with an incomplete record. The preview and the Decide card say so.
+- Two kinds of generation have no prompt by design, and record what they read instead: the scope generation an approved amendment publishes (the proposal its approvers decided), and a document SFlow assembles itself with no model call (its governed inputs). Code a model wrote still needs its composed prompt.
 - A clause that depends on a removed clause is stale too. A changed clause no plan claims reaches every later step whose record does not rule it out.
 - A kept step whose prompt held a changed clause it does not cite gets a "still holds" row.
 
 See it with `sflow spec dependencies [<step>] --work-id WORK-ID`: each generation, `resolved` or `unresolved` with its reasons, and its edges by kind.
+
+## What the Story report counts
+
+`sflow report WORK-ID` (also `--format html` and `--format json`) has a **Change impact** section once the Story has an intent amendment. It counts what the changes did, for each approved amendment and for the Story:
+
+| Count | What it is |
+|---|---|
+| Requirement changes | Amendments approved, by size (editorial, refinement, material, or no size where change impact is off), and those rejected or waiting |
+| Cone size | The clauses each change reached (changed, or depending on a changed one), and the later steps with published work it reached |
+| Widened share | Of those steps, the ones reached only because what they depended on is not fully recorded (observed dependencies) |
+| Evidence kept | Evidence items preserved as unaffected, or carried as editorial |
+| "Still holds" | Questions asked, and their answers: still holds, redo, or open |
+| Rework | Steps reset after they had started, and the generations they published again since |
+| Publications refused | Publications of a draft written before an amendment (`PHASE_DRAFT_PREDATES_AMENDMENT`) |
+| Churn | Clause changes, clauses changed more than once, and clauses that went back to an earlier statement |
+
+- Each count says whether it was **recorded** (written when it happened), **derived** (worked out from the Story's other records) or **not recorded**. A Story whose amendments were approved before SFlow kept these counts reports what it can derive and names the rest. With change impact off, amendments have no size, and the rest is counted the same way.
+- Only counts are kept, with the amendment, step and generation IDs. No clause text, file contents or paths. `--format json` carries the same counts as `changeImpact`.
+- A refused publication is counted in the Story's state, and its next commit carries the count. The refusal itself is unchanged.
 
 ## What not to do
 

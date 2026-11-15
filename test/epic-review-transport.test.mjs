@@ -99,3 +99,27 @@ test('Epic review reuses its unchecked-out clone and still refuses local changes
   await assert.rejects(listEpicReviewInbox(lead, 'EPIC-REVIEW'), /has local changes/,
     'a staged deletion in a checked-out clone is a local change');
 });
+
+test('Epic review clone takes the reviewer\'s own Git identity each time, never the last reviewer\'s', async (t) => {
+  const { parent, lead, clone } = await epicWithDeliveryRepository(t);
+  assert.deepEqual(await listEpicReviewInbox(lead, 'EPIC-REVIEW'), []);
+  assert.equal(git(clone, ['config', '--local', '--get', 'user.email']), 'review@example.com');
+
+  // Another reviewer opens the inbox from the same lead checkout.
+  git(lead, ['config', 'user.name', 'Second Reviewer']);
+  git(lead, ['config', 'user.email', 'second.reviewer@example.com']);
+  await listEpicReviewInbox(lead, 'EPIC-REVIEW');
+  assert.equal(git(clone, ['config', '--local', '--get', 'user.name']), 'Second Reviewer');
+  assert.equal(git(clone, ['config', '--local', '--get', 'user.email']), 'second.reviewer@example.com');
+
+  // One with no Git email at all is not given the previous reviewer's.
+  git(lead, ['config', '--unset', 'user.email']);
+  const globalConfig = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = path.join(parent, 'empty.gitconfig');
+  await writeFile(process.env.GIT_CONFIG_GLOBAL, '');
+  try { await listEpicReviewInbox(lead, 'EPIC-REVIEW'); } finally {
+    if (globalConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  }
+  assert.equal(run('git', ['config', '--local', '--get', 'user.email'], { cwd: clone, allowFailure: true }).status, 1);
+});

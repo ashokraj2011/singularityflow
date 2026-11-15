@@ -217,29 +217,47 @@ async function fixture(t, { independentSkill = false, approvalMinimum = 1 } = {}
     firstPackageSha256, secondPackageSha256 };
 }
 
-test('skill adoption exact previews bind human identity, not GitHub lookup cache diagnostics', async (t) => {
+test('skill adoption exact previews bind human identity, not GitHub lookup cache diagnostics', {
+  skip: process.platform === 'win32' ? 'the GitHub account comes from a POSIX gh stub' : false
+}, async (t) => {
   const { root, config, workflow, approved } = await fixture(t);
   await captureSkillConfigurationAncestry(approved, workflow.resolution.configurationSource);
   const originalNetwork = process.env.SINGULARITY_FLOW_NO_NETWORK;
+  const originalPath = process.env.PATH;
   process.env.SINGULARITY_FLOW_NO_NETWORK = '1';
   delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
   const cacheFile = path.join(root, '.git', 'singularity-flow', 'github-account.json');
+  // A stub gh on PATH, never the real one: the account is cached only by a real lookup, for this
+  // environment and this Git email, so each login is seeded by asking it.
+  const stub = await mkdtemp(path.join(os.tmpdir(), 'sflow-skp-gh-'));
+  const account = path.join(stub, 'account.json');
+  await writeFile(path.join(stub, 'gh'), `#!/bin/sh\ncat ${JSON.stringify(account)}\n`, { mode: 0o755 });
+  process.env.PATH = `${stub}${path.delimiter}${originalPath}`;
   const read = fs.readFileSync;
   let cacheReads = 0;
-  let login = null;
+  const seed = (value) => {
+    fs.rmSync(cacheFile, { force: true });
+    fs.writeFileSync(account, JSON.stringify({ login: value }));
+    delete process.env.SINGULARITY_FLOW_NO_NETWORK;
+    try { assert.equal(identity(root).githubLookup, 'resolved'); } finally { process.env.SINGULARITY_FLOW_NO_NETWORK = '1'; }
+    cacheReads = 0;
+  };
   const cacheMock = t.mock.method(fs, 'readFileSync', function (file, ...options) {
     if (String(file) !== cacheFile) return read.call(this, file, ...options);
     cacheReads += 1;
     if (cacheReads % 2 === 0) throw Object.assign(new Error('cache miss'), { code: 'ENOENT' });
-    return JSON.stringify({ at: Date.now(), stdout: JSON.stringify({ login }) });
+    return read.call(this, file, ...options);
   });
   syncBuiltinESMExports();
-  t.after(() => {
+  t.after(async () => {
     cacheMock.mock.restore();
     syncBuiltinESMExports();
+    process.env.PATH = originalPath;
     if (originalNetwork === undefined) delete process.env.SINGULARITY_FLOW_NO_NETWORK;
     else process.env.SINGULARITY_FLOW_NO_NETWORK = originalNetwork;
+    await rm(stub, { recursive: true, force: true });
   });
+  seed(null);
   const warm = identity(root);
   const cold = identity(root);
   assert.equal(warm.githubLookup, 'resolved');
@@ -262,7 +280,7 @@ test('skill adoption exact previews bind human identity, not GitHub lookup cache
     ['email', 'changed-proposer@example.invalid', 'proposer@example.invalid'],
     ['login', 'changed-proposer', null]
   ]) {
-    if (field === 'login') { login = replacement; cacheReads = 0; }
+    if (field === 'login') seed(replacement);
     else git(root, 'config', `user.${field}`, replacement);
     const changed = await previewStorySkillVersionProposal(root, config, workflow, selection);
     assert.notEqual(changed.planSha256, proposal.planSha256, `${field} remains exact-plan bound`);
@@ -270,7 +288,7 @@ test('skill adoption exact previews bind human identity, not GitHub lookup cache
     await assert.rejects(proposeStorySkillVersion(root, config, workflow, {
       ...selection, confirmPreviewDigest: proposal.planSha256
     }), { code: 'SKP_AMENDMENT_PREVIEW_STALE' });
-    if (field === 'login') login = original;
+    if (field === 'login') seed(original);
     else git(root, 'config', `user.${field}`, original);
   }
   await proposeStorySkillVersion(root, config, workflow, {
@@ -296,7 +314,7 @@ test('skill adoption exact previews bind human identity, not GitHub lookup cache
     ['email', 'changed-reviewer@example.invalid', 'reviewer@example.invalid'],
     ['login', 'changed-reviewer', null]
   ]) {
-    if (field === 'login') { login = replacement; cacheReads = 0; }
+    if (field === 'login') seed(replacement);
     else git(root, 'config', `user.${field}`, replacement);
     const changed = await previewStorySkillVersionDecision(root, config, workflow, reviewOptions);
     assert.notEqual(changed.planSha256, review.planSha256, `${field} remains reviewer bound`);
@@ -304,7 +322,7 @@ test('skill adoption exact previews bind human identity, not GitHub lookup cache
     await assert.rejects(decideStorySkillVersion(root, config, workflow, {
       ...reviewOptions, confirmPreviewDigest: review.planSha256
     }), { code: 'SKP_AMENDMENT_PREVIEW_STALE' });
-    if (field === 'login') login = original;
+    if (field === 'login') seed(original);
     else git(root, 'config', `user.${field}`, original);
   }
   await decideStorySkillVersion(root, config, workflow, {

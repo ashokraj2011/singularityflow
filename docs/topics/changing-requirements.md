@@ -41,7 +41,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 8
+version: 9
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -165,6 +165,7 @@ New Stories pin `spec.preAmendmentDrafts: refuse`. Stories started before it kee
 
 - Each published generation records what it depended on: the clauses its prompt held, claims, changed paths, bound tests, witnesses, bindings and citations.
 - A step whose record is missing or incomplete counts as affected, so rule E8 never keeps it. A step published without a composed prompt has no complete record, so expect more steps to run again.
+- Except a separate plan whose rows the amendment carries: once an approver of that plan signs them in their own decision on the amendment, they are its answer, and it keeps its approval even with an incomplete record. The preview and the Decide card say so.
 - Two kinds of generation have no prompt by design, and record what they read instead: the scope generation an approved amendment publishes (the proposal its approvers decided), and a document SFlow assembles itself with no model call (its governed inputs). Code a model wrote still needs its composed prompt.
 - A clause that depends on a removed clause is stale too. A changed clause no plan claims reaches every later step whose record does not rule it out.
 - A kept step whose prompt held a changed clause it does not cite gets a "still holds" row.

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "589c11df0472e580100c5970d2c354c746e05933",
+  "sourceCommit": "c6c099d0e694ec0af2d1bcd03d980c81685e635e",
   "topicCount": 93,
-  "contentSha256": "1788dc380392a8abeaadf88aa9f5e81989bfa6a5aed02c9dee419dd17cdfbfa8",
+  "contentSha256": "f27954824b6f5b8eb9e8aaddf468cc9000159a1509c99d749796229ec9726476",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -104,8 +104,8 @@
     {
       "id": "changing-requirements",
       "title": "Changing requirements during a Story",
-      "version": 8,
-      "sha256": "510550f1a0ab30f263c45db5e7e4a343c771012d89db10b5d5d25e6627e92e4d",
+      "version": 9,
+      "sha256": "ec3fa9a406392c1a6109c9c8ab55a8d1a5e587e3754791cb80004333cc8f39b6",
       "routingSha256": "64314b6dc7f635ef14f41c4b145a9d5963f640824e91d54eb0ca92815f6c0ff5",
       "file": "changing-requirements.md"
     },

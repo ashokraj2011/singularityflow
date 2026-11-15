@@ -9251,7 +9251,10 @@ const impactCounts = (workflow, effect, { editorial, amendment, reset }) => ({ s
   ...(effect.observed ? { widened: effect.steps.filter((step) => step.affected && step.generation > 0 && step.reasons.every((reason) => reason.kind === 'unresolved-record')).map((step) => step.phase) } : {}),
   ...(workflow.resolution?.spec?.preAmendmentDrafts === 'refuse' ? { setAside: reset.filter((id) => workflow.phases[id]?.scopePin?.amendment === amendment && workflow.phases[id].scopePin.setAside) } : {}),
   ...(editorial ? { carriedEvidence: effect.steps.filter((step) => step.outcome === 'carried')
-    .reduce((total, step) => total + (workflow.phases[step.phase]?.artifacts ?? []).filter((artifact) => artifact.exists !== false).length, 0) } : {}) });
+    .reduce((total, step) => total + (workflow.phases[step.phase]?.artifacts ?? []).filter((artifact) => artifact.exists !== false).length, 0) } : {}),
+  // A kept plan whose record is incomplete, carried by the rows its approvers signed, not widened (owner, 2026-11-15).
+  ...(effect.steps.some((step) => step.signedRows) ? { carried: effect.steps.filter((step) => step.signedRows === 'signed' && step.outcome === 'kept')
+    .map((step) => ({ phase: step.phase, reason: 'signed-plan-rows' })) } : {}) });
 
 /** The class an approval applied, as its record keeps it: the floor and its rule IDs, the suggestion, each raise, the result. */
 const classRecord = ({ floor, reasons, suggested, raises, effective }) => ({ floor, rules: reasons.map((reason) => reason.rule),
@@ -9289,7 +9292,9 @@ export async function intentAmendmentClass(root, config, workflow, proposal, { p
  * and `unchanged` for a step not run yet. A reason is `cites` (its artifact cites a stale or removed clause),
  * `radius` (a path in the claim-map radius), `unreadable` (fail closed, CIC:REQ-020), `code-step` (the radius
  * affects claims), `convergence`, or, for a step not affected itself, `after-reset` or `not-kept` with
- * phase-retention.mjs's reason. `repeats` says which changed clauses the Story changed before (D4). Reads only.
+ * phase-retention.mjs's reason. `repeats` says which changed clauses the Story changed before (D4). A plan whose rows the
+ * amendment carries is not widened for an incomplete record while its approvers' signature on them counts or is still to come
+ * (`signedRows`, owner 2026-11-15: signed rows win). Reads only.
  */
 export async function intentAmendmentEffect(root, config, workflow, proposal, { proposedText }) {
   const specification = scopeStepOf(workflow);
@@ -9325,6 +9330,9 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
   const changed = new Set([...(diff.added ?? []), ...(diff.revised ?? [])].map(upper));
   const added = new Set((diff.added ?? []).map(upper));
   const observed = observedDependencies(workflow) ? await observedRecords(root, workflow, records) : null;
+  // Signed rows win (owner, 2026-11-15): a plan whose rows this amendment carries, signed by its own approvers in their decision
+  // on it, has answered for the amended clauses itself, so an incomplete record does not reset it; an uncounted signature does.
+  const rowSigning = observed && carriedRows.size ? (await import('./amendment-plan-corrections.mjs')).carriedRowSigning(workflow, proposal) : null;
   // The changed clauses no planned claim names: no record of a step that did not rule them out keeps it [CIC:REQ-006].
   const unclaimedClauses = observed && !editorial ? [...new Set([...changed, ...(diff.removed ?? []).map(upper)])].filter((id) => !observed.planned[id]).sort() : [];
   const evidencePaths = new Set([...(proposal.radius?.artifacts ?? []), ...(proposal.radius?.tests ?? [])].map(posix));
@@ -9363,7 +9371,8 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
     }
     // Under switch 1 a published step whose record does not resolve what it depended on counts as affected [CIC:REQ-006].
     const row = observed && Number(phase.generation ?? 0) > 0 ? observed.rows.get(`${phase.id}\u0000${Number(phase.generation)}`) ?? null : null;
-    if (observed && Number(phase.generation ?? 0) > 0 && row?.coverage?.state !== 'resolved') {
+    const signedRows = ['signed', 'unsigned'].includes(rowSigning?.get(phase.id)) ? rowSigning.get(phase.id) : null;
+    if (observed && Number(phase.generation ?? 0) > 0 && row?.coverage?.state !== 'resolved' && !signedRows) {
       reasons.push({ kind: 'unresolved-record', reasons: row?.coverage?.reasons ?? ['no-record'] });
     }
     const step = { phase: phase.id, status: phase.status, generation: Number(phase.generation ?? 0), affected: reasons.length > 0, reasons, artifacts };
@@ -9382,7 +9391,8 @@ export async function intentAmendmentEffect(root, config, workflow, proposal, { 
       const held = new Set([...cited].filter((id) => !added.has(upper(id))).map(upper));
       const question = observed ? await stillHoldsQuestion(root, phase, row, held, observed.planned) : null;
       steps.push({ ...step, outcome: 'kept', rule: 'E8', ...(observed ? (question ? { stillHolds: question } : {}) : { inPrompt: [...held].sort() }),
-        ...(carriedRows.has(phase.id) ? { carriesRows: true } : {}), ...(later.length ? { laterDecisions: later } : {}) });
+        ...(carriedRows.has(phase.id) ? { carriesRows: true } : {}), ...(later.length ? { laterDecisions: later } : {}),
+        ...(signedRows && row?.coverage?.state !== 'resolved' ? { signedRows } : {}) });
       continue;
     }
     const why = step.affected ? null : !retaining ? { kind: 'after-reset', phase: order[firstReset] }

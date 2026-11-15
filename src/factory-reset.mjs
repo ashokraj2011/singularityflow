@@ -168,6 +168,111 @@ export async function pendingPublications(localRuntimeRoots) {
   return [...found.values()];
 }
 
+/** The folder that holds a clone's Story checkouts, in a workspace or beside a clone (src/story-worktree.mjs). */
+export const STORY_WORKTREES_FOLDER = 'story-worktrees';
+
+async function linkedWorktreeFolders(root, depth = 3) {
+  const found = [];
+  const walk = async (directory, level) => {
+    for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(directory, entry.name);
+      const link = await lstat(path.join(candidate, '.git')).catch(() => null);
+      if (link?.isFile()) found.push(candidate);
+      else if (!link && level < depth) await walk(candidate, level + 1);
+    }
+  };
+  await walk(root, 1);
+  return found;
+}
+
+/** What a Story checkout holds that only it has: changed or new files, or commits no remote has yet. */
+async function storyCheckoutWork(checkout) {
+  const git = (args) => run('git', args, { cwd: checkout, allowFailure: true, timeoutMs: 30000 });
+  const privateGit = git(['rev-parse', '--absolute-git-dir']);
+  if (privateGit.status !== 0) return { branch: null, work: ['unreadable'] };
+  const branch = git(['symbolic-ref', '--quiet', '--short', 'HEAD']).stdout.trim() || null;
+  const work = [];
+  const status = git(['status', '--porcelain=v1', '--untracked-files=normal', '--ignore-submodules=dirty']);
+  if (status.status !== 0) return { branch, work: ['unreadable'] };
+  if (status.stdout.trim()) work.push('uncommitted');
+  const pending = await pendingPublications([path.join(privateGit.stdout.trim(), LOCAL_RUNTIME_ROOT)]).catch(() => []);
+  const remotes = git(['remote']).stdout.trim();
+  const head = git(['rev-parse', '--verify', '--quiet', 'HEAD']).stdout.trim();
+  const published = !remotes || !head || git(['for-each-ref', '--count=1', '--contains', head, '--format=%(refname)', 'refs/remotes']).stdout.trim();
+  if (pending.length || !published) work.push('unpublished');
+  return { branch, work, pending };
+}
+
+/**
+ * Every Story checkout a reset keeps (SCF:REQ-021): the Story worktrees under SFlow's state folder, where a clone
+ * directly in the home folder kept them, under each registered workspace, and every linked checkout the Story index
+ * names. Each says what work it holds that only it has.
+ */
+export async function resetStoryCheckouts({ localStateRoot = machineStateRoot(), workspacePaths = null, storyIndex = null, indexed = true } = {}) {
+  const { readStoryIndex, storyIndexFile } = await import('./story-index.mjs');
+  const index = indexed ? await readStoryIndex({ file: storyIndex ?? storyIndexFile() }).catch(() => ({ entries: [] })) : { entries: [] };
+  let workspaces = workspacePaths;
+  if (!workspaces) {
+    const [{ readWorkspaceRegistry }, { workspaceRegistryFile }] = await Promise.all([
+      import('./workspace-manifest.mjs'), import('./workspace-context.mjs')]);
+    workspaces = (await readWorkspaceRegistry(workspaceRegistryFile()).catch(() => [])).map((entry) => entry.path).filter(Boolean);
+  }
+  const folders = [path.join(localStateRoot, STORY_WORKTREES_FOLDER),
+    ...workspaces.map((workspace) => path.join(workspace, '.singularity-flow', STORY_WORKTREES_FOLDER))];
+  const candidates = [];
+  for (const folder of folders) candidates.push(...await linkedWorktreeFolders(folder));
+  for (const entry of index.entries ?? []) {
+    if ((await lstat(path.join(entry.checkoutPath, '.git')).catch(() => null))?.isFile()) candidates.push(entry.checkoutPath);
+  }
+  const seen = new Map();
+  const stateRoot = await realpath(localStateRoot).catch(() => path.resolve(localStateRoot));
+  for (const candidate of candidates) {
+    const key = await realpath(candidate).catch(() => path.resolve(candidate));
+    if (seen.has(key)) continue;
+    const named = (index.entries ?? []).find((entry) => samePath(entry.checkoutPath, candidate) || samePath(entry.checkoutPath, key));
+    const { branch, work, pending = [] } = await storyCheckoutWork(key);
+    seen.set(key, { path: key, workId: named?.workId ?? null, branch, work, insideStateFolder: inside(stateRoot, key),
+      ...(pending.length ? { sync: pending.map((entry) => entry.command).filter(Boolean) } : {}) });
+  }
+  return [...seen.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function samePath(left, right) {
+  return typeof left === 'string' && typeof right === 'string'
+    && (process.platform === 'win32' ? path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase() : path.resolve(left) === path.resolve(right));
+}
+
+function inside(parent, candidate) {
+  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/** The reset's refusal while a Story checkout holds work only it has, each with its way out (SCF:REQ-021). */
+export function storyCheckoutWorkRefusal(checkouts, { operation = 'Reset all' } = {}) {
+  const holding = checkouts.filter((checkout) => checkout.work.length);
+  if (!holding.length) return null;
+  const what = (checkout) => checkout.work.map((kind) => ({ uncommitted: 'changed or new files', unpublished: 'commits no remote has yet',
+    unreadable: 'a checkout Git cannot read' })[kind]).join(' and ');
+  const name = (checkout) => checkout.workId ?? checkout.branch ?? path.basename(checkout.path);
+  return new SingularityFlowError(
+    `${operation} keeps every Story checkout, and stops while one holds work only it has, since the reset forgets where it is:\n`
+    + holding.map((checkout) => `  ${name(checkout)} at ${checkout.path}: ${what(checkout)}`).join('\n')
+    + '\nCommit the changes there and publish them (singularity-flow sync <WORK-ID> in that checkout), or remove what is not needed, then preview again. Nothing was removed.',
+    {
+      code: 'RESET_STORY_CHECKOUT_HAS_WORK',
+      details: {
+        storyCheckouts: holding.map(({ path: where, workId, branch, work }) => ({ path: where, workId, branch, work })),
+        ...(holding.some((checkout) => checkout.sync?.length) ? { nextAction: holding.find((checkout) => checkout.sync?.length).sync[0] } : {}),
+        actions: holding.slice(0, 10).map((checkout) => ({
+          label: `In ${checkout.path} (${name(checkout)}): ${checkout.work.includes('uncommitted') ? 'commit or remove the changed and new files (git status shows them), then ' : ''}`
+            + `publish the Story${checkout.workId ? ` with singularity-flow sync ${checkout.workId}` : ''}, then preview the reset again.`
+        }))
+      }
+    }
+  );
+}
+
 async function regularFiles(root, relative = '', output = []) {
   const directory = path.join(root, relative);
   for (const entry of await readdir(directory, { withFileTypes: true }).catch((error) => {
@@ -1801,20 +1906,26 @@ export async function factoryResetAllPlan(root, {
 } = {}) {
   const repository = await factoryResetPlan(root, { packageVersion, discardPendingPublications });
   await directoryState(localStateRoot, 'Singularity machine-local state root');
+  const storyCheckouts = await resetStoryCheckouts({ localStateRoot });
+  const holding = storyCheckouts.filter((checkout) => checkout.work.length);
   return {
     ...repository,
     operation: 'factory-reset-all',
     confirmation: RESET_ALL_CONFIRMATION,
     localStateRoot,
+    storyCheckouts,
     remove: [
       ...repository.remove,
-      `${localStateRoot} (saved workspace registry, active selection, lead-repository registry, and CLI telemetry setup)`
+      `${localStateRoot} (saved workspace registry, active selection, lead-repository registry, and CLI telemetry setup; its ${STORY_WORKTREES_FOLDER} folder stays)`
     ],
     preserve: [
       ...repository.preserve.filter((item) => item !== 'the global workspace registry and workspace clones'),
       'physical workspace directories and repository clones; only their local registrations are removed',
+      // Story checkouts are never deleted (SCF:REQ-021); a reset stops while one holds work only it has.
+      `${storyCheckouts.length} Story checkout(s)${storyCheckouts.length ? `: ${storyCheckouts.map((checkout) => `${checkout.path}${checkout.work.length ? ` (holds ${checkout.work.join(' and ')} work; the reset refuses until it is committed and published)` : ''}`).join('; ')}` : ''}`,
       'VS Code SecretStorage credentials; reset Jira or Teams credentials separately in VS Code'
-    ]
+    ],
+    ...(holding.length ? { storyCheckoutsHoldingWork: holding.length } : {})
   };
 }
 
@@ -1825,6 +1936,8 @@ async function stageMachineState(localStateRoot, machineBackup, lockPaths, moved
   for (const entry of await readdir(localStateRoot, { withFileTypes: true })) {
     const current = path.join(localStateRoot, entry.name);
     if (lockPaths.has(current)) continue;
+    // Story checkouts a clone in the home folder kept here are never deleted (SCF:REQ-021).
+    if (entry.name === STORY_WORKTREES_FOLDER) continue;
     const backup = path.join(machineBackup, entry.name);
     const record = {
       label: `machine-local state ${entry.name}`,
@@ -1921,6 +2034,8 @@ export async function factoryResetAll(root, {
       // Read and validate the machine-state boundary only after the reset barrier and all registry
       // writer leases are held. A registration cannot be added between planning and staging.
       const plan = await factoryResetAllPlan(root, { packageVersion, localStateRoot, discardPendingPublications });
+      const holding = storyCheckoutWorkRefusal(plan.storyCheckouts);
+      if (holding) throw holding;
       const staging = await mkdtemp(path.join(machineParent, '.sflow-reset-all-'));
       const stagingParentGuard = await directoryChainGuard(
         machineParent, '', 'Reset-all machine staging parent'

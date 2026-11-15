@@ -618,7 +618,12 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // steps, measured together where both land (2026-11-15). No new eager file.
     // 9,667,450 (measured 9,667,440): with each person's own GitHub account (git.mjs, session.mjs) and workflow assess
     // also landed, measured together for the stable build (2026-11-15). No new eager file.
-    assert.ok(closure.bytes <= 9_667_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,667,550 (measured 9,667,528, commands/phase-lifecycle.mjs): SPEC-SCF stage 1 on top of the stable build (+88),
+    // measured on the merge with main 4ac5c5c40 (2026-11-15). No new eager file.
+    // 9,668,500 (measured 9,668,466): outside a Story checkout the approved configuration is found by each configured
+    // remote's exact sflow/config ref, not a pattern over every remote (approved-configuration-reader.mjs +846), and the
+    // state marker clone keeps its objects (configuration-branch.mjs +92) [SPEC-SCF stage 1, 2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_668_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -715,7 +720,10 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // has its own classification and advice (git-remote-diagnostics.mjs +590) [owner, 2026-11-13].
   // 866,100 (measured 866,068): `decisions undo`, a person's undo of what was settled for them, is a registered
   // mutation (command-registry.mjs +195) [owner, 2026-11-13]. No new eager file.
-  assert.ok(root.bytes <= 866_100, `root dispatch loads ${root.bytes} source bytes`);
+  // 866,450 (measured 866,429): the window heartbeat is machine-local upkeep, a third command class (command-registry.mjs
+  // OPERATION_CLASSES, cli-entry.mjs) [SPEC-SCF stage 1d, 2026-11-15]. No new eager file. Still holds on the merge with
+  // main 4ac5c5c40 (measured 866,439: `workflow assess` is a registered read, +10).
+  assert.ok(root.bytes <= 866_450, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -934,7 +942,12 @@ test('the common session projection does not import attach, state stores or publ
   // for, and an agent session's actor only the environment that chose it (git.mjs +2,141, session.mjs +438) (real run,
   // 2026-11-15: one person's login and name were on another person's records). No new eager file.
   // 4,260,800 (measured 4,260,782): the three above together with workflow assess, measured for the stable build (2026-11-15).
-  assert.ok(current.bytes <= 4_260_800, `session current loads ${current.bytes} source bytes`);
+  // SPEC-SCF stage 1 [2026-11-15]: the upkeep class (command-registry.mjs, +316) [1d], and configuration commits name
+  // the person, read past a transport's hidden Git configuration (git.mjs configurationCommitIdentity, +1,077) [1b].
+  // No new eager file.
+  // 4,262,200 (measured 4,262,175): stage 1 on top of the stable build's 4,260,782, measured on the merge with main
+  // 4ac5c5c40 (2026-11-15).
+  assert.ok(current.bytes <= 4_262_200, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

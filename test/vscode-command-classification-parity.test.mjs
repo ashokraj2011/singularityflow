@@ -100,7 +100,9 @@ test('workspace retention and cleanup argv classify exactly as the CLI resolves 
   const expected = [
     [['workspace', 'retention', '--json'], 'read'],
     [['workspace', 'retention', 'WS', '--json'], 'read'],
-    [['workspace', 'retention', '--heartbeat', '--surface', 'window', '--pid', '42', '--json'], 'mutation'],
+    // The window heartbeat is machine-local upkeep: no contract refresh, journal or Story index (SCF:REQ-023).
+    [['workspace', 'retention', '--heartbeat', '--surface', 'window', '--pid', '42', '--json'], 'upkeep'],
+    [['workspace', 'retention', '--heartbeat=true', '--surface', 'window', '--pid', '42', '--json'], 'upkeep'],
     [['workspace', 'retention', '--heartbeat=false', '--json'], 'mutation'],
     [['workspace', 'retention', '--enabled', 'false', '--json'], 'mutation'],
     [['workspace', 'retention', '--no-enabled', '--json'], 'mutation'],

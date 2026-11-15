@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { COMMAND_PRESENTATION_CONTRACT, decideCardStep, formatCommandRouteLines } from './model-free-commands.mjs';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationToolProtocol, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { asSflowCommand, copilotModeFile, mentionsHookCli, readCopilotMode } from './copilot-mode.mjs';
@@ -145,6 +145,46 @@ async function boundedRecord(file, kind = 'copilot-mutation-contract') {
   if (value.kind !== kind || integritySha256 !== digest(JSON.stringify(content))) throw new Error('Corrupt mutation record');
   return value;
 }
+/**
+ * Changes a turn record only while it still holds the record this process read, by its integrity hash. Another
+ * process that wrote it meanwhile (a post-tool hook recording findings, a CLI refreshing the turn) is never
+ * overwritten with an older copy: `change` runs again on what that process wrote (SCF:REQ-023). `change` returns
+ * the record to write, or null for no write. The comparison and the write hold the record's lock, never `change`.
+ */
+async function updateTurnRecord(file, value, change, attempts = 4) {
+  for (let attempt = 0; value && attempt < attempts; attempt++) {
+    const next = await change(value);
+    if (!next) return null;
+    const read = value;
+    const outcome = await withTurnRecordLock(file, async () => {
+      const current = await boundedRecord(file).catch(() => null);
+      if (current?.integritySha256 !== read.integritySha256) return { current };
+      await atomicRecord(file, next);
+      return { written: true };
+    });
+    if (outcome.written) return next;
+    value = outcome.current;
+  }
+  return null;
+}
+// Held only while a record is compared and replaced, a few milliseconds; one older than this was left by a process
+// that stopped inside that step, and is taken over.
+const TURN_RECORD_LOCK_STALE_MS = 5000;
+async function withTurnRecordLock(file, action) {
+  const lock = `${file}.lock`;
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  for (let started = Date.now(); ;) {
+    try { await (await open(lock, 'wx', 0o600)).close(); break; }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      const held = await lstat(lock).catch(() => null);
+      if (held && Date.now() - held.mtimeMs > TURN_RECORD_LOCK_STALE_MS) await unlink(lock).catch(() => {});
+      else if (Date.now() - started > 2 * TURN_RECORD_LOCK_STALE_MS) throw new Error('Mutation record busy');
+      else await new Promise(resolve => setTimeout(resolve, 5 + Math.floor(Math.random() * 10)));
+    }
+  }
+  try { return await action(); } finally { await unlink(lock).catch(() => {}); }
+}
 async function turn(payload) {
   if (readCopilotMode().paused || !key(payload)) return null;
   try {
@@ -243,6 +283,8 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     decisionEnded: previous?.decisionEnded ?? false,
     binding: { workflowFile, workflowSha256: digest(await readFile(workflowFile)), ...gitIdentity },
     baseline: previous?.baseline ?? null, findings: previous?.findings ?? [],
+    // The shell call this turn's pre-tool check let through and its post-tool check has not yet judged.
+    ...(previous?.pendingShell ? { pendingShell: previous.pendingShell } : {}),
     ...(record.confirmDigest ? { confirmDigest: record.confirmDigest } : {}),
     ...(record.confirmCode ? { confirmCode: record.confirmCode } : {}),
     ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}),
@@ -2100,6 +2142,7 @@ async function mutationToolDecision(payload, record) {
   }
   const contract = value.contract;
   value.skill = record.skill;
+  let pendingKernel = false, pendingShell = false;
   for (const call of toolCalls) {
     if (stagingReads.includes(call)) {
       const correction = stagingPathMismatch(contract, targets(call.args),
@@ -2225,9 +2268,12 @@ async function mutationToolDecision(payload, record) {
       // Baseline BEFORE execution, refreshed after kernel-owned operations at the CLI boundary. A
       // command that only reads changes nothing, so it needs none.
       if (!kernel && !readOnlyShell(call, value) && !value.baseline) {
-        value.baseline = await shellSnapshot(contract.repositoryRoot, contract);
-        await atomicRecord(recordFile(payload), value);
+        const baseline = await shellSnapshot(contract.repositoryRoot, contract);
+        await updateTurnRecord(recordFile(payload), value, (current) => current.baseline ? null : { ...current, baseline });
+        value.baseline = baseline;
       }
+      if (kernel) pendingKernel = true;
+      else if (!readOnlyShell(call, value)) pendingShell = true;
       continue;
     }
     if (!isEdit(call.name)) continue;
@@ -2248,6 +2294,12 @@ async function mutationToolDecision(payload, record) {
     if (denied.length && contract.policy?.intentAmendmentPause) return mutationDenial(contract,
       'INTENT_AMENDMENT_PENDING_PAUSE: no file of this step changes while its amendment waits; tell the person, and do not retry it', denied);
     if (denied.length) return mutationDenial(contract, 'PHASE_MUTATION_PATH_DENIED', denied);
+  }
+  // Which shell call this turn runs now, so an SFlow command run elsewhere meanwhile never moves this turn's baseline
+  // or ends its confirmation (SCF:REQ-023): its own SFlow command is 'kernel', any other changing command 'shell'.
+  if (pendingKernel || pendingShell) {
+    const pending = { kind: pendingShell ? 'shell' : 'kernel', at: Date.now() };
+    await updateTurnRecord(recordFile(payload), value, (current) => ({ ...current, pendingShell: pending })).catch(() => {});
   }
   return {};
 }
@@ -2344,11 +2396,18 @@ export async function mutationPostToolGuard(payload = {}) {
         && terminals.every(call => bootstrapAllowed(call, { ...record, repositoryRoot: cached.repositoryRoot }))) return {};
     return postFinding(mutationDenial(null, 'PHASE_MUTATION_CONTRACT_STALE: preserve changes and refresh the binding'));
   }
+  // The call has run: it is no longer this turn's pending one. Written only over the record as read (a CLI refreshing
+  // this turn meanwhile keeps what it wrote).
+  const settled = (change) => updateTurnRecord(recordFile(payload), value, (current) => {
+    const { pendingShell: ignored, ...rest } = current;
+    return change(rest);
+  });
   if (!value.baseline) {
     // Neither an SFlow command the turn allowed nor a command that only reads needs a shell baseline:
     // the CLI refreshes this turn at its own boundary, and a read changes nothing. A command that
     // ran without its pre-tool check (the host stops a slow hook and runs the call anyway) is
     // judged the same way; anything else is stopped, since nothing can tell what it changed.
+    if (value.pendingShell) await settled((current) => current).catch(() => {});
     const ran = turnAsRun(value, record);
     if (terminals.every(call => shellAllowed(call, ran.contract.turnMode, ran) || readOnlyShell(call, value))) return {};
     return postFinding(mutationDenial(value.contract, 'PHASE_MUTATION_BASELINE_UNAVAILABLE: detection cannot establish which command changed bytes'));
@@ -2361,7 +2420,7 @@ export async function mutationPostToolGuard(payload = {}) {
   if (value.baseline.headTree !== after.headTree || value.baseline.indexTree !== after.indexTree) forbidden.push('[HEAD/index changed outside a recorded kernel operation]');
   if (forbidden.length) {
     value.findings = [...new Set([...value.findings, ...forbidden])];
-    await atomicRecord(recordFile(payload), value);
+    await settled((current) => ({ ...current, findings: [...new Set([...(current.findings ?? []), ...forbidden])] }));
     // A changed hook file is the person's to put back: the guard it runs was changed from this turn.
     const hooks = forbidden.some(isCopilotHooksPath);
     const denial = mutationDenial({ ...value.contract, next: [...recoveryRoutes(value.contract), ...(hooks ? hooksRoutes() : [])] },
@@ -2369,7 +2428,7 @@ export async function mutationPostToolGuard(payload = {}) {
     return postFinding(denial);
   }
   value.baseline = after;
-  await atomicRecord(recordFile(payload), value);
+  await settled((current) => ({ ...current, baseline: after }));
   return {};
 }
 
@@ -2508,12 +2567,19 @@ export async function refreshMutationContracts(root, accepted = null, { decision
   accepted ??= await loadStory(root);
   for (const { file, value, record } of live) {
     const payload = { sessionId: value.sessionId };
-    const next = await createRecord(payload, record, root, accepted, value);
-    if (decisionEnded && ['approval-only', 'review-decision-only'].includes(next.contract.turnMode)) next.decisionEnded = true;
-    // A confirmation runs once: after a command changed this checkout, its turn has nothing left to run.
-    if (advanceBaseline && next.contract.turnMode === 'confirm') next.decisionEnded = true;
-    if (value.baseline && advanceBaseline) next.baseline = await shellSnapshot(root, next.contract);
-    await atomicRecord(file, next);
+    await updateTurnRecord(file, value, async (current) => {
+      if (current.turnId !== record.turnId) return null;
+      const next = await createRecord(payload, record, root, accepted, current);
+      if (decisionEnded && ['approval-only', 'review-decision-only'].includes(next.contract.turnMode)) next.decisionEnded = true;
+      // Only a command this turn ran itself moves its shell baseline or ends its confirmation (SCF:REQ-023). An SFlow
+      // command run elsewhere while the turn waits moves the baseline too, since the turn changed nothing; while
+      // one of the turn's own shell commands runs it never does, so that command's changes are still detected.
+      const ranHere = current.pendingShell?.kind === 'kernel';
+      // A confirmation runs once: after its command changed this checkout, its turn has nothing left to run.
+      if (advanceBaseline && ranHere && next.contract.turnMode === 'confirm') next.decisionEnded = true;
+      if (current.baseline && advanceBaseline && current.pendingShell?.kind !== 'shell') next.baseline = await shellSnapshot(root, next.contract);
+      return next;
+    });
   }
 }
 
@@ -2531,8 +2597,7 @@ export async function endMutationDecisionTurns(root, { modes = ['approval-only',
     const value = await boundedRecord(file).catch(() => null);
     if ((value?.contract?.repositoryRoot ?? value?.repositoryRoot) !== root
         || !modes.includes(mutationTurnMode(value.skill))) continue;
-    value.decisionEnded = true;
-    await atomicRecord(file, value);
+    await updateTurnRecord(file, value, (current) => ({ ...current, decisionEnded: true }));
   }
 }
 
@@ -2556,7 +2621,8 @@ export async function issueMutationStaging(root, target, purpose) {
       phaseId: value.contract.phaseId, generation: value.contract.generation,
       mode: value.contract.turnMode, path: path.resolve(target)
     });
-    await atomicRecord(file, value);
+    await updateTurnRecord(file, value, (current) => current.contract?.turnMode !== expectedMode ? null : { ...current,
+      contract: { ...current.contract, allow: { ...current.contract.allow, staging: [...new Set([...current.contract.allow.staging, path.resolve(target)])] } } });
   }
 }
 

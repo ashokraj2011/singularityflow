@@ -26,7 +26,7 @@ import { createGitRuntime } from './git-access.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
-import { gitCommitIdentity, exactConfigurationProposalGitTree } from './git.mjs';
+import { configurationCommitIdentity, exactConfigurationProposalGitTree } from './git.mjs';
 import { gitCommitObjectExists, gitIsAncestor } from './git-ancestry.mjs';
 import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {
@@ -723,7 +723,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
           { code: 'WORKFLOW_CONFIGURATION_UNPROTECTED', details: { nextAction } }
         );
       }
-      const actor = gitCommitIdentity(root, { env: transport.identityEnv });
+      const actor = configurationCommitIdentity(root, { env: transport.identityEnv });
       prepared = await measureCommandSpan('proposal.prepare', () => prepareConfigurationStateTransaction(scratch, transport.remote, reviewed, {
         env: transport.env, runRemoteCommand: runRemoteGitAsync, actor: { name: actor.name, email: actor.email },
         proposalId: stateService.identity(proposalBranch), objectReader: transport.reader
@@ -1259,10 +1259,11 @@ export async function proposeConfigurationChange(root, {
     run('git', ['switch', '--quiet', '-c', reviewBranch], {
       cwd: scratch, env: authorityTransport.env
     });
-    const actor = gitCommitIdentity(root, { env: identityEnv });
+    // The proposer, from their checkout and Git configuration (SCF:REQ-018): never the OS login or a placeholder.
+    const actor = configurationCommitIdentity(root, { env: identityEnv });
     await (await repositoryCommitPolicyModule('writer', scratch)).runPolicyCommit(scratch, [
-      '-c', `user.name=${actor.name || 'Singularity Flow contributor'}`,
-      '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+      '-c', `user.name=${actor.name}`,
+      '-c', `user.email=${actor.email}`,
       'commit', '-m', String(message ?? '').trim() || `[configuration] ${operationId} ${subjectId}`,
       ...(intentRecord ? ['-m', `Sflow-Intent-Kind: ${intentRecord.kind}\nSflow-Intent-Sha256: ${intentRecord.sha256}`] : [])
     ], {

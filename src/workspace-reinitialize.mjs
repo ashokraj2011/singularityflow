@@ -463,8 +463,9 @@ function cutoverSummary(result, requested) {
   const verified = repositories.length === result.total && result.total > 0
     && repositories.every(entry => entry.requested === true && entry.mode === 'hard');
   return { storyCutover: { requested: true, mode: 'hard', historicalBytes: 'preserved',
-    status: verified && ['preview', 'complete'].includes(result.status)
-      ? (result.dryRun ? 'planned' : 'retired') : 'incomplete', repositories,
+    // A confirmed cutover is proposed like every refresh (SCF:REQ-014); it is retired once a person approves it.
+    status: verified && ['preview', 'complete', 'proposed'].includes(result.status)
+      ? (result.dryRun ? 'planned' : result.status === 'proposed' ? 'proposed' : 'retired') : 'incomplete', repositories,
     statement: 'Known existing Stories are discontinued, read-only, and excluded from schema migration. Their branches and history remain intact. Start new Stories with new IDs.' } };
 }
 
@@ -655,10 +656,11 @@ export async function reinitializeWorkspaces({
 
   const schemaBlocked = schemaBlockers.length > 0;
   const topologyBlocked = topologyChanged || topology.issues.length > 0;
+  // A confirmed plan proposes, like every refresh route (SCF:REQ-014): each review waits for a person to approve it.
   const status = refresh.status === 'blocked' ? 'blocked'
       : refresh.status === 'partial' || schemaBlocked || topologyBlocked ? 'partial'
-        : 'complete';
-  const nextAction = topologyBlocked || schemaBlocked || refresh.status !== 'complete'
+        : refresh.status === 'proposed' ? 'proposed' : 'complete';
+  const nextAction = topologyBlocked || schemaBlocked || !['complete', 'proposed'].includes(refresh.status)
     ? reinitializeAction(commandInput, ['--dry-run']) : null;
   return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary reinitialization report, never persisted

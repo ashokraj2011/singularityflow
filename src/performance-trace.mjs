@@ -112,7 +112,7 @@ export function createPerformanceTrace({ command = 'command', invocationId = ran
         actionId: trace.actionId, invocationId, rootSpanId, parentSpanId: traceIdentifier(parentSpanId),
         command: namePattern.test(command) ? command : 'command',
         operationId: typeof operationId === 'string' && namePattern.test(operationId) ? operationId : null,
-        commandClass: ['read', 'mutation'].includes(commandClass) ? commandClass : 'unknown',
+        commandClass: ['read', 'mutation', 'upkeep'].includes(commandClass) ? commandClass : 'unknown',
         startedAt: new Date(startedAt).toISOString(), durationMs,
         firstFeedbackMs, outcome: result, platform: process.platform, architecture: process.arch,
         temperature: ['cold', 'warm', 'prewarmed'].includes(temperature) ? temperature : 'unknown',

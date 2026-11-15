@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { availableParallelism } from 'node:os';
+import { availableParallelism, homedir } from 'node:os';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
 import { commitIsAncestor, gitCommonDir, headAndBranch, localRefHeads, refExists, remoteNames } from './git.mjs';
@@ -147,6 +147,40 @@ async function safeNewPath(root, candidate) {
   await realpath(ancestor);
   await mkdir(path.dirname(absolute), { recursive: true });
   return absolute;
+}
+
+/**
+ * A clone in no workspace keeps its Story checkouts in `<parent>/.singularity-flow/story-worktrees`. For a clone directly
+ * in the home folder that is SFlow's own state folder, which a reset clears (WS-2), so no new checkout is made there
+ * (SCF:REQ-021). A checkout already there is still found and kept.
+ */
+async function refuseInsideStateFolder(root, target, id) {
+  // SFlow's machine state folder, which reset-all and fresh-install clear (as apps/vscode/src/extension.ts reads it).
+  const state = path.resolve(process.env.SINGULARITY_FLOW_HOME || path.join(homedir(), '.singularity-flow'));
+  const real = async (value) => {
+    let current = path.resolve(value), rest = [];
+    for (;;) {
+      const resolved = await realpath(current).catch(() => null);
+      if (resolved) return path.join(resolved, ...rest);
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(value);
+      rest = [path.basename(current), ...rest];
+      current = parent;
+    }
+  };
+  const [stateFolder, checkout] = await Promise.all([real(state), real(target)]);
+  if (!pathContains(stateFolder, checkout)) return;
+  const clone = path.resolve(root);
+  throw new SingularityFlowError(
+    `Story '${id}' would get its own checkout inside Singularity Flow's state folder (${stateFolder}), because its clone `
+    + `${clone} sits directly in your home folder and is in no workspace. A reset clears that folder, so no checkout is made there. `
+    + 'Move the clone into a folder of its own and start the Story there, or start it in this clone itself, without an isolated checkout.',
+    { code: 'STORY_WORKTREE_IN_STATE_FOLDER', details: { checkoutPath: checkout, stateFolder, clone,
+      actions: [
+        { label: `Move the clone into a folder of its own, for example: mkdir -p "${path.join(path.dirname(clone), 'code')}" && mv "${clone}" "${path.join(path.dirname(clone), 'code', path.basename(clone))}", then start the Story from there.` },
+        { label: `Or start the Story in ${clone} itself: run the same start without --isolated-worktree.` }
+      ] } }
+  );
 }
 
 /**
@@ -387,6 +421,7 @@ async function prepareStoryWorktreeInLease(root, workId, { base = 'HEAD', storyB
         actions: [{ label: `Review ${retained.join(', ')} with git log and keep anything it holds; delete it with git branch -D only when nothing on it is needed, then retry the Story start.` }] } }
     );
   }
+  await refuseInsideStateFolder(root, target, id);
   await safeNewPath(root, target);
   const added = await measureCommandSpan('start.worktree.checkout', () => run('git', [
     ...storyCheckoutOptions(root), 'worktree', 'add', '-b', stagingBranch, '--', target, base

@@ -37,10 +37,10 @@ import { atomicJson, workspaceRepositoryPath } from './workspace.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
-  defaultBranchName, gitCommitIdentity, gitCommitIdentityArgs,
+  configurationCommitIdentity, defaultBranchName, gitCommitIdentity, gitCommitIdentityArgs,
   gitCommitIdentityEnvironment, gitCommitSigningArgs, head, identity, preflightGitCommitIdentity,
   proposalGitChangedPaths, proposalGitFile, proposalGitLineageCommit,
-  proposalGitRef, proposalGitStatus, resolveGitCommitIdentity, resolveGitCommitSigning
+  proposalGitRef, proposalGitStatus, resolveGitCommitSigning
 } from './git.mjs';
 import { CAPABILITY_VALUE_CONFLICT_CODE, replayCapabilityProposal } from './capability-value-replay.mjs';
 import {
@@ -60,7 +60,7 @@ import {
   CONFIGURATION_BRANCH, STATE_CONFIGURATION_BRANCH, STATE_CONFIGURATION_FORMAT,
   STATE_CONFIGURATION_MANIFEST,
   canonicalConfigurationAssets, configurationAssetPaths, configurationBranchHead,
-  configurationAssetPolicyFromRef, configurationTreeEntries,
+  configurationAssetPolicyFromRef, configurationBranchMissingError, configurationTreeEntries,
   ensureConfigurationBranch, isConfigurationAsset, loadStoryConfigurationSnapshot,
   legacyStateMirrorMatchesRepository, readConfigurationSource, retainStateConfigurationHistory,
   stateConfigurationHistoryBranch,
@@ -2539,59 +2539,14 @@ export async function readOrganisation(url, {
     );
   }
   if (!tip.exists) {
-    // A missing movable configuration ref does not invalidate a previously verified, complete
-    // state mirror when that mirror's own ref is still the exact cached commit. In this recovery
-    // case the cache was already keyed by the state commit below. Reuse it after the fresh ref
-    // advertisement instead of cloning the same mirror for every capability inspection. An
-    // explicit refresh still revalidates the mirror bytes and operational definition.
-    const stateCommit = configurationObservation.refs.get('refs/heads/state') ?? null;
-    if (!refresh && stateCommit && cached?.tipSha === stateCommit
-        && cached.organisation?.governed === true
-        && cached.organisation?.recoveryAvailable === true
-        && cached.organisation?.configurationCommit === null
-        && cached.organisation?.sourceBranch === 'state'
-        && cached.organisation?.sourceCommit === stateCommit
-        && cached.organisation?.stateProjection?.status === 'recoverable'
-        && cached.organisation?.stateProjection?.commit === stateCommit) {
-      return {
-        ...cached.organisation, cached: true, stale: false,
-        cacheAgeMs: cacheAgeMs(cached), remoteError: null
-      };
-    }
-    // A complete, verified state mirror is sufficient recovery authority even when the movable
-    // sflow/config name is missing. Story start has used this rule for a long time; capability
-    // discovery must not turn the same repository into an empty organisation merely because it is
-    // running on a new laptop. This consumes the state SHA from the one observation above and
-    // validates the complete file/hash/Git-object/definition contract before exposing the map.
+    // sflow/config is missing. The `state` branch's copy is never authority (SCF:REQ-001): where it holds one, this
+    // repository had SFlow configuration and lost it, so the read stops with the routes that restore it (REQ-002)
+    // instead of showing the copy as the organisation, which Story start would refuse (UP-F11b, CH-F1).
     const state = await capabilityMapFromState(remote, 'state', {
       env: gitEnv, session, observation: configurationObservation
     });
     if (state && !state.invalid) {
-      const definition = validateCapabilities(YAML.parse(state.text));
-      const organisation = {
-        url: remote,
-        branch,
-        configurationBranch: branch,
-        configurationCommit: null,
-        sourceBranch: state.branch,
-        sourceCommit: state.commit,
-        recoverySourceCommit: state.configurationCommit,
-        stateProjection: {
-          status: 'recoverable', branch: state.branch, commit: state.commit, error: null
-        },
-        capabilities: capabilityTree(definition),
-        capabilityMapMode: definition.version === 2
-          ? definition.management?.mode ?? 'legacy-mixed' : 'legacy-mixed',
-        capabilityMapSha256: capabilityDigest(definition),
-        repositories: state.portfolioText
-          ? (YAML.parse(state.portfolioText)?.repositories ?? {}) : {},
-        governed: true,
-        recoveryAvailable: true
-      };
-      await writeOrganisationCache(remote, state.commit, organisation);
-      return {
-        ...organisation, cached: false, stale: false, cacheAgeMs: 0, remoteError: null
-      };
+      throw configurationBranchMissingError(remote, { stateCommit: state.commit });
     }
 
     // Delivery repositories carry only a subject-bound routing locator. Follow it to the lead and
@@ -4925,7 +4880,7 @@ export async function publishOrganisationCapabilityMap(url, {
   // must produce the same author/signing evidence as the initiating checkout, including when the
   // command is launched from an editor extension host.
   const identityRoot = path.resolve(String(initiatingRoot ?? process.cwd()));
-  const frozenCommitIdentity = resolveGitCommitIdentity(identityRoot, { env: initiatingEnv });
+  const frozenCommitIdentity = configurationCommitIdentity(identityRoot, { env: initiatingEnv });
   const gitEnv = enterpriseGitEnvironment(initiatingEnv);
   const session = new GitRemoteSession({ env: gitEnv });
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
@@ -6939,7 +6894,8 @@ export async function activateCapabilityProposal(url, branch, {
   // The borrowed clone deliberately cannot see local/global author configuration. Freeze the
   // presentation identity before creating it; authorization is resolved separately below.
   const identityRoot = path.resolve(String(initiatingRoot ?? process.cwd()));
-  const frozenCommitIdentity = resolveGitCommitIdentity(identityRoot, {
+  // Never the service placeholder: a configuration commit names the person (SCF:REQ-018).
+  const frozenCommitIdentity = configurationCommitIdentity(identityRoot, {
     env: initiatingEnv
   });
   // Authorization identity belongs to the contributor who initiated the operation, not to the

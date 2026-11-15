@@ -1828,6 +1828,87 @@ test('reset all replaces repository controls and clears machine registrations wi
     await readFile(path.join(packageRoot, 'templates', 'workflow.yml'), 'utf8'));
 });
 
+// The workspaces analysis's finding 2 (WS-2, SCF:REQ-021): a clone directly in the home folder keeps its Story checkouts
+// in <home>/.singularity-flow/story-worktrees, SFlow's state folder, and reset-all deleted them with an uncommitted file.
+async function homeFolderStoryCheckout(t, prefix) {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const home = path.join(base, 'home');
+  const machine = path.join(home, '.singularity-flow');
+  const app = path.join(home, 'app');
+  await mkdir(app, { recursive: true });
+  await mkdir(machine, { recursive: true });
+  git(app, 'init', '-b', 'main');
+  git(app, 'config', 'user.name', 'Factory Reset Tester');
+  git(app, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(app, 'app.txt'), 'application source remains\n');
+  command(process.execPath, [cli, 'init'], app);
+  git(app, 'add', '.');
+  git(app, 'commit', '-m', 'initial');
+  const remote = path.join(base, 'remote.git');
+  git(base, 'init', '--bare', '-b', 'main', remote);
+  git(app, 'remote', 'add', 'origin', remote);
+  git(app, 'push', '-q', '-u', 'origin', 'main');
+  // A Story checkout an earlier build made there; this build makes none (story-worktree.mjs).
+  const checkout = path.join(machine, 'story-worktrees', `.w-${'0'.repeat(24)}`);
+  git(app, 'worktree', 'add', '-q', '-b', 'ST-H', checkout);
+  await writeFile(path.join(checkout, 'NOTES-unsaved.md'), 'the only copy\n');
+  return { base, home, machine, app, checkout };
+}
+
+test('reset all keeps the Story checkouts in the state folder and refuses while one holds work only it has [SCF:REQ-021, WS-2]', async (t) => {
+  const f = await homeFolderStoryCheckout(t, 'sflow-reset-all-story-');
+  const { factoryResetAll, factoryResetAllPlan } = await import('../src/factory-reset.mjs');
+  const preview = await factoryResetAllPlan(f.app, { localStateRoot: f.machine });
+  assert.deepEqual(preview.storyCheckouts.map((checkout) => [checkout.path, checkout.branch, checkout.work, checkout.insideStateFolder]),
+    [[f.checkout, 'ST-H', ['uncommitted'], true]]);
+  assert.ok(preview.preserve.some((item) => item.startsWith(`1 Story checkout(s): ${f.checkout} (holds uncommitted work`)), preview.preserve.join('\n'));
+  const refused = (code) => (error) => {
+    assert.equal(error.code, code, error.message);
+    assert.match(error.message, /keeps every Story checkout, and stops while one holds work only it has/u);
+    assert.ok(error.details.actions[0].label.includes(f.checkout));
+    return true;
+  };
+  await assert.rejects(() => factoryResetAll(f.app, { confirmation: 'RESET ALL', localStateRoot: f.machine }), refused('RESET_STORY_CHECKOUT_HAS_WORK'));
+  assert.equal(await readFile(path.join(f.checkout, 'NOTES-unsaved.md'), 'utf8'), 'the only copy\n');
+  assert.equal(await missing(path.join(f.app, 'singularity', 'workflow.yml')), false, 'nothing was reset');
+  // Committed but on no remote: still the only copy anywhere but this machine.
+  git(f.checkout, 'add', 'NOTES-unsaved.md');
+  git(f.checkout, 'commit', '-m', 'notes');
+  assert.deepEqual((await factoryResetAllPlan(f.app, { localStateRoot: f.machine })).storyCheckouts[0].work, ['unpublished']);
+  await assert.rejects(() => factoryResetAll(f.app, { confirmation: 'RESET ALL', localStateRoot: f.machine }), refused('RESET_STORY_CHECKOUT_HAS_WORK'));
+  git(f.checkout, 'push', '-q', '-u', 'origin', 'ST-H');
+  const result = await factoryResetAll(f.app, { confirmation: 'RESET ALL', localStateRoot: f.machine });
+  assert.equal(result.completed, true);
+  assert.equal(await readFile(path.join(f.checkout, 'NOTES-unsaved.md'), 'utf8'), 'the only copy\n', 'the Story checkout is kept');
+  assert.equal(git(f.checkout, 'status', '--porcelain'), '');
+  assert.deepEqual((await readdir(f.machine)).sort(), ['story-worktrees'], 'everything else in the state folder is cleared');
+});
+
+test('fresh install keeps the Story checkouts in the state folder and refuses while one holds work only it has [SCF:REQ-021, WS-2]', async (t) => {
+  const f = await homeFolderStoryCheckout(t, 'sflow-fresh-story-');
+  const project = path.join(f.base, 'installer');
+  await mkdir(project);
+  await writeFile(path.join(f.machine, 'workspaces.json'), '{"schemaVersion":1,"workspaces":[]}\n');
+  const { freshInstallReset, freshInstallResetPlan } = await import('../src/fresh-install-reset.mjs');
+  const options = { homeDirectory: f.home, projectDirectory: project, environment: {} };
+  const preview = await freshInstallResetPlan(options);
+  assert.deepEqual(preview.storyCheckouts.map((checkout) => [checkout.path, checkout.work, checkout.disposition]),
+    [[f.checkout, ['uncommitted'], 'kept']]);
+  await assert.rejects(() => freshInstallReset({ ...options, confirmation: 'RESET EVERYTHING' }),
+    (error) => error.code === 'RESET_STORY_CHECKOUT_HAS_WORK' && /^Fresh install reset keeps every Story checkout/u.test(error.message));
+  assert.equal(await missing(path.join(f.machine, 'workspaces.json')), false, 'nothing was reset');
+  git(f.checkout, 'add', 'NOTES-unsaved.md');
+  git(f.checkout, 'commit', '-m', 'notes');
+  await assert.rejects(() => freshInstallReset({ ...options, confirmation: 'RESET EVERYTHING' }),
+    (error) => error.code === 'RESET_STORY_CHECKOUT_HAS_WORK' && error.details.storyCheckouts[0].work.join() === 'unpublished');
+  git(f.checkout, 'push', '-q', '-u', 'origin', 'ST-H');
+  const result = await freshInstallReset({ ...options, confirmation: 'RESET EVERYTHING' });
+  assert.equal(result.completed, true);
+  assert.equal(await readFile(path.join(f.checkout, 'NOTES-unsaved.md'), 'utf8'), 'the only copy\n', 'the Story checkout is kept');
+  assert.equal(await missing(path.join(f.machine, 'workspaces.json')), true);
+});
+
 test('reset all refuses while a publication waits, before any machine state moves, unless it discards it', async () => {
   const root = await initializedRepository('sflow-reset-all-pending-');
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-reset-all-pending-machine-'));

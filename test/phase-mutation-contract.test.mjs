@@ -545,6 +545,70 @@ test('/sf-confirm turns run only the command carrying the digest the person type
   assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/u);
 });
 
+// The workspaces analysis's finding 1 (WS-1, SCF:REQ-023): VS Code's heartbeat ran as a mutation in the Story checkout,
+// so the CLI refreshed every live turn there as if that turn had run it. A /sf-confirm turn ended before its own
+// command ran, and a shell change made while it ran was absorbed into the turn's baseline.
+test('the window heartbeat is upkeep, and a /sf-confirm turn ends only after its own command [SCF:REQ-023, WS-1]', async t => {
+  const { resolveOperation } = await import('../src/command-registry.mjs');
+  const heartbeat = resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'retention'],
+    options: { heartbeat: true, surface: 'window', pid: '42', json: true } });
+  assert.equal(heartbeat.classification, 'upkeep', 'machine-local upkeep: the CLI refreshes no turn for it');
+  const f = await fixture(t);
+  const digest = `sha256:${'c'.repeat(64)}`;
+  const confirmed = `singularity-flow phase rollover custom-step --work-id PMC-1 --confirm ${digest}`;
+  const payload = await f.enter(`/sf-confirm ${confirmed.replace('singularity-flow ', '')}`, 'confirm-survives');
+  const shell = (command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  // An SFlow command another process ran in this checkout (a second window, the person's terminal) while the turn waits.
+  await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
+  assert.deepEqual(await shell(confirmed), {}, 'the confirmation still runs');
+  // The turn's own confirmation ran: it has nothing left to run.
+  await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
+  const ended = await shell(confirmed);
+  assert.equal(ended.permissionDecision, 'deny');
+  assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/u);
+});
+
+test('a shell change is detected when an SFlow command ran elsewhere during it [SCF:REQ-023, WS-1]', async t => {
+  const f = await fixture(t, { writeScope: 'source-and-artifact', generationPolicy: { task: 'code' }, generationIntent: { status: 'open', generation: 1 } });
+  const payload = await f.enter('/sf-phase', 'shell-during-mutation');
+  const call = { ...payload, toolName: 'bash', toolArgs: { command: 'npm test', cwd: f.root } };
+  assert.deepEqual(await mutationToolGuard(call), {});
+  // The command writes a protected file; meanwhile another process's SFlow command refreshes the turn.
+  await mkdir(path.join(f.root, 'policy'), { recursive: true });
+  await writeFile(path.join(f.root, 'policy', 'rules.md'), 'changed by the shell command\n');
+  await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
+  const stopped = await mutationPostToolGuard(call);
+  assert.equal(stopped.continue, false);
+  assert.match(stopped.stopReason, /^PHASE_MUTATION_SHELL_CHANGE_DETECTED: [^\n]*\(policy\/rules\.md\)/u);
+  // Between the turn's commands an SFlow command run elsewhere moves the baseline: the turn changed nothing then.
+  const quiet = await fixture(t, { writeScope: 'source-and-artifact', generationPolicy: { task: 'code' }, generationIntent: { status: 'open', generation: 1 } });
+  const idle = await quiet.enter('/sf-phase', 'idle-between-commands');
+  const test = { ...idle, toolName: 'bash', toolArgs: { command: 'npm test', cwd: quiet.root } };
+  assert.deepEqual(await mutationToolGuard(test), {});
+  assert.deepEqual(await mutationPostToolGuard(test), {});
+  await mkdir(path.join(quiet.root, 'policy'), { recursive: true });
+  await writeFile(path.join(quiet.root, 'policy', 'rules.md'), 'written by an SFlow command in another process\n');
+  await refreshMutationContracts(quiet.root, quiet.accepted, { advanceBaseline: true });
+  assert.deepEqual(await mutationToolGuard(test), {});
+  assert.deepEqual(await mutationPostToolGuard(test), {}, 'not blamed on the turn');
+});
+
+test('a contract refresh never writes a turn record back without the findings recorded meanwhile [SCF:REQ-023, WS-1]', async t => {
+  const f = await fixture(t, { writeScope: 'source-and-artifact', generationPolicy: { task: 'code' }, generationIntent: { status: 'open', generation: 1 } });
+  await mkdir(path.join(f.root, 'policy'), { recursive: true });
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const payload = await f.enter('/sf-phase', `findings-kept-${attempt}`);
+    const call = { ...payload, toolName: 'bash', toolArgs: { command: 'npm test', cwd: f.root } };
+    assert.deepEqual(await mutationToolGuard(call), {});
+    await writeFile(path.join(f.root, 'policy', 'rules.md'), `attempt ${attempt}\n`);
+    const [, stopped] = await Promise.all([refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true }), mutationPostToolGuard(call)]);
+    assert.match(stopped.stopReason ?? '', /PHASE_MUTATION_SHELL_CHANGE_DETECTED/u, `attempt ${attempt}`);
+    const after = await mutationToolGuard(payload);
+    assert.equal(after.permissionDecision, 'deny', `attempt ${attempt}: the finding survives the overlapping refresh`);
+    assert.match(after.permissionDecisionReason, /PHASE_MUTATION_REPAIR_REQUIRED/u);
+  }
+});
+
 test('/sf-run-app and /sf-test turns run the declared application and tests; no turn binds environment values', async t => {
   const f = await fixture(t);
   assert.equal(mutationTurnMode('sf-run-app'), 'run-and-test');

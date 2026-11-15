@@ -431,6 +431,26 @@ export function resolveGitCommitIdentity(root = process.cwd(), {
   });
 }
 
+/** The person's Git name and email for a configuration commit, read past a transport's hidden config (SCF:REQ-018). */
+export function configurationCommitIdentity(root = process.cwd(), { env = process.env } = {}) {
+  const personEnv = { ...env };
+  for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM']) {
+    if (personEnv[key] && path.resolve(personEnv[key]) === path.resolve(gitEmptyConfigPath())) delete personEnv[key];
+  }
+  const identity = resolveGitCommitIdentity(root, { env: personEnv });
+  if (identity.source === 'configured') return identity;
+  throw new SingularityFlowError(
+    'A configuration commit records who made it, and Git has no user.name and user.email for you here. '
+    + 'Set them (git config --global user.name <NAME> and git config --global user.email <EMAIL>), then retry. Nothing was changed.', {
+      code: 'GIT_COMMIT_IDENTITY_REQUIRED',
+      details: {
+        nextAction: { command: 'git config --global user.email <EMAIL>' },
+        recoveryCommands: [{ command: 'git config --global user.name <NAME>' }]
+      }
+    }
+  );
+}
+
 /** Validate an explicitly threaded value instead of trusting a structurally similar object. */
 export function validateGitCommitIdentity(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)

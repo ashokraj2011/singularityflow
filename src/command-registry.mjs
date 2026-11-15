@@ -239,6 +239,9 @@ function command([name, aliases = []]) {
   });
 }
 
+// Upkeep writes only its own machine-local records and gets no post-mutation work (SCF:REQ-023).
+export const OPERATION_CLASSES = Object.freeze(['read', 'mutation', 'upkeep']);
+
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['onboard'], ['authority'], ['cache'], ['factory-reset'], ['governance'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['product'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
@@ -1371,8 +1374,9 @@ function resolveNextOperation(definition) {
 function resolveWorkspaceOperation(definition, positionals, options) {
   const requested = positionals[1] ?? 'list';
   const subcommand = WORKSPACE_SUBCOMMAND_ALIASES.get(requested) ?? requested;
-  if (subcommand === 'retention') return never('workspace.retention', definition,
-    Object.keys(options).some(key => ['enabled', 'completed-days', 'cancelled-days', 'unused-clone-days', 'interval-minutes', 'heartbeat'].includes(key)) ? 'mutation' : 'read');
+  // The window heartbeat is upkeep (SCF:REQ-023); a negated one stays a refused mutation.
+  if (subcommand === 'retention') return never('workspace.retention', definition, optionBoolean(options, 'heartbeat') ? 'upkeep'
+    : Object.keys(options).some(key => ['enabled', 'completed-days', 'cancelled-days', 'unused-clone-days', 'interval-minutes', 'heartbeat'].includes(key)) ? 'mutation' : 'read');
   if (subcommand === 'cleanup') return optionBoolean(options, 'apply') || optionBoolean(options, 'automatic')
     ? never('workspace.cleanup', definition, 'mutation') : never('workspace.cleanup.preview', definition, 'read');
   if (subcommand === 'copilot') {
@@ -2304,7 +2308,7 @@ export function validateOperationRegistry() {
   for (const entry of values) {
     if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(entry.id)) throw new SingularityFlowError(`Invalid operation ID '${entry.id}'.`);
     if (ids.has(entry.id)) throw new SingularityFlowError(`Duplicate operation ID '${entry.id}'.`);
-    if (!['read', 'mutation'].includes(entry.classification)) throw new SingularityFlowError(`Invalid classification for '${entry.id}'.`);
+    if (!OPERATION_CLASSES.includes(entry.classification)) throw new SingularityFlowError(`Invalid classification for '${entry.id}'.`);
     if (!['never', 'optional', 'required'].includes(entry.modelPolicy)) throw new SingularityFlowError(`Invalid model policy for '${entry.id}'.`);
     if (!['human', 'human-or-json'].includes(entry.output)) throw new SingularityFlowError(`Invalid output contract for '${entry.id}'.`);
     if (!Array.isArray(entry.externalDependencies)) throw new SingularityFlowError(`Operation '${entry.id}' requires an externalDependencies array.`);

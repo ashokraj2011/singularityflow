@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 15 November 2026
-**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is being built; nothing else is.
+**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is built (branch scf1, 15 November 2026); stages 2 to 5 are not.
 **Namespace:** SCF. No other document uses it.
 **Source baseline:** main bd90bcc46. File references are to that commit.
 **Inputs:** the four analyses of 2026-11-15 (workspaces, upgrades, editing and review, configuration history).
@@ -228,7 +228,9 @@ Nothing is rewritten (SPEC-CIC D3).
 Ordered by value against risk. Each ships on its own, with no switch: each change either refuses something harmful
 or narrows a route.
 
-**Stage 1 — Stop the damage.** Five small, independent changes.
+**Stage 1 — Stop the damage.** Five small, independent changes. Built 15 November 2026, one commit each; the
+Story-start, propose and approve minimum-build refusal of SCF:REQ-016 is not yet built (refresh checks it per
+repository).
 - 1a. Build order and the fence: baseline v2 with its build, no proposal over a newer build, the installer and every
   refresh route only propose, the minimum-build refusal (SCF:REQ-014 to REQ-016). It MUST ship on main before
   agents-home merges.

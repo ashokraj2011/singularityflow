@@ -1,7 +1,6 @@
 /** Read the locally fetched, approved `sflow/config` commit without changing the checkout. */
 import os from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
@@ -9,10 +8,10 @@ import {
   withoutConfigurationReadScope
 } from './configuration-read-scope.mjs';
 import {
-  configurationAssetPolicy, configurationAssetSearchRoots
+  CONFIGURATION_SOURCE_PATH, configurationAssetPolicy, configurationAssetSearchRoots
 } from './configuration-assets.mjs';
 import {
-  configuredRemoteIdentity, frozenRemoteTransport
+  configuredRemoteIdentity, FROZEN_REMOTE_ALIAS, frozenRemoteTransport
 } from './git-remote-diagnostics.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
@@ -22,20 +21,9 @@ import { measureCommandSpan } from './dx-timing-context.mjs';
 
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 const CONFIGURATION_BRANCH = 'sflow/config';
-const STATE_BRANCH = 'state';
-const STATE_MANIFEST = 'configuration/manifest.json';
-const STATE_FORMAT = 'singularity-flow-configuration-mirror/v2';
-const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 const MAX_FILES = 10_000;
 const MAX_BYTES = 128 * 1024 * 1024;
 const observedAssetPolicies = new WeakMap();
-
-function stateConfigurationHistoryBranch(sourceCommit) {
-  const commit = String(sourceCommit ?? '').trim();
-  return /^[0-9a-f]{40,64}$/.test(commit)
-    ? `${STATE_CONFIGURATION_HISTORY_PREFIX}/${commit}`
-    : null;
-}
 
 async function withExistingConfigurationRead(root, scope, fn, { selectPaths = null } = {}) {
   if (selectPaths == null) return fn(scope.authority);
@@ -120,48 +108,15 @@ function configurationAuthorityAtRef(root, ref, observed = null) {
     if (observed) observedAssetPolicies.set(authority, assetPolicyAtCommit(root, commit, observed.objects));
     return authority;
   }
-  if (!(ref.endsWith(`/${STATE_BRANCH}`) || ref === `refs/heads/${STATE_BRANCH}`)) return null;
-  const manifestObject = observed?.objects.get(`${commit}:${STATE_MANIFEST}`);
-  const shown = observed ? { status: manifestObject?.status === 'ok' ? 0 : 1, stdout: manifestObject?.bytes?.toString('utf8') }
-    : run('git', ['show', `${commit}:${STATE_MANIFEST}`], { cwd: root, allowFailure: true });
-  if (shown.status !== 0) return null;
-  let manifest;
-  try { manifest = JSON.parse(shown.stdout); } catch { return null; }
-  const files = manifest?.files;
-  const assets = manifest?.assets ?? null;
-  const policy = assetPolicyAtCommit(root, commit, observed?.objects);
-  if (manifest?.format !== STATE_FORMAT || manifest?.layout !== 'canonical-paths'
-    || manifest?.source?.branch !== CONFIGURATION_BRANCH
-    || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
-    || !files || typeof files !== 'object' || Array.isArray(files)
-    || !Object.hasOwn(files, WORKFLOW_PATH)
-    || Object.entries(files).some(([relative, sha]) =>
-      !isConfigurationReadPath(relative, policy) || !/^[0-9a-f]{64}$/.test(sha))) return null;
-  if (assets != null && (typeof assets !== 'object' || Array.isArray(assets)
-    || JSON.stringify(Object.keys(assets).sort()) !== JSON.stringify(Object.keys(files).sort())
-      || Object.entries(assets).some(([relative, descriptor]) =>
-      descriptor?.sha256 !== files[relative]
-      || !/^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
-      || !/^100(?:644|755)$/.test(descriptor?.mode ?? '')))) return null;
-  if (manifest.history != null
-    && (manifest.history?.branch !== stateConfigurationHistoryBranch(manifest.source.commit)
-      || manifest.history?.commit !== manifest.source.commit)) return null;
-  const authority = {
-    kind: 'verified-state-mirror', ref, commit, manifest,
-    remote: remoteIdentityForAuthorityRef(root, ref)
-  };
-  observedAssetPolicies.set(authority, policy);
-  return authority;
+  // The `state` branch's copy of the configuration is never authority (SCF:REQ-001): only sflow/config decides.
+  return null;
 }
 
 function remoteNameForAuthorityRef(ref) {
   const prefix = 'refs/remotes/';
   if (!ref.startsWith(prefix)) return null;
-  for (const branch of [CONFIGURATION_BRANCH, STATE_BRANCH]) {
-    const suffix = `/${branch}`;
-    if (ref.endsWith(suffix)) return ref.slice(prefix.length, -suffix.length);
-  }
-  return null;
+  const suffix = `/${CONFIGURATION_BRANCH}`;
+  return ref.endsWith(suffix) ? ref.slice(prefix.length, -suffix.length) : null;
 }
 
 /**
@@ -189,20 +144,19 @@ function remoteIdentityForAuthorityRef(root, ref) {
 
 async function approvedConfigurationAuthority(root, {
   allowLocalHeads = true,
-  canonicalRemote = null
+  canonicalRemote = null,
+  remotes = null
 } = {}) {
+  // `remotes` names each remote's exact ref instead of the pattern over every remote.
+  const patterns = remotes == null ? [`refs/remotes/*/${CONFIGURATION_BRANCH}`, `refs/heads/${CONFIGURATION_BRANCH}`]
+    : [...remotes.map((remote) => `refs/remotes/${remote}/${CONFIGURATION_BRANCH}`),
+      ...(allowLocalHeads ? [`refs/heads/${CONFIGURATION_BRANCH}`] : [])];
+  if (!patterns.length) return null;
   const listed = await measureCommandSpan('catalog.authority-refs', () => run('git', [
-    'for-each-ref', '--format=%(refname) %(objectname) %(objecttype)',
-    `refs/remotes/*/${CONFIGURATION_BRANCH}`, `refs/heads/${CONFIGURATION_BRANCH}`,
-    `refs/remotes/*/${STATE_BRANCH}`, `refs/heads/${STATE_BRANCH}`
+    'for-each-ref', '--format=%(refname) %(objectname) %(objecttype)', ...patterns
   ], { cwd: root, allowFailure: true }));
   gitReadOutput(listed, 'Approved configuration references');
-  const priority = (ref) => {
-    if (ref === `refs/remotes/origin/${CONFIGURATION_BRANCH}`) return 0;
-    if (ref.endsWith(`/${CONFIGURATION_BRANCH}`)) return 1;
-    if (ref === `refs/remotes/origin/${STATE_BRANCH}`) return 2;
-    return 3;
-  };
+  const priority = (ref) => (ref === `refs/remotes/origin/${CONFIGURATION_BRANCH}` ? 0 : 1);
   const observations = new Map(listed.stdout.trim().split('\n').filter(Boolean).map(line => {
     const [ref, commit, type] = line.trim().split(' ');
     if (!ref || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(commit ?? '') || type !== 'commit') {
@@ -221,8 +175,7 @@ async function approvedConfigurationAuthority(root, {
     // an already valid authority; its commit, manifest and policy metadata share one batch.
     const commit = observations.get(ref);
     const objects = await measureCommandSpan('catalog.authority-objects', () => readObjectsBatch(root,
-      [commit, ...[WORKFLOW_PATH, 'singularity/portfolio.yml', ...(ref.endsWith(`/${STATE_BRANCH}`) ? [STATE_MANIFEST] : [])]
-        .map(relative => `${commit}:${relative}`)], { maxObjectBytes: MAX_BYTES, maxBatchBytes: MAX_BYTES }));
+      [commit, ...[WORKFLOW_PATH, 'singularity/portfolio.yml'].map(relative => `${commit}:${relative}`)], { maxObjectBytes: MAX_BYTES, maxBatchBytes: MAX_BYTES }));
     if (objects == null || [...objects.values()].some(entry => !['ok', 'missing'].includes(entry.status))) {
       throw new SingularityFlowError('Approved configuration metadata could not be read completely.', { code: 'APPROVED_CONFIGURATION_READ_FAILED' });
     }
@@ -232,21 +185,26 @@ async function approvedConfigurationAuthority(root, {
   return null;
 }
 
+/** This checkout's configured remote names, or null when Git cannot list them. */
+function configuredRemoteNames(root) {
+  const listed = run('git', ['remote'], { cwd: root, allowFailure: true });
+  return listed.status === 0 ? listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean) : null;
+}
+
 /**
  * Repair a narrow/single-branch clone by fetching only a published configuration authority.
  *
  * The ref is written to the ordinary remote-tracking namespace, exactly as a full clone would have
- * done. The selected branch, HEAD, index and application files are never changed. Prefer the
- * reviewed configuration authority; `state` is recovery-only and is accepted later only after its
- * complete manifest and every declared byte have been verified.
+ * done. The selected branch, HEAD, index and application files are never changed. Only the
+ * reviewed configuration authority is fetched; the `state` branch's copy is never authority.
  */
 async function refreshApprovedConfigurationAuthority(root, {
   allowLocalHeads = true,
   canonicalRemote = null
 } = {}) {
-  const listed = run('git', ['remote'], { cwd: root, allowFailure: true });
-  if (listed.status !== 0) return null;
-  const remotes = listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)
+  const listed = configuredRemoteNames(root);
+  if (!listed) return null;
+  const remotes = listed
     .filter((remote) => canonicalRemote == null || remote === canonicalRemote)
     .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
       || left.localeCompare(right));
@@ -271,15 +229,14 @@ async function refreshApprovedConfigurationAuthority(root, {
     // insteadOf/pushInsteadOf rules can never substitute configuration bytes behind that name.
     const transport = frozenRemoteTransport(identity.url);
     const advertised = await runRemoteGitAsync([
-      'ls-remote', '--heads', '--', transport.remote,
-      `refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${STATE_BRANCH}`
+      'ls-remote', '--heads', '--', transport.remote, `refs/heads/${CONFIGURATION_BRANCH}`
     ], { cwd: root, operation: 'remote-probe', env: transport.env });
     if (advertised.status !== 0) continue;
     const branches = new Map(advertised.stdout.split(/\r?\n/).map((line) => {
       const [commit, ref] = line.trim().split(/\s+/);
       return /^[a-f0-9]{40,64}$/.test(commit ?? '') && ref ? [ref, commit] : null;
     }).filter(Boolean));
-    for (const branch of [CONFIGURATION_BRANCH, STATE_BRANCH]) {
+    for (const branch of [CONFIGURATION_BRANCH]) {
       const source = `refs/heads/${branch}`;
       const advertisedCommit = branches.get(source);
       if (!advertisedCommit) continue;
@@ -377,38 +334,6 @@ async function extractConfiguration(root, authority, destination, { selectPaths 
     await writeFile(target, batch.stdout.subarray(start, end));
     await chmod(target, entry.mode === '100755' ? 0o755 : 0o644);
     cursor = end + 1;
-  }
-  if (authority.kind === 'verified-state-mirror') {
-    const declared = Object.keys(authority.manifest.files).sort();
-    const copied = entries.map((entry) => entry.file).sort();
-    if (selected == null && JSON.stringify(declared) !== JSON.stringify(copied)) {
-      throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.', {
-        code: 'STATE_CONFIGURATION_MIRROR_INVALID'
-      });
-    }
-    if (copied.some((relative) => !declared.includes(relative))) {
-      throw new SingularityFlowError('Selected state configuration file is absent from its manifest.', {
-        code: 'STATE_CONFIGURATION_MIRROR_INVALID'
-      });
-    }
-    if (authority.manifest.assets) {
-      for (const entry of entries) {
-        const descriptor = authority.manifest.assets[entry.file];
-        if (descriptor.object !== entry.oid || descriptor.mode !== entry.mode) {
-          throw new SingularityFlowError(`State configuration mirror Git identity does not match for '${entry.file}'.`, {
-            code: 'STATE_CONFIGURATION_MIRROR_INVALID'
-          });
-        }
-      }
-    }
-    for (const relative of copied) {
-      const actual = createHash('sha256').update(await readFile(path.join(destination, relative))).digest('hex');
-      if (actual !== authority.manifest.files[relative]) {
-        throw new SingularityFlowError(`State configuration mirror hash does not match for '${relative}'.`, {
-          code: 'STATE_CONFIGURATION_MIRROR_INVALID'
-        });
-      }
-    }
   }
   return policy;
 }
@@ -508,7 +433,18 @@ export async function withApprovedConfigurationRead(root, fn, {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
     throw error;
   });
-  if (workflow && !preferAuthority) return fn({ kind: 'working-tree', ref: null, commit: null });
+  // A Story checkout's own pinned copy is its configuration. Elsewhere an application checkout's singularity/ files
+  // never decide while an approved sflow/config is known here (SCF:REQ-001); a repository that never had one keeps
+  // its working-tree configuration.
+  if (workflow && !preferAuthority) {
+    const pinned = await lstat(path.join(root, CONFIGURATION_SOURCE_PATH)).then((info) => info.isFile(), () => false);
+    // Exact refs of the configured remotes, never a pattern over every branch (SDA-AC-012).
+    const remotes = canonicalRemote ? [canonicalRemote]
+      : pinned ? [] : (configuredRemoteNames(root) ?? []).filter((remote) => !FROZEN_REMOTE_ALIAS.test(remote));
+    const approved = pinned ? null : await approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote, remotes });
+    if (!approved) return fn({ kind: 'working-tree', ref: null, commit: null });
+    return readAuthority(root, approved, fn, { selectPaths });
+  }
 
   // Online new-work reads must use the same authority precedence as Story start. In a managed
   // workspace the explicit capabilityAuthority can be repository A while the member's origin is B;
@@ -560,6 +496,11 @@ export async function withApprovedConfigurationRead(root, fn, {
         : null);
   if (!authority && workflow) return fn({ kind: 'working-tree', ref: null, commit: null });
   if (!authority) return fn(null);
+  return readAuthority(root, authority, fn, { selectPaths });
+}
+
+/** Mount one approved authority's configuration for `fn`, without changing the checkout. */
+async function readAuthority(root, authority, fn, { selectPaths = null } = {}) {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-config-read-'));
   try {
     const assetPolicy = await extractConfiguration(root, authority, temporaryRoot, { selectPaths });

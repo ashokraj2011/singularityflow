@@ -94,6 +94,8 @@ const CLONES = Object.freeze({
     `${STATE_BRANCH} Reading a verified state mirror when there is no \`sflow/config\`.`,
   'configuration-branch.mjs#legacyMirrorRetainedHistoryMatches':
     `${STATE_BRANCH} A legacy state mirror with no repository binding proves ownership through its retained history.`,
+  'configuration-branch.mjs#stateCarriesConfigurationCopy':
+    `${STATE_BRANCH} Only when \`sflow/config\` is missing: whether \`state\` still holds the configuration copy, so new work stops with the routes that restore it; the copy is never read (SCF:REQ-001, REQ-002).`,
   'organisation.mjs#loadCapabilityStateSnapshot': `${STATE_BRANCH} Verifying a state mirror on a custom-named ledger branch.`,
   'repository-onboarding.mjs#cloneFilteredSnapshot':
     'Onboarding\'s bounded snapshot of a state, configuration or application branch: a blobless survey sizes a filtered, quota-checked second pass, which the object pool does not bound.'

@@ -159,7 +159,7 @@ function withDecisionList(workflow, phase, actions, held) {
   if (index < 0) return actions;
   const decide = held.personal
     ? action(actions[index].timing, null, held.command,
-      `${held.headline} Only you record it, in your own terminal, after looking at the evidence yourself; \`${held.listCommand}\` shows its other choice, a dated risk.`,
+      `${held.headline} Only you record it, on the Decide card (/sf-decide ${workId} opens it) or in your own terminal, after looking at the evidence yourself; \`${held.listCommand}\` shows its other choice, a dated risk.`,
       { route: 'decision-list' })
     : action(actions[index].timing, '/sf-decide', `singularity-flow decisions ${workId}`,
       `${held.headline} Decide them in one place: each is shown in plain words with its choices, and its approvers record them.`,

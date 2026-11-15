@@ -1,5 +1,5 @@
 import { commandLineWithoutSkill, skillForCommandLine } from './command-skills.mjs';
-import { modelFreeCommandForCommand, formatCommandRouteLines } from './model-free-commands.mjs';
+import { decideCardCopilotCommand, decideCardStep, modelFreeCommandForCommand, formatCommandRouteLines } from './model-free-commands.mjs';
 import { confirmValue, rememberConfirmCommand } from './confirm-code.mjs';
 
 /** Known gate holds change the next route, never the submitted packet or the human's decision. */
@@ -82,9 +82,15 @@ function approvalSelectors(command) {
  * The person types it as a short code (`/sf-confirm K7Q2-M8DX`), never the digest: the code is kept on this
  * machine with the command it names, and typing it binds the turn to that command (confirm-code.mjs).
  */
+/** A person's own step the Decide card records: the card, which /sf-decide opens [owner, 2026-11-15]; else null. */
+const cardRoute = (command) => {
+  const argv = String(command ?? '').trim().split(/\s+/u).slice(1);
+  return decideCardStep(argv) ? decideCardCopilotCommand(argv) : null;
+};
+
 export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
-  // No skill carries it out: a supplied skill is no route for it either (null, "no verified equivalent").
-  if (commandLineWithoutSkill(command)) return null;
+  // No skill carries it out: a supplied skill is no route for it either ("no verified equivalent"), unless the card records it.
+  if (commandLineWithoutSkill(command)) return cardRoute(command);
   const route = skillRouteForCommand(command, skill, fallback);
   const value = String(command ?? '').trim();
   const clone = value.match(/^(?:singularity-flow|sflow)\s+story\s+clone\s+([A-Za-z0-9][A-Za-z0-9._-]*)\s+([A-Za-z0-9][A-Za-z0-9._-]*)(?:\s|$)/u);
@@ -213,7 +219,7 @@ function skillRouteForCommand(command, skill, fallback) {
 }
 
 export function copilotAction({ skill = null, command, ...rest }) {
-  const directSkill = commandLineWithoutSkill(command) ? null : directCopilotSkill(skill) ?? copilotSkillForCommand(command);
+  const directSkill = commandLineWithoutSkill(command) ? (cardRoute(command) ? '/sf-decide' : null) : directCopilotSkill(skill) ?? copilotSkillForCommand(command);
   return {
     ...rest,
     skill: directSkill,

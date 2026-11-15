@@ -1,7 +1,7 @@
 /** Explicit-turn interception. Ordinary chat/pause never loads Story policy. */
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { COMMAND_PRESENTATION_CONTRACT, formatCommandRouteLines } from './model-free-commands.mjs';
+import { COMMAND_PRESENTATION_CONTRACT, decideCardStep, formatCommandRouteLines } from './model-free-commands.mjs';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -1126,7 +1126,8 @@ function commandUnderAnotherNode(call, contract) {
 function personRoute(call, value) {
   const safe = verifiedShellForm(call, value);
   const guidance = safe ? safeCommandGuidance({ argv: safe.argv }) : null;
-  return { routes: guidance ? [{ ...guidance, skill: null, copilotCommand: null }] : [] };
+  // One the Decide card records keeps the card, which /sf-decide opens, as its Copilot route [owner, 2026-11-15].
+  return { routes: guidance ? [decideCardStep(safe.argv) ? guidance : { ...guidance, skill: null, copilotCommand: null }] : [] };
 }
 
 /*
@@ -2132,7 +2133,7 @@ async function mutationToolDecision(payload, record) {
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it', [], own());
         if (workflowDeleteConfirmation(call, value)) return mutationDenial(contract, WORKFLOW_DELETE_CONFIRMATION_DENIAL, [], own());
         if (decisionListRecord(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person\'s own step: they run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest', [], own());
+          `PHASE_MUTATION_OPERATION_NOT_ALLOWED: recording the decision list is the person's own step: they record it on the Decide card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it) or run the exact decisions record command in their own terminal (a /sf-decide turn may record only its upstream-issue options, after their explicit yes). Show the user the summary and the command, and stop; do not retry it or change its digest`, [], own());
         if (targetOriginPinCall(call, value)) return mutationDenial(contract, TARGET_ORIGIN_PIN_DENIAL, [], own());
         if (knowledgeConfirmationCall(call, value)) return mutationDenial(contract, KNOWLEDGE_CONFIRMATION_DENIAL, [], own());
         const amendmentStep = intentAmendmentPersonCall(call, value);
@@ -2153,10 +2154,10 @@ async function mutationToolDecision(payload, record) {
           const witness = witnessPageRoute(verifiedShellForm(call, value)?.argv);
           if (witness) return mutationDenial(contract, `${OWN_STEP_DENIALS.witness}. Do not retry it`, [], { routes: [witness] });
           return mutationDenial(contract,
-            'PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion\'s evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal; an agent never signs off its own work. Show the user the command and stop; do not retry it', [], own());
+            `PHASE_MUTATION_OPERATION_NOT_ALLOWED: witnessing a criterion's evidence or accepting a dated obligation risk is the word of a person who approves the step that delivered it, after looking for themselves, in their own terminal or, for an accepted risk, on the Decide card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it); an agent never signs off its own work. Show the user the command and stop; do not retry it`, [], own());
         }
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here or ran narrowed, reusing an earlier step\'s recorded run for it, that one of its screen sizes does not apply, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it', [], own());
+          `PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step's tests cannot run here or ran narrowed, reusing an earlier step's recorded run for it, that one of its screen sizes does not apply, or how a closed Story's drifted clause is resolved, is decided by a person who approves that step, in their own terminal or, where the Decide card lists it, on the card (/sf-decide ${contract.workId ?? '<WORK-ID>'} opens it), not by this turn. Show the user the command and stop; do not retry it`, [], own());
         const ownStep = ownTerminalStepCall(call, value);
         if (ownStep === 'settled-undo') {
           // The card is the person's route for an undo, as for an intent amendment's decision [owner, 2026-11-13].

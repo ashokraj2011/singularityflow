@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "bd90bcc4694ba1266c3d0a6bb8a3abecc4482b85",
+  "sourceCommit": "589c11df0472e580100c5970d2c354c746e05933",
   "topicCount": 93,
-  "contentSha256": "8af5fd1d19d8dfd5d0827ffd2b878e691c7a4449069dcab0efe749aa01479ee3",
+  "contentSha256": "1788dc380392a8abeaadf88aa9f5e81989bfa6a5aed02c9dee419dd17cdfbfa8",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -104,8 +104,8 @@
     {
       "id": "changing-requirements",
       "title": "Changing requirements during a Story",
-      "version": 7,
-      "sha256": "69779537adea279db790dc02ece96dc4c322f6f351152aacff0b2e277a9e6bd9",
+      "version": 8,
+      "sha256": "510550f1a0ab30f263c45db5e7e4a343c771012d89db10b5d5d25e6627e92e4d",
       "routingSha256": "64314b6dc7f635ef14f41c4b145a9d5963f640824e91d54eb0ca92815f6c0ff5",
       "file": "changing-requirements.md"
     },
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 21,
-      "sha256": "20d0fbf200b24946643b50c561ff6f8a23c3bfaadc7465fdde9d194df0d31c8b",
+      "version": 22,
+      "sha256": "6cebe2c1ab7d8ae0e7b3b9334f53562b501f064d194c6ae90ba5ad1468e0b52b",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -704,8 +704,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 102,
-      "sha256": "c8f0aa949d1bd49c53ab53c9ebb168bb9c6aeb736d84f5934b8eea57228872f6",
+      "version": 103,
+      "sha256": "b958dcd6ec1c0c49667174fc2b57f23af4b23db88f790ecc45e44f6f9c99afc8",
       "routingSha256": "be98a071d40a55c131a7558d42e420e145bd1da91ab66d7e4c15e1924ffe1797",
       "file": "workflow-authoring.md"
     },

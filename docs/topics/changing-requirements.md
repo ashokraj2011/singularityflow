@@ -41,7 +41,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 7
+version: 8
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -143,7 +143,7 @@ With change impact on (below), every amendment has a size, set by rules and neve
 
 ### Change impact
 
-`spec.changeImpact: on`, in the workflow configuration's `spec` block, turns on observed dependencies (below) and the sizes above together. It is off by default and pinned when a Story starts, so a Story started before keeps its behaviour. To name who approves a material change, add `spec.scopeChangeAuthority: <approval group>`.
+`spec.changeImpact`, in the workflow configuration's `spec` block, turns on observed dependencies (below) and the sizes above together. It is on by default (since 2026-11-15), and `sflow init` and every shipped workflow write `changeImpact: on`. `spec.changeImpact: off` turns both off, and so does `spec.observedDependencies: off` with no `spec.changeImpact`. It is pinned when a Story starts, so a Story started before keeps its behaviour. To name who approves a material change, add `spec.scopeChangeAuthority: <approval group>`.
 
 ```yaml
 spec:
@@ -161,7 +161,7 @@ New Stories pin `spec.preAmendmentDrafts: refuse`. Stories started before it kee
 
 ## Observed dependencies
 
-`spec.observedDependencies: on`, in the workflow configuration's `spec` block, is off by default and pinned when a Story starts. `spec.changeImpact: on` turns it on too. With it on:
+`spec.observedDependencies`, in the workflow configuration's `spec` block, is on with change impact (the default) and pinned when a Story starts. It stays valid on its own: `changeImpact: off` with `observedDependencies: on` keeps it without the sizes. With it on:
 
 - Each published generation records what it depended on: the clauses its prompt held, claims, changed paths, bound tests, witnesses, bindings and citations.
 - A step whose record is missing or incomplete counts as affected, so rule E8 never keeps it. A step published without a composed prompt has no complete record, so expect more steps to run again.

@@ -54,6 +54,8 @@ async function fixture(t) {
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   delete config.phases['fix-design'].clarification;
+  // Written for the baseline route, before change impact defaulted on (owner, 2026-11-15): it stays off here.
+  config.spec = { ...config.spec, changeImpact: 'off' };
   config.workTypes['quick-design'] = { ...config.workTypes['quick-fix'], phases: ['intake', 'fix-design', 'implement', 'verify'] };
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
   await writeFile(configPath, YAML.stringify(config));

@@ -300,6 +300,10 @@ spec:
   acceptance: presence
   conformanceRows: qualified
   compositionCache: local
+  # Change impact: when a requirement changes partway through a Story, each step records what it
+  # depended on, and each intent amendment is sized editorial, refinement or material. On by
+  # default; `off` turns it off for Stories started after the change.
+  changeImpact: on
   testCommands: {}
   excludes: []
 

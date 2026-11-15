@@ -743,8 +743,9 @@ evaluation is recorded. Use `--row`, `--result`, `--facet NAME=VALUE`, `--page` 
 `spec.changeImpact: on` turns on observed dependencies and the sizes of an intent amendment together: each
 amendment is editorial, a refinement or material by registered rules, an editorial one carries the evidence of the
 clauses it rewords, and a material one is approved by `spec.scopeChangeAuthority` (an approval group), or else by the
-scope step's approvers. It is off by default and pinned when a Story starts. See
-[Changing requirements during a Story](docs/topics/changing-requirements.md).
+scope step's approvers. It is on by default, and the shipped workflows write `changeImpact: on`; `off` turns it off,
+and so does `spec.observedDependencies: off` with no `spec.changeImpact`. It is pinned when a Story starts, so a Story
+already running keeps its behaviour. See [Changing requirements during a Story](docs/topics/changing-requirements.md).
 
 Acceptance commands are explicit argv arrays allowlisted in
 `spec.testCommands`. `--dry-run` only displays those commands; it never executes
@@ -2469,7 +2470,7 @@ AMD-001?", yes or no in `/sf-decide PAY-1`, on the card, or with
 `singularity-flow upstream-issue revalidate design --amendment AMD-001 --outcome unchanged|return --reason "<why>"`.
 Implement, which reads Design, cannot complete until they answer.
 
-With `spec.changeImpact: on`, every amendment also has a size set by rules: editorial (it only rewords clauses with no
+With `spec.changeImpact: on`, the default, every amendment also has a size set by rules: editorial (it only rewords clauses with no
 bound test and no acceptance criterion: nothing runs again and their evidence is carried), a refinement (the route
 above), or material (it adds a clause, for example: approved by `spec.scopeChangeAuthority`, or else the scope step's
 approvers). The preview and the Decide card say the size, why and who decides; an approver may raise it with

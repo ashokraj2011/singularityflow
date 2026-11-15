@@ -174,7 +174,8 @@ async function fixture(t, { refuse, protect = null, observed = false }) {
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   delete config.phases['fix-design'].clarification;
   if (!refuse) config.spec = { ...config.spec, preAmendmentDrafts: 'legacy' };
-  if (observed) config.spec = { ...config.spec, observedDependencies: 'on' };
+  // Change impact is off, as these fixtures were written before it defaulted on; switch 1 alone where asked.
+  config.spec = { ...config.spec, changeImpact: 'off', ...(observed ? { observedDependencies: 'on' } : {}) };
   if (protect) config.governance = { ...config.governance, protectedPaths: [...(config.governance?.protectedPaths ?? []), protect] };
   config.workTypes['quick-design'] = { ...config.workTypes['quick-fix'], phases: ['intake', 'fix-design', 'implement', 'verify'] };
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };

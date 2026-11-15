@@ -139,7 +139,8 @@ async function fixture(t) {
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   delete config.phases['fix-design'].clarification;
-  config.spec = { ...config.spec, observedDependencies: 'on' };
+  // Switch 1 alone, as written before change impact defaulted on.
+  config.spec = { ...config.spec, changeImpact: 'off', observedDependencies: 'on' };
   const quick = config.workTypes['quick-fix'];
   config.workTypes['quick-design'] = { ...quick, phases: ['intake', 'fix-design', 'implement', 'verify'] };
   // The same steps, but the code step reads the design: its approval waits for the design's "still holds".

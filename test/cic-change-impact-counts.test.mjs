@@ -218,7 +218,7 @@ async function fixture(t, { changeImpact = 'on' } = {}) {
   config.approvalSecurity = { profile: 'poc' };
   for (const group of Object.values(config.approvalAuthorities)) group.allowAnyGitIdentity = true;
   // On: switches 1 and 3 together, and switch 2 as every new Story pins it. Off: every switch off.
-  config.spec = { ...(config.spec ?? {}), ...(changeImpact === 'on' ? { changeImpact: 'on' } : { preAmendmentDrafts: 'legacy' }) };
+  config.spec = { ...(config.spec ?? {}), ...(changeImpact === 'on' ? { changeImpact: 'on' } : { changeImpact: 'off', preAmendmentDrafts: 'legacy' }) };
   delete config.phases['fix-design'].clarification;
   config.workTypes['quick-design'] = { ...config.workTypes['quick-fix'], phases: ['intake', 'fix-design', 'implement', 'verify'] };
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
@@ -369,7 +369,7 @@ test('a Story with every switch off reports its counts, derived and unclassed, w
   await f.designed('CI-2');
   await f.amend('CI-2', 'criterion', reviseCriterion, 'Say the value is numeric.');
   const story = await f.workflow('CI-2');
-  assert.deepEqual([story.resolution.spec.changeImpact, story.resolution.spec.observedDependencies, story.resolution.spec.preAmendmentDrafts], [undefined, undefined, 'legacy']);
+  assert.deepEqual([story.resolution.spec.changeImpact, story.resolution.spec.observedDependencies, story.resolution.spec.preAmendmentDrafts], ['off', undefined, 'legacy']);
   assert.equal(story.intentAmendments[0].impactCounts, undefined, 'nothing new is written with every switch off');
   const counts = JSON.parse(f.report('CI-2', '--format', 'json')).changeImpact;
   assert.deepEqual(counts.switches, { changeImpact: 'off', observedDependencies: 'off', preAmendmentDrafts: 'legacy' });
@@ -384,15 +384,17 @@ test('a Story with every switch off reports its counts, derived and unclassed, w
 const addClause = (id) => (text) => text.replace('## Acceptance criteria', `- [${id}:REQ-002] The value module keeps no other state.\n\n## Acceptance criteria`)
   .replace(`| \`${id}:AC-001\` |`, `| \`${id}:REQ-002\` | \`src/value.mjs\` | not-applicable: A reviewer reads the module. | existing | No other state remains. |\n| \`${id}:AC-001\` |`);
 
-test('a generation composed without a prompt by design reads its own inputs: the scope an amendment publishes and a kernel-assembled step are resolved, so a third amendment widens only what is truly unresolved [CIC:REQ-005, REQ-006, REQ-017]',
+test('the stage 7 real Story\'s shape, rebuilt: an editorial and then a refinement amendment while the code step is open, then redone and verified; a scope an amendment publishes and a kernel-assembled step are resolved, so a third amendment widens only what is truly unresolved [CIC:REQ-005, REQ-006, REQ-017]',
   slowLane({ timeout: 900_000 }), async (t) => {
     const f = await fixture(t);
     await f.designed('CI-3');
-    await f.amend('CI-3', 'wording', reword, 'Clearer wording, same meaning.');
+    // The code step published its first generation and is still open, as on the paid run (RTY-1).
     f.sflow('phase', 'begin', 'implement', '--json');
     await f.code('CI-3');
     f.sflow('prepare', 'implement');
     f.sflow('phase', 'enter', 'implement', '--compose', '--json');
+    f.sflow('phase', 'publish', 'implement', '--authored', 'deterministic');
+    await f.amend('CI-3', 'wording', reword, 'Clearer wording, same meaning.');
     await f.amend('CI-3', 'criterion', reviseCriterion, 'Say the value is numeric.');
     f.sflow('story', 'intent-amendment', 'acknowledge', 'AMD-002');
     f.sflow('resume', 'CI-3');
@@ -409,16 +411,29 @@ test('a generation composed without a prompt by design reads its own inputs: the
     // The verify step the kernel assembles from its governed inputs, published with no model call and no prompt.
     f.sflow('prepare', 'verify');
     f.sflow('phase', 'publish', 'verify', '--authored', 'deterministic');
-    const coverage = async () => Object.fromEntries((JSON.parse(f.sflow('spec', 'dependencies', '--json')).steps)
-      .map((step) => [step.phase, step.generations.map((row) => [row.generation, row.coverage.state, ...row.coverage.reasons])]));
-    const records = await coverage();
-    // The two scope generations the approvals published read the proposals their approvers decided; verify reads its
-    // governed inputs. The design the person wrote again, with no prompt, is the one truly unresolved generation.
-    assert.deepEqual(records.intake, [[1, 'resolved'], [2, 'resolved'], [3, 'resolved']]);
-    assert.deepEqual(records['fix-design'], [[1, 'unresolved', 'receipt-missing'], [2, 'unresolved', 'receipt-missing']]);
-    assert.deepEqual(records.implement, [[1, 'resolved']]);
-    assert.deepEqual(records.verify, [[1, 'resolved']]);
     const story = await f.workflow('CI-3');
+    // RTY-1's facts: an editorial change that reached no step and reset nothing, then a refinement that reopened the design
+    // and reset the code step, both of which published again; scope generations 1 to 3; no publication refused.
+    const [first, second] = story.intentAmendments;
+    assert.deepEqual([first.class, first.carried, first.affectedPhases, first.acknowledgementRequired, first.revalidate], ['editorial', 'editorial', [], false, undefined]);
+    assert.deepEqual([second.class, second.affectedPhases, second.retainedPhases], ['refinement', ['fix-design', 'implement'], []]);
+    assert.deepEqual(story.phaseOrder.map((id) => [id, story.phases[id].generation]), [['intake', 3], ['fix-design', 2], ['implement', 2], ['verify', 1]]);
+    assert.equal(story.refusedPublications, undefined);
+    const two = changeImpactCounts(story);
+    assert.deepEqual(two.perAmendment.map((entry) => [entry.amendment, entry.class, entry.cone, entry.stepsReset, entry.generationsRedone, entry.publicationsRefused]), [
+      ['AMD-001', 'editorial', { clauses: 1, steps: 0 }, 0, 0, 0],
+      ['AMD-002', 'refinement', { clauses: 1, steps: 2 }, 2, 2, 0]]);
+    assert.equal(two.perAmendment[1].evidenceKept, second.preservedEvidence.length);
+    assert.deepEqual(two.churn, { clauseChanges: 2, clausesChangedAgain: 0, reversals: 0 });
+    assert.deepEqual(two.totals.publicationsRefused, 0);
+
+    // E5: the two scope generations the approvals published read the proposals their approvers decided; verify reads its
+    // governed inputs. The design the person wrote, twice with no prompt, is the one truly unresolved step.
+    const coverage = Object.fromEntries((JSON.parse(f.sflow('spec', 'dependencies', '--json')).steps)
+      .map((step) => [step.phase, step.generations.map((row) => [row.generation, row.coverage.state, ...row.coverage.reasons])]));
+    assert.deepEqual(coverage, { intake: [[1, 'resolved'], [2, 'resolved'], [3, 'resolved']],
+      'fix-design': [[1, 'unresolved', 'receipt-missing'], [2, 'unresolved', 'receipt-missing']],
+      implement: [[1, 'resolved'], [2, 'resolved']], verify: [[1, 'resolved']] });
     const read = async (phase, generation) => JSON.parse(await readFile(f.item('CI-3', 'context', 'dependencies', `${phase}-gen${generation}.json`), 'utf8'));
     const scope = await read('intake', 3);
     assert.deepEqual([scope.receipt.kind, scope.receipt.amendment, scope.receipt.path], ['intent-amendment', 'AMD-002', 'singularity/work-items/CI-3/context/intent-amendments/AMD-002-proposed.md']);
@@ -427,11 +442,11 @@ test('a generation composed without a prompt by design reads its own inputs: the
     assert.deepEqual([verify.receipt.kind, verify.receipt.path], ['governed-inputs', 'singularity/work-items/CI-3/context/inputs-verify-gen1.json']);
     // Its input is at most every clause the steps before it define, at the scope revision current at its publication.
     assert.deepEqual(verify.edges.filter((edge) => edge.kind === 'input'), story.scopeRevisions.at(-1).clauses.map((clause) => ({ kind: 'input', clause: clause.id, statementSha256: clause.bodySha256 })));
-    // A code step's code is never read as kernel-assembled: implement published as deterministic still had its composed prompt.
-    assert.equal((await read('implement', 1)).receipt.path, 'singularity/work-items/CI-3/context/implement-gen1.json');
+    // A code step's code is never read as kernel-assembled: implement, published as deterministic, had its composed prompt.
+    assert.equal((await read('implement', 2)).receipt.path, 'singularity/work-items/CI-3/context/implement-gen2.json');
 
-    // AMD-003 adds a clause, proposed from verify. Only the design is reached for an incomplete record; verify, published
-    // by the kernel, is not, and runs again only because it comes after the reopened design.
+    // AMD-003 adds a clause, proposed from verify. Only the design is reached for an incomplete record; verify, assembled by
+    // the kernel, is not, and runs again only because it comes after the reopened design.
     const added = path.join(f.root, '..', 'CI-3-added.md');
     await writeFile(added, addClause('CI-3')(await readFile(f.item('CI-3', 'artifacts/intake/intake.md'), 'utf8')));
     const preview = JSON.parse(f.sflow('story', 'intent-amendment', 'preview', '--file', added, '--json'));
@@ -445,8 +460,8 @@ test('a generation composed without a prompt by design reads its own inputs: the
     const counts = JSON.parse(f.report('CI-3', '--format', 'json')).changeImpact;
     assert.deepEqual(counts.perAmendment.map((entry) => [entry.amendment, entry.class, entry.cone, entry.widened]), [
       ['AMD-001', 'editorial', { clauses: 1, steps: 0 }, { steps: 0, percent: null }],
-      ['AMD-002', 'refinement', { clauses: 1, steps: 1 }, { steps: 1, percent: 100 }],
+      ['AMD-002', 'refinement', { clauses: 1, steps: 2 }, { steps: 1, percent: 50 }],
       ['AMD-003', 'material', { clauses: 1, steps: 1 }, { steps: 1, percent: 100 }]]);
-    assert.deepEqual(counts.totals.widened, { steps: 2, of: 2, percent: 100 }, 'each widened step a truly unresolved design generation');
+    assert.deepEqual(counts.totals.widened, { steps: 2, of: 3, percent: 67 }, 'each widened step a truly unresolved design generation');
     assert.equal(counts.perAmendment[2].stepsReset, 3, 'the design, the code step and verify had each published, and all three run again');
   });

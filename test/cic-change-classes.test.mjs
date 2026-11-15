@@ -99,19 +99,22 @@ test('a material change is decided by the scope-change authority, by default the
     'the authority decides material changes only');
 });
 
-test('change impact is one setting that pins switches 1 and 3 together; off, the pinned policy is as it was [CIC:REQ-018, AC-017]', () => {
-  const before = normalizeSpecPolicy({ mode: 'record' });
-  assert.equal(Object.hasOwn(before, 'changeImpact'), false);
-  assert.equal(Object.hasOwn(before, 'observedDependencies'), false);
-  assert.equal(Object.hasOwn(before, 'scopeChangeAuthority'), false);
-  assert.deepEqual(normalizeSpecPolicy({ mode: 'record', changeImpact: 'off' }), before, 'off writes nothing new');
+test('change impact is one setting that pins switches 1 and 3 together, on by default; off pins off [CIC:REQ-018, AC-017; owner, 2026-11-15]', () => {
+  const byDefault = normalizeSpecPolicy({ mode: 'record' });
+  assert.deepEqual([byDefault.changeImpact, byDefault.observedDependencies, Object.hasOwn(byDefault, 'scopeChangeAuthority')], ['on', 'on', false]);
+  const off = normalizeSpecPolicy({ mode: 'record', changeImpact: 'off' });
+  assert.deepEqual([off.changeImpact, Object.hasOwn(off, 'observedDependencies')], ['off', false]);
+  assert.deepEqual(normalizeSpecPolicy(off), off, 'normalizing an opted-out policy again keeps it off');
+  // A workflow that turned switch 1 off and named no change impact opted out before the default, and still has.
+  assert.deepEqual(normalizeSpecPolicy({ mode: 'record', observedDependencies: 'off' }), off);
   const on = normalizeSpecPolicy({ mode: 'record', changeImpact: 'on', scopeChangeAuthority: 'architecture' });
   assert.deepEqual([on.changeImpact, on.observedDependencies, on.scopeChangeAuthority], ['on', 'on', 'architecture']);
   assert.deepEqual(normalizeSpecPolicy(on), on, 'normalizing a pinned policy again changes nothing');
-  // Switch 1 alone stays valid, so workflows that set it keep working.
-  assert.deepEqual([normalizeSpecPolicy({ observedDependencies: 'on' }).observedDependencies, normalizeSpecPolicy({ observedDependencies: 'on' }).changeImpact], ['on', undefined]);
+  // Switch 1 alone stays valid: change impact off, observed dependencies on.
+  const alone = normalizeSpecPolicy({ changeImpact: 'off', observedDependencies: 'on' });
+  assert.deepEqual([alone.observedDependencies, alone.changeImpact], ['on', 'off']);
   assert.throws(() => normalizeSpecPolicy({ changeImpact: 'on', observedDependencies: 'off' }), /records observed dependencies too/u);
-  assert.throws(() => normalizeSpecPolicy({ scopeChangeAuthority: 'architecture' }), /under spec\.changeImpact: on/u);
+  assert.throws(() => normalizeSpecPolicy({ changeImpact: 'off', scopeChangeAuthority: 'architecture' }), /under spec\.changeImpact: on/u);
   assert.throws(() => normalizeSpecPolicy({ changeImpact: 'yes' }), /must be off or on/u);
 });
 
@@ -219,7 +222,7 @@ async function fixture(t, { changeImpact = 'on', authority = null } = {}) {
   config.approvalSecurity = { profile: 'poc' };
   for (const group of Object.values(config.approvalAuthorities)) group.allowAnyGitIdentity = true;
   if (authority) config.approvalAuthorities[authority] = { label: 'Scope-change authority', allowAnyGitIdentity: false, members: [{ email: 'scope.owner@example.com', name: 'Scope Owner' }] };
-  if (changeImpact === 'on') config.spec = { ...(config.spec ?? {}), changeImpact: 'on', ...(authority ? { scopeChangeAuthority: authority } : {}) };
+  config.spec = { ...(config.spec ?? {}), changeImpact, ...(authority ? { scopeChangeAuthority: authority } : {}) };
   delete config.phases['fix-design'].clarification;
   config.workTypes['quick-design'] = { ...config.workTypes['quick-fix'], phases: ['intake', 'fix-design', 'implement', 'verify'] };
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
@@ -402,13 +405,14 @@ test('--class on a Story without change impact is refused and the command runs w
   f.sflow('story', 'intent-amendment', 'decide', 'AMD-001', '--decision', 'approve', '--confirm', 'AMD-001');
   const story = await f.workflow('CL-4');
   const record = JSON.parse(await readFile(path.join(f.root, story.intentAmendments.at(-1).recordPath), 'utf8'));
-  // No field of this stage is written anywhere with the switch off.
+  // No field of this stage is written anywhere with the switch off; the pinned policy says it is off, nothing more.
+  assert.equal(story.resolution.spec.changeImpact, 'off');
   const keys = (value, found = new Set()) => {
     if (Array.isArray(value)) value.forEach((entry) => keys(entry, found));
-    else if (value && typeof value === 'object') for (const [key, entry] of Object.entries(value)) { found.add(key); keys(entry, found); }
+    else if (value && typeof value === 'object') for (const [key, entry] of Object.entries(value)) { if (value !== story.resolution?.spec) found.add(key); keys(entry, found); }
     return found;
   };
-  for (const key of ['classification', 'class', 'carried', 'carriedPhases', 'raise', 'changeImpact', 'scopeChangeAuthority']) {
+  for (const key of ['classification', 'class', 'carried', 'carriedPhases', 'raise', 'changeImpact', 'scopeChangeAuthority', 'observedDependencies']) {
     assert.ok(!keys(story).has(key), `workflow.json holds ${key}`);
     assert.ok(!keys(record).has(key), `the amendment record holds ${key}`);
   }
@@ -421,6 +425,6 @@ test('--class on a Story without change impact is refused and the command runs w
   const second = await f.draft('CL-4', 'wording', rewordRequirement);
   const later = f.preview('--file', second);
   assert.equal(later.effect.classification, undefined, 'the pinned policy decides, not the configuration now');
-  assert.equal((await f.workflow('CL-4')).resolution.spec.changeImpact, undefined);
+  assert.equal((await f.workflow('CL-4')).resolution.spec.changeImpact, 'off');
   assert.deepEqual(await f.workflow('CL-4'), pinned, 'a preview rewrites nothing');
 });

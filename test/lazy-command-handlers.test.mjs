@@ -918,7 +918,10 @@ test('the common session projection does not import attach, state stores or publ
   // as its VS Code route, and an intent amendment's decision or acknowledgement and a settled one's undo the card as their
   // Copilot route too, read wherever a route is shown (model-free-commands.mjs +1,751, safe-command-guidance.mjs +366)
   // (paid run, 2026-11-14), on top of the 4,253,868 above. No new eager file.
-  assert.ok(current.bytes <= 4_256_000, `session current loads ${current.bytes} source bytes`);
+  // 4,257,100 (measured 4,257,085): SPEC-CIC stage 7 turns change impact on by default and pins it either way, and a work
+  // type opts out over its repository by the same rule (specifications.mjs +1,134, config.mjs -34; owner, 2026-11-15);
+  // the counts and the report section stay lazy (change-impact-counts.mjs). No new eager file.
+  assert.ok(current.bytes <= 4_257_100, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

@@ -8,7 +8,7 @@ git:
   publish: required
 
 templatesRoot: singularity/templates
-spec: { mode: record, coverage: record, acceptance: presence }
+spec: { mode: record, coverage: record, acceptance: presence, changeImpact: on }
 worldModel:
   knowledge: { prompt: slice }
 

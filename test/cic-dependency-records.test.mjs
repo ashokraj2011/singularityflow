@@ -62,7 +62,8 @@ async function fixture(t, { observed }) {
   delete config.phases['fix-design'].clarification;
   config.workTypes['quick-design'] = { ...config.workTypes['quick-fix'], phases: ['intake', 'fix-design', 'implement', 'verify'] };
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
-  if (observed) config.spec = { ...config.spec, observedDependencies: 'on' };
+  // Switch 1 alone, or every switch off but drafts: written before change impact defaulted on, so it is set off here.
+  config.spec = { ...config.spec, changeImpact: 'off', ...(observed ? { observedDependencies: 'on' } : {}) };
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Dependency record fixture']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);
@@ -159,9 +160,11 @@ test('a v2 revision chains after v1 and states each stale clause\'s reason; a ta
   assert.deepEqual(staleReasons(null, indexed), { stale: [], edges: [] });
 });
 
-test('the switch is a pinned spec field: on is pinned, off and absent pin nothing, and any other value is refused', () => {
+test('the switch is a pinned spec field: on is pinned, off pins nothing of it, and any other value is refused', () => {
   assert.equal(normalizeSpecPolicy({ observedDependencies: 'on' }).observedDependencies, 'on');
-  assert.equal(Object.hasOwn(normalizeSpecPolicy({}), 'observedDependencies'), false);
+  // Change impact, on by default since 2026-11-15, pins it on; turned off, nothing of switch 1 is pinned.
+  assert.equal(normalizeSpecPolicy({}).observedDependencies, 'on');
+  assert.equal(Object.hasOwn(normalizeSpecPolicy({ changeImpact: 'off' }), 'observedDependencies'), false);
   assert.equal(Object.hasOwn(normalizeSpecPolicy({ observedDependencies: 'off' }), 'observedDependencies'), false);
   assert.throws(() => normalizeSpecPolicy({ observedDependencies: 'yes' }), /spec\.observedDependencies must be off or on/u);
 });

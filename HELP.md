@@ -3282,6 +3282,7 @@ uses JSON-aware and textual secret redaction before content-addressed storage. U
 singularity-flow workflow list
 singularity-flow workflow validate
 singularity-flow workflow walk quick-fix
+singularity-flow workflow assess customer-onboarding
 singularity-flow workflow fix customer-onboarding --write
 singularity-flow workflow simulate figma-mobile
 singularity-flow workflow diff figma-mobile
@@ -3357,6 +3358,13 @@ packages, and capture drift.
 `workflow walk [WORKFLOW]` is the dry run beside it: with no model, it drives a throwaway Story through
 every step on an isolated copy and lists each step's person steps and every stop no person decision
 clears, with its likely cause (exit 1 on a stop); see the workflow-authoring topic.
+
+`workflow assess [WORKFLOW]` says what each step's agent is told: every layer it receives (its agent
+file, the step's template, its skills and instructions, the workflow's own guidance and the platform's
+rules) with its size, then what in them is repeated, contradicts the step's settings, the platform or
+another rule, or is longer or vaguer than it needs to be, each quoted at its file and line with the
+change that fixes it and what it saves. It uses no model and changes nothing; `workflow build start
+--assess <WORKFLOW>` offers its changes for you to accept, each checked on the result first.
 
 `workflow validate [TYPE]` proves every code phase has an authoritative clause source and an earlier
 reviewed planned-claim owner, and that every route guarantees scope, plan, implementation,

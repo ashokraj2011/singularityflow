@@ -4,17 +4,17 @@
  * with --simplify, verified before it finishes), from a team's material, or from a description, and see what it holds
  * (src/workflow-build/). Builds are machine-local; nothing here changes a repository.
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { SingularityFlowError, commandLineFile, optionBoolean, optionString, optionStrings } from '../util.mjs';
 
 const OPTIONS = {
-  start: new Set(['change', 'from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'simplify', 'json']),
+  start: new Set(['change', 'from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'simplify', 'assess', 'json']),
   add: new Set(['build', 'folder', 'file', 'notes', 'json']),
   status: new Set(['build', 'json']),
   propose: new Set(['build', 'proposal', 'by', 'accept', 'json']),
   source: new Set(['build', 'path', 'from', 'json']),
-  decide: new Set(['build', 'proposal', 'accept', 'decline', 'reason', 'json']),
+  decide: new Set(['build', 'proposal', 'accept', 'decline', 'reason', 'all', 'json']),
   answer: new Set(['build', 'question', 'choice', 'json']),
   check: new Set(['build', 'include', 'json']),
   verify: new Set(['build', 'json']),
@@ -33,10 +33,21 @@ function refuse(message, code = 'WORKFLOW_BUILD_USAGE') {
  * The one file a /sf-build-workflow turn may write: the build's proposal.json, issued to every live
  * build-workflow turn for this repository. Shown as proposalPath; a paused Copilot gets none.
  */
+/** An assess build's findings file, issued like its proposal file (SPEC-WIA). */
+async function issueFindingsPath(view, root) {
+  const target = view.build?.assess?.findingsPath;
+  if (!target) return;
+  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 }).catch(() => null);
+  await import('../copilot-mutation-guard.mjs').then(({ issueBuildStaging, issueFixWorkflowStaging }) => Promise.all([
+    issueBuildStaging(target, { root }), issueFixWorkflowStaging(target, { root })])).catch(() => 0);
+}
+
 async function issueProposalPath(id, root) {
   const { workflowBuildPaths } = await import('../workflow-build/store.mjs');
   const proposalPath = path.join((await workflowBuildPaths(id)).directory, 'proposal.json');
-  await import('../copilot-mutation-guard.mjs').then(({ issueBuildStaging }) => issueBuildStaging(proposalPath, { root })).catch(() => 0);
+  // A /sf-fix-workflow turn applies the assessment's suggestions through a build too (SPEC-WIA).
+  await import('../copilot-mutation-guard.mjs').then(({ issueBuildStaging, issueFixWorkflowStaging }) => Promise.all([
+    issueBuildStaging(proposalPath, { root }), issueFixWorkflowStaging(proposalPath, { root })])).catch(() => 0);
   return proposalPath;
 }
 
@@ -76,6 +87,7 @@ function printBuild(view) {
     if (items.length > SHOWN_PER_KIND) console.log(`  … and ${items.length - SHOWN_PER_KIND} more (--json lists every item)`);
   }
   if (build.simplify) printCandidates(build);
+  if (build.assess) printAssessment(build);
   console.log(`Kept on this computer until ${build.expiresAt.slice(0, 10)}. Nothing was run, fetched or changed in a repository.`);
   console.log(`  Add more: singularity-flow workflow build add --build ${build.id} --folder <DIR> | --file <FILE> | --notes <FILE>`);
   console.log(`  See it again: singularity-flow workflow build status --build ${build.id}`);
@@ -101,11 +113,40 @@ function printCandidates(build) {
   console.log(`  Before finishing: ${build.simplify.verify}`);
 }
 
+/** An assess build's suggestions: each located, with why and its effect; offered ones wait for the person's decision. */
+function printAssessment(build) {
+  const { candidates, before } = build.assess;
+  const status = (candidate) => {
+    const proposal = build.proposals.find((entry) => entry.id === candidate.proposal);
+    return proposal ? `${proposal.id} ${proposal.status}` : 'not offered';
+  };
+  if (build.assess.verdict) console.log(`${build.assess.workflow}: ${build.assess.verdict.text}`);
+  if (before) console.log(`  Now: ${before.bytes.toLocaleString('en-US')} bytes its agents receive (your team's ${before.teamBytes.toLocaleString('en-US')}); ${before.counts.problem} problems, ${before.counts.warning} warnings, ${before.counts.note} notes.`);
+  for (const candidate of candidates) {
+    console.log(`  ${status(candidate).padEnd(14)} ${candidate.title}${candidate.choiceLabel ? `: ${candidate.choiceLabel}` : ''}${where2(candidate.location)}${candidate.decidedBy === 'sflow' ? '' : '  (a person\'s choice)'}`);
+    if (candidate.effect?.after) {
+      const { before: was, after } = candidate.effect;
+      console.log(`                 After it: ${after.bytes.toLocaleString('en-US')} bytes (${(after.bytes - was.bytes).toLocaleString('en-US')}); ${after.counts.problem} problems, ${after.counts.warning} warnings, ${after.counts.note} notes.`);
+    }
+    if (candidate.notOffered) console.log(`                 Not offered: ${candidate.notOffered}`);
+  }
+  if (build.proposals.some((entry) => entry.status === 'pending' && entry.by === 'sflow' && entry.decidedBy !== 'person')) {
+    console.log(`  Accept every one SFlow decided itself: singularity-flow workflow build decide --build ${build.id} --accept --all`);
+  }
+  console.log(`  Decide each: singularity-flow workflow build decide --build ${build.id} --proposal <P> --accept | --decline --reason <TEXT>`);
+  console.log(`  Before finishing: ${build.assess.verify}`);
+}
+
 /** What `workflow build verify` found in the workflow the build would propose. */
 function printVerification(result) {
   console.log(`${result.build.label} (${result.build.workflow})${result.build.from ? `, simpler than ${result.build.from}` : ''}: checked with workflow validate${result.walk.available ? ' and workflow walk' : ''} on what it would propose.`);
   if (!result.walk.available) console.log(`  ${result.walk.reason ?? 'workflow walk did not run.'}`);
   else console.log(`  The walk ${result.walk.outcome ? `${result.walk.outcome}` : 'ran'}${result.walk.reused ? ' (kept from the last verify; nothing changed since)' : ''}.`);
+  if (result.assessment?.before && result.assessment.after) {
+    const { before, after } = result.assessment;
+    const counts = (entry) => `${entry.counts.problem} problems, ${entry.counts.warning} warnings, ${entry.counts.note} notes`;
+    console.log(`  What its agents are told: ${before.bytes.toLocaleString('en-US')} bytes before, ${after.bytes.toLocaleString('en-US')} after (your team's ${before.teamBytes.toLocaleString('en-US')} → ${after.teamBytes.toLocaleString('en-US')}); ${counts(before)} before, ${counts(after)} after.`);
+  }
   for (const item of result.remaining) {
     console.log(`  ${(item.source === 'walk' ? (item.kind === 'not-judged' ? 'unjudged' : 'stop') : 'problem').padEnd(8)} ${item.title}${where2(item.location)}  [${item.id}${item.acceptable ? '' : ', cannot be accepted'}${result.accepted.includes(item.id) ? ', accepted' : ''}]`);
     if (item.fix) console.log(`           Fix: ${item.fix}`);
@@ -155,7 +196,7 @@ function printCheck(result) {
       : `Finished: ${result.landed.label} is in the approved configuration. To change it in place: singularity-flow workflow build start --change ${result.landed.workflow}`);
     return;
   }
-  if (result.simplify && result.ready) return console.log(`No problem in the check. Before finishing, verify it: ${result.simplify.verify}`);
+  if ((result.simplify || result.assess) && result.ready) return console.log(`No problem in the check. Before finishing, verify it: ${(result.simplify ?? result.assess).verify}`);
   console.log(result.ready ? 'Ready to finish: singularity-flow workflow build finish --build ' + result.build.id + ' --propose'
     : result.unchanged ? 'Not ready to finish: nothing is changed yet.'
       : `Not ready to finish: ${result.counts.problem} problem${result.counts.problem === 1 ? '' : 's'}${result.questions.some((question) => question.blocking) ? ', questions waiting for an answer' : ''}.`);
@@ -207,11 +248,21 @@ async function engineAction(action, { options, root, json, buildId, api, labels 
   } else if (action === 'decide') {
     const accept = optionBoolean(options, 'accept');
     if (accept === optionBoolean(options, 'decline')) refuse('Decide with --accept or --decline.');
-    record = await engine.decideInBuild(id, optionString(options, 'proposal') ?? refuse('Name the proposal: --proposal p-1.'), { accept, reason: optionString(options, 'reason') ?? null, root });
+    if (optionBoolean(options, 'all')) {
+      // Every pending change SFlow offered and decided itself; a person's choices stay one at a time.
+      if (!accept || optionString(options, 'proposal')) refuse('--all accepts every pending change SFlow decided itself: --accept --all, without --proposal.');
+      const outcome = await (await import('../workflow-assess/offer.mjs')).acceptAllSflow(id, { root });
+      record = outcome.record;
+      if (!json) {
+        console.log(`Accepted ${outcome.accepted.length}: ${outcome.accepted.join(', ') || 'none'}.`);
+        for (const entry of outcome.stale) console.log(`  ${entry.id} no longer fits what was accepted before it: ${entry.reason}`);
+      }
+    } else record = await engine.decideInBuild(id, optionString(options, 'proposal') ?? refuse('Name the proposal: --proposal p-1.'), { accept, reason: optionString(options, 'reason') ?? null, root });
   } else {
     record = await engine.answerInBuild(id, optionString(options, 'question') ?? refuse('Name the question: --question q-1.'), optionString(options, 'choice') ?? refuse('Give the answer: --choice <TEXT>.'));
   }
   const view = { ...api.workflowBuildView(record), proposalPath: await issueProposalPath(record.id, root) };
+  await issueFindingsPath(view, root);
   if (json) return console.log(JSON.stringify(view, null, 2));
   const last = record.conversation.slice(-3).map((turn) => `  ${turn.by === 'you' ? 'You' : turn.by === 'copilot' ? 'Copilot' : 'SFlow'}: ${turn.text}`);
   console.log(`Build ${record.id}: ${record.goal.label}`);
@@ -272,8 +323,11 @@ export async function run(argv, { positionals, options }) {
     // --simplify ID: a new, simpler copy of that workflow (src/workflow-build/simplify.mjs).
     const simplify = options.simplify === undefined ? null : optionString(options, 'simplify') ?? refuse('Name the workflow to simplify: --simplify <ID>.');
     if (simplify && (options['from-workflow'] !== undefined || options.change !== undefined)) refuse('--simplify ID copies that workflow itself; leave out --from-workflow and --change.');
-    record = await api.startWorkflowBuild({ root, fromWorkflow: simplify ?? optionString(options, 'from-workflow') ?? null, change: optionString(options, 'change') ?? null, ...(await material()),
-      describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null, simplify: Boolean(simplify) });
+    // --assess ID: that workflow changed in place with the assessment's suggestions (src/workflow-assess/offer.mjs).
+    const assess = options.assess === undefined ? null : optionString(options, 'assess') ?? refuse('Name the workflow to assess: --assess <ID>.');
+    if (assess && (simplify || options['from-workflow'] !== undefined || options.change !== undefined)) refuse('--assess ID changes that workflow itself; leave out --simplify, --from-workflow and --change.');
+    record = await api.startWorkflowBuild({ root, fromWorkflow: simplify ?? optionString(options, 'from-workflow') ?? null, change: assess ?? optionString(options, 'change') ?? null, ...(await material()),
+      describe: optionString(options, 'describe') ?? null, name: optionString(options, 'name') ?? null, simplify: Boolean(simplify), assess: Boolean(assess) });
   } else if (action === 'add') {
     const id = optionString(options, 'build');
     if (!id) refuse('Name the build: workflow build add --build <ID> --folder <DIR>.');
@@ -282,6 +336,7 @@ export async function run(argv, { positionals, options }) {
     record = await api.readWorkflowBuild(optionString(options, 'build'));
   }
   const view = { ...api.workflowBuildView(record), proposalPath: await issueProposalPath(record.id, root) };
+  await issueFindingsPath(view, root);
   if (json) return console.log(JSON.stringify(view, null, 2));
   printBuild({ ...view, labels });
 }

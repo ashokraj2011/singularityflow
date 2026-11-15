@@ -15,6 +15,7 @@ import { captureTeamDirectory } from '../team-import/capture.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { BUILD_TEXT_EXTENSIONS, ITEM_KIND_LABELS, ITEM_KIND_WORDS, countWords, inventoryCapture, itemCounts, linkSkillFiles } from './inventory.mjs';
 import { movesGuide } from './moves.mjs';
+import { copilotFindingsPath } from '../workflow-assess/paths.mjs';
 import { allocateWorkflowBuild, pruneWorkflowBuilds, readWorkflowBuild, saveWorkflowBuild, workflowBuildPaths, writePrivate } from './store.mjs';
 
 const MAX_UPLOAD_BYTES = 1024 * 1024;
@@ -172,11 +173,14 @@ function reconcile(items, previous) {
 }
 
 /** Start a build; see the module comment. */
-export async function startWorkflowBuild({ root = null, fromWorkflow = null, change = null, folders = [], files = [], notes = [], describe = null, name = null, simplify = false } = {}, { env = process.env } = {}) {
+export async function startWorkflowBuild({ root = null, fromWorkflow = null, change = null, folders = [], files = [], notes = [], describe = null, name = null, simplify = false, assess = false } = {}, { env = process.env } = {}) {
   if (fromWorkflow && change) fail('WORKFLOW_BUILD_USAGE', 'Copy a workflow with --from-workflow ID, or change one in place with --change ID; not both.');
   // A simpler workflow is always a new one: the workflow it starts from is never changed in place.
   if (simplify && (!fromWorkflow || change)) fail('WORKFLOW_BUILD_USAGE', `--simplify makes a new, simpler workflow from one the repository has: singularity-flow workflow build start --simplify ${fromWorkflow ?? change ?? 'ID'}. It never changes a workflow in place.`);
   if (simplify && (folders.length || files.length || notes.length || describe)) fail('WORKFLOW_BUILD_USAGE', '--simplify works from the workflow alone; add material to a build started without it.');
+  // The assessment's suggestions change the workflow they assess, in place (src/workflow-assess/offer.mjs).
+  if (assess && (!change || fromWorkflow || simplify)) fail('WORKFLOW_BUILD_USAGE', `--assess changes the workflow it assesses, in place: singularity-flow workflow build start --assess ${change ?? fromWorkflow ?? 'ID'}.`);
+  if (assess && (folders.length || files.length || notes.length || describe)) fail('WORKFLOW_BUILD_USAGE', '--assess works from the workflow alone; add material to a build started without it.');
   if (!fromWorkflow && !change && !folders.length && !files.length && !notes.length && !describe) {
     fail('WORKFLOW_BUILD_USAGE', 'Start from something: --from-workflow ID, --folder DIR, --file FILE, --notes FILE or --describe TEXT; or change a workflow in place with --change ID.');
   }
@@ -201,7 +205,8 @@ export async function startWorkflowBuild({ root = null, fromWorkflow = null, cha
     id, createdAt: now,
     repository: root ? { root, label: path.basename(root) } : null,
     // A change build makes no new workflow: it changes the one it names, in place.
-    goal: { label: label.slice(0, 120), startedFrom, ...(change ? { workflow: change, change: true } : {}), ...(simplify ? { simplify: { from: fromWorkflow } } : {}) },
+    goal: { label: label.slice(0, 120), startedFrom, ...(change ? { workflow: change, change: true } : {}), ...(simplify ? { simplify: { from: fromWorkflow } } : {}),
+      ...(assess ? { assess: { workflow: change } } : {}) },
     sources: { folders: resolvedFolders, uploads },
     capture,
     items: [...(base?.items ?? []), ...items],
@@ -209,7 +214,8 @@ export async function startWorkflowBuild({ root = null, fromWorkflow = null, cha
   };
   record.conversation.push({ at: now, by: 'sflow', kind: 'found', text: summaryText(record) });
   const saved = await saveWorkflowBuild(record, { env });
-  // What could be simpler, each candidate checked before it is offered (src/workflow-build/simplify.mjs).
+  // What could be simpler, or what the assessment would change, each candidate checked before it is offered.
+  if (assess) return (await import('../workflow-assess/offer.mjs')).offerAssessment(saved, { root, env });
   return simplify ? (await import('./simplify.mjs')).offerSimplifications(saved, { root, env }) : saved;
 }
 
@@ -249,7 +255,11 @@ export function workflowBuildView(record) {
       items: record.items, proposals: record.proposals, questions: record.questions, conversation: record.conversation,
       finished: record.finished ?? null,
       ...(record.goal.simplify ? { simplify: { from: record.goal.simplify.from, candidates: record.simplify?.candidates ?? [], verification: record.verification ?? null,
-        verify: `singularity-flow workflow build verify --build ${record.id}` } } : {})
+        verify: `singularity-flow workflow build verify --build ${record.id}` } } : {}),
+      ...(record.goal.assess ? { assess: { workflow: record.goal.assess.workflow, before: record.assess?.before ?? null, verdict: record.assess?.verdict ?? null,
+        candidates: record.assess?.candidates ?? [], verification: record.verification ?? null, verify: `singularity-flow workflow build verify --build ${record.id}`,
+        // Where Copilot writes its own findings to verify (workflow assess --verify), issued to the turn.
+        ...(record.repository?.root ? { findingsPath: copilotFindingsPath(record.repository.root, record.goal.assess.workflow) } : {}) } } : {})
     },
     kinds: ITEM_KIND_LABELS,
     kindOne: Object.fromEntries(Object.entries(ITEM_KIND_WORDS).map(([kind, [one]]) => [kind, one])),

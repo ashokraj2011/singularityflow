@@ -489,6 +489,12 @@ Usage:
                                                         copy (stub author, stub reviewer, test approver) and lists each step's person
                                                         steps and every stop no person decision clears, with its likely cause; reads
                                                         only this repository's configuration; exits 1 on a stop, 2 when a step was not judged
+  singularity-flow workflow assess [WORKFLOW] [--read STEP [--part N] | --verify FILE|-] [--json]
+                                                        what each step's agent is told, layer by layer with its size, and what in it is
+                                                        repeated, contradicts the step's settings, the platform or another rule, or is
+                                                        longer or vaguer than it needs to be: located, quoted, with the change that fixes
+                                                        it and what it saves. --read gives one step's text in parts; --verify checks
+                                                        Copilot's own findings against the files. Reads only
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
   singularity-flow workflow build start [--change ID | --from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
     [--describe TEXT] [--name LABEL] [--json]
@@ -498,11 +504,16 @@ Usage:
   singularity-flow workflow build start --simplify ID [--name LABEL] [--json]
                                                         a simpler copy under a new ID: each simplification it can check is offered, located
                                                         with why, for you to accept or decline; the workflow itself never changes
+  singularity-flow workflow build start --assess ID [--json]
+                                                        change that workflow in place with workflow assess's suggestions: each one checked
+                                                        on the result first and offered for you to accept or decline
   singularity-flow workflow build add --build ID [--folder DIR]... [--file FILE]... [--notes FILE|-]... [--json]
   singularity-flow workflow build status [--build ID] [--json]
   singularity-flow workflow build source --build ID --path FILE [--from LINE] [--json]
   singularity-flow workflow build propose --build ID --proposal FILE|- [--by you|copilot] [--accept] [--json]
   singularity-flow workflow build decide --build ID --proposal P (--accept | --decline [--reason TEXT]) [--json]
+  singularity-flow workflow build decide --build ID --accept --all [--json]
+                                                        accept every pending change SFlow offered and decided itself, each checked again
   singularity-flow workflow build answer --build ID --question Q --choice TEXT [--json]
   singularity-flow workflow build check --build ID [--include P] [--json]
                                                         the workflow as the accepted proposals leave it: explained and checked

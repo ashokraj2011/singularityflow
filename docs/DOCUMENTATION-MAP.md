@@ -68,6 +68,7 @@ Use these for Story creation, phase generation, approvals, rollback, and landing
 | [Change impact cone (SPEC-CIC v1.1)](SPEC-CIC-CHANGE-IMPACT-CONE-v1.1.md) | What a clause change reaches: the exact effect of an intent amendment before it is decided, fail-closed staleness, and the step it reopens; owner decisions D1 to D4 |
 | [Spec → Code → Playwright testing review](SPEC-CODE-TEST-LOOP.md) | Running a specification-first, reviewer-directed Code/Test cycle with versioned intent amendments and browser evidence |
 | [Bounded Story workflow rework loops](WORKFLOW-REWORK-LOOPS.md) | Authoring reviewer-directed backward phase edges, attempt budgets, and safe replay of downstream evidence |
+| [Workflow instruction assessment (SPEC-WIA v1)](SPEC-WIA-WORKFLOW-INSTRUCTION-ASSESSMENT-v1.md) | What each step's agent is told: repeated, contradictory and unclear instructions found with no model, Copilot's quoted findings checked, and the text-edit moves that apply the person's choices |
 | [Governed execution](GOVERNED-EXECUTION.md) | Action plans, execution receipts, and recoverable mutations |
 | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) | Landing work that began outside a Story |
 | [Release artifact handoff](RELEASE-ARTIFACT-HANDOFF.md) | Handoff and delivery artifact practices |

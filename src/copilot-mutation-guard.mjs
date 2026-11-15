@@ -746,7 +746,9 @@ export function argvAllowed(argv, mode, value) {
   // The /sf-build-workflow turn: its build commands are reads; finishing is its one mutation.
   if (mode === 'build-workflow') return positionals[0] === 'workflow' && positionals[1] === 'build'
     && positionals[2] === 'finish' && positionals.length === 3;
-  // The /sf-fix-workflow turn: its one mutation proposes the issued change set draft for review.
+  // The /sf-fix-workflow turn: it proposes the issued change set draft for review, or finishes the
+  // build that applies `workflow assess`'s suggestions (SPEC-WIA), as the build-workflow turn does.
+  if (mode === 'fix-workflow' && positionals[0] === 'workflow' && positionals[1] === 'build') return positionals[2] === 'finish' && positionals.length === 3;
   if (mode === 'fix-workflow') return positionals[0] === 'workflow' && positionals[1] === 'studio'
     && positionals[2] === 'apply' && positionals.length === 3 && options.propose === true
     && Object.keys(options).every(key => ['change-set', 'propose', 'json'].includes(key))
@@ -1625,8 +1627,10 @@ async function importTeamGuard(payload, record, toolCalls) {
 
 /**
  * /sf-fix-workflow: reads (`workflow validate`, `workflow check --change-set`, `workflow studio apply
- * --dry-run`), edits to exactly the change set draft `workflow validate` issued to this turn, and one
- * mutation: `workflow studio apply --change-set <that draft> --propose`, a configuration proposal a
+ * --dry-run`, `workflow assess` and its build), edits to exactly the files issued to this turn (the
+ * change set draft `workflow validate` issued, an assess build's proposal file, Copilot's findings file
+ * `workflow assess` issued), and two mutations: `workflow studio apply --change-set <that draft>
+ * --propose`, and `workflow build finish` of the assess build; each is a configuration proposal a
  * person reviews. It needs no Story, edits no repository file and does not delegate.
  */
 async function fixWorkflowGuard(payload, record, toolCalls) {
@@ -1643,7 +1647,7 @@ async function fixWorkflowGuard(payload, record, toolCalls) {
       const draft = unissuedDraftOption(call, scope, 'fix-workflow', 'fixStaging',
         (positionals, options) => positionals[0] === 'workflow' ? options['change-set'] : null);
       if (draft) return deny(`FIX_WORKFLOW_DRAFT_NOT_ISSUED: ${draft} is not issued to this turn. Run singularity-flow workflow validate --json standalone in this turn first, for the same workflow: it issues the same change set file at fixDraft.changeSetPath and leaves what is in it unchanged. Then run this command again`);
-      return deny('FIX_WORKFLOW_OPERATION_NOT_ALLOWED: run one standalone read command (workflow validate, workflow check --change-set, workflow studio apply --dry-run) or singularity-flow workflow studio apply --change-set <issued draft> --propose; no other mutations, chains or wrappers, and never approve or activate');
+      return deny('FIX_WORKFLOW_OPERATION_NOT_ALLOWED: run one standalone read command (workflow validate, workflow check --change-set, workflow studio apply --dry-run, workflow assess, workflow build), singularity-flow workflow studio apply --change-set <issued draft> --propose, or singularity-flow workflow build finish; no other mutations, chains or wrappers, and never approve or activate');
     }
     if (!isEdit(call.name)) continue;
     const paths = targets(call.args);

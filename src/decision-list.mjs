@@ -725,7 +725,10 @@ export function amendmentEffectWords(workflow, effect, { steps: most = 8 } = {})
     // D1 [CIC:REQ-021]: its approvers are asked whether it still holds, with what is recommended.
     const asked = step.stillHolds ? `; its prompt held ${listWords(step.stillHolds.clauses.map((id) => clauseName(workflow, id)))}, so its approvers say whether it still holds `
       + `(recommended: ${step.stillHolds.recommend === 'return' ? 'redo it' : 'it still holds'})` : '';
-    lines.push(step.outcome === 'kept' ? `${name} keeps its approval (rule E8): it cites none of the changed clauses${held}${asked}.`
+    // Signed rows win (owner, 2026-11-15): its record is incomplete, and the rows the amendment carries for it are its own answer.
+    const rows = step.signedRows === 'signed' ? '; what it depended on is not fully recorded, and its approvers signed the rows the amendment carries for it'
+      : step.signedRows === 'unsigned' ? '; what it depended on is not fully recorded, so it keeps its approval once its approvers sign the rows the amendment carries for it' : '';
+    lines.push(step.outcome === 'kept' ? `${name} keeps its approval (rule E8): it cites none of the changed clauses${held}${asked}${rows}.`
       : step.outcome === 'still-holds' ? `${name}'s approvers say whether it still holds, or return the Story to it.`
         // An editorial change carries the evidence of the clauses it rewords [CIC:REQ-014].
         : step.outcome === 'carried' ? `${name} ${step.status === 'approved' ? 'keeps its approval' : 'goes on as it is'}, and its evidence of the reworded clauses is carried: the change is editorial.`

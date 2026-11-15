@@ -130,6 +130,8 @@ function printChanges(changes) {
 
 function printCheck(result) {
   console.log(`${result.draft.workflow.label} (${result.build.workflow}): ${result.explanation?.summary ?? `${result.draft.workflow.phases.length} steps so far.`}`);
+  const changeImpact = result.preview?.workflows?.[0]?.changeImpact;
+  if (changeImpact) console.log(`  ${changeImpact.text}.`);
   for (const step of result.explanation?.steps ?? []) {
     console.log(`  ${step.number}. ${step.label}: ${step.what}${step.why ? ` Why: ${step.why.text}` : ''}`);
     // Its parts, named: who drafts it, the skills and instructions it uses, what it reads, who signs it off.

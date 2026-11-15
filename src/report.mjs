@@ -649,21 +649,9 @@ function rejectionTarget(detail) {
  * limited. Null without the switch or without an approved amendment.
  */
 export function requirementChanges(workflow) {
-  const approved = (workflow?.intentAmendments ?? []).filter((entry) => ['approved', 'revalidated'].includes(entry?.status));
-  if (workflow?.resolution?.spec?.changeImpact !== 'on' || !approved.length) return null;
-  const changed = new Map();
-  for (const id of approved.flatMap((entry) => entry.changedClauses ?? [])) changed.set(id, (changed.get(id) ?? 0) + 1);
-  const held = new Map();
-  const reversed = new Map();
-  for (const revision of workflow.scopeRevisions ?? []) {
-    const now = new Map((revision.clauses ?? []).map((clause) => [clause.id, clause.bodySha256]));
-    for (const [id, body] of now) {
-      const past = held.get(id) ?? [];
-      if (past.length && past.at(-1) !== body && past.includes(body)) reversed.set(id, (reversed.get(id) ?? 0) + 1);
-      if (past.at(-1) !== body) held.set(id, [...past, body]);
-    }
-    for (const [id, past] of held) if (!now.has(id) && past.at(-1) !== null) held.set(id, [...past, null]);
-  }
+  if (workflow?.resolution?.spec?.changeImpact !== 'on') return null;
+  const { approved, changed, reversed } = clauseChurn(workflow);
+  if (!approved.length) return null;
   const counted = (map, least) => [...map].filter(([, times]) => times >= least).map(([clause, times]) => ({ clause, times }))
     .sort((left, right) => right.times - left.times || left.clause.localeCompare(right.clause));
   const byClass = {};
@@ -672,12 +660,37 @@ export function requirementChanges(workflow) {
 }
 
 /**
+ * The Story's approved intent amendments, how often each clause they changed was changed, and how often each clause went
+ * back to a statement an earlier scope revision held (or came back after a revision removed it), whatever the switches.
+ * Read by requirementChanges and by the change impact counts (change-impact-counts.mjs).
+ */
+export function clauseChurn(workflow) {
+  const approved = (workflow?.intentAmendments ?? []).filter((entry) => ['approved', 'revalidated'].includes(entry?.status));
+  const changed = new Map();
+  for (const id of approved.flatMap((entry) => entry.changedClauses ?? [])) changed.set(id, (changed.get(id) ?? 0) + 1);
+  const held = new Map();
+  const reversed = new Map();
+  for (const revision of workflow?.scopeRevisions ?? []) {
+    const now = new Map((revision?.clauses ?? []).map((clause) => [clause.id, clause.bodySha256]));
+    for (const [id, body] of now) {
+      const past = held.get(id) ?? [];
+      if (past.length && past.at(-1) !== body && past.includes(body)) reversed.set(id, (reversed.get(id) ?? 0) + 1);
+      if (past.at(-1) !== body) held.set(id, [...past, body]);
+    }
+    for (const [id, past] of held) if (!now.has(id) && past.at(-1) !== null) held.set(id, [...past, null]);
+  }
+  return { approved, changed, reversed };
+}
+
+/**
  * `copilotChat` is this computer's Copilot Chat requests for the Story's branch, and
  * `copilotSessions` the model calls Copilot's session logs hold for it
  * (src/copilot-session-usage.mjs). Both are read by the caller; a work command passes neither.
+ * `changeImpact` is the Story's change impact counts (change-impact-counts.mjs), read by the
+ * Story report only [CIC:REQ-017].
  */
 export function deriveReport(workflow, {
-  pricing = null, premiumMultipliers = null, now = nowIso(), copilotChat = null, copilotSessions = null
+  pricing = null, premiumMultipliers = null, now = nowIso(), copilotChat = null, copilotSessions = null, changeImpact = null
 } = {}) {
   const reportTime = timestamp(now);
   const history = [...(workflow.history ?? [])].sort(compareEvents);
@@ -833,6 +846,7 @@ export function deriveReport(workflow, {
     selfApprovals: phases.reduce((sum, phase) => sum + phase.selfApprovals, 0),
     sequenceOverrides: workflow.sequenceOverrides ?? [],
     ...(requirementChanges(workflow) ? { requirementChanges: requirementChanges(workflow) } : {}),
+    ...(changeImpact ? { changeImpact } : {}),
     tokens: {
       total: phases.reduce((sum, phase) => sum + phase.tokens, 0),
       exactRecords: workflow.usage?.exactRecords ?? null,
@@ -1110,7 +1124,11 @@ function copilotSources(report) {
   ].join(' ');
 }
 
-export function renderMarkdown(report) {
+/**
+ * `changeImpact` is the "Change impact" section as change-impact-counts.mjs renders `report.changeImpact`; given, it
+ * takes the place of "Requirement changes", whose clause lines it holds [CIC:REQ-017].
+ */
+export function renderMarkdown(report, { changeImpact = null } = {}) {
   const item = report.workItem;
   const lines = [`# ${item.id}${item.title ? ` — ${item.title}` : ''}${item.workType ? ` (${item.workType})` : ''}`, ''];
   lines.push([
@@ -1171,7 +1189,8 @@ export function renderMarkdown(report) {
   lines.push(...sessionsMarkdown(report));
   if (report.selfApprovals) lines.push(`**Sign-off note:** ${report.selfApprovals} active self-approval${report.selfApprovals === 1 ? '' : 's'}; these are not independent reviews.`, '');
   if (report.sequenceOverrides.length) lines.push(`**Sign-off note:** ${report.sequenceOverrides.length} confirmed soft sequence override${report.sequenceOverrides.length === 1 ? '' : 's'}; review the audit details below.`, '');
-  if (report.requirementChanges) {
+  if (changeImpact) lines.push(changeImpact.trimEnd(), '');
+  else if (report.requirementChanges) {
     const changes = report.requirementChanges;
     const classes = Object.entries(changes.byClass).map(([name, count]) => `${count} ${name}`).join(', ');
     lines.push('## Requirement changes', '', `- ${changes.amendments} intent amendment${changes.amendments === 1 ? '' : 's'} approved${classes ? `: ${classes}` : ''}.`,
@@ -1342,7 +1361,7 @@ ${missing}
 <p class="note">${codeSpans(escapeHtml(copilotSources(report)))} * marks a count some generations did not report; "unavailable" means none did.</p>`;
 }
 
-export function renderHtml(report) {
+export function renderHtml(report, { changeImpact = null } = {}) {
   const item = report.workItem;
   const elapsedChart = barChart(report.phases, { valueKey: 'elapsedMs', labelKey: 'label', formatValue: humanizeDuration, color: '#4f6df5' });
   const tokenRows = report.phases.map((phase) => ({ ...phase, reportedTokens: ['exact', 'partial'].includes(phase.tokenStatus) ? phase.tokens : null }));
@@ -1395,7 +1414,7 @@ ${tokenChart}
 ${modelTable}
 ${copilotSection}
 ${sessionsHtml(report)}
-${changesHtml ? `${changesHtml}\n` : ''}${overrideTable}
+${changeImpact ? `${changeImpact.trimEnd()}\n` : changesHtml ? `${changesHtml}\n` : ''}${overrideTable}
 <footer>Durations are wall-clock elapsed time, including nights and weekends. Generated ${escapeHtml(report.generatedAt)} by singularity-flow.</footer>
 </body>
 </html>

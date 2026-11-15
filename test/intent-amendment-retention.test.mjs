@@ -58,6 +58,9 @@ async function fixture(t) {
   // Not a review test: this fixture's Stories are unreviewed on purpose. Every step's review is walked in
   // review-every-step-cli.test.mjs.
   for (const workType of Object.values(config.workTypes ?? {})) workType.sourceReview = { mode: 'off' };
+  // Rule E8 on the baseline route, as written before change impact defaulted on (owner, 2026-11-15): with it on, a step
+  // published without a composed prompt has no complete record and runs again (cic-still-holds.test.mjs walks that).
+  config.spec = { ...config.spec, changeImpact: 'off' };
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Amendment retention fixture']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);

@@ -177,13 +177,18 @@ export function normalizeSpecPolicy(value = {}) {
   }
   const compositionCache = value.compositionCache ?? 'local';
   if (!['off', 'local'].includes(compositionCache)) throw new SingularityFlowError('spec.compositionCache must be off or local.');
-  // SPEC-CIC switches 1 and 3 (pinned only when on) and 2 (new Stories pin `refuse`), read from the pinned raw field [CIC:REQ-018].
-  // Switch 3 is `changeImpact: on`, one setting that pins switch 1 with it; an authority it names approves material changes.
-  const impact = value.changeImpact ?? 'off';
+  // SPEC-CIC switches 1 and 3 and 2 (new Stories pin `refuse`), read from the pinned raw field [CIC:REQ-018].
+  // Switch 3 is `changeImpact`, one setting that pins switch 1 with it; an authority it names approves material changes.
+  // On unless a workflow turns it off (owner, 2026-11-15); a workflow that turned observed dependencies off and names no
+  // change impact opted out before the default, and still has. Pinned either way, so normalizing a policy again keeps it;
+  // a Story pinned before the field has neither, and keeps its behaviour [CIC:REQ-019].
+  const impact = value.changeImpact ?? (value.observedDependencies === 'off' ? 'off' : 'on');
   if (!['off', 'on'].includes(impact)) throw new SingularityFlowError('spec.changeImpact must be off or on.');
   const observed = value.observedDependencies ?? impact;
   if (!['off', 'on'].includes(observed)) throw new SingularityFlowError('spec.observedDependencies must be off or on.');
-  if (impact === 'on' && observed !== 'on') throw new SingularityFlowError('spec.changeImpact on records observed dependencies too; remove spec.observedDependencies: off.');
+  if (impact === 'on' && observed !== 'on') {
+    throw new SingularityFlowError('spec.changeImpact on records observed dependencies too: remove spec.observedDependencies: off, or set spec.changeImpact: off to turn both off.');
+  }
   const authority = value.scopeChangeAuthority ?? null;
   if (authority != null && (impact !== 'on' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(authority))) {
     throw new SingularityFlowError('spec.scopeChangeAuthority names the approval authority group that approves a material change, under spec.changeImpact: on.');
@@ -191,8 +196,18 @@ export function normalizeSpecPolicy(value = {}) {
   const preAmendmentDrafts = value.preAmendmentDrafts ?? 'refuse';
   if (!['legacy', 'refuse'].includes(preAmendmentDrafts)) throw new SingularityFlowError('spec.preAmendmentDrafts must be legacy or refuse.');
   return { mode, namespace, coverage, acceptance, conformanceRows, conformanceDifferences, testCommands, excludes, limits, compositionCache,
-    preAmendmentDrafts, ...(observed === 'on' ? { observedDependencies: observed } : {}), ...(impact === 'on' ? { changeImpact: impact } : {}),
+    preAmendmentDrafts, ...(observed === 'on' ? { observedDependencies: observed } : {}), changeImpact: impact,
     ...(authority ? { scopeChangeAuthority: authority } : {}) };
+}
+
+/**
+ * The spec policy a work type runs with: the repository's, then its own. A work type that turns change impact off, or turns
+ * observed dependencies off without naming change impact, opts out of both, and of the repository's scope-change authority,
+ * as a repository does; only what it sets itself turns observed dependencies back on [CIC:REQ-018; owner, 2026-11-15].
+ */
+export function workTypeSpecPolicy(repository = {}, own = {}) {
+  const optsOut = own?.changeImpact === 'off' || (own?.observedDependencies === 'off' && own?.changeImpact === undefined);
+  return normalizeSpecPolicy({ ...(repository ?? {}), ...(optsOut ? { changeImpact: 'off', observedDependencies: undefined, scopeChangeAuthority: undefined } : {}), ...(own ?? {}) });
 }
 
 function lineNumber(text, offset) {

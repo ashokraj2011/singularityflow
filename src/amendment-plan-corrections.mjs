@@ -172,6 +172,23 @@ export function signedAmendmentCorrections(workflow, proposalId) {
     .filter((entry) => entry?.kind === 'plan-row-correction' && entry.intentAmendment === proposalId);
 }
 
+/**
+ * Whether the rows an amendment carries for each plan are signed, by plan (owner, 2026-11-15, "signed rows win"): `signed` when
+ * an approver of that plan signed them in their own decision on the amendment and the signature counts (SF Guard) under one of
+ * the plan's own approval groups, as the evidence it carries reads it (scope/carried-evidence.mjs amendmentRowCarriers);
+ * `unsigned` before anyone has; `not-counted` when a signature is there and does not count.
+ */
+export function carriedRowSigning(workflow, proposal) {
+  const records = (workflow?.planAmendments ?? []).filter((entry) => entry?.kind === 'plan-row-correction' && entry.intentAmendment === proposal.id);
+  const counted = new Set(countedRecords(workflow, records));
+  return new Map((proposal.planCorrections ?? []).map(({ ownerPhase }) => {
+    const policy = workflow?.phases?.[ownerPhase]?.approvalPolicy ?? {};
+    const groups = [...(policy.authorities ?? []), ...(policy.requiredAuthorities ?? [])];
+    const own = records.filter((entry) => entry.ownerPhase === ownerPhase);
+    return [ownerPhase, !own.length ? 'unsigned' : own.some((entry) => counted.has(entry) && groups.includes(entry.authorityGroup)) ? 'signed' : 'not-counted'];
+  }));
+}
+
 /** The plans whose carried rows nobody has signed yet. */
 export function unsignedPlanCorrections(workflow, proposal) {
   const signed = new Set(signedAmendmentCorrections(workflow, proposal.id).map((entry) => entry.ownerPhase));

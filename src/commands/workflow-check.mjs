@@ -54,6 +54,7 @@ export function printWorkflowCheck(result, { steps = false } = {}) {
   for (const workflow of result.workflows) {
     console.log(`${workflow.label} (${workflow.id}): ${workflow.explanation.summary}`);
     if (workflow.explanation.description) console.log(`  ${workflow.explanation.description}`);
+    if (workflow.changeImpact) console.log(`  ${workflow.changeImpact.text}.`);
     if (steps) printSteps(workflow.explanation);
     if (workflow.findings.length) printFindings(workflow.findings, '  ');
     else console.log('  Nothing to fix.');

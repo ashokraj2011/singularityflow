@@ -2,7 +2,8 @@
  * Amendments stop letting stale work through, under SPEC-CIC switch 1 [SPEC-CIC v1.1 stage 4; CIC:REQ-005, REQ-006,
  * REQ-021, owner decisions 2026-11-14]. With the pinned spec policy's observed dependencies on:
  * - nothing unknown narrows staleness: a clause depending on a removed one is stale, a revision that recorded no changes
- *   makes every clause it holds stale, and neither a step the revision does not list nor generation 0 is exempt;
+ *   makes every clause it holds stale, and neither a step the revision does not list nor generation 0 is exempt (a step
+ *   before the one that made the revision is: it never read the change);
  * - a published step whose dependency record does not resolve counts as affected, never as unaffected;
  * - a step rule E8 keeps whose prompt held a changed clause it does not cite is asked "still holds" by its own approvers
  *   on the Decide card, with a recommendation and one line of why, never settled for them; until they answer, only the
@@ -56,8 +57,14 @@ test('under switch 1 nothing unknown narrows staleness; with it off staleness is
   const publishedCode = (revisions) => { const workflow = story(true, revisions); workflow.phases.code = { generation: 1 }; return workflow; };
   assert.equal(scopeStaleness(publishedCode([revised]), clauses).staleBy('W-1:AC-001', 'code', 0)?.revision, 2, 'evidence at generation 0 from a published step is read like any other');
   assert.equal(scopeStaleness(story(false, [revised]), clauses).staleBy('W-1:AC-001', 'before', 1), null);
-  assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'before', 1)?.revision, 2, 'an unlisted step published before the revision');
-  assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'before', 2), null, 'an unlisted step published after it');
+  // A step whose place in the phase order is not known: reached when published before the revision, not after.
+  const elsewhere = (revisions) => { const workflow = story(true, revisions); workflow.phases.elsewhere = workflow.phases.before; return workflow; };
+  assert.equal(scopeStaleness(elsewhere([revised]), clauses).staleBy('W-1:AC-001', 'elsewhere', 1)?.revision, 2, 'an unlisted step published before the revision');
+  assert.equal(scopeStaleness(elsewhere([revised]), clauses).staleBy('W-1:AC-001', 'elsewhere', 2), null, 'an unlisted step published after it');
+  // A step before the one that made the revision never read it (2026-11-15): its evidence of the scope's clause is only
+  // a responsibility it holds, and reaching it would hold the Story's last approval for a step that cannot repair it.
+  assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'before', 1), null, 'a step before the one that made the revision');
+  assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'before', 2), null, 'at any generation');
   assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'scope', 1)?.revision, 2, 'the scope\'s own earlier generation');
   assert.equal(scopeStaleness(story(true, [revised]), clauses).staleBy('W-1:AC-001', 'scope', 2), null, 'the generation that made the revision');
 });
@@ -139,7 +146,8 @@ async function fixture(t) {
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   delete config.phases['fix-design'].clarification;
-  config.spec = { ...config.spec, observedDependencies: 'on' };
+  // Switch 1 alone, as written before change impact defaulted on.
+  config.spec = { ...config.spec, changeImpact: 'off', observedDependencies: 'on' };
   const quick = config.workTypes['quick-fix'];
   config.workTypes['quick-design'] = { ...quick, phases: ['intake', 'fix-design', 'implement', 'verify'] };
   // The same steps, but the code step reads the design: its approval waits for the design's "still holds".

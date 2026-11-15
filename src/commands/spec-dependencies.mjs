@@ -17,9 +17,11 @@ const CLAUSES_SHOWN = 12;
 /** The read, in a person's words: one line per generation, and with a step named, its edges by kind. */
 export function dependencyLines(workflow, result, { step = null } = {}) {
   const on = workflow.resolution?.spec?.observedDependencies === 'on';
-  // Change impact (spec.changeImpact) pins observed dependencies with the amendment classes [CIC:REQ-018].
-  const impact = workflow.resolution?.spec?.changeImpact === 'on';
-  const lines = [`${workflow.workItem.id}: ${impact ? 'change impact is on, so ' : ''}observed dependencies are ${on ? 'on' : 'off'} for this Story.`
+  // Change impact (spec.changeImpact, on by default) pins observed dependencies with the amendment classes [CIC:REQ-018]; a
+  // workflow turns it off with spec.changeImpact: off, or with spec.observedDependencies: off and no spec.changeImpact.
+  const impact = workflow.resolution?.spec?.changeImpact;
+  const lines = [`${workflow.workItem.id}: ${impact === 'on' ? 'change impact is on, so '
+    : impact === 'off' ? 'change impact is off (spec.changeImpact: off, or spec.observedDependencies: off), and ' : ''}observed dependencies are ${on ? 'on' : 'off'} for this Story.`
     + ` Scope revisions: ${result.chain.revisions}, ${result.chain.verified ? 'chain verified' : `chain broken (${result.chain.problems.map((problem) => `revision ${problem.revision}: ${problem.problem}`).join('; ')})`}.`];
   for (const entry of result.steps) {
     if (!entry.generations.length) lines.push(`${entry.phase}: nothing published.`);

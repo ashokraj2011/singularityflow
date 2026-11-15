@@ -2,9 +2,9 @@
  * Change impact is on by default [SPEC-CIC v1.1 stage 7; CIC:REQ-018, REQ-019; owner decision 2026-11-15: "yes, turn it on
  * by default after the fix and seeded ones also"]. A workflow that does not set `spec.changeImpact` runs with it on, which
  * pins change impact and observed dependencies; `off` opts out, and so does `spec.observedDependencies: off` with no
- * `spec.changeImpact`, as a repository wrote it before the default. Every seeded workflow says `on`, and a workflow the
- * Studio or `workflow define` creates writes it out. A Story pinned before keeps its behaviour: nothing rewrites a pinned
- * policy.
+ * `spec.changeImpact`, as a repository wrote it before the default. The default is applied in code: no packaged, seeded or
+ * new workflow writes the setting, so an older build still loads the configuration, and Studio and `workflow check` show
+ * the effective value. A Story pinned before keeps its behaviour: nothing rewrites a pinned policy.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -17,12 +17,15 @@ import YAML from 'yaml';
 
 import { changeImpactCounts } from '../src/change-impact-counts.mjs';
 import { dependencyLines } from '../src/commands/spec-dependencies.mjs';
+import { changeImpactSetting } from '../src/change-impact-setting.mjs';
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { requirementChanges } from '../src/report.mjs';
 import { editorialCarriers } from '../src/scope/carried-evidence.mjs';
 import { observedDependencies } from '../src/scope/revisions.mjs';
 import { normalizeSpecPolicy, workTypeSpecPolicy } from '../src/specifications.mjs';
 import { defineWorkflow } from '../src/workflow-authoring.mjs';
+import { checkWorkflowConfiguration } from '../src/workflow-check.mjs';
+import { buildStudioModel } from '../src/workflow-studio.mjs';
 import { childTimeout } from './helpers/child-timeout.mjs';
 import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
@@ -30,22 +33,24 @@ import { slowLane } from './helpers/slow-lane.mjs';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-test('every seeded workflow has change impact on, written out in the spec block init copies [owner, 2026-11-15]', async () => {
+test('the packaged and seeded configuration never names change impact, and every seeded workflow runs with it on: the default is applied in code [owner, 2026-11-15]', async () => {
+  // A new field in what refresh and init distribute would make a teammate's older SFlow refuse the whole configuration.
+  for (const file of ['templates/workflow.yml', 'templates/portfolio.yml', 'examples/workflow-with-quality-gates.yml']) {
+    assert.doesNotMatch(await readFile(path.join(packageRoot, file), 'utf8'), /changeImpact/u, file);
+  }
   const template = YAML.parse(await readFile(path.join(packageRoot, 'templates', 'workflow.yml'), 'utf8'));
-  assert.equal(template.spec.changeImpact, 'on', 'templates/workflow.yml says it');
   const seeded = Object.entries(template.workTypes ?? {});
   assert.ok(seeded.length >= 10, `${seeded.length} seeded workflows`);
   for (const [id, workType] of seeded) {
     const policy = workTypeSpecPolicy(template.spec, workType.spec);
     assert.deepEqual([policy.changeImpact, policy.observedDependencies], ['on', 'on'], id);
+    assert.deepEqual(changeImpactSetting(template.spec, workType.spec), { value: 'on', source: 'default', text: 'Change impact: on (default)' }, id);
   }
-  const example = YAML.parse(await readFile(path.join(packageRoot, 'examples', 'workflow-with-quality-gates.yml'), 'utf8'));
-  assert.equal(example.spec.changeImpact, 'on', 'the shipped example says it too');
-  // What init writes, loaded as the engine reads it: every workflow resolves with change impact on.
+  // What init writes, loaded as the engine reads it: no setting written, and every workflow resolves with change impact on.
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cic-default-seeded-'));
   try {
     await initializeDefinition(root);
-    assert.match(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'), /\n {2}changeImpact: on\n/u);
+    assert.doesNotMatch(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'), /changeImpact/u);
     const definition = await loadDefinition(root);
     assert.deepEqual([definition.spec.changeImpact, definition.spec.observedDependencies], ['on', 'on']);
     for (const id of Object.keys(definition.workTypes)) {
@@ -101,21 +106,28 @@ test('a Story pinned before the default reads every switch off: no reader treats
     /^OLD-1: change impact is off \(spec\.changeImpact: off, or spec\.observedDependencies: off\), and observed dependencies are off for this Story\./u);
 });
 
-test('a workflow `workflow define` creates writes its change impact out, as the repository\'s workflows get it', async () => {
+test('a new workflow writes no change impact setting; Studio and workflow check show the effective one and where it comes from', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cic-default-define-'));
   try {
     await initializeDefinition(root);
     await repositoryOwnedWorkflows(root);
     await defineWorkflow(root, 'short-delivery', { phases: ['requirements', 'implementation-spec', 'implementation', 'verification'], governs: 'story' });
     const file = path.join(root, 'singularity', 'workflow.yml');
-    assert.deepEqual(YAML.parse(await readFile(file, 'utf8')).workTypes['short-delivery'].spec, { changeImpact: 'on' });
+    assert.equal(YAML.parse(await readFile(file, 'utf8')).workTypes['short-delivery'].spec, undefined, 'nothing written for it');
     assert.equal(resolveWorkType(await loadDefinition(root), 'short-delivery').spec.changeImpact, 'on');
-    // In a repository that turned it off, a new workflow says off.
+    const shown = async (id) => { const model = await buildStudioModel(root); return [model.changeImpact.text, model.workflows.find((entry) => entry.id === id).changeImpact.text]; };
+    assert.deepEqual(await shown('short-delivery'), ['Change impact: on (default)', 'Change impact: on (default)']);
+    const checked = await checkWorkflowConfiguration(root, { workflows: ['short-delivery'] });
+    assert.equal(checked.workflows[0].changeImpact.text, 'Change impact: on (default)');
+    // Turned off by the repository, or by one workflow alone, it says so.
     const config = YAML.parse(await readFile(file, 'utf8'));
-    config.spec = { ...config.spec, changeImpact: 'off' };
+    config.workTypes['short-delivery'].spec = { observedDependencies: 'off' };
     await writeFile(file, YAML.stringify(config));
-    await defineWorkflow(root, 'short-delivery-two', { phases: ['requirements', 'implementation-spec', 'implementation', 'verification'], governs: 'story' });
-    assert.deepEqual(YAML.parse(await readFile(file, 'utf8')).workTypes['short-delivery-two'].spec, { changeImpact: 'off' });
+    assert.deepEqual(await shown('short-delivery'), ['Change impact: on (default)', 'Change impact: off (set by this workflow)']);
+    config.spec = { ...config.spec, changeImpact: 'off' };
+    delete config.workTypes['short-delivery'].spec;
+    await writeFile(file, YAML.stringify(config));
+    assert.deepEqual(await shown('short-delivery'), ['Change impact: off (set by the repository)', 'Change impact: off (set by the repository)']);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

@@ -68,7 +68,8 @@ import {
   HTTP_LOG_FORMATS, INTEGRATION_TARGET_KINDS, STEP_ACTION_SENDS, STEP_ACTION_TRIGGERS, normalizeIntegrations
 } from './step-actions.mjs';
 import { STORES, pinAuthoredStoryPlannedClaims } from './workflow-authoring.mjs';
-import { isSpecificationDefinitionPhase, workTypeSpecPolicy } from './specifications.mjs';
+import { isSpecificationDefinitionPhase } from './specifications.mjs';
+import { changeImpactSetting } from './change-impact-setting.mjs';
 import { seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
 import { userDefinedAgentFiles, userDefinedAgentHeader } from './user-defined-agents.mjs';
 import { userDefinedAgentWorkType } from './user-defined-agent-identity.mjs';
@@ -450,6 +451,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       id, label: type.label ?? id, description: type.description ?? '', phases: [...(type.phases ?? [])], readOnly: protection.workflows.includes(id),
       ...archiveView(archive, 'story', id),
       worldModel: type.intelligence?.worldModel ?? 'inherit',
+      // Its change impact and where it comes from: on by default, applied in code, never written for it (owner, 2026-11-15).
+      changeImpact: changeImpactSetting(raw.spec, type.spec),
       status: !packaged ? 'local' : JSON.stringify(packaged) === JSON.stringify(definition?.workTypes?.[id] ?? type) ? 'packaged' : 'customized',
       generatesCode: resolved ? Boolean(workflowCodeGeneration(resolved).generatesCode) : (type.phases ?? []).some((phase) => outputOf(phases[phase]) === 'code'),
       // A person's own agent folder run as one step (`call add`); present only then.
@@ -509,6 +512,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   return {
     schemaVersion: 1,
     resultType: 'workflow-studio',
+    // What a new workflow here gets.
+    changeImpact: changeImpactSetting(raw.spec),
     authority: authority ? {
       kind: authority.kind ?? 'working-tree', ref: authority.ref ?? null, commit: authority.commit ?? null,
       remoteFingerprint: authority.remoteFingerprint ?? null, sourceCommit: authority.sourceCommit ?? null
@@ -2668,10 +2673,6 @@ class StudioCandidate {
     // scope); configuration validation checks each entry.
     if (Array.isArray(omits) && omits.length) {
       node.omits = omits.map((entry) => ({ responsibility: String(entry?.responsibility ?? ''), reason: String(entry?.reason ?? '').trim(), authority: String(entry?.authority ?? '') }));
-    }
-    // Change impact as this repository's workflows get it, written out so a person sees the setting (owner, 2026-11-15).
-    if (node.spec?.changeImpact === undefined) {
-      try { node.spec = { ...(node.spec ?? {}), changeImpact: workTypeSpecPolicy(this.content.spec, node.spec).changeImpact }; } catch { /* configuration validation reports it */ }
     }
     this.document.setIn(['workTypes', workflowId], this.document.createNode(node));
     if (copyOf) {

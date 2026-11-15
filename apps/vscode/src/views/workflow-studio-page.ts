@@ -3250,8 +3250,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     aside.appendChild(section('workflow', 'Workflow', [
       field('board-label', 'Name', textInput('board-label', workflow.label, function (value) { if (value.trim()) { workflow.label = value.trim(); changed(); } })),
       field('board-description', 'What it is for', textInput('board-description', workflow.description, function (value) { workflow.description = value.trim(); changed(); })),
-      el('span', { class: 'hint', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.isNew || workflow.installFrom ? ' · new, not published yet' : '') })
-    ]));
+      el('span', { class: 'hint', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.isNew || workflow.installFrom ? ' · new, not published yet' : '') }),
+      changeImpactHint(workflowId)
+    ].filter(Boolean)));
     aside.appendChild(section('rules', 'Rules & decisions', workflowRules(workflowId), null, String((workflow.reworkLoops || []).length + (workflow.decisions || []).length)));
     var claimsSection = plannedClaimsSection(workflowId, workflow);
     if (claimsSection) aside.appendChild(claimsSection);
@@ -3261,6 +3262,16 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     ], null, null, true));
     aside.appendChild(el('div', { class: 'prop-actions' }, button('Back to the step', function () { state.panel = null; render(); }, { class: 'secondary' })));
     return aside;
+  }
+
+  /** Its change impact as the engine applies it: on by default, in code, never written into workflow.yml (owner, 2026-11-15). */
+  function changeImpactHint(workflowId) {
+    var entry = (state.model.workflows || []).find(function (candidate) { return candidate.id === workflowId; });
+    var impact = (entry && entry.changeImpact) || state.model.changeImpact;
+    if (!impact) return null;
+    return el('span', { class: 'hint', 'data-key': 'change-impact', text: impact.text + '. ' + (impact.value === 'on'
+      ? 'A requirement change records what each step depended on and is sized editorial, refinement or material; spec.changeImpact: off in workflow.yml turns it off.'
+      : 'spec.changeImpact: on in workflow.yml turns it on.') });
   }
 
   function workflowRules(workflowId) {

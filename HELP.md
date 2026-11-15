@@ -743,8 +743,9 @@ evaluation is recorded. Use `--row`, `--result`, `--facet NAME=VALUE`, `--page` 
 `spec.changeImpact: on` turns on observed dependencies and the sizes of an intent amendment together: each
 amendment is editorial, a refinement or material by registered rules, an editorial one carries the evidence of the
 clauses it rewords, and a material one is approved by `spec.scopeChangeAuthority` (an approval group), or else by the
-scope step's approvers. It is on by default, and the shipped workflows write `changeImpact: on`; `off` turns it off,
-and so does `spec.observedDependencies: off` with no `spec.changeImpact`. It is pinned when a Story starts, so a Story
+scope step's approvers. It is on by default, applied in code, so no shipped or new workflow writes the setting (an
+older SFlow build still loads them); Workflow Studio and `workflow check` show "Change impact: on (default)". `off`
+turns it off, and so does `spec.observedDependencies: off` with no `spec.changeImpact`. It is pinned when a Story starts, so a Story
 already running keeps its behaviour. See [Changing requirements during a Story](docs/topics/changing-requirements.md).
 
 Acceptance commands are explicit argv arrays allowlisted in

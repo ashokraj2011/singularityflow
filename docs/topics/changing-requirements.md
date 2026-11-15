@@ -41,7 +41,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 9
+version: 10
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -143,7 +143,7 @@ With change impact on (below), every amendment has a size, set by rules and neve
 
 ### Change impact
 
-`spec.changeImpact`, in the workflow configuration's `spec` block, turns on observed dependencies (below) and the sizes above together. It is on by default (since 2026-11-15), and `sflow init` and every shipped workflow write `changeImpact: on`. `spec.changeImpact: off` turns both off, and so does `spec.observedDependencies: off` with no `spec.changeImpact`. It is pinned when a Story starts, so a Story started before keeps its behaviour. To name who approves a material change, add `spec.scopeChangeAuthority: <approval group>`.
+`spec.changeImpact`, in the workflow configuration's `spec` block, turns on observed dependencies (below) and the sizes above together. It is on by default (since 2026-11-15), applied in code: `sflow init` and the shipped workflows write no setting, so an older SFlow build still loads them, and Workflow Studio, the builder and `sflow workflow check` show "Change impact: on (default)". `spec.changeImpact: off` turns both off, and so does `spec.observedDependencies: off` with no `spec.changeImpact`. It is pinned when a Story starts, so a Story started before keeps its behaviour. To name who approves a material change, add `spec.scopeChangeAuthority: <approval group>`.
 
 ```yaml
 spec:

@@ -40,7 +40,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 103
+version: 104
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1686,7 +1686,8 @@ An unplanned row whose files a departure already covers, accepted by a person, c
 Under `legacy`, only `partial` and `missing` rows are decided.
 
 `spec.changeImpact` (`on`, the default since 2026-11-15, or `off`) is one setting for a change of requirements partway
-through a Story. Shipped workflows, and workflows the Studio or `workflow define` creates, write it out. On, a Story
+through a Story. The default is applied in code, so no shipped or new workflow writes it; Workflow Studio, the builder and
+`workflow check` show the effective value ("Change impact: on (default)"). On, a Story
 records what each published step depended on (`spec.observedDependencies`, which stays valid on its own with
 `changeImpact: off`; `observedDependencies: off` with no `changeImpact` turns both off), and each intent amendment gets a size from registered rules: editorial (it only rewords clauses with no bound
 test, no acceptance criterion and no path or test change), a refinement, or material (it adds a clause, adds a path

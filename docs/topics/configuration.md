@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 22
+version: 23
 commands:
   - configuration
   - workflow
@@ -204,9 +204,10 @@ These commands can change repository or machine-local state: `configuration`, `w
 partway through a Story. It turns on observed dependencies (each published step records what it depended on) and the
 sizes of an intent amendment together: editorial, refinement or material, set by rules. An editorial change carries the
 evidence of the clauses it rewords, and a material one is approved by `spec.scopeChangeAuthority`, an approval group, or
-else by the scope step's own approvers. It is on by default (since 2026-11-15), and `sflow init` and every shipped
-workflow write `changeImpact: on` so you see it; a workflow the Studio or `workflow define` creates writes it out too.
-`spec.changeImpact: off` turns it off, and so does `spec.observedDependencies: off` with no `spec.changeImpact`, as a
+else by the scope step's own approvers. It is on by default (since 2026-11-15). The default is applied in code, so
+`sflow init`, the shipped workflows and new workflows write no setting, and a teammate on an older SFlow build still loads
+the configuration. Workflow Studio, the workflow builder and `workflow check` show the effective value, for example
+"Change impact: on (default)". `spec.changeImpact: off` turns it off, and so does `spec.observedDependencies: off` with no `spec.changeImpact`, as a
 repository wrote it before the default. Only `changeImpact: on` together with `observedDependencies: off` is refused. It
 is pinned when a Story starts: a Story started before keeps its behaviour, and nothing it recorded is rewritten. See
 `sflow explain changing-requirements`.

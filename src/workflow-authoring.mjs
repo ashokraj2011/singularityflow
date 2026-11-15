@@ -24,7 +24,6 @@ import YAML from 'yaml';
 import { seededWorkflowCatalogs, seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { assertPlannedClaimsReady, resolveWorkType, WORKFLOW_PATH, validateDefinition } from './config.mjs';
-import { workTypeSpecPolicy } from './specifications.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
@@ -343,13 +342,9 @@ export async function defineWorkflow(root, workflowId, {
   }
 
   if (!content[store.workflows]) document.setIn([store.workflows], document.createNode({}));
-  // A Story workflow writes its change impact out, as this repository's workflows get it, so a person sees it (owner, 2026-11-15).
-  let changeImpact = null;
-  if (store.governs === 'story') { try { changeImpact = workTypeSpecPolicy(content.spec).changeImpact; } catch { /* validation reports it */ } }
   document.setIn([store.workflows, id], document.createNode({
     label: label ?? id,
     ...(description ? { description } : {}),
-    ...(changeImpact ? { spec: { changeImpact } } : {}),
     phases,
     ...(plannedClaims !== undefined && plannedClaims !== null ? { plannedClaims } : {}),
     ...(reworkLoops?.length ? { reworkLoops } : {})

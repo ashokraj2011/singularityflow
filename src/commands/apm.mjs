@@ -11,6 +11,7 @@
  * (apm-policy.mjs) [APM A5].
  */
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
+import { LEGACY_AGENTS_ROOT } from '../configuration-assets.mjs';
 
 const SUBCOMMANDS = Object.freeze(['status', 'install', 'update', 'attach', 'marketplace', 'publish', 'policy']);
 const OPTIONS = Object.freeze({
@@ -65,9 +66,9 @@ function print(status) {
     lines.push(`  This project's own: ${plural(status.local.files.total, 'file')}${what ? `; ${what}` : ''}.`);
   }
   if (status.unmanagedAgents.length) {
-    const names = status.unmanagedAgents.map((file) => file.replace(/^\.github\/agents\//u, ''));
+    const names = status.unmanagedAgents.map((file) => file.slice(LEGACY_AGENTS_ROOT.length + 1));
     const shown = names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ');
-    lines.push(`${plural(names.length, 'agent')} in .github/agents ${names.length === 1 ? 'is' : 'are'} the repository's own, not from APM: ${shown}.`);
+    lines.push(`${plural(names.length, 'agent')} in ${LEGACY_AGENTS_ROOT} ${names.length === 1 ? 'is' : 'are'} the repository's own, not from APM: ${shown}.`);
   }
   for (const [id, binding] of Object.entries(status.agents?.bindings ?? {})) {
     const steps = `${binding.defaultFor.length ? binding.defaultFor.join(', ') : 'no step by default'}${binding.steps.length ? ` and may draft ${binding.steps.join(', ')}` : ''}`;

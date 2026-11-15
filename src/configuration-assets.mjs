@@ -5,9 +5,9 @@ export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
 
 /**
- * Where a repository keeps SFlow's step agents [SPEC-AGH]. The approved workflow.yml's top-level
- * `agentPromptsRoot` records the layout [AGH:REQ-002]: no key is the legacy `.github/agents`,
- * `singularity/agents` the agents home. It is never inferred from which directories exist.
+ * Where agents live, for every reader and writer [AGH:REQ-028]. workflow.yml's `agentPromptsRoot`
+ * records the layout [AGH:REQ-002]: none is the legacy root (Copilot's, where APM deploys too),
+ * `singularity/agents` the agents home. Never inferred from which directories exist.
  */
 export const LEGACY_AGENTS_ROOT = '.github/agents';
 export const AGENTS_HOME = 'singularity/agents';
@@ -28,6 +28,9 @@ export const isAgentFilePath = (relative) => /^(?:\.github|singularity)\/agents\
 
 /** An agent file's path in `root`, the same file name; any other path unchanged. */
 export const agentPathIn = (root, relative) => (isAgentFilePath(relative) ? `${root}/${String(relative).split('/').at(-1)}` : relative);
+
+/** Agent `id`'s file in `root`; by default the path a workflow bundle names it by. */
+export const agentFileIn = (id, root = LEGACY_AGENTS_ROOT) => `${root}/${id}.agent.md`;
 
 
 const DEFAULT_RUNTIME_ROOTS = Object.freeze([

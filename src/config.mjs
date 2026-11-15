@@ -2249,7 +2249,7 @@ export async function snapshotResolution(root, definition, resolved) {
     workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
     initiativeRoot: definition.initiativeRoot ?? 'singularity/initiatives',
     templatesRoot: definition.templatesRoot,
-    agentPromptsRoot: definition.agentPromptsRoot ?? '.github/agents',
+    agentPromptsRoot: agentsRootOf(definition),
     worldModelOutputDir: 'singularity/world-model',
     governedRoots: [...(definition.governedRoots ?? GOVERNED_ROOTS)],
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),

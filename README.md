@@ -272,9 +272,11 @@ singularity/
 ```
 
 These files are ordinary reviewed repository files and remain fully editable.
-Agent Markdown follows GitHub Copilot's repository-agent convention under
-`.github/agents/`; `singularity/agents.lock.yml` is reserved for optional
-trust-pinned remote Markdown dependencies.
+SFlow's step agents are Agent Markdown files in `singularity/agents/`
+(`.github/agents/` stays your team's own Copilot agents; a repository set up
+before this keeps SFlow's agents there until its upgrade moves them);
+`singularity/agents.lock.yml` is reserved for optional trust-pinned remote
+Markdown dependencies.
 Initialization can be audited or safely repeated on any branch:
 
 ```bash
@@ -401,7 +403,8 @@ This discards uncommitted workflow state, generated artifacts, templates,
 prompts, sessions, locks, local telemetry, and pending
 publication records in the reset scope. It preserves application source, Git
 history and configuration, workspace clones, the global workspace registry,
-and valid custom `.github/agents` files not supplied by the package. A custom
+and valid custom agent files not supplied by the package (in `singularity/agents`,
+or `.github/agents` before a repository's agents move). A custom
 agent that would make the new configuration invalid is preserved byte-for-byte
 under `.github/singularity-flow-recovered-agents/<sha256>/`, removed from active
 agent discovery, and reported with its exact source, recovery path, digest, and
@@ -558,8 +561,9 @@ its managed repository clones, documents, generated artifacts, and local caches.
 It also clears `~/.singularity-flow`, Singularity-named Copilot session state,
 managed `/sf-*` aliases, old plugin copies, the old global npm package, and the
 installed VS Code extension before installing fresh copies from this checkout.
-Untracked `singularity/`, `.singularity/`, and `.github/agents/` directories
-created inside the installer checkout are included in the preview and removed;
+Untracked `singularity/`, `.singularity/`, and (from an earlier build)
+`.github/agents/` directories created inside the installer checkout are
+included in the preview and removed;
 any other checkout change still stops the reset.
 An existing directory is deleted only when its regular `workspace.json`
 validates and exactly matches its registry entry; an ambiguous entry stops the
@@ -2437,8 +2441,9 @@ different ready repository there; the durable selection is shared with My Work, 
 Configuration, Copilot, and `workspace current` rather than being private to the panel.
 
 For new workspaces, **Map a capability** can select a `blobless` or
-`blobless-sparse` clone. Sparse mode always retains `singularity/` and
-`.github/agents/`, and its default `refuse` fallback prevents a Git server that
+`blobless-sparse` clone. Sparse mode always retains `singularity/` (with its
+agents) and `.github/agents/` (for a repository whose agents have not moved
+yet), and its default `refuse` fallback prevents a Git server that
 ignores filtering from silently downloading the full monorepo. Scope and clone
 policy are separate: scope decides what the model sees; sparse checkout decides
 what is materialized locally.
@@ -2557,19 +2562,20 @@ and kernel functions. See `singularity-flow explain fault-intake-and-repair`.
 
 ## Remote Markdown agents
 
-agents under `.github/agents` or the plugin's `agents/` directory may declare public HTTPS Markdown skills, templates, and generated outputs in exact dependency tables. Singularity Flow presents these files as agents because they are context, not people, agents, or approval authorities.
+agents under `singularity/agents` (`.github/agents` before a repository's agents move) or the plugin's `agents/` directory may declare public HTTPS Markdown skills, templates, and generated outputs in exact dependency tables. Singularity Flow presents these files as agents because they are context, not people, agents, or approval authorities.
 
 ### Configure a repository agent
 
 Create an agent Markdown file in the lead repository at
-`.github/agents/<agent-id>.agent.md`. Agent and dependency IDs must use
+`singularity/agents/<agent-id>.agent.md` (`.github/agents/` before the
+repository's agents move). Agent and dependency IDs must use
 lower-case kebab-case. Native Copilot files may keep a human-readable frontmatter
 `name`; when it is not an ID, Singularity Flow uses the kebab-case filename as the
 identity and retains `name` only as a display label. Legacy native files
 that also use the display name as their filename are normalized deterministically;
 new files should use the explicit kebab-case filename.
 
-For example, create `.github/agents/architecture.agent.md`:
+For example, create `singularity/agents/architecture.agent.md`:
 
 ```markdown
 ---
@@ -2651,8 +2657,8 @@ Remote skills are pack-scoped prompt context; they do not become global slash co
 When Copilot starts a custom agent, its `subagentStart` event includes the
 selected agent name. Singularity Flow first checks the committed optional
 mapping file `singularity/agent-mappings.yml`, then falls back to an exact ID
-match against repository agents in `.github/agents` and the bundled plugin
-agents:
+match against repository agents in `singularity/agents` (`.github/agents`
+before the move) and the bundled plugin agents:
 
 ```yaml
 version: 1
@@ -2738,7 +2744,7 @@ remain local until a work item actually uses them:
 
 | Item | Managed in | Lifecycle |
 |---|---|---|
-| Dependency declarations | `.github/agents/<agent-id>.agent.md` | Edited and reviewed like repository code. Only the three exact Markdown tables are active. |
+| Dependency declarations | `singularity/agents/<agent-id>.agent.md` | Edited and reviewed like repository code. Only the three exact Markdown tables are active. |
 | Trusted hashes | `singularity/agents.lock.yml` | Created or changed only by `agents lock`; commit and push it for the team. |
 | Verified download cache | `.git/singularity-flow/agents/` | Created by `agents sync`; machine-local, disposable, and never authoritative. |
 | Skill snapshot used by one generation | `singularity/work-items/<WORK-ID>/context/agent-snapshots/` | Copied and committed with the generated phase so later remote changes cannot rewrite history. |

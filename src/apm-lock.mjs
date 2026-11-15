@@ -8,6 +8,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { SingularityFlowError } from './util.mjs';
+import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 export const APM_MANIFEST = 'apm.yml';
 export const APM_LOCKFILE = 'apm.lock.yaml';
@@ -169,7 +170,7 @@ export async function apmLockedAgent(root, name) {
   const lockRead = await readApmDocument(root, APM_LOCKFILE, 'lock');
   if (!lockRead.present || lockRead.problem) return { name, state: 'no-lock', path: null, package: null, problem: lockRead.problem?.message ?? null };
   const index = apmDeployedIndex(lockRead.value);
-  const relative = [`.github/agents/${name}.agent.md`, `.github/agents/${name}.md`].find((candidate) => index.has(candidate));
+  const relative = [`${LEGACY_AGENTS_ROOT}/${name}.agent.md`, `${LEGACY_AGENTS_ROOT}/${name}.md`].find((candidate) => index.has(candidate));
   if (!relative) return { name, state: 'not-locked', path: null, package: null };
   const owner = index.get(relative);
   const inspected = await inspectDeployedPath(root, deployedPath(relative), owner.sha256, { keepBytes: true });

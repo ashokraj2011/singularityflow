@@ -22,6 +22,7 @@ import { assertModelTask } from './model-tasks.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SKP_PARSER_PROFILE } from './skp-package.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
+import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 export const SKP_CONTRACT_COMPILER = 'skp-contract/v1';
 export const SKP_PHASE_BINDING_VERSION = 1;
@@ -372,7 +373,7 @@ function effectsFor(phaseId, contract, catalog, qualityCommands) {
   sourceScope.writeRoots.forEach((root) => {
     exactPath(root, `Approved source scope '${sourceScopeId}' writeRoot`, null);
     const portableRoot = root.normalize('NFKC').toLowerCase();
-    if (['.git', 'singularity', '.github/agents', '.github/workflows'].some(
+    if (['.git', 'singularity', LEGACY_AGENTS_ROOT, '.github/workflows'].some(
       (protectedRoot) => portableRoot === protectedRoot || portableRoot.startsWith(`${protectedRoot}/`)
     )) {
       fail('SKP_SCOPE_UNAPPROVED', `Approved source scope '${sourceScopeId}' names protected control path '${root}'.`);

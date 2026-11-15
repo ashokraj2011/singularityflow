@@ -1,6 +1,7 @@
 /** Live checkout disclosure, separate from historical evidence and its decision hash. */
 import { changes, exactChangedPathsBetweenObjects, head } from '../git.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
+import { LEGACY_AGENTS_ROOT } from '../configuration-assets.mjs';
 
 export function evidenceProvenance(root, workflow, evaluatedCommit) {
   const candidates = (workflow.phaseOrder ?? Object.keys(workflow.phases ?? {}))
@@ -19,7 +20,7 @@ export function evidenceProvenance(root, workflow, evaluatedCommit) {
     const latestCode = candidates.findLast((entry) => phaseRequiresCodeDelivery(workflow.phases[entry.phaseId]));
     if (latestCode && latestCode.commit !== currentCommit) {
       const laterPaths = exactChangedPathsBetweenObjects(root, latestCode.commit, currentCommit)
-        .filter((file) => !file.startsWith('singularity/') && !file.startsWith('.github/agents/'));
+        .filter((file) => !file.startsWith('singularity/') && !file.startsWith(`${LEGACY_AGENTS_ROOT}/`));
       if (laterPaths.length) warnings.push(`HEAD contains ${laterPaths.length} changed application path(s) since the latest published code candidate ${latestCode.commit}. Those later commits are not covered by that candidate's test evidence.`);
     }
   } catch {

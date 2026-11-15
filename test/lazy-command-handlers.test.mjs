@@ -620,7 +620,11 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // first governance moves SFlow's agents only (configuration-branch.mjs +837), the legacy root governed unless a source
     // records the home (application-paths.mjs +520) and moved agents' package history (packaged-asset-history.mjs +226).
     // The migration stays lazy (agents-home-migration.mjs). No new eager file [2026-11-15].
-    assert.ok(closure.bytes <= 9_663_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,664,150 (measured 9,664,103): every reader of where agents live takes it from the one resolver [AGH:REQ-028, owner
+    // 2026-11-15]: its helper and comment (configuration-assets.mjs +173) and one import in each of agents.mjs, clone-strategy.mjs,
+    // initialization-assets.mjs, initialization/runtime-readiness.mjs, initialization/source-snapshot.mjs, skp-contract.mjs and
+    // specifications.mjs; application-paths.mjs drops its own copy (-103). No new eager file.
+    assert.ok(closure.bytes <= 9_664_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -720,7 +724,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // 867,700 (measured 867,672): SFlow's agents move to singularity/agents [SPEC-AGH, owner 2026-11-14]: the
   // transport policy reads the layout workflow.yml records, declared where configuration locations are
   // (configuration-assets.mjs +1,643). The migration itself stays lazy (agents-home-migration.mjs). No new eager file.
-  assert.ok(root.bytes <= 867_700, `root dispatch loads ${root.bytes} source bytes`);
+  // 867,850 (measured 867,845): the one resolver of where agents live [AGH:REQ-028, owner 2026-11-15]: agentFileIn and its
+  // comment (configuration-assets.mjs +173). No new eager file.
+  assert.ok(root.bytes <= 867_850, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -938,7 +944,10 @@ test('the common session projection does not import attach, state stores or publ
   // (4,253,868 there): +5,039 for the agents home on that base [2026-11-15]. No new eager file.
   // 4,261,050 (measured 4,261,024): the agents home, merged with main bd90bcc46 and its Decide card routes (4,255,985
   // there): +5,039 for the agents home on that base [2026-11-15]. No new eager file.
-  assert.ok(current.bytes <= 4_261_050, `session current loads ${current.bytes} source bytes`);
+  // 4,261,350 (measured 4,261,313): the one resolver of where agents live [AGH:REQ-028, owner 2026-11-15]
+  // (configuration-assets.mjs +173, an import in clone-strategy.mjs, initialization-assets.mjs, skp-contract.mjs and
+  // specifications.mjs; application-paths.mjs -103, config.mjs -23). No new eager file.
+  assert.ok(current.bytes <= 4_261_350, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

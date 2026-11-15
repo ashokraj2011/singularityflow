@@ -5,6 +5,7 @@ import { repositoryGitDirectory } from './git-directory.mjs';
 import { gitFactCheckout } from './git-fact-cache.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile } from './workspace-context.mjs';
 import { optionBoolean, optionString, optionStrings } from './util.mjs';
+import { AGENTS_HOME, LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 const presentation = new Set(['json', 'for-agent', 'timings', 'timing', 'refresh-readiness']);
 export async function storyReadinessSnapshot(root, options, checkout, read, { launchCwd = process.cwd() } = {}) {
@@ -31,7 +32,7 @@ export async function storyReadinessSnapshot(root, options, checkout, read, { la
       // Archiving changes which workflows a new Story may choose.
       path.join(member, 'singularity/workflow-archive.yml'),
       // Either agents root [AGH:REQ-020]; a stamp of a directory only invalidates, it reads nothing.
-      path.join(member, '.github/agents'), path.join(member, 'singularity/agents'), path.join(member, 'singularity/skills'), path.join(member, 'singularity/instructions'));
+      path.join(member, LEGACY_AGENTS_ROOT), path.join(member, AGENTS_HOME), path.join(member, 'singularity/skills'), path.join(member, 'singularity/instructions'));
     for (const name of [...branches, 'sflow/config', 'state']) files.push(path.join(common, 'refs/remotes/origin', name));
     if (story) files.push(path.join(member, 'singularity/work-items', story, 'workflow.json'), path.join(common, 'refs/heads', story));
     else files.push(path.join(common, 'refs/remotes/origin'), path.join(common, 'refs/heads'));

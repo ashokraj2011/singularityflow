@@ -6,6 +6,7 @@ import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError, posix, run } from '../util.mjs';
 import { readRepositoryManifest } from '../repository-manifest.mjs';
 import { isXcodeManifest } from '../swift-manifests.mjs';
+import { LEGACY_AGENTS_ROOT } from '../configuration-assets.mjs';
 
 export const SMART_INIT_BOUNDS = Object.freeze({
   maxFiles: 2_000,
@@ -36,7 +37,7 @@ function candidateKind(relative) {
   const normalized = posix(relative);
   // Smart init's own managed output must not become a new detector input on the second run.
   // Repository-authored files at other .github paths remain visible as optional protection signals.
-  if (normalized.startsWith('singularity/') || normalized.startsWith('.github/agents/')) return null;
+  if (normalized.startsWith('singularity/') || normalized.startsWith(`${LEGACY_AGENTS_ROOT}/`)) return null;
   const name = path.posix.basename(normalized).toLowerCase();
   if (name === 'bun.lockb') return 'binary-manifest';
   if (MANIFEST_NAMES.has(name) || isXcodeManifest(normalized) || isRequirements(name) || /\.(?:slnx?|csproj|fsproj|vbproj)$/u.test(name)) return 'manifest';

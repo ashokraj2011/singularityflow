@@ -15,12 +15,13 @@ import { withMachineStateResetBarrier } from './machine-state-reset.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import runtimeResolver from '../runtime/resolve.cjs';
+import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 export const FRESH_INSTALL_CONFIRMATION = 'RESET EVERYTHING';
 export const LOCAL_RESET_CONFIRMATION = 'RESET LOCAL';
 export const LOCAL_FORGET_CONFIRMATION = 'FORGET LOCAL';
 export const VSCODE_RESET_MARKER = 'vscode-fresh-reset-pending.json';
-const INSTALLER_GENERATED_ROOTS = ['singularity', '.singularity', '.github/agents'];
+const INSTALLER_GENERATED_ROOTS = ['singularity', '.singularity', LEGACY_AGENTS_ROOT];
 const RESET_TARGET_PROOFS = Symbol('singularity-flow.reset-target-proofs');
 
 function resetGitEnvironment(environment = process.env) {

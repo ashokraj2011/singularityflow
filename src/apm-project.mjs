@@ -22,6 +22,7 @@ import { parseAgentDependencies } from './agent-document-parser.mjs';
 import { trackedPaths } from './git.mjs';
 import { parseYamlText } from './yaml-parse-cache.mjs';
 import { resolvePlatformProcess } from './platform-process.mjs';
+import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 export { APM_LOCKFILE, APM_MANIFEST, bytesMatch, deployedPath, primitiveOf } from './apm-lock.mjs';
 export const APM_STATUS_RESULT = 'sflow-apm-status';
@@ -162,7 +163,7 @@ async function agentUse(root, packages) {
     const locked = await apmLockedAgent(root, id);
     const unreadable = unusable.find((entry) => entry.path === locked.path);
     const waiting = locked.state === 'no-lock' ? (locked.problem ? `${APM_LOCKFILE} cannot be read` : `there is no ${APM_LOCKFILE}`)
-      : locked.state === 'not-locked' ? `APM did not deploy .github/agents/${id}.agent.md`
+      : locked.state === 'not-locked' ? `APM did not deploy ${LEGACY_AGENTS_ROOT}/${id}.agent.md`
         : unreadable ? `SFlow cannot read ${locked.path}: ${unreadable.reason}`
           : locked.state !== 'intact' ? `${locked.path} ${FILE_WORDS[locked.state] ?? `has no hash in ${APM_LOCKFILE}`}`
             : null;
@@ -172,10 +173,10 @@ async function agentUse(root, packages) {
 }
 
 async function unmanagedAgents(root, owned) {
-  const directory = path.join(root, '.github', 'agents');
+  const directory = path.join(root, ...LEGACY_AGENTS_ROOT.split('/'));
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
   return entries.filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
-    .map((entry) => `.github/agents/${entry.name}`).filter((relative) => !owned.has(relative)).sort();
+    .map((entry) => `${LEGACY_AGENTS_ROOT}/${entry.name}`).filter((relative) => !owned.has(relative)).sort();
 }
 
 /**

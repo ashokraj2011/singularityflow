@@ -28,9 +28,7 @@ import {
   inspectSkillPackageContents, SKP_CAPTURE_LIMITS, SKP_PACKAGE_FORMAT, SKP_PARSER_PROFILE,
   verifySkillPackage
 } from './skp-package.mjs';
-import {
-  portableConfigurationPath, portableFilesystemPathIdentity
-} from './configuration-assets.mjs';
+import { portableConfigurationPath, portableFilesystemPathIdentity, agentFileIn } from './configuration-assets.mjs';
 import {
   AGENT_LOCK_PATH, AGENT_MAPPING_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference, parseAttachedSkills,
   portableVendoredPath, repositoryAgentsRoot, validateAgentCatalog
@@ -1508,7 +1506,7 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
     if (size > MAX_ASSET_BYTES) fail(`Agent '${agentId}' exceeds the portable asset limit.`,
       'WORKFLOW_BUNDLE_LIMIT_EXCEEDED');
     pushAsset({
-      kind: 'agent', id: agentId, path: `.github/agents/${agentId}.agent.md`,
+      kind: 'agent', id: agentId, path: agentFileIn(agentId),
       mediaType: 'text/markdown; charset=utf-8', size, sha256: digest(content), content
     });
     const lockEntry = lockedAgentEntry(sourceAgentLock.value, agent);
@@ -1555,7 +1553,7 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
   }
   // Skills from the skill master travel with the agents that attach them, once each.
   const attachedSkillIds = new Set([...exportedAgentText].flatMap(([agentId, content]) =>
-    parseAttachedSkills(content, `.github/agents/${agentId}.agent.md`).map((entry) => entry.id)));
+    parseAttachedSkills(content, agentFileIn(agentId)).map((entry) => entry.id)));
   for (const entry of workflowSkillAttachments) attachedSkillIds.add(entry.id);
   for (const skillId of [...attachedSkillIds].sort()) {
     const relative = librarySkillPath(skillId);
@@ -1571,7 +1569,7 @@ async function buildBundle(root, workflowIds, { seedAgents = [], serverScope = '
   for (const asset of await referencedInstructionAssets(sourceRoot, assets)) pushAsset(asset);
   // A user-defined agent's folder travels with it; without it the destination cannot compose its step.
   for (const [agentId, content] of exportedAgentText) {
-    const agent = parseAgentDependencies(content, { source: `.github/agents/${agentId}.agent.md`, agentId });
+    const agent = parseAgentDependencies(content, { source: agentFileIn(agentId), agentId });
     const name = userDefinedAgentName(agent);
     if (!name) continue;
     for (const asset of await userDefinedAssets(sourceRoot, agentId, name, agent.metadata[USER_DEFINED_MANIFEST_METADATA])) pushAsset(asset);
@@ -1756,7 +1754,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
       fail(`Workflow bundle user-defined file is not owned by a carried agent: ${asset.path}`);
     }
     if (asset.kind === 'agent' && (!ID.test(asset.id ?? '')
-        || asset.path !== `.github/agents/${asset.id}.agent.md`)) {
+        || asset.path !== agentFileIn(asset.id))) {
       fail(`Workflow bundle agent path is not canonical: ${asset.path}`);
     }
     if (asset.kind === 'skill') {
@@ -2074,7 +2072,7 @@ async function mergedImportAgentCatalog(root, bundle, kept = new Set(), extended
   for (const [id, text] of extended) {
     const agent = catalog.get(id);
     if (!agent) continue;
-    catalog.set(id, { ...agent, ...parseAgentDependencies(text, { source: agent.source ?? `.github/agents/${id}.agent.md`, agentId: id }),
+    catalog.set(id, { ...agent, ...parseAgentDependencies(text, { source: agent.source ?? agentFileIn(id), agentId: id }),
       text, sha256: digest(text).replace(/^sha256:/, '') });
   }
   return catalog;

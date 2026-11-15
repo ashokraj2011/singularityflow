@@ -21,7 +21,7 @@ import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { COPILOT_AGENT_MAPPING_NAME_RULE, validCopilotAgentMappingName } from './copilot-agent-names.mjs';
-import { AGENTS_HOME, LEGACY_AGENTS_ROOT, agentsRootOf } from './configuration-assets.mjs';
+import { AGENTS_HOME, LEGACY_AGENTS_ROOT, agentsRootOf, isAgentFilePath } from './configuration-assets.mjs';
 
 export { fetchRemoteMarkdown, isPublicRemoteAddress, resolvePublicRemoteHost } from './remote-fetch.mjs';
 
@@ -161,7 +161,7 @@ async function apmDeployedAgentFiles(repositoryRoot, apmContext) {
   if (!(await exists(path.join(repositoryRoot, 'apm.lock.yaml')))) return [];
   const { deployed } = await apmContext();
   const files = [];
-  for (const relative of [...(deployed?.keys() ?? [])].filter((entry) => /^\.github\/agents\/[^/]+\.md$/u.test(entry)).sort()) {
+  for (const relative of [...(deployed?.keys() ?? [])].filter((entry) => isAgentFilePath(entry) && entry.startsWith(`${LEGACY_AGENTS_ROOT}/`)).sort()) {
     if (await exists(path.join(repositoryRoot, relative))) files.push(path.join(repositoryRoot, relative));
   }
   return files;

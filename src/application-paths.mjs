@@ -1,9 +1,7 @@
 import { isAgentOutputPath } from './agent-output-folder.mjs';
 import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import { SingularityFlowError } from './util.mjs';
-
-// The legacy agents root (configuration-assets.mjs LEGACY_AGENTS_ROOT), kept here so path classification loads nothing more.
-const LEGACY_AGENTS_ROOT = '.github/agents';
+import { AGENTS_HOME, LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
 
 function safeGovernedRoot(value) {
   const portable = String(value ?? '').trim().replaceAll('\\', '/');
@@ -70,7 +68,7 @@ function configuredRoots(source) {
 
 function declaresAgentsHome(source) {
   const direct = object(source);
-  return [direct, object(direct.resolution)].some((owner) => owner.agentPromptsRoot === 'singularity/agents');
+  return [direct, object(direct.resolution)].some((owner) => owner.agentPromptsRoot === AGENTS_HOME);
 }
 
 function configuredPaths(source) {

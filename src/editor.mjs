@@ -1,6 +1,6 @@
 import { compareStoryCreation, storyCreatorName } from './story-presentation.mjs';
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
-import { LEGACY_AGENTS_ROOT } from './configuration-assets.mjs';
+import { LEGACY_AGENTS_ROOT, AGENTS_HOME } from './configuration-assets.mjs';
 import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
@@ -1533,7 +1533,7 @@ export async function bootstrapWorkspacePortfolio(root, {
 }
 
 /** The agents root a loaded or raw definition records [AGH:REQ-002]. */
-const definitionAgentsRootOf = (definition) => (definition?.agentPromptsRoot === 'singularity/agents' ? 'singularity/agents' : LEGACY_AGENTS_ROOT);
+const definitionAgentsRootOf = (definition) => (definition?.agentPromptsRoot === AGENTS_HOME ? AGENTS_HOME : LEGACY_AGENTS_ROOT);
 
 const EDITOR_CONFIGURATION_ROOTS = Object.freeze({
   templatesRoot: 'singularity/templates',
@@ -1634,7 +1634,7 @@ function editorConfigurationPathAuthority(root, definition, portfolio = null, { 
     const reserved = EDITOR_CONFIGURATION_ROOTS[field];
     // The agents home is SFlow's own [AGH:REQ-002], like the legacy root it replaces.
     const trusted = pathWithin(candidate, previous) || pathWithin(candidate, reserved)
-      || (field === 'agentPromptsRoot' && candidate === 'singularity/agents');
+      || (field === 'agentPromptsRoot' && candidate === AGENTS_HOME);
     if (trusted && candidate) directoryRoots.add(candidate);
     else if (candidate) escalations.push({ field, previous, candidate, reserved });
   }
@@ -1753,7 +1753,7 @@ export async function validateConfigurationCandidates(root, candidates, definiti
       definition.templatesRoot, portfolio?.templatesRoot, definition.agentPromptsRoot,
       // Both agents roots: the layout is the copied workflow.yml's, and on the agents home an agent APM
       // deployed in .github/agents still loads [AGH:REQ-011].
-      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, LEGACY_AGENTS_ROOT, 'singularity/agents', SKILL_LIBRARY_ROOT, INSTRUCTION_LIBRARY_ROOT,
+      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, LEGACY_AGENTS_ROOT, AGENTS_HOME, SKILL_LIBRARY_ROOT, INSTRUCTION_LIBRARY_ROOT,
       // Which agents APM deployed, so a binding in workflow.yml `apm` is checked as it will load.
       'apm.lock.yaml'
     ].filter(Boolean).map(posix));

@@ -240,14 +240,17 @@ test('with observed dependencies on, every published generation commits a verifi
     t.diagnostic(`record bytes: ${Object.entries(records).map(([phase, record]) => `${phase} ${Buffer.byteLength(`${JSON.stringify(record, null, 2)}\n`)}`).join(', ')}`);
     t.diagnostic(`publish ms on: ${on.timings.map((entry) => `${entry.step} ${entry.ms.toFixed(0)}`).join(', ')}; off: ${off.timings.map((entry) => `${entry.step} ${entry.ms.toFixed(0)}`).join(', ')}`);
 
-    // The read: edges by kind and coverage per generation; the amendment's scope generation has no record.
+    // The read: edges by kind and coverage per generation.
     const read = JSON.parse(on.sflow('spec', 'dependencies', '--json'));
     assert.equal(read.chain.verified, true);
     assert.deepEqual(read.steps.map((step) => [step.phase, step.generations.map((row) => [row.generation, row.coverage.state])]),
-      [['intake', [[1, 'resolved'], [2, 'unresolved']]], ['fix-design', [[1, 'resolved']]], ['implement', [[1, 'unresolved']]]]);
-    // The amendment published the scope's second generation from its approved bytes, with no prompt behind it.
-    assert.deepEqual(read.steps[0].generations[1].coverage.reasons, ['receipt-missing']);
+      [['intake', [[1, 'resolved'], [2, 'resolved']]], ['fix-design', [[1, 'resolved']]], ['implement', [[1, 'unresolved']]]]);
+    // The amendment published the scope's second generation from its approved bytes, with no prompt behind it by design: its
+    // record reads the proposal its approvers decided instead (stage 7, E5), and no step before the scope defines a clause.
+    assert.deepEqual(read.steps[0].generations[1].coverage.reasons, []);
     assert.deepEqual(read.steps[0].generations[1].scopeRevision, 2);
+    const amended = JSON.parse(await readFile(path.join(on.root, storyOn.phases.intake.dependencyRecords[1].path), 'utf8'));
+    assert.deepEqual([amended.receipt.kind, amended.receipt.amendment], ['intent-amendment', 'AMD-001']);
     const words = on.sflow('spec', 'dependencies', 'fix-design');
     assert.match(words, /fix-design generation 1: resolved; 2 input, 1 citation\./u);
     assert.match(words, /\n {2}input: DEP-1:AC-001, DEP-1:AC-002\n/u);

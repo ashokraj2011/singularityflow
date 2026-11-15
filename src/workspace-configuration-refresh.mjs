@@ -55,7 +55,67 @@ import { stageStoryHardCutover } from './story-hard-cutover.mjs';
 export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
 export const STATE_CONFIGURATION_ROOT = 'configuration';
 export const STATE_CONFIGURATION_MANIFEST = `${STATE_CONFIGURATION_ROOT}/manifest.json`;
-const BASELINE_FORMAT = 'singularity-flow-configuration-baseline/v1';
+// v2 records the build that proposed the package (SCF:REQ-015). Every build since 2026-08-23 refuses any baseline that
+// is not v1 before it changes anything, so once a v2 baseline is approved no older build can propose or publish over
+// it: their refusal names the v1 format they expect (SPEC-SCF section 5). v1 baselines stay readable.
+const BASELINE_FORMAT_V1 = 'singularity-flow-configuration-baseline/v1';
+const BASELINE_FORMAT = 'singularity-flow-configuration-baseline/v2';
+// A development checkout never proposes packaged configuration; an isolated run's throwaway repositories opt in.
+export const DEVELOPMENT_PROPOSALS_SWITCH = 'SINGULARITY_FLOW_DEVELOPMENT_PROPOSALS';
+const EXACT_BUILD_COMMIT = /^[0-9a-f]{40,64}$/u;
+
+/**
+ * The build that proposes packaged configuration (SPEC-SCF D1): a clean stamp's commit and `builtAt`, which is that
+ * commit's time (scripts/reproducible-build.mjs). Null for a development checkout or a dirty tree: neither proposes.
+ */
+export function proposingBuild(info = BUILD_INFO) {
+  const builtAt = Date.parse(info?.builtAt ?? '');
+  if (!EXACT_BUILD_COMMIT.test(String(info?.commit ?? '')) || info.dirty !== false || !Number.isFinite(builtAt)) return null;
+  return Object.freeze({ commit: String(info.commit), builtAt: new Date(builtAt).toISOString() });
+}
+
+/** Whether `recorded` comes from a newer build than `running`. Equal commits are the same build (D1). */
+export function newerBuild(recorded, running) {
+  if (!recorded?.builtAt) return false;
+  if (running?.commit && recorded.commit === running.commit) return false;
+  if (!running?.builtAt) return true;
+  return Date.parse(recorded.builtAt) > Date.parse(running.builtAt);
+}
+
+function buildDate(build) {
+  return String(build?.builtAt ?? '').slice(0, 10);
+}
+
+/**
+ * Only a clean, stamped build proposes, and never over a repository whose approved package baseline came from a
+ * newer build (SCF:REQ-015, REQ-016; UP-F1, UP-F3). The refusal is this repository's alone: refresh reports it and
+ * goes on with the others.
+ */
+function assertBuildMayPropose(baseline, build, environment) {
+  if (!build && environment?.[DEVELOPMENT_PROPOSALS_SWITCH] !== 'allow') {
+    throw new SingularityFlowError(
+      'This is a development checkout or a dirty tree, not a clean stamped build, and it never proposes packaged '
+        + 'configuration: which build is newer cannot be told. Install a stamped build to propose it. Nothing was changed.', {
+        code: 'CONFIGURATION_REFRESH_DEVELOPMENT_BUILD',
+        details: { actions: [{ label: 'Install a stamped Singularity Flow build (./install.sh from a clean checkout, or your distribution\'s installer), then run the refresh again.' }] }
+      }
+    );
+  }
+  if (newerBuild(baseline?.build, build)) {
+    throw new SingularityFlowError(
+      `This repository needs a build from ${buildDate(baseline.build)} or later: its approved configuration came from a `
+        + `newer build than this one${build ? ` (from ${buildDate(build)})` : ''}, and an older build never proposes over it. `
+        + 'Install that build or a newer one, then run the refresh again. Nothing was changed.', {
+        code: 'CONFIGURATION_BUILD_TOO_OLD',
+        details: {
+          requiredBuild: { builtAt: baseline.build.builtAt, commit: baseline.build.commit },
+          runningBuild: build ? { builtAt: build.builtAt, commit: build.commit } : null,
+          actions: [{ label: `Install a Singularity Flow build from ${buildDate(baseline.build)} or later (./install.sh from an updated checkout, or your distribution's installer), then run the refresh again.` }]
+        }
+      }
+    );
+  }
+}
 const PACKAGE_OWNERSHIP_FRAMEWORK = 'framework';
 const PACKAGE_OWNERSHIP_REPOSITORY = 'repository';
 const PACKAGE_OWNERSHIP_VALUES = new Set([
@@ -1360,8 +1420,13 @@ async function readBaseline(root) {
   let baseline;
   try { baseline = YAML.parse(await readFile(file, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`Packaged configuration baseline is invalid YAML: ${error.message}`); }
-  if (baseline?.format !== BASELINE_FORMAT || !plainObject(baseline.workflow) || !plainObject(baseline.assets)) {
-    throw new SingularityFlowError(`Packaged configuration baseline must use ${BASELINE_FORMAT}.`);
+  if (![BASELINE_FORMAT_V1, BASELINE_FORMAT].includes(baseline?.format) || !plainObject(baseline.workflow) || !plainObject(baseline.assets)) {
+    throw new SingularityFlowError(`Packaged configuration baseline must use ${BASELINE_FORMAT} or ${BASELINE_FORMAT_V1}.`);
+  }
+  if (baseline.format === BASELINE_FORMAT && baseline.build !== null && !(plainObject(baseline.build)
+      && EXACT_BUILD_COMMIT.test(String(baseline.build.commit ?? ''))
+      && Number.isFinite(Date.parse(baseline.build.builtAt ?? '')))) {
+    throw new SingularityFlowError('Packaged configuration baseline build must be null or an exact commit with its build time.');
   }
   if (baseline.ownership != null) {
     const workflowOwnership = baseline.ownership?.workflow;
@@ -1401,7 +1466,9 @@ export async function refreshPackagedConfiguration(root, {
   acceptBundledConflicts = false,
   resolutions = {},
   restorePackagedSeeds = false,
-  migrateWorldModel = false
+  migrateWorldModel = false,
+  build = proposingBuild(),
+  environment = process.env
 } = {}) {
   resolutions = normalizeRefreshResolutions(resolutions);
   const ownershipTransfers = Object.entries(resolutions)
@@ -1433,6 +1500,7 @@ export async function refreshPackagedConfiguration(root, {
     readFile(path.join(PACKAGE_ROOT, 'templates', 'workflow.yml'), 'utf8'),
     readBaseline(root)
   ]);
+  assertBuildMayPropose(baseline, build, environment);
   // An absent workflow file contains no repository-authored nodes to preserve. Seeded-only
   // reinitialization may therefore recreate the packaged workflow container, while ordinary
   // refresh remains fail-closed and every non-regular target is still refused above. Starting the
@@ -1691,6 +1759,8 @@ export async function refreshPackagedConfiguration(root, {
   const lock = {
     format: BASELINE_FORMAT,
     product: productIdentity(),
+    // The proposing build: once approved, the minimum build for this repository (SCF:REQ-016).
+    build: build ? { commit: build.commit, builtAt: build.builtAt } : null,
     workflow: incoming,
     assets: Object.fromEntries([...assets.entries()].map(([relative, contents]) => [relative, { sha256: sha256(contents) }])),
     ownership: {
@@ -1716,8 +1786,8 @@ export async function refreshPackagedConfiguration(root, {
   // 91cea5a93's review pass previewed before the installer's refresh had published its name, and
   // found three repositories lagging behind a byte-identical packaged configuration.
   const productStampOnly = previousLockText !== null && previousLockText !== lockText
-    && changedFiles.size === 0 && plainObject(baseline?.product)
-    && YAML.stringify({ ...lock, product: baseline.product }) === previousLockText;
+    && changedFiles.size === 0 && plainObject(baseline?.product) && baseline.format === BASELINE_FORMAT
+    && YAML.stringify({ ...lock, product: baseline.product, build: baseline.build ?? null }) === previousLockText;
   if (previousLockText !== lockText) {
     changedFiles.add(PACKAGE_BASELINE_PATH);
     if (!dryRun) {
@@ -3119,31 +3189,6 @@ function refreshPreflightFailure(observation, error) {
   };
 }
 
-function proposalBranch(candidateCommit, sourceCommit, product) {
-  const revision = String(product.revision).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 16);
-  return `sflow/config-refresh/${revision}-${sourceCommit.slice(0, 8)}-${candidateCommit.slice(0, 8)}`;
-}
-
-/**
- * Recognize the benign publication race where another refresh pushed the same configuration.
- *
- * Git correctly rejects the second sibling commit as non-fast-forward even when its complete tree
- * is byte-identical. Fetch the new authority tip and compare tree objects; only exact identity may
- * join the winner. A genuinely different remote update still takes the review-branch path.
- */
-async function identicalConcurrentConfiguration(root, candidateCommit, { env = process.env } = {}) {
-  const fetched = await runRemoteGitAsync([
-    'fetch', '--quiet', '--no-tags', '--refmap=', 'origin',
-    `refs/heads/${CONFIGURATION_BRANCH}`
-  ], { cwd: root, operation: 'remote-configuration', env });
-  if (fetched.status !== 0) return null;
-  const approvedCommit = fetchedHeadCommit(root, env, `Fetched ${CONFIGURATION_BRANCH} commit`);
-  if (!EXACT_GIT_OID.test(approvedCommit)) return null;
-  const candidateTree = run('git', ['rev-parse', `${candidateCommit}^{tree}`], { cwd: root, env }).stdout.trim();
-  const approvedTree = run('git', ['rev-parse', `${approvedCommit}^{tree}`], { cwd: root, env }).stdout.trim();
-  return candidateTree === approvedTree ? approvedCommit : null;
-}
-
 /**
  * The folder the person's own Git identity is read from: their registered checkout of this repository, or, when it
  * is not on this computer, no checkout (their global configuration only). Never the isolated refresh clone.
@@ -3212,9 +3257,11 @@ async function proposeCandidate(candidate) {
   const result = (status, extra = {}) => ({
     status, repository: repository.id, remote: repository.displayRemote,
     memberships: repository.memberships, sourceCommit,
-    conflicts: refresh.conflicts, configurationChanged: false, stateChanged: false, error: null, ...extra
+    conflicts: refresh.conflicts, configurationChanged: false, stateChanged: false, error: null,
+    ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {}), ...extra
   });
-  if (!refresh.changed) return result('current');
+  // A difference that is only the build's name is nothing for a person to review [owner, 2026-11-13].
+  if (!refresh.changed || refresh.productStampOnly) return result('current');
   const candidateCommit = commitRefreshCandidate(root, refresh, env, 'propose packaged configuration', repository);
   if (!candidateCommit) return result('current');
   const proposal = reviewProposal(root, candidateCommit, sourceCommit, env);
@@ -3236,64 +3283,16 @@ async function proposeCandidate(candidate) {
 }
 
 async function publishCandidate(candidate) {
-  if (candidate.reviewOnly) return proposeCandidate(candidate);
+  // Refresh only proposes: every packaged change lands on a review branch a person approves (SCF:REQ-014, UP-F4). The
+  // one thing it still publishes is a first sflow/config created where none existed, and the state projection of an
+  // unchanged approved configuration.
+  if (candidate.reviewOnly || (candidate.refresh.changed && !candidate.bootstrapConfigurationCreated)) return proposeCandidate(candidate);
   const { root, repository, refresh, sourceCommit, desired } = candidate;
   const env = candidate.gitEnv ?? process.env;
-  let approvedCommit = sourceCommit;
+  const approvedCommit = sourceCommit;
   // A first-authority candidate was already published as the exact previewed commit.  Report that
   // durable mutation without authoring a second refresh commit.
-  let configurationChanged = candidate.bootstrapConfigurationCreated === true;
-  if (refresh.changed) {
-    const candidateCommit = commitRefreshCandidate(root, refresh, env, 'refresh packaged configuration', repository);
-    if (candidateCommit) {
-      const pushed = await runRemoteGitAsync([
-        'push', `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${sourceCommit}`,
-        'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
-      ], {
-        cwd: root, operation: 'remote-push', env
-      });
-      if (pushed.status !== 0) {
-        const concurrentCommit = await identicalConcurrentConfiguration(root, candidateCommit, { env });
-        if (concurrentCommit) {
-          approvedCommit = concurrentCommit;
-          configurationChanged = true;
-        } else {
-          const branch = proposalBranch(candidateCommit, sourceCommit, refresh.product);
-          const retained = await runRemoteGitAsync([
-            'push', `--force-with-lease=refs/heads/${branch}:`,
-            'origin', `HEAD:refs/heads/${branch}`
-          ], {
-            cwd: root, operation: 'remote-push', env
-          });
-          if (retained.status !== 0) {
-            const observed = await remoteHeads(repository.remote, [branch], { env });
-            if (observed.get(branch) !== candidateCommit) {
-              throw new SingularityFlowError(
-                `Configuration update for '${repository.displayRemote}' was rejected and its review branch could not be retained. `
-                  + remoteFailureMessage(retained)
-              );
-            }
-          }
-          return {
-            status: 'review-required',
-            repository: repository.id,
-            remote: repository.displayRemote,
-            memberships: repository.memberships,
-            sourceCommit,
-            candidateCommit,
-            proposalBranch: branch,
-            conflicts: refresh.conflicts,
-            configurationChanged: false,
-            stateChanged: false,
-            error: remoteFailureMessage(pushed, 'Git rejected the exact configuration update; review repository policy and retry.')
-          };
-        }
-      } else {
-        approvedCommit = candidateCommit;
-        configurationChanged = true;
-      }
-    }
-  }
+  const configurationChanged = candidate.bootstrapConfigurationCreated === true;
 
   try {
   const projection = configurationChanged ? await desiredStateProjection(root, { env }) : desired;
@@ -3452,7 +3451,9 @@ export async function refreshWorkspaceConfigurations({
   confirmPlan = null,
   inspectCandidate = null,
   cleanupTemporaryTree = removeTemporaryTree,
-  reviewOnly = false
+  reviewOnly = false,
+  // The build proposing (SPEC-SCF D1); tests stand in another build here.
+  build = proposingBuild()
 } = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace configuration refresh requires the workspace registry path.');
   const normalizedResolutions = normalizeRefreshResolutions(resolutions);
@@ -3467,7 +3468,7 @@ export async function refreshWorkspaceConfigurations({
   const targets = await registeredRepositories(registryFile, { workspace, repositories });
   const workers = gitWorkerCount(targets.length);
   const cachedPlan = confirmPlan ? await readRefreshPlanCache(registryFile, confirmPlan) : null;
-  const observations = await mapLimit(targets, workers, async (repository) => {
+  let observations = await mapLimit(targets, workers, async (repository) => {
     try {
       const cacheEntry = cachedPlan?.repositories.get(repository.remote) ?? null;
       const cachedStateBranch = isGitRefName(cacheEntry?.stateBranch ?? '')
@@ -3508,8 +3509,20 @@ export async function refreshWorkspaceConfigurations({
       { code: 'CONFIGURATION_REVIEW_AUTHORITY_MISSING' }
     );
   }
+  // Each repository is its own proposal: one that cannot be reached, or that needs a newer build, is reported and holds
+  // up no other (SCF:REQ-014, UP-F8). Only when none is left is the whole refresh blocked.
+  const held = [];
+  const hold = (repository, status, error) => held.push({
+    status, repository: repository.id, remote: repository.displayRemote, memberships: repository.memberships,
+    configurationChanged: false, stateChanged: false, error: refreshErrorMessage(error),
+    ...(error?.code === 'CONFIGURATION_BUILD_TOO_OLD' ? { requiredBuild: error.details.requiredBuild } : {})
+  });
+  const heldResult = (error) => (error?.code === 'CONFIGURATION_BUILD_TOO_OLD' ? 'needs-newer-build' : null);
   const unreachable = observations.filter((item) => item.error);
-  if (unreachable.length) {
+  if (unreachable.length && unreachable.length < observations.length) {
+    for (const item of unreachable) hold(item.repository, 'failed', item.error);
+    observations = observations.filter((item) => !item.error);
+  } else if (unreachable.length) {
     return {
       status: 'blocked', dryRun, total: targets.length, updated: 0,
       results: observations.map((item) => ({
@@ -3532,7 +3545,7 @@ export async function refreshWorkspaceConfigurations({
           // conflicts, removals, and the desired state projection change behind one plan ID.
           candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-            restorePackagedSeeds, migrateWorldModel, hardCutover
+            restorePackagedSeeds, migrateWorldModel, hardCutover, build
           }, { env: gitEnv });
           if (inspectCandidate) await inspectCandidate(candidate);
         } catch (error) {
@@ -3548,11 +3561,15 @@ export async function refreshWorkspaceConfigurations({
       try {
         candidate = await prepareCandidate(observation.repository, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds, migrateWorldModel, hardCutover
+          restorePackagedSeeds, migrateWorldModel, hardCutover, build
         }, { env: gitEnv });
         if (inspectCandidate) await inspectCandidate(candidate);
       } catch (error) {
         if (candidate?.root) await removeTemporaryTree(candidate.root);
+        if (heldResult(error)) {
+          hold(observation.repository, heldResult(error), error);
+          return { planCandidate: null, result: null };
+        }
         return { planCandidate: null, result: refreshPreflightFailure(observation, error) };
       }
       const stateChanged = candidate.refresh.changed || candidate.stateBefore.changed;
@@ -3564,7 +3581,7 @@ export async function refreshWorkspaceConfigurations({
       };
     });
     const planCandidates = prepared.map((entry) => entry.planCandidate).filter(Boolean);
-    const results = prepared.map((entry) => entry.result);
+    const results = [...prepared.map((entry) => entry.result).filter(Boolean), ...held];
     const blocked = results.some((entry) => entry.status === 'blocked');
     const planId = blocked ? null : refreshPlanId(planCandidates, {
       resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel, hardCutover
@@ -3578,7 +3595,7 @@ export async function refreshWorkspaceConfigurations({
     return {
       status: blocked ? 'blocked' : 'preview', dryRun: true,
       ...(planId ? { planId } : {}),
-      total: targets.length, updated: 0, results
+      total: targets.length, updated: 0, ...(held.length ? { failed: held.length } : {}), results
     };
   }
 
@@ -3597,7 +3614,7 @@ export async function refreshWorkspaceConfigurations({
         try {
           const candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-            restorePackagedSeeds, migrateWorldModel, hardCutover
+            restorePackagedSeeds, migrateWorldModel, hardCutover, build
           }, { env: gitEnv });
           return { observation, candidate, retained: false, bootstrap: true, error: null };
         } catch (error) {
@@ -3608,7 +3625,7 @@ export async function refreshWorkspaceConfigurations({
       }
       try {
         const candidate = await prepareObservedCandidate(observation, {
-          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover
+          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build
         }, cachedPlan, { env: gitEnv });
         return { observation, candidate, retained: true, bootstrap: false, error: null };
       } catch (error) {
@@ -3616,7 +3633,8 @@ export async function refreshWorkspaceConfigurations({
       }
     });
     for (const entry of prepared) {
-      if (entry.error) confirmationFailures.push({ observation: entry.observation, error: entry.error });
+      if (entry.error && heldResult(entry.error)) hold(entry.observation.repository, heldResult(entry.error), entry.error);
+      else if (entry.error) confirmationFailures.push({ observation: entry.observation, error: entry.error });
       else {
         confirmationCandidates.push(entry.candidate);
         candidates.push(entry.candidate);
@@ -3640,6 +3658,7 @@ export async function refreshWorkspaceConfigurations({
         })
       };
     }
+    observations = observations.filter((item) => !held.some((entry) => entry.repository === item.repository.id));
     previewBoundPlanId = refreshPlanId(confirmationCandidates, {
       resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel, hardCutover
     });
@@ -3669,7 +3688,7 @@ export async function refreshWorkspaceConfigurations({
       try {
         const candidate = await prepareBootstrapInspectionCandidate(observation, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds, migrateWorldModel, hardCutover
+          restorePackagedSeeds, migrateWorldModel, hardCutover, build
         }, { env: gitEnv });
         return { observation, candidate, error: null };
       } catch (error) {
@@ -3845,14 +3864,17 @@ export async function refreshWorkspaceConfigurations({
   const prepared = await mapLimit(toPrepare, workers, async (observation) => {
     try {
       const candidate = await prepareObservedCandidate(observation, {
-        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover
+        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover, build
       }, cachedPlan, { env: gitEnv });
       return { observation, candidate, error: null };
     } catch (error) {
       return { observation, candidate: null, error };
     }
   });
-  const preparationFailures = prepared.filter((entry) => entry.error);
+  for (const entry of prepared.filter((item) => item.error && heldResult(item.error))) {
+    hold(entry.observation.repository, heldResult(entry.error), entry.error);
+  }
+  const preparationFailures = prepared.filter((entry) => entry.error && !heldResult(entry.error));
   for (const entry of prepared) {
     if (entry.candidate) candidates.push(entry.candidate);
   }
@@ -3946,13 +3968,17 @@ export async function refreshWorkspaceConfigurations({
       } catch { /* Cleanup diagnostics cannot replace the publication failure. */ }
     }
   }
-  const failed = results.filter((result) => ['failed', 'review-required'].includes(result.status));
+  results = [...results, ...held];
+  // A proposal waiting for its person is the refresh's normal outcome, not a failure (SCF:REQ-014).
+  const failed = results.filter((result) => ['failed', 'needs-newer-build'].includes(result.status));
+  const proposed = results.filter((result) => result.status === 'review-required');
   const warnings = refreshCleanupWarnings(cleanupPending);
   return {
-    status: failed.length ? 'partial' : 'complete',
+    status: failed.length ? 'partial' : proposed.length ? 'proposed' : 'complete',
     dryRun: false, planId,
     total: targets.length,
     updated: results.filter((result) => result.status === 'updated').length,
+    proposed: proposed.length,
     failed: failed.length,
     ...(cleanupPending.length ? { cleanupPending, warnings } : {}),
     results

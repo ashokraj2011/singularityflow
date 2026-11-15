@@ -509,12 +509,12 @@ install_copilot_telemetry() {
 }
 
 # A normal product install is also the explicit configuration-maintenance boundary. The installed
-# command discovers every registered workspace repository, refreshes its independent sflow/config
-# authority in an isolated clone, and mirrors the exact approved configuration to its orphan state
-# branch. Active Story branches and dirty working trees are never read or changed. A protected
-# configuration authority retains a review branch and makes this installer fail visibly instead of
-# silently losing the candidate. Clean reinstall delegates before this function and keeps its strict
-# no-workspace promise.
+# command discovers every registered workspace repository and, in an isolated clone, proposes this
+# build's packaged configuration on a review branch of its own: it never changes sflow/config, which
+# changes only when a person approves that proposal (SPEC-SCF SCF:REQ-014). A repository whose
+# approved configuration came from a newer build is told it needs that build, and holds up no other.
+# Active Story branches and dirty working trees are never read or changed. Clean reinstall delegates
+# before this function and keeps its strict no-workspace promise.
 refresh_registered_workspace_configurations() {
   if [[ "$REFRESH_REGISTERED_WORKSPACE_CONFIGURATION" == "off" ]]; then
     printf '%s\n' 'Registered-workspace configuration refresh: skipped by request.'
@@ -1652,8 +1652,9 @@ if [[ "$RECOVERY_WORKSPACE_CONFIGURATION_REFRESH" == "on" ]]; then
     WORKSPACE_REFRESH_STATUS="complete"
   else
     WORKSPACE_REFRESH_STATUS="pending"
-    printf '%s\n' 'WARNING: product activation is complete, but workspace configuration refresh is pending.' >&2
-    printf '%s\n' 'Retry exactly: singularity-flow workspace refresh-configuration' >&2
+    printf '%s\n' 'WARNING: product activation is complete, but workspace configuration refresh did not finish.' >&2
+    printf '%s\n' 'Its output above names each repository that needs a person: a review branch to approve, a newer build, or a blocker to fix.' >&2
+    printf '%s\n' 'After that, run: singularity-flow workspace refresh-configuration' >&2
   fi
   step_end
 fi

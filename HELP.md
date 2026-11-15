@@ -1452,11 +1452,11 @@ singularity-flow workspace impact promote <DIRECTORY> <ANALYSIS-ID>
 
 `workspace refresh-configuration` does not use the currently checked-out application branch. It
 discovers every unique repository in registered non-archived workspaces, prepares and validates the
-package merge in isolated clones, publishes `sflow/config`, and mirrors the exact approved
-configuration beneath `configuration/` on each orphan state branch. The mirror manifest pins the
-configuration commit, installed product revision, and per-file SHA-256 values. Existing Story
-snapshots remain unchanged. Re-run the command after a partial failure or after merging a reported
-`sflow/config-refresh/*` review branch; completed repositories become no-ops.
+package merge in isolated clones, and proposes each repository's result on a
+`sflow/config-refresh/*` review branch. It never changes `sflow/config` itself: a person approves
+the proposal by merging that branch. The package baseline records the proposing build, and a build
+older than that one is told it needs a newer build instead of proposing. Existing Story snapshots
+remain unchanged. Re-run the command after a partial failure; completed repositories become no-ops.
 
 `workspace reinitialize` is the safe plan-first repair for installed framework content. It restores
 only missing seeds or exact current/historical registered framework seeds, plus their

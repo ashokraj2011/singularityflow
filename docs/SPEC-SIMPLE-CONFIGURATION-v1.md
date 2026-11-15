@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 15 November 2026
-**Status:** Draft for owner approval. Nothing here is built.
+**Status:** Approved by the owner on 15 November 2026 ("approve"), with every recommendation in section 7. Stage 1 is being built; nothing else is.
 **Namespace:** SCF. No other document uses it.
 **Source baseline:** main bd90bcc46. File references are to that commit.
 **Inputs:** the four analyses of 2026-11-15 (workspaces, upgrades, editing and review, configuration history).
@@ -267,7 +267,8 @@ The findings this model does not touch keep their own targeted fixes (Appendix A
 
 ## 7. Owner decisions
 
-Each has a recommendation; one word from the owner settles it.
+Decided 15 November 2026: the owner approved every recommendation below ("approve"). Each recommendation is now
+the decision; D2's Git 2.29 minimum is confirmed when stage 5 is built.
 
 - **D1. What makes a build newer?** Recommended: the clean stamp's `builtAt`, which is the source commit's time
   (`scripts/reproducible-build.mjs:194-201`), recorded with its commit. Equal commits are the same build. Dirty and

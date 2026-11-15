@@ -620,7 +620,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // also landed, measured together for the stable build (2026-11-15). No new eager file.
     // 9,667,550 (measured 9,667,528, commands/phase-lifecycle.mjs): SPEC-SCF stage 1 on top of the stable build (+88),
     // measured on the merge with main 4ac5c5c40 (2026-11-15). No new eager file.
-    assert.ok(closure.bytes <= 9_667_550, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,668,500 (measured 9,668,466): outside a Story checkout the approved configuration is found by each configured
+    // remote's exact sflow/config ref, not a pattern over every remote (approved-configuration-reader.mjs +846), and the
+    // state marker clone keeps its objects (configuration-branch.mjs +92) [SPEC-SCF stage 1, 2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_668_500, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

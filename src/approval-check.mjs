@@ -676,6 +676,8 @@ export const APPROVAL_HOLD_OWNERS = Object.freeze({
   ARA_REVIEW_STALE: 'someone-decides',
   STORY_ARCHIVED_BY_REBUILD: 'someone-decides',
   READ_ONLY_AGENT_CANNOT_MUTATE: 'this-checkout',
+  // Whoever works here sets their Git name and email (SCF:REQ-018).
+  GIT_COMMIT_IDENTITY_REQUIRED: 'this-checkout',
   SOURCE_REVIEW_REVIEWER_CANNOT_APPROVE: 'this-checkout',
   INTENT_AMENDMENT_ACKNOWLEDGEMENT_REQUIRED: 'someone-decides',
   SOURCE_REVIEW_AUTHOR_COLLISION: 'author-repairs',

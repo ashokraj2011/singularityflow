@@ -11,7 +11,7 @@ import {
   CONFIGURATION_SOURCE_PATH, configurationAssetPolicy, configurationAssetSearchRoots
 } from './configuration-assets.mjs';
 import {
-  configuredRemoteIdentity, frozenRemoteTransport
+  configuredRemoteIdentity, FROZEN_REMOTE_ALIAS, frozenRemoteTransport
 } from './git-remote-diagnostics.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
@@ -144,11 +144,16 @@ function remoteIdentityForAuthorityRef(root, ref) {
 
 async function approvedConfigurationAuthority(root, {
   allowLocalHeads = true,
-  canonicalRemote = null
+  canonicalRemote = null,
+  remotes = null
 } = {}) {
+  // `remotes` names each remote's exact ref instead of the pattern over every remote.
+  const patterns = remotes == null ? [`refs/remotes/*/${CONFIGURATION_BRANCH}`, `refs/heads/${CONFIGURATION_BRANCH}`]
+    : [...remotes.map((remote) => `refs/remotes/${remote}/${CONFIGURATION_BRANCH}`),
+      ...(allowLocalHeads ? [`refs/heads/${CONFIGURATION_BRANCH}`] : [])];
+  if (!patterns.length) return null;
   const listed = await measureCommandSpan('catalog.authority-refs', () => run('git', [
-    'for-each-ref', '--format=%(refname) %(objectname) %(objecttype)',
-    `refs/remotes/*/${CONFIGURATION_BRANCH}`, `refs/heads/${CONFIGURATION_BRANCH}`
+    'for-each-ref', '--format=%(refname) %(objectname) %(objecttype)', ...patterns
   ], { cwd: root, allowFailure: true }));
   gitReadOutput(listed, 'Approved configuration references');
   const priority = (ref) => (ref === `refs/remotes/origin/${CONFIGURATION_BRANCH}` ? 0 : 1);
@@ -180,6 +185,12 @@ async function approvedConfigurationAuthority(root, {
   return null;
 }
 
+/** This checkout's configured remote names, or null when Git cannot list them. */
+function configuredRemoteNames(root) {
+  const listed = run('git', ['remote'], { cwd: root, allowFailure: true });
+  return listed.status === 0 ? listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean) : null;
+}
+
 /**
  * Repair a narrow/single-branch clone by fetching only a published configuration authority.
  *
@@ -191,9 +202,9 @@ async function refreshApprovedConfigurationAuthority(root, {
   allowLocalHeads = true,
   canonicalRemote = null
 } = {}) {
-  const listed = run('git', ['remote'], { cwd: root, allowFailure: true });
-  if (listed.status !== 0) return null;
-  const remotes = listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)
+  const listed = configuredRemoteNames(root);
+  if (!listed) return null;
+  const remotes = listed
     .filter((remote) => canonicalRemote == null || remote === canonicalRemote)
     .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
       || left.localeCompare(right));
@@ -427,7 +438,10 @@ export async function withApprovedConfigurationRead(root, fn, {
   // its working-tree configuration.
   if (workflow && !preferAuthority) {
     const pinned = await lstat(path.join(root, CONFIGURATION_SOURCE_PATH)).then((info) => info.isFile(), () => false);
-    const approved = pinned ? null : await approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote });
+    // Exact refs of the configured remotes, never a pattern over every branch (SDA-AC-012).
+    const remotes = canonicalRemote ? [canonicalRemote]
+      : pinned ? [] : (configuredRemoteNames(root) ?? []).filter((remote) => !FROZEN_REMOTE_ALIAS.test(remote));
+    const approved = pinned ? null : await approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote, remotes });
     if (!approved) return fn({ kind: 'working-tree', ref: null, commit: null });
     return readAuthority(root, approved, fn, { selectPaths });
   }

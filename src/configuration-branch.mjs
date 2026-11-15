@@ -1779,13 +1779,14 @@ async function storyConfigurationAuthorityObservation(remote, {
 /**
  * Whether a remote's `state` branch tip holds SFlow's configuration copy (configuration/manifest.json). Read only to
  * tell "sflow/config was here and is gone" from "this repository never had one"; the copy itself is never read.
+ * A depth-one clone with its objects, like the state reads before it: no lazy fetch can hide behind the listing.
  */
 async function stateCarriesConfigurationCopy(remote, stateCommit, { env = process.env } = {}) {
   const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-marker-'));
   try {
     const frozen = frozenRemoteTransport(remote, { env: enterpriseGitEnvironment(env) });
     const clone = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1', '--filter=blob:none',
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--no-checkout', '--branch', STATE_CONFIGURATION_BRANCH, frozen.remote, source
     ], { cwd: path.dirname(source), operation: 'remote-configuration', env: frozen.env });
     if (clone.status !== 0) {

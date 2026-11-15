@@ -7,7 +7,8 @@ import { buildDesignSourceSet } from "./design-sources.mjs";
 import { capabilityPublicationPlanSha256 } from './capability-publication-identity.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from "./aggregate-recovery.mjs";
 import { clearPendingPublication } from "./publication-pending.mjs";
-import { commitIsAncestor, head, identity } from "./git.mjs";
+import { actionActor, commitIsAncestor, head, identity } from "./git.mjs";
+import { sameApprover } from "./approval-authority.mjs";
 import { configuredRemoteAuthority } from "./git-remote-diagnostics.mjs";
 import { createLedgerIntent } from "./ledger.mjs";
 import { deliverLifecycleNotifications, warnNotificationFailures } from "./notifications.mjs";
@@ -80,6 +81,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   const requestedPhaseId = event?.phaseId ?? workflow.currentPhase ?? null;
   const requestedPhase = requestedPhaseId ? workflow.phases?.[requestedPhaseId] : null;
   const decision = [...(requestedPhase?.approvals ?? [])].reverse().find((item) => !item.invalidatedAt) ?? null;
+  const own = actingDecision(root, decision, event);
   const authenticatedPublicationTail = publicationTail?.capabilityPublications?.length ? {
     ...publicationTail,
     capabilityPublicationPlan: publicationTail.capabilityPublicationPlan
@@ -93,9 +95,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     subject: { kind: 'story', id: workflow.workItem.id, branch: workflowPublicationBranch(root, workflow) },
     phaseId: requestedPhaseId,
     generation: event?.generation ?? requestedPhase?.generation ?? null,
-    actor: event?.actor ?? decision?.actor ?? identity(root),
-    agent: Object.hasOwn(event ?? {}, 'agent') ? event.agent : decision?.agent ?? requestedPhase?.generatedAgent ?? null,
-    authorityGroup: event?.authorityGroup ?? decision?.authorityGroup ?? null,
+    actor: event?.actor ?? own?.actor ?? identity(root),
+    agent: Object.hasOwn(event ?? {}, 'agent') ? event.agent : own?.agent ?? requestedPhase?.generatedAgent ?? null,
+    authorityGroup: event?.authorityGroup ?? own?.authorityGroup ?? null,
     payload: {
       ...(event?.payload ?? {}),
       ...(storyRequiresStepActions(workflow) ? {
@@ -126,7 +128,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       actor: envelope.actor,
       agent: envelope.agent,
       authorityGroup: envelope.authorityGroup,
-      identityAssurance: decision?.identityAssurance ?? null,
+      identityAssurance: own?.identityAssurance ?? null,
       payload: {
         lifecycleEventId: envelope.eventId,
         lifecyclePayload: envelope.payload,
@@ -504,6 +506,14 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     ...result, notifications, stepActions, pendingCleanup,
     ...(revisionSelection ? { revisionSelection } : {})
   };
+}
+
+/**
+ * The phase's latest decision speaks for an event only when it is the acting person's: another
+ * reviewer's earlier approval named them as the actor of checks, decisions and approvals they never ran.
+ */
+export function actingDecision(root, decision, event = null) {
+  return decision && sameApprover(decision.actor ?? {}, event?.actor ?? actionActor(root)) ? decision : null;
 }
 
 export function stepActionLogger(root, config, workflow) {

@@ -9105,7 +9105,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     ...(stillHolds.length ? { stillHolds } : {}),
     // Its class and why, the suggestion and each raise; an editorial one says the evidence was carried that way [CIC:REQ-014].
     ...(effect.classification ? { class: classRecord(effect.classification) } : {}),
-    ...(editorial ? { carried: 'editorial', carriedPhases: effect.steps.filter((step) => step.outcome === 'carried').map((step) => step.phase) } : {})
+    ...(editorial ? { carried: 'editorial', carriedPhases: effect.steps.filter((step) => step.outcome === 'carried').map((step) => step.phase) } : {}),
+    // What the Story's change impact counts cannot work out later [CIC:REQ-017]: step IDs and counts only.
+    ...(impactCounted(workflow) ? { impactCounts: impactCounts(workflow, effect, { editorial, amendment: proposal.id, reset: firstReset == null ? [] : workflow.phaseOrder.slice(firstReset) }) } : {})
   };
   Object.assign(summary, {
     status: 'approved', decidedAt: at, decision: recorded,
@@ -9120,6 +9122,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     ...(effect.classification ? { class: effect.classification.effective } : {}),
     ...(editorial ? { carried: 'editorial' } : {}),
     ...(planBindings.length ? { planBindings } : {}),
+    ...(proposal.application.impactCounts ? { impactCounts: proposal.application.impactCounts } : {}),
     // The rows pendingAmendmentRevalidations lists, read against the scope step (forward-amendments.mjs).
     ...(settles ? { producer: specification.id, revalidate } : stillHolds.length ? { producer: specification.id, revalidate: stillHolds } : {})
   });
@@ -9235,6 +9238,20 @@ async function decisionClass(root, config, workflow, specification, proposal, { 
   if (proposedText == null) return null;
   return classes.classedApproval(workflow, specification.approvalPolicy, await intentAmendmentClass(root, config, workflow, proposal, { proposedText }), ids);
 }
+
+/** Whether an approval keeps the stage 7 counts record: on a Story with any of SPEC-CIC switches 1 to 3 pinned on [CIC:REQ-017, REQ-019]. */
+const impactCounted = (workflow) => ['observedDependencies', 'changeImpact'].some((key) => workflow.resolution?.spec?.[key] === 'on') || workflow.resolution?.spec?.preAmendmentDrafts === 'refuse';
+
+/**
+ * What an approval records for the counts (change-impact-counts.mjs), each part under its own switch: the steps reached
+ * only because what they depended on is not fully recorded (switch 1), the reset steps whose unpublished work their pin set
+ * aside (switch 2), and the evidence an editorial change carried (switch 3). Its presence says the counts are kept.
+ */
+const impactCounts = (workflow, effect, { editorial, amendment, reset }) => ({ schema: 'impact-counts/v1',
+  ...(effect.observed ? { widened: effect.steps.filter((step) => step.affected && step.generation > 0 && step.reasons.every((reason) => reason.kind === 'unresolved-record')).map((step) => step.phase) } : {}),
+  ...(workflow.resolution?.spec?.preAmendmentDrafts === 'refuse' ? { setAside: reset.filter((id) => workflow.phases[id]?.scopePin?.amendment === amendment && workflow.phases[id].scopePin.setAside) } : {}),
+  ...(editorial ? { carriedEvidence: effect.steps.filter((step) => step.outcome === 'carried')
+    .reduce((total, step) => total + (workflow.phases[step.phase]?.artifacts ?? []).filter((artifact) => artifact.exists !== false).length, 0) } : {}) });
 
 /** The class an approval applied, as its record keeps it: the floor and its rule IDs, the suggestion, each raise, the result. */
 const classRecord = ({ floor, reasons, suggested, raises, effective }) => ({ floor, rules: reasons.map((reason) => reason.rule),

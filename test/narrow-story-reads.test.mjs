@@ -10,6 +10,7 @@ import { readReport } from '../src/commands/report.mjs';
 import { readReportPreferences } from '../src/report-preferences.mjs';
 import { progressSnapshot } from '../src/progress.mjs';
 import { deriveReport } from '../src/report.mjs';
+import { changeImpactCounts } from '../src/change-impact-counts.mjs';
 import { storyCopilotSessions } from '../src/copilot-session-usage.mjs';
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
 import { withCommandReadScope, withFreshReadScope } from '../src/read-scope.mjs';
@@ -33,7 +34,9 @@ for (const storyMode of ['legacy', 'pinned']) test(`${storyMode} informational r
       stableReport(deriveReport(accepted.workflow, { pricing: accepted.config.tokens?.pricing ?? null,
         premiumMultipliers: accepted.config.tokens?.premiumMultipliers ?? null,
         // The report says what Copilot's session logs hold for the Story (here: none on this computer).
-        copilotSessions: await storyCopilotSessions(f.repository, accepted.workflow) })));
+        copilotSessions: await storyCopilotSessions(f.repository, accepted.workflow),
+        // And its change impact counts, from its own records [CIC:REQ-017].
+        changeImpact: changeImpactCounts(accepted.workflow) })));
   }));
   assert.equal(counters['story.record-projections'], 1);
   assert.equal(counters['story.context-load'] ?? 0, 0);

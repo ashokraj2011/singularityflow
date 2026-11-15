@@ -47,9 +47,13 @@ export function specification(WORK, value) {
 /**
  * A started Story, its specification at generation 0, in a repository of its own. `beforeStart` runs
  * once the repository is pushed, and `startArguments` are added to the start command
- * (test/spec-slices.test.mjs publishes a specification and starts with --spec).
+ * (test/spec-slices.test.mjs publishes a specification and starts with --spec). `changeImpact` is the
+ * repository's spec.changeImpact: off by default here, the route these Stories were written for before it
+ * defaulted on (owner, 2026-11-15); `on` is what a new repository gets. SINGULARITY_FLOW_TEST_CHANGE_IMPACT=on runs every
+ * Story here as a new repository would, to compare the two routes.
  */
-export async function startedSpecificationStory(t, WORK, { configure = null, beforeStart = null, startArguments = [] } = {}) {
+export async function startedSpecificationStory(t, WORK, { configure = null, beforeStart = null, startArguments = [],
+  changeImpact = process.env.SINGULARITY_FLOW_TEST_CHANGE_IMPACT ?? 'off' } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-approval-history-'));
   const root = path.join(directory, 'repository');
   const remote = path.join(directory, 'origin.git');
@@ -74,6 +78,7 @@ export async function startedSpecificationStory(t, WORK, { configure = null, bef
   configuration.repositoryReadiness = { ...(configuration.repositoryReadiness ?? {}), requiredBeforeStory: false };
   for (const authority of Object.values(configuration.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   configuration.workTypes['spec-driven-standard'].sourceReview = { mode: 'off' };
+  configuration.spec = { ...configuration.spec, changeImpact };
   configure?.(configuration);
   await writeFile(configurationPath, YAML.stringify(configuration));
   git('add', '.');

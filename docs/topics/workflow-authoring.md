@@ -14,6 +14,7 @@ aliases:
   - skill-where-used
   - authoring-skill
   - workflow-check
+  - workflow-assess
   - workflow-build
   - user-defined-agents
   - call
@@ -28,6 +29,7 @@ questions:
   - How do I design an artifact template and choose it for a step?
   - How do I turn my team's agents, skills and instructions into a workflow?
   - Does my workflow make sense, and what does each step do?
+  - Are my workflow's agents told contradictory, repeated or unclear things?
   - How do I bring my team's agents, runbooks and API specs in to build a workflow?
   - How do I run my own agent folder without turning it into a workflow?
 commands:
@@ -40,7 +42,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 104
+version: 105
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1822,6 +1824,69 @@ What it cannot judge yet: a step a model must author well (the stub writes for o
 change), visual evidence and screenshots, Initiative workflows, a route a decision does not take
 (the walk follows the route that walks on), a test runner other than `node --test`, and whether a
 person can actually be reached (it approves as a listed member).
+
+### Assess what each step's agent is told (`workflow assess`)
+
+`workflow check` judges a workflow's settings. `workflow assess` judges what its steps' agents are
+told, as the phase prompt composer puts it together, with no model:
+
+```bash
+singularity-flow workflow assess team-delivery            # the report: layers, sizes, findings, suggestions
+singularity-flow workflow assess team-delivery --json
+singularity-flow workflow assess team-delivery --read team-testing --part 1 --json   # one step's team text, numbered
+singularity-flow workflow assess team-delivery --verify findings.json --json         # Copilot's own findings, checked
+singularity-flow workflow build start --assess team-delivery                         # apply the suggestions, each yours to accept
+```
+
+For each step it lists every layer its agent receives, with its file and size in bytes and tokens:
+the agent file, the step's template, the skills and the instructions they place, the workflow's own
+skills and constitution, and the platform's rules (the phase contract, the clarification checkpoint and
+its guard, the runtime protocols and the approved-inputs lead). Text SFlow ships (a line of its own
+agents, templates, skills or instructions, kept in a copy, and the boundary every agent file carries)
+is SFlow's own: it is counted, and judged only for what contradicts the step it runs in.
+
+Each finding has a severity, plain words, the exact text it is about and its file and line:
+
+| Kind | Findings |
+|---|---|
+| contradictory | told to change code in a step that writes only its report (problem); told to commit, push or open a pull request, which publishing does (problem); told to approve work, which only a person does (problem); told to ask a person where clarification is off; two rules that cannot both be followed, across every layer, the platform's included; a tool, MCP server or script the step does not have; a section its template does not have; bare `REQ-`/`AC-` numbers; told to change an approved earlier document or set the template aside |
+| redundant | a rule or paragraph its agent reads twice, in any two layers; a sentence that restates the platform's own rules; one rule in several steps' files, where one shared instruction would do |
+| lean | a step whose team text is much larger than its others, with its biggest sections; a section or sentence about another step's work |
+| unclear | vague wording, a sentence with three or more conditions, a sentence of more than 40 words |
+
+Where a change fixes it, the finding carries it as builder moves with what it saves. SFlow makes a
+change itself (`decidedBy: sflow`) only when it makes the text say what the step already does, so
+it cannot change how a Story runs; a choice between two of the team's rules, or a change of behavior,
+is the person's. The verdict says first whether a Story would misbehave, then how much accepting the
+suggestions saves.
+
+`--json` returns `schemaVersion: 1`, `resultType: workflow-assessment`, `counts`, `verdict` and
+`workflows[]`, each with `verdict`, `counts`, `size` (`bytes`, `tokens`, and `team`, `sflow`, `platform`,
+`onDemand`), `saving`, `steps[]` (each with its `layers[]`, `size` and finding IDs), `findings[]` (`id`,
+`code`, `kind`, `severity`, `title`, `detail`, `quote`, `location`, `steps`, `suggestion` with `text`,
+`decidedBy`, `moves`, `alternatives` and `saving`) and `next` (`read`, `verify`, `apply`,
+`findingsPath`). The text report shows the same findings, in the same words.
+
+**Copilot's part.** `/sf-fix-workflow` and `/sf-build-workflow` read each step's team text with `--read`,
+in parts that fit a 4 KB agent view, and add what rules cannot see: contradictions in meaning, unclear
+wording, a leaner rewrite. Every finding quotes exact text at a file and line; `--verify` checks each
+quote there and refuses one that is not, saying how to repair it. An accepted finding is labelled
+Copilot's and stays a suggestion; its rewrite becomes an edit move a person accepts or declines.
+
+**Applying.** `workflow build start --assess ID` changes the workflow in place. Each suggestion is
+checked first on the result (its moves must fit, Workflow Studio must save what they leave, and the
+check and the assessment run again on it): one that would add a problem is listed with why and not
+offered. Each offered one is a proposal with the size and findings before and after; accept each,
+or every one SFlow decided itself with `workflow build decide --build <ID> --accept --all`.
+`workflow build verify` runs `workflow validate`, `workflow walk` and the assessment on the result,
+before and after, and the build finishes as one reviewed proposal: nothing changes until it is approved.
+
+The text-edit moves: `agent.edit { agent, old, new, copy? }`, `skill.edit { skill, old, new, copy? }`,
+`instruction.edit { instruction, old, new }`, `step.change { id, edit: { old, new } }` (the step's
+template as this workflow runs it), and `instruction.extract { id, description, text, from, steps }`
+(one rule several files repeat, kept in one shared instruction that one skill places in those steps).
+`old` is exact text that occurs once; `new` is empty to take it out. A file another workflow uses is
+changed on a copy: give an agent or skill edit `copy: <new ID>`; a template is copied for the step.
 
 ### Responsibilities every route owes
 

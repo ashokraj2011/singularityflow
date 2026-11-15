@@ -6275,6 +6275,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return item ? item.name : id;
   }
 
+  /** A quoted text, on one line and short enough to read in the conversation. */
+  function clipText(text) {
+    var value = String(text || '').replace(/\s+/g, ' ').trim();
+    return value.length > 90 ? value.slice(0, 89) + '…' : value;
+  }
+
   /** One move, in plain words, as the conversation shows it. */
   function moveText(move) {
     var sendBack = function (value) { return value && value !== 'none' && value.sendBackTo && value.sendBackTo.length ? 'if rejected, back to ' + value.sendBackTo.map(buildStepLabel).join(' or ') : ''; };
@@ -6285,8 +6291,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         : 'Add the step ' + (move.label || move.id) + (move.from ? ' (a copy of ' + buildStepLabel(move.from) + ')' : '') + (move.after ? ' after ' + buildStepLabel(move.after) : move.after === null ? ' at the start' : '')
           + (move.agent ? ', drafted by ' + buildName('agent', move.agent) : '') + (move.output ? ', ' + (BUILD_OUTPUT_WORDS[move.output] || move.output) : '')
           + (move.changesCode === false ? ', changes no code' : move.changesCode === true ? ', may change code' : '') + signOff(move.signOff);
-      case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff'].filter(function (key) { return move[key] !== undefined; })
-        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'changesCode' ? (move.changesCode ? 'may change code' : 'changes no code')
+      case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'edit'].filter(function (key) { return move[key] !== undefined; })
+        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'edit' ? 'its template text' : key === 'changesCode' ? (move.changesCode ? 'may change code' : 'changes no code')
           : key === 'signOff' ? 'sign-off' + (sendBack(move.signOff) ? ' (' + sendBack(move.signOff) + ')' : '') : key; }).join(', ');
       case 'step.remove': return 'Remove ' + buildStepLabel(move.id) + ' from this workflow';
       case 'step.move': return 'Move ' + buildStepLabel(move.id) + (move.after ? ' after ' + buildStepLabel(move.after) : ' to the start');
@@ -6309,6 +6315,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       case 'item.leaveOut': return 'Leave out ' + buildItemName(move.item) + ': ' + move.reason;
       case 'item.keepAsLink': return 'Keep ' + buildItemName(move.item) + ' as a link';
       case 'item.prerequisite': return 'Needed first: ' + buildItemName(move.item) + ' (' + move.description + ')';
+      // What a step's agent is told, changed by exact text (src/workflow-build/text-moves.mjs).
+      case 'agent.edit': return (move.new ? 'Change' : 'Take out') + ' text in ' + buildName('agent', move.agent) + (move.copy ? ' (on a copy for this workflow, ' + move.copy + ')' : '') + ': "' + clipText(move.old) + '"';
+      case 'skill.edit': return (move.new ? 'Change' : 'Take out') + ' text in the skill ' + move.skill + (move.copy ? ' (on a copy for this workflow, ' + move.copy + ')' : '') + ': "' + clipText(move.old) + '"';
+      case 'instruction.edit': return (move.new ? 'Change' : 'Take out') + ' text in the instruction ' + move.instruction + ': "' + clipText(move.old) + '"';
+      case 'instruction.extract': return 'Keep "' + clipText(move.text) + '" in one shared instruction, ' + move.id + ', for ' + (move.steps || []).map(buildStepLabel).join(', ') + ', and take it out of ' + (move.from || []).length + ' files';
       default: return move.move;
     }
   }

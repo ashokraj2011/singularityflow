@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { SingularityFlowError } from '../util.mjs';
 import { applyMoves, initialDraft, invalidMoves, lowerDraft, validateMoves } from './moves.mjs';
+import { textChangesOf } from './text-moves.mjs';
 import { readWorkflowBuild, saveWorkflowBuild, workflowBuildPaths, writePrivate } from './store.mjs';
 
 const PROPOSAL_FIELDS = ['title', 'why', 'moves', 'evidence', 'items', 'questions'];
@@ -164,13 +165,16 @@ function changesOf(model, draft, moves, explainWorkflow) {
       what: [...Object.keys(draft.overrides[id] ?? {}).filter((field) => draft.overrides[id][field] != null).map((field) => CHANGED_WORDS[field] ?? field),
         ...(draft.actions[id] ? ['after-step actions'] : []),
         ...(draft.clarifications?.[id] ? [`clarifying questions (${draft.clarifications[id].mode})`] : []),
+        ...(draft.texts?.[`step:${id}`]?.edits.length ? ['its template text'] : []),
         ...(draft.checks?.[id]?.length ? [`checks: ${draft.checks[id].map((check) => check.command).join(', ')}`] : [])] })),
     decisions: {
       added: draft.workflow.decisions.filter((decision) => !had.has(decisionKey(decision))).map((decision) => ({ after: decision.after, label: decision.label ?? decision.kind })),
       removed: (draft.workflow.baseDecisions ?? []).filter((decision) => !has.has(decisionKey(decision))).map((decision) => ({ after: decision.after, label: decision.label ?? decision.kind }))
-    }
+    },
+    // What its agents, skills and instructions are told, changed by exact text (text-moves.mjs).
+    edited: textChangesOf(draft, model).filter((entry) => entry.kind !== 'step')
   };
-  changes.none = !changes.renamed && ![changes.added, changes.removed, changes.moved, changes.changed, changes.decisions.added, changes.decisions.removed].some((list) => list.length);
+  changes.none = !changes.renamed && ![changes.added, changes.removed, changes.moved, changes.changed, changes.decisions.added, changes.decisions.removed, changes.edited].some((list) => list.length);
   return changes;
 }
 
@@ -336,6 +340,40 @@ export async function decideInBuild(id, proposalId, { accept, reason = null, roo
   }
   acceptProposal(record, proposal);
   return saveWorkflowBuild(record, { env });
+}
+
+/**
+ * Accept several pending proposals at once, in order: each is checked against the ones accepted before
+ * it, one that no longer fits is marked stale, and one Workflow Studio plan checks them together. When
+ * that plan is refused nothing is accepted and `together: false` says to decide them one at a time.
+ */
+export async function acceptProposals(id, proposalIds, { root = null, env = process.env } = {}) {
+  const record = await readWorkflowBuild(id, { env });
+  const pending = proposalIds.map((proposalId) => record.proposals.find((entry) => entry.id === proposalId)).filter((proposal) => proposal?.status === 'pending');
+  const repository = repositoryOf(record, root);
+  const fits = [];
+  const stale = [];
+  let together = true;
+  await withRepository(repository, async (model) => {
+    refuseLanded(record, model);
+    let draft = draftOf(record, model);
+    for (const proposal of pending) {
+      const findings = validateMoves(proposal.moves, { model, draft });
+      if (findings.length) { stale.push({ proposal, findings }); continue; }
+      draft = applyMoves(draft, proposal.moves);
+      fits.push(proposal);
+    }
+    if (fits.some((proposal) => proposal.moves.some((move) => !move.move.startsWith('item.')))) together = (await planFor(repository, draft, model)).plan.valid;
+  });
+  if (!together) return { record, accepted: [], stale: [], together };
+  const now = new Date().toISOString();
+  for (const { proposal, findings } of stale) {
+    Object.assign(proposal, { status: 'stale', decidedAt: now, findings });
+    record.conversation.push(turn('sflow', 'decision', `${proposal.title} no longer fits the workflow: ${findings[0].message}`, { proposal: proposal.id }));
+  }
+  for (const proposal of fits) acceptProposal(record, proposal);
+  return { record: await saveWorkflowBuild(record, { env }), accepted: fits.map((proposal) => proposal.id),
+    stale: stale.map(({ proposal, findings }) => ({ id: proposal.id, reason: findings[0].message })), together };
 }
 
 /**
@@ -722,6 +760,7 @@ export async function checkBuild(id, { root = null, include = null, env = proces
     ready: ready && !extra,
     // A simplify build is verified (workflow validate, and workflow walk where present) before it finishes.
     ...(record.goal.simplify ? { simplify: { from: record.goal.simplify.from, verify: `singularity-flow workflow build verify --build ${record.id}` } } : {}),
+    ...(record.goal.assess ? { assess: { workflow: record.goal.assess.workflow, verify: `singularity-flow workflow build verify --build ${record.id}` } } : {}),
     preview: plan.inspection?.preview ?? null,
     guide: (await import('./moves.mjs')).movesGuide()
   };
@@ -743,12 +782,12 @@ async function verifiedForFinish(record, { root, env, acceptProblems, walk }) {
   const open = verification.remaining.filter((item) => !verification.accepted.includes(item.id));
   if (open.length) {
     const listed = open.slice(0, 8).map((item) => `\n  ${item.id}  ${item.source === 'walk' ? 'stop   ' : 'problem'}  ${item.title}${item.location ? `  (${item.location.file}${item.location.line ? `:${item.location.line}` : ''})` : ''}${item.acceptable ? '' : '  [cannot be accepted]'}`).join('');
-    fail('WORKFLOW_BUILD_NOT_VERIFIED', `${record.goal.label} is not finished: ${open.length} ${open.length === 1 ? 'problem or stop remains' : 'problems or stops remain'} in what it would propose (workflow validate${verification.walk.available ? ' and workflow walk' : ''} on the result):${listed}${open.length > 8 ? `\n  … and ${open.length - 8} more` : ''}\n`
+    fail('WORKFLOW_BUILD_NOT_VERIFIED', `${record.goal.label} is not finished: ${open.length} ${open.length === 1 ? 'problem or stop remains' : 'problems or stops remain'} in what it would propose (workflow validate${verification.walk.available ? ' and workflow walk' : ''}${verification.assessment ? ' and workflow assess' : ''} on the result):${listed}${open.length > 8 ? `\n  … and ${open.length - 8} more` : ''}\n`
       + `Accept a change that fixes each one (singularity-flow workflow build verify --build ${record.id} lists them). Only if the person accepts one as it is, finish with --accept-problem <ID> for each.`,
     { remaining: open });
   }
   const current = await readWorkflowBuild(record.id, { env });
-  const checkedBy = `workflow validate${verification.walk.available ? ' and workflow walk' : ''}`;
+  const checkedBy = `workflow validate${verification.walk.available ? ' and workflow walk' : ''}${verification.assessment ? ' and workflow assess' : ''}`;
   if (verification.accepted.length) {
     current.conversation.push(turn('you', 'accepted', `Accepted as ${verification.accepted.length === 1 ? 'it is' : 'they are'}: ${verification.remaining
       .filter((item) => verification.accepted.includes(item.id)).map((item) => `${item.id} (${item.title})`).join('; ')}.`));
@@ -767,8 +806,9 @@ export async function finishBuild(id, { propose = false, out = null, root = null
     fail('WORKFLOW_BUILD_NOT_READY', result.changeSet.changes.length ? `The workflow cannot be saved yet: ${result.plan.problems[0]?.message}`
       : record.goal.change ? `Nothing in ${result.draft.workflow.label} is changed yet; accept a proposal that changes it first.` : 'The build has no steps yet; accept a proposal that adds them first.');
   }
-  if (record.goal.simplify) record = await verifiedForFinish(record, { root, env, acceptProblems, walk });
-  else if (acceptProblems.length) fail('WORKFLOW_BUILD_USAGE', '--accept-problem is for a simplify build, which is verified before it finishes; this build is not one.');
+  // A simplify or assess build is verified on what it would propose before it finishes.
+  if (record.goal.simplify || record.goal.assess) record = await verifiedForFinish(record, { root, env, acceptProblems, walk });
+  else if (acceptProblems.length) fail('WORKFLOW_BUILD_USAGE', '--accept-problem is for a simplify or assess build, which is verified before it finishes; this build is not one.');
   const repository = repositoryOf(record, root);
   const paths = await workflowBuildPaths(id, { env });
   if (out) {

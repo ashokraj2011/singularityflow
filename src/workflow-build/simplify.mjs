@@ -579,6 +579,11 @@ export async function walkCandidate({ repository, candidate, workflow }) {
       stops: [{ id: 'walk-failed', step: null, title: `The walk could not run: ${error.message}`, detail: null, kind: 'not-judged' }] };
   }
 }
+/** An assessment in brief, for verify's before and after: size, the team's own text and the counts. */
+function summaryOf(result) {
+  const workflow = result?.workflows?.[0];
+  return workflow ? { bytes: workflow.size?.bytes ?? 0, tokens: workflow.size?.tokens ?? 0, teamBytes: workflow.size?.team?.bytes ?? 0, counts: workflow.counts } : null;
+}
 // One workflow, walked once per verification (and kept for finishing while the build is unchanged).
 const WALK_TOTAL_SECONDS = 1800;
 
@@ -619,6 +624,9 @@ export async function verifyBuild(id, { root = null, env = process.env, walk = w
     const draft = draftOf(record, model);
     const workflowId = draft.workflow.id;
     const before = originalId ? workflowFingerprint(model.workflows.find((workflow) => workflow.id === originalId)) : null;
+    // An assess build shows what its agents are told before and after (src/workflow-assess/).
+    const assess = record.goal.assess ? await import('../workflow-assess/index.mjs') : null;
+    const assessedBefore = assess ? await assess.assessWorkflows(repository, { workflows: [workflowId] }) : null;
     const walkKey = `sha256:${createHash('sha256').update(JSON.stringify(lowerDraft(draft, model))).digest('hex')}`;
     const kept = walk === walkCandidate && record.verification?.walkKept?.key === walkKey ? record.verification.walkKept.walk : null;
     const { changeSet, plan } = await planFor(repository, draft, model, { inspect: async (candidate) => {
@@ -627,11 +635,12 @@ export async function verifyBuild(id, { root = null, env = process.env, walk = w
       const resolved = await loadDefinition(candidate).then((definition) => resolveWorkType(definition, workflowId), () => null);
       const policies = Object.fromEntries((resolved?.phases ?? []).map((phase) => [phase.id, phase.clarification ?? null]));
       return { validation, policies, walk: kept ? { ...kept, reused: true } : await walk({ repository, candidate, workflow: workflowId }),
-        original: originalId ? workflowFingerprint((await buildStudioModel(candidate)).workflows.find((workflow) => workflow.id === originalId)) : null };
+        original: originalId ? workflowFingerprint((await buildStudioModel(candidate)).workflows.find((workflow) => workflow.id === originalId)) : null,
+        ...(assess ? { assessment: await assess.assessWorkflows(candidate, { workflows: [workflowId], applicationRoot: repository }) } : {}) };
     } });
-    return { workflowId, label: draft.workflow.label, changeSet, plan, before, walkKey };
+    return { workflowId, label: draft.workflow.label, changeSet, plan, before, walkKey, assessedBefore };
   });
-  const { workflowId, changeSet, plan, before, walkKey } = outcome;
+  const { workflowId, changeSet, plan, before, walkKey, assessedBefore } = outcome;
   const inspection = plan.inspection ?? null;
   const remaining = [];
   if (!plan.valid) remaining.push(...plan.problems.map((problem, index) => ({ id: `plan-${index + 1}`, source: 'plan', code: problem.code, title: problem.message, detail: null, location: null, acceptable: false })));
@@ -640,6 +649,12 @@ export async function verifyBuild(id, { root = null, env = process.env, walk = w
   if (inspection?.validation) remaining.push(...validationProblems(inspection.validation, workflowId, (step) => inspection.policies?.[step] ?? null));
   const walked = inspection?.walk ?? { available: false, reason: 'The workflow could not be staged, so it was not walked.', stops: [] };
   remaining.push(...(walked.stops ?? []).map((stop) => ({ ...stop, source: 'walk', acceptable: true })));
+  // What the assessment still finds a problem in the result: the person accepts each, or a change fixes it.
+  const assessedAfter = inspection?.assessment ?? null;
+  for (const finding of (assessedAfter?.workflows?.[0]?.findings ?? []).filter((entry) => entry.severity === 'problem')) {
+    remaining.push({ id: finding.id, source: 'assess', code: finding.code, title: finding.title, detail: finding.detail, location: finding.location ?? null,
+      ...(finding.suggestion?.text ? { fix: finding.suggestion.text } : {}), ...(finding.suggestion?.moves?.length === 1 ? { move: finding.suggestion.moves[0] } : {}), acceptable: true });
+  }
   if (originalId && inspection && inspection.original !== before) {
     remaining.push({ id: 'original-changed', source: 'original', code: 'WORKFLOW_SIMPLIFY_ORIGINAL_CHANGED', title: `The change set would also change ${originalId}; a simpler workflow is a new one and leaves the original as it is.`, detail: null, location: null, acceptable: false });
   }
@@ -655,6 +670,7 @@ export async function verifyBuild(id, { root = null, env = process.env, walk = w
     validation: inspection?.validation ? validation : null,
     walk: { available: Boolean(walked.available), ...(walked.command ? { command: walked.command } : {}), ...(walked.outcome ? { outcome: walked.outcome } : {}),
       ...(walked.reused ? { reused: true } : {}), ...(walked.reason ? { reason: walked.reason } : {}), ...(walked.error ? { error: walked.error } : {}), stops: walked.stops ?? [] },
+    ...(record.goal.assess ? { assessment: { before: summaryOf(assessedBefore), after: summaryOf(assessedAfter) } } : {}),
     remaining, accepted: remaining.filter((entry) => entry.acceptable && acceptedIds.has(entry.id)).map((entry) => entry.id),
     ready: !open.length,
     finish: `singularity-flow workflow build finish --build ${record.id} --propose`,

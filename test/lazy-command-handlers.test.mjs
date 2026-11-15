@@ -616,7 +616,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 9,663,250 (measured 9,663,230, commands/phase-lifecycle.mjs): the three above together, set once at the combined measurement.
     // 9,664,300 (measured 9,664,296): SPEC-CIC stage 7's default and the Decide card's Copilot routes for a person's own
     // steps, measured together where both land (2026-11-15). No new eager file.
-    assert.ok(closure.bytes <= 9_664_300, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,667,450 (measured 9,667,440): with each person's own GitHub account (git.mjs, session.mjs) and workflow assess
+    // also landed, measured together for the stable build (2026-11-15). No new eager file.
+    assert.ok(closure.bytes <= 9_667_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -931,8 +933,8 @@ test('the common session projection does not import attach, state stores or publ
   // A cached GitHub account answers only the environment and Git email it was resolved
   // for, and an agent session's actor only the environment that chose it (git.mjs +2,141, session.mjs +438) (real run,
   // 2026-11-15: one person's login and name were on another person's records). No new eager file.
-  // MEASURE-COMBINED
-  assert.ok(current.bytes <= 4_258_200, `session current loads ${current.bytes} source bytes`);
+  // 4,260,800 (measured 4,260,782): the three above together with workflow assess, measured for the stable build (2026-11-15).
+  assert.ok(current.bytes <= 4_260_800, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

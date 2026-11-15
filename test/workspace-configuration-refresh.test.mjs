@@ -4228,6 +4228,23 @@ test('a review-only refresh proposes packaged configuration on a review branch a
     result.candidateCommit);
 });
 
+// The upgrade analysis's F5 (UP-F5, SCF:REQ-018): refresh committed inside a clone whose transport environment hides the
+// person's Git configuration, so every packaged-configuration commit carried the OS login and unknown@invalid.
+test('a refresh commit names the person who ran it, never the OS login or unknown@invalid [SCF:REQ-018, UP-F5]', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-identity-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'application');
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  const [result] = (await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: preview.planId, reviewOnly: true
+  })).results;
+  assert.equal(result.status, 'review-required');
+  const signature = run('git', ['--git-dir', remote, 'log', '-1', '--format=%an <%ae>|%cn <%ce>', result.candidateCommit]).stdout.trim();
+  // The registered checkout's own Git identity (repositoryFixture), resolved before the isolated clone.
+  assert.equal(signature, 'Configuration Test <configuration@example.test>|Configuration Test <configuration@example.test>');
+  assert.doesNotMatch(signature, /unknown@invalid/u);
+});
+
 test('every machine proposing the same packaged configuration shares one review', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-only-shared-'));
   t.after(() => rm(root, { recursive: true, force: true }));

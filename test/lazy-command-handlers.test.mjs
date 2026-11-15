@@ -921,7 +921,9 @@ test('the common session projection does not import attach, state stores or publ
   // Copilot route too, read wherever a route is shown (model-free-commands.mjs +1,751, safe-command-guidance.mjs +366)
   // (paid run, 2026-11-14), on top of the 4,253,868 above. No new eager file.
   // 4,256,350 (measured 4,256,301): the upkeep class (command-registry.mjs) [SPEC-SCF stage 1d, 2026-11-15]. No new eager file.
-  assert.ok(current.bytes <= 4_256_350, `session current loads ${current.bytes} source bytes`);
+  // 4,257,400 (measured 4,257,378): configuration commits name the person, read past a transport's hidden Git
+  // configuration (git.mjs configurationCommitIdentity, +1,077) [SPEC-SCF stage 1b, 2026-11-15]. No new eager file.
+  assert.ok(current.bytes <= 4_257_400, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

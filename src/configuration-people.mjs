@@ -14,7 +14,7 @@ import {
   takeStoryConfigurationCheckout, captureEnrolledConfigurationSnapshot, withRetainedConfigurationSnapshot
 } from './configuration-branch.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
-import { identity } from './git.mjs';
+import { configurationCommitIdentity, identity } from './git.mjs';
 import { assertCredentialFreeRemote, sanitizeRemote, frozenRemoteTransport, failureEvidence, safeGitDiagnosticReference } from './git-remote-diagnostics.mjs';
 import { gitDisabledHooksPath } from './platform-process.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
@@ -245,6 +245,9 @@ export function enrollmentPendingNotice(enrollment) {
   const retry = enrollment?.transportIntent && !diverged ? `singularity-flow sync ${enrollment.transportIntent}` : null;
   const reason = diverged
     ? ` ${CONFIGURATION_BRANCH} moved before the push landed, so the next Story start adds you again.`
+    : fault?.classification === 'git-identity-required'
+      ? ' A configuration commit names who made it, and Git has no user.name and user.email for you: set them '
+        + '(git config --global user.name <NAME>, git config --global user.email <EMAIL>), and the next Story start adds you.'
     : fault ? ` Git refused the push to ${CONFIGURATION_BRANCH}${fault.classification ? ` (${fault.classification})` : ''}`
       + `${fault.evidence?.diagnostic?.trim() ? `: "${fault.evidence.diagnostic.trim()}"` : ''}.${fault.advice ? ` ${fault.advice}` : ''}` : '';
   const then = retry ? ` ${fault ? 'After fixing that, run' : 'Run'}: ${retry}.` : '';
@@ -275,6 +278,13 @@ export async function publishCurrentIdentityToConfiguration(root, {
   }
   const actor = identity(root);
   const member = normalizedMember(actor);
+  // Who the configuration commit names, from the person's own checkout and Git configuration before the isolated
+  // clone below (SCF:REQ-018): never the OS login or a placeholder address.
+  let author = null, authorRequired = null;
+  try { author = configurationCommitIdentity(root); } catch (error) {
+    if (error?.code !== 'GIT_COMMIT_IDENTITY_REQUIRED') throw error;
+    authorRequired = error;
+  }
   if (expectedSourceCommit != null) {
     if (!/^[0-9a-f]{40,64}$/u.test(String(expectedSourceCommit))) {
       throw new SingularityFlowError('Expected configuration source commit must be one exact Git commit.');
@@ -439,10 +449,21 @@ export async function publishCurrentIdentityToConfiguration(root, {
       ...(autoEnrollmentChanged ? [{ op: 'approval-security.set', field: 'autoEnrollNewIdentities', value: desiredAutoEnrollment }] : [])
     ] };
     const intentSha256 = `sha256:${createHash('sha256').update(canonicalJson(intent)).digest('hex')}`;
+    if (authorRequired) {
+      if (!automatic) throw authorRequired;
+      // A Story starts without the person in the approval groups, as it does when Git refuses the push.
+      return {
+        changed: true, pushed: false, branch: CONFIGURATION_BRANCH, commit: previousCommit, identity: member,
+        groups: changedGroups, profile: previousProfile, approvalSecurity: currentSecurity, automatic: true,
+        transportIntent: null, transportStatus: null,
+        fault: { classification: 'git-identity-required', advice: authorRequired.message },
+        nextAction: authorRequired.details?.nextAction ?? null
+      };
+    }
     await (await repositoryCommitPolicyModule('writer', scratch)).runPolicyCommit(scratch, [
       '-c', `core.hooksPath=${gitDisabledHooksPath()}`,
-      '-c', `user.name=${member.name || 'Singularity Flow contributor'}`,
-      '-c', `user.email=${member.email || 'unknown@invalid'}`,
+      '-c', `user.name=${author.name}`,
+      '-c', `user.email=${author.email}`,
       'commit', '-m', `[configuration] add ${member.email || member.githubLogin} to approval authorities`,
       '-m', `Sflow-Intent-Kind: ${intent.kind}\nSflow-Intent-Sha256: ${intentSha256}`
     ], {

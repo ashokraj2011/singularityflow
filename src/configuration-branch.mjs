@@ -25,7 +25,7 @@ import {
   setDefaultBaseBranch
 } from './bootstrap.mjs';
 import { loadCapabilities } from './capabilities.mjs';
-import { gitCommitIdentity } from './git.mjs';
+import { configurationCommitIdentity } from './git.mjs';
 import { repositoryGitDirectory } from './git-directory.mjs';
 import { realpathSync as canonicalPathSync } from 'node:fs';
 import {
@@ -962,7 +962,9 @@ export async function prepareConfigurationBootstrapWorktree(root, {
       await rm(path.join(root, 'singularity/capabilities.yml'), { force: true });
     }
 
-    const actor = authorIdentity ?? gitCommitIdentity(identityRoot ?? root, { env: identityEnv });
+    // The person creating the authority, from their checkout and Git configuration, never the isolated scratch
+    // clone's hidden configuration (SCF:REQ-018, UP-F5).
+    const actor = authorIdentity ?? configurationCommitIdentity(identityRoot ?? root, { env: identityEnv });
     if (authorIdentity && (typeof actor?.name !== 'string' || !actor.name.trim()
         || typeof actor?.email !== 'string' || !actor.email.trim())) {
       throw new SingularityFlowError(
@@ -1387,8 +1389,8 @@ export async function ensureConfigurationBranch(remote, {
     });
     run('git', ['add', '-A'], { cwd: scratch, env: frozen.env });
     await (await repositoryCommitPolicyModule('writer', scratch)).runPolicyCommit(scratch, [
-      '-c', `user.name=${actor.name || 'Singularity Flow'}`,
-      '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+      '-c', `user.name=${actor.name}`,
+      '-c', `user.email=${actor.email}`,
       'commit', '-m', '[configuration] establish Singularity configuration authority'
     ], {
       env: frozen.env, legacyRun: (argv, opts) => run('git', argv, {...opts, cwd: scratch})

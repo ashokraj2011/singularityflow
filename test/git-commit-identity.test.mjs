@@ -5,11 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  gitCommitIdentityArgs, gitCommitIdentityEnvironment, gitCommitSigningArgs,
+  configurationCommitIdentity, gitCommitIdentityArgs, gitCommitIdentityEnvironment, gitCommitSigningArgs,
   preflightGitCommitIdentity, resolveGitCommitIdentity, resolveGitCommitSigning,
   validateGitCommitIdentity
 } from '../src/git.mjs';
 import { run } from '../src/util.mjs';
+import { enterpriseGitEnvironment } from '../src/git-enterprise-environment.mjs';
 
 async function repository() {
   const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-commit-identity-'));
@@ -101,6 +102,32 @@ test('commit identity uses a labelled fallback only for absence and rejects malf
       source: 'configured'
     }), (error) => error.code === 'GIT_COMMIT_IDENTITY_INVALID');
   }
+});
+
+// UP-F5 (SCF:REQ-018): a configuration commit made under a remote-transport environment, which hides global Git
+// configuration, carried the OS login and unknown@invalid. It names the person, or refuses with the route.
+test('a configuration commit identity is the person\'s Git identity, never a placeholder [SCF:REQ-018, UP-F5]', async () => {
+  const { parent, root } = await repository();
+  const home = path.join(parent, 'home');
+  await mkdir(home);
+  await writeFile(path.join(home, '.gitconfig'), '[user]\n\tname = Person Global\n\temail = person@example.test\n');
+  const personEnv = { ...process.env, HOME: home, USERPROFILE: home, USER: 'os-login' };
+  for (const name of ['GIT_CONFIG_GLOBAL', 'XDG_CONFIG_HOME', 'SINGULARITY_FLOW_TEST_IDENTITY']) delete personEnv[name];
+  const transport = enterpriseGitEnvironment(personEnv);
+  assert.equal(resolveGitCommitIdentity(root, { env: transport }).source, 'service-fallback', 'the transport environment hides it');
+  assert.deepEqual(configurationCommitIdentity(root, { env: transport }), { name: 'Person Global', email: 'person@example.test', source: 'configured' });
+  run('git', ['config', 'user.email', 'person@repository.example.test'], { cwd: root });
+  assert.equal(configurationCommitIdentity(root, { env: personEnv }).email, 'person@repository.example.test', 'the checkout\'s own identity wins');
+  const empty = path.join(parent, 'empty.gitconfig');
+  await writeFile(empty, '');
+  const none = path.join(parent, 'no-identity');
+  await mkdir(none);
+  assert.throws(() => configurationCommitIdentity(none, { env: { ...personEnv, GIT_CONFIG_GLOBAL: empty } }), (error) => {
+    assert.equal(error.code, 'GIT_COMMIT_IDENTITY_REQUIRED');
+    assert.equal(error.details.nextAction.command, 'git config --global user.email <EMAIL>');
+    assert.doesNotMatch(error.message, /os-login|unknown@invalid/u);
+    return true;
+  });
 });
 
 test('frozen signing preserves Git alias order and a custom signer through isolation', async () => {

@@ -37,10 +37,10 @@ import { atomicJson, workspaceRepositoryPath } from './workspace.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
-  defaultBranchName, gitCommitIdentity, gitCommitIdentityArgs,
+  configurationCommitIdentity, defaultBranchName, gitCommitIdentity, gitCommitIdentityArgs,
   gitCommitIdentityEnvironment, gitCommitSigningArgs, head, identity, preflightGitCommitIdentity,
   proposalGitChangedPaths, proposalGitFile, proposalGitLineageCommit,
-  proposalGitRef, proposalGitStatus, resolveGitCommitIdentity, resolveGitCommitSigning
+  proposalGitRef, proposalGitStatus, resolveGitCommitSigning
 } from './git.mjs';
 import { CAPABILITY_VALUE_CONFLICT_CODE, replayCapabilityProposal } from './capability-value-replay.mjs';
 import {
@@ -4880,7 +4880,7 @@ export async function publishOrganisationCapabilityMap(url, {
   // must produce the same author/signing evidence as the initiating checkout, including when the
   // command is launched from an editor extension host.
   const identityRoot = path.resolve(String(initiatingRoot ?? process.cwd()));
-  const frozenCommitIdentity = resolveGitCommitIdentity(identityRoot, { env: initiatingEnv });
+  const frozenCommitIdentity = configurationCommitIdentity(identityRoot, { env: initiatingEnv });
   const gitEnv = enterpriseGitEnvironment(initiatingEnv);
   const session = new GitRemoteSession({ env: gitEnv });
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
@@ -6894,7 +6894,8 @@ export async function activateCapabilityProposal(url, branch, {
   // The borrowed clone deliberately cannot see local/global author configuration. Freeze the
   // presentation identity before creating it; authorization is resolved separately below.
   const identityRoot = path.resolve(String(initiatingRoot ?? process.cwd()));
-  const frozenCommitIdentity = resolveGitCommitIdentity(identityRoot, {
+  // Never the service placeholder: a configuration commit names the person (SCF:REQ-018).
+  const frozenCommitIdentity = configurationCommitIdentity(identityRoot, {
     env: initiatingEnv
   });
   // Authorization identity belongs to the contributor who initiated the operation, not to the

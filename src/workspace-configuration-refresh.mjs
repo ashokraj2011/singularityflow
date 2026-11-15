@@ -4,6 +4,7 @@ import { removedWorldModelError } from './removed-features.mjs';
 import {
   chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile
 } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -25,7 +26,7 @@ import { SMART_INITIALIZATION_ASSETS } from './initialization-assets.mjs';
 import { parseAgentDependencies } from './agents.mjs';
 import { librarySkillPath, parseLibrarySkill, parseSkillAttachments, SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
 import { instructionPath } from './instruction-library.mjs';
-import { gitCommitIdentity, refHead } from './git.mjs';
+import { configurationCommitIdentity, refHead } from './git.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
 } from './git-enterprise-environment.mjs';
@@ -1862,7 +1863,7 @@ async function prepareBootstrapInspectionCandidate(observation, options, {
     // authoring metadata, so read it through the ordinary Git scopes after stripping inherited
     // process-level Git selectors. This preserves a user's globally configured identity without
     // admitting GIT_CONFIG_* overrides into the reviewed candidate.
-    const authorIdentity = gitCommitIdentity(repository.localPath, { env: identityEnv });
+    const authorIdentity = configurationCommitIdentity(personIdentityRoot(repository), { env: identityEnv });
     const frameworkApprovalAuthoritySeeds = {
       workflow: YAML.parse(await readFile(
         path.join(PACKAGE_ROOT, 'templates', 'workflow.yml'), 'utf8'
@@ -1906,8 +1907,8 @@ async function prepareBootstrapInspectionCandidate(observation, options, {
     };
     run('git', ['add', '-A'], { cwd: scratch, env: commitEnv });
     run('git', [
-      '-c', `user.name=${authorIdentity.name || 'Singularity Flow'}`,
-      '-c', `user.email=${authorIdentity.email || 'unknown@invalid'}`,
+      '-c', `user.name=${authorIdentity.name}`,
+      '-c', `user.email=${authorIdentity.email}`,
       '-c', 'commit.gpgSign=false',
       'commit', '--no-verify', '-m', '[configuration] establish reviewed Singularity configuration authority'
     ], { cwd: scratch, env: commitEnv });
@@ -3143,16 +3144,26 @@ async function identicalConcurrentConfiguration(root, candidateCommit, { env = p
   return candidateTree === approvedTree ? approvedCommit : null;
 }
 
+/**
+ * The folder the person's own Git identity is read from: their registered checkout of this repository, or, when it
+ * is not on this computer, no checkout (their global configuration only). Never the isolated refresh clone.
+ */
+function personIdentityRoot(repository) {
+  return repository?.localPath && existsSync(repository.localPath) ? repository.localPath : os.homedir();
+}
+
 /** Commit a candidate's refreshed configuration; its commit, or null when nothing was staged. */
-function commitRefreshCandidate(root, refresh, env, subject) {
+function commitRefreshCandidate(root, refresh, env, subject, repository) {
   run('git', ['add', '-A', '--', ...refresh.files], { cwd: root, env });
   const staged = run('git', ['diff', '--cached', '--name-only'], { cwd: root, env }).stdout
     .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
   if (!staged.length) return null;
-  const actor = gitCommitIdentity(root, { env });
+  // The person who ran the refresh, from their own checkout and Git configuration (SCF:REQ-018, UP-F5): this
+  // clone's transport environment hides their global identity, which left the OS login and unknown@invalid.
+  const actor = configurationCommitIdentity(personIdentityRoot(repository), { env: withoutGitProcessOverrides(process.env) });
   run('git', [
-    '-c', `user.name=${actor.name || 'Singularity Flow'}`,
-    '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+    '-c', `user.name=${actor.name}`,
+    '-c', `user.email=${actor.email}`,
     'commit', '-m', `[configuration][product:${refresh.product.revision}] ${subject}`
   ], { cwd: root, env });
   const candidateRef = observeExactRefreshRef(root, `refs/heads/${CONFIGURATION_BRANCH}`, { env });
@@ -3204,7 +3215,7 @@ async function proposeCandidate(candidate) {
     conflicts: refresh.conflicts, configurationChanged: false, stateChanged: false, error: null, ...extra
   });
   if (!refresh.changed) return result('current');
-  const candidateCommit = commitRefreshCandidate(root, refresh, env, 'propose packaged configuration');
+  const candidateCommit = commitRefreshCandidate(root, refresh, env, 'propose packaged configuration', repository);
   if (!candidateCommit) return result('current');
   const proposal = reviewProposal(root, candidateCommit, sourceCommit, env);
   const pushed = await runRemoteGitAsync([
@@ -3233,7 +3244,7 @@ async function publishCandidate(candidate) {
   // durable mutation without authoring a second refresh commit.
   let configurationChanged = candidate.bootstrapConfigurationCreated === true;
   if (refresh.changed) {
-    const candidateCommit = commitRefreshCandidate(root, refresh, env, 'refresh packaged configuration');
+    const candidateCommit = commitRefreshCandidate(root, refresh, env, 'refresh packaged configuration', repository);
     if (candidateCommit) {
       const pushed = await runRemoteGitAsync([
         'push', `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${sourceCommit}`,

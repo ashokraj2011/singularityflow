@@ -123,7 +123,8 @@ test('a step approver accepts a Story-only test command, and publication and sub
   assert.equal(requested.next[0].command, 'singularity-flow decisions QF-1 --json');
   assert.equal(requested.next[0].copilotCommand, '/sf-decide QF-1');
   assert.equal(requested.next[1].command, 'singularity-flow decision test-command QF-1 --accept TCD-001');
-  assert.equal(requested.next[1].copilotCommand, null, 'the review route grants no acceptance authority');
+  // Its acceptance is a person's on the Decide card, which /sf-decide opens [owner, 2026-11-15]: no turn accepts it.
+  assert.equal(requested.next[1].copilotCommand, '/sf-decide QF-1', 'the acceptance route is the card, never a turn');
   const requestedHead = must('git', ['rev-parse', 'HEAD']);
   const repeated = json('decision', 'test-command', '--phase', 'implement', '--id', 'repository-checks',
     '--argv', JSON.stringify([process.execPath, 'run-checks.mjs']), '--working-directory', '.', '--affected-root', '.',

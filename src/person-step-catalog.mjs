@@ -54,8 +54,8 @@ export function adjudicationTableStep([command, sub, item], options) {
  * Steps only a person takes, in their own terminal. copilot-mutation-guard.mjs refuses each in every
  * turn, so a skill route to one only showed it again and pointed back to that skill: /sf-decide for
  * a witness (2026-10-26), then for an accepted test command and its decision-list record
- * (2026-10-27). No surface routes them to a skill. test/phase-mutation-contract.test.mjs holds the
- * guard's refusals and the routes to this list.
+ * (2026-10-27). No surface routes them to a skill but the Decide card, for one it records (/sf-decide opens
+ * it, decideCardStep) [owner, 2026-11-15]. test/phase-mutation-contract.test.mjs holds the guard's refusals.
  */
 export const OWN_TERMINAL_STEPS = Object.freeze([
   ['witness', ([command, sub]) => command === 'decision' && sub === 'witness'],

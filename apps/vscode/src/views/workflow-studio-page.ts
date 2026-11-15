@@ -3250,8 +3250,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     aside.appendChild(section('workflow', 'Workflow', [
       field('board-label', 'Name', textInput('board-label', workflow.label, function (value) { if (value.trim()) { workflow.label = value.trim(); changed(); } })),
       field('board-description', 'What it is for', textInput('board-description', workflow.description, function (value) { workflow.description = value.trim(); changed(); })),
-      el('span', { class: 'hint', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.isNew || workflow.installFrom ? ' · new, not published yet' : '') })
-    ]));
+      el('span', { class: 'hint', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.isNew || workflow.installFrom ? ' · new, not published yet' : '') }),
+      changeImpactHint(workflowId)
+    ].filter(Boolean)));
     aside.appendChild(section('rules', 'Rules & decisions', workflowRules(workflowId), null, String((workflow.reworkLoops || []).length + (workflow.decisions || []).length)));
     var claimsSection = plannedClaimsSection(workflowId, workflow);
     if (claimsSection) aside.appendChild(claimsSection);
@@ -3261,6 +3262,16 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     ], null, null, true));
     aside.appendChild(el('div', { class: 'prop-actions' }, button('Back to the step', function () { state.panel = null; render(); }, { class: 'secondary' })));
     return aside;
+  }
+
+  /** Its change impact as the engine applies it: on by default, in code, never written into workflow.yml (owner, 2026-11-15). */
+  function changeImpactHint(workflowId) {
+    var entry = (state.model.workflows || []).find(function (candidate) { return candidate.id === workflowId; });
+    var impact = (entry && entry.changeImpact) || state.model.changeImpact;
+    if (!impact) return null;
+    return el('span', { class: 'hint', 'data-key': 'change-impact', text: impact.text + '. ' + (impact.value === 'on'
+      ? 'A requirement change records what each step depended on and is sized editorial, refinement or material; spec.changeImpact: off in workflow.yml turns it off.'
+      : 'spec.changeImpact: on in workflow.yml turns it on.') });
   }
 
   function workflowRules(workflowId) {
@@ -6264,6 +6275,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     return item ? item.name : id;
   }
 
+  /** A quoted text, on one line and short enough to read in the conversation. */
+  function clipText(text) {
+    var value = String(text || '').replace(/\s+/g, ' ').trim();
+    return value.length > 90 ? value.slice(0, 89) + '…' : value;
+  }
+
   /** One move, in plain words, as the conversation shows it. */
   function moveText(move) {
     var sendBack = function (value) { return value && value !== 'none' && value.sendBackTo && value.sendBackTo.length ? 'if rejected, back to ' + value.sendBackTo.map(buildStepLabel).join(' or ') : ''; };
@@ -6274,8 +6291,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         : 'Add the step ' + (move.label || move.id) + (move.from ? ' (a copy of ' + buildStepLabel(move.from) + ')' : '') + (move.after ? ' after ' + buildStepLabel(move.after) : move.after === null ? ' at the start' : '')
           + (move.agent ? ', drafted by ' + buildName('agent', move.agent) : '') + (move.output ? ', ' + (BUILD_OUTPUT_WORDS[move.output] || move.output) : '')
           + (move.changesCode === false ? ', changes no code' : move.changesCode === true ? ', may change code' : '') + signOff(move.signOff);
-      case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff'].filter(function (key) { return move[key] !== undefined; })
-        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'changesCode' ? (move.changesCode ? 'may change code' : 'changes no code')
+      case 'step.change': return 'Change ' + buildStepLabel(move.id) + ': ' + ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'edit'].filter(function (key) { return move[key] !== undefined; })
+        .map(function (key) { return key === 'purpose' ? 'what it is for' : key === 'edit' ? 'its template text' : key === 'changesCode' ? (move.changesCode ? 'may change code' : 'changes no code')
           : key === 'signOff' ? 'sign-off' + (sendBack(move.signOff) ? ' (' + sendBack(move.signOff) + ')' : '') : key; }).join(', ');
       case 'step.remove': return 'Remove ' + buildStepLabel(move.id) + ' from this workflow';
       case 'step.move': return 'Move ' + buildStepLabel(move.id) + (move.after ? ' after ' + buildStepLabel(move.after) : ' to the start');
@@ -6298,6 +6315,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       case 'item.leaveOut': return 'Leave out ' + buildItemName(move.item) + ': ' + move.reason;
       case 'item.keepAsLink': return 'Keep ' + buildItemName(move.item) + ' as a link';
       case 'item.prerequisite': return 'Needed first: ' + buildItemName(move.item) + ' (' + move.description + ')';
+      // What a step's agent is told, changed by exact text (src/workflow-build/text-moves.mjs).
+      case 'agent.edit': return (move.new ? 'Change' : 'Take out') + ' text in ' + buildName('agent', move.agent) + (move.copy ? ' (on a copy for this workflow, ' + move.copy + ')' : '') + ': "' + clipText(move.old) + '"';
+      case 'skill.edit': return (move.new ? 'Change' : 'Take out') + ' text in the skill ' + move.skill + (move.copy ? ' (on a copy for this workflow, ' + move.copy + ')' : '') + ': "' + clipText(move.old) + '"';
+      case 'instruction.edit': return (move.new ? 'Change' : 'Take out') + ' text in the instruction ' + move.instruction + ': "' + clipText(move.old) + '"';
+      case 'instruction.extract': return 'Keep "' + clipText(move.text) + '" in one shared instruction, ' + move.id + ', for ' + (move.steps || []).map(buildStepLabel).join(', ') + ', and take it out of ' + (move.from || []).length + ' files';
       default: return move.move;
     }
   }

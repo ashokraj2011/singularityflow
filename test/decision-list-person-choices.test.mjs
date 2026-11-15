@@ -63,6 +63,12 @@ test('recording a statement names its clauses as the Story\'s index spells them,
   assert.deepEqual(choose('scope-included', { clause: { d1: 'req-001, W-1:AC-010' } }).steps[0].values.clause, ['W-1:REQ-001', 'W-1:AC-010']);
   assert.throws(() => choose('scope-included'), (error) => error instanceof SingularityFlowError && /Name the clauses/u.test(error.message));
   assert.throws(() => choose('scope-included', { clause: { d1: 'REQ-999' } }), /REQ-999, which is not a clause of this Story\. Its clauses: W-1:REQ-001/u);
+  // A short ID ending two of the Story's clauses is never guessed: both are named (stage 7 run, 2026-11-15).
+  const adopted = decisionPacket(story(), { phaseId: 'design', gaps: [], issues: [], approvalCheck: null, ...owed({ ...scope('SRI-1'), clauses: ['W-1:REQ-001', 'TOY-1:REQ-001'] }) },
+    { authorities: AUTHORITIES, actor: ME, at: AT });
+  assert.throws(() => decisionRecordPlan(adopted, parseDecisionAnswers({ choose: { d1: 'scope-included' }, reason: { d1: 'The first requirement carries this statement.' }, clause: { d1: 'REQ-001' } }), { at: AT }),
+    (error) => error.code === 'DECISIONS_ANSWER_INVALID' && /names REQ-001, which could mean W-1:REQ-001 or TOY-1:REQ-001; name it in full\./u.test(error.message));
+  assert.deepEqual(decisionRecordPlan(adopted, parseDecisionAnswers({ choose: { d1: 'scope-included' }, reason: { d1: 'The first requirement carries this statement.' }, clause: { d1: 'TOY-1:REQ-001' } }), { at: AT }).steps[0].values.clause, ['TOY-1:REQ-001']);
   assert.throws(() => choose('scope-excluded', { clause: { d1: 'REQ-001' } }), /takes no --clause/u);
   assert.match(effectWords(story(), choose('scope-included', { clause: { d1: 'REQ-001' } }).steps[0].effects[0], { clause: ['W-1:REQ-001'] }), /record scope item SRI-1 as included, carried by REQ-001/u);
   assert.throws(() => decisionRecordPlan(packet, parseDecisionAnswers({ choose: { d1: 'scope-excluded' }, reason: { d1: 'Too short.' } }), { at: AT }), /must be 20 to 1000/u);

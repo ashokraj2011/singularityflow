@@ -1036,7 +1036,7 @@ test('delivery locator previews reuse exact-ref lead cache and revalidate moved 
   }
 });
 
-test('a delivery locator remains schema-safe while its lead is recoverable only from state', async () => {
+test('a delivery locator stays schema-safe and unverified while its lead has only the state copy [SCF:REQ-001]', async () => {
   const lead = await repositoryFixture('recoverable-lead');
   const delivery = await repositoryFixture('recoverable-delivery');
   const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
@@ -1062,16 +1062,22 @@ test('a delivery locator remains schema-safe while its lead is recoverable only 
       'singularity/capability-authority.json': `${JSON.stringify(link, null, 2)}\n`
     });
 
+    // The lead's `state` copy is never authority (SCF:REQ-001): the locator cannot be proven until sflow/config is back.
     const plan = await inspectRepositoryOnboarding(delivery.remote);
-    assert.equal(plan.status, 'linked-to-team-configuration');
-    assert.equal(plan.routing.verified, true);
+    assert.equal(plan.status, 'needs-a-choice');
+    assert.equal(plan.routing.verified, false);
+    assert.equal(plan.routing.validationCode, 'STORY_CONFIGURATION_AUTHORITY_MISSING');
     assert.equal(Object.hasOwn(plan.routing, 'configurationCommit'), false,
       'an unavailable approved ref must be omitted instead of emitted as schema-invalid null');
+    // Restored, the same locator is proven against the lead's approved configuration.
+    run('git', ['update-ref', `refs/heads/${CONFIGURATION_BRANCH}`, mapped.commit], { cwd: lead.remote });
+    const restored = await inspectRepositoryOnboarding(delivery.remote);
+    assert.equal(restored.status, 'linked-to-team-configuration');
+    assert.equal(restored.routing.verified, true);
     const result = await applyRepositoryOnboarding(delivery.remote, {
-      confirmPlan: plan.planId
+      confirmPlan: restored.planId
     });
     assert.equal(result.status, 'linked-to-team-configuration');
-    assert.equal(Object.hasOwn(result.routing, 'configurationCommit'), false);
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
@@ -1092,11 +1098,10 @@ test('a full state mirror restores missing configuration through an exact confir
       cwd: fixture.remote
     });
 
-    const organisation = await readOrganisation(fixture.remote, { refresh: true });
-    assert.equal(organisation.governed, true,
-      'ordinary capability discovery consumes the verified recovery mirror');
-    assert.equal(organisation.recoveryAvailable, true);
-    assert.equal(organisation.recoverySourceCommit, mirror.sourceCommit);
+    // Ordinary capability discovery never reads the copy (SCF:REQ-001); it names this restore as the way back.
+    await assert.rejects(() => readOrganisation(fixture.remote, { refresh: true }), (error) =>
+      error.code === 'STORY_CONFIGURATION_AUTHORITY_MISSING' && error.details.reason === 'configuration-branch-missing');
+    assert.ok(mirror.sourceCommit);
 
     const plan = await inspectRepositoryOnboarding(fixture.remote);
     assert.equal(plan.state.kind, 'configuration-mirror');

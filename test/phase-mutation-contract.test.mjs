@@ -545,6 +545,70 @@ test('/sf-confirm turns run only the command carrying the digest the person type
   assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/u);
 });
 
+// The workspaces analysis's finding 1 (WS-1, SCF:REQ-023): VS Code's heartbeat ran as a mutation in the Story checkout,
+// so the CLI refreshed every live turn there as if that turn had run it. A /sf-confirm turn ended before its own
+// command ran, and a shell change made while it ran was absorbed into the turn's baseline.
+test('the window heartbeat is upkeep, and a /sf-confirm turn ends only after its own command [SCF:REQ-023, WS-1]', async t => {
+  const { resolveOperation } = await import('../src/command-registry.mjs');
+  const heartbeat = resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'retention'],
+    options: { heartbeat: true, surface: 'window', pid: '42', json: true } });
+  assert.equal(heartbeat.classification, 'upkeep', 'machine-local upkeep: the CLI refreshes no turn for it');
+  const f = await fixture(t);
+  const digest = `sha256:${'c'.repeat(64)}`;
+  const confirmed = `singularity-flow phase rollover custom-step --work-id PMC-1 --confirm ${digest}`;
+  const payload = await f.enter(`/sf-confirm ${confirmed.replace('singularity-flow ', '')}`, 'confirm-survives');
+  const shell = (command) => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  // An SFlow command another process ran in this checkout (a second window, the person's terminal) while the turn waits.
+  await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
+  assert.deepEqual(await shell(confirmed), {}, 'the confirmation still runs');
+  // The turn's own confirmation ran: it has nothing left to run.
+  await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
+  const ended = await shell(confirmed);
+  assert.equal(ended.permissionDecision, 'deny');
+  assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/u);
+});
+
+test('a shell change is detected when an SFlow command ran elsewhere during it [SCF:REQ-023, WS-1]', async t => {
+  const f = await fixture(t, { writeScope: 'source-and-artifact', generationPolicy: { task: 'code' }, generationIntent: { status: 'open', generation: 1 } });
+  const payload = await f.enter('/sf-phase', 'shell-during-mutation');
+  const call = { ...payload, toolName: 'bash', toolArgs: { command: 'npm test', cwd: f.root } };
+  assert.deepEqual(await mutationToolGuard(call), {});
+  // The command writes a protected file; meanwhile another process's SFlow command refreshes the turn.
+  await mkdir(path.join(f.root, 'policy'), { recursive: true });
+  await writeFile(path.join(f.root, 'policy', 'rules.md'), 'changed by the shell command\n');
+  await refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true });
+  const stopped = await mutationPostToolGuard(call);
+  assert.equal(stopped.continue, false);
+  assert.match(stopped.stopReason, /^PHASE_MUTATION_SHELL_CHANGE_DETECTED: [^\n]*\(policy\/rules\.md\)/u);
+  // Between the turn's commands an SFlow command run elsewhere moves the baseline: the turn changed nothing then.
+  const quiet = await fixture(t, { writeScope: 'source-and-artifact', generationPolicy: { task: 'code' }, generationIntent: { status: 'open', generation: 1 } });
+  const idle = await quiet.enter('/sf-phase', 'idle-between-commands');
+  const test = { ...idle, toolName: 'bash', toolArgs: { command: 'npm test', cwd: quiet.root } };
+  assert.deepEqual(await mutationToolGuard(test), {});
+  assert.deepEqual(await mutationPostToolGuard(test), {});
+  await mkdir(path.join(quiet.root, 'policy'), { recursive: true });
+  await writeFile(path.join(quiet.root, 'policy', 'rules.md'), 'written by an SFlow command in another process\n');
+  await refreshMutationContracts(quiet.root, quiet.accepted, { advanceBaseline: true });
+  assert.deepEqual(await mutationToolGuard(test), {});
+  assert.deepEqual(await mutationPostToolGuard(test), {}, 'not blamed on the turn');
+});
+
+test('a contract refresh never writes a turn record back without the findings recorded meanwhile [SCF:REQ-023, WS-1]', async t => {
+  const f = await fixture(t, { writeScope: 'source-and-artifact', generationPolicy: { task: 'code' }, generationIntent: { status: 'open', generation: 1 } });
+  await mkdir(path.join(f.root, 'policy'), { recursive: true });
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const payload = await f.enter('/sf-phase', `findings-kept-${attempt}`);
+    const call = { ...payload, toolName: 'bash', toolArgs: { command: 'npm test', cwd: f.root } };
+    assert.deepEqual(await mutationToolGuard(call), {});
+    await writeFile(path.join(f.root, 'policy', 'rules.md'), `attempt ${attempt}\n`);
+    const [, stopped] = await Promise.all([refreshMutationContracts(f.root, f.accepted, { advanceBaseline: true }), mutationPostToolGuard(call)]);
+    assert.match(stopped.stopReason ?? '', /PHASE_MUTATION_SHELL_CHANGE_DETECTED/u, `attempt ${attempt}`);
+    const after = await mutationToolGuard(payload);
+    assert.equal(after.permissionDecision, 'deny', `attempt ${attempt}: the finding survives the overlapping refresh`);
+    assert.match(after.permissionDecisionReason, /PHASE_MUTATION_REPAIR_REQUIRED/u);
+  }
+});
+
 test('/sf-run-app and /sf-test turns run the declared application and tests; no turn binds environment values', async t => {
   const f = await fixture(t);
   assert.equal(mutationTurnMode('sf-run-app'), 'run-and-test');
@@ -707,7 +771,7 @@ test('a /sf-decide turn records only the decision list\'s upstream-issue options
     assert.equal(denied.permissionDecision, 'deny', command);
   }
   const reuse = await shell(decide, `singularity-flow decisions record PMC-1 --choose d1=reuse --confirm ${digest}`);
-  assert.match(reuse.permissionDecisionReason, /recording the decision list is the person's own step: they run the exact decisions record command in their own terminal/u);
+  assert.match(reuse.permissionDecisionReason, /recording the decision list is the person's own step: they record it on the Decide card \(\/sf-decide PMC-1 opens it\) or run the exact decisions record command in their own terminal/u);
   for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel']]) {
     const payload = await f.enter(skill, mode ?? undefined);
     assert.deepEqual(await shell(payload, 'singularity-flow decisions PMC-1 --json'), {}, `${skill} may read the list`);
@@ -796,7 +860,7 @@ test('no agent turn accepts that a step\'s tests cannot run here or ran narrowed
     for (const command of [accept, revoke, drift, reuse, unreuse, notApplicable, applicable, narrowed, unnarrowed]) {
       const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
-      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);
+      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal or, where the Decide card lists it, on the card \(\/sf-decide PMC-1 opens it\), not by this turn/u, skill);
     }
   }
 });
@@ -866,7 +930,7 @@ test('an agent may request a Story-only test command, but only a person who appr
     for (const command of [accept, revoke]) {
       const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
-      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);
+      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal or, where the Decide card lists it, on the card \(\/sf-decide PMC-1 opens it\), not by this turn/u, skill);
     }
   }
 });
@@ -3069,9 +3133,11 @@ test('a person\'s own step that a turn refuses shows that exact command for thei
   const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
   assert.equal(denied.permissionDecision, 'deny');
   assert.equal(denied.next.length, 1);
-  assert.equal(denied.next[0].copilotCommand, null);
+  // An accepted risk is the Decide card's [owner, 2026-11-15]: /sf-decide opens it, and the same line stays theirs in a terminal.
+  assert.equal(denied.next[0].copilotCommand, '/sf-decide PMC-1');
   assert.match(denied.next[0].command, /^singularity-flow decision risk PMC-1 /u);
-  assert.match(denied.permissionDecisionReason, /- Copilot: no verified equivalent\n- Shell: singularity-flow decision risk PMC-1/u);
+  assert.match(denied.permissionDecisionReason, /- Copilot: \/sf-decide PMC-1\n- Shell: singularity-flow decision risk PMC-1/u);
+  assert.match(denied.permissionDecisionReason, /^PHASE_MUTATION_OPERATION_NOT_ALLOWED: [^]*for an accepted risk, on the Decide card \(\/sf-decide PMC-1 opens it\)/u);
   // A witness has a page: /sf-decide opens it, and the same line stays theirs in a terminal.
   const witness = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow decision witness PMC-1 --criterion PMC-1:AC-001 --slot screen --file evidence/screen.png --confirm states-the-outcome --reason "Looked at it."', cwd: f.root } });
   assert.equal(witness.permissionDecision, 'deny');

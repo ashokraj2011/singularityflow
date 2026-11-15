@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b3b1d11bd5a24bb1ca70657a6c3b51db84196a00",
+  "sourceCommit": "2990750d4e2592493aa81dc7271d2ea893d3e30b",
   "topicCount": 93,
-  "contentSha256": "9af3f6823fdf0220b2533d350bf72b88ec70aa4cef5bf96d19a33cd992d23870",
+  "contentSha256": "4883de1dbe9805938a7937d1fad3f6e9efadc569b41c430d19132d3961b9bc23",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -104,9 +104,9 @@
     {
       "id": "changing-requirements",
       "title": "Changing requirements during a Story",
-      "version": 6,
-      "sha256": "04970a885aeddf96fd2417eabc7d2bf54b12caffa86abb3389c061e8ea67d9a8",
-      "routingSha256": "fdaf0a69c5665e38693b00fa0dc19a27676b54089e2585abeebddb72d93b759c",
+      "version": 11,
+      "sha256": "02a8e18b70aeb4e1da765aba4d025fe684b662ea7b9f4ff6caa2adc8fec72940",
+      "routingSha256": "64314b6dc7f635ef14f41c4b145a9d5963f640824e91d54eb0ca92815f6c0ff5",
       "file": "changing-requirements.md"
     },
     {
@@ -136,8 +136,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 22,
-      "sha256": "66e0423ad5e0615fd2e2f12b0bef105386c1e10feddc4c427ebbc0a5f9d069f3",
+      "version": 24,
+      "sha256": "271918f9ab7874abee5fc9c1fffbaa4351e602028570739787cc55f5379d19fa",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -152,8 +152,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 38,
-      "sha256": "6151a8b4ee52e5c7d2b9cf9e564d848d7656a05373c30875ff9fe606b1a70123",
+      "version": 39,
+      "sha256": "9320e696eb73b3244187009b752c87bce0c022defd20bdf5557c7600262882d8",
       "routingSha256": "14011e1a77264ded7e0f568428968ef1c70e1e606771a4e8fffe05b437ea112c",
       "file": "copilot-and-surfaces.md"
     },
@@ -232,8 +232,8 @@
     {
       "id": "evidence-matrix",
       "title": "Evidence matrix for requirements and acceptance criteria",
-      "version": 36,
-      "sha256": "044c0ef739abbc3f954a959df531d639e2ff3ed4cc28a4de39fdd146bb49679a",
+      "version": 37,
+      "sha256": "8f56c2192863669d75febf38d70c9ef15383cb5fc60669b466507c99f1b0b48d",
       "routingSha256": "761b11f1f6d8631724a9bde3bd6e402e7d9841bd2a9a456c226a69984f1c1f6d",
       "file": "evidence-matrix.md"
     },
@@ -344,8 +344,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 44,
-      "sha256": "5d2bd55c02e59856dda8cbaef0cdec351fadf99e068980e84b10ba3111280ef3",
+      "version": 45,
+      "sha256": "eb06b6e355da9bdb8329e6fc381ae7c7498a00f7a9047e47e0d1c9da0ba1e6a4",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
@@ -520,8 +520,8 @@
     {
       "id": "resets-and-cleanup",
       "title": "Reset, cleanup, and fresh installation",
-      "version": 11,
-      "sha256": "5524e58be4055e455f88b780b1860d2dcd8f07da07811c2c2769d2df26a5160b",
+      "version": 12,
+      "sha256": "36c921db602f391f654b8399fb33d4df4c56b254738dd1751d03d24d73402db7",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
     },
@@ -664,16 +664,16 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 43,
-      "sha256": "3ea010a681d6c57559504b46c299eebdd9086da4f4d85d51a710016da6d93bd8",
+      "version": 44,
+      "sha256": "c8b2dec268ab3f2e178ed64d3e285f2fe0471122de51f3eeef6407aa6b37bc68",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },
     {
       "id": "visual-verification",
       "title": "Visual verification for mobile",
-      "version": 5,
-      "sha256": "d85ee8a84999f12aae3405d74d24cf98708c2901d740bd4a5dc1a9fb0a02daee",
+      "version": 6,
+      "sha256": "06dd92d2a7707a1dc937b26cdb8a00bd81e512970714f1580e55a21158a0ef72",
       "routingSha256": "2e2011faa98461dbf16f975ee882a4539944aba6dfb1ed908f47f4b825aaf423",
       "file": "visual-verification.md"
     },
@@ -704,9 +704,9 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 103,
-      "sha256": "b4006cb745ebe1b59fe9998a2ec5a36caa1cbd5fe259c3ae294ac927b2f18e1e",
-      "routingSha256": "be98a071d40a55c131a7558d42e420e145bd1da91ab66d7e4c15e1924ffe1797",
+      "version": 106,
+      "sha256": "cf63ab64305b2fe549c3b01596982dbf32a3570d632a9e4455b0446d4ad321d9",
+      "routingSha256": "38bb5bce292c6f41c7f3a7b688849a3b0342eeeddb14286a50488eead607e0c2",
       "file": "workflow-authoring.md"
     },
     {

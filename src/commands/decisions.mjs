@@ -164,8 +164,9 @@ async function previewOf(workflow, packet, plan) {
       command,
       recordInChat,
       ...(chatSteps.length ? { chatSteps } : {}),
-      // A choice no /sf-decide turn may record has no Copilot route: that turn would only preview it again.
-      copilotCommand: recordInChat ? `/sf-decide ${packet.workId}` : null,
+      // A choice no /sf-decide turn may record is the person's on the Decide card, which /sf-decide opens where the host
+      // shows it [owner, 2026-11-15]; a host with no card has no Copilot route for it.
+      copilotCommand: recordInChat ? `/sf-decide ${packet.workId}` : packet.record.copilotCommand ?? null,
       terminal: 'Run it in your own terminal to record these decisions; nothing is recorded until then.'
     } : null,
     withApproval
@@ -747,7 +748,8 @@ async function show(root, options, workId) {
       // A person reads a command they can type: a digest stays with the route a /sf-decide turn runs [no hashes shown].
       if (preview.record) console.log(preview.record.recordInChat
         ? `Nothing was recorded. To record these decisions, answer them in ${preview.record.copilotCommand}, or run ${packet.record.interactive} in your own terminal, which asks you each choice.`
-        : `Nothing was recorded. To record these decisions, run in your own terminal:\n  ${preview.record.command}`);
+        : `Nothing was recorded. To record these decisions, run in your own terminal:\n  ${preview.record.command}`
+          + `${preview.record.copilotCommand ? `\nOr answer them on the Decide card: ${preview.record.copilotCommand} opens it.` : ''}`);
       if (preview.withApproval && !preview.withApproval.recordInChat) console.log(`Or record them with the approval, in one commit:\n  ${preview.withApproval.command}`);
     }
     return emitShow(packet, options, workflow, { preview });

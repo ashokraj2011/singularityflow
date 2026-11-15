@@ -533,7 +533,21 @@ function missingAuthoritySteps() {
   ];
 }
 
-function missingConfigurationSteps() {
+function missingConfigurationSteps(argv, error) {
+  // sflow/config is gone where SFlow configuration once was; the `state` copy is never authority (SCF:REQ-001, REQ-002).
+  // The restore proposal (D7) is a later stage: these are the routes that restore it now, each reviewed by a person.
+  if (error?.details?.reason === 'configuration-branch-missing') {
+    const repository = /^[^\s'"`<>|;&$]+$/u.test(String(error.details.remote ?? '')) ? error.details.remote : '<REPOSITORY-URL>';
+    return [
+      step('restore-configuration-from-clone',
+        'From a clone that still has the last approved configuration (git log origin/sflow/config shows it), put it back exactly: '
+          + 'git push origin refs/remotes/origin/sflow/config:refs/heads/sflow/config. Then start the work again.', null, 'remediation'),
+      step('preview-configuration-restore',
+        'Or preview restoring sflow/config from the copy on the state branch. Check every file it would restore before you confirm the plan: that copy is not proof of what was approved.',
+        `singularity-flow capability onboard ${repository} --dry-run`, 'remediation', '/sf-capability-map'),
+      step('diagnose-story-configuration', 'Check Git access to the repository.', 'singularity-flow workspace doctor --network --json')
+    ];
+  }
   return [
     step('diagnose-story-configuration',
       'Automatic loading found no approved workflow configuration. Check Git access and the workspace authority; this is not a test-baseline failure.',

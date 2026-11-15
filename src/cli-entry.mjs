@@ -1057,7 +1057,7 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     // from the SFlow source checkout must not create the comforting but useless lease there while
     // leaving the member repository it drops/fetches open to a concurrent factory reset.
     const mutationRoots = explicitMutationRoots ?? (
-      operation.classification === 'mutation' && root ? [root] : []
+      ['mutation', 'upkeep'].includes(operation.classification) && root ? [root] : []
     );
     const guardedExecute = mutationRoots.length
       && !smartInitDryRun
@@ -1074,9 +1074,9 @@ async function runMain(argv, utilityEntry = null, explicitContextRoot = null) {
     // The handler has printed its result; what follows is bookkeeping the person does not wait on
     // to read it, though the host still waits for the process. Each part is its own timed stage.
     timer.feedback();
-    // A private refresh cannot turn a successful publication into a replayable failure.
+    // A private refresh cannot turn a successful publication into a replayable failure. Upkeep rebuilds no turn.
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && definition.name !== 'hook' && root
-        && await hasMutationContracts()) {
+        && operation.classification !== 'upkeep' && await hasMutationContracts()) {
       await import('./copilot-mutation-guard.mjs').then(module => module.refreshMutationContracts(root, null, {
         decisionEnded: ['approve', 'reject'].includes(definition.name)
           || definition.name === 'review-source' && positionals[1] === 'decide',

@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { acquireSubjectLock, releaseSubjectLock } from '../src/subject-lock.mjs';
 import { enforceSequenceGate, sequenceGuidance, withConfirmationPort } from '../src/sequence.mjs';
+import { accountEnvironmentDigest } from '../src/git.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -231,8 +232,9 @@ test('soft-gate session audit resolves the real Git directory in a linked worktr
   execute('git', ['worktree', 'add', '-b', 'linked-story', linked], repositoryRoot);
   const localGitDirectory = execute('git', ['rev-parse', '--absolute-git-dir'], linked).stdout.trim();
   await mkdir(path.join(localGitDirectory, 'singularity-flow'), { recursive: true });
+  // Chosen in this environment, so it is this environment's actor (another one acts as itself).
   await writeFile(path.join(localGitDirectory, 'singularity-flow', 'session.json'), JSON.stringify({
-    actor: { name: 'Linked Worktree User' }, agent: 'developer'
+    actor: { name: 'Linked Worktree User' }, actorEnvironment: accountEnvironmentDigest(), agent: 'developer'
   }));
   const workflow = {
     workItem: { id: 'LINKED-1' }, currentPhase: 'implementation', status: 'active',

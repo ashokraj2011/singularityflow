@@ -125,14 +125,14 @@ test('the intent-amendment crosswalk routes only drafting and proposing, to /sf-
     assert.equal(guidance?.command, command, command);
     assert.equal(guidance.skill, card.includes(command) ? '/sf-decide' : null, command);
     assert.equal(guidance.copilotCommand, card.includes(command) ? `/sf-decide ${WORK}` : null, command);
-    assert.equal(copilotCommandForCommand(command, '/sf-reject'), null, `a supplied skill is no route either: ${command}`);
+    assert.equal(copilotCommandForCommand(command, '/sf-reject'), card.includes(command) ? `/sf-decide ${WORK}` : null, `a supplied skill is no route either: ${command}`);
     // A producer asserting the old route is contradicted, never shown.
     assert.equal(safeCommandGuidance({ command, skill: '/sf-reject' }), null, command);
     assert.equal(safeCommandGuidance({ command, copilotCommand: '/sf-reject' }), null, command);
     const action = copilotAction({ skill: '/sf-reject', command, reason: 'x' });
-    // A contradicted producer's action names no Copilot route at all.
-    assert.deepEqual([action.skill, action.copilotCommand], [null, null], command);
-    assert.equal(actionCommandLines({ skill: '/sf-reject', command })[1], `- Copilot: ${NO_ROUTE}`);
+    // A contradicted producer's skill is never shown: the action names the command's own route, the card for a decision.
+    assert.deepEqual([action.skill, action.copilotCommand], card.includes(command) ? ['/sf-decide', `/sf-decide ${WORK}`] : [null, null], command);
+    assert.equal(actionCommandLines({ skill: '/sf-reject', command })[1], `- Copilot: ${card.includes(command) ? `/sf-decide ${WORK}` : NO_ROUTE}`);
   }
   for (const command of [`singularity-flow story intent-amendment draft --work-id ${WORK}`,
     `singularity-flow story intent-amendment propose --work-id ${WORK} --file amended.md --reason x`]) {

@@ -42,7 +42,7 @@ function projectTrace(raw) {
   return { schemaVersion: raw.schemaVersion, resultType: raw.resultType, actionId: raw.actionId, invocationId: raw.invocationId,
     rootSpanId: raw.rootSpanId, parentSpanId: traceIdentifier(raw.parentSpanId), command: label(raw.command),
     operationId: raw.operationId == null ? null : label(raw.operationId),
-    commandClass: ['read', 'mutation'].includes(raw.commandClass) ? raw.commandClass : 'unknown',
+    commandClass: ['read', 'mutation', 'upkeep'].includes(raw.commandClass) ? raw.commandClass : 'unknown',
     startedAt: new Date(raw.startedAt).toISOString(), durationMs: raw.durationMs,
     firstFeedbackMs: metric(raw.firstFeedbackMs), outcome: outcome(raw.outcome),
     platform: ['win32', 'darwin', 'linux'].includes(raw.platform) ? raw.platform : 'other',

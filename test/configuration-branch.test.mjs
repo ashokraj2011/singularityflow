@@ -1074,7 +1074,7 @@ test('state configuration history ignores ambient repository selectors and uses 
   }
 });
 
-test('a verified state authority retains its snapshot for reuse after the remote disappears', async () => {
+test('a running Story pinned to the state copy still loads it; new work never resolves it [SCF:REQ-001]', async () => {
   const fixture = await repositoryFixture();
   try {
     await ensureConfigurationBranch(fixture.remote);
@@ -1083,12 +1083,11 @@ test('a verified state authority retains its snapshot for reuse after the remote
       cwd: fixture.remote
     });
 
-    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
-    assert.equal(authority.branch, STATE_CONFIGURATION_BRANCH);
-    assert.equal(authority.commit, mirror.stateCommit);
-    assert.equal(authority.sourceCommit, mirror.sourceCommit);
-
-    await rm(fixture.remote, { recursive: true, force: true });
+    await assert.rejects(() => resolveRemoteStoryConfigurationAuthority(fixture.remote),
+      (error) => error.code === 'STORY_CONFIGURATION_AUTHORITY_MISSING' && error.details.stateCommit === mirror.stateCommit);
+    // What an older build pinned for a Story it started from the copy (src/configuration-branch.mjs pins it so).
+    const authority = { remote: fixture.remote, branch: STATE_CONFIGURATION_BRANCH, commit: mirror.stateCommit,
+      sourceCommit: mirror.sourceCommit, source: 'verified-state-mirror' };
     const snapshot = await loadStoryConfigurationSnapshot(authority);
     assert.equal(snapshot.observedCommit, mirror.stateCommit);
     assert.equal(snapshot.sourceCommit, mirror.sourceCommit);
@@ -1529,134 +1528,71 @@ test('Story intake refusal occurs before automatic approval enrollment', async (
   }
 });
 
-test('Story start recovers from a verified state mirror when sflow/config is unavailable', async () => {
+// The configuration-history analysis's F1 (CH-F1, SCF:REQ-001, REQ-002): with sflow/config missing, new Stories started
+// from the `state` copy, and a contributor's ordinary push there (a self-consistent manifest) governed SLC-4. The copy
+// is never authority: Story start refuses with the routes that restore sflow/config, and after the restore it pins
+// sflow/config, never the forged bytes.
+test('Story start refuses with the restore routes when sflow/config is missing, even from a forged state copy [SCF:REQ-001, CH-F1]', async () => {
   const fixture = await repositoryFixture();
   try {
     await ensureConfigurationBranch(fixture.remote);
     const mirrored = await publishStateConfigurationMirror(fixture);
+    const approvedClone = path.join(fixture.root, 'state-mirror-source');
     run('git', ['update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: fixture.remote });
     const checkout = path.join(fixture.root, 'state-only-story-checkout');
     run('git', ['clone', '-q', '--single-branch', '--branch', 'main', fixture.remote, checkout], { cwd: fixture.root });
     run('git', ['config', 'user.name', 'State Story Tester'], { cwd: checkout });
     run('git', ['config', 'user.email', 'state-story@example.com'], { cwd: checkout });
-    assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
-      cwd: checkout, allowFailure: true
-    }).status, 0, 'the narrow clone begins without a local state ref');
-
-    const branches = spawnSync(process.execPath, [cli, 'workspace', 'branches', '--json'], {
-      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
-    });
-    assert.equal(branches.status, 0, branches.stderr || branches.stdout);
-    assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
-      cwd: checkout, allowFailure: true
-    }).status, 0, 'a read-only authority overlay must not mutate the checkout remote-tracking refs');
-    assert.ok(JSON.parse(branches.stdout).choices.some((choice) => choice.branch === 'main' && choice.everywhere),
-      'the VS Code base-branch command reads the local verified state mirror too');
-
-    // These are the independent calls made while the VS Code Start form is open. It is not enough
-    // for base preflight alone to work: either missing catalog silently empties a required dropdown
-    // and prevents the form from ever issuing `start`.
-    const profiles = spawnSync(process.execPath, [cli, 'initiative', 'profiles', '--json'], {
-      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
-    });
-    assert.equal(profiles.status, 0, profiles.stderr || profiles.stdout);
-    assert.ok(JSON.parse(profiles.stdout).some((profile) => profile.id === 'epic-planning'));
-    const workflows = spawnSync(process.execPath, [cli, 'workflow', 'list', '--json'], {
-      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
-    });
-    assert.equal(workflows.status, 0, workflows.stderr || workflows.stdout);
-    assert.ok(JSON.parse(workflows.stdout).some((workflow) => workflow.id === 'chore' && workflow.governs === 'story'));
-    const validation = spawnSync(process.execPath, [cli, 'configuration', 'validate', '--json'], {
-      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
-    });
-    assert.equal(validation.status, 0, validation.stderr || validation.stdout);
-    assert.equal(JSON.parse(validation.stdout).valid, true);
-    const beforeStart = spawnSync(process.execPath, [cli, 'nextsteps', '--json'], {
-      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
-    });
-    assert.equal(beforeStart.status, 0, beforeStart.stderr || beforeStart.stdout);
-    assert.equal(JSON.parse(beforeStart.stdout).state, 'no_active_work_item');
-
-    const started = spawnSync(process.execPath, [
-      cli, 'start', 'CFG-STATE', '--json', '--title', 'Use state recovery configuration',
-      '--description', 'Create a Story when only the verified state mirror is available.',
+    const start = (id) => spawnSync(process.execPath, [
+      cli, 'start', id, '--json', '--title', 'Start without sflow/config',
+      '--description', 'Refuse the state copy as configuration.',
       '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer'
     ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-    assert.equal(started.status, 0, started.stderr || started.stdout);
-    const workflow = JSON.parse(await readFile(
-      path.join(checkout, 'singularity/work-items/CFG-STATE/workflow.json'), 'utf8'
-    ));
-    assert.equal(workflow.resolution.configurationSource.commit, mirrored.sourceCommit);
-    assert.deepEqual(workflow.resolution.configurationSource.mirror, {
-      branch: 'state', commit: mirrored.stateCommit
-    });
-    assert.equal(run('git', ['cat-file', '-e', 'main:singularity/workflow.yml'], {
-      cwd: fixture.remote, allowFailure: true
-    }).status, 128, 'application main remains configuration-free');
-    assert.equal(run('git', ['cat-file', '-e', 'CFG-STATE:singularity/configuration-source.json'], {
-      cwd: fixture.remote, allowFailure: true
-    }).status, 0, 'the Story publishes hash-bound state-mirror provenance');
-    const stateAfterStart = run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim();
-    assert.notEqual(stateAfterStart, mirrored.stateCommit, 'Story start appends to the Flow Ledger');
-    assert.equal(run('git', ['merge-base', '--is-ancestor', mirrored.stateCommit, stateAfterStart], {
-      cwd: fixture.remote, allowFailure: true
-    }).status, 0, 'the ledger append builds on the configuration mirror');
-    assert.equal(run('git', ['rev-parse', `${stateAfterStart}:${STATE_CONFIGURATION_MANIFEST}`], {
-      cwd: fixture.remote
-    }).stdout.trim(), run('git', ['rev-parse', `${mirrored.stateCommit}:${STATE_CONFIGURATION_MANIFEST}`], {
-      cwd: fixture.remote
-    }).stdout.trim(), 'the configuration mirror survives the ledger append');
+    const refused = (result, stateCommit) => {
+      assert.notEqual(result.status, 0, result.stderr || result.stdout);
+      const envelope = JSON.parse(result.stdout);
+      assert.equal(envelope.error.code, 'STORY_CONFIGURATION_AUTHORITY_MISSING', result.stdout);
+      assert.match(envelope.error.message, /^sflow\/config is missing on '.*', so no new work can start there\. SFlow reads configuration only from sflow\/config, never from the copy on the 'state' branch \(([0-9a-f]{12})\)/u);
+      assert.ok(envelope.error.message.includes(stateCommit.slice(0, 12)), envelope.error.message);
+      assert.ok(envelope.remediationPlan.steps.some((step) => step.command === `singularity-flow capability onboard ${fixture.remote} --dry-run`),
+        JSON.stringify(envelope.remediationPlan.steps));
+      assert.ok(envelope.remediationPlan.steps.some((step) => /git push origin refs\/remotes\/origin\/sflow\/config:refs\/heads\/sflow\/config/u.test(step.label)));
+      assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
+      assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: checkout }).stdout, '');
+    };
+    refused(start('CFG-STATE'), mirrored.stateCommit);
 
-    const narrowResume = path.join(fixture.root, 'narrow-state-story-resume-checkout');
-    run('git', ['clone', '-q', '--single-branch', '--branch', 'main', fixture.remote, narrowResume], {
-      cwd: fixture.root
-    });
-    run('git', ['config', 'user.name', 'Narrow Resume Tester'], { cwd: narrowResume });
-    run('git', ['config', 'user.email', 'narrow-resume@example.com'], { cwd: narrowResume });
-    const narrowResumed = spawnSync(process.execPath, [
-      cli, 'resume', 'CFG-STATE', '--fetch', '--agent', 'developer', '--json'
-    ], { cwd: narrowResume, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-    assert.equal(narrowResumed.status, 0, narrowResumed.stderr || narrowResumed.stdout);
-    assert.equal(run('git', ['branch', '--show-current'], { cwd: narrowResume }).stdout.trim(), 'CFG-STATE');
+    // A contributor's ordinary push to `state`: the copy's workflow changed, its manifest recomputed to match.
+    const forger = path.join(fixture.root, 'state-forger');
+    run('git', ['clone', '-q', '-b', 'state', fixture.remote, forger], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'State Forger'], { cwd: forger });
+    run('git', ['config', 'user.email', 'state-forger@example.com'], { cwd: forger });
+    const workflowFile = path.join(forger, 'singularity/workflow.yml');
+    const forged = `${await readFile(workflowFile, 'utf8')}# forged on the state branch\n`;
+    await writeFile(workflowFile, forged);
+    const manifestFile = path.join(forger, STATE_CONFIGURATION_MANIFEST);
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
+    manifest.files['singularity/workflow.yml'] = createHash('sha256').update(forged).digest('hex');
+    manifest.assets['singularity/workflow.yml'] = { ...manifest.assets['singularity/workflow.yml'],
+      sha256: manifest.files['singularity/workflow.yml'],
+      object: run('git', ['hash-object', 'singularity/workflow.yml'], { cwd: forger }).stdout.trim() };
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    run('git', ['add', '-A'], { cwd: forger });
+    run('git', ['commit', '-qm', 'update state'], { cwd: forger });
+    run('git', ['push', '-q', 'origin', 'state'], { cwd: forger });
+    refused(start('CFG-FORGED'), run('git', ['rev-parse', 'refs/heads/state'], { cwd: fixture.remote }).stdout.trim());
 
-    // Once started, every phase is driven by the immutable configuration snapshot carried by the
-    // Story. Prove that ordinary phase reads and authoring preparation no longer consult the shared
-    // mirror by removing that authority before exercising them.
-    run('git', ['update-ref', '-d', 'refs/heads/state'], { cwd: fixture.remote });
-    const phase = spawnSync(process.execPath, [cli, 'phase', 'show', 'intake', '--json'], {
-      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
-    });
-    assert.equal(phase.status, 0, phase.stderr || phase.stdout);
-    assert.equal(JSON.parse(phase.stdout).phase, 'intake');
-    const prepared = spawnSync(process.execPath, [cli, 'prepare', 'intake', '--json'], {
-      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
-    });
-    assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
-    const duringStory = spawnSync(process.execPath, [cli, 'nextsteps', '--json'], {
-      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
-    });
-    assert.equal(duringStory.status, 0, duringStory.stderr || duringStory.stdout);
-    assert.equal(JSON.parse(duringStory.stdout).workId, 'CFG-STATE');
-
-    // Another machine finds Stories only through the Flow Ledger state index on the state branch.
-    // With that branch gone from the remote, resume refuses and names the unavailable index; it
-    // never falls back to scanning application branches, so the published CFG-STATE lifecycle
-    // branch is not adopted. (A state branch that exists without ledger/head.json is
-    // SESSION_STATE_INDEX_INVALID instead; an absent one is SESSION_STATE_INDEX_UNAVAILABLE.)
-    const resumedCheckout = path.join(fixture.root, 'state-story-resume-checkout');
-    run('git', ['clone', '-q', fixture.remote, resumedCheckout], { cwd: fixture.root });
-    run('git', ['config', 'user.name', 'Resume Tester'], { cwd: resumedCheckout });
-    run('git', ['config', 'user.email', 'resume@example.com'], { cwd: resumedCheckout });
-    const resumed = spawnSync(process.execPath, [
-      cli, 'resume', 'CFG-STATE', '--fetch', '--agent', 'developer', '--json'
-    ], { cwd: resumedCheckout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-    assert.notEqual(resumed.status, 0, resumed.stderr || resumed.stdout);
-    const refusal = JSON.parse(resumed.stdout.trim() || resumed.stderr.trim()).error;
-    assert.equal(refusal.code, 'SESSION_STATE_INDEX_UNAVAILABLE', refusal.message);
-    assert.match(refusal.message, /Flow Ledger state index on 'state'/);
-    assert.match(refusal.message, /no application branches were scanned/);
-    assert.notEqual(run('git', ['branch', '--show-current'], { cwd: resumedCheckout }).stdout.trim(), 'CFG-STATE',
-      'a refused resume does not switch the checkout to the Story branch');
+    // The route: a clone that still has the last approved commit puts it back exactly.
+    run('git', ['push', '-q', 'origin', `refs/remotes/origin/${CONFIGURATION_BRANCH}:refs/heads/${CONFIGURATION_BRANCH}`], { cwd: approvedClone });
+    const restored = start('CFG-RESTORED');
+    assert.equal(restored.status, 0, restored.stderr || restored.stdout);
+    const workflow = JSON.parse(await readFile(path.join(checkout, 'singularity/work-items/CFG-RESTORED/workflow.json'), 'utf8'));
+    assert.equal(workflow.resolution.configurationSource.branch, CONFIGURATION_BRANCH);
+    // The restored commit, or the approval enrollment Story start lands on top of it.
+    assert.equal(run('git', ['merge-base', '--is-ancestor', mirrored.sourceCommit, workflow.resolution.configurationSource.commit],
+      { cwd: fixture.remote, allowFailure: true }).status, 0);
+    assert.equal(Object.hasOwn(workflow.resolution.configurationSource, 'mirror'), false);
+    assert.doesNotMatch(await readFile(path.join(checkout, 'singularity/workflow.yml'), 'utf8'), /forged on the state branch/u);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -1679,9 +1615,10 @@ test('a state mirror with changed bytes is not a Story configuration authority',
 
     const checkout = path.join(fixture.root, 'tampered-state-checkout');
     run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    // The copy is never read as configuration at all (SCF:REQ-001), changed or not.
     await assert.rejects(
       () => materializeConfigurationSnapshot(checkout, { remote: fixture.remote }),
-      /mirror (?:Git identity|hash) does not match/
+      { code: 'STORY_CONFIGURATION_AUTHORITY_MISSING' }
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -1706,7 +1643,7 @@ test('a state mirror with a changed Git mode is not a Story configuration author
     run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
     await assert.rejects(
       () => materializeConfigurationSnapshot(checkout, { remote: fixture.remote }),
-      /mirror Git identity does not match/
+      { code: 'STORY_CONFIGURATION_AUTHORITY_MISSING' }
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -1732,7 +1669,7 @@ test('Story start changes nothing when neither configuration authority is availa
       SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(fixture.root, 'no-active-workspace.json')
     } });
     assert.notEqual(started.status, 0, `${started.stderr}\n${started.stdout}`);
-    assert.match(started.stdout, /Neither an approved sflow\/config branch nor a verified state configuration mirror/);
+    assert.match(started.stdout, /No approved sflow\/config branch is available for this repository or its active workspace lead/);
     assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
     assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim(), before);
     assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: checkout }).stdout, '');

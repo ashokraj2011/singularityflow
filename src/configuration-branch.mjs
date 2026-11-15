@@ -25,7 +25,7 @@ import {
   setDefaultBaseBranch
 } from './bootstrap.mjs';
 import { loadCapabilities } from './capabilities.mjs';
-import { gitCommitIdentity } from './git.mjs';
+import { configurationCommitIdentity } from './git.mjs';
 import { repositoryGitDirectory } from './git-directory.mjs';
 import { realpathSync as canonicalPathSync } from 'node:fs';
 import {
@@ -975,7 +975,9 @@ export async function prepareConfigurationBootstrapWorktree(root, {
       await rm(path.join(root, 'singularity/capabilities.yml'), { force: true });
     }
 
-    const actor = authorIdentity ?? gitCommitIdentity(identityRoot ?? root, { env: identityEnv });
+    // The person creating the authority, from their checkout and Git configuration, never the isolated scratch
+    // clone's hidden configuration (SCF:REQ-018, UP-F5).
+    const actor = authorIdentity ?? configurationCommitIdentity(identityRoot ?? root, { env: identityEnv });
     if (authorIdentity && (typeof actor?.name !== 'string' || !actor.name.trim()
         || typeof actor?.email !== 'string' || !actor.email.trim())) {
       throw new SingularityFlowError(
@@ -1400,8 +1402,8 @@ export async function ensureConfigurationBranch(remote, {
     });
     run('git', ['add', '-A'], { cwd: scratch, env: frozen.env });
     await (await repositoryCommitPolicyModule('writer', scratch)).runPolicyCommit(scratch, [
-      '-c', `user.name=${actor.name || 'Singularity Flow'}`,
-      '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+      '-c', `user.name=${actor.name}`,
+      '-c', `user.email=${actor.email}`,
       'commit', '-m', '[configuration] establish Singularity configuration authority'
     ], {
       env: frozen.env, legacyRun: (argv, opts) => run('git', argv, {...opts, cwd: scratch})
@@ -1787,42 +1789,70 @@ async function storyConfigurationAuthorityObservation(remote, {
   };
 }
 
+/**
+ * Whether a remote's `state` branch tip holds SFlow's configuration copy (configuration/manifest.json). Read only to
+ * tell "sflow/config was here and is gone" from "this repository never had one"; the copy itself is never read.
+ * A depth-one clone with its objects, like the state reads before it: no lazy fetch can hide behind the listing.
+ */
+async function stateCarriesConfigurationCopy(remote, stateCommit, { env = process.env } = {}) {
+  const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-marker-'));
+  try {
+    const frozen = frozenRemoteTransport(remote, { env: enterpriseGitEnvironment(env) });
+    const clone = await runRemoteGitAsync([
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      '--no-checkout', '--branch', STATE_CONFIGURATION_BRANCH, frozen.remote, source
+    ], { cwd: path.dirname(source), operation: 'remote-configuration', env: frozen.env });
+    if (clone.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot read '${sanitizeRemote(remote)}' branch '${STATE_CONFIGURATION_BRANCH}'. ${clone.failure?.advice ?? 'Git remote access failed.'}`,
+        { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
+    }
+    const listed = run('git', ['ls-tree', '--full-tree', '--name-only', 'HEAD', '--', STATE_CONFIGURATION_MANIFEST],
+      { cwd: source, allowFailure: true, env: frozen.env });
+    if (listed.status !== 0) {
+      throw new SingularityFlowError(`Cannot inspect branch '${STATE_CONFIGURATION_BRANCH}' at ${stateCommit}.`, { code: 'REMOTE_UNKNOWN' });
+    }
+    return listed.stdout.split(/\r?\n/u).includes(STATE_CONFIGURATION_MANIFEST);
+  } finally {
+    await removeTemporaryTree(source);
+  }
+}
+
+/**
+ * `sflow/config` is missing where SFlow configuration once was (the `state` branch still holds its copy). New work
+ * reads configuration only from sflow/config (SCF:REQ-001), so it stops with the routes that restore it (REQ-002).
+ */
+export function configurationBranchMissingError(remote, { stateCommit = null } = {}) {
+  const where = sanitizeRemote(remote);
+  return new SingularityFlowError(
+    `${CONFIGURATION_BRANCH} is missing on '${where}', so no new work can start there. SFlow reads configuration only `
+    + `from ${CONFIGURATION_BRANCH}, never from the copy on the '${STATE_CONFIGURATION_BRANCH}' branch${stateCommit ? ` (${stateCommit.slice(0, 12)})` : ''}, `
+    + `which anyone who can push there could have changed. Restore ${CONFIGURATION_BRANCH} first: from a clone that still has it, `
+    + `push back its last approved commit, or preview restoring it with capability onboard and check every file before you confirm. `
+    + 'Running Stories are unaffected; nothing was changed.',
+    {
+      code: 'STORY_CONFIGURATION_AUTHORITY_MISSING',
+      details: {
+        reason: 'configuration-branch-missing', branch: CONFIGURATION_BRANCH, remote: where, configurationCommit: null,
+        stateBranch: STATE_CONFIGURATION_BRANCH, stateCommit
+      }
+    }
+  );
+}
+
 export async function resolveRemoteStoryConfigurationAuthority(remote, options = {}) {
-  const captureAuthoringBytes = options.captureAuthoringBytes === true;
   const selected = await storyConfigurationAuthorityObservation(remote, options);
   const { url, configurationCommit, stateCommit } = selected;
   if (!url) return null;
   if (configurationCommit) {
     return { remote: url, branch: CONFIGURATION_BRANCH, commit: configurationCommit, source: 'configuration' };
   }
-  if (!stateCommit) return null;
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-config-probe-'));
-  try {
-    const mirror = await copyVerifiedStateConfiguration(url, scratch, STATE_CONFIGURATION_BRANCH, {
-      allowUnmarked: true,
-      expectedCommit: stateCommit,
-      captureAuthoringBytes
-    });
-    if (!mirror) return null;
-    const authority = {
-      remote: url, branch: STATE_CONFIGURATION_BRANCH, commit: mirror.mirrorCommit,
-      sourceCommit: mirror.sourceCommit, source: 'verified-state-mirror'
-    };
-    incrementCommandCounter('configuration.snapshot-read');
-    const retainedSnapshot = await storyConfigurationSnapshotFromDirectory(authority, scratch, {
-      observedCommit: mirror.mirrorCommit,
-      sourceCommit: mirror.sourceCommit,
-      mirror,
-      definition: mirror.definition,
-      captureAuthoringBytes
-    });
-    Object.defineProperty(authority, STORY_CONFIGURATION_AUTHORITY_SNAPSHOT, {
-      configurable: false, enumerable: false, writable: false, value: retainedSnapshot
-    });
-    return authority;
-  } finally {
-    await removeTemporaryTree(scratch);
+  // The `state` branch's copy is never authority for new work (SCF:REQ-001, CH-F1): any contributor may push there.
+  if (stateCommit && await stateCarriesConfigurationCopy(url, stateCommit)) {
+    throw configurationBranchMissingError(url, { stateCommit });
   }
+  return null;
 }
 
 async function activeWorkspaceForRepository(root) {

@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 44
+version: 45
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -171,8 +171,21 @@ When `./install.sh` performs a normal source install, it runs `workspace refresh
 against every unique repository registered by every non-archived workspace. Refresh operates in
 isolated clones, so dirty application checkouts and active Story branches are never switched or
 edited. It three-way merges packaged workflow policy and assets against the last examined package
-baseline, publishes the approved result to `sflow/config`, and mirrors the exact configuration,
-source commit, product revision, and per-file hashes to the repository's orphan state branch.
+baseline and proposes the result on a `sflow/config-refresh/*` review branch of its own for each
+repository. It never changes `sflow/config` itself: that happens only when a person approves the
+proposal by merging its review branch, and that applies to the installer, the terminal and
+`/sf-refresh-configuration`, a confirmed `--confirm-plan`, and `workspace reinitialize` alike.
+Creating a first `sflow/config` where none exists is the one exception. Each proposal's commit is
+authored by the person who ran the refresh, from their own Git `user.name` and `user.email`.
+
+The package baseline (`singularity/.product/configuration-baseline.yml`, format
+`singularity-flow-configuration-baseline/v2`) records the build that proposed it: its commit and
+build time. Only a clean, stamped build proposes; a development checkout or a dirty tree does not.
+A build older than the one recorded in a repository's approved baseline never proposes over it:
+that repository reports that it needs a build from that date or later, with the install route, and
+holds up no other repository. Builds from before this format refuse a v2 baseline in every refresh
+route, naming the v1 format they expect, so an older installation can no longer downgrade a
+repository; upgrade it to propose again.
 Configuration remains at its canonical paths (`singularity/**`, and `.github/agents/**` for a repository whose agents have not moved yet); only the
 projection manifest lives under `configuration/`. Refresh removes stale managed configuration and
 the older `configuration/files/**` layout, while preserving runtime state such as
@@ -209,10 +222,10 @@ changed in parallel with the package are retained and reported. Use repeatable
 `--resolve PATH=local|bundled|merge` choices to decide individual conflicts. A UI preview can bind
 apply to the observed authorities with `--confirm-plan ID`; if either branch moved, apply refuses
 and requires a new preview. `--accept-bundled-conflicts` remains the broad migration boundary for
-explicitly selecting every packaged value. A protected `sflow/config` push retains
-the exact candidate on the reported `sflow/config-refresh/*` review branch. Merge that proposal and
-re-run the command to complete its state mirror. Reruns are idempotent and retry incomplete
-repositories while current repositories become no-ops.
+explicitly selecting every packaged value. Every proposal is the exact candidate on the reported
+`sflow/config-refresh/*` review branch; every machine proposing the same tree shares one review.
+Reruns are idempotent: an open review is reported again, current repositories become no-ops, and an
+unreachable repository is reported without holding up the others.
 
 ### Agents move to singularity/agents
 

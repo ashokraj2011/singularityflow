@@ -28,6 +28,7 @@ import { SingularityFlowError } from '../src/util.mjs';
 import { intentAmendmentOutcome } from '../src/commands/decisions.mjs';
 import { decideHtml } from '../apps/vscode/src/views/decide-card-page.ts';
 import { decisionsTable } from '../plugin/extensions/decisions/card.mjs';
+import { addClause, changeImpactStory, reviseCriterion, reword } from './helpers/change-impact-story.mjs';
 import { ctkListing, softwarePresenceKey } from './helpers/presence-keys.mjs';
 import { slowLane } from './helpers/slow-lane.mjs';
 import { CLI, specification, startedSpecificationStory, submittedPlanningStory } from './helpers/submitted-planning-story.mjs';
@@ -415,3 +416,52 @@ test('SF Guard required: the card records nothing and hands the decision to the 
   assert.equal(signed.status, 'approved');
   assert.equal(signed.decision.presence?.keyId, key.keyId, 'the decision carries the approver\'s signature');
 });
+
+test('under the default, change impact on: the card says how big each amendment is and why, offers each stricter class and never a lower one [CIC:REQ-013, REQ-014; owner, 2026-11-15]',
+  slowLane({ timeout: 900_000 }), async (t) => {
+    // The repository's configuration as init writes it: change impact is not set by the test.
+    const f = await changeImpactStory(t, { changeImpact: null });
+    await f.designed('IAC-D');
+    assert.deepEqual([(await f.workflow('IAC-D')).resolution.spec.changeImpact, (await f.workflow('IAC-D')).resolution.spec.observedDependencies], ['on', 'on']);
+    const item = () => { const parsed = JSON.parse(f.sflow('decisions', 'IAC-D', '--json')); return (parsed.data ?? parsed).items.find((entry) => entry.kind === 'intent-amendment'); };
+    const propose = async (name, edit, reason) => {
+      const file = path.join(f.root, '..', `IAC-D-${name}.md`);
+      await writeFile(file, edit(await readFile(f.item('IAC-D', 'artifacts/intake/intake.md'), 'utf8')));
+      return JSON.parse(f.sflow('story', 'intent-amendment', 'propose', '--file', file, '--reason', reason, '--json')).proposal.id;
+    };
+    const decide = (id) => f.sflow('story', 'intent-amendment', 'decide', id, '--decision', 'reject', '--confirm', id, '--reason', 'Shown on the card only.');
+    const shown = (card) => card.options.map((option) => [option.id, option.label, option.terminal ?? null]);
+    const command = (id) => `singularity-flow story intent-amendment decide ${id} --decision approve --confirm ${id} --work-id IAC-D`;
+
+    // Editorial: REQ-001 reworded, untested and no acceptance criterion. Approving carries the evidence; the card offers both raises.
+    const editorial = await propose('wording', reword, 'Clearer wording, same meaning.');
+    let card = item();
+    assert.match(card.details.reach, /^How big: an editorial change\. It only rewords REQ-001: no bound test, no acceptance criterion, and no path or test binding changes \[wording-only\]\. Who decides: /u);
+    assert.deepEqual(shown(card), [
+      ['reject', `Reject ${editorial}`, `singularity-flow story intent-amendment decide ${editorial} --decision reject --confirm ${editorial} --work-id IAC-D`],
+      ['approve', `Approve ${editorial}`, command(editorial)],
+      ['approve-refinement', `Approve ${editorial} as a refinement`, `${command(editorial)} --class refinement`],
+      ['approve-material', `Approve ${editorial} as a material change`, `${command(editorial)} --class material`]]);
+    assert.equal(card.options.find((option) => option.id === 'approve').words,
+      'The new wording is approved as editorial: no step runs again or is asked, and the evidence of the reworded clauses is carried.');
+    assert.match(card.options.find((option) => option.id === 'approve-refinement').words, /^Approves it as a refinement: a refinement, so the steps that cite the changed clauses reopen\./u);
+    assert.match(card.options.find((option) => option.id === 'approve-material').words, /^Approves it as a material change: a material change, which only .+ approves?\./u);
+    decide(editorial);
+
+    // A refinement: AC-001 has a bound test and is an acceptance criterion. Only material is offered above it.
+    const refinement = await propose('criterion', reviseCriterion, 'Say the value is numeric.');
+    card = item();
+    assert.match(card.details.reach, /^How big: a refinement\. AC-001 has a bound test \(test\/value\.test\.mjs\) \[tested-clause\]; AC-001 is an acceptance criterion \[acceptance-clause\]\. Who decides: /u);
+    assert.deepEqual(shown(card).map(([id]) => id), ['reject', 'approve', 'approve-material'], 'never editorial: nobody lowers it');
+    assert.match(card.options.find((option) => option.id === 'approve').words, /; you approve it as a refinement\.$/u);
+    assert.deepEqual(shown(card)[2].slice(1), [`Approve ${refinement} as a material change`, `${command(refinement)} --class material`]);
+    decide(refinement);
+
+    // Material: REQ-002 is added. Nothing is stricter, so no raise is offered, and nothing lower is.
+    const material = await propose('added', addClause('IAC-D'), 'The module must keep no other state.');
+    card = item();
+    assert.match(card.details.reach, /^How big: a material change\. It adds REQ-002, so the Story must do something new \[adds-clause\]\. Who decides: /u);
+    assert.deepEqual(shown(card).map(([id]) => id), ['reject', 'approve']);
+    assert.match(card.options.find((option) => option.id === 'approve').words, /; you approve it as a material change\.$/u);
+    decide(material);
+  });

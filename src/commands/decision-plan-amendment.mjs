@@ -25,7 +25,25 @@ export async function amendmentContentHashes(root, changes) {
   } catch { return {}; }
 }
 
-export async function commitPlanAmendment(root, config, workflow, { changes, reason, departures = [] }, { actor, agent = null }) {
+/**
+ * Each location's clause as the plan row it names: a short ID (`AC-001`, from `decision plan --add-location` or
+ * `decision departure --clause`) is the one row it ends with, and one ending several rows is refused with their full
+ * IDs (stage 7 run, 2026-11-15). One naming no row is left for the plan's own refusal, which lists its rows.
+ */
+async function withPlanRows(changes = [], rows) {
+  if (!changes.some((change) => change.kind === 'add-location' && !String(change.clauseId ?? '').includes(':'))) return changes;
+  const { resolveClauseIds, unresolvedClauseWords } = await import('../clause-id-resolution.mjs');
+  return changes.map((change) => {
+    if (change.kind !== 'add-location') return change;
+    const { resolved, unresolved } = resolveClauseIds([change.clauseId], rows);
+    if (unresolved[0]?.candidates.length) {
+      throw new SingularityFlowError(`${unresolvedClauseWords(unresolved, rows, { what: 'the plan' })}`, { code: 'PLAN_AMENDMENT_INVALID', details: { unresolved } });
+    }
+    return resolved.length ? { ...change, clauseId: resolved[0] } : change;
+  });
+}
+
+export async function commitPlanAmendment(root, config, workflow, { changes: given, reason, departures = [] }, { actor, agent = null }) {
   const id = workflow.workItem.id;
   const groups = planAuthorities(workflow);
   if (!groups.length) {
@@ -33,6 +51,7 @@ export async function commitPlanAmendment(root, config, workflow, { changes, rea
   }
   const records = await loadActiveSpecRecords(workDir(root, config, id), workflow);
   const plan = mergePlannedClaimRecords(records.planned ?? []);
+  const changes = await withPlanRows(given, Object.keys(plan));
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     { mode: 'required', authorities: groups, requiredAuthorities: [], minimum: 1 },

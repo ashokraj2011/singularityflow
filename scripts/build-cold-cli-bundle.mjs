@@ -21,7 +21,9 @@ const FAMILIES = Object.freeze([
   ['core', ['cli-bundle-entry.mjs', 'command-loaders.mjs', 'deferred-index-refresh.mjs', 'build-stamp-reader.mjs',
     'commands/skill-request.mjs', 'commands/instruction-request.mjs', 'copilot-mode.mjs', 'creation-context.mjs']],
   ['status', ['commands/status.mjs', 'commands/progress.mjs', 'commands/report.mjs',
-    'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs']],
+    'command-observability.mjs', 'logging.mjs', 'accounting-projection.mjs', 'read-worker-service.mjs',
+    // The Story report's change impact counts, imported only by `report` and its read [CIC:REQ-017].
+    'change-impact-counts.mjs']],
   ['hooks', ['copilot-hook-runtime.mjs', 'copilot-repository-boundary.mjs', 'copilot-mutation-guard.mjs', 'copilot-answer-binding.mjs',
     // Unclaimed, a denied edit's failure note (copilot-repository-boundary.mjs) loads the compatibility chunk.
     'copilot-environment-files-guard.mjs', 'copilot-search-exposure.mjs', 'local-config-policy.mjs', 'copilot-review-completion.mjs',

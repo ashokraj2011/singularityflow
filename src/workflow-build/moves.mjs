@@ -15,6 +15,7 @@ import { looksSecretName, looksSecretValue } from '../secret-looking.mjs';
 import { STUDIO_ID as ID } from '../agent-document-parser.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { normalizeClarificationPolicy } from '../clarifications.mjs';
+import { TEXT_MOVES, applyTextMove, lowerTextEdits, textMoveChecker } from './text-moves.mjs';
 
 const OUTPUTS = ['document', 'analysis', 'code', 'none'];
 const TRIGGERS = ['submitted', 'approved', 'rejected'];
@@ -30,7 +31,8 @@ const kebab = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g
 export const MOVES = Object.freeze({
   // changesCode false: the step writes only its own document, never the repository's files (a testing step that only reports).
   'step.add': { required: ['id'], optional: ['label', 'after', 'from', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'purpose'] },
-  'step.change': { required: ['id'], optional: ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff'] },
+  // edit: { old, new } changes the step's template as this workflow runs it (src/workflow-build/text-moves.mjs).
+  'step.change': { required: ['id'], optional: ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff', 'edit'] },
   'step.remove': { required: ['id'], optional: [] },
   'step.move': { required: ['id'], optional: ['after'] },
   // command, category, directory and a test command's completed record are filled in from the found
@@ -54,13 +56,17 @@ export const MOVES = Object.freeze({
   'item.classify': { required: ['item', 'as'], optional: [] },
   'item.leaveOut': { required: ['item', 'reason'], optional: [] },
   'item.keepAsLink': { required: ['item'], optional: [] },
-  'item.prerequisite': { required: ['item', 'description'], optional: [] }
+  'item.prerequisite': { required: ['item', 'description'], optional: [] },
+  // What a step's agent is told, changed by exact text (src/workflow-build/text-moves.mjs).
+  ...TEXT_MOVES
 });
 
 /** The vocabulary as data, for the skill and the chat tool: what each move takes, with an example. */
 export function movesGuide() {
   return {
-    moves: Object.fromEntries(Object.entries(MOVES).map(([name, fields]) => [name, fields])),
+    // Text edits are made by `workflow assess` (its suggestion.moves), so the guide that fits one answer leaves them out.
+    moves: Object.fromEntries(Object.entries(MOVES).filter(([name]) => !TEXT_MOVES[name]).map(([name, fields]) => [name, name === 'step.change'
+      ? { ...fields, optional: fields.optional.filter((field) => field !== 'edit') } : fields])),
     values: { output: OUTPUTS, on: TRIGGERS, as: ITEM_AS, requirement: ['required', 'advisory'], responsibility: [...RESPONSIBILITIES], signOff: "'none' or { groups: [group IDs], minimum, sendBackTo: [step IDs] }" },
     examples: [
       { move: 'step.add', id: 'pay-pci-review', label: 'PCI review', after: 'pay-build', agent: 'pay-reviewer', output: 'document',
@@ -99,6 +105,7 @@ export function movesGuide() {
       "signOff.sendBackTo (optional) names the steps an approver may send rejected work back to: the step itself or steps before it in this workflow. A reused step keeps its own; when the check says rejecting it returns to a step this workflow does not have before it, that finding's fix gives the step.change that repoints it.",
       'Approval groups are created empty; people are added in Workflow Studio, never by a move.',
       "step.clarify sets a step's clarifying questions for this workflow only, its whole policy: mode off, when-needed or required; topics; maxQuestions 1 to 10; markers { mode: off, warn or block }. Ask at or before the step that defines the scope; a code step asks when-needed, never required; a later step does not ask about what the approved scope settles.",
+      'Edits of agent, skill, instruction or template text come as suggestion.moves from workflow assess --verify: propose them as given.',
       'Cite the lines you relied on in the proposal evidence; say what you inferred in `why`.'
     ]
   };
@@ -139,6 +146,8 @@ export function validateMoves(moves, { model, draft }) {
   let order = null;
   let after = null;
   try { if (moves.every(plain)) { after = applyMoves(draft, moves.slice(0, 50)); order = after.workflow.phases; } } catch { order = null; after = null; }
+  // Text edits are checked in order, each against the text the ones before it leave.
+  const checkText = textMoveChecker({ model, draft, add });
   moves.slice(0, 50).forEach((move, index) => {
     const at = `moves[${index}]`;
     if (!plain(move) || typeof move.move !== 'string' || !MOVES[move.move]) {
@@ -224,6 +233,7 @@ export function validateMoves(moves, { model, draft }) {
         changesCodeField(move, at);
         if (move.purpose != null && typeof move.purpose === 'string' && move.purpose.length > 600) add(`${at}.purpose`, 'BUILD_MOVE_SHAPE', 'purpose is at most 600 characters.');
         stepList('reads'); signOff('signOff');
+        if (move.edit != null && move.id && steps.has(move.id)) checkText(move, at);
         break;
       case 'step.remove':
       case 'step.move':
@@ -351,6 +361,7 @@ export function validateMoves(moves, { model, draft }) {
         break;
       }
       default:
+        if (TEXT_MOVES[move.move]) checkText(move, at);
         break;
     }
   });
@@ -380,7 +391,7 @@ export function initialDraft(build, model) {
       baseOmits: source ? structuredClone(source.omits ?? []) : []
     },
     steps: {}, overrides: {}, agents: {}, skills: {}, instructions: {}, groups: {}, attachments: [], actions: {}, checks: {}, clarifications: {},
-    items: {}
+    texts: {}, items: {}
   };
 }
 
@@ -412,6 +423,7 @@ export function applyMoves(draft, moves) {
         for (const field of ['label', 'purpose', 'agent', 'output', 'changesCode', 'reads', 'signOff']) if (move[field] !== undefined) target[field] = move[field];
         // A sign-off that does not name send-back targets keeps the ones an earlier move gave it, as Studio does.
         if (plain(move.signOff) && move.signOff.sendBackTo == null && plain(earlier) && earlier.sendBackTo) target.signOff = { ...move.signOff, sendBackTo: earlier.sendBackTo };
+        if (move.edit) applyTextMove(next, move);
         break;
       }
       case 'step.remove':
@@ -473,7 +485,7 @@ export function applyMoves(draft, moves) {
       case 'item.leaveOut': next.items[move.item] = { ...next.items[move.item], status: 'left-out', reason: move.reason }; break;
       case 'item.keepAsLink': next.items[move.item] = { ...next.items[move.item], status: 'kept-as-link' }; break;
       case 'item.prerequisite': next.items[move.item] = { ...next.items[move.item], status: 'prerequisite', prerequisite: move.description }; break;
-      default: break;
+      default: if (TEXT_MOVES[move.move]) applyTextMove(next, move); break;
     }
   }
   return next;
@@ -591,6 +603,8 @@ export function lowerDraft(draft, model) {
     const added = checks.filter((check) => !current.some((entry) => [check.command, check.record?.argv.join(' ')].includes(commandOf(entry)))).map((check) => qualityCommand(check, taken));
     if (added.length) changes.push({ op: 'phase.update', id, workflow: workflowId, qualityCommands: [...current, ...added] });
   }
+  // What steps' agents are told, edited by exact text; a file another workflow uses changes on a copy.
+  changes.push(...lowerTextEdits(draft, model));
   // Clarifying questions are this workflow's own (phase.update with workflow), so another workflow's stay.
   for (const [id, clarificationPolicy] of Object.entries(draft.clarifications ?? {})) {
     if (draft.workflow.phases.includes(id)) changes.push({ op: 'phase.update', id, workflow: workflowId, clarificationPolicy: structuredClone(clarificationPolicy) });

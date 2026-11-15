@@ -12,7 +12,9 @@
  * append-only and digest-bound to the step generation and to the scope revision current at publication.
  *
  * Coverage (REQ-005) is `resolved` only when the record is complete: a receipt that names the clause
- * revisions and whose prompt matches it, the claim maps it relies on present and matching their digests, and
+ * revisions and whose prompt matches it (or, for a generation no prompt is composed for by design, the input it read
+ * instead: an approved amendment's proposal, or a kernel-assembled document's governed inputs; promptlessInput), the
+ * claim maps it relies on present and matching their digests, and
  * no changed path that no clause claims, other than a supporting change an approved plan row or plan amendment
  * names (`supportingPaths`: covered, and depending on no clause; owner, 2026-11-14). Anything else is `unresolved`, with the reasons; a generation with no
  * record (published before the switch, or by a route that writes none) reads as unresolved too. An intent
@@ -77,6 +79,37 @@ function edgeKey(edge) {
 }
 
 /**
+ * The input of a generation no prompt was composed for, by design [CIC:REQ-001, REQ-005]: the scope generation an
+ * approved intent amendment publishes reads the proposal its approvers decided (its proposed bytes), and a document the
+ * kernel assembles (its step's pinned generation policy is deterministic, and it was published as deterministic with no
+ * model call) reads its governed inputs record. Either holds at most the clauses the steps before it define, as a
+ * composed prompt's clause capsule does, so those are its input edges, at the scope revision current at publication; its
+ * receipt is that file, bound by digest. Null for anything else: a code step's code, and every generation a model or a
+ * person wrote, still needs its prompt receipt, and reads `receipt-missing` without one.
+ */
+async function promptlessInput(root, workflow, phase, generation, itemRelative) {
+  const origin = (phase.generationPublications ?? []).find((entry) => Number(entry.generation) === generation)?.origin;
+  const authorship = (phase.authorship ?? []).find((entry) => Number(entry.generation) === generation);
+  let receipt = null;
+  if (origin?.kind === 'intent-amendment' && origin.decisionSha256 && authorship?.source?.kind === 'intent-amendment' && authorship.source.path) {
+    const bytes = await readFile(path.join(root, authorship.source.path)).catch(() => null);
+    if (bytes && hex(bytes) === String(authorship.source.sha256 ?? '').replace(/^sha256:/u, '')) {
+      receipt = { kind: 'intent-amendment', amendment: origin.id ?? null, path: posix(authorship.source.path), sha256: `sha256:${hex(bytes)}` };
+    }
+  } else if (!phaseRequiresCodeDelivery(phase) && phase.generationPolicy?.producer === 'deterministic'
+      && authorship?.producer === 'deterministic' && authorship.kernelModel?.invoked !== true) {
+    const relative = posix(path.join(itemRelative, 'context', `inputs-${phase.id}-gen${generation}.json`));
+    const file = await readJsonFile(root, relative);
+    if (file.value?.phase === phase.id && Number(file.value.generation) === generation) receipt = { kind: 'governed-inputs', path: relative, sha256: `sha256:${hex(file.bytes)}` };
+  }
+  if (!receipt) return null;
+  const order = workflow.phaseOrder ?? [];
+  const before = new Set(order.slice(0, Math.max(0, order.indexOf(phase.id))));
+  const clauses = (workflow.scopeRevisions?.at(-1)?.clauses ?? []).filter((clause) => before.has(clause?.definedIn));
+  return { receipt, edges: clauses.map((clause) => ({ kind: 'input', clause: upper(clause.id), statementSha256: clause.bodySha256 ?? null })) };
+}
+
+/**
  * Build and write the record of `phase`'s generation just published, and keep its path and digest on the step.
  * Called by publishGeneration under switch 1 only, after the generation's own records (receipt, claim maps,
  * delivery evidence, artifacts) are final, so it is committed with the publication.
@@ -91,7 +124,12 @@ export async function recordStepDependencies(root, workflow, phase, { itemRelati
   const receiptPath = posix(path.join(itemRelative, 'context', `${phase.id}-gen${generation}.json`));
   const receiptFile = await readJsonFile(root, receiptPath);
   let receipt = null;
-  if (!receiptFile.bytes) reasons.add('receipt-missing');
+  // A generation with no prompt by design reads its own input instead (promptlessInput); any other without a receipt is unresolved.
+  const promptless = receiptFile.bytes ? null : await promptlessInput(root, workflow, phase, generation, itemRelative);
+  if (promptless) {
+    receipt = promptless.receipt;
+    for (const edge of promptless.edges) add(edge);
+  } else if (!receiptFile.bytes) reasons.add('receipt-missing');
   else {
     receipt = { path: receiptPath, sha256: `sha256:${hex(receiptFile.bytes)}` };
     const prompt = receiptFile.value?.promptPath ? await readFile(path.join(root, receiptFile.value.promptPath)).catch(() => null) : null;

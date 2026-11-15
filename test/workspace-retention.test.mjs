@@ -186,6 +186,34 @@ test('CLI policy updates and automatic run are distinct from manual deletion con
   assert.notEqual(f.flow(['workspace', 'retention', f.workspacePath, '--heartbeat', '--enabled', 'false', '--json'], { fail: true }).status, 0);
 });
 
+// The workspaces analysis's findings 1 and 7 (WS-1, WS-7): every window's heartbeat ran as a mutation, so each minute
+// it rewrote the Story index and did the post-mutation work in the Story checkout. It is upkeep (SCF:REQ-023).
+test('the heartbeat in a Story checkout writes no Story index entry and does no post-mutation work [SCF:REQ-023]', slowLane({ timeout: 180000 }), async t => {
+  const f = await fixture(t);
+  const target = await f.story('RET-HB', { cancel: false, publish: false });
+  const index = process.env.SINGULARITY_FLOW_STORY_INDEX;
+  assert.ok(index, 'the run has its own Story index');
+  const timings = () => readFile(path.join(git(target, ['rev-parse', '--absolute-git-dir']), 'singularity-flow', 'dx', 'timings.jsonl'), 'utf8')
+    .then(text => text.trim().split('\n').map(line => JSON.parse(line))).catch(() => []);
+  // Control: a mutation in the Story checkout records it in the index and does the post-mutation work.
+  const before = await readFile(index, 'utf8');
+  f.flow(['workspace', 'retention', f.workspacePath, '--completed-days', '14', '--json'], { cwd: target });
+  const recorded = (await timings()).at(-1);
+  assert.equal(recorded.commandClass, 'mutation');
+  const afterMutation = await readFile(index, 'utf8');
+  assert.ok(JSON.parse(afterMutation).entries.some(entry => entry.workId === 'RET-HB'));
+  assert.notEqual(afterMutation, before, 'a mutation in the Story checkout records it again');
+  for (let beat = 0; beat < 2; beat++) {
+    const heartbeat = JSON.parse(f.flow(['workspace', 'retention', f.workspacePath, '--heartbeat', '--surface', 'window', '--pid', String(process.pid), '--json'], { cwd: target }).stdout);
+    assert.equal(heartbeat.status, 'registered');
+    const event = (await timings()).at(-1);
+    assert.equal(event.commandClass, 'upkeep');
+    assert.equal(event.operationId, 'workspace.retention');
+    for (const stage of ['contract-refresh', 'journal', 'history-index', 'story-index']) assert.equal(Object.hasOwn(event.stages ?? {}, stage), false, stage);
+  }
+  assert.equal(await readFile(index, 'utf8'), afterMutation, 'the Story index is not rewritten');
+});
+
 test('background worker finishes independently and repeat foreground launches are throttled', slowLane({ timeout: 120000 }), async t => {
   const f = await fixture(t);
   const { scheduleWorkspaceRetention } = await import('../src/workspace-retention-background.mjs');

@@ -66,10 +66,12 @@ export async function reportCommand(positionals, options) {
   const copilotChat = await timer.measure('copilot-chat', () => storyCopilotChat(root, workflow, { sync: true }));
   const { storyCopilotSessions } = await import('../copilot-session-usage.mjs');
   const copilotSessions = await timer.measure('copilot-sessions', () => storyCopilotSessions(root, workflow, { sync: true }));
-  const report = await timer.measure('derive', async () => deriveReport(workflow, { ...preferences, copilotChat, copilotSessions }));
+  const counts = await changeImpactCounts(workflow);
+  const report = await timer.measure('derive', async () => deriveReport(workflow, { ...preferences, copilotChat, copilotSessions, changeImpact: counts.value }));
   let rendered = await timer.measure('render', async () => format === 'json'
     ? `${JSON.stringify(report, null, 2)}\n`
-    : format === 'html' ? renderHtml(report) : renderMarkdown(report));
+    : format === 'html' ? renderHtml(report, { changeImpact: counts.section(report, 'html') })
+      : renderMarkdown(report, { changeImpact: counts.section(report, 'md') }));
   const timings = timer.finish();
   if (format === 'json' && timings) {
     report.timings = timings;
@@ -116,6 +118,23 @@ export async function reviewCommand(positionals, options) {
   process.stdout.write(rendered);
 }
 
+/**
+ * The Story's change impact counts [CIC:REQ-017], model-free, from its own records, and the report section that says
+ * them. Loaded only here. They never fail the report: records that cannot be counted say so in the section.
+ */
+async function changeImpactCounts(workflow) {
+  const unavailable = 'The change impact counts could not be read from this Story\'s records.';
+  const fallback = (format) => (format === 'html' ? `<h2>Change impact</h2>\n<p class="note">${unavailable}</p>` : `## Change impact\n\n${unavailable}\n`);
+  try {
+    const counted = await import('../change-impact-counts.mjs');
+    return { value: counted.changeImpactCounts(workflow), section: (report, format) => {
+      try { return counted.changeImpactSection(report.changeImpact, { format, requirementChanges: report.requirementChanges }); } catch { return fallback(format); }
+    } };
+  } catch {
+    return { value: { schema: 'change-impact-counts/v1', unavailable }, section: (report, format) => fallback(format) };
+  }
+}
+
 /** Same informational JSON derivation used by the CLI, without console capture. */
 export async function readReport(root, workId = null) {
   const workflow = await readStoryState(root, workId);
@@ -123,5 +142,5 @@ export async function readReport(root, workId = null) {
   // Only the records already written: this read never reads Copilot's own session logs.
   const { storyCopilotSessions } = await import('../copilot-session-usage.mjs');
   return deriveReport(workflow, { ...await readReportPreferences(root), copilotChat: await storyCopilotChat(root, workflow),
-    copilotSessions: await storyCopilotSessions(root, workflow) });
+    copilotSessions: await storyCopilotSessions(root, workflow), changeImpact: (await changeImpactCounts(workflow)).value });
 }

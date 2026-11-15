@@ -9327,9 +9327,12 @@ async function workspaceCommand(positionals, options) {
           // [AGH:REQ-016] the move is approved by merging its review, like any configuration review.
           console.log('Merge each review branch into sflow/config to approve its agents move, then re-run this command to complete the state mirror. Or preview with --dry-run and confirm that plan to publish it directly.');
         } else if (result.status === 'partial') {
-          console.log('Re-run the same command to retry only incomplete publications; current repositories become no-ops.');
+          console.log('Each repository marked failed or needs-newer-build says why, and held up no other. Correct that, then re-run the same command; current repositories become no-ops.');
         } else if (result.status === 'blocked') {
           console.log('Correct the reported blocker, then create a fresh --dry-run preview before applying.');
+        } else if (result.status === 'proposed') {
+          // Refresh only proposes (SCF:REQ-014): sflow/config changes when a person approves each review.
+          console.log('Proposed: each review branch above holds this build\'s packaged configuration. sflow/config changes only when a person approves it by merging that branch.');
         } else {
           console.log('Configuration and state projections verified.');
         }
@@ -9390,6 +9393,9 @@ async function workspaceCommand(positionals, options) {
       });
       else if (result.status === 'complete') {
         console.log('Framework-seeded configuration assets, configuration state projections, and readable schema versions are current. Capability state was unchanged.');
+      } else if (result.status === 'proposed') {
+        for (const item of result.results ?? []) if (item.proposalBranch) console.log(`  ${item.repository}: review branch ${item.proposalBranch}`);
+        console.log('Proposed: sflow/config changes only when a person approves each review branch above by merging it.');
       }
     }
     if (['blocked', 'partial'].includes(result.status)) process.exitCode = 2;

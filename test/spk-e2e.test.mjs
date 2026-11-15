@@ -691,8 +691,11 @@ test('a Story runs specification through release from a fresh clone', slowLane()
   assert.match(JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout).items.find((item) => item.paths.includes('package.json')).plan.askedBecause,
     /sent it back in an earlier iteration/);
   const intentFinding = second.facts[0];
+  // Its short clause ID is the one clause it ends with, recorded in full (stage 7 run, 2026-11-15).
   sflow(root, ['story', 'adjudicate', intentFinding.id, '--disposition', 'update-intent',
-    '--clause', 'E2E:REQ-001', '--reason', 'The approved intent must limit retries to a payments operator.']);
+    '--clause', 'REQ-001', '--reason', 'The approved intent must limit retries to a payments operator.']);
+  const intentClauses = JSON.parse(sflow(root, ['story', 'adjudications', '--json']).stdout).items.find((item) => item.id === intentFinding.id).decision.clauseIds;
+  assert.ok(intentClauses.includes('E2E:REQ-001') && !intentClauses.includes('REQ-001'), intentClauses.join(', '));
   for (const fact of second.facts.filter((entry) => entry.id !== intentFinding.id)) {
     sflow(root, ['story', 'adjudicate', fact.id, '--disposition', 'accepted-deviation',
       '--reason', 'Trace evidence is recorded in the implementation summary and reviewed.']);

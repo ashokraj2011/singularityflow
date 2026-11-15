@@ -42,7 +42,7 @@ import { assertModelTask } from './model-tasks.mjs';
 import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, resolveTemplate } from './template-catalog.mjs';
 import { normalizeMcpServers, normalizePhaseMcpPolicy, validateMcpAgentTools } from './mcp.mjs';
 import { normalizeMarketplaces } from './marketplace.mjs';
-import { isSpecificationDefinitionPhase, normalizeSpecPolicy, skillPhasePrimaryOutputRole } from './specifications.mjs';
+import { isSpecificationDefinitionPhase, normalizeSpecPolicy, skillPhasePrimaryOutputRole, workTypeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-import-policy.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import {
@@ -1125,7 +1125,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
     workType.references = normalizeReferenceRepositoryPolicy(
       workType.references, `Work type '${id}' references`
     );
-    workType.spec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
+    workType.spec = workTypeSpecPolicy(definition.spec, workType.spec);
     const changeAuthority = workType.spec.scopeChangeAuthority;
     if (changeAuthority && !Object.hasOwn(definition.approvalAuthorities, changeAuthority)) throw new SingularityFlowError(`spec.scopeChangeAuthority references unknown approval authority '${changeAuthority}'.`);
     workType.sourceReview = availableDefaultSourceReview(normalizeSourceReviewPolicy(workType.sourceReview, {
@@ -2083,7 +2083,7 @@ export function resolveWorkType(definition, workTypeId) {
   const contextPolicy = normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   const tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
   const intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${workTypeId}' intelligence`);
-  const configuredSpec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
+  const configuredSpec = workTypeSpecPolicy(definition.spec, workType.spec);
   const plannedClaims = normalizePlannedClaimsPolicy(workType.plannedClaims, {
     workTypeId, phases, spec: configuredSpec,
     scopeOmission: (Array.isArray(workType.omits) ? workType.omits : []).find((entry) => entry?.responsibility === 'scope') ?? null

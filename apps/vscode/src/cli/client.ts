@@ -337,7 +337,7 @@ function cacheableRead(args: string[]): boolean {
     && !(args[0] === 'workspace' && args[1] === 'branches' && args.includes('--mint-intake-receipt'));
 }
 
-export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
+export function commandClass(args: string[]): 'read' | 'mutation' | 'upkeep' | 'unknown' {
   if (!args[0]) return 'unknown';
   if (args[0] === 'git-policy') return ['show', 'discover', 'plan', 'validate'].includes(args[1] ?? 'show') ? 'read' : 'unknown';
   if (args[0] === 'instruction') {
@@ -529,8 +529,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (args[0] === 'workspace' && args[1] === 'cleanup') {
     return enabledBooleanOption(args, 'apply') || enabledBooleanOption(args, 'automatic') ? 'mutation' : 'read';
   }
-  // Retention shows its settings unless a setting or heartbeat (even a negated one) is named.
+  // Retention shows its settings unless a setting or heartbeat (even a negated one) is named. The heartbeat itself is
+  // machine-local upkeep (src/command-registry.mjs OPERATION_CLASSES).
   if (args[0] === 'workspace' && args[1] === 'retention') {
+    if (enabledBooleanOption(args, 'heartbeat')) return 'upkeep';
     return ['enabled', 'completed-days', 'cancelled-days', 'unused-clone-days', 'interval-minutes', 'heartbeat']
       .some((name) => hasOption(args, name) || args.includes(`--no-${name}`)) ? 'mutation' : 'read';
   }
@@ -881,7 +883,7 @@ export class SingularityFlowClient {
         }
       : this.options.onOutput;
     const classification = commandClass(args);
-    if (classification !== 'read') this.invalidateReadResults();
+    if (classification !== 'read' && classification !== 'upkeep') this.invalidateReadResults();
     const cacheable = json && input == null && classification === 'read' && cacheableRead(args);
     const env = { ...((typeof this.options.environment === 'function' ? this.options.environment() : this.options.environment) ?? process.env) };
     // The client belongs to one window/repository. A different window's workspace selection must
@@ -930,6 +932,9 @@ export class SingularityFlowClient {
       },
       signal
     };
+    // The window heartbeat writes only its own presence and retention records: it changes nothing a view reads, so it
+    // neither invalidates reads nor holds them behind the repository's write barrier (SCF:REQ-023).
+    if (classification === 'upkeep') return invokeCli<T>({ ...invocation, ...(onProgress ? { onProgress } : {}) });
     // Writes keep the original runner deadline/rollback contract and never wait in the read pool.
     if (classification !== 'read') {
       this.invalidateReads();

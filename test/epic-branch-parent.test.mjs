@@ -251,9 +251,18 @@ test('Epic stack sync publishes an orphan control-plane manifest to participatin
   const { root, remote } = await soloRepository(stories);
   await materializeInitiative(root, EPIC, { confirmation: EPIC });
   const { syncStoryStack, storyStackPath } = await import('../src/story-stack.mjs');
-  const result = await syncStoryStack(root, EPIC);
+  // Whoever materialized last configured the managed clone; the sync is committed as who runs it.
+  const { initiativeRepositoryClonePath } = await import('../src/initiative-repositories.mjs');
+  const clone = await initiativeRepositoryClonePath(root, EPIC, 'app');
+  run('git', ['config', 'user.name', 'Earlier Materializer'], { cwd: clone });
+  run('git', ['config', 'user.email', 'earlier.materializer@example.invalid'], { cwd: clone });
+  // The configured Git identities decide authorship here, not the suite's stand-in identity.
+  delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
+  const result = await syncStoryStack(root, EPIC).finally(() => { process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner'; });
   assert.equal(result.publications.length, 1);
   assert.equal(result.publications[0].branch, 'state');
+  assert.equal(run('git', ['log', '-1', '--format=%an <%ae>', 'refs/heads/state'], { cwd: remote }).stdout.trim(),
+    `Initiative Owner <${ACTOR_EMAIL}>`);
   const text = run('git', ['show', `refs/heads/state:${storyStackPath(EPIC)}`], { cwd: remote }).stdout;
   const stored = JSON.parse(text);
   assert.equal(stored.initiativeId, EPIC);

@@ -45,5 +45,8 @@ export const MACHINE_STATE_LOCATIONS = Object.freeze({
  */
 export const ISOLATED_RUN_SWITCHES = Object.freeze({
   SINGULARITY_FLOW_AUTOMATIC_CLEANUP: 'off',
-  SINGULARITY_FLOW_INDEX_REFRESH: 'off'
+  SINGULARITY_FLOW_INDEX_REFRESH: 'off',
+  // A development checkout never proposes packaged configuration to a real repository (SCF:REQ-015); an isolated
+  // run's throwaway repositories are where it is tested (src/workspace-configuration-refresh.mjs).
+  SINGULARITY_FLOW_DEVELOPMENT_PROPOSALS: 'allow'
 });

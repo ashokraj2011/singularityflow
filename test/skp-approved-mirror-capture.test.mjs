@@ -33,7 +33,7 @@ function identity(root) {
   git(root, 'config', 'user.email', 'fixture@example.invalid');
   git(root, 'config', 'core.autocrlf', 'false');
 }
-async function fixture(t) {
+async function fixture(t, { keepConfiguration = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-mirror-capture-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const application = path.join(root, 'application'); const remote = path.join(root, 'authority.git');
@@ -68,19 +68,18 @@ async function fixture(t) {
   }));
   git(mirror, 'add', '-A'); git(mirror, 'commit', '-qm', 'Mirror exact approved configuration');
   git(mirror, 'remote', 'add', 'origin', remote); git(mirror, 'push', '-q', 'origin', 'state');
-  git(remote, 'update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`);
+  if (!keepConfiguration) git(remote, 'update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`);
   const checkout = path.join(root, 'checkout'); git(root, 'clone', '-q', '--no-local', '--single-branch', '-b', 'main', remote, checkout);
-  const resolved = await resolveStoryConfigurationAuthority(checkout);
-  assert.equal(resolved.branch, 'state');
-  // Resolution legitimately retains its first verified snapshot. Capture only its exact scalar
-  // authority here so the test schedules the independent snapshot read, not the reuse fast path.
-  const authority = { remote: resolved.remote, branch: resolved.branch, commit: resolved.commit,
-    sourceCommit: resolved.sourceCommit, source: resolved.source };
+  // New work never resolves the copy (SCF:REQ-001); a Story an older build started from it keeps this pin.
+  if (!keepConfiguration) await assert.rejects(() => resolveStoryConfigurationAuthority(checkout), { code: 'STORY_CONFIGURATION_AUTHORITY_MISSING' });
+  const authority = { remote, branch: 'state', commit: git(remote, 'rev-parse', 'refs/heads/state'),
+    sourceCommit, source: 'verified-state-mirror' };
   return { checkout, remote, sourceCommit, authority };
 }
 
-test('ordinary verified recovery-mirror reads omit authoring capture while explicit fresh authoring uses one bounded private capture', async (t) => {
-  const value = await fixture(t); const counts = new Map();
+// Fresh reads resolve sflow/config, never the `state` copy (SCF:REQ-001), so these run with sflow/config in place.
+test('ordinary fresh reads omit authoring capture while explicit fresh authoring uses one bounded private capture', async (t) => {
+  const value = await fixture(t, { keepConfiguration: true }); const counts = new Map();
   const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); },
     measure: (_name, action) => action(), feedback() {} };
   const refs = git(value.checkout, 'show-ref'); const status = git(value.checkout, 'status', '--porcelain');
@@ -94,7 +93,7 @@ test('ordinary verified recovery-mirror reads omit authoring capture while expli
     const snapshot = configurationReadSnapshot(value.checkout);
     assert.equal(captureVerifiedConfigurationAssetBytes(snapshot, { selectPaths: ['singularity/workflow.yml'] }).length, 1);
   }, { freshOwnerCapture: true, captureAuthoringBytes: true }));
-  assert.equal(counts.get('configuration.authoring-byte-capture'), 1, 'mirror resolution retains its opted-in raw profile for loader reuse');
+  assert.equal(counts.get('configuration.authoring-byte-capture'), 1, 'only the opted-in read captures raw bytes');
   assert.equal(git(value.checkout, 'show-ref'), refs); assert.equal(git(value.checkout, 'status', '--porcelain'), status);
 });
 
@@ -103,9 +102,9 @@ test('an ordinary retained mirror snapshot cannot be promoted to authoring bytes
   const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); },
     measure: (_name, action) => action(), feedback() {} };
   await withCommandTiming(timer, async () => {
-    const authority = await resolveStoryConfigurationAuthority(value.checkout);
+    // A Story's pin to the copy (an older build's); new work no longer resolves one.
+    const authority = value.authority;
     const ordinary = await loadStoryConfigurationSnapshot(authority);
-    assert.equal(counts.get('configuration.snapshot-reused'), 1);
     assert.equal(counts.get('configuration.authoring-byte-capture') ?? 0, 0);
     assert.throws(() => captureVerifiedConfigurationAssetBytes(ordinary, { selectPaths: ['singularity/workflow.yml'] }),
       { code: 'APPROVED_CONFIGURATION_EXACT_BYTES_UNAVAILABLE' });
@@ -199,7 +198,7 @@ test('approved package byte ownership cannot invoke public Buffer hooks, yield b
 });
 
 test('fresh approved reads suspend counterfeit overlays, select actual canonical authority and restore normal nested scope', async (t) => {
-  const value = await fixture(t);
+  const value = await fixture(t, { keepConfiguration: true });
   const genuine = await withApprovedConfigurationRead(value.checkout, async (authority) => ({
     authority, policy: configurationReadScope(value.checkout).assetPolicy,
     workflow: await readFile(path.join(configurationReadRoot(value.checkout), 'singularity/workflow.yml'))

@@ -1351,6 +1351,20 @@
         }
       }
     },
+    "refusedPublications": {
+      "description": "SPEC-CIC stage 7 [CIC:REQ-017]: one entry per publication refused because its draft was written before an approved intent amendment (PHASE_DRAFT_PREDATES_AMENDMENT, switch 2), by amendment, step and generation; nothing of the draft. Append-only, counted by the Story report's change impact section.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["amendment", "phase", "generation"],
+        "additionalProperties": false,
+        "properties": {
+          "amendment": { "type": ["string", "null"], "pattern": "^AMD-[0-9]{3,}$" },
+          "phase": { "type": "string" },
+          "generation": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
     "amendmentRevalidations": {
       "description": "Append-only revalidations of approved later steps after a forward amendment: unchanged (bound to the amended producer generation and bytes and the step's exact input record) or return. A v2 entry (amendment-revalidation family) keeps the person's name beside the actor key; a v1 entry has no schemaVersion and no name.",
       "type": "array",

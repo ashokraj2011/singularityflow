@@ -37,7 +37,7 @@ import {
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
   gitCommitIdentityArgs, gitCommitIdentityEnvironment, gitCommitSigningArgs,
-  preflightGitCommitIdentity, resolveGitCommitIdentity, resolveGitCommitSigning
+  configurationCommitIdentity, preflightGitCommitIdentity, resolveGitCommitSigning
 } from './git.mjs';
 import {
   gitRepositoryComparisonKey, sameGitRepository
@@ -2159,7 +2159,7 @@ async function createConfigurationRootCandidate(remote, plan, {
 }) {
   const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   const frozenCommitIdentity = commitIdentity
-    ?? resolveGitCommitIdentity(initiatingRoot, { env: initiatingEnv });
+    ?? configurationCommitIdentity(initiatingRoot, { env: initiatingEnv });
   const candidate = await mkdtemp(path.join(os.tmpdir(), 'sflow-onboarding-candidate-'));
   const objectFormat = String(
     plan.state.commit ?? plan.configuration.commit ?? plan.applicationSource?.commit ?? ''
@@ -2611,7 +2611,7 @@ async function publishProposal(remote, plan, mutate, {
   cleanupWarnings = [], cleanupQueueRoot = null
 }) {
   const frozenCommitIdentity = commitIdentity
-    ?? resolveGitCommitIdentity(initiatingRoot, { env: initiatingEnv });
+    ?? configurationCommitIdentity(initiatingRoot, { env: initiatingEnv });
   const checkout = await remoteConfigurationClone(remote, expectedConfigurationCommit, {
     env, runRemoteCommand, prefix: 'sflow-onboarding-proposal-', cleanupQueueRoot
   });

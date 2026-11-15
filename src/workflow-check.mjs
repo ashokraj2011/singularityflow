@@ -948,6 +948,7 @@ export async function checkWorkflowConfiguration(root, { workflows: only = null 
     const { findings, resolved, explanationGuidance, people } = await checkWorkflow(workflow, { definition, raw, model, locate, guidance, groups, templates, sfGuard, unmapped });
     results.push({
       id: workflow.id, label: workflow.label, readOnly: Boolean(workflow.readOnly),
+      ...(workflow.changeImpact ? { changeImpact: workflow.changeImpact } : {}),
       explanation: explainWorkflow(model, workflow.id, { resolved, guidance: explanationGuidance, people }),
       counts: countsOf(findings), findings
     });

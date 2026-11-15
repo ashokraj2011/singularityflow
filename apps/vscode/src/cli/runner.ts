@@ -1840,7 +1840,7 @@ export interface CliCommandTiming {
   command: string;
   /** Closed diagnostic vocabulary; never a work ID, URL, path, option value, or raw argv. */
   subcommand: string | null;
-  commandClass: 'read' | 'mutation' | 'unknown';
+  commandClass: 'read' | 'mutation' | 'upkeep' | 'unknown';
   startedAt: string;
   durationMs: number;
   outcome: 'success' | 'error' | 'cancelled';
@@ -1902,7 +1902,7 @@ export interface InvokeOptions {
   timeoutMs?: number | null;
   spawnImpl?: typeof spawn;
   onOutput?: (text: string, stream: OutputStream) => void;
-  commandClass?: 'read' | 'mutation' | 'unknown';
+  commandClass?: 'read' | 'mutation' | 'upkeep' | 'unknown';
   /** Completion telemetry is separate from the child process' stdout/stderr stream. */
   onTiming?: (event: CliCommandTiming) => void;
   /** Aborting a run the user cancelled, or that a newer refresh has superseded. */

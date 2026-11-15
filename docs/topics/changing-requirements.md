@@ -23,6 +23,7 @@ questions:
   - What is an editorial change?
   - Who approves a material change?
   - What does change impact do?
+  - What does the Change impact section of the report count?
 keywords:
   - acceptance criteria
   - change
@@ -40,7 +41,7 @@ related:
   - phase-appeals
   - rejection-and-rework
   - evidence-matrix
-version: 6
+version: 7
 ---
 When what a Story must do changes after its scope is approved, you do not edit the approved scope. You propose an intent amendment. The scope step's approvers decide it, and SFlow works out which later steps keep their approval and which run again. This topic walks one change from start to finish.
 
@@ -164,10 +165,30 @@ New Stories pin `spec.preAmendmentDrafts: refuse`. Stories started before it kee
 
 - Each published generation records what it depended on: the clauses its prompt held, claims, changed paths, bound tests, witnesses, bindings and citations.
 - A step whose record is missing or incomplete counts as affected, so rule E8 never keeps it. A step published without a composed prompt has no complete record, so expect more steps to run again.
+- Two kinds of generation have no prompt by design, and record what they read instead: the scope generation an approved amendment publishes (the proposal its approvers decided), and a document SFlow assembles itself with no model call (its governed inputs). Code a model wrote still needs its composed prompt.
 - A clause that depends on a removed clause is stale too. A changed clause no plan claims reaches every later step whose record does not rule it out.
 - A kept step whose prompt held a changed clause it does not cite gets a "still holds" row.
 
 See it with `sflow spec dependencies [<step>] --work-id WORK-ID`: each generation, `resolved` or `unresolved` with its reasons, and its edges by kind.
+
+## What the Story report counts
+
+`sflow report WORK-ID` (also `--format html` and `--format json`) has a **Change impact** section once the Story has an intent amendment. It counts what the changes did, for each approved amendment and for the Story:
+
+| Count | What it is |
+|---|---|
+| Requirement changes | Amendments approved, by size (editorial, refinement, material, or no size where change impact is off), and those rejected or waiting |
+| Cone size | The clauses each change reached (changed, or depending on a changed one), and the later steps with published work it reached |
+| Widened share | Of those steps, the ones reached only because what they depended on is not fully recorded (observed dependencies) |
+| Evidence kept | Evidence items preserved as unaffected, or carried as editorial |
+| "Still holds" | Questions asked, and their answers: still holds, redo, or open |
+| Rework | Steps reset after they had started, and the generations they published again since |
+| Publications refused | Publications of a draft written before an amendment (`PHASE_DRAFT_PREDATES_AMENDMENT`) |
+| Churn | Clause changes, clauses changed more than once, and clauses that went back to an earlier statement |
+
+- Each count says whether it was **recorded** (written when it happened), **derived** (worked out from the Story's other records) or **not recorded**. A Story whose amendments were approved before SFlow kept these counts reports what it can derive and names the rest. With change impact off, amendments have no size, and the rest is counted the same way.
+- Only counts are kept, with the amendment, step and generation IDs. No clause text, file contents or paths. `--format json` carries the same counts as `changeImpact`.
+- A refused publication is counted in the Story's state, and its next commit carries the count. The refusal itself is unchanged.
 
 ## What not to do
 

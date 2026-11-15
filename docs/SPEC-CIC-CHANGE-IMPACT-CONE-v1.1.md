@@ -2,7 +2,7 @@
 
 **Product:** Singularity Flow
 **Date:** 13 November 2026
-**Status:** Owner decisions recorded 2026-11-13 (section 9). Stages 1 to 6 are built (sections 7.1 to 7.6, owner decisions 2026-11-14 in section 9a); stage 7 follows, each stage behind its own switch where it changes an outcome.
+**Status:** Owner decisions recorded 2026-11-13 (section 9). Stages 1 to 6 are built (sections 7.1 to 7.6, owner decisions 2026-11-14 in section 9a), each behind its own switch where it changes an outcome, and so are stage 7's counts (section 7.7); its real Story follows.
 **Namespace:** CIC. Specification documents declare their own namespace in their header (see [DOCUMENTATION-MAP.md](DOCUMENTATION-MAP.md)); no other document uses CIC.
 **Source baseline:** commit 4aabac18a (main 15d6137d3 with the decisions-card work)
 **Replaces:** SPEC-CIC v1.0 (draft of the same day), corrected against the source baseline
@@ -138,7 +138,9 @@ The clause capsule in every composed prompt holds every clause of the earlier st
 | Step dependency record (`step-dependencies/v1`) | step, generation, publication time, scope revision and its digest, receipt path and digest, the claim maps relied on with their digests, the change set path and digest, edges (kind, clause ID, and the statement hash, path, test or line each kind carries), changed paths no clause claims, coverage state with reasons, record digest | one file per generation, `context/dependencies/<step>-gen<N>.json`, committed with the publication; the step keeps `dependencyRecords: [{ generation, path, recordSha256 }]` |
 | Reopened-step pin | step, generation, scope revision digest, set-aside prompt location, amendment | the step's own record |
 | Amendment effect | stale clauses with dependents, per later step: reset, kept or asked with reasons; first reset step; evidence kept; plan rows carried; "still holds" groups; churn | not stored by the preview; the approval stores what it applied in the amendment's `application`, as today |
-| Applied change entry | class, cone size, widened share | existing amendment record |
+| Applied change entry | class (stage 6); cone size and widened share are counted from the application and its counts record (stage 7) | existing amendment record |
+| Counts record (`impact-counts/v1`, stage 7) | the steps reached only through an incomplete record (switch 1), the reset steps whose unpublished work their pin set aside (switch 2), the evidence items an editorial change carried (switch 3); written only under a switch | the approval's `application.impactCounts`, and the amendment summary |
+| Refused publication (stage 7) | amendment, step, generation | `refusedPublications`, append-only, in the Story state |
 
 ## 6. Commands
 
@@ -177,7 +179,7 @@ Stages 2 and 3 change no outcome except REQ-020, which only resets a step whose 
 
 - **Switch 1** is `spec.observedDependencies: on | off` in the workflow definition's `spec` block (`schemas/workflow-definition.schema.json`, `normalizeSpecPolicy`). It is pinned only when on, so a Story without it (every Story pinned before it, and every new Story while it is off) keeps byte-identical state; readers check the pinned raw field. With it off nothing new is written: no record, no `dependencyRecords`, v1 revisions, and receipts as before.
 - **Records** (`src/dependency-records.mjs`, loaded only on the publish path and by the read). `publishGeneration` writes one per generation after the generation's own records are final, in the publication's commit; `decideIntentAmendment` writes the record of the scope generation it publishes. One file per generation keeps `workflow.json` small: the step holds only `{ generation, path, recordSha256 }`. On the fixture the records were 976 to 2,427 bytes. Each `input` edge costs about 160 bytes, so a step after 100 clauses carries about 17 KB, in its own file.
-- **Prompt receipts did not name the clause revisions.** They held the capsule's digest and counts only. Under switch 1 the composer now records `clauseRevisions` (each ID and approved statement hash, the same hash a scope revision holds) on the receipt. A receipt exists only when a prompt was composed (`phase enter --compose`, an agent's entry). A generation authored without one, such as deterministic code or the scope generation an amendment publishes, reads `unresolved` with `receipt-missing`. That will be common, and it is the fail-closed reading REQ-005 asks for.
+- **Prompt receipts did not name the clause revisions.** They held the capsule's digest and counts only. Under switch 1 the composer now records `clauseRevisions` (each ID and approved statement hash, the same hash a scope revision holds) on the receipt. A receipt exists only when a prompt was composed (`phase enter --compose`, an agent's entry). A generation authored without one, such as deterministic code or the scope generation an amendment publishes, reads `unresolved` with `receipt-missing`. That will be common, and it is the fail-closed reading REQ-005 asks for. (Stage 7 corrects this for the two routes that compose no prompt by design: section 7.7.)
 - **Coverage reasons**, a closed set. At publication: `receipt-missing`, `receipt-digest` (the prompt no longer matches the receipt), `receipt-clauses-unrecorded`, `claim-map-missing`, `claim-map-digest`, `delivery-evidence-missing`, `unclaimed-paths` and `artifact-unreadable`. On read: `no-record`, `record-missing`, `record-digest`, `receipt-changed`, `claim-map-changed` and `scope-chain`.
 - **Changed paths no clause claims:** under REQ-005 as first written, a plan's Supporting files (lockfiles, CI, build files) were unclaimed, so most real code generations that touch one read `unresolved`. The owner decided (2026-11-14) that a supporting change an approved plan row or plan amendment names is covered; stage 4 records it as `supportingPaths`.
 - **`scope-revision/v2`** is written by `recordApprovedScopeRevision` under switch 1, with `stale` (each clause's reason) and `edges` (the declared edges the reasons used). Staleness still reads `changes` and `dependsOn` exactly as before, and the test pins `stale` equal to `staleClausesOf`. `schemas/workflow.schema.json` takes each item as v1 or v2, both with `additionalProperties: false`.
@@ -266,6 +268,48 @@ Everything below applies only to a Story whose pinned spec policy has `changeImp
 - **Found: the /sf-amend turn's reminder gave it the wrong job.** A paid Copilot CLI run on main said "approval-only turn … Approval/rejection only … end this turn after the decision. Draft an intent amendment only at the issued file …, for story intent-amendment propose --file." A model whose skill body did not load copied that command without its binary, was refused twice and gave up. An /sf-amend turn is now an "intent-amendment turn" whose rules name its route with full commands (draft at the issued file, preview, propose after the person's bound yes where change impact is on; a person decides and acknowledges). /sf-reject keeps "approval or rejection only" and its draft sentence names the full propose command; the paused step's rules, an Epic source note's and a no-Story draft turn's name theirs with the binary too. `test/cic-chat-entry.test.mjs` pins both summaries and checks that no turn summary names an SFlow command without its binary.
 - **Found: VS Code's own chat may never hand the hook an answer.** There a proposal cannot be bound to a yes, so the refusal says not to ask again in that chat and gives the person's own terminal command (`--authored human`), as a "still holds" row there goes to the card.
 - **Churn and reversals (REQ-016, AC-016).** The preview already said which changed clauses the Story changed before and which go back to an earlier statement (stage 2). The Story report (`sflow report`, Markdown and HTML) now has "Requirement changes" under the switch: the approved amendments by class, each clause changed more than once, and each clause that went back to an earlier statement, with how often. No limit is set (D4).
+
+### 7.7 What stage 7 built (the counts), and what building it found
+
+- **One read, model-free (REQ-017).** `src/change-impact-counts.mjs`, loaded only by the Story report (`sflow report` and the report read), computes the counts from the Story's records. For each approved amendment and for the Story it counts:
+  - revisions by class (no size where change impact is off);
+  - cone size and widened share;
+  - evidence kept;
+  - "still holds" questions and answers;
+  - steps reset, and the generations they published again;
+  - publications refused.
+
+  Then it counts the Story's churn. The report's Markdown and HTML have a **Change impact** section in place of stage 6's "Requirement changes", whose clause lines it holds, and `--json` carries the same object as `changeImpact`. No command family was added.
+- **What each count is.**
+  - *Cone size:* the amendment's stale clauses (changed, or depending on a changed one), and its affected later steps that had published work when it was approved. A step that never published holds no evidence (REQ-006), so a code or convergence step not yet run is not counted.
+  - *Widened share:* of those steps, the ones whose only reason was `unresolved-record`: in the cone only because what they depended on is not fully recorded (REQ-007's `widened:unresolved`). `unreadable` (REQ-020) is its own reason and is not counted as widened.
+  - *Evidence kept:* the approval's preserved evidence items; for an editorial change, the evidence items of the steps it carried.
+  - *Steps reset:* the steps the approval did not keep that had started: they had published a generation by then, or their pin set aside unpublished work (switch 2). A step that had not started reads the amended scope anyway, which is no rework.
+  - *Generations redone:* the generations each reset step published after the approval, up to the next amendment that reset it again.
+  - *"Still holds":* each row the amendment asked (D1's `prompt-held` rows and SCS:REQ-022's), answered "still holds" or "redo", still open, or no longer asked because its step moved on.
+  - *Publications refused:* each `phase publish` refused with `PHASE_DRAFT_PREDATES_AMENDMENT`. A prepublish blocker is a check before publication, not a refusal at it, and is not counted.
+  - *Churn:* clause changes, clauses changed by more than one amendment, and the times a clause went back to an earlier statement.
+- **Derived first.** Cone size, steps reset, generations redone, churn and the class come from records the Story already keeps: the amendment summary (stale clauses, affected and kept steps, preserved evidence, class, rows), the scope revision it recorded (each later step's generation then), the steps' generation publications and pins, and the answers. Without a scope revision, a step's generation then comes from its publication times.
+- **Recorded, additive (D3, REQ-019).** Three facts had no record:
+  - The approval's `impactCounts` (in the application and the summary) holds the steps reached only through an incomplete record (switch 1), the reset steps whose unpublished work their pin set aside (switch 2), and the evidence an editorial change carried (switch 3). A later amendment's pin replaces a step's own, so the set-aside part is not derivable afterwards. It is written only when a switch is on; its presence says the counts are kept for that amendment.
+  - `refusedPublications` holds one `{ amendment, phase, generation }` per refused publication. A refusal rolls its publication back, so the phase command records it afterwards as a draft of the Story's state, as `phase begin` keeps a generation, and the step's next governed commit carries it. Recording never changes the refusal.
+- **Recorded or derived, said per count.** Each count names its source: recorded, derived, not recorded, or, for a total, partly recorded.
+  - A Story whose amendments were approved before stage 7 reports everything it can derive. Per amendment it names what it did not record: the widened share under switch 1, the publications refused under switch 2, and the evidence an editorial change carried.
+  - With every switch off nothing is missing: no step can be widened, no publication can be refused, and the amendments have no size.
+  - It never fails: a record it cannot read counts as absent, and if counting fails the section says so.
+- **No content.** The counts hold counts and amendment IDs only; the records hold step IDs and generations. The section names clause IDs only where stage 6's "Requirement changes" did (switch 3's churn lines).
+- **Found (E5, the stage 7 real Story): two kinds of generation have no prompt by design, and read `receipt-missing`.** On the paid run, `spec dependencies` showed the scope generations that approving AMD-001 and AMD-002 published, and the kernel-assembled verify generation, as `unresolved (receipt-missing)`.
+  - Neither was model-authored from an unrecorded prompt. The scope generation is the proposal its approvers decided, against the scope it amends (a moved proposal is refused at approval). The kernel assembles a deterministic document from its governed inputs record, with no model call.
+  - The effect never read the scope step's own records, so those widened no cone. A kernel-assembled document cites every clause it lists, so it was in the cone for `cites` anyway, and the counts count a step as widened only when `unresolved-record` is its only reason. They still read as unknown dependencies, and a document that did not cite a changed clause (an added one) was widened.
+  - The fix, under switch 1 (`promptlessInput`, `src/dependency-records.mjs`): such a generation's record takes the file it read as its receipt, bound by digest. That is the proposed bytes of an approved amendment (`receipt.kind: intent-amendment`), or the governed inputs record of a document whose pinned generation policy is deterministic, published as deterministic with no model call (`governed-inputs`). Its input edges are every clause the steps before it define at the scope revision current at publication, exactly what a composed prompt's clause capsule holds.
+  - Unchanged: a code step's code still needs its prompt receipt, even when its summary is deterministic, and so does every generation a model or a person wrote. Such a generation without one reads `receipt-missing` as before.
+  - Records written before the fix are not rewritten (REQ-019).
+- **Found: an acknowledgement sets `acknowledgementRequired` to false.** "Reset nothing" is therefore read from the record as: approved as editorial; or not acknowledged and not required; or rows from a conformance settlement.
+- **Tests.** `test/cic-change-impact-counts.test.mjs`:
+  - exact counts on a synthetic Story with three amendments, and its pre-stage-7, all-off and malformed readings;
+  - a real Story through the CLI with change impact on (an editorial change, a refinement partway through the code step, one refused publication): its `report --format json` counts are exact, and its Markdown and HTML sections say them;
+  - an all-off Story's report;
+  - the E5 fix on a real Story: the two amendment scope generations and the kernel-assembled verify resolve, the design a person wrote again without a prompt stays unresolved, and a third amendment (an added clause) widens only that design.
 
 ## 8. Acceptance
 

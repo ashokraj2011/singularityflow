@@ -2502,6 +2502,13 @@ singularity-flow report WORK-123 --format html --out workflow-report.html
 
 Reports show phase duration, active time, approval waiting, open approval latency, generations, rework, rejections, self-approvals, provider/model identity, exact tokens with per-model totals, optional cost, quality-check duration, and the largest approval-latency bottleneck.
 
+Once a Story has an intent amendment, its report also has a **Change impact** section: for each approved
+amendment and for the Story, its size, cone size, widened share, evidence kept, "still holds" questions and
+answers, steps reset, generations published again, publications refused and clause churn, each marked as
+recorded or derived. Only counts are kept, with the amendment, step and generation IDs: no clause text, file
+contents or paths. `--format json` carries the same counts as `changeImpact`
+(`singularity-flow explain changing-requirements`).
+
 In VS Code, open **Singularity Flow: Story Analytics** for the same
 report as an operational dashboard. It includes a phase rail, completion percentage,
 active-versus-waiting charts, per-phase and per-model token tables, cost coverage,

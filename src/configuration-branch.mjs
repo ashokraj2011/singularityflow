@@ -3287,6 +3287,15 @@ async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPat
   return writeCapturedStoryConfigurationAssets(captured, destination);
 }
 
+/** The asset policy of the captured approved workflow.yml and portfolio.yml. */
+function capturedAssetPolicy(captured) {
+  const yamlFromSnapshot = (relative) => {
+    const entry = captured.find((candidate) => candidate.relative === relative);
+    return entry ? YAML.parse(entry.contents.toString('utf8')) ?? {} : {};
+  };
+  return configurationAssetPolicy(yamlFromSnapshot('singularity/workflow.yml'), yamlFromSnapshot('singularity/portfolio.yml'));
+}
+
 /**
  * Mount one already-verified Story configuration snapshot for a read-only operation.
  *
@@ -3301,18 +3310,10 @@ export async function withStoryConfigurationSnapshotRead(root, snapshot, fn, { s
     ['singularity/workflow.yml', 'singularity/portfolio.yml'].includes(entry.relative))
     .map((entry) => entry.relative);
   const policyAssets = captureStoryConfigurationSnapshotAssets(snapshot, { selectPaths: policyPaths });
-  const yamlFromSnapshot = (relative) => {
-    const entry = policyAssets.find((candidate) => candidate.relative === relative);
-    if (!entry) return {};
-    return YAML.parse(entry.contents.toString('utf8')) ?? {};
-  };
   // Compute the policy from the complete retained snapshot before applying a selected-path view.
   // Deriving it from the partial scratch directory would treat an omitted portfolio as defaults and
   // could silently broaden which custom roots the read scope accepts.
-  const assetPolicy = configurationAssetPolicy(
-    yamlFromSnapshot('singularity/workflow.yml'),
-    yamlFromSnapshot('singularity/portfolio.yml')
-  );
+  const assetPolicy = capturedAssetPolicy(policyAssets);
   if (selectPaths != null) {
     const selected = [...new Set(selectPaths)];
     if (!selected.includes('singularity/workflow.yml')
@@ -3478,7 +3479,9 @@ export async function materializeConfigurationSnapshot(root, {
   const captured = captureStoryConfigurationSnapshotAssets(verifiedSnapshot);
   {
     const baseCommit = configurationRepositoryHead(root);
-    const before = configurationTreeEntries(root, baseCommit);
+    // Configuration is what the approved policy says, not the checkout's default [AGH:CON-003].
+    const approvedPolicy = capturedAssetPolicy(captured);
+    const before = configurationTreeEntries(root, baseCommit, approvedPolicy);
     const selection = workTypes?.length
       ? await storyBranchConfigurationClosure(root, verifiedSnapshot, workTypes, agents, baseCommit, before)
       : { closure: null, reason: null };
@@ -3495,7 +3498,7 @@ export async function materializeConfigurationSnapshot(root, {
     // Preserve identical ordinary files and their index/stat identities. Deleting and rewriting
     // every template made Windows rescan/re-hash the entire closure during initial publication.
     // This is byte equality, not an mtime cache; final provenance verification remains mandatory.
-    const current = new Set(await configurationAssetPaths(root));
+    const current = new Set(await configurationAssetPaths(root, approvedPolicy));
     for (const entry of materialized) {
       if (!current.has(entry.relative)) continue;
       const target = path.join(root, entry.relative), info = await lstat(target);

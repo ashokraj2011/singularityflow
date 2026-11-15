@@ -624,7 +624,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // 2026-11-15]: its helper and comment (configuration-assets.mjs +173) and one import in each of agents.mjs, clone-strategy.mjs,
     // initialization-assets.mjs, initialization/runtime-readiness.mjs, initialization/source-snapshot.mjs, skp-contract.mjs and
     // specifications.mjs; application-paths.mjs drops its own copy (-103). No new eager file.
-    assert.ok(closure.bytes <= 9_664_150, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,664,450 (measured 9,664,429): a Story start removes only what the approved configuration's own policy counts as
+    // configuration, so the team's .github/agents on main stays [AGH:REQ-029, upgrade review 2026-11-15]
+    // (configuration-branch.mjs +326). No new eager file.
+    assert.ok(closure.bytes <= 9_664_450, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });

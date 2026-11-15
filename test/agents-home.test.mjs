@@ -469,3 +469,48 @@ test('every state of the move names its next step on the shell, and none is a de
   assert.doesNotMatch(current.text, /Agents move to/u);
   assert.equal(current.status, 0, current.text);
 });
+
+/**
+ * The real layout: main holds the application and the team's own agents, sflow/config the approved
+ * configuration (on the agents home, fresh or after the migration). A Story branch starts from main.
+ */
+async function sflowConfigRepository(t, { migrated }) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-agh-story-start-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const remote = path.join(directory, 'app.git');
+  run('git', ['init', '-q', '--bare', '--initial-branch=main', remote]);
+  const app = await teamRepository(t);
+  git(app, 'remote', 'add', 'origin', remote); git(app, 'push', '-q', 'origin', 'main');
+  const publisher = path.join(directory, 'publisher');
+  run('git', ['init', '-q', '-b', 'sflow/config', publisher]);
+  git(publisher, 'config', 'user.name', 'Agents Home Test'); git(publisher, 'config', 'user.email', 'agents-home@example.test');
+  await initializeDefinition(publisher);
+  if (migrated) {
+    // As an earlier build left it: SFlow's agents and, from first governance, the team's own in .github/agents.
+    await toLegacyAgentsLayout(publisher);
+    await writeFile(path.join(publisher, '.github/agents/security-reviewer.agent.md'), TEAM_REVIEWER);
+    git(publisher, 'add', '-A'); git(publisher, 'commit', '-qm', 'A legacy approved configuration');
+    assert.equal((await refreshPackagedConfiguration(publisher)).agentsHome?.status, 'proposed');
+  }
+  git(publisher, 'add', '-A'); git(publisher, 'commit', '-qm', 'The approved configuration on the agents home');
+  git(publisher, 'remote', 'add', 'origin', remote); git(publisher, 'push', '-q', 'origin', 'HEAD:sflow/config');
+  const clone = path.join(directory, 'clone');
+  run('git', ['clone', '-q', remote, clone]);
+  git(clone, 'config', 'user.name', 'Agents Home Test'); git(clone, 'config', 'user.email', 'agents-home@example.test');
+  return { clone, team: await tree(path.join(app, LEGACY_AGENTS_ROOT)) };
+}
+
+for (const migrated of [false, true]) {
+  test(`a Story started from main under sflow/config leaves the team's own .github/agents as main has them (${migrated ? 'after the migration' : 'a fresh agents home'}) [AGH:CON-003]`, async (t) => {
+    const { clone, team } = await sflowConfigRepository(t, { migrated });
+    const started = spawnSync(process.execPath, [CLI, '--no-model', 'start', 'AGH-30', '--from-branch', 'main', '--work-type', 'spec-driven-standard',
+      '--title', 'A Story beside the team\'s agents', '--description', 'Return an approved value.'], { cwd: clone, encoding: 'utf8',
+      env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Agents Home Tester', SINGULARITY_FLOW_NO_MODEL: '1' } });
+    assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+    assert.notEqual(git(clone, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main', 'the Story has its own branch');
+    assert.equal(git(clone, 'diff', '--stat', 'main', 'HEAD', '--', '.github'), '', 'the Story branch changes nothing in .github');
+    assert.deepEqual(await tree(path.join(clone, LEGACY_AGENTS_ROOT)), team, 'Copilot in the Story checkout still has the team\'s agents');
+    const pinned = JSON.parse(await readFile(path.join(clone, 'singularity/work-items/AGH-30/workflow.json'), 'utf8'));
+    assert.equal(pinned.resolution.agentPromptsRoot, AGENTS_HOME);
+  });
+}

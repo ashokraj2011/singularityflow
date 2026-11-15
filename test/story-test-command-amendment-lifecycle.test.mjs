@@ -42,6 +42,13 @@ function setActor(root, actor) {
   process.env.SINGULARITY_FLOW_TEST_IDENTITY = actor.name;
 }
 
+/** Run `fn` from `actor`'s environment, then return to whoever was acting. */
+async function asActor(root, actor, fn) {
+  const previous = { name: git(root, 'config', 'user.name'), email: git(root, 'config', 'user.email') };
+  setActor(root, actor);
+  try { return await fn(); } finally { setActor(root, previous); }
+}
+
 async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExplicitTestCommand = false,
   uncommittedPreparation = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-command-amendment-'));
@@ -205,7 +212,9 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExpl
     value.config = loaded.config; value.workflow = loaded.workflow;
     return loaded;
   };
-  value.publish = () => context(root, async () => {
+  // The author's agent session publishes, from the author's environment: an agent session's actor
+  // speaks only for the environment that chose it, and the reviewer's own commands run as the reviewer.
+  value.publish = () => asActor(root, author, () => context(root, async () => {
     const current = value.workflow.phases.implementation;
     await scanArtifacts(root, value.config, value.workflow, current.id);
     const payload = await generationStartPublicationBinding(root, value.workflow, current);
@@ -215,7 +224,7 @@ async function fixture(t, { oldCommandWorks = false, testRecovery = true, noExpl
         { phaseId: current.id, authorship, persist: false, publicationTransaction: { publicationEvent,
           transactionId: transactionContext.transactionId, expectedHead: transactionContext.expectedHead } })
     });
-  });
+  }));
   setActor(root, reviewer);
   return value;
 }

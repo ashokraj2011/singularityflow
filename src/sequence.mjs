@@ -9,7 +9,7 @@ import { exists, nowIso, SingularityFlowError } from './util.mjs';
 import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import { action, because, commandResult, noEffects, refused, withCommandResult } from './narration/command-result.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
-import { gitDir } from './git.mjs';
+import { gitDir, rememberedActor } from './git.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer,
   phaseUsesDeterministicGeneration
@@ -248,7 +248,7 @@ async function sessionAudit(root) {
   if (!(await exists(file))) return { actor: null, agent: null };
   try {
     const session = JSON.parse(await readFile(file, 'utf8'));
-    return { actor: session.actor ?? null, agent: session.agent ?? null };
+    return { actor: rememberedActor(root, session.actor ?? null, session.actorEnvironment), agent: session.agent ?? null };
   } catch {
     return { actor: null, agent: null };
   }

@@ -928,6 +928,10 @@ test('the common session projection does not import attach, state stores or publ
   // is derived (model-free-commands.mjs +629, copilot-guidance.mjs +409, person-step-catalog.mjs +70) [owner, 2026-11-15].
   // No new eager file.
   // 4,258,200 (measured 4,258,193): the two above together, measured where both land (2026-11-15).
+  // A cached GitHub account answers only the environment and Git email it was resolved
+  // for, and an agent session's actor only the environment that chose it (git.mjs +2,141, session.mjs +438) (real run,
+  // 2026-11-15: one person's login and name were on another person's records). No new eager file.
+  // MEASURE-COMBINED
   assert.ok(current.bytes <= 4_258_200, `session current loads ${current.bytes} source bytes`);
 });
 

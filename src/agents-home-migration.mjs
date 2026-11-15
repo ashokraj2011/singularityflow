@@ -170,6 +170,10 @@ export function agentsHomeLines(agentsHome, indent = '    ') {
     lines.push(`${indent}  held: ${conflict.from} and ${conflict.to} differ. Keep one of them in sflow/config, then preview again.`);
   }
   if (agentsHome.transportRoot) lines.push(`${indent}  ${transportRootHold(agentsHome)}`);
-  if (agentsHome.status === 'proposed') lines.push(`${indent}  Stories already running keep their own agents; new Stories use ${agentsHome.to}.`);
+  if (agentsHome.status === 'proposed') {
+    lines.push(`${indent}  Stories already running keep their own agents; new Stories use ${agentsHome.to}.`);
+    // [AGH:REQ-030] an earlier build would move them back.
+    lines.push(`${indent}  Before it is approved, every teammate needs a build that reads ${agentsHome.to}; an earlier one moves the agents back.`);
+  }
   return lines;
 }

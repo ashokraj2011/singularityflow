@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 43
+version: 44
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing application history.
 
@@ -238,6 +238,9 @@ What the upgrade proposes:
   preview again. The rest of the package update goes ahead. The move is held the same way when
   `singularity/workflow.yml` already names an `agentPromptsRoot` of its own, which the
   configuration carries: remove that key in `sflow/config` to move the agents, then preview again.
+
+Before you approve it, have every teammate update SFlow: a build from before this change reads a
+moved repository's `.github/agents` as SFlow's, and its refresh would move the agents back.
 
 How it is approved: the same way as any configuration refresh, by whoever may merge into
 `sflow/config`. A refresh that confirms a preview listing the move (`--confirm-plan`, which

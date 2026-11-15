@@ -317,6 +317,16 @@ test('single installer supports Artifactory without accepting credentials in URL
   assert.match(script, /https:/);
 });
 
+test('a workspace refresh left pending points at what the refresh printed, never only at repeating it [AGH, upgrade review 2026-11-15]', async () => {
+  const script = await readFile(path.join(root, 'install.sh'), 'utf8');
+  const pending = script.slice(script.indexOf('workspace configuration refresh is pending'));
+  const block = pending.slice(0, pending.indexOf('step_end'));
+  // A refresh that opened a review (the agents move on a legacy repository does) is finished by
+  // merging that review; repeating the command alone only joins the same review again.
+  assert.doesNotMatch(block, /Retry exactly/u);
+  assert.match(block, /merge each review branch it names into sflow\/config, or correct its blocker\), then run: singularity-flow workspace refresh-configuration/u);
+});
+
 test('clean reinstall delegates skip-tests before any Git requirement or repository operation', async () => {
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'sflow-clean-reinstall-script-'));
   const bin = path.join(fixture, 'bin');

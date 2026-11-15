@@ -1653,7 +1653,10 @@ if [[ "$RECOVERY_WORKSPACE_CONFIGURATION_REFRESH" == "on" ]]; then
   else
     WORKSPACE_REFRESH_STATUS="pending"
     printf '%s\n' 'WARNING: product activation is complete, but workspace configuration refresh is pending.' >&2
-    printf '%s\n' 'Retry exactly: singularity-flow workspace refresh-configuration' >&2
+    # The refresh printed what is left: a review branch to merge (an agents move is approved that
+    # way, AGH:REQ-016), a blocker to correct, or a publication to retry. Repeating it alone would
+    # only re-open the same review.
+    printf '%s\n' 'Do what the refresh above says (merge each review branch it names into sflow/config, or correct its blocker), then run: singularity-flow workspace refresh-configuration' >&2
   fi
   step_end
 fi

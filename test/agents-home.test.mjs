@@ -332,20 +332,55 @@ test('an unconfirmed refresh opens the move as a review and never pushes sflow/c
   assert.notEqual(rerun.status, 'blocked');
 });
 
-test('a confirmed preview listing the move publishes it, and a stale one is refused [AGH:REQ-015, REQ-016]', async (t) => {
+test('a confirmed preview listing the move proposes it with the v2 baseline, and only merging that review approves it [AGH:REQ-015, REQ-016, SCF:REQ-014]', async (t) => {
   const { remote, registry } = await legacyRemote(t, 'confirmed');
-  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  const build = { commit: 'b'.repeat(40), builtAt: '2026-11-16T08:00:00.000Z' };
+  const before = git(remote, 'rev-parse', 'sflow/config');
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true, build });
   assert.equal(preview.status, 'preview');
   assert.ok(preview.results[0].agentsHome.moves.some((move) => move.to === 'singularity/agents/developer.agent.md'));
   assert.equal(approved(remote, 'singularity/agents/developer.agent.md').status, 128, 'a preview writes nothing');
-  const applied = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId });
-  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  const applied = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId, build });
+  const [item] = applied.results;
+  assert.equal(applied.status, 'proposed', JSON.stringify(applied, null, 2));
+  assert.equal(item.status, 'review-required');
+  assert.match(item.proposalBranch, /^sflow\/config-refresh\//u);
+  assert.equal(git(remote, 'rev-parse', 'sflow/config'), before, 'confirming the preview proposes; sflow/config is unchanged');
+  const proposed = (relative) => run('git', ['--git-dir', remote, 'show', `${item.proposalBranch}:${relative}`], { allowFailure: true });
+  assert.equal(YAML.parse(proposed('singularity/workflow.yml').stdout).agentPromptsRoot, AGENTS_HOME);
+  assert.equal(proposed('singularity/agents/developer.agent.md').stdout, await readFile(path.join(ROOT, 'templates/agents/developer.agent.md'), 'utf8'));
+  assert.equal(proposed('.github/agents/security-reviewer.agent.md').stdout, TEAM_REVIEWER, 'the team\'s own agent stays');
+  const baseline = YAML.parse(proposed('singularity/.product/configuration-baseline.yml').stdout);
+  assert.deepEqual([baseline.format, baseline.build], ['singularity-flow-configuration-baseline/v2', build], 'the move carries the build that proposed it');
+  // A person approves it: the review's merge on the Git host.
+  run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/sflow/config', item.candidateCommit]);
   assert.equal(YAML.parse(approved(remote, 'singularity/workflow.yml').stdout).agentPromptsRoot, AGENTS_HOME);
-  assert.equal(approved(remote, 'singularity/agents/developer.agent.md').stdout,
-    await readFile(path.join(ROOT, 'templates/agents/developer.agent.md'), 'utf8'));
-  assert.equal(approved(remote, '.github/agents/security-reviewer.agent.md').stdout, TEAM_REVIEWER, 'the team\'s own agent stays');
-  const stale = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId });
-  assert.notEqual(stale.status, 'complete', 'the old confirmation no longer matches');
+  const stale = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId, build });
+  assert.ok(!['proposed', 'complete'].includes(stale.status), 'the old confirmation no longer matches');
+});
+
+test('after the move is approved, a teammate on an older build is refused and moves nothing back [AGH:AC-016, SCF:REQ-015]', async (t) => {
+  const { remote, registry } = await legacyRemote(t, 'older-build');
+  const newer = { commit: 'b'.repeat(40), builtAt: '2026-11-16T08:00:00.000Z' };
+  const older = { commit: 'a'.repeat(40), builtAt: '2026-11-13T08:00:00.000Z' };
+  const [move] = (await refreshWorkspaceConfigurations({ registryFile: registry, build: newer })).results;
+  assert.equal(move.status, 'review-required');
+  assert.ok(move.agentsHome.moves.length);
+  run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/sflow/config', move.candidateCommit]);
+  const tree = () => run('git', ['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'sflow/config']).stdout;
+  const reviews = () => run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh']).stdout.trim();
+  const [approvedCommit, approvedTree, reviewsBefore] = [git(remote, 'rev-parse', 'sflow/config'), tree(), reviews()];
+  for (const options of [{}, { dryRun: true }]) {
+    const refused = await refreshWorkspaceConfigurations({ registryFile: registry, build: older, ...options });
+    assert.equal(refused.results[0].status, 'needs-newer-build', JSON.stringify(refused, null, 2));
+    assert.match(refused.results[0].error, /^This repository needs a build from 2026-11-16 or later/u);
+    assert.equal(refused.results[0].agentsHome, undefined, 'the older build plans no move of any kind');
+  }
+  assert.equal(git(remote, 'rev-parse', 'sflow/config'), approvedCommit, 'the older build changed nothing');
+  assert.equal(tree(), approvedTree);
+  assert.equal(reviews(), reviewsBefore, 'and proposed nothing');
+  assert.match(approvedTree, /^singularity\/agents\/developer\.agent\.md$/mu, 'the agents stay home');
+  assert.doesNotMatch(approvedTree, /^\.github\/agents\/developer\.agent\.md$/mu);
 });
 
 // ---------------------------------------------------------------- a Story walked across the migration
@@ -461,7 +496,7 @@ test('every state of the move names its next step on the shell, and none is a de
   // Unconfirmed: a review, and what to do with it.
   const unconfirmed = shell([]);
   assert.match(unconfirmed.text, /Review branch: sflow\/config-refresh\//u);
-  assert.match(unconfirmed.text, /Merge each review branch into sflow\/config to approve its agents move, then re-run this command/u);
+  assert.match(unconfirmed.text, /Merge each review branch into sflow\/config to approve it and its agents move: sflow\/config changes only then\. Re-run this command afterwards/u);
   // Merged, then current: the rerun completes and there is nothing left to move.
   const proposal = run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(objectname)', 'refs/heads/sflow/config-refresh/']).stdout.trim().split('\n')[0];
   run('git', ['--git-dir', remote, 'update-ref', 'refs/heads/sflow/config', proposal]);

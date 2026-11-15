@@ -9323,9 +9323,9 @@ async function workspaceCommand(positionals, options) {
         const stalePlan = result.results.some((item) => item.status === 'stale-plan');
         if (stalePlan) {
           console.log('Do not repeat that confirmation: the plan changed. Remove --confirm-plan, add --dry-run, review the refreshed preview, then confirm it by the code it gives.');
-        } else if (result.status === 'partial' && result.results.some((item) => item.agentsHome?.status === 'proposed' && item.proposalBranch)) {
-          // [AGH:REQ-016] the move is approved by merging its review, like any configuration review.
-          console.log('Merge each review branch into sflow/config to approve its agents move, then re-run this command to complete the state mirror. Or preview with --dry-run and confirm that plan to publish it directly.');
+        } else if (['proposed', 'partial'].includes(result.status) && result.results.some((item) => item.agentsHome?.status === 'proposed' && item.proposalBranch)) {
+          // [AGH:REQ-016] the move is approved by merging its review, like any package proposal (SCF:REQ-014).
+          console.log('Merge each review branch into sflow/config to approve it and its agents move: sflow/config changes only then. Re-run this command afterwards to complete the state mirror.');
         } else if (result.status === 'partial') {
           console.log('Each repository marked failed or needs-newer-build says why, and held up no other. Correct that, then re-run the same command; current repositories become no-ops.');
         } else if (result.status === 'blocked') {

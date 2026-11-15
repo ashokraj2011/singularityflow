@@ -3967,15 +3967,10 @@ export async function refreshWorkspaceConfigurations({
   const cleanupPending = [];
   try {
     results = await mapLimit(candidates, workers, async (candidate) => {
-      // No silent move [AGH:REQ-016]: a candidate carrying the agents-home migration reaches
-      // sflow/config only from a run that confirmed a preview listing it; any other run opens it
-      // as a review, and merging that review is the approval.
-      // A switch that moves no file (nothing of SFlow's was in .github/agents) moves nothing to review.
-      const agentsHome = candidate.refresh?.agentsHome;
-      const moves = agentsHome?.status === 'proposed' ? agentsHome.moves.length + agentsHome.completed.length : 0;
-      const review = reviewOnly || Boolean(moves && !confirmPlan);
+      // The agents-home migration is a package change like any other: refresh proposes it, and a
+      // person approves it by merging that review (SCF:REQ-014, AGH:REQ-016).
       try {
-        const published = await publishCandidate(review ? { ...candidate, reviewOnly: true } : candidate);
+        const published = await publishCandidate(reviewOnly ? { ...candidate, reviewOnly } : candidate);
         return candidate.refresh?.agentsHome ? { ...published, agentsHome: candidate.refresh.agentsHome } : published;
       }
       catch (error) {

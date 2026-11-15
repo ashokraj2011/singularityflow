@@ -50,6 +50,7 @@ import {
 } from '../src/capability-authority-link.mjs';
 import { withRepositoryResetBarrier } from '../src/subject-lock.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
+import * as remediation from '../src/refusal-remediation.mjs';
 import {
   createLedgerIntent, LEDGER_SCHEMA_VERSION,
   canonicalJson as ledgerCanonicalJson, sha256 as ledgerSha256
@@ -6131,7 +6132,9 @@ test('organisation reads prefer the state mirror and reuse a SHA-validated durab
     'the CLI refresh flag bypasses a same-tip durable cache entry');
 });
 
-test('capability inspection reuses an exact state-mirror cache when configuration ref is absent', async () => {
+// UP-F11b and CH-F1 (SCF:REQ-001, REQ-002): with sflow/config gone, capability inspection showed the `state` copy as the
+// organisation while Story start refused it. Neither reads it now; both name the routes that restore sflow/config.
+test('capability inspection refuses with the restore routes when sflow/config is missing and only the state copy remains [SCF:REQ-001]', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
@@ -6140,30 +6143,23 @@ test('capability inspection reuses an exact state-mirror cache when configuratio
   });
   await mergeProposal(org.platform, proposal);
   await publishOrganisationCapabilityMap(org.platform);
+  const governed = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(governed.governed, true);
   run('git', ['--git-dir', org.platform, 'update-ref', '-d', 'refs/heads/sflow/config']);
-
-  const first = await readOrganisation(org.platform);
-  assert.equal(first.recoveryAvailable, true);
-  assert.equal(first.sourceBranch, 'state');
-  assert.equal(first.cached, false);
-
-  const second = await readOrganisation(org.platform);
-  assert.equal(second.cached, true);
-  assert.equal(second.sourceCommit, first.sourceCommit);
-  assert.deepEqual(second.capabilities, first.capabilities);
-
-  const forced = await readOrganisation(org.platform, { refresh: true });
-  assert.equal(forced.cached, false, 'explicit refresh revalidates the authority bytes');
-
-  const state = path.join(org.base, 'advance-recovery-state');
-  run('git', ['clone', '-q', '--branch', 'state', org.platform, state], { cwd: org.base });
-  run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: state });
-  run('git', ['config', 'user.name', 'Review User'], { cwd: state });
-  run('git', ['commit', '--allow-empty', '-qm', 'Advance state recovery receipt'], { cwd: state });
-  run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: state });
-  const advanced = await readOrganisation(org.platform);
-  assert.equal(advanced.cached, false, 'a changed state ref invalidates the cached mirror');
-  assert.notEqual(advanced.sourceCommit, first.sourceCommit);
+  const stateCommit = run('git', ['--git-dir', org.platform, 'rev-parse', 'refs/heads/state']).stdout.trim();
+  for (const refresh of [false, true]) {
+    await assert.rejects(() => readOrganisation(org.platform, { refresh }), (error) => {
+      assert.equal(error.code, 'STORY_CONFIGURATION_AUTHORITY_MISSING', error.message);
+      assert.equal(error.details.reason, 'configuration-branch-missing');
+      assert.equal(error.details.stateCommit, stateCommit);
+      assert.match(error.message, /^sflow\/config is missing on '.*', so no new work can start there\. SFlow reads configuration only from sflow\/config, never from the copy on the 'state' branch/u);
+      const { refusalRemediationPlan } = remediation;
+      const steps = refusalRemediationPlan(error, ['capability', 'organisation', org.platform]).steps;
+      assert.deepEqual(steps.map((step) => step.id).slice(0, 2), ['restore-configuration-from-clone', 'preview-configuration-restore']);
+      assert.equal(steps[1].command, `singularity-flow capability onboard ${org.platform} --dry-run`);
+      return true;
+    }, `refresh ${refresh}`);
+  }
 });
 
 test('malformed organisation cache bytes and shapes never block authoritative Git reads', async () => {

@@ -524,7 +524,8 @@ test('init refuses a corrupt state branch once the SFlow mirror marker exists', 
   });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /Cannot validate the configured Singularity Flow authority/);
-  assert.match(refused.stderr, /State configuration manifest must be/);
+  // The state branch's copy, corrupt or not, is never authority: sflow/config is missing there (SCF:REQ-001).
+  assert.match(refused.stderr, /sflow\/config is missing on '[^']+', so no new work can start there/);
   assert.match(refused.stderr, /Nothing was changed/);
   assert.equal(git(root, 'rev-parse', 'HEAD'), beforeHead);
   assert.equal(git(root, 'status', '--porcelain'), beforeStatus);

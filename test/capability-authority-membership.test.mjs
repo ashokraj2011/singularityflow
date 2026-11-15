@@ -731,83 +731,17 @@ test('non-selected members, linked worktrees, and SGOS use the external workspac
       git(base, '--git-dir', leadRemote, 'config', 'uploadpack.allowReachableSHA1InWant', 'false');
       git(base, '--git-dir', leadRemote, 'config', 'uploadpack.allowTipSHA1InWant', 'false');
       git(base, '--git-dir', leadRemote, 'update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`);
-      const sgosStateRead = await withTrustedSgosConfigurationRead(
-        member,
-        async (authority, trust) => ({
-          authority,
-          trust,
-          capability: await resolveLifecycleCapability(member, {
-            capabilityId: 'member-capability', required: true, offline: true
-          })
-        })
-      );
-      assert.equal(sgosStateRead.authority.kind, 'verified-state-mirror');
-      assert.equal(sgosStateRead.authority.ref, 'state');
-      assert.equal(sgosStateRead.authority.commit, mirrored.stateCommit);
-      assert.equal(sgosStateRead.authority.manifest.source.commit, mirrored.sourceCommit);
-      assert.equal(sgosStateRead.trust.mode, 'workspace-capability-authority');
-      assert.equal(sgosStateRead.trust.branch, 'state');
-      assert.equal(sgosStateRead.capability.name, 'Member Capability',
-        'SGOS accepts only the fully verified state mirror of workspace authority A');
-      const currentStatePlatformAuthority = await loadApprovedPlatformMutationAuthority(
-        member, 'pack.activate', { policyAuthorityRevision: currentAuthorityCommit }
-      );
-      assert.equal(currentStatePlatformAuthority.configurationRef, 'state');
-      assert.equal(currentStatePlatformAuthority.configurationCommit, currentAuthorityCommit);
-      assert.equal(
-        currentStatePlatformAuthority.workflowSha256,
-        `sha256:${createHash('sha256').update(currentWorkflowBytes).digest('hex')}`,
-        'the state transport retains the mounted source bytes for the current revision'
-      );
-      const historicalStatePlatformAuthority = await loadApprovedPlatformMutationAuthority(
-        member, 'pack.activate', { policyAuthorityRevision: historicalAuthorityCommit }
-      );
-      assert.equal(historicalStatePlatformAuthority.configurationRef, 'state');
-      assert.equal(
-        historicalStatePlatformAuthority.workflowSha256,
-        `sha256:${createHash('sha256').update(historicalWorkflowBytes).digest('hex')}`,
-        'state-backed historical policy is read through A history ref, not a raw SHA or application B'
-      );
-
-      // A new-format mirror must never silently fall back to a dangling raw object if its retained
-      // branch disappears. This also proves the successful read above actually depended on the
-      // advertised receipt rather than the permissive behavior of a local test remote.
-      git(base, '--git-dir', leadRemote, 'update-ref', '-d',
-        `refs/heads/${mirrored.history.branch}`);
-      await assert.rejects(
-        () => loadApprovedPlatformMutationAuthority(member, 'pack.activate', {
-          policyAuthorityRevision: historicalAuthorityCommit
-        }),
-        (error) => {
-          assert.equal(error?.code, 'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', error?.stack);
-          assert.equal(error?.details?.configurationHistoryBranch, mirrored.history.branch);
-          assert.equal(error?.details?.legacyStateMirror, false);
-          return true;
-        },
-        'missing immutable history is refused even while the raw source object remains dangling'
-      );
-      git(base, '--git-dir', leadRemote, 'update-ref',
-        `refs/heads/${mirrored.history.branch}`, mirrored.sourceCommit);
-
-      const corruptState = path.join(base, 'state-mirror-corruptor');
-      command('git', ['clone', '-q', '-b', 'state', leadRemote, corruptState], base);
-      git(corruptState, 'config', 'user.name', 'State Corruptor');
-      git(corruptState, 'config', 'user.email', 'state-corruptor@example.test');
-      const corruptManifestPath = path.join(corruptState, STATE_CONFIGURATION_MANIFEST);
-      const corruptManifest = JSON.parse(await readFile(corruptManifestPath, 'utf8'));
-      corruptManifest.files['singularity/capabilities.yml'] = '0'.repeat(64);
-      await writeFile(corruptManifestPath, `${JSON.stringify(corruptManifest, null, 2)}\n`);
-      git(corruptState, 'add', STATE_CONFIGURATION_MANIFEST);
-      git(corruptState, 'commit', '-qm', 'Corrupt state mirror digest');
-      git(corruptState, 'push', '-q', 'origin', 'state');
-      await assert.rejects(
-        () => withTrustedSgosConfigurationRead(member, async () => null),
-        (error) => {
-          assert.equal(error?.code, 'STATE_CONFIGURATION_MIRROR_INVALID', error?.stack);
-          return true;
-        },
-        'a corrupt workspace authority A mirror must fail closed instead of falling back to B'
-      );
+      // The `state` copy is never authority (SCF:REQ-001): with sflow/config gone, SGOS reads and platform mutations stop
+      // with the routes that restore it, as Story start and capability inspection do.
+      const configurationMissing = (error) => {
+        assert.equal(error?.code, 'STORY_CONFIGURATION_AUTHORITY_MISSING', error?.stack);
+        assert.equal(error?.details?.reason, 'configuration-branch-missing');
+        return true;
+      };
+      await assert.rejects(() => withTrustedSgosConfigurationRead(member, async () => null), configurationMissing);
+      await assert.rejects(() => loadApprovedPlatformMutationAuthority(member, 'pack.activate',
+        { policyAuthorityRevision: currentAuthorityCommit }), configurationMissing);
+      assert.ok(historicalAuthorityCommit && currentWorkflowBytes && historicalWorkflowBytes);
 
       for (const repositoryRoot of [member, linked]) {
         const context = await workspaceMemberContextForRepository(repositoryRoot, selection, registry);

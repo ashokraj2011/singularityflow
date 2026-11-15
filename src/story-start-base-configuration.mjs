@@ -7,8 +7,8 @@ import { SingularityFlowError } from './util.mjs';
 /** Absence after authority resolution is setup to repair, not a null dereference or a test failure. */
 export function storyConfigurationUnavailableError() {
   return new SingularityFlowError(
-    `Missing ${WORKFLOW_PATH}. Neither an approved sflow/config branch nor a verified state `
-    + 'configuration mirror is available for this repository or its active workspace lead. '
+    `Missing ${WORKFLOW_PATH}. No approved sflow/config branch is available for this repository or its active `
+    + 'workspace lead (the state branch\'s copy is never used as configuration). '
     + 'Automatic approved-configuration loading could not recover it. Inspect Git access, then '
     + 'review setup or a safe upgrade; existing work and shared configuration are preserved.',
     { code: 'STORY_CONFIGURATION_AUTHORITY_MISSING' }

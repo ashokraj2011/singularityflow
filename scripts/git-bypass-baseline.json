@@ -651,9 +651,9 @@
     },
     "src/approved-configuration-reader.mjs": {
       "counts": {
-        "command-run": 9
+        "command-run": 8
       },
-      "digest": "ddc8cffe39f4f87bbaa242a258285471b3e34cdd74642f3db805e77585fd89ab"
+      "digest": "0702213063f1ec98dee65a7b2362c922a02f5ae64768662f55072fcff9d6c285"
     },
     "src/ast-intelligence.mjs": {
       "counts": {
@@ -856,9 +856,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 34
+        "command-run": 35
       },
-      "digest": "ba24bc91edaa9c85d8f8e329d4130ca5fe686428e528c4c7d5e0923089a7c5c8"
+      "digest": "2e4a1a0733d549fc1d29576fb71d07f610be1b2c5e018b4a163884d64ca05caf"
     },
     "src/creation-git-context.mjs": {
       "counts": {

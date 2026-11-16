@@ -266,12 +266,25 @@ function unpacked({ turnGroups, ...record }) {
   return { ...record, inProgress: rows(record.inProgress), awaitingApproval: rows(record.awaitingApproval) };
 }
 
+/**
+ * A failure says how many changed and shows the first few, each cut short: never one deepEqual over every row. Over a
+ * few hundred moved rows that diff ran the heap out (4 GB, after six minutes) where the matrix itself takes about a
+ * minute, which is what timed this test out at 900 s [2026-11-16].
+ */
+const SAMPLE = 20;
+const short = (value) => { const text = JSON.stringify(value) ?? 'nothing'; return text.length > 400 ? `${text.slice(0, 400)}…` : text; };
+function noneMoved(changes, message) {
+  if (changes.length) assert.fail(`${message}: ${changes.length} change(s); the first ${Math.min(SAMPLE, changes.length)}:\n${changes.slice(0, SAMPLE).join('\n')}`);
+}
+const tableChanges = (now, was) => [...new Set([...Object.keys(was ?? {}), ...Object.keys(now ?? {})])]
+  .filter((key) => JSON.stringify(now?.[key]) !== JSON.stringify(was?.[key])).map((key) => `${key}: now ${short(now?.[key])}, was ${short(was?.[key])}`);
+
 // The turns that differ most, for the default lane: a full run takes about a minute.
 const QUICK_TURNS = Object.freeze(['/sf-phase', '/sf-recover', '/sf-next', '/sf-decide PMC-1', '/sf-approve', '/sf-reject', '/sf-spec-author', '/sf-converge', '/sf-fix', '/sf-help', ...SPECIAL_TURNS]);
 
 test('the tables, and every person\'s step against the turns that differ most, have not moved', async (t) => {
   const golden = unpacked(JSON.parse(readFileSync(GOLDEN, 'utf8')));
-  assert.deepEqual(tablesToday(), golden.tables, 'a table of person steps changed');
+  noneMoved(tableChanges(tablesToday(), golden.tables), 'a table of person steps changed');
   assert.ok(QUICK_TURNS.every((turn) => golden.turns.includes(turn)), 'a quick turn is no longer a turn');
   for (const [field, status] of [['inProgress', 'in_progress'], ['awaitingApproval', 'awaiting_approval']]) {
     const before = new Map(golden[field].map((row) => [row.command, row]));
@@ -281,7 +294,7 @@ test('the tables, and every person\'s step against the turns that differ most, h
       const outcomeIn = (entry, turn) => Object.entries(entry.other ?? {}).find(([, turns]) => turns.includes(turn))?.[0] ?? entry.usual;
       for (const turn of QUICK_TURNS) if (!was || outcomeIn(row, turn) !== outcomeIn(was, turn)) moved.push(`${turn}: ${row.command}: now ${outcomeIn(row, turn)}, was ${was ? outcomeIn(was, turn) : 'not recorded'}`);
     }
-    assert.deepEqual(moved, [], `${field}: a person's step changed who may run it or how it refuses`);
+    noneMoved(moved, `${field}: a person's step changed who may run it or how it refuses`);
   }
 });
 
@@ -296,13 +309,21 @@ test('every person\'s step, against every turn: who may run it and how it refuse
   assert.deepEqual(OWN_TERMINAL_STEPS.map((step) => step.id).filter((id) => !Object.hasOwn(COMMANDS, id)), []);
   if (process.env.SINGULARITY_FLOW_GOLDEN_WRITE === '1') writeFileSync(GOLDEN, packed(found));
   const golden = unpacked(JSON.parse(readFileSync(GOLDEN, 'utf8')));
-  assert.deepEqual(found.turns, golden.turns, 'the turns themselves changed: a new skill needs its line');
+  noneMoved([...found.turns.filter((turn) => !golden.turns.includes(turn)).map((turn) => `new turn ${turn}`),
+    ...golden.turns.filter((turn) => !found.turns.includes(turn)).map((turn) => `no longer a turn: ${turn}`)], 'the turns themselves changed: a new skill needs its line');
   for (const [field, list] of [['inProgress', found.inProgress], ['awaitingApproval', found.awaitingApproval]]) {
     const before = new Map(golden[field].map((row) => [row.command, row]));
-    const moved = list.filter((row) => JSON.stringify(row) !== JSON.stringify(before.get(row.command)));
-    assert.deepEqual(moved.map((row) => ({ now: row, was: before.get(row.command) })), [], `${field}: a person's step changed who may run it or how it refuses`);
-    assert.deepEqual(golden[field].map((row) => row.command).filter((command) => !list.some((row) => row.command === command)), [], `${field}: a command form was dropped`);
+    // Row by row: each moved row is one line, its outcomes now and as recorded.
+    const moved = list.filter((row) => JSON.stringify(row) !== JSON.stringify(before.get(row.command)))
+      .map((row) => `${row.command}: now ${short({ usual: row.usual, other: row.other })}, was ${short(before.get(row.command) ?? null)}`);
+    noneMoved(moved, `${field}: a person's step changed who may run it or how it refuses`);
+    noneMoved(golden[field].map((row) => row.command).filter((command) => !list.some((row) => row.command === command)), `${field}: a command form was dropped`);
   }
-  assert.deepEqual(found.answered, golden.answered, 'what a person\'s answer lets their own turn run changed');
-  assert.deepEqual(found.tables, golden.tables, 'a table of person steps changed');
+  const answered = (row) => `${row.id} ${row.command}`;
+  const answeredBefore = new Map(golden.answered.map((row) => [answered(row), row]));
+  noneMoved([...found.answered.filter((row) => JSON.stringify(row) !== JSON.stringify(answeredBefore.get(answered(row))))
+    .map((row) => `${row.command}: now ${short(row.outcome)}, was ${short(answeredBefore.get(answered(row))?.outcome ?? null)}`),
+  ...golden.answered.filter((row) => !found.answered.some((entry) => answered(entry) === answered(row))).map((row) => `dropped: ${row.command}`)],
+  'what a person\'s answer lets their own turn run changed');
+  noneMoved(tableChanges(found.tables, golden.tables), 'a table of person steps changed');
 });

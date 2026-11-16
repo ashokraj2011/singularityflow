@@ -204,11 +204,13 @@ async function storyCheckoutWork(checkout) {
   // Registered queries only (SDA-AC-001); a read Git cannot answer keeps the checkout as holding work.
   const query = (id, params) => { try { return { value: executeGitQuery(checkout, id, params) }; } catch { return null; } };
   const paths = query('repository.paths');
-  if (!paths) return { branch: null, work: ['unreadable'] };
+  if (!paths) return { branch: null, work: ['unreadable'], commonDir: null };
   const revision = query('repository.revision');
-  if (!revision) return { branch: null, work: ['unreadable'] };
+  if (!revision) return { branch: null, work: ['unreadable'], commonDir: paths.value.commonDir };
   const { branchName, commit, changedFiles } = revision.value;
   const branch = branchName && branchName !== '(detached)' ? branchName : null;
+  // The clone it belongs to holds its Git (HEAD, index, branch): a reset that deletes that clone breaks the checkout.
+  const commonDir = await realpath(paths.value.commonDir).catch(() => paths.value.commonDir);
   const work = changedFiles.length ? ['uncommitted'] : [];
   const pending = await pendingPublications([path.join(paths.value.gitDir, LOCAL_RUNTIME_ROOT)]).catch(() => []);
   const remotes = query('repository.remotes');
@@ -216,13 +218,13 @@ async function storyCheckoutWork(checkout) {
   const published = !remotes?.value.length || !head || query('repository.remote-contains', { commit: head })?.value;
   if (!remotes) work.push('unreadable');
   else if (pending.length || !published) work.push('unpublished');
-  return { branch, work, pending };
+  return { branch, work, pending, commonDir };
 }
 
 /**
  * Every Story checkout a reset keeps (SCF:REQ-021): the Story worktrees under SFlow's state folder, where a clone
  * directly in the home folder kept them, under each registered workspace, and every linked checkout the Story index
- * names. Each says what work it holds that only it has.
+ * names. Each says what work it holds that only it has, and the Git folder of the clone it belongs to (`commonDir`).
  */
 export async function resetStoryCheckouts({ localStateRoot = machineStateRoot(), workspacePaths = null, storyIndex = null, indexed = true } = {}) {
   const { readStoryIndex, storyIndexFile } = await import('./story-index.mjs');
@@ -246,8 +248,8 @@ export async function resetStoryCheckouts({ localStateRoot = machineStateRoot(),
     const key = await realpath(candidate).catch(() => path.resolve(candidate));
     if (seen.has(key)) continue;
     const named = (index.entries ?? []).find((entry) => samePath(entry.checkoutPath, candidate) || samePath(entry.checkoutPath, key));
-    const { branch, work, pending = [] } = await storyCheckoutWork(key);
-    seen.set(key, { path: key, workId: named?.workId ?? null, branch, work, insideStateFolder: inside(stateRoot, key),
+    const { branch, work, pending = [], commonDir } = await storyCheckoutWork(key);
+    seen.set(key, { path: key, workId: named?.workId ?? null, branch, work, commonDir, insideStateFolder: inside(stateRoot, key),
       ...(pending.length ? { sync: pending.map((entry) => entry.command).filter(Boolean) } : {}) });
   }
   return [...seen.values()].sort((left, right) => left.path.localeCompare(right.path));

@@ -2544,6 +2544,113 @@ test('destructive local reset and fresh-install refuse while a workspace clone h
   }
 });
 
+// The owner's decision of 2026-11-16 (SPEC-SCF D10): fresh-install and destructive local-reset keep every Story checkout,
+// as reset-all does. Its Git lives in its workspace's clone, so a workspace that holds one is kept whole and forgotten.
+async function workspacesWithStoryCheckout(t, prefix) {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const home = path.join(base, 'home');
+  const project = path.join(base, 'installer');
+  await mkdir(project, { recursive: true });
+  const { createWorkspaceConfiguration, readWorkspace, workspaceRepositoryPath } = await import('../src/workspace.mjs');
+  const workspace = async (id) => {
+    const created = await createWorkspaceConfiguration({
+      baseDirectory: path.join(home, 'workspaces'), id, name: id, leadRepository: 'platform',
+      repositories: { platform: { url: 'https://example.invalid/platform.git', defaultBranch: 'main', required: true,
+        metadata: { appId: `APP-${id.toUpperCase()}`, name: `${id} platform` } } }
+    }, { confirmation: id, clone: false });
+    const manifest = await readWorkspace(created.workspace.path);
+    return { id: created.workspace.id, name: id, path: await realpath(created.workspace.path),
+      clone: workspaceRepositoryPath(manifest, manifest.repositories.platform) };
+  };
+  const holding = await workspace('holding-story');
+  const plain = await workspace('plain');
+  await mkdir(holding.clone, { recursive: true });
+  git(holding.clone, 'init', '-q', '-b', 'main');
+  git(holding.clone, 'config', 'user.name', 'Factory Reset Tester');
+  git(holding.clone, 'config', 'user.email', 'factory-reset@example.com');
+  await writeFile(path.join(holding.clone, 'app.txt'), 'application source remains\n');
+  git(holding.clone, 'add', 'app.txt');
+  git(holding.clone, 'commit', '-q', '-m', 'initial');
+  const remote = path.join(base, 'remote.git');
+  git(base, 'init', '--bare', '-q', '-b', 'main', remote);
+  git(holding.clone, 'remote', 'add', 'origin', remote);
+  git(holding.clone, 'push', '-q', '-u', 'origin', 'main');
+  const checkout = path.join(holding.path, '.singularity-flow', 'story-worktrees', `.w-${'0'.repeat(24)}`);
+  git(holding.clone, 'worktree', 'add', '-q', '-b', 'ST-W', checkout);
+  await writeFile(path.join(checkout, 'NOTES-unsaved.md'), 'the only copy\n');
+  // A pending publication in a clone that stays is not deleted, so it refuses nothing.
+  await mkdir(path.join(holding.clone, '.git', 'singularity-flow', 'pending-publication'), { recursive: true });
+  await writeFile(path.join(holding.clone, '.git', 'singularity-flow', 'pending-publication', 'story--KEPT-1.json'), '{}\n');
+  const machine = path.join(home, '.singularity-flow');
+  await mkdir(machine, { recursive: true });
+  await writeFile(path.join(machine, 'workspaces.json'), `${JSON.stringify({ schemaVersion: 1, workspaces: [holding, plain].map((entry) => ({
+    id: entry.id, path: entry.path, name: entry.name, openedAt: new Date().toISOString() })) })}\n`);
+  return { base, home, project, machine, holding, plain, checkout };
+}
+
+test('fresh install and local reset keep a workspace that holds a Story checkout whole, and refuse while one holds work only it has [SCF:REQ-021, D10]', async (t) => {
+  const { freshInstallReset, freshInstallResetPlan, localReset, localResetPlan } = await import('../src/fresh-install-reset.mjs');
+  for (const [operation, plan, reset, confirmation] of [
+    ['Local reset', localResetPlan, localReset, 'RESET LOCAL'],
+    ['Fresh install reset', freshInstallResetPlan, freshInstallReset, 'RESET EVERYTHING']
+  ]) {
+    const f = await workspacesWithStoryCheckout(t, 'sflow-reset-keeps-story-');
+    const options = { homeDirectory: f.home, projectDirectory: f.project, environment: {} };
+    const preview = await plan(options);
+    assert.deepEqual(preview.workspaces.map(({ name, disposition, storyCheckouts }) => [name, disposition, storyCheckouts]),
+      [['holding-story', 'kept', 1], ['plain', 'deleted', undefined]], operation);
+    assert.deepEqual(preview.storyCheckouts.map((checkout) => [checkout.path, checkout.branch, checkout.work, checkout.disposition]),
+      [[f.checkout, 'ST-W', ['uncommitted'], 'kept']], operation);
+    assert.deepEqual(preview.pendingPublications, [], `${operation}: the kept workspace's clone deletes no pending publication`);
+    assert.ok(!preview.remove.some((item) => item.startsWith(f.holding.path)), preview.remove.join('\n'));
+    assert.ok(preview.remove.some((item) => item.startsWith(`${f.plain.path} (workspace 'plain'`)), preview.remove.join('\n'));
+    assert.ok(preview.preserve.includes(`${f.holding.path} (workspace 'holding-story', kept whole with every clone and document because it holds`
+      + ` 1 Story checkout(s) or the clone one belongs to; only its registration is forgotten: singularity-flow workspace open "${f.holding.path}"`
+      + ' registers it again)'), preview.preserve.join('\n'));
+    assert.ok(preview.preserve.includes(`1 Story checkout(s), each kept: ${f.checkout} (the reset refuses while one holds uncommitted or unpublished work:`
+      + ` ${f.checkout} holds uncommitted work)`), preview.preserve.join('\n'));
+
+    const refused = (work) => (error) => {
+      assert.equal(error.code, 'RESET_STORY_CHECKOUT_HAS_WORK', error.message);
+      assert.equal(error.message, `${operation} keeps every Story checkout, and stops while one holds work only it has, since the reset forgets where it is:\n`
+        + `  ST-W at ${f.checkout}: ${work}\n`
+        + 'Commit the changes there and publish them (singularity-flow sync <WORK-ID> in that checkout), or remove what is not needed, then preview again. Nothing was removed.');
+      assert.ok(error.details.actions[0].label.startsWith(`In ${f.checkout} (ST-W): `), error.details.actions[0].label);
+      return true;
+    };
+    await assert.rejects(() => reset({ ...options, confirmation }), refused('changed or new files'));
+    for (const kept of [path.join(f.checkout, 'NOTES-unsaved.md'), f.plain.path, path.join(f.machine, 'workspaces.json')]) {
+      assert.equal(await missing(kept), false, `${operation}: nothing was removed (${kept})`);
+    }
+    git(f.checkout, 'add', 'NOTES-unsaved.md');
+    git(f.checkout, 'commit', '-q', '-m', 'notes');
+    await assert.rejects(() => reset({ ...options, confirmation }), refused('commits no remote has yet'));
+    git(f.checkout, 'push', '-q', '-u', 'origin', 'ST-W');
+
+    const result = await reset({ ...options, confirmation });
+    assert.equal(result.completed, true, operation);
+    assert.equal(await missing(f.plain.path), true, `${operation}: a workspace with no Story checkout is deleted`);
+    assert.equal(await missing(path.join(f.machine, 'workspaces.json')), true, `${operation}: the kept workspace is forgotten`);
+    assert.equal(await readFile(path.join(f.checkout, 'NOTES-unsaved.md'), 'utf8'), 'the only copy\n', `${operation}: the Story checkout is kept`);
+    assert.equal(git(f.checkout, 'status', '--porcelain'), '', `${operation}: its Git still works`);
+    assert.equal(git(f.checkout, 'rev-parse', '--abbrev-ref', 'HEAD'), 'ST-W');
+    assert.equal(await readFile(path.join(f.holding.clone, 'app.txt'), 'utf8'), 'application source remains\n');
+    assert.equal(await missing(path.join(f.holding.path, 'workspace.json')), false, `${operation}: the workspace is kept whole`);
+  }
+});
+
+test('the local-reset preview says which workspace it keeps for its Story checkout and how to open it again [SCF:REQ-021, D10]', async (t) => {
+  const f = await workspacesWithStoryCheckout(t, 'sflow-reset-keeps-story-cli-');
+  const preview = command(process.execPath, [cli, 'local-reset', '--dry-run'], packageRoot, { env: { HOME: f.home } });
+  assert.match(preview.stdout, /except a workspace that holds a Story checkout, which it keeps whole/u);
+  assert.ok(preview.stdout.includes(`- [kept] holding-story (${f.holding.id}): ${f.holding.path} (holds 1 Story checkout(s); only its registration is forgotten)`), preview.stdout);
+  assert.ok(preview.stdout.includes(`- [deleted] plain (${f.plain.id}): ${f.plain.path}`), preview.stdout);
+  assert.ok(preview.stdout.includes(`singularity-flow workspace open "${f.holding.path}" registers it again`), preview.stdout);
+  assert.ok(preview.stdout.includes(`- 1 Story checkout(s), each kept: ${f.checkout}`), preview.stdout);
+  assert.equal(await missing(f.plain.path), false, 'a preview removes nothing');
+});
+
 test('forget-only clears machine state from inside a workspace while preserving every repository byte', async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-forget-home-'));
   const { createWorkspaceConfiguration } = await import('../src/workspace.mjs');
@@ -3171,6 +3278,9 @@ test('fresh-install CLI delegates preview and confirmed reinstall to a validated
   assert.match(preview.stdout, /fresh-install reset — preview/);
   assert.match(preview.stdout, /Generated state in this installer checkout/);
   assert.match(preview.stdout, /singularity/);
+  // The preview says what it keeps, the Story checkouts among them (SCF:REQ-021, D10).
+  assert.match(preview.stdout, /\nKept:\n- this installer checkout, its tracked source, and its Git history\n/u);
+  assert.match(preview.stdout, /\n- 0 Story checkout\(s\), each kept\n/u);
   assert.match(preview.stdout, /Preview only: nothing was deleted/);
   assert.equal(await missing(path.join(checkout, 'invocation.log')), true,
     'preview is resolved by the trusted running CLI and must not execute checkout code');

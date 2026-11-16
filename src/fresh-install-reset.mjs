@@ -670,8 +670,8 @@ async function machineResetPlan({
       );
     }
     resetTargetProofs.set(target, workspaceProof);
-    workspaces.push({ id: manifest.id, name: manifest.name, path: target, disposition: 'deleted' });
-    waiting.push(...await workspacePendingPublications(target, manifest));
+    // Deleted unless it holds a Story checkout, decided below once every checkout is listed.
+    workspaces.push({ id: manifest.id, name: manifest.name, path: target, disposition: 'deleted', manifest });
   }
 
   const sorted = workspaces.sort((left, right) => left.path.localeCompare(right.path));
@@ -754,13 +754,26 @@ async function machineResetPlan({
     }));
   }
   const mode = forgetOnly ? 'forget-only' : 'delete-workspaces';
-  // Every Story checkout (SCF:REQ-021). Those in SFlow's state folder are kept, never deleted with it; those in a
-  // workspace this reset deletes go with their clone. The reset stops while any one holds work only it has.
-  // Forget-only opens no path a registration names.
+  // Every Story checkout is kept (SCF:REQ-021, extended to fresh-install and local-reset by the owner on 16 November
+  // 2026): those in SFlow's state folder are never deleted with it, and a workspace that holds one, or the clone one
+  // belongs to, is kept whole, because the checkout's Git lives in that clone. Only its registration is forgotten, as
+  // forget-only does, and `workspace open` registers it again. The reset stops while any checkout holds work only it
+  // has. Forget-only opens no path a registration names.
   const { storyIndexFile } = await import('./story-index.mjs');
   const storyCheckouts = (await resetStoryCheckouts({ localStateRoot, workspacePaths: forgetOnly ? [] : sorted.map((workspace) => workspace.path),
-    indexed: !forgetOnly, storyIndex: storyIndexFile(environment, home) })).map((checkout) => ({ ...checkout,
-    disposition: !forgetOnly && sorted.some((workspace) => inside(workspace.path, checkout.path)) ? 'deleted-with-workspace' : 'kept' }));
+    indexed: !forgetOnly, storyIndex: storyIndexFile(environment, home) })).map((checkout) => ({ ...checkout, disposition: 'kept' }));
+  for (const workspace of sorted) {
+    const { manifest } = workspace;
+    delete workspace.manifest;
+    if (forgetOnly) continue;
+    const held = storyCheckouts.filter((checkout) => inside(workspace.path, checkout.path)
+      || (checkout.commonDir && inside(workspace.path, checkout.commonDir)));
+    if (held.length) Object.assign(workspace, { disposition: 'kept', storyCheckouts: held.length });
+    else waiting.push(...await workspacePendingPublications(workspace.path, manifest));
+  }
+  const deletedWorkspaces = sorted.filter((workspace) => workspace.disposition === 'deleted');
+  const keptWorkspaces = sorted.filter((workspace) => workspace.disposition === 'kept');
+  const holdingWork = storyCheckouts.filter((checkout) => checkout.work.length);
   const discardWaiting = discardPendingPublications === true && waiting.length > 0;
   const waitingList = waiting.map((entry) => `${entry.kind} ${entry.id} in ${entry.repository}${entry.command ? `: ${entry.command}` : ''}`).join('; ');
   const plan = {
@@ -803,8 +816,8 @@ async function machineResetPlan({
     installerGeneratedPaths,
     remove: [
       ...installerGeneratedPaths.map((target) => `${target} (untracked Singularity state generated inside the installer checkout)`),
-      ...(!forgetOnly ? sorted.map((workspace) =>
-        `${workspace.path} (workspace '${workspace.name}', including every managed repository clone and document)`) : []),
+      ...deletedWorkspaces.map((workspace) =>
+        `${workspace.path} (workspace '${workspace.name}', including every managed repository clone and document)`),
       `${localStateRoot} (workspace registry, active selection, local sessions, caches, telemetry configuration, and recovery state; its ${STORY_WORKTREES_FOLDER} folder stays)`,
       ...(registryFile === path.join(localStateRoot, 'workspaces.json') ? [] : [`${registryFile} (custom workspace registry)`]),
       ...(selectionFile === path.join(localStateRoot, 'active-workspace.json') ? [] : [`${selectionFile} (custom active-workspace selection)`]),
@@ -834,9 +847,11 @@ async function machineResetPlan({
         ? ['remote capability maps, sflow/config and state branches, proposals, Git history, application files, and repository-owned .vscode/settings.json']
         : []),
       'unregistered application directories and repositories',
-      `${storyCheckouts.filter((checkout) => checkout.disposition === 'kept').length} Story checkout(s) outside the deleted workspaces`
-        + `${storyCheckouts.some((checkout) => checkout.disposition === 'kept') ? `: ${storyCheckouts.filter((checkout) => checkout.disposition === 'kept').map((checkout) => checkout.path).join('; ')}` : ''}`
-        + `${storyCheckouts.some((checkout) => checkout.work.length) ? ` (the reset refuses while one holds uncommitted or unpublished work: ${storyCheckouts.filter((checkout) => checkout.work.length).map((checkout) => `${checkout.path} holds ${checkout.work.join(' and ')} work`).join('; ')})` : ''}`,
+      ...keptWorkspaces.map((workspace) => `${workspace.path} (workspace '${workspace.name}', kept whole with every clone and document `
+        + `because it holds ${workspace.storyCheckouts} Story checkout(s) or the clone one belongs to; only its registration is forgotten: `
+        + `singularity-flow workspace open "${workspace.path}" registers it again)`),
+      `${storyCheckouts.length} Story checkout(s), each kept${storyCheckouts.length ? `: ${storyCheckouts.map((checkout) => checkout.path).join('; ')}` : ''}`
+        + `${holdingWork.length ? ` (the reset refuses while one holds uncommitted or unpublished work: ${holdingWork.map((checkout) => `${checkout.path} holds ${checkout.work.join(' and ')} work`).join('; ')})` : ''}`,
       'personal Copilot skills without the Singularity managed marker',
       ...(!removeDirectSkills
         ? ['the installed CLI, VS Code extension, Copilot plugin, and managed /sf-* skills']

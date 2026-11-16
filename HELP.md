@@ -274,10 +274,12 @@ There are five intentionally different reset and replacement boundaries:
   personalization while preserving every workspace and repository byte.
 - `singularity-flow local-reset --dry-run` previews the destructive compatibility
   mode: every validated registered workspace directory and local Singularity state
-  is removed, while installed product surfaces remain ready to use.
+  is removed, while installed product surfaces remain ready to use. A workspace
+  that holds a Story checkout is kept whole and only forgotten.
 - `singularity-flow fresh-install` previews a true fresh machine install. After
   reviewing the exact paths, `singularity-flow fresh-install --yes` deletes all
-  validated registered workspace roots and clones, clears Singularity local and
+  validated registered workspace roots and clones, except a workspace that holds a
+  Story checkout, which it keeps whole and only forgets, clears Singularity local and
   managed Copilot state, uninstalls old product copies, and reinstalls the CLI,
   VS Code extension, Copilot plugin, and `/sf-*` skills.
 - `singularity-flow reinstall --checkout <path> --dry-run` replaces only installed
@@ -286,6 +288,10 @@ There are five intentionally different reset and replacement boundaries:
 
 The full reset will not delete an existing registered path unless a regular,
 valid `workspace.json` proves that the path is a Singularity-managed workspace.
+No reset deletes a Story checkout: each preview lists them, and the reset refuses
+while one holds uncommitted work or commits no remote has
+(`RESET_STORY_CHECKOUT_HAS_WORK`). `singularity-flow workspace open <DIRECTORY>`
+registers a kept workspace again.
 It preserves the installer checkout, unregistered repositories, and personal
 skills. A one-time marker makes the reinstalled extension clear its Singularity
 Flow SecretStorage credentials, onboarding profile, and global state on first
@@ -3496,8 +3502,9 @@ singularity-flow local-reset --confirm "RESET LOCAL"
 ```
 
 This does not modify an application repository in place; it removes the complete
-validated workspace root containing its clones and documents. Run the command
-from a directory outside those workspace roots.
+validated workspace root containing its clones and documents. A workspace that
+holds a Story checkout is kept whole, and only its registration is forgotten. Run
+the command from a directory outside those workspace roots.
 
 ```bash
 singularity-flow recover WORK-123 --fetch

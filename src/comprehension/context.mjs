@@ -1,7 +1,7 @@
 /** Shared, read-only selection of the repository interval a comprehension observation describes. */
 import { branch } from '../git.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
-import { SingularityFlowError } from '../util.mjs';
+import { SingularityFlowError, unknownStepDetails } from '../util.mjs';
 
 /** Prefer the exact active generation interval, then the strongest recorded delivery baseline. */
 export function activeComprehensionBaseline(workflow, requestedPhase = null) {
@@ -14,7 +14,9 @@ export function activeComprehensionBaseline(workflow, requestedPhase = null) {
   const phase = workflow.phases?.[phaseId];
   if (!phase) {
     throw new SingularityFlowError(`Story '${workflow.workItem?.id ?? 'unknown'}' has no phase '${phaseId}'.`, {
-      code: 'CMP_PHASE_UNKNOWN'
+      code: 'CMP_PHASE_UNKNOWN',
+      // A step typed by mistake: the plan names the Story's steps and the same command with one.
+      details: unknownStepDetails(workflow, phaseId)
     });
   }
   if (phase.generationIntent?.baseline?.commit) {

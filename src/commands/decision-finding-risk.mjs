@@ -22,7 +22,7 @@ import { commandResult, effects, succeeded } from '../narration/command-result.m
 import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
-import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { nowIso, optionBoolean, optionString, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 import { actionActor } from './kernel.mjs';
 
 const FINDING_ID = /^F-[0-9a-f]{16}$/u;
@@ -115,7 +115,8 @@ export async function decisionFindingRiskCommand(positionals, options) {
   const target = revoke ? (workflow.findingRisks ?? []).find((entry) => !entry.revokes && entry.id === revoke) ?? null : null;
   if (revoke && !target) throw new SingularityFlowError(`This Story has no finding risk decision ${revoke}.`, { code: 'FINDING_RISK_UNKNOWN' });
   const phaseId = revoke ? target.phase : requestedPhase;
-  if (!workflow.phases?.[phaseId]) throw new SingularityFlowError(`Story ${id} has no step ${phaseId}.`, { code: 'FINDING_RISK_INVALID' });
+  // A step typed by mistake: the plan names the Story's steps and the decision list, which names each risk with its step.
+  if (!workflow.phases?.[phaseId]) throw new SingularityFlowError(`Story ${id} has no step ${phaseId}.`, { code: 'FINDING_RISK_INVALID', details: unknownStepDetails(workflow, phaseId) });
   let finding = null;
   if (!revoke) {
     const findingId = optionString(options, 'finding') ?? '';

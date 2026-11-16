@@ -644,7 +644,9 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // a reset's Story checkout reads (+728) [2026-11-16]. No new eager file.
     // 9,678,050 (measured 9,678,048): while a step's next version is open, its next step is to write it and the last
     // version's review is not inspected again (phase-generation-need.mjs, guide.mjs, source-review-lifecycle.mjs) [2026-11-16].
-    assert.ok(closure.bytes <= 9_678_050, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,679,650 (measured 9,679,625): a step name typed by mistake names the Story's steps and the same command with one
+    // (util.mjs unknownStepDetails +880, its callers in phase-lifecycle, submit, prepare and phase-show) [2026-11-16]. No new eager file.
+    assert.ok(closure.bytes <= 9_679_650, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -751,7 +753,9 @@ test('root dispatch stays small and orchestration entrypoints load their handler
   // comment (configuration-assets.mjs +173). No new eager file.
   // 868,300 (measured 868,255): the agents home above (+1,816) merged with main 04a6f2adc and its SPEC-SCF stage 1
   // (866,439 there) [2026-11-16]. No new eager file.
-  assert.ok(root.bytes <= 868_300, `root dispatch loads ${root.bytes} source bytes`);
+  // 869,150 (measured 869,135): a step name typed by mistake names the Story's steps (util.mjs unknownStepDetails +880)
+  // [2026-11-16]. No new eager file.
+  assert.ok(root.bytes <= 869_150, `root dispatch loads ${root.bytes} source bytes`);
   assert.equal(root.files.has(path.join(sourceRoot, 'git.mjs')), false);
   assert.equal(root.files.has(path.join(sourceRoot, 'config.mjs')), false);
   // Only the pause-checking entries and Story creation read these; most commands never do.
@@ -995,7 +999,9 @@ test('the common session projection does not import attach, state stores or publ
   // 4,268,200 (measured 4,268,161): the agents home (4,267,503) merged with main 27361670a and its registered Git query
   // (+658) [2026-11-16]. No new eager file.
   // 4,268,650 (measured 4,268,636): the same, for an open next version [2026-11-16].
-  assert.ok(current.bytes <= 4_268_650, `session current loads ${current.bytes} source bytes`);
+  // 4,269,550 (measured 4,269,516): a step name typed by mistake names the Story's steps (util.mjs unknownStepDetails +880)
+  // [2026-11-16]. No new eager file.
+  assert.ok(current.bytes <= 4_269_550, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {

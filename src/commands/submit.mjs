@@ -1,6 +1,6 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { repoRoot } from '../git.mjs';
-import { optionString, SingularityFlowError, optionStrings, optionBoolean } from '../util.mjs';
+import { optionString, SingularityFlowError, optionStrings, optionBoolean, unknownStepDetails } from '../util.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { selectedPhaseArgument } from './shared/selected-phase-argument.mjs';
 import { currentPhase } from '../phase-generation.mjs';
@@ -46,7 +46,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   const requestedPhase = selectedPhaseArgument(positionals, options, 'submit');
   const initialPhaseId = requestedPhase ?? workflow.currentPhase;
   const initialPhase = workflow.phases[initialPhaseId];
-  if (!initialPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${initialPhaseId ?? ''}'. Provide a phase ID.`);
+  if (!initialPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${initialPhaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, requestedPhase) });
   prefetchStoryPublicationObservation(root, config, workflow);
   // Checked before the publication unit opens, so a mistyped value is
   // refused with nothing written. The transition records the same values again.
@@ -138,7 +138,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   const workflowBeforeSubmission = structuredClone(workflow);
   const phaseId = requestedPhase ?? workflow.currentPhase;
   const requested = workflow.phases[phaseId];
-  if (!requested) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  if (!requested) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, requestedPhase) });
   const registrationRepairCount = requested.artifactRegistrationRepairs?.length ?? 0;
   let phase = requested;
   let reviewPacket = null;

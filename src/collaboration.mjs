@@ -13,7 +13,7 @@ import { runGovernanceGate } from './governance.mjs';
 import { recoveryActionsForFindings } from './gate-recovery.mjs';
 import { readRememberedRefusal } from './evidence/refusal-memory.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
-import { nowIso, SingularityFlowError } from './util.mjs';
+import { nowIso, SingularityFlowError, unknownStepDetails } from './util.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { expectedPhaseEvidencePaths, expectedPreparationContextPaths, expectedStepOwnedPaths } from './recovery-preparation-context.mjs';
@@ -263,7 +263,7 @@ async function readRecoveryPlan(root, config, workflow, { fetch, phaseId, inspec
   const requestedPhase = phaseId ?? (inspectActivePhase || consumedGeneration ? activePhaseId : null);
   const phase = requestedPhase ? workflow.phases?.[requestedPhase] ?? null : null;
   if (phaseId && !phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId}'. Provide a phase ID.`, {
-    code: 'RECOVERY_PHASE_UNKNOWN', details: { phaseId }
+    code: 'RECOVERY_PHASE_UNKNOWN', details: { phaseId, ...unknownStepDetails(workflow, phaseId) }
   });
   const phaseRecovery = phase
     ? await inspectPhaseRecovery(root, config, workflow, phase, {

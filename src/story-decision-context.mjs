@@ -2,7 +2,7 @@ import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { checkoutStoryBranch } from './story-branch-name.mjs';
 import { loadDefinition } from './config.mjs';
 import { branch } from './git.mjs';
-import { optionBoolean, optionString, SingularityFlowError } from './util.mjs';
+import { optionBoolean, optionString, SingularityFlowError, unknownStepDetails } from './util.mjs';
 
 export function storyDecisionArguments(phaseIds, positionals, options, action) {
   const positional = positionals[1];
@@ -46,7 +46,8 @@ export async function loadStoryDecisionExecution(root, positionals, options, act
       await checkoutStoryBranch(root, bootstrap, target, { fetch: optionBoolean(options, 'fetch') });
     } catch (error) {
       if (implicitLegacyWorkId && /Branch .* does not exist/.test(error?.message ?? '')) {
-        throw new SingularityFlowError(`'${requestedId}' is not a configured phase or an available Work ID. Use '${action} <PHASE>' for the current Story, or '${action} <PHASE> --work-id <WORK-ID>' for another Story.`);
+        throw new SingularityFlowError(`'${requestedId}' is not a configured phase or an available Work ID. Use '${action} <PHASE>' for the current Story, or '${action} <PHASE> --work-id <WORK-ID>' for another Story.`,
+          { code: 'PHASE_UNKNOWN', details: current ? unknownStepDetails(current.workflow, requestedId) : {} });
       }
       throw error;
     }

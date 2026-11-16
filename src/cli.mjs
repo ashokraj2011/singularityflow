@@ -36,7 +36,7 @@ import { addPhase, defineWorkflow, editPhase, editWorkflow, upsertPhaseOutput } 
 import { activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed, configurationProposalCommitStatus, inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals, proposeConfigurationChange } from './configuration-proposal.mjs';
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
-import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, unknownStepDetails, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, defaultBranchName, fastForwardTo, fetchOrigin, fetchRemote, hasUpstream, head, identity, localBranches, pullFastForward, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 
@@ -1598,6 +1598,12 @@ function printChangeFlightPlan(plan) {
   printCommandRoutes(`sflow impact start ${plan.planId} --work-id <ID> --work-type <TYPE> --confirm ${plan.planId}`);
 }
 
+/** An exposure attested for a step the Story does not have: the plan names its steps and the same command with one. */
+function impactExposurePhaseUnknown(workflow, phaseId) {
+  return new SingularityFlowError(`Story ${workflow.workItem?.id} has no step '${phaseId}'. Its steps: ${(workflow.phaseOrder ?? []).join(', ')}.`, {
+    code: 'IMPACT_EXPOSURE_PHASE_UNKNOWN', details: unknownStepDetails(workflow, phaseId) });
+}
+
 async function impactCommand(positionals, options) {
   const root = repoRoot();
   const action = positionals[1] ?? 'status';
@@ -1802,6 +1808,8 @@ async function impactCommand(positionals, options) {
     if (operation !== 'attest') throw new SingularityFlowError(`Unknown impact exposure action '${operation}'.`);
     const phaseId = optionString(options, 'phase');
     if (!phaseId) throw new SingularityFlowError('Impact exposure attestation requires --phase PHASE.');
+    // Before any transaction: a step the Story does not have is a usage mistake, refused with its steps.
+    if (!workflow.phases?.[phaseId]) throw impactExposurePhaseUnknown(workflow, phaseId);
     const level = optionString(options, 'level'); const assurance = optionString(options, 'assurance');
     const { value, publication } = await transactStory(
       root, config, workflow,
@@ -2185,7 +2193,8 @@ async function documentsCommand(positionals, options) {
   if (subcommand === 'readiness') {
     const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
     const phaseId = optionString(options, 'phase') ?? workflow.currentPhase;
-    if (!workflow.phases[phaseId]) throw new SingularityFlowError(`This Story has no phase '${phaseId}'.`, { code: 'DOCUMENT_PHASES_INVALID' });
+    if (!workflow.phases[phaseId]) throw new SingularityFlowError(`This Story has no phase '${phaseId}'.`, { code: 'DOCUMENT_PHASES_INVALID',
+      details: unknownStepDetails(workflow, phaseId) });
     const result = await (await import('./document-runtime.mjs')).phaseDocumentReadiness(root, config, workflow, phaseId);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(result.instruction);
@@ -2219,7 +2228,7 @@ async function documentsCommand(positionals, options) {
     const phaseId = optionString(options, 'phase');
     if (phaseId && !workflow.phaseOrder.includes(phaseId)) {
       throw new SingularityFlowError(`This Story has no phase '${phaseId}'.${didYouMean(phaseId, workflow.phaseOrder)} Choose from ${workflow.phaseOrder.join(', ')}.`,
-        { code: 'DOCUMENT_PHASES_INVALID' });
+        { code: 'DOCUMENT_PHASES_INVALID', details: unknownStepDetails(workflow, phaseId) });
     }
     // --phase answers what that phase's prompts and reviews use: supporting documents only, not the
     // Story's generated and workflow documents, which a reader of one phase has to filter out.
@@ -2558,7 +2567,7 @@ async function clarificationCommand(positionals, options) {
   }
   const phaseId = positionals[2] ?? workflow.currentPhase;
   const phase = workflow.phases[phaseId];
-  if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
   if (subcommand === 'status') {
     const result = await verifyClarificationRecord(root, config, workflow, phase), clarificationGuidance = await import('./clarification-guidance.mjs');
     const json = optionBoolean(options, 'json');
@@ -5686,6 +5695,11 @@ async function workflowCommand(positionals, options) {
 async function assignCommand(positionals) {
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
   const phaseId = requirePositional(positionals, 1, 'phase'); const assignee = requirePositional(positionals, 2, 'assignee'); const session = await loadSession(root);
+  // Before any transaction: a step typed by mistake is refused with the Story's steps.
+  if (!workflow.phases?.[phaseId]) {
+    throw new SingularityFlowError(`Story ${workflow.workItem.id} has no step '${phaseId}'. Its steps: ${(workflow.phaseOrder ?? []).join(', ')}.`, {
+      code: 'ASSIGN_PHASE_UNKNOWN', details: unknownStepDetails(workflow, phaseId) });
+  }
   const { value: record, publication: result } = await transactStory(
     root,
     config,

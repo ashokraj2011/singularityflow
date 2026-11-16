@@ -1,5 +1,5 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
-import { requirePositional, SingularityFlowError, optionString, optionBoolean, readJson, optionStrings } from '../util.mjs';
+import { requirePositional, SingularityFlowError, optionString, optionBoolean, readJson, optionStrings, unknownStepDetails } from '../util.mjs';
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { generationRecovery } from '../recovery-plan.mjs';
@@ -113,7 +113,7 @@ async function phaseSubcommand(positionals, options) {
   if (subcommand === 'rollover') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
     const plan = await generationRecovery(
       root, workflow, phase,
       async (repositoryRoot, selectedPhase) => await generationResultMatches(
@@ -204,7 +204,7 @@ async function phaseSubcommand(positionals, options) {
   if (subcommand === 'begin') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
     const existing = phase.generationIntent;
     if (existing?.status === 'open' && Number(existing.generation) === nextPhaseGeneration(phase)) {
       await verifyOpenGenerationIntent(root, workflow, phase);
@@ -233,7 +233,7 @@ async function phaseSubcommand(positionals, options) {
   if (subcommand === 'draft-check' || subcommand === 'prepublish') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
     if (phaseId !== workflow.currentPhase && !['in_progress', 'awaiting_approval'].includes(phase.status)) {
       throw new SingularityFlowError(
         `Phase '${phaseId}' is not the active review draft. Check '${workflow.currentPhase ?? 'none'}' instead.`,
@@ -308,7 +308,7 @@ async function phaseSubcommand(positionals, options) {
   const usageFile = optionString(options, 'usage-json'); const usage = usageFile ? await readJson(usageFile) : null;
   const phaseId = positionals[2] ?? workflow.currentPhase;
   const requestedPhase = workflow.phases[phaseId];
-  if (!requestedPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  if (!requestedPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[2]) });
   if (phaseRequiresCodeDelivery(requestedPhase)
       && requestedPhase.generationIntent?.status === 'consumed'
       && Number(requestedPhase.generationIntent.generation) === Number(requestedPhase.generation)) {

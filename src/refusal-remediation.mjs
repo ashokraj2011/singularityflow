@@ -17,7 +17,7 @@ import {
   commandRouteLines, safeCommandGuidance, validateSafeSflowCommand
 } from './safe-command-guidance.mjs';
 import { projectGateRefusal } from './evidence/gate-refusal.mjs';
-import { parseArgs } from './util.mjs';
+import { nearestNames, parseArgs } from './util.mjs';
 
 const safeCommand = validateSafeSflowCommand;
 
@@ -177,6 +177,8 @@ function phaseRemediationContext(argv, error) {
   const phaseId = artifactAuthoringPhase(argv, error);
   if (!phaseId) return null;
   const details = error?.details ?? {};
+  // A step the Story does not have is never a scope to recover or show: `recover --phase <it>` could only fail.
+  if (unknownStepRequested(details) === phaseId) return null;
   const workId = safeWorkId(details.workId)
     ?? safeWorkId(optionValueRaw(argv, 'work-id'));
   const operation = phaseOperation(argv);
@@ -1899,8 +1901,97 @@ function reviewedLockReleasePlan(error, code) {
   });
 }
 
+/** The step a refusal says the Story does not have (or this command does not take), as typed; else null. */
+function unknownStepRequested(details) {
+  const requested = details?.unknownStep && typeof details.unknownStep === 'object' ? details.unknownStep.requested : null;
+  return typeof requested === 'string' && requested.trim() ? requested.trim() : null;
+}
+
+const UNKNOWN_STEP_WORD = /^[A-Za-z0-9_./:@%+=,-]+$/u;
+// A risk is bound to one step's own finding or command, so another step's name would only be refused again: the
+// decision list names each risk with its step. Other decisions take the step the person meant, on the list too.
+const STEP_RISK_DECISIONS = new Set(['finding-risk', 'test-risk']);
+
+/**
+ * The same command words with the unknown step replaced by `step`: the value after --phase, a --phases list
+ * without the unknown ones, or the positional that names it. A free-text value the route filter would refuse
+ * becomes its placeholder, so the form is still shown. Null when the step was not typed (a recorded decision's
+ * step, the current step by default): there is nothing to correct then.
+ */
+function commandWithStep(argv, requested, unknown, step) {
+  const words = argv.map(String);
+  let at = words.findIndex((word, index) => index > 0 && words[index - 1] === '--phase' && word === requested);
+  if (at >= 0) words[at] = step;
+  else if ((at = words.indexOf(`--phase=${requested}`)) >= 0) words[at] = `--phase=${step}`;
+  else if ((at = words.findIndex((word, index) => index > 0 && words[index - 1] === '--phases'
+    && word.split(',').map((item) => item.trim()).includes(requested))) >= 0) {
+    const kept = words[at].split(',').map((item) => item.trim()).filter((item) => item && !unknown.includes(item));
+    words[at] = (kept.length ? kept : [step]).join(',');
+  } else if ((at = words.findIndex((word, index) => index > 0 && word === requested && !words[index - 1].startsWith('--'))) >= 0) words[at] = step;
+  else return null;
+  const line = (list) => ['singularity-flow', ...list].map(shellWord).join(' ');
+  const exact = safeCommandGuidance({ command: line(words) });
+  if (exact) return exact.command;
+  const shown = words.map((word, index) => (UNKNOWN_STEP_WORD.test(word) ? word
+    : words[index - 1]?.startsWith('--') ? `<${words[index - 1].slice(2).toUpperCase()}>` : '<VALUE>'));
+  return safeCommandGuidance({ command: line(shown) })?.command ?? null;
+}
+
+/**
+ * A refusal for a step the Story does not have, typed as an option value (`details.unknownStep`): a usage mistake,
+ * not a step to repair. Its plan names the steps the Story has and the same command with one of them (a near
+ * spelling, else the current step, else the first this command takes); a risk decision goes to the decision list.
+ * It never recovers or shows the step that does not exist, and never falls back to command help.
+ */
+function unknownStepPlan(error, argv, code) {
+  const details = error?.details ?? {};
+  const requested = unknownStepRequested(details);
+  if (!requested) return null;
+  const ids = (value) => [...new Set((Array.isArray(value) ? value : []).map(lowerKebab).filter(Boolean))].slice(0, 40);
+  const recorded = details.unknownStep;
+  const steps = ids(recorded.steps);
+  const allowed = Array.isArray(recorded.allowed) ? ids(recorded.allowed) : steps;
+  if (allowed.includes(requested)) return null;
+  const unknown = [...new Set([requested, ...(Array.isArray(recorded.unknown) ? recorded.unknown : [])].map(String))];
+  const workId = safeWorkId(details.workId) ?? safeWorkId(optionValueRaw(argv, 'work-id'));
+  const current = lowerKebab(recorded.current);
+  const chosen = nearestNames(requested, allowed, { limit: 1 })[0]
+    ?? (current && allowed.includes(current) ? current : allowed[0] ?? null);
+  const quoted = unknown.slice(0, 5).map((value) => `'${redactDiagnosticText(value).slice(0, 120)}'`);
+  const shown = quoted.join(', ');
+  const story = workId ? `Story ${workId}` : 'This Story';
+  const takes = allowed.length === steps.length ? '' : allowed.length
+    ? ` This command takes ${typeof recorded.allowedAre === 'string' ? `${redactDiagnosticText(recorded.allowedAre).slice(0, 120)}: ` : ''}${allowed.join(', ')}.`
+    : ' None of them is one this command takes.';
+  const facts = `${steps.includes(requested) ? `${quoted[0]} is a step of ${story} that this command does not take.` : `${story} has no step${quoted.length > 1 ? 's' : ''} ${shown}.`}`
+    + ` Its steps: ${steps.join(', ') || 'none'}.${takes}`;
+  const risk = argv[0] === 'decision' && STEP_RISK_DECISIONS.has(argv[1]);
+  const retry = !risk && chosen ? commandWithStep(argv, requested, unknown, chosen) : null;
+  const list = argv[0] === 'decision' && workId ? step('open-decision-list', risk
+    ? `${facts} A risk is decided on the decision list, which names each one with the step it belongs to.`
+    : 'Or decide it on the decision list, which names each decision with the step it belongs to.',
+  `singularity-flow decisions ${workId}`, 'remediation', '/sf-decide') : null;
+  const lead = retry ? step('use-a-step-the-story-has', `${facts} The same command with ${chosen}${chosen === current ? ', the current step' : ''}:`, retry, 'remediation')
+    : risk && list ? list
+      : step('read-story-steps', `${facts} Read where the Story stands, then name one of its steps.`, 'singularity-flow status --json', 'diagnostic');
+  const planSteps = [
+    ...explicitCommands(error).map((command, index) => step(`producer-${index + 1}`,
+      command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command, 'remediation', command.skill)),
+    lead, lead === list ? null : list
+  ];
+  return Object.freeze({
+    schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
+    status: 'blocked', code,
+    steps: Object.freeze(deduplicate(planSteps)),
+    retry: Object.freeze({ label: `Nothing was changed. Name a step ${story} has; ${shown} ${quoted.length > 1 ? 'are' : 'is'} refused the same way.`, automatic: false })
+  });
+}
+
 export function refusalRemediationPlan(error, argv = []) {
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
+  // A step the Story does not have, typed by mistake: the steps it has and the same command with one.
+  const unknownStep = unknownStepPlan(error, stripGlobalModelOptions(argv), code);
+  if (unknownStep) return unknownStep;
   // A refusal that holds a step for its own output leads with the repair in that step, in this turn [PHR:REQ-006].
   const ownerStep = ownerStepRemediationPlan(error, stripGlobalModelOptions(argv), code);
   if (ownerStep) return ownerStep;
@@ -2199,6 +2290,13 @@ export function refusalDetails(details) {
     exitCode: Number.isInteger(details.execution.exitCode) ? details.execution.exitCode : null
   });
   for (const key of ['workId', 'phase', 'currentPhase', 'operation', 'repositoryPath', 'preservation', 'stagingPath']) if (text(details[key])) projected[key] = text(details[key]);
+  // A step the Story does not have: what was typed, the steps it has and the ones this command takes.
+  const unknownStep = details.unknownStep;
+  if (unknownStep && typeof unknownStep === 'object' && text(unknownStep.requested)) {
+    const stepIds = (value) => { const ids = list(value, lowerKebab).slice(0, 40); return ids.length ? ids : null; };
+    projected.unknownStep = compact({ requested: text(unknownStep.requested).slice(0, 120), steps: stepIds(unknownStep.steps),
+      allowed: stepIds(unknownStep.allowed), current: lowerKebab(unknownStep.current) });
+  }
   // A lock only a person can end: who holds it and the exact reviewed release (SDA M3), so every
   // surface can show that owner and that command, not only the message.
   if (text(details.releaseCommand)) {

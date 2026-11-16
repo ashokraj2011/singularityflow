@@ -16,7 +16,7 @@ import { discrepancyItemSha256 } from './records.mjs';
 import { agentInputIssues, knownChoiceWords, nearestKnown } from './text-lines.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { decidableUpstreamStep, OPEN_UPSTREAM_ISSUE_STATUSES, upstreamIssueAuthorities, upstreamIssueOutcomes, upstreamIssueStates } from './upstream-routes.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, unknownStepDetails } from './util.mjs';
 
 // The pure state read lives with the routes, which every lifecycle command already loads, so the
 // conformance gate can ask it without loading this module's schemas [owner decision 2026-10-19].
@@ -154,7 +154,9 @@ export function raiseUpstreamIssue(workflow, {
   if (!target) {
     const near = nearestKnown(phase, earlier);
     refused(`${phase || 'That phase'} is not a step of this Story; ${knownChoiceWords(near)} (an earlier step that has run).`, undefined,
-      { phase: phase ?? null, ...(near.value ? { proposedEdit: { field: 'phase', value: near.value } } : { allowed: near.allowed }) });
+      { phase: phase ?? null, ...(near.value ? { proposedEdit: { field: 'phase', value: near.value } } : { allowed: near.allowed }),
+        // A step typed by mistake: the plan names the earlier steps and the same command with one, never a step to recover.
+        ...unknownStepDetails(workflow, phase, { allow: (id) => earlier.includes(id), allowedAre: 'the earlier steps that have run' }) });
   }
   if (ids.indexOf(phase) < 0 || ids.indexOf(phase) >= limit) {
     refused(`An upstream issue is about an earlier step; ${phase} is not before ${current ?? 'the end of the Story'}. The earlier steps that have run: ${earlier.join(', ') || 'none'}.`, 'UPSTREAM_ISSUE_NOT_EARLIER', { allowed: earlier });

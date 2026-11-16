@@ -330,6 +330,16 @@ export function nearestNames(candidate, known, { limit = 3 } = {}) {
     .map((entry) => entry.name);
 }
 
+/** A refusal's details for a step the Story lacks, as typed: its steps, those the command takes (`allow`) and the current
+ * one, so the plan names them and the same command with one (refusal-remediation.mjs). Nothing typed names no step. */
+export function unknownStepDetails(workflow, requested, { allow = null, allowedAre = null, unknown = null } = {}) {
+  const phases = workflow?.phases;
+  const steps = (workflow?.phaseOrder ?? Object.keys(phases ?? {})).filter((id) => !phases || phases[id]);
+  return { workId: workflow?.workItem?.id ?? null, ...(typeof requested === 'string' && requested.trim() ? { unknownStep: {
+    requested, steps, current: workflow?.currentPhase ?? null, ...(allowedAre ? { allowedAre } : {}), ...(unknown ? { unknown } : {}),
+    ...(allow ? { allowed: steps.filter((id) => Boolean(phases?.[id]) && allow(id, phases[id])) } : {}) } } : {}) };
+}
+
 // Join a list the way a sentence does: commas, and one conjunction before the last item.
 export function sentenceList(items, conjunction = 'or') {
   const values = items.map(String);

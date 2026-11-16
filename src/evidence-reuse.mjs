@@ -37,7 +37,7 @@
  */
 import { recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, unknownStepDetails } from './util.mjs';
 
 export const MAX_EVIDENCE_REUSE_DAYS = 90;
 const DAY = 24 * 60 * 60 * 1000;
@@ -267,7 +267,10 @@ function readCommittedJson(root, gitModule, commit, relative, maximumBytes) {
  */
 export async function verifyReusableAttempt(root, config, workflow, { phaseId, attemptId }) {
   const consumer = workflow?.phases?.[phaseId];
-  if (!consumer) throw new SingularityFlowError(`Story ${workflow?.workItem?.id} has no step ${phaseId}.`, { code: 'EVIDENCE_REUSE_INVALID' });
+  if (!consumer) {
+    throw new SingularityFlowError(`Story ${workflow?.workItem?.id} has no step ${phaseId}.`, { code: 'EVIDENCE_REUSE_INVALID',
+      details: unknownStepDetails(workflow, phaseId, { allow: (_id, step) => step.status !== 'skipped', allowedAre: 'the steps on its route' }) });
+  }
   if (!ATTEMPT_ID.test(String(attemptId ?? ''))) {
     throw new SingularityFlowError('Name the recorded attempt with --from-attempt TA-... (20 hexadecimal characters).', { code: 'EVIDENCE_REUSE_INVALID' });
   }

@@ -10,7 +10,7 @@ import path from 'node:path';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { EDGE_KINDS, stepDependencies } from '../dependency-records.mjs';
 import { repoRoot } from '../git.mjs';
-import { optionBoolean, optionString, posix, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, optionString, posix, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 
 const CLAUSES_SHOWN = 12;
 
@@ -46,7 +46,8 @@ export async function specDependenciesCommand(positionals, options) {
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const step = positionals[2] ?? null;
   if (step && !workflow.phases?.[step]) {
-    throw new SingularityFlowError(`Story ${workflow.workItem.id} has no step '${step}'. Its steps: ${(workflow.phaseOrder ?? []).join(', ')}.`, { code: 'SPEC_DEPENDENCIES_STEP_UNKNOWN' });
+    throw new SingularityFlowError(`Story ${workflow.workItem.id} has no step '${step}'. Its steps: ${(workflow.phaseOrder ?? []).join(', ')}.`, { code: 'SPEC_DEPENDENCIES_STEP_UNKNOWN',
+      details: unknownStepDetails(workflow, step) });
   }
   const itemRelative = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
   const result = await stepDependencies(root, workflow, { step });

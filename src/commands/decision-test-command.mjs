@@ -27,7 +27,7 @@ import { loadSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
 import { pinDiffWords, recordStoryTestCommandDecision, recordStoryTestCommandRequest, storyTestCommandState } from '../story-test-commands.mjs';
 import { testRunRiskAuthorities } from '../test-run-risk.mjs';
-import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
+import { nowIso, optionBoolean, optionString, optionStrings, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 import { actionActor } from './kernel.mjs';
 
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID') => { throw new SingularityFlowError(message, { code }); };
@@ -148,7 +148,11 @@ export async function decisionTestCommandCommand(positionals, options) {
   } else if (phaseId) {
     const [{ requestedCommand }, { normalizeRequiredTestCommand }, { phaseRequiresCodeDelivery }] = await Promise.all([
       import('../test-setup-proposal.mjs'), import('../code-delivery-tests.mjs'), import('../delivery-evidence.mjs')]);
-    if (!workflow.phases?.[phaseId]) fail(`Story ${id} has no step ${phaseId}.`);
+    if (!workflow.phases?.[phaseId]) {
+      // A step typed by mistake: the plan names the code steps and the same command with one, never a step to recover.
+      throw new SingularityFlowError(`Story ${id} has no step ${phaseId}.`, { code: 'TEST_COMMAND_DECISION_INVALID', details: unknownStepDetails(workflow, phaseId,
+        { allow: (_step, phase) => phaseRequiresCodeDelivery(phase), allowedAre: 'the code steps, which run tests' }) });
+    }
     if (!phaseRequiresCodeDelivery(workflow.phases[phaseId])) fail(`Step ${phaseId} delivers no code, so it runs no test command.`);
     let requested;
     // The command options are `capability test-setup`'s; say how this command takes them.

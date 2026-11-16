@@ -5,7 +5,7 @@
  * reader share these rules, so the name accepted at upload is the name every later lookup, prompt
  * and citation resolves, and a document offered to a phase is offered the same way everywhere.
  */
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, unknownStepDetails } from './util.mjs';
 
 export const DOCUMENT_NAME_MAXIMUM_LENGTH = 120;
 /** Package members are named "<package name>/<relative path>", which can be longer. */
@@ -132,8 +132,9 @@ export function normalizeDocumentPhases(value, workflow, { fromPhase = workflow?
   if (requested.some((item) => item.toLowerCase() === 'all')) return [...order];
   const unknown = requested.filter((phaseId) => !order.includes(phaseId));
   if (unknown.length) {
-    fail(`This Story has no phase ${unknown.map((phaseId) => `'${phaseId}'`).join(', ')}. Choose from ${order.join(', ')}, or all.`,
-      'DOCUMENT_PHASES_INVALID');
+    // Steps typed by mistake in --phases: the plan names the Story's steps and the same list without them.
+    throw new SingularityFlowError(`This Story has no phase ${unknown.map((phaseId) => `'${phaseId}'`).join(', ')}. Choose from ${order.join(', ')}, or all.`,
+      { code: 'DOCUMENT_PHASES_INVALID', details: unknownStepDetails({ ...workflow, phaseOrder: order, currentPhase: fromPhase ?? null }, unknown[0], { unknown }) });
   }
   const selected = new Set(requested);
   return order.filter((phaseId) => selected.has(phaseId));

@@ -22,7 +22,7 @@ import { commandResult, effects, succeeded } from '../narration/command-result.m
 import { emitCommandResult } from '../narration/emit.mjs';
 import { loadSession } from '../session.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
-import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { nowIso, optionBoolean, optionString, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 import { actionActor } from './kernel.mjs';
 import { testRunRiskAuthorities } from './decision-test-risk.mjs';
 
@@ -131,7 +131,9 @@ export async function decisionEvidenceReuseCommand(positionals, options) {
   if (revoke && !target) throw new SingularityFlowError(`This Story has no evidence-reuse decision ${revoke}.`, { code: 'EVIDENCE_REUSE_UNKNOWN' });
   const phaseId = revoke ? target.phase : requestedPhase;
   if (!workflow.phases?.[phaseId] || workflow.phases[phaseId].status === 'skipped') {
-    throw new SingularityFlowError(`Story ${id} has no step ${phaseId} that is on its route.`, { code: 'EVIDENCE_REUSE_INVALID' });
+    // A step typed by mistake (not one a revoked decision named): the plan names the steps on the route.
+    throw new SingularityFlowError(`Story ${id} has no step ${phaseId} that is on its route.`, { code: 'EVIDENCE_REUSE_INVALID',
+      details: unknownStepDetails(workflow, revoke ? null : phaseId, { allow: (_step, phase) => phase.status !== 'skipped', allowedAre: 'the steps on its route' }) });
   }
   const actor = actionActor(root);
   const loadedSession = await loadSession(root, { required: false });

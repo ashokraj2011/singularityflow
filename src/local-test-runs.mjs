@@ -18,7 +18,7 @@ import { runQualityCommand, withoutHostSurfaceVariables } from './quality-comman
 import { localTestRunKernel as kernel, sourceTreeHash, testInputTreeHash } from './state-stores.mjs';
 import { workDirRelative } from './story-paths.mjs';
 import { gateTestEnvironmentModule, normalizeTestRuntime, testRuntimeEnvironment, testRuntimeIdentity } from './test-runtime.mjs';
-import { nowIso, secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { nowIso, secureRepositoryPath, SingularityFlowError, unknownStepDetails } from './util.mjs';
 import { recordRunsBeforeRefusal, recordTestAttempt } from './verification/attempts.mjs';
 import { nodeTestReporterEnvironment } from './verification/node-test-observation.mjs';
 import { prepareInferredSwiftTestReports } from './verification/swift-reports.mjs';
@@ -166,8 +166,10 @@ export async function stageStoryLocalTests(root, config, workflow, {
 export async function resolveStoryLocalTestCommands(root, config, workflow, { phaseId = null } = {}) {
   const phase = workflow.phases?.[phaseId ?? workflow.currentPhase] ?? null;
   if (!phase) {
+    // A step name typed by mistake: the plan names the code steps and the same command with one, never a step to recover.
     throw new SingularityFlowError(`Story ${workflow.workItem.id} has no step '${phaseId}'.`, {
-      code: 'TESTS_PHASE_UNKNOWN', details: { workId: workflow.workItem.id, phase: phaseId, available: Object.keys(workflow.phases ?? {}) } });
+      code: 'TESTS_PHASE_UNKNOWN', details: { phase: phaseId, available: Object.keys(workflow.phases ?? {}), ...unknownStepDetails(workflow, phaseId, {
+        allow: (_id, step) => step.status !== 'skipped' && phaseRequiresCodeDelivery(step), allowedAre: 'the code steps, which run tests' }) } });
   }
   if (!phaseRequiresCodeDelivery(phase)) {
     throw new SingularityFlowError(`Step '${phase.id}' of ${workflow.workItem.id} is not a code step; it runs no tests. Name the code step with --phase.`, {

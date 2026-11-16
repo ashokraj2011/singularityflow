@@ -24,7 +24,7 @@ import { workDirRelative } from '../story-paths.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
 import { testRunCauseCategory, testRunCauseWords } from '../test-run-cause.mjs';
 import { recordTestRunRisk, recordTestRunRiskRevocation, testRunRiskAuthorities, testRunRiskIneligibility } from '../test-run-risk.mjs';
-import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { nowIso, optionBoolean, optionString, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 import { latestStepAttempts } from '../verification/attempts.mjs';
 import { actionActor } from './kernel.mjs';
 
@@ -150,7 +150,8 @@ export async function decisionTestRiskCommand(positionals, options) {
   const phaseId = revoke ? target?.phase ?? null : requestedPhase;
   if (revoke && !target) throw new SingularityFlowError(`This Story has no test-run risk decision ${revoke}.`, { code: 'TEST_RUN_RISK_UNKNOWN' });
   if (!workflow.phases?.[phaseId]) {
-    throw new SingularityFlowError(`Story ${id} has no step ${phaseId}.`, { code: 'TEST_RUN_RISK_INVALID' });
+    // A step typed by mistake: the plan names the Story's steps and the decision list, which names each risk with its step.
+    throw new SingularityFlowError(`Story ${id} has no step ${phaseId}.`, { code: 'TEST_RUN_RISK_INVALID', details: unknownStepDetails(workflow, phaseId) });
   }
   const commandOption = optionString(options, 'command') ?? null;
   const argvDigest = optionString(options, 'argv-sha256') ?? null;

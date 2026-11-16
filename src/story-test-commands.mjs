@@ -15,7 +15,7 @@
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { countedRecords } from './presence/counted.mjs';
 import { activeSettled } from './settled-decisions.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, unknownStepDetails } from './util.mjs';
 
 const fail = (message, code = 'TEST_COMMAND_DECISION_INVALID', details = undefined) => {
   throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
@@ -125,7 +125,8 @@ export function testCommandReviewHold(workflow, phaseId) {
 
 function openStep(workflow, phaseId) {
   const phase = workflow?.phases?.[phaseId];
-  if (!phase) fail(`This Story has no step ${phaseId}.`);
+  // A step the Story does not have: the plan names its steps, never a step to recover.
+  if (!phase) fail(`This Story has no step ${phaseId}.`, undefined, unknownStepDetails(workflow, phaseId));
   if (!OPEN_STEP.has(phase.status)) fail(`Step ${phaseId} is ${phase.status}; a Story-only test command is decided before the step is approved.`, 'TEST_COMMAND_DECISION_CLOSED');
   const hold = testCommandReviewHold(workflow, phaseId);
   if (hold) fail(hold.words, 'TEST_COMMAND_DECISION_DURING_REVIEW', { workId: workflow.workItem?.id ?? null, phase: phaseId,

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { SingularityFlowError, optionBoolean } from '../util.mjs';
+import { SingularityFlowError, optionBoolean, unknownStepDetails } from '../util.mjs';
 import { prepareConfiguredPhase } from './shared/prepare-configured-phase.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, succeeded, effects } from '../narration/command-result.mjs';
@@ -25,7 +25,7 @@ export async function prepareCommand(positionals, options) {
   let workflow = accepted.workflow;
   const phase = positionals[1] ?? workflow.currentPhase;
   let phaseContract = workflow.phases[phase];
-  if (!phaseContract) throw new SingularityFlowError(`Unknown or unavailable phase '${phase ?? ''}'. Provide a phase ID.`);
+  if (!phaseContract) throw new SingularityFlowError(`Unknown or unavailable phase '${phase ?? ''}'. Provide a phase ID.`, { code: 'PHASE_UNKNOWN', details: unknownStepDetails(workflow, positionals[1]) });
   const prepared = await prepareConfiguredPhase(root, config, workflow, phaseContract);
   workflow = prepared.workflow;
   phaseContract = workflow.phases[phase] ?? phaseContract;

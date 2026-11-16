@@ -12,7 +12,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { PACKAGE_ROOT } from '../package-root.mjs';
-import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, optionString, optionStrings, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 
 const SUBCOMMANDS = Object.freeze(['plan', 'run', 'summary', 'base', 'node']);
 const OPTIONS = Object.freeze({
@@ -482,7 +482,7 @@ async function storySummary(root, options, { localRunId = null } = {}) {
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   const phaseId = optionString(options, 'phase', null) ?? workflow.currentPhase;
   if (!workflow.phases?.[phaseId]) {
-    fail(`Story ${workflow.workItem.id} has no step '${phaseId}'.`, 'TESTS_PHASE_UNKNOWN', { available: Object.keys(workflow.phases ?? {}) });
+    fail(`Story ${workflow.workItem.id} has no step '${phaseId}'.`, 'TESTS_PHASE_UNKNOWN', { available: Object.keys(workflow.phases ?? {}), ...unknownStepDetails(workflow, phaseId) });
   }
   const declaration = await loadEnvironmentDeclaration(root, { optional: true }).catch(() => null);
   const itemRelative = workDirRelative(config, workflow.workItem.id);

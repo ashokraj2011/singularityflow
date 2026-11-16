@@ -23,7 +23,7 @@ import { workDirRelative } from '../story-paths.mjs';
 import { actorKey, assertNoPendingPublication, loadConfig, transactStory } from '../state-stores.mjs';
 import { narrowingWords, recordTestNarrowing, recordTestNarrowingRevocation, testNarrowingIneligibility } from '../test-narrowing.mjs';
 import { testRunRiskAuthorities } from '../test-run-risk.mjs';
-import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { nowIso, optionBoolean, optionString, SingularityFlowError, unknownStepDetails } from '../util.mjs';
 import { latestStepAttempts } from '../verification/attempts.mjs';
 import { actionActor } from './kernel.mjs';
 
@@ -93,7 +93,10 @@ export async function decisionTestNarrowingCommand(positionals, options) {
   const target = revoke ? (workflow.testNarrowings ?? []).find((entry) => !entry.revokes && entry.id === revoke) ?? null : null;
   if (revoke && !target) fail(`This Story has no test-narrowing decision ${revoke}.`, 'TEST_NARROWING_UNKNOWN');
   const phaseId = revoke ? target.phase : requestedPhase;
-  if (!workflow.phases?.[phaseId]) fail(`Story ${id} has no step ${phaseId}.`);
+  if (!workflow.phases?.[phaseId]) {
+    // A step typed by mistake: the plan names the Story's steps and the same command with one, never a step to recover.
+    throw new SingularityFlowError(`Story ${id} has no step ${phaseId}.`, { code: 'TEST_NARROWING_INVALID', details: unknownStepDetails(workflow, phaseId) });
+  }
   const actor = actionActor(root);
   const session = await loadSession(root, { required: false });
   const agent = session?.workId === id ? session.agent ?? null : null;

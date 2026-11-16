@@ -16,7 +16,7 @@ import {
   STARTER_CHECKLIST, analyzeSpecification, policyHash, witnessedClauseReviewFields
 } from './specification-quality.mjs';
 import { extractClauses } from './specifications.mjs';
-import { exists, posix, run, snapshot } from './util.mjs';
+import { exists, posix, run, SingularityFlowError, snapshot, unknownStepDetails } from './util.mjs';
 import { GOVERNED_ROOTS } from './config.mjs';
 import { reviewContinuation } from './review-continuation.mjs';
 import { phaseContinuationLines } from './phase-continuation.mjs';
@@ -72,9 +72,13 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   // then invalidate packets and the approvals bound to them. Narration explains the evidence; it
   // must never become part of what the evidence is.
   const narrative = recap(workflow, { locale: 'en-GB', timeZone: 'UTC', length: 'standard' });
+  // A step typed by mistake, before "no phases to review" could say something untrue: the plan names the Story's steps.
+  if (requestedPhase && !workflow.phases[requestedPhase]) {
+    throw new SingularityFlowError(`Story ${workflow.workItem?.id} has no step '${requestedPhase}'. Its steps: ${(workflow.phaseOrder ?? []).join(', ')}.`, {
+      code: 'REVIEW_PHASE_UNKNOWN', details: unknownStepDetails(workflow, requestedPhase) });
+  }
   const phase = requestedPhase ? workflow.phases[requestedPhase] : currentPhase(workflow) ?? completionPhaseOf(workflow);
   if (!phase) throw new Error('Workflow has no phases to review.');
-  if (requestedPhase && !workflow.phases[requestedPhase]) throw new Error(`Unknown phase '${requestedPhase}'.`);
   const itemRoot = workDir(root, config, workflow.workItem.id);
   const artifactPath = path.join(itemRoot, phase.requiredArtifact.path);
   const artifact = await exists(artifactPath) ? { path: path.relative(root, artifactPath).replaceAll(path.sep, '/'), content: await readFile(artifactPath, 'utf8'), ...await snapshot(artifactPath) } : null;

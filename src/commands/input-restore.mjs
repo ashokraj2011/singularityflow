@@ -27,7 +27,7 @@ import { canonicalJson } from '../records.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { upstreamChangeRoutes } from '../upstream-routes.mjs';
 import {
-  optionBoolean, optionString, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeAtomic
+  optionBoolean, optionString, posix, secureRepositoryPath, SingularityFlowError, snapshot, unknownStepDetails, writeAtomic
 } from '../util.mjs';
 
 const HISTORY_LIMIT = 200;
@@ -39,7 +39,8 @@ function restorePhase(workflow, phaseId) {
   const phase = id ? workflow.phases?.[id] ?? null : null;
   if (!phase) {
     throw new SingularityFlowError(`Story ${workflow.workItem.id} has no phase '${id ?? 'none'}' to restore inputs for.`, {
-      code: 'INPUT_RESTORE_PHASE_UNKNOWN', details: { workId: workflow.workItem.id, phase: id ?? null }
+      // A step typed by mistake: the plan names the Story's steps and the same command with one, never a step to recover.
+      code: 'INPUT_RESTORE_PHASE_UNKNOWN', details: { phase: id ?? null, ...unknownStepDetails(workflow, phaseId) }
     });
   }
   return phase;

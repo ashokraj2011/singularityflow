@@ -70,6 +70,46 @@ function reviewRoute(root, phaseId) {
   return bundle.continuation;
 }
 
+/**
+ * The person's yes to the step's next version, as every successor now needs it [owner: a yes before every new version;
+ * SPEC-OSA v1.1 Stage 2, D3]: the step's preview asks its question and changes nothing, and the confirmation the person
+ * runs in their own terminal opens it through the opening operation. Returns the Story branch's head after the opening.
+ */
+function openNextVersion(root, phaseId, reason) {
+  const head = git(root, 'rev-parse', 'HEAD');
+  const status = git(root, 'status', '--short');
+  const preview = completeAgentResult(cli(root, 'phase', 'rollover', phaseId, ...(reason ? ['--reason', reason] : []), '--json'));
+  assert.equal(preview.mutates, false);
+  assert.equal(preview.toGeneration, 2);
+  assert.match(preview.question, /^Start version 2 of /u);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), head, 'the preview changes nothing');
+  assert.equal(git(root, 'status', '--short'), status);
+  const opened = completeAgentResult(cli(root, 'phase', 'rollover', phaseId, '--confirm', preview.confirmation, '--json'));
+  assert.equal(opened.mutates, true);
+  // The opening commits its own record, the step's pointer and the Story's own bookkeeping: no document, publication or
+  // review of the step.
+  const item = `singularity/work-items/${WORK_ID}/`;
+  const changed = git(root, 'diff', '--name-only', head, 'HEAD').split('\n').filter(Boolean);
+  assert.ok(changed.includes(`${item}context/version-openings/${phaseId}-v2.json`) && changed.includes(`${item}workflow.json`), changed.join('\n'));
+  for (const file of changed) {
+    assert.match(file, new RegExp(`^${item}(?:workflow\\.json|STATUS\\.md|context/version-openings/[^/]+\\.json|context/ledger-intents/[^/]+\\.json)$`, 'u'), file);
+  }
+  return git(root, 'rev-parse', 'HEAD');
+}
+
+/** A successor's preparation without the person's yes is refused before any change [owner; OSA Stage 2]. */
+function refusedWithoutYes(root, phaseId, args = ['prepare', phaseId, '--no-model']) {
+  const head = git(root, 'rev-parse', 'HEAD');
+  const status = git(root, 'status', '--short');
+  const refused = spawnSync(process.execPath, [executable, ...args, '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
+  assert.notEqual(refused.status, 0);
+  const result = completeAgentResult(refused.stdout);
+  assert.equal(result.error.code, 'VERSION_CONSENT_REQUIRED');
+  assert.equal(result.error.details.nextAction, `singularity-flow phase rollover ${phaseId} --json`);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), head);
+  assert.equal(git(root, 'status', '--short'), status);
+}
+
 test('kernel review staging preserves published bytes and proceeds through check and retention for seeded and copied phases', async t => {
   for (const copied of [false, true]) await t.test(copied ? 'copied custom scope' : 'seeded specification', async t => {
     const { root, phaseId } = await publishedSpecificationStory(t, { copied });
@@ -157,31 +197,37 @@ test('real and copied workflow preparation returns authoring instead of reviewin
     assert.equal(initialRoute.copilotCommand, `/sf-review-source ${phaseId}`);
     await mkdir(path.dirname(old.stagingPath), { recursive: true });
     await writeFile(old.stagingPath, JSON.stringify(reviewReport(old)));
-    const head = git(root, 'rev-parse', 'HEAD');
     const artifactBefore = await readFile(path.join(root, old.artifact.path), 'utf8');
+    // Version 2 opens only on the person's yes; then preparing it publishes and retains nothing.
+    refusedWithoutYes(root, phaseId);
+    const head = openNextVersion(root, phaseId, 'State the persisted status precisely.');
     cli(root, 'prepare', phaseId, '--no-model', '--json');
-    const packet = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
     const authorRoute = reviewRoute(root, phaseId);
     // Preparation already ran: the author's next step checks the written draft, never prepares again.
     assert.equal(authorRoute.nextCommand, `singularity-flow phase prepublish ${phaseId} --for-agent --json`);
     assert.notEqual(authorRoute.nextSkill, '/sf-submit');
-    assert.equal(packet.canReview, false);
-    assert.equal(packet.generation, 1, 'preparation is not publication');
-    assert.equal(packet.binding, null);
-    assert.equal(packet.stagingPath, null);
-    assert.equal(packet.continuation.targetGeneration, 2);
-    assert.equal(packet.continuation.nextCommand, `singularity-flow prepare ${phaseId}`);
-    assert.ok(packet.continuation.copilotCommand);
+    // An open successor comes before any review of the version it replaces [OSA:REQ-032]: the review packet is refused,
+    // read-only, and names the author's continuation for version 2; nothing of version 1 is reviewable now.
+    const opened = spawnSync(process.execPath, [executable, 'review-source', 'context', phaseId, '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
+    assert.notEqual(opened.status, 0);
+    assert.deepEqual(completeAgentResult(opened.stdout).error, { code: 'SOURCE_REVIEW_SUCCESSOR_OPEN',
+      message: `Version 2 of ${phaseId} is being written; review it after it is published.`, details: { phase: phaseId, nextAction: `singularity-flow prepare ${phaseId}` } });
     const status = completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json'));
     assert.equal(status.status, 'successor-publication-required');
-    assert.deepEqual(status.continuation, packet.continuation);
-    assert.match(cli(root, 'review-source', 'context', phaseId), /generation 2 publication/);
-    assert.match(cli(root, 'review-source', 'context', phaseId), new RegExp(`prepare ${phaseId}`));
+    assert.equal(status.generation, 1, 'preparation is not publication');
+    assert.equal(status.binding ?? null, null);
+    assert.equal(status.continuation.targetGeneration, 2);
+    assert.equal(status.continuation.nextCommand, `singularity-flow prepare ${phaseId}`);
+    assert.ok(status.continuation.copilotCommand);
+    const text = spawnSync(process.execPath, [executable, 'review-source', 'context', phaseId], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
+    assert.notEqual(text.status, 0);
+    assert.match(text.stderr, new RegExp(`Version 2 of ${phaseId} is being written; review it after it is published\\.`, 'u'));
+    assert.match(text.stderr, new RegExp(`Shell: singularity-flow prepare ${phaseId}\\n`, 'u'));
     for (const action of ['check', 'submit']) {
       const refused = spawnSync(process.execPath, [executable, 'review-source', action, phaseId,
         '--report-file', old.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: childTimeout(30000) });
       assert.notEqual(refused.status, 0);
-      assert.equal(completeAgentResult(refused.stdout).error.code, 'SOURCE_REVIEW_SUCCESSOR_UNPUBLISHED');
+      assert.equal(completeAgentResult(refused.stdout).error.code, 'SOURCE_REVIEW_SUCCESSOR_OPEN');
     }
     const fast = completeAgentResult(cli(root, 'specify', '--json'));
     assert.equal(fast.data.fastPath.next[0].command, `singularity-flow prepare ${phaseId}`);
@@ -223,31 +269,39 @@ test('a retained correction routes compact phase entry to explicit successor pre
     const stateBytes = await readFile(state, 'utf8');
     const before = git(root, 'rev-parse', 'HEAD');
     for (const options of [[], ['--compose']]) {
+      // The next version is the person's yes first [owner: a yes before every new version; OSA Stage 2, D3]: the entry asks
+      // the proposal's question, and its route is the step's preview, which prepares nothing.
       const entry = completeAgentResult(cli(root, 'phase', 'enter', phaseId, ...options, '--for-agent', '--json'));
-      assert.equal(entry.status, 'successor-preparation-required');
-      assert.equal(entry.authoringAllowed, false, 'preparation must precede composition');
+      assert.equal(entry.status, 'successor-confirmation-required');
+      assert.equal(entry.authoringAllowed, false, 'the person\'s yes and preparation must precede composition');
       assert.equal(entry.context, null);
       assert.equal(entry.generation, 1);
       assert.equal(entry.inspectionGeneration, 1);
       assert.equal(entry.successor.targetGeneration, 2);
       assert.equal(entry.successor.automatic, false);
-      assert.equal(entry.successor.preparation.command, `singularity-flow prepare ${phaseId}`);
+      assert.match(entry.successor.question, /^Start version 2 of .+ to fix the review's findings\? Published version 1 will stay unchanged\.$/u);
+      assert.equal(entry.successor.preview.command, `singularity-flow phase rollover ${phaseId} --json`);
+      assert.equal(retained.continuation.nextCommand, `singularity-flow phase rollover ${phaseId} --json`);
       assert.equal((entry.next[0].commandGuidance ?? entry.next[0]).command, retained.continuation.nextCommand);
       assert.equal(await readFile(state, 'utf8'), stateBytes);
       assert.equal(await readFile(artifact, 'utf8'), bytes);
       assert.equal(git(root, 'rev-parse', 'HEAD'), before);
       assert.equal(git(root, 'status', '--short'), '');
     }
+    // Preparation without the person's yes is refused; their yes to the review's question opens version 2.
+    refusedWithoutYes(root, phaseId);
+    const opened = openNextVersion(root, phaseId);
     const corrected = `${bytes}\nThe saved status is displayed only after durable persistence.\n`;
     await writeFile(artifact, corrected);
     cli(root, 'prepare', phaseId, '--no-model', '--json');
     const prepared = completeAgentResult(cli(root, 'phase', 'enter', phaseId, '--for-agent', '--json'));
     assert.notEqual(prepared.status, 'retained-generation');
     assert.notEqual(prepared.status, 'successor-preparation-required');
+    assert.notEqual(prepared.status, 'successor-confirmation-required');
     assert.equal(prepared.inspectionGeneration, 2);
     assert.equal(prepared.generation, 1, 'prepare is not publication');
     assert.equal(await readFile(artifact, 'utf8'), corrected, 'explicit prepare preserves private corrected drafts');
-    assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), opened, 'preparation commits nothing after the person\'s opening');
   });
 });
 
@@ -524,6 +578,10 @@ test('malformed reviewer packets are diagnosed read-only and cannot be committed
 
 test('reviewer cannot prepare or publish a phase under shared authorship, before any Git mutation', async (t) => {
   const { root, phaseId } = await publishedSpecificationStory(t, { copied: true });
+  // A successor's preparation is refused first for want of the person's yes, before any Git mutation [owner; OSA Stage 2].
+  // The person opens version 2, so what is checked below is the reviewer's own role.
+  refusedWithoutYes(root, phaseId);
+  openNextVersion(root, phaseId, 'State the persisted status precisely.');
   cli(root, 'agent', '--agent', 'sflow-source-reviewer');
   const head = git(root, 'rev-parse', 'HEAD');
   const tracked = git(root, 'status', '--porcelain');

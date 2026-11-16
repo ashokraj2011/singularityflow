@@ -10,7 +10,8 @@
  *   F  a code step returned for rework is written again, republished, its review asks corrections, the person is asked
  *      "Start version 3?", and it goes on to its submission [OSA:AC-013];
  *   G  version 2 open on a step with no review: submit refuses with the route to write it, which is then followed
- *      [OSA:REQ-032, AC-013].
+ *      [OSA:REQ-032, AC-013];
+ *   I  a document step's review asks corrections, and the person is asked "Start version 2?" as for code [OSA:AC-013].
  *
  * Every walk writes through the real edit guard and reads the person's views at each hand-off (route-follower.mjs).
  *
@@ -85,11 +86,10 @@ test('journey A: a spec-driven Story from its start to its release, every step w
       assert.ok(publishedGeneration(record, phase) >= 1, phase);
     }
   });
-  // The kernel-built step's publication handed to /sf-publish is the one disagreement this stage leaves, checked apart.
-  const kernelPublish = (view) => view.agent === '/sf-publish';
-  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the kernel-built step\'s publication aside', {}, () => viewsAgree(walk, kernelPublish));
-  await check(t, 'the person\'s views name the skill a kernel-built step\'s publication is handed to', { knownBad: 'osa-stage-3-c9' }, () => {
-    assert.deepEqual(walk.views.filter(kernelPublish), []);
+  // A kernel-built step is published by its own work command, never handed to /sf-publish (Stage 3, C9).
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
+  await check(t, 'no hand-off names /sf-publish for a kernel-built step\'s publication', {}, () => {
+    assert.equal(walk.trail.some((entry) => /^\/sf-publish\b/u.test(entry.taking ?? '')), false, report(walk));
   });
   settle(t);
 });
@@ -197,13 +197,9 @@ test('journey B: a code review asks for corrections, and version 2 is opened, fi
   });
   assert.equal(third.reached, true, `the Story never reached its end, even with the detour\n${report(third)}`);
   assert.ok(approved(storyRecord(story), 'verify'), JSON.stringify(storyRecord(story).phases.verify?.status));
-  // Verify, built by the kernel, has its publication handed to /sf-publish: the one disagreement this stage leaves (as in A).
-  const kernelPublish = (view) => view.agent === '/sf-publish';
-  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the kernel-built step\'s publication aside', {}, () => {
-    for (const walk of [first, second, third]) viewsAgree(walk, kernelPublish);
-  });
-  await check(t, 'the person\'s views name the skill a kernel-built step\'s publication is handed to', { knownBad: 'osa-stage-3-c9' }, () => {
-    assert.deepEqual([first, second, third].flatMap((walk) => walk.views.filter(kernelPublish)), []);
+  // Verify, built by the kernel, is published by its own work command (Stage 3, C9), as in A.
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => {
+    for (const walk of [first, second, third]) viewsAgree(walk);
   });
   settle(t);
 });
@@ -259,12 +255,8 @@ test('journey D: a required test fails on the wrong Node, and the decisions card
     assert.equal(walk.reached, true, report(walk));
     assert.deepEqual(walk.findings, [], report(walk));
   });
-  // The failed test's route to the decisions card is the one disagreement this stage leaves, checked apart.
-  const toCard = (view) => view.agent === '/sf-decide';
-  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the failed test\'s card aside', {}, () => viewsAgree(walk, toCard));
-  await check(t, 'the person\'s views name the decisions card the failed test routes to', { knownBad: 'osa-stage-3-refusal' }, () => {
-    assert.deepEqual(walk.views.filter(toCard), []);
-  });
+  // The failed test's wait is its task's, which every view names: the decisions card (Stage 3, durable outcomes).
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the decisions card the failed test routes to too', {}, () => viewsAgree(walk));
   settle(t);
 });
 
@@ -471,13 +463,67 @@ test('journey G: version 2 open on a step with no review: submit refuses with th
     assert.deepEqual(second.findings, [], report(second));
     assert.equal(storyRecord(story).phases.implement.generation, 2);
   });
-  // The validation offer after a publication with no review owed is the one disagreement this stage leaves, checked apart.
-  const offer = (view) => view.agent === '/sf-outcome';
-  await check(t, 'the person\'s views name the agent\'s skill at every hand-off, the validation offer aside', {}, () => {
-    for (const walk of [first, second]) viewsAgree(walk, offer);
+  // The validation offer is read and asked in the publication's own turn (Stage 3): no hand-off differs from the views.
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => {
+    for (const walk of [first, second]) viewsAgree(walk);
   });
-  await check(t, 'the person\'s views name the validation offer when the agent is routed to it', { knownBad: 'osa-stage-3' }, () => {
-    assert.deepEqual([first, second].flatMap((walk) => walk.views.filter(offer)), []);
+  settle(t);
+});
+
+// ------------------------------------------------------------------------------------------- I
+
+// Journey I (SPEC-OSA v1.1 §12.2): the same consent rule for a document's corrections. The planning step's independent
+// review asks corrections of version 1; the person is asked "Start version 2 of Planning to fix the review's findings?"
+// before anything of version 2 opens, and only their yes opens it, through the opening operation with their receipt;
+// version 2 is written, reviewed ready, submitted and approved by its routes [D3, OSA:REQ-030, REQ-020, AC-013].
+test('journey I: a document step\'s review asks corrections, the person is asked "Start version 2?", and the step goes on by its routes', slowLane({ timeout: 1_800_000 }), async (t) => {
+  const W = 'JRN-I';
+  const story = await journeyRepository(t, { configure: (configuration) => {
+    configuration.workTypes['spec-driven-standard'].sourceReview = { mode: 'enforce', phases: ['planning'], reviewerAgent: 'sflow-source-reviewer' };
+    configuration.workTypes['spec-driven-standard'].spec = { ...(configuration.workTypes['spec-driven-standard'].spec ?? {}), coverage: 'record' };
+  } });
+  Object.assign(story, { workId: W, item: `singularity/work-items/${W}` });
+  const person = cooperativePerson(({ route }) => {
+    if (/^\/sf-decide\b/u.test(route.copilot ?? '') || /^singularity-flow decisions\b/u.test(route.shell ?? '')) {
+      const scope = scopeAnswers(story, `${W}:AC-001`);
+      if (scope.length) return { commands: scope, then: { copilot: '/sf-approve', person: true } };
+      const card = decideCard(story);
+      if (card) return { command: card.command };
+    }
+    return null;
   });
+  // The reviewer's one blocking finding on version 1 of the plan, about the plan itself.
+  const nameTheTest = (phase, packet) => (packet.kind === 'planning' && packet.generation === 1
+    ? [{ id: 'name-the-test', severity: 'blocking', clauseId: `${W}:AC-001`, message: 'The plan must name the test that proves the value is 2.' }] : []);
+  const walk = await followRoutes(story, {
+    label: 'journey I',
+    start: { shell: `singularity-flow start ${W} --from-branch main --work-type spec-driven-standard --title "Validate a value" --description "Return an approved value."` },
+    agent: { author: specDrivenAuthor(W), review: reviewer({ findings: nameTheTest }), clarify: clarifications() },
+    person,
+    done: ({ record }) => approved(record, 'planning'),
+    maxSteps: 90
+  });
+  t.diagnostic(formatTrail(walk.trail));
+  await check(t, 'the plan is written, reviewed, corrected in version 2 and approved by its routes: no loop, no stall, no dead end', {}, () => {
+    assert.equal(walk.reached, true, report(walk));
+    assert.deepEqual(walk.findings, [], report(walk));
+  });
+  await check(t, 'the review asked corrections of version 1, and the person was asked "Start version 2 of Planning" before it opened', {}, () => {
+    const corrections = walk.trail.findIndex((entry) => /reviewer wrote.*correction-required/u.test(entry.did ?? '') && /planning/u.test(entry.state ?? ''));
+    assert.ok(corrections > 0, report(walk));
+    const asked = walk.trail.findIndex((entry, index) => index > corrections && entry.act === 'confirm');
+    const confirmed = walk.trail.findIndex((entry) => /phase rollover planning .*--confirm /u.test(`${entry.ran ?? ''} ${entry.did ?? ''}`));
+    assert.ok(asked > corrections && confirmed >= asked, report(walk));
+    // Nothing of version 2 was prepared before the person's yes.
+    assert.ok(walk.trail.slice(corrections, confirmed).every((entry) => !/^singularity-flow prepare planning\b/u.test(entry.ran ?? '')), report(walk));
+  });
+  await check(t, 'version 2 opened through the opening operation with the person\'s receipt, for the review\'s corrections', {}, () => {
+    const planning = storyRecord(story).phases.planning;
+    assert.equal(planning.generation, 2);
+    assert.equal(planning.versionOpening?.version, 2);
+    assert.equal(planning.versionOpening?.reason, 'review-corrections');
+    assert.ok(planning.versionOpening?.consent?.receiptId, JSON.stringify(planning.versionOpening ?? null));
+  });
+  await check(t, 'the person\'s views name the agent\'s skill at every hand-off', {}, () => viewsAgree(walk));
   settle(t);
 });

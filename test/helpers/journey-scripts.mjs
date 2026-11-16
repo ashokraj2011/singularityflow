@@ -16,14 +16,10 @@ import { implementationPlan, specification } from './submitted-planning-story.mj
 import { formatTrail } from './route-follower.mjs';
 
 /** Fix branch (or a defect a journey found that has none yet) → what is wrong on main until it lands. */
-export const KNOWN_BAD = Object.freeze({
-  'osa-stage-3': 'SPEC-OSA stage 3 (REQ-020): after a code step is published with no review owed, the agent is routed to the outcome '
-    + 'validation offer (/sf-outcome) while next steps, phase show and submission readiness name /sf-submit',
-  'osa-stage-3-c9': 'SPEC-OSA stage 3 (REQ-026, C9): a kernel-built step\'s prepare hands its publication to /sf-publish '
-    + '(prepared-phase-next-actions.mjs) while next steps, session, phase show and readiness name its work command (/sf-converge, /sf-phase)',
-  'osa-stage-3-refusal': 'SPEC-OSA stage 3 (REQ-020, REQ-022): after a required test fails at publication, its refusal routes the person '
-    + 'to the decisions card (/sf-decide) while next steps, phase show and readiness name writing the step (/sf-code)'
-});
+// SPEC-OSA Stage 3 closed osa-stage-3 (the outcome review is read in the publication's own turn), osa-stage-3-c9 (a
+// kernel-built step is published by its own work command) and osa-stage-3-refusal (the failed test's wait is the task's,
+// which every view names): their checks count now.
+export const KNOWN_BAD = Object.freeze({});
 
 const stale = new WeakMap();
 

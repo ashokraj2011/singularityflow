@@ -159,3 +159,53 @@ export function sameGitRepository(left, right) {
   const leftKey = gitRepositoryComparisonKey(left);
   return Boolean(leftKey && leftKey === gitRepositoryComparisonKey(right));
 }
+
+/**
+ * A hosted remote's host and repository path, whatever the protocol: `git@host:team/app.git`,
+ * `ssh://git@host:22/team/app` and `https://host/Team/App/` all give `hosted:host/team/app`. Port and
+ * SSH user are dropped, as are a `.git` suffix and trailing slashes; host and path are compared without
+ * letter case. Null for a local path, a credential-bearing or unparseable remote.
+ */
+export function repositoryHostPathKey(value) {
+  const remote = remoteComparisonInput(value);
+  if (!remote || gitRepositoryLocalPath(remote)) return null;
+  let host;
+  let repositoryPath;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//iu.test(remote)) {
+    const match = remote.match(/^(?:[^/@:\s]+@)?(\[[^\]\s]+\]|[^/:\s]+):(.+)$/u);
+    if (!match) return null;
+    [, host, repositoryPath] = match;
+  } else {
+    let parsed;
+    try { parsed = new URL(remote); } catch { return null; }
+    if (!['http:', 'https:', 'ssh:', 'git+ssh:', 'ssh+git:', 'git:'].includes(parsed.protocol)
+        || parsed.search || parsed.hash || parsed.password || !parsed.hostname) return null;
+    host = parsed.hostname;
+    repositoryPath = parsed.pathname;
+  }
+  host = host.toLocaleLowerCase('en-US');
+  if (host === `ssh.${PUBLIC_GITHUB_HOST}`) host = PUBLIC_GITHUB_HOST;
+  repositoryPath = withoutHostedRepositorySuffix(decodeUnreserved(repositoryPath).replace(/^\/+/u, ''))
+    .toLocaleLowerCase('en-US');
+  return repositoryPath ? `hosted:${host}/${repositoryPath}` : null;
+}
+
+/**
+ * One repository key (SCF:REQ-019) for a remote read now against one recorded earlier: the comparison
+ * key, or else the same host and repository path in another protocol. A team member who switches
+ * https to ssh, or drops `.git`, still names the same repository. Recorded identities (the Story index,
+ * record keys) keep gitRepositoryComparisonKey, so nothing already written changes meaning.
+ */
+export function sameRepository(left, right) {
+  if (sameGitRepository(left, right)) return true;
+  const leftKey = repositoryHostPathKey(left);
+  return Boolean(leftKey && leftKey === repositoryHostPathKey(right));
+}
+
+/** sameRepository, with existing local paths resolved first (a symbolic link, /tmp and /private/tmp). */
+export async function sameRepositoryResolved(left, right) {
+  if (sameRepository(left, right)) return true;
+  if (!gitRepositoryLocalPath(left) || !gitRepositoryLocalPath(right)) return false;
+  const [leftKey, rightKey] = await Promise.all([resolvedGitRepositoryComparisonKey(left), resolvedGitRepositoryComparisonKey(right)]);
+  return Boolean(leftKey && leftKey === rightKey);
+}

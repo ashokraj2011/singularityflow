@@ -7,6 +7,7 @@ import { repositoryGitDirectory } from './git-directory.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace-manifest.mjs';
 import { workspaceBranchMember } from './workspace-branch-locations.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
+import { sameRepositoryResolved } from './git-repository-identity.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 const canonical = file => realpath(file).catch(error => error.code === 'ENOENT' ? path.resolve(file) : Promise.reject(error));
@@ -39,9 +40,9 @@ export async function findWorkspaceMembership(root, { identity = null, workspace
       const originalCommon = repositoryGitDirectory(original);
       if (!(same(original, actual) || originalCommon && same(await canonical(originalCommon), common)
           || branchMember?.repositoryId === id)) continue;
-      if (configuredRemoteIdentity(actual, 'origin', { direction: 'fetch' }).url !== repository.url) {
-        throw new SingularityFlowError('The checkout does not match its workspace repository identity.', { code: 'WORKSPACE_REPOSITORY_IDENTITY_MISMATCH' });
-      }
+      // One repository key (SCF:REQ-019): https or ssh, with or without `.git`, is the same repository.
+      const origin = configuredRemoteIdentity(actual, 'origin', { direction: 'fetch' }).url;
+      if (!origin || !await sameRepositoryResolved(origin, repository.url)) throw await originMismatch(actual, id, repository.url, origin);
       const context = { workspaceId: workspace.id, workspaceName: workspace.name, workspacePath: workspace.path,
         anchorKey: workspace.anchor.key, capabilities: [...(workspace.capabilities ?? [])],
         repositoryId: id, repositoryPath: actual, checkoutPath: actual,
@@ -57,4 +58,20 @@ export async function findWorkspaceMembership(root, { identity = null, workspace
     code: 'EXECUTION_CONTEXT_WORKSPACE_AMBIGUOUS', details: { workspaces: found.map(entry => entry.workspacePath) }
   });
   return found[0] ?? null;
+}
+
+/**
+ * The refusal for a clone whose `origin` names another repository than its workspace records: both remotes, and the
+ * command that points `origin` back (WS-6). Shared with workspace-context.mjs.
+ */
+export async function originMismatch(checkout, repositoryId, expected, actual) {
+  const { sanitizeRemote } = await import('./git-remote-diagnostics.mjs');
+  const [recorded, found] = [sanitizeRemote(expected), actual ? sanitizeRemote(actual) : null];
+  const command = `git -C ${JSON.stringify(checkout)} remote set-url origin ${JSON.stringify(recorded)}`;
+  return new SingularityFlowError(`The clone of '${repositoryId}' at ${checkout} pulls from ${found ?? 'no origin'}, but its workspace records `
+    + `${recorded}. If that is another spelling of the same repository, set origin back to the recorded one.`, {
+    code: 'WORKSPACE_REPOSITORY_IDENTITY_MISMATCH',
+    details: { repositoryId, checkoutPath: checkout, expectedRemote: recorded, actualRemote: found,
+      nextAction: { command, label: 'Point origin back at the repository its workspace records' } }
+  });
 }

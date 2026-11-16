@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { commandDefinition, operationById, resolveOperation } from './command-registry.mjs';
 import {
@@ -378,9 +378,13 @@ export async function activeWorkspaceRepositoryRoot(command, {
     env, home, selectedPath, command, subcommand, action, options
   });
   if (deferred) return deferred;
-  // A member whose clone failed is missing: its own repair is the way on (C7), not another selection.
-  const repair = context.workspacePath && context.repositoryId
-    ? `singularity-flow workspace repair ${JSON.stringify(context.workspacePath)} --repository ${context.repositoryId}` : null;
+  // A member whose clone failed is missing: its own repair is the way on (C7), not another selection. A moved workspace
+  // or a Story checkout whose folder is gone is mended by workspace repair alone (SCF:REQ-022).
+  const moved = context.workspacePath && !existsSync(context.workspacePath) ? await (await import('./workspace-relink.mjs'))
+    .activeWorkspaceMovedRefusal(context, globalThis.__SINGULARITY_FLOW_INVOCATION_DIRECTORY ?? process.cwd()) : null;
+  if (moved) throw moved;
+  const repair = context.workspacePath && context.repositoryId ? `singularity-flow workspace repair ${JSON.stringify(context.workspacePath)}`
+    + (context.storyId || context.requestedStoryId ? '' : ` --repository ${context.repositoryId}`) : null;
   throw new SingularityFlowError(
     `Active workspace '${context.workspaceName ?? context.workspaceId}' points to '${selectedPath}', which is not an available Git repository. ${repair ? `Repair it with '${repair}'` : 'Repair the workspace'}, or select another with 'singularity-flow workspace use <WORKSPACE>'.`,
     {
@@ -542,6 +546,14 @@ async function workspaceManifestsForRepositoryMutation(subcommand, positionals, 
   }
   const reference = workspaceReferencePosition(subcommand, positionals);
   if (!reference) return [];
+  if (subcommand === 'repair') {
+    // It also takes a clone in no workspace (its one repository) and a gone folder, which its handler refuses (SCF:REQ-022).
+    const manifest = await readWorkspace(reference).catch(() => null);
+    if (manifest) return [manifest];
+    let clone = false;
+    try { clone = lstatSync(path.join(reference, '.git')).isDirectory(); } catch { /* not a clone */ }
+    return clone ? [{ repositories: { clone: { path: path.resolve(reference) } } }] : [];
+  }
   // Ordinary workspace mutators already require a directory and pass it directly to readWorkspace;
   // use the same boundary so target discovery cannot silently select a different saved workspace.
   return [await readWorkspace(reference)];

@@ -139,8 +139,14 @@ async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
     // Credential-bearing or otherwise unsafe remotes are identity drift. They are never copied
     // into an error object or durable diagnostic.
   }
-  const valid = actualTop === canonicalRoot && actualOrigin && actualOrigin === expected;
-  if (valid) return true;
+  const sameTop = actualTop === canonicalRoot;
+  // One repository key (SCF:REQ-019): another spelling of the reviewed remote (https or ssh, `.git`) is the same one.
+  const sameOrigin = Boolean(actualOrigin) && (actualOrigin === expected
+    || await (await import('./git-repository-identity.mjs')).sameRepositoryResolved(actualOrigin, expected));
+  if (sameTop && sameOrigin) return true;
+  if (strict && sameTop) {
+    throw await (await import('./workspace-membership.mjs')).originMismatch(root, member.repositoryId, expected, actualOrigin || null);
+  }
   if (strict) {
     throw new SingularityFlowError(
       `Workspace repository '${member.repositoryId}' no longer matches its reviewed Git identity. Select or repair the workspace before work.`,
@@ -259,14 +265,13 @@ export async function resolveWorkspaceReference(registryFile, reference) {
       matches.push(entry);
     }
   }
-  if (!matches.length) {
-    throw new SingularityFlowError(`Workspace '${requested}' is not saved. Run 'singularity-flow workspace list'.`);
-  }
-  if (matches.length > 1) {
-    throw new SingularityFlowError(`Workspace reference '${requested}' is ambiguous. Use its workspace ID or full directory.`);
-  }
-  return matches[0];
+  // A workspace's own ID is never ambiguous (SCF:REQ-022): an exact ID wins over a name or Jira anchor. A folder that is
+  // not saved, the same ID saved twice and a name shared by several get their own refusals (workspace-relink.mjs).
+  const byId = matches.filter((entry) => normalized(entry.id) === key);
+  if (matches.length === 1 || byId.length === 1) return byId[0] ?? matches[0];
+  throw await (await import('./workspace-relink.mjs')).workspaceReferenceRefusal(entries, matches, byId, { requested, requestedPath });
 }
+
 
 async function detectedStory(repositoryPath, branchName) {
   if (!branchName) return null;

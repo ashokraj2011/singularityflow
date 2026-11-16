@@ -98,9 +98,15 @@ async function directoryBytes(root) {
 
 /** Fetches only the exact approved source into disposable, bounded commit-only storage. */
 export async function captureSkillConfigurationAncestry(snapshot, priorSource) {
-  const subject = { repository: snapshot?.authority?.remote, ancestorCommit: priorSource?.commit,
+  // The proof names the repository as the Story recorded it, so every build replays it against the Story's own
+  // record; it is fetched from the approved authority as this clone reaches it. The two are one repository by its
+  // key (SCF:REQ-019): https or ssh, a path or file://, with or without `.git`.
+  const subject = { repository: priorSource?.repository, ancestorCommit: priorSource?.commit,
     descendantCommit: snapshot?.sourceCommit };
-  if (!snapshot || typeof snapshot !== 'object' || subject.repository !== priorSource?.repository
+  const { sameRepository } = await import('./git-repository-identity.mjs');
+  const fetchFrom = snapshot?.authority?.remote;
+  if (!snapshot || typeof snapshot !== 'object' || typeof subject.repository !== 'string'
+      || !sameRepository(fetchFrom, subject.repository)
       || !OID.test(subject.ancestorCommit ?? '') || !OID.test(subject.descendantCommit ?? '')
       || subject.ancestorCommit === subject.descendantCommit
       || subject.ancestorCommit.length !== subject.descendantCommit.length) {
@@ -110,6 +116,7 @@ export async function captureSkillConfigurationAncestry(snapshot, priorSource) {
   const prior = CAPTURED.get(snapshot)?.get(key);
   if (prior) { verifySkillConfigurationAncestry(prior, subject); return structuredClone(prior); }
   assertCredentialFreeRemote(subject.repository);
+  assertCredentialFreeRemote(fetchFrom);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-skp-ancestry-'));
   const objectFormat = subject.descendantCommit.length === 40 ? 'sha1' : 'sha256';
   let objectService = null;
@@ -118,7 +125,7 @@ export async function captureSkillConfigurationAncestry(snapshot, priorSource) {
   try {
     run('git', ['init', '--bare', '--quiet', '--template=', `--object-format=${objectFormat}`, scratch],
       { cwd: scratch, env: withoutGitProcessOverrides() });
-    const transport = frozenRemoteTransport(subject.repository);
+    const transport = frozenRemoteTransport(fetchFrom);
     const fetched = await runRemoteGitAsync(['-c', 'fetch.unpackLimit=1', 'fetch', '--no-tags',
       '--no-write-fetch-head', '--filter=tree:0', `--depth=${SKP_ANCESTRY_LIMITS.commits}`,
       '--', transport.remote, subject.descendantCommit], { cwd: scratch, env: transport.env,

@@ -16,7 +16,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 28
+version: 29
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing repository state.
 
@@ -116,7 +116,20 @@ A Story has one checkout on this computer, whichever workspace or clone holds it
 
 One workspace can hold two clones of a repository: the one its manifest declares and a branch download (`repos/<branch>--<hash>/<repository>`) that owns some Story checkouts. `sflow workspace consolidate <WORKSPACE>` previews moving those checkouts onto the declared clone: it names that canonical clone, each checkout that moves, and why any stays (local changes, untracked files, commits not on the remote, a live lease or bound Copilot turn, an operation in progress, another copy of the same Story, an unfinished start or publication). `--confirm-plan <PLAN-ID>` applies exactly that plan after the same checks. A move changes no file in the checkout: the Story branch is fetched into the declared clone and the checkout's Git administration is moved there, then Git must report it clean, on its branch and at its commit, or the move is put back. Machine-local documents are copied. Nothing is deleted: the old clone keeps its objects and branches, a clone that then owns nothing has its branch-download pointer set aside, and `sflow workspace cleanup <WORKSPACE>` can retire it after its own preview. The Story index follows.
 
-The index is a lookup and a cache, never authority. Every read checks an entry against the checkout's own Git files (folder, branch, Git directory, remote, the Story's `workflow.json`) and drops one that no longer matches; Git stays the truth. Phase and status are refreshed after each lifecycle command; no gate reads them. A checkout whose files are cloud placeholders is reported as unavailable, not read.
+The index is a lookup and a cache, never authority. Every read checks an entry against the checkout's own Git files (folder, branch, Git directory, remote, the Story's `workflow.json`) and drops one that no longer matches; Git stays the truth. Phase and status are refreshed after each lifecycle command; no gate reads them. A checkout whose files are cloud placeholders is reported as unavailable, not read. A Story checkout on a detached HEAD for a while (a rebase, a bisect, `git checkout <commit>`) is still that Story's one checkout: its entry is kept, shown as `detachedHead` in `workspace stories`, so another clone cannot open the Story meanwhile.
+
+A clone's `origin` is compared with what its workspace records by one repository key: https or ssh, with or without `.git`, letter case and a trailing slash all name the same repository, on every Git host. The same key compares a running Story's configuration repository with the one it reaches now, so approver refresh and skill or test-command amendments on a second laptop that cloned by another spelling no longer stop with `APR_AUTHORITY_CHANGED`. Another repository is refused (`WORKSPACE_REPOSITORY_IDENTITY_MISMATCH`) with both remotes and the `git remote set-url origin` command that points it back.
+
+### Moving a workspace, and a deleted Story checkout
+
+A workspace is a folder you can move or rename. Git records each Story checkout's links to its clone as absolute paths, so after a move one command puts them right: `sflow workspace repair <NEW-FOLDER>` (or `sflow workspace repair` run inside the moved folder). It also mends a Story checkout whose folder was deleted.
+
+- It previews first and changes nothing: it saves the workspace at its folder now in place of the registration whose folder is gone (one registration per workspace ID), moves the active selection with it, re-links each Story checkout that moved (`git worktree repair`), and makes a deleted Story checkout again from the Story's branch, at the place a new one would get. Confirm with the route it prints (`/sf-confirm <CODE>`, `singularity-flow confirm <CODE>`, or `--confirm <PLAN>`); a workspace that changed since the preview is refused, and preview again.
+- Nothing is lost. The branch keeps the Story's commits, unpushed ones too. SFlow's own saved records for a deleted checkout (answers, drafts, the record of a commit not yet published) move to the new checkout, or are kept under the clone's `.git/singularity-flow/repaired-checkouts` when no Story checkout is made again. Repair waits, naming the command that saves the work, while a deleted checkout was on a commit no branch holds (`git branch <NAME> <COMMIT>`), had files added to its index (save them to a patch), is locked (`git worktree unlock`), or something is already where the checkout would be made.
+- Every route in a moved workspace names this repair: commands run in its folder or in a Story checkout, `workspace use <NEW-FOLDER>`, `workspace open <NEW-FOLDER>` (which no longer saves a second registration), `session open` for a Story whose checkout folder is gone (`STORY_CHECKOUT_MISSING`), and a workspace ID saved twice (`WORKSPACE_MOVED`). A workspace's own ID is never ambiguous: an exact ID wins over a name, and two folders that share an ID because one is a copy are named, with their folders.
+- `sflow workspace prune` also forgets registrations whose folder is gone; no file is deleted, and `workspace repair <NEW-FOLDER>` saves a moved one again.
+- For a clone in no workspace, `sflow workspace repair <CLONE>` does the same for its Story checkouts. A new one is made beside the clone, in `<CLONE>.stories/`, so move or rename that folder together with the clone; one an earlier build made in `<PARENT>/.singularity-flow/story-worktrees` is still found and used.
+- Re-linking checkouts that moved together with their clone needs Git 2.31 or later (`git worktree repair` learned it then); with older Git the preview says so.
 
 ### Taking a Story over on another laptop
 
@@ -338,6 +351,7 @@ These commands can change repository or machine-local state: `workspace`, `sessi
 
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If `/sf-session` lists the previous repository's Stories, compare the open folder and terminal cwd with `workspace current --json`. Select the workspace in VS Code and start a new, correctly scoped chat or terminal; alternatively pass the exact workspace/repository selectors. A registry selection alone does not retarget an existing host session.
+- If a command says a workspace or Story checkout folder is gone (`STORY_CHECKOUT_MISSING`, `ACTIVE_WORKSPACE_MOVED`, `WORKSPACE_MOVED`, `WORKSPACE_NOT_SAVED_HERE`, or "the folder it was asked to run in no longer exists"), run the `sflow workspace repair` it names, review the preview, then confirm it.
 - If `STORY_CHECKOUT_ELSEWHERE` refuses a start, open or attach, the Story already has its checkout in the named workspace or clone. Go there with the commands it gives (`sflow workspace use <WORKSPACE>`, then `sflow session open <WORK-ID>`) instead of making a second copy. `sflow workspace stories <WORK-ID>` shows the same.
 - If a Story appears in candidates but attach refuses it, use `session candidates --json --diagnostics` with the same exact workspace/repository selectors and follow its unavailable-object or Git-access diagnosis. Do not create a duplicate Story or switch another Story's checkout by hand.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.

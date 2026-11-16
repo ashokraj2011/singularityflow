@@ -75,7 +75,8 @@ async function refreshCandidate(root, config, workflow, { approvedConfigurationS
   const accepted = await verifyWorkflowSnapshot(root, config, workflow, { requireAccepted: true, retainBytes: true });
   if (!accepted.enrolled || !same(accepted.policy, workflow.resolution)) fail('The current Story policy is not its exact accepted snapshot.', 'APR_REFRESH_STALE');
   const source = workflow.resolution.configurationSource;
-  if (!approvedConfigurationSnapshot || approvedConfigurationSnapshot.authority?.remote !== source?.repository) {
+  // One repository key (SCF:REQ-019): a clone reached by another spelling (ssh, https, a path) is the same authority.
+  if (!approvedConfigurationSnapshot || !(await import('./git-repository-identity.mjs')).sameRepository(approvedConfigurationSnapshot.authority?.remote, source?.repository)) {
     fail('The approved configuration is not at the Story\'s own configuration authority.', 'APR_AUTHORITY_CHANGED');
   }
   if (approvedConfigurationSnapshot.sourceCommit === source?.commit) {

@@ -259,12 +259,47 @@ const descriptors = [
     argv: (params) => ['for-each-ref', '--count=1', '--contains', params.commit, '--format=%(refname)', 'refs/remotes'],
     parser: (result) => text(result) !== ''
   }),
-  // A clone's worktrees, the clone itself first: a reset keeps every linked one (SCF:REQ-021).
+  // A clone's worktrees, the clone itself first: a reset keeps every linked one (SCF:REQ-021), repair re-links them (REQ-022).
   descriptor('repository.worktrees', {
     argv: () => ['worktree', 'list', '--porcelain'],
     parser: (result) => result.stdout.split(/\r?\n\r?\n/u).map((record) => record.split(/\r?\n/u))
       .filter((fields) => fields[0]?.startsWith('worktree ')).map((fields) => ({ path: path.resolve(fields[0].slice(9)),
-        bare: fields.includes('bare'), prunable: fields.some((field) => field.startsWith('prunable')) }))
+        bare: fields.includes('bare'), prunable: fields.some((field) => field.startsWith('prunable')),
+        locked: fields.some((field) => /^locked(?: |$)/u.test(field)),
+        branch: fields.find((field) => field.startsWith('branch refs/heads/'))?.slice(18) ?? null }))
+  }),
+  // Whether any branch, remote-tracking ref or tag holds a commit: forgetting a deleted checkout loses no commit then.
+  descriptor('repository.ref-holds', {
+    validate(params) {
+      const commit = String(params?.commit ?? '');
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit)) {
+        throw new SingularityFlowError('A ref containment read needs an exact Git object ID.', { code: 'GIT_QUERY_INPUT_INVALID' });
+      }
+      return Object.freeze({ commit });
+    },
+    argv: (params) => ['for-each-ref', '--count=1', '--contains', params.commit, '--format=%(refname)', 'refs/heads', 'refs/remotes', 'refs/tags'],
+    parser: (result) => text(result) !== ''
+  }),
+  // The files a deleted checkout had added to its index, read from its Git folder under the clone (`workspace repair`).
+  descriptor('worktree.staged-paths', {
+    validate(params) {
+      const gitDir = String(params?.gitDir ?? '');
+      if (!path.isAbsolute(gitDir) || gitDir.includes('\0')) {
+        throw new SingularityFlowError('A worktree index read needs the absolute Git folder of that worktree.', { code: 'GIT_QUERY_INPUT_INVALID' });
+      }
+      return Object.freeze({ gitDir });
+    },
+    argv: (params) => ['--git-dir', params.gitDir, 'diff-index', '--cached', '--name-only', '-z', 'HEAD'],
+    parser: nul
+  }),
+  // The installed Git's version, as [major, minor, patch]: `git worktree repair` needs 2.31 when a clone and its
+  // worktrees moved together.
+  descriptor('git.version', {
+    argv: () => ['--version'],
+    parser(result) {
+      const version = text(result).match(/(\d+)\.(\d+)(?:\.(\d+))?/u);
+      return version ? [Number(version[1]), Number(version[2]), Number(version[3] ?? 0)] : null;
+    }
   }),
   descriptor('sgos.configured-remotes', {
     argv: () => ['remote'], dependency: 'configuration', allowFailure: true,

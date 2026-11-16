@@ -234,22 +234,27 @@ test('failed-start rollback removes a launch checkout that holds only SFlow\'s o
 });
 
 // The workspaces analysis's finding 2 (WS-2, SCF:REQ-021): a clone directly in the home folder put new Story checkouts in
-// SFlow's own state folder, which a reset clears. No new one is made there.
-test('no new Story checkout is made inside the state folder for a clone directly in the home folder [SCF:REQ-021, WS-2]', async (t) => {
+// SFlow's own state folder, which a reset clears. A clone in no workspace now keeps them beside it, in `<clone>.stories`
+// (SCF D3), and none is made inside the state folder.
+test('a clone in no workspace keeps new Story checkouts beside it, never in the state folder [SCF:REQ-021, D3, WS-2]', async (t) => {
   const { root } = await repository(t);
   // The clone sits directly in the home folder, beside SFlow's state folder.
   const previous = process.env.SINGULARITY_FLOW_HOME;
   process.env.SINGULARITY_FLOW_HOME = path.join(path.dirname(root), '.singularity-flow');
   t.after(() => { if (previous === undefined) delete process.env.SINGULARITY_FLOW_HOME; else process.env.SINGULARITY_FLOW_HOME = previous; });
   const state = path.join(await realpath(path.dirname(root)), '.singularity-flow');
-  await assert.rejects(() => prepareStoryWorktree(root, 'ISO-HOME', { base: 'main' }), (error) => {
+  const prepared = await prepareStoryWorktree(root, 'ISO-HOME', { base: 'main' });
+  assert.equal(path.dirname(prepared.repositoryPath), `${root}.stories`);
+  await assert.rejects(access(path.join(state, 'story-worktrees')), { code: 'ENOENT' });
+  assert.equal(rollbackStoryWorktree(prepared).removed, true);
+  // A clone inside the state folder itself still gets no checkout there.
+  process.env.SINGULARITY_FLOW_HOME = path.dirname(root);
+  await assert.rejects(() => prepareStoryWorktree(root, 'ISO-STATE', { base: 'main' }), (error) => {
     assert.equal(error.code, 'STORY_WORKTREE_IN_STATE_FOLDER', error.message);
     assert.match(error.message, /inside Singularity Flow's state folder .*A reset clears that folder, so no checkout is made there/su);
-    assert.equal(error.details.stateFolder, state);
     assert.equal(error.details.actions.length, 2);
     return true;
   });
-  await assert.rejects(access(path.join(state, 'story-worktrees')), { code: 'ENOENT' });
   assert.equal(git(root, ['branch', '--list', 'sflow-start-*']), '', 'no launch branch was left');
 });
 
@@ -385,8 +390,9 @@ test('new Story worktree paths have a stable compact component even for long Sto
   const id = 'pyspark-migration-with-a-long-portable-story-identifier';
   const first = await storyWorktreePath(root, id);
   const second = await storyWorktreePath(root, id);
-  const parent = path.join(path.dirname(root), '.singularity-flow', 'story-worktrees');
-  const legacy = path.join(parent,
+  // Beside the clone (SCF D3); the legacy layout was under <parent>/.singularity-flow/story-worktrees.
+  const parent = `${root}.stories`;
+  const legacy = path.join(path.dirname(root), '.singularity-flow', 'story-worktrees',
     createHash('sha256').update(gitCommonDir(root)).digest('hex').slice(0, 12), id);
 
   assert.equal(first, second);

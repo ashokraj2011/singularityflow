@@ -155,9 +155,11 @@ export async function sourceForRepository(root) {
         // Repository identity must come from the same selector-safe boundary as the final
         // capability resolution. Inherited GIT_DIR/GIT_WORK_TREE values must never make this
         // portfolio lookup select a different repository while later provenance names `root`.
-        const remote = normalizedRemote(configuredRemoteIdentity(root, 'origin').url);
+        const remote = configuredRemoteIdentity(root, 'origin').url;
+        // One repository key (SCF:REQ-019): https or ssh, `.git`, letter case and a trailing slash name one repository.
+        const { sameRepository } = await import('./git-repository-identity.mjs');
         const matches = Object.entries(portfolio?.repositories ?? {})
-          .filter(([, repository]) => normalizedRemote(repository?.url) === remote)
+          .filter(([, repository]) => remote && sameRepository(repository?.url, remote))
           .map(([id]) => id);
         if (matches.length === 1) repositoryId = matches[0];
         else if (!remote && Object.keys(portfolio?.repositories ?? {}).length === 1) repositoryId = Object.keys(portfolio.repositories)[0];
@@ -181,9 +183,6 @@ export async function sourceForRepository(root) {
   };
 }
 
-function normalizedRemote(value) {
-  return String(value ?? '').trim().replace(/\.git$/, '').replace(/\/$/, '').toLowerCase();
-}
 
 function implicitRepositoryId(source, remoteUrl) {
   if (source.repositoryId) return source.repositoryId;

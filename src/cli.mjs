@@ -9136,6 +9136,20 @@ async function workspaceDirectoryFromCwd(registry, selectionFile, action) {
     .sort((left, right) => right.physicalPath.length - left.physicalPath.length);
   if (enclosing.length) return enclosing[0].physicalPath;
 
+  // A workspace folder that is not saved here: moved or renamed, or a copy. `repair` saves it and re-links its Story
+  // checkouts (SCF:REQ-022); every other command names that one route.
+  const { enclosingWorkspaceFolder } = await import('./workspace-relink.mjs');
+  const unsaved = await enclosingWorkspaceFolder(cwd);
+  if (unsaved && action === 'repair') return unsaved;
+  if (unsaved) {
+    const repair = `singularity-flow workspace repair ${JSON.stringify(unsaved)}`;
+    throw new SingularityFlowError(`The workspace at ${unsaved} is not saved on this computer: it was moved, renamed or copied. `
+      + 'workspace repair saves it where it is and re-links its Story checkouts.', {
+      code: 'WORKSPACE_NOT_SAVED_HERE', details: { cwd, workspacePath: unsaved,
+        nextAction: { command: repair, label: 'Preview the repair of this workspace' } }
+    });
+  }
+
   // A selection in another VS Code window is a useful hint, not authority to repair a workspace
   // unrelated to this shell's cwd. Require its exact directory as an explicit argument instead.
   const selected = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false })
@@ -9449,11 +9463,26 @@ async function workspaceCommand(positionals, options) {
     return runWorkspaceBranches(options);
   }
   if (subcommand === 'prune') {
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(compatibility, null, 2));
-    if (!compatibility.removed.length) return console.log('All saved workspaces use workflow version 2 or are not initialized yet.');
+    // A registration whose folder is gone (moved, renamed, deleted or not mounted) is forgotten too (WS-4). Nothing on
+    // disk is deleted; `workspace repair <its new folder>` saves a moved one again with its Story checkouts re-linked.
+    const missing = [];
+    for (const entry of await readWorkspaceRegistry(registry)) {
+      if (entry.archivedAt || existsSync(path.join(entry.path, 'workspace.json'))) continue;
+      await forgetWorkspace(registry, entry.path);
+      await clearActiveWorkspaceContext(selectionFile, entry.path).catch(() => false);
+      missing.push({ id: entry.id, name: entry.name, path: entry.path, reason: 'its folder is gone' });
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...compatibility, missing }, null, 2));
+    if (!compatibility.removed.length && !missing.length) {
+      return console.log('All saved workspaces are where they were saved, and use workflow version 2 or are not initialized yet.');
+    }
     for (const workspace of compatibility.removed) {
       console.log(`Forgot ${workspace.name} (${workspace.path}): ${workspace.reason}. Files were not deleted.`);
     }
+    for (const workspace of missing) {
+      console.log(`Forgot ${workspace.name} (${workspace.path}): its folder is gone. Files were not deleted.`);
+    }
+    if (missing.length) printCommandRoutes('singularity-flow workspace repair <ITS-NEW-FOLDER>', { label: 'If one moved, save it again in its new folder' });
     return;
   }
   if (subcommand === 'list') {
@@ -9952,6 +9981,16 @@ async function workspaceCommand(positionals, options) {
   }
   if (subcommand === 'open') {
     const workspace = await readWorkspace(workspacePath);
+    // Opening a moved workspace saved it a second time under the same ID and left its Story checkouts unlinked (WS-4).
+    const moved = (await readWorkspaceRegistry(registry)).filter((entry) => entry.id === workspace.id
+      && path.resolve(entry.path) !== path.resolve(workspace.path) && !existsSync(path.join(entry.path, 'workspace.json')));
+    if (moved.length) {
+      throw new SingularityFlowError(`Workspace '${workspace.id}' was saved at ${moved[0].path}, which is gone: it moved here. `
+        + 'workspace repair saves it here and re-links its Story checkouts.', {
+        code: 'WORKSPACE_MOVED', details: { workspaceId: workspace.id, workspacePath: workspace.path, movedFrom: moved[0].path,
+          nextAction: { command: `singularity-flow workspace repair ${JSON.stringify(workspace.path)}`, label: 'Preview the repair of the moved workspace' } }
+      });
+    }
     const status = await workspaceStatus(workspace.path);
     await rememberWorkspace(registry, workspace, status);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
@@ -10170,12 +10209,30 @@ async function workspaceCommand(positionals, options) {
     return;
   }
   if (subcommand === 'repair') {
+    // Links first (SCF:REQ-022): a moved workspace's registration and Story checkouts, a deleted Story checkout. They are
+    // previewed and change only with --confirm <plan>; missing clones are then cloned as before.
+    const { applyWorkspaceRelink, planWorkspaceRelink, renderWorkspaceRelink, workspaceRelinkConfirmCommand } =
+      await import('./workspace-relink.mjs');
+    const confirm = optionString(options, 'confirm');
+    const links = confirm
+      ? await applyWorkspaceRelink(workspacePath, { confirm, registryFile: registry, selectionFile })
+      : await planWorkspaceRelink(workspacePath, { registryFile: registry, selectionFile });
+    const plan = confirm ? links.plan : links;
+    const pending = !confirm && (plan.changes > 0 || plan.refusals.length > 0);
+    const linkResult = { status: confirm ? 'repaired' : !pending ? 'nothing-to-repair' : plan.refusals.length ? 'blocked' : 'preview',
+      ...(confirm ? links : { plan }), ...(pending && !plan.refusals.length ? { confirmCommand: workspaceRelinkConfirmCommand(plan) } : {}) };
+    const human = !optionBoolean(options, 'json');
+    if (human && (pending || confirm || plan.mode === 'clone')) {
+      for (const line of renderWorkspaceRelink(links, { applied: Boolean(confirm) })) console.log(line);
+      if (linkResult.confirmCommand) printCommandRoutes(linkResult.confirmCommand, { label: 'Confirm this repair' });
+    }
+    if (plan.mode === 'clone') return human ? undefined : console.log(JSON.stringify({ links: linkResult }, null, 2));
     const repositoryIds = optionStrings(options, 'repository');
-    const result = await repairWorkspace(workspacePath, {
+    const result = await repairWorkspace(plan.folder, {
       repositoryIds: repositoryIds.length ? repositoryIds : null,
       statusLevel: optionString(options, 'level', 'full')
     });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (!human) return console.log(JSON.stringify({ ...result, links: linkResult }, null, 2));
     result.repaired.forEach((item) => console.log(`${item.repository}: ${item.status}`));
     return renderWorkspaceStatus(result.status);
   }

@@ -23,6 +23,7 @@ function projected(entry, activeWorkspaceId) {
     checkoutPath: entry.checkoutPath, branch: entry.branch,
     phase: entry.phase ?? null, phaseStatus: entry.phaseStatus ?? null, storyStatus: entry.storyStatus ?? null,
     availability: entry.availability, ...(entry.reason ? { reason: entry.reason } : {}),
+    ...(entry.detachedHead ? { detachedHead: true } : {}),
     updatedAt: entry.updatedAt ?? null
   };
 }
@@ -67,7 +68,7 @@ export async function run(positionals = [], options = {}) {
       console.log(`Repository: ${story.repository.id ?? '—'} · ${story.repository.url ?? '—'}${story.role === 'secondary'
         ? ` (another repository the Story delivers in; its record is in ${story.lifecycleCheckoutPath})` : ''}`);
       console.log(`Checkout: ${story.checkoutPath}${story.availability === 'ready' ? '' : ` (unavailable: ${story.reason})`}`);
-      console.log(`Branch: ${story.branch} · phase: ${story.phase ?? '—'} (${story.phaseStatus ?? '—'}) · Story: ${story.storyStatus ?? '—'}`);
+      console.log(`Branch: ${story.branch}${story.detachedHead ? ' (checkout on a detached HEAD for now, still this Story\'s checkout)' : ''} · phase: ${story.phase ?? '—'} (${story.phaseStatus ?? '—'}) · Story: ${story.storyStatus ?? '—'}`);
       console.log(`Created: ${story.createdAt ?? 'Not recorded'} · Creator: ${story.createdBy ?? 'Not recorded'}`);
       console.log(`Updated: ${story.updatedAt ?? '—'}`);
     }

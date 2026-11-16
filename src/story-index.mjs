@@ -278,6 +278,12 @@ export async function verifyStoryEntry(entry) {
     if (!info?.isDirectory()) return { status: 'stale', reason: 'the checkout folder is gone' };
     const facts = await checkoutGitFacts(entry.checkoutPath);
     if (!facts) return { status: 'stale', reason: 'the folder is no longer a Git checkout' };
+    // A rebase, a bisect or `git checkout <commit>` leaves the Story checkout on a detached HEAD for a while. It is
+    // still that Story's one checkout (WS-5): dropping it let a second clone open the Story too. Kept as it was
+    // recorded, unrefreshed, since the Story's record is read by branch.
+    if (facts.branch === null && samePlatformPath(facts.commonDir, entry.commonDir)) {
+      return { status: 'valid', entry: { ...entry, checkoutPath: facts.checkoutPath }, detached: true };
+    }
     if (facts.branch !== entry.branch) {
       return { status: 'stale', reason: `the checkout is on ${facts.branch ?? 'a detached HEAD'}, not ${entry.branch}` };
     }
@@ -547,6 +553,7 @@ export async function listStoryIndex({ env = process.env, rebuild = false } = {}
   await applyVerification(results, { env });
   const entries = results.filter((result) => result.status !== 'stale')
     .map((result) => ({ ...result.entry, availability: result.status === 'valid' ? 'ready' : 'unavailable',
+      ...(result.detached ? { detachedHead: true } : {}),
       ...(result.status === 'unavailable' ? { reason: result.reason } : {}) }))
     .sort(compareStoryCreation);
   return { file: storyIndexFile(env), entries, dropped: results.filter((result) => result.status === 'stale')

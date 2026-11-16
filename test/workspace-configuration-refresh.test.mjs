@@ -4785,7 +4785,8 @@ test('one repository whose kept team edit no longer works holds up no other, and
   git(publisher, ['commit', '-m', 'Keep an older QA agent']);
   git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
   const betaBefore = remoteRef(fixtures.beta.remote, 'refs/heads/sflow/config');
-  const route = 'singularity-flow workspace refresh-configuration --repository beta --resolve .github/agents/qa.agent.md=bundled';
+  // The refresh carries the kept legacy agent to the agents home, so the route names it there [AGH].
+  const route = 'singularity-flow workspace refresh-configuration --repository beta --resolve singularity/agents/qa.agent.md=bundled';
 
   const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   assert.equal(preview.status, 'preview', 'the others still have a plan');
@@ -4808,7 +4809,7 @@ test('one repository whose kept team edit no longer works holds up no other, and
 
   // The route it names is the one command that finishes beta.
   const resolved = await refreshWorkspaceConfigurations({
-    registryFile: registry, repositories: ['beta'], resolutions: { '.github/agents/qa.agent.md': 'bundled' }
+    registryFile: registry, repositories: ['beta'], resolutions: { 'singularity/agents/qa.agent.md': 'bundled' }
   });
   assert.equal(resolved.status, 'complete', JSON.stringify(resolved.results, null, 2));
   assert.equal(resolved.results[0].status, 'updated');

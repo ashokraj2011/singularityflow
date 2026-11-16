@@ -321,11 +321,11 @@ test('a workspace refresh left pending points at what the refresh printed, never
   const script = await readFile(path.join(root, 'install.sh'), 'utf8');
   const pending = script.slice(script.indexOf('workspace configuration refresh did not finish'));
   const block = pending.slice(0, pending.indexOf('step_end'));
-  // A refresh that opened a review (the agents move on a legacy repository does) is finished by
-  // merging that review; repeating the command alone only joins the same review again.
+  // A refresh publishes directly [SPEC-SCF D10]; one left pending names a review branch only where the
+  // host required one (with its link), and repeating the command alone would only join that review again.
   assert.ok(block.length > 0 && block.length < 1000, 'the pending branch is found');
   assert.doesNotMatch(block, /Retry exactly/u);
-  assert.match(block, /a review branch to approve/u);
+  assert.match(block, /a review branch the host required \(with its link\)/u);
   assert.match(block, /After that, run: singularity-flow workspace refresh-configuration/u);
 });
 

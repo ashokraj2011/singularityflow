@@ -693,7 +693,10 @@ test('frequent lifecycle handlers do not reach the legacy dispatcher and stay un
     // (command-skills.mjs WORK_COMMANDS, which safe-command-guidance.mjs reads instead of its own literal), a kernel-built
     // step's successor rendered as its preview, and the card's yes narrated (narration/messages.mjs). The alias adapter
     // (writing-aliases.mjs), the review delegation and the card's consent stay lazy. No new eager file.
-    assert.ok(closure.bytes <= 9_766_750, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
+    // 9,772,850 (measured 9,772,838 for phase-lifecycle.mjs): OSA v1.1 Stage 4 (+6,124 alone: the action-to-command map in
+    // step-decision.mjs, the writing aliases' target rule, review delegation's bound handoff) merged into the 11-17 landing
+    // above. Files: submit.mjs 473 of 473. No new eager file.
+    assert.ok(closure.bytes <= 9_772_850, `${file} exceeds the 9 MB eager-source budget (${closure.bytes} bytes)`);
     assert.equal(closure.files.has(path.join(sourceRoot, 'workflow-task.mjs')), false, `${file} eagerly loads the workflow task record`);
   }
 });
@@ -1085,7 +1088,8 @@ test('the common session projection does not import attach, state stores or publ
   // 4,280,250 (measured 4,280,210, +1,148): SPEC-OSA v1.1 Stage 4. The work command's two names (command-skills.mjs
   // WORK_COMMANDS, isWorkCommand), the command validator reading them (safe-command-guidance.mjs) and the card's yes
   // narrated (narration/messages.mjs). The map's renderer and the alias adapter stay out of this closure. No new eager file.
-  assert.ok(current.bytes <= 4_287_800, `session current loads ${current.bytes} source bytes`);
+  // 4,288,950 (measured 4,288,926): OSA v1.1 Stage 4 (+1,148 alone) merged into the 11-17 landing above. No new eager file.
+  assert.ok(current.bytes <= 4_288_950, `session current loads ${current.bytes} source bytes`);
 });
 
 test('early phase and grounding-path entries exclude the deferred authoring and review graphs', async () => {
